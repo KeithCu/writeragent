@@ -1,5 +1,5 @@
 import json
-from plugin.modules.draw.tools import execute_draw_tool, DRAW_TOOLS
+from plugin.main import get_tools
 from plugin.framework.logging import debug_log
 
 def run_draw_tests(ctx, model=None):
@@ -36,9 +36,17 @@ def run_draw_tests(ctx, model=None):
 
         debug_log("draw_tests: starting tests", context="DrawTests")
 
+        # Helper for executing tests
+        def exec_tool(name, args):
+            from plugin.framework.tool_context import ToolContext
+            tctx = ToolContext(doc, ctx, "draw", {}, "test")
+            import json
+            res = get_tools().execute(name, tctx, **args)
+            return json.dumps(res) if isinstance(res, dict) else res
+
         # Test: list_pages
         try:
-            result = execute_draw_tool("list_pages", {}, doc, ctx)
+            result = exec_tool("list_pages", {})
             data = json.loads(result)
             if data.get("status") == "ok":
                 passed += 1
@@ -53,12 +61,12 @@ def run_draw_tests(ctx, model=None):
         # Test: create_shape (Rectangle)
         shape_id = None
         try:
-            result = execute_draw_tool("create_shape", {
+            result = exec_tool("create_shape", {
                 "shape_type": "rectangle",
                 "x": 2000, "y": 2000, "width": 5000, "height": 3000,
                 "text": "Hello Draw",
                 "bg_color": "#FF0000"
-            }, doc, ctx)
+            })
             data = json.loads(result)
             if data.get("status") == "ok":
                 passed += 1
@@ -74,7 +82,7 @@ def run_draw_tests(ctx, model=None):
 
         # Test: get_draw_summary
         try:
-            result = execute_draw_tool("get_draw_summary", {"page_index": 0}, doc, ctx)
+            result = exec_tool("get_draw_summary", {"page_index": 0})
             data = json.loads(result)
             if data.get("status") == "ok":
                 passed += 1
@@ -100,11 +108,11 @@ def run_draw_tests(ctx, model=None):
         # Test: edit_shape (Move/Resize/Color)
         if shape_id is not None:
             try:
-                result = execute_draw_tool("edit_shape", {
+                result = exec_tool("edit_shape", {
                     "shape_index": shape_id,
                     "x": 3000, "y": 3000,
                     "bg_color": "#00FF00"
-                }, doc, ctx)
+                })
                 data = json.loads(result)
                 if data.get("status") == "ok":
                     passed += 1
@@ -119,7 +127,7 @@ def run_draw_tests(ctx, model=None):
         # Test: delete_shape
         if shape_id is not None:
             try:
-                result = execute_draw_tool("delete_shape", {"shape_index": shape_id}, doc, ctx)
+                result = exec_tool("delete_shape", {"shape_index": shape_id})
                 data = json.loads(result)
                 if data.get("status") == "ok":
                     passed += 1

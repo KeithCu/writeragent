@@ -21,8 +21,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MODEL = "x-ai/grok-4.1-fast"
 
 from plugin.modules.chatbot.streaming_deltas import accumulate_delta
-from plugin.modules.core.document_tools import WRITER_TOOLS
-
+from plugin.main import get_tools
+try:
+    WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")
+except Exception:
+    WRITER_TOOLS = []
 
 def _extract_thinking(delta):
     # Check common reasoning keys

@@ -393,7 +393,16 @@ class SendButtonListener(unohelper.Base, XActionListener):
                         except (ValueError, TypeError):
                             base_size_val = 512
 
-                        from plugin.modules.core.document_tools import execute_tool
+                        from plugin.main import get_tools
+                        from plugin.framework.tool_context import ToolContext
+                        tctx = ToolContext(
+                            doc=model,
+                            ctx=self.ctx,
+                            doc_type="writer",
+                            services=get_tools()._services,
+                            caller="chat",
+                            status_callback=lambda t: q.put(("status", t))
+                        )
                         try:
                             # Also update LRU
                             from plugin.modules.core.config import update_lru_history, get_current_endpoint
@@ -402,18 +411,18 @@ class SendButtonListener(unohelper.Base, XActionListener):
                         except Exception as elru:
                             debug_log("LRU update error: %s" % elru, context="Chat")
                             
-                        result = execute_tool(
+                        import json
+                        res = get_tools().execute(
                             "generate_image",
-                            {
+                            tctx,
+                            **{
                                 "prompt": query_text,
                                 "aspect_ratio": mapped_aspect,
                                 "base_size": base_size_val,
                                 "image_model": image_model_text
-                            },
-                            model,
-                            self.ctx,
-                            status_callback=lambda t: q.put(("status", t)),
+                            }
                         )
+                        result = json.dumps(res) if isinstance(res, dict) else str(res)
                         try:
                             data = json.loads(result)
                             note = data.get("message", data.get("status", "done"))
@@ -474,27 +483,36 @@ class SendButtonListener(unohelper.Base, XActionListener):
             doc_is_draw = _is_draw_doc(model)
             doc_is_writer = _is_writer_doc(model)
 
+            from plugin.main import get_tools
+            
             if doc_is_calc:
-                debug_log("_do_send: importing calc_tools...", context="Chat")
-                from plugin.modules.calc.tools import CALC_TOOLS, execute_calc_tool
-                active_tools = CALC_TOOLS
-                # Calc tools don't support status_callback yet, but we should handle the kwarg safely
-                execute_fn = lambda name, args, doc, ctx, status_callback=None, append_thinking_callback=None: \
-                    execute_calc_tool(name, args, doc, ctx, status_callback=status_callback, append_thinking_callback=append_thinking_callback)
-                debug_log("_do_send: calc_tools imported OK (%d tools)" % len(CALC_TOOLS), context="Chat")
+                debug_log("_do_send: loading calc schema...", context="Chat")
+                active_tools = get_tools().get_openai_schemas(doc_type="calc")
             elif doc_is_draw:
-                debug_log("_do_send: importing draw_tools...", context="Chat")
-                from plugin.modules.draw.tools import DRAW_TOOLS, execute_draw_tool
-                active_tools = DRAW_TOOLS
-                execute_fn = execute_draw_tool
-                debug_log("_do_send: draw_tools imported OK (%d tools)" % len(DRAW_TOOLS), context="Chat")
+                debug_log("_do_send: loading draw schema...", context="Chat")
+                active_tools = get_tools().get_openai_schemas(doc_type="draw")
             else:
-                debug_log("_do_send: importing document_tools...", context="Chat")
-                from plugin.modules.core.document_tools import WRITER_TOOLS, execute_tool
-                active_tools = WRITER_TOOLS
-                execute_fn = execute_tool
+                debug_log("_do_send: loading writer schema...", context="Chat")
+                active_tools = get_tools().get_openai_schemas(doc_type="writer")
 
-                debug_log("_do_send: document_tools imported OK (%d tools)" % len(WRITER_TOOLS), context="Chat")
+            def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None):
+                import json
+                from plugin.framework.tool_context import ToolContext
+                doc_type = "calc" if doc_is_calc else "draw" if doc_is_draw else "writer"
+                tctx = ToolContext(
+                    doc=doc,
+                    ctx=ctx,
+                    doc_type=doc_type,
+                    services=get_tools()._services,
+                    caller="chat",
+                    status_callback=status_callback,
+                    append_thinking_callback=append_thinking_callback
+                )
+                try:
+                    res = get_tools().execute(name, tctx, **args)
+                    return json.dumps(res) if isinstance(res, dict) else str(res)
+                except Exception as e:
+                    return json.dumps({"status": "error", "message": str(e)})
         except Exception as e:
             debug_log("_do_send: tool import FAILED: %s" % e, context="Chat")
             self._append_response("\n[Import error - tools: %s]\n" % e)
@@ -584,7 +602,8 @@ class SendButtonListener(unohelper.Base, XActionListener):
     def _run_web_search(self, query_text, model):
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         from plugin.framework.http import format_error_message
-        from plugin.modules.core.document_tools import execute_tool
+        from plugin.main import get_tools
+        from plugin.modules.core.document import is_calc, is_draw
 
         self._append_response("\nYou: %s\n" % query_text)
         self._append_response("\n[Using web research.]\n")
@@ -615,14 +634,25 @@ class SendButtonListener(unohelper.Base, XActionListener):
                 def thinking_cb(msg):
                     q.put(("thinking", msg))
 
-                result = execute_tool(
-                    "web_research",
-                    {"query": query_text, "history_text": history_text},
-                    model,
-                    self.ctx,
+                from plugin.framework.tool_context import ToolContext
+                doc_type = "calc" if is_calc(model) else "draw" if is_draw(model) else "writer"
+                tctx = ToolContext(
+                    doc=model,
+                    ctx=self.ctx,
+                    doc_type=doc_type,
+                    services=get_tools()._services,
+                    caller="chat",
                     status_callback=status_cb,
-                    append_thinking_callback=thinking_cb,
+                    append_thinking_callback=thinking_cb
                 )
+
+                import json
+                res = get_tools().execute(
+                    "web_research",
+                    tctx,
+                    **{"query": query_text, "history_text": history_text}
+                )
+                result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                 try:
                     data = json.loads(result)

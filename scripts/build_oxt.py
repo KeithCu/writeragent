@@ -157,8 +157,11 @@ def assemble_bundle(base_dir, modules):
         src = os.path.join(base_dir, f)
         arcname = remap_path(f)
         dst = os.path.join(bundle_path, arcname)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
+        if f.endswith("/"):
+            os.makedirs(dst, exist_ok=True)
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
         count += 1
 
     # Copy vendored pip packages into plugin/lib/ inside the bundle

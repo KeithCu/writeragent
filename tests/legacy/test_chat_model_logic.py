@@ -48,7 +48,7 @@ sys.modules['core.constants'] = MagicMock()
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from plugin.chat_panel import SendButtonListener
+from plugin.modules.chatbot.panel_factory import SendButtonListener
 
 class TestChatModelLogic(unittest.TestCase):
     def setUp(self):
@@ -70,11 +70,11 @@ class TestChatModelLogic(unittest.TestCase):
             self.model_selector, self.status_control, self.session
         )
 
-    @patch('plugin.chat_panel._ensure_extension_on_path')
-    @patch('core.config.get_config')
-    @patch('core.config.set_config')
-    @patch('core.config.update_lru_history')
-    @patch('core.api.LlmClient')
+    @patch('plugin.modules.chatbot.panel_factory._ensure_extension_on_path')
+    @patch('plugin.modules.core.config.get_config')
+    @patch('plugin.modules.core.config.set_config')
+    @patch('plugin.modules.core.config.update_lru_history')
+    @patch('plugin.framework.http.LlmClient')
     def test_do_send_updates_model(self, mock_llm_client, mock_update_lru, mock_set_config, mock_get_config, mock_ensure_path):
         # Setup mocks
         self.query_control.getModel().Text = "Hello AI"
@@ -84,7 +84,7 @@ class TestChatModelLogic(unittest.TestCase):
         # Mock _get_document_model (Writer doc: has getText, no getSheets) so we reach the model update
         doc_mock = MagicMock(spec=["getText"])
         with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
-             patch('core.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})):
+             patch('plugin.modules.core.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})):
             
             # This will still fail because of other internal imports in _do_send
             # but we can try to trigger the model update part at least.

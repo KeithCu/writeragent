@@ -6,8 +6,18 @@ from plugin.modules.calc.address_utils import (
 )
 from plugin.modules.calc.error_detector import ERROR_TYPES, ERROR_PATTERNS
 from plugin.framework.constants import get_chat_system_prompt_for_document
-from plugin.modules.calc.tools import execute_calc_tool, _parse_color
+from plugin.modules.calc.cells import _parse_color
+from plugin.main import get_tools
 
+def execute_calc_tool(name, args, doc):
+    from plugin.framework.tool_context import ToolContext
+    tctx = ToolContext(doc, None, "calc", {}, "test")
+    import json
+    try:
+        res = get_tools().execute(name, tctx, **args)
+        return json.dumps(res) if isinstance(res, dict) else res
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
 import sys
 from unittest.mock import MagicMock
 

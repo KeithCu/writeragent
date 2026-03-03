@@ -7,10 +7,8 @@ from plugin.modules.core.config import get_api_config
 from plugin.framework.logging import debug_log, agent_log
 from plugin.modules.core.document import get_document_context_for_chat
 from plugin.framework.constants import get_chat_system_prompt_for_document
-from plugin.modules.core.document_tools import WRITER_TOOLS, execute_tool
-from plugin.modules.calc.tools import CALC_TOOLS, execute_calc_tool
-from plugin.modules.draw.tools import DRAW_TOOLS, execute_draw_tool
 from plugin.modules.core.pricing import fetch_openrouter_pricing, calculate_cost
+from plugin.main import get_tools
 
 class EvalRunner:
     def __init__(self, ctx, doc, model_name=None):
@@ -49,14 +47,12 @@ class EvalRunner:
         ]
         
         # Choose tools based on category
-        tools = WRITER_TOOLS
-        if category == "Calc":
-            tools = CALC_TOOLS
-        elif category == "Draw":
-            tools = DRAW_TOOLS
-        elif category == "Multimodal":
-            # Combine all for multimodal capability
-            tools = WRITER_TOOLS + CALC_TOOLS + DRAW_TOOLS
+        registry = get_tools()
+        doc_type = category.lower()
+        if doc_type == "multimodal":
+            tools = registry.get_openai_schemas()
+        else:
+            tools = registry.get_openai_schemas(doc_type=doc_type)
             
         start_time = time.time()
         try:
@@ -80,12 +76,12 @@ class EvalRunner:
                     t_args = {}
                 
                 # Execute the tool with appropriate dispatcher
-                if t_name in [t["function"]["name"] for t in WRITER_TOOLS]:
-                    execute_tool(t_name, t_args, self.doc, self.ctx)
-                elif t_name in [t["function"]["name"] for t in CALC_TOOLS]:
-                    execute_calc_tool(t_name, t_args, self.doc, self.ctx)
-                elif t_name in [t["function"]["name"] for t in DRAW_TOOLS]:
-                    execute_draw_tool(t_name, t_args, self.doc, self.ctx)
+                try:
+                    from plugin.framework.tool_context import ToolContext
+                    tctx = ToolContext(self.doc, self.ctx, doc_type, {}, "eval")
+                    registry.execute(t_name, tctx, **t_args)
+                except Exception as e:
+                    debug_log(f"Tool {t_name} failed: {e}", context="Eval")
             
             # 4. Success Verification
             passed = False

@@ -34,20 +34,79 @@ from com.sun.star.container import XNamed
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
 # ---------------------------------------------------------------------------
-_http_module_instance = None
-_legacy_services_mock = None
 
-def _get_http_module(ctx):
-    global _http_module_instance, _legacy_services_mock
-    if _http_module_instance is None:
-        from plugin.modules.http import HttpModule
+# ---------------------------------------------------------------------------
+# Bootstrapping (Dynamic discovery from loaded manifest)
+# ---------------------------------------------------------------------------
+
+import threading
+_services = None
+_tools = None
+_modules = []
+_init_lock = threading.Lock()
+_initialized = False
+
+def get_services():
+    global _services
+    if _services is None:
+        bootstrap()
+    return _services
+
+def get_tools():
+    global _tools
+    if _tools is None:
+        bootstrap()
+    return _tools
+
+def _load_manifest():
+    try:
+        from plugin._manifest import MODULES
+        return MODULES
+    except ImportError:
+        return []
+
+def _topo_sort(modules):
+    by_name = {m["name"]: m for m in modules}
+    provides = {}
+    for m in modules:
+        for svc in m.get("provides_services", []):
+            provides[svc] = m["name"]
+
+    visited = set()
+    order = []
+
+    def visit(name):
+        if name in visited:
+            return
+        visited.add(name)
+        m = by_name.get(name)
+        if m is None:
+            return
+        for req in m.get("requires", []):
+            provider = provides.get(req, req)
+            if provider in by_name:
+                visit(provider)
+        order.append(m)
+
+    if "core" in by_name:
+        visit("core")
+    for name in by_name:
+        visit(name)
+    return order
+
+def bootstrap(ctx=None):
+    global _services, _tools, _modules, _initialized
+
+    if _initialized: return
+    with _init_lock:
+        if _initialized: return
+
         from plugin.framework.service_registry import ServiceRegistry
         from plugin.framework.tool_registry import ToolRegistry
-        import os
         
-        _legacy_services_mock = ServiceRegistry()
+        _services = ServiceRegistry()
         
-        # 1. Mock config service mapping old keys to new HttpModule expectations
+        # 1. Mock config service mapping old config to new
         class ConfigMock:
             def __init__(self, ctx):
                 self.ctx = ctx
@@ -60,19 +119,12 @@ def _get_http_module(ctx):
                 if key == "port": return int(get_config(self.ctx, "mcp_port", 8765))
                 if key == "host": return "localhost"
                 if key == "use_ssl": return False
-                return default
-        _legacy_services_mock.register_instance("config", ConfigMock(ctx))
+                if key == "smolagents_enabled": return as_bool(get_config(self.ctx, "smolagents_enabled", False))
+                if key == "fast_model": return str(get_config(self.ctx, "text_model", ""))
+                return get_config(self.ctx, key, default)
+        _services.register_instance("config", ConfigMock(ctx))
 
-        # 2. Tool Registry (needed for MCP to resolve and call tools)
-        registry = ToolRegistry(_legacy_services_mock)
-        plugin_dir = os.path.dirname(os.path.abspath(__file__))
-        registry.discover(os.path.join(plugin_dir, "modules", "writer", "tools"), "plugin.modules.writer.tools")
-        registry.discover(os.path.join(plugin_dir, "modules", "calc", "tools"), "plugin.modules.calc.tools")
-        registry.discover(os.path.join(plugin_dir, "modules", "draw", "tools"), "plugin.modules.draw.tools")
-        registry.discover(os.path.join(plugin_dir, "modules", "doc", "tools"), "plugin.modules.doc.tools")
-        _legacy_services_mock.register_instance("tools", registry)
-        
-        # 3. Document Service (needed to detect doc type for MCP schemas)
+        # 2. Document Service implementation
         from plugin.modules.core.document import is_writer, is_calc, is_draw
         class DocumentServiceMock:
             def get_active_document(self):
@@ -86,41 +138,96 @@ def _get_http_module(ctx):
                 if is_calc(doc): return "calc"
                 if is_draw(doc): return "draw"
                 return "writer"
-        _legacy_services_mock.register_instance("document", DocumentServiceMock())
+            def invalidate_cache(self, doc):
+                pass
+        _services.register_instance("document", DocumentServiceMock())
 
-        # Initialize HttpModule
-        _http_module_instance = HttpModule()
-        _http_module_instance.name = "http"
-        _http_module_instance.initialize(_legacy_services_mock)
-    return _http_module_instance
+        # 3. Events Service
+        from plugin.framework.event_bus import EventBus
+        _services.register_instance("events", EventBus())
 
+        # 4. Tool Registry
+        _tools = ToolRegistry(_services)
+        _services.register_instance("tools", _tools)
+
+        # 5. Load manifest and initialize modules
+        # Modules in localwriter lack ModuleBase in many places. 
+        # We will just use auto-discovery on directories for tools, and manual init for HttpModule/AiModule.
+        manifests = _topo_sort(_load_manifest())
+        
+        for manifest in manifests:
+            name = manifest["name"]
+            
+            # Auto-discover tools from tools/ subpackage
+            dir_name = name.replace(".", "_")
+            module_dir = os.path.join(os.path.dirname(__file__), "modules", dir_name)
+            
+            # Tools may be in module root (like localwriter2 draw/calc)
+            _tools.discover(module_dir, "plugin.modules.%s" % dir_name)
+            
+            # Structure approach (like the writer tools we generated)
+            tools_dir = os.path.join(module_dir, "tools")
+            if os.path.isdir(tools_dir):
+                _tools.discover(tools_dir, "plugin.modules.%s.tools" % dir_name)
+
+            # Manual init for HTTP/AI that require it for MCP/smolagents
+            if name == "http":
+                try:
+                    from plugin.modules.http import HttpModule
+                    mod = HttpModule()
+                    mod.name = "http"
+                    mod.initialize(_services)
+                    _modules.append(mod)
+                except Exception as e:
+                    import logging
+                    logging.getLogger("localwriter").exception("Failed to init http module")
+            
+            if name == "ai":
+                try:
+                    from plugin.modules.ai import AiModule
+                    mod = AiModule()
+                    mod.name = "ai"
+                    mod.initialize(_services)
+                    _modules.append(mod)
+                except Exception:
+                    pass
+
+        _initialized = True
+
+def _get_http_module(ctx=None):
+    if ctx:
+        bootstrap(ctx)
+    for mod in _modules:
+        if getattr(mod, "name", "") == "http":
+            return mod
+    return None
 
 def _start_mcp_server(ctx):
     """Start HTTP/MCP server if enabled."""
     from plugin.modules.core.config import get_config, as_bool
     if not as_bool(get_config(ctx, "mcp_enabled", False)):
         return
+    bootstrap(ctx)
     mod = _get_http_module(ctx)
-    if not mod._server or not mod._server.is_running():
-        mod.start_background(_legacy_services_mock)
-
+    if mod and (not mod._server or not mod._server.is_running()):
+        mod.start_background(_services)
 
 def _stop_mcp_server():
-    global _http_module_instance
-    if _http_module_instance:
-        _http_module_instance.shutdown()
-        _http_module_instance = None
-
+    mod = _get_http_module()
+    if mod:
+        mod.shutdown()
 
 def _toggle_mcp_server(ctx):
+    bootstrap(ctx)
     mod = _get_http_module(ctx)
-    mod._action_toggle_server()
-
+    if mod:
+        mod._action_toggle_server()
 
 def _do_mcp_status(ctx):
+    bootstrap(ctx)
     mod = _get_http_module(ctx)
-    mod._action_server_status()
-
+    if mod:
+        mod._action_server_status()
 
 def try_ensure_mcp_timer(ctx):
     """Legacy entry point from sidebar to ensure server is running.
