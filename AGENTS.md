@@ -40,7 +40,6 @@ localwriter/
 │   ├── async_stream.py  # run_stream_completion_async: worker + queue + main-thread drain (no UNO Timer)
 │   ├── mcp_thread.py    # execute_on_main_thread, drain_mcp_queue (for MCP HTTP handler → main thread)
 │   ├── mcp_server.py    # MCPHttpServer, MCPHandler (GET /health, /tools, /, /documents; POST /tools/{name}); port utilities
-│   ├── tool_bus.py      # EventBus + global tool_bus; shared tool execution event stream (MCP + sidebar)
 │   ├── calc_bridge.py   # in-process get_active_document, get_active_sheet, etc.
 │   ├── calc_address_utils.py
 │   ├── calc_inspector.py
@@ -226,6 +225,8 @@ LocalWriter can generate and edit images inside Writer and Calc via tools expose
 
 - **AI Horde** (`core/aihordeclient/`): Dedicated **async image API** (not an LLM). Submit job → poll `generate/check` and `generate/status` until done → download images. Uses its own API key and model list (e.g. Stable Diffusion, SDXL). Built-in queueing, progress (informer), Img2Img and inpainting. Non-blocking UI via `run_blocking_in_thread` + `toolkit.processEvents()` in the informer. Config: `image_provider=aihorde`, `aihorde_api_key`, plus image dimensions/steps/NSFW etc.
 - **Endpoint** (config value `endpoint`): Uses the **endpoint URL/port and API key from Settings** — the same values the user configured for chat. Only the **model** differs: chat uses the text model, image generation uses **`image_model`**. Single request/response (no queue). Config: `image_provider=endpoint`, and **`image_model`** for the image model id (fallback: text model). **`image_model_lru`** holds recently used image models for combobox dropdowns. Legacy: a previous config value for this provider is also accepted and treated as `endpoint`.
+
+**Image edit (img2img)** is supported by **AI Horde** (already) and by **endpoint** when the backend supports it: **OpenRouter** (source image in chat message with `modalities: ["image"]`) and **Together** and other OpenAI-compatible endpoints that accept `image_url` on `/images/generations`. See [docs/features/image-generation.md](docs/features/image-generation.md) for the provider matrix and how to add edit for new providers.
 
 ### Text model vs image model
 

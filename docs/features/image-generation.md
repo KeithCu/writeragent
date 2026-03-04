@@ -68,6 +68,32 @@ Tool handlers in `core/document_tools.py` read config via `get_config_dict(ctx)`
 
 When `image_translate_prompt` is True and `image_translate_from` is set (e.g. `es` or `Spanish`), the prompt is translated to English via `opustm_hf_translate` before generation; on failure the original prompt is used.
 
+## Image editing (img2img) and provider support
+
+### Unified create/edit design (for future work)
+
+The backend already exposes a single `generate_image(prompt, **kwargs)`; when `source_image` (and optionally `strength`) is passed, the provider performs img2img (edit). The tool layer is currently split into two tools (`generate_image` and `edit_image`). A possible future change is to unify them into one tool with an optional “existing image” parameter (e.g. `edit_selection: bool` or `source_image` base64): when provided → edit path; otherwise → create. This aligns with:
+
+- **OpenAI Responses API**: single `image_generation` tool with `action`: `auto` | `generate` | `edit`
+- **Stability / Replicate**: same endpoint with optional `image` parameter (no image → text-to-image; with image → img2img)
+
+### Provider support matrix
+
+| Provider | Image edit (img2img) | How it works |
+|----------|----------------------|--------------|
+| **AI Horde** | Supported | Uses `source_image` (base64) and `init_strength` / `strength` in the Horde client. No change needed. |
+| **Endpoint (OpenRouter)** | Supported | Uses `/api/v1/chat/completions` with `modalities: ["image"]` and message content that includes both the text prompt and the source image: `content: [{ "type": "text", "text": prompt }, { "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }]`. Same response parsing as for create. |
+| **Endpoint (Together / OpenAI-compatible)** | Supported | Same `POST .../images/generations` as create; request body includes optional `image_url` (string). For base64 we send a data URL: `data:image/png;base64,<b64>`. Models that support it (e.g. FLUX.2, FLUX Kontext) use it for img2img; others may ignore or return an error. |
+
+### How to add img2img for another provider
+
+1. In the provider’s `generate()` method, accept `source_image` (base64 str) and optionally `strength` in `**kwargs`.
+2. **OpenRouter-style** (chat completions with image output): Include the source image in the chat message content (e.g. text part + `image_url` part with data URL) and keep using the same request/response path; parse images from the response as for create.
+3. **Together-style** (dedicated images endpoint): Pass `source_image` or `image_url` into the image request builder (e.g. `make_image_request`); add `"image_url": <data URL or URL>` to the JSON body. Use the same POST and response parsing as for create.
+4. Document the provider and any model-specific behavior (e.g. which models support edit) in this section or in AGENTS.md Section 3d.
+
+---
+
 ## Technical References
 - **AI Horde Client**: [core/aihordeclient/](core/aihordeclient/) — low-level API (async submit, queue, poll, download). See [AGENTS.md](AGENTS.md) Section 3d for overview.
 - **Text vs image model**: [core/config.py](core/config.py) — `get_text_model(ctx)` for chat model; `get_api_config(ctx)` returns `"model"` for LlmClient. Image model is `image_model` (used when `image_provider=endpoint`).

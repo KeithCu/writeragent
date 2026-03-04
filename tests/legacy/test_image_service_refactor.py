@@ -9,16 +9,17 @@ from unittest.mock import MagicMock, patch, mock_open
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugin.framework.image_utils import EndpointImageProvider
+from plugin.framework.http import LlmClient
 
 class TestEndpointImageProvider(unittest.TestCase):
     def setUp(self):
         self.mock_ctx = MagicMock()
         self.api_config = {"model": "test-model"}
-        with patch('core.image_service.LlmClient') as mock_client_cls:
+        with patch('plugin.framework.image_utils.LlmClient') as mock_client_cls:
             self.provider = EndpointImageProvider(self.api_config, self.mock_ctx)
             self.mock_client = self.provider.client
 
-    @patch('core.image_service.sync_request')
+    @patch('plugin.framework.image_utils.sync_request')
     def test_generate_openrouter_url(self, mock_sync):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
@@ -78,7 +79,7 @@ class TestEndpointImageProvider(unittest.TestCase):
             self.assertEqual(f.read(), b"standard-b64-data")
         os.unlink(result[0])
 
-    @patch('core.image_service.sync_request')
+    @patch('plugin.framework.image_utils.sync_request')
     def test_fallback_logic_url(self, mock_sync):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
@@ -141,6 +142,63 @@ class TestEndpointImageProvider(unittest.TestCase):
             self.assertEqual(result, [])
         except AttributeError as e:
             self.fail(f"Scoping bug still present! AttributeError: {e}")
+
+    @patch('plugin.framework.image_utils.LlmClient')
+    def test_edit_image_openrouter_sends_multimodal_message(self, mock_client_cls):
+        """When OpenRouter and source_image are set, make_chat_request receives message content with text + image_url."""
+        mock_client = MagicMock()
+        mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
+        mock_client_cls.return_value = mock_client
+        mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
+        mock_client.request_with_tools.return_value = {"images": []}
+        provider = EndpointImageProvider({"model": "test"}, MagicMock())
+        provider.client = mock_client
+
+        b64 = "abc123"
+        provider.generate("edit prompt", source_image=b64)
+
+        mock_client.make_chat_request.assert_called_once()
+        call_messages = mock_client.make_chat_request.call_args[0][0]
+        self.assertEqual(len(call_messages), 1)
+        content = call_messages[0]["content"]
+        self.assertIsInstance(content, list)
+        self.assertEqual(content[0], {"type": "text", "text": "edit prompt"})
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64," + b64)
+
+    @patch('plugin.framework.image_utils.LlmClient')
+    def test_edit_image_standard_endpoint_passes_source_image(self, mock_client_cls):
+        """When not OpenRouter and source_image is set, make_image_request is called with source_image (img2img)."""
+        mock_client = MagicMock()
+        mock_client.config.get.return_value = False
+        mock_client.make_image_request.return_value = ("POST", "/images", "{}", {})
+        mock_conn = MagicMock()
+        mock_client._get_connection.return_value = mock_conn
+        mock_http_resp = MagicMock()
+        mock_http_resp.status = 200
+        mock_http_resp.read.return_value = json.dumps({"data": [{"b64_json": base64.b64encode(b"edited").decode()}]}).encode()
+        mock_conn.getresponse.return_value = mock_http_resp
+        mock_client_cls.return_value = mock_client
+        provider = EndpointImageProvider({"model": "test"}, MagicMock())
+        provider.client = mock_client
+
+        b64 = "xyz789"
+        provider.generate("edit prompt", source_image=b64)
+
+        mock_client.make_image_request.assert_called_once()
+        kwargs = mock_client.make_image_request.call_args[1]
+        self.assertEqual(kwargs.get("source_image"), b64)
+
+    @patch('plugin.framework.http.init_logging')
+    @patch('plugin.framework.http.debug_log')
+    def test_make_image_request_body_includes_image_url_when_source_image(self, mock_debug, mock_init):
+        """LlmClient.make_image_request adds image_url (data URL) to body when source_image is provided."""
+        config = {"endpoint": "https://api.example.com", "model": "test-model"}
+        client = LlmClient(config, MagicMock())
+        method, path, body, headers = client.make_image_request("a cat", source_image="b64data")
+        data = json.loads(body.decode("utf-8"))
+        self.assertIn("image_url", data)
+        self.assertEqual(data["image_url"], "data:image/png;base64,b64data")
 
 if __name__ == '__main__':
     unittest.main()

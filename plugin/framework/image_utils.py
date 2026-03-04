@@ -38,12 +38,23 @@ class EndpointImageProvider(ImageProvider):
     def generate(self, prompt, width=512, height=512, model=None, **kwargs):
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
         model = model or self.model
-        messages = [{"role": "user", "content": prompt}]
+        # For OpenRouter edit (img2img): send multimodal message with text + source image
+        source_image = kwargs.get("source_image")
+        if self.client.config.get("is_openrouter"):
+            if source_image:
+                content = [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}},
+                ]
+            else:
+                content = prompt
+            messages = [{"role": "user", "content": content}]
+        else:
+            messages = [{"role": "user", "content": prompt}]
         logger.info("Requesting image via endpoint: %s", model)
 
         fallback_content = ""
 
-        # FIXME: find out if it works with openrouter also but given it works we won't touch it now ;-)
         if self.client.config.get("is_openrouter"):
             method, path, body, headers = self.client.make_chat_request(messages, max_tokens=1000)
             body_dict = json.loads(body)
@@ -73,8 +84,11 @@ class EndpointImageProvider(ImageProvider):
                 elif url.startswith("http"):
                     return self._save_url(url)
         else:
-            # Use standard /images/generations endpoint (Together, OpenAI, etc.)
-            method, path, body, headers = self.client.make_image_request(prompt, model=model, width=width, height=height)
+            # Use standard /images/generations endpoint (Together, OpenAI, etc.). Optional source_image for img2img.
+            method, path, body, headers = self.client.make_image_request(
+                prompt, model=model, width=width, height=height,
+                source_image=kwargs.get("source_image"),
+            )
 
             try:
                 conn = self.client._get_connection()
