@@ -226,7 +226,7 @@ class ImageService:
         if name == "aihorde":
             return AIHordeImageProvider(self.config, self.ctx)
         if name == "endpoint":
-            from plugin.modules.core.config import get_api_config, get_text_model
+            from plugin.modules.core.services.config import get_api_config, get_text_model
             api_config = get_api_config(self.ctx).copy()
             api_config["model"] = (self.config.get("image_model") or "").strip() or get_text_model(self.ctx)
             return EndpointImageProvider(api_config, self.ctx)

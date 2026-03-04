@@ -199,7 +199,7 @@ def document_to_markdown(model, ctx, max_chars=None, scope="full", range_start=N
     selection_start, selection_end = 0, 0
     if scope == "selection":
         try:
-            from plugin.modules.core.document import get_selection_range
+            from plugin.modules.core.services.document import get_selection_range
             selection_start, selection_end = get_selection_range(model)
         except Exception:
             pass
@@ -208,7 +208,7 @@ def document_to_markdown(model, ctx, max_chars=None, scope="full", range_start=N
         selection_end = int(range_end) if range_end is not None else 0
         doc_len = 0
         try:
-            from plugin.modules.core.document import get_document_length
+            from plugin.modules.core.services.document import get_document_length
             doc_len = get_document_length(model)
         except Exception:
             pass
@@ -324,7 +324,7 @@ def _insert_markdown_full(model, ctx, markdown_string):
 
 def _apply_markdown_at_range(model, ctx, markdown_string, start_offset, end_offset):
     """Replace character range [start_offset, end_offset) with rendered content."""
-    from plugin.modules.core.document import get_text_cursor_at_range
+    from plugin.modules.core.services.document import get_text_cursor_at_range
     cursor = get_text_cursor_at_range(model, start_offset, end_offset)
     if cursor is None:
         raise ValueError("Invalid range or could not create cursor for range (%d, %d)" % (start_offset, end_offset))
@@ -427,7 +427,7 @@ def _get_document_sample_for_search_failure(model, ctx, search_string):
     """Get a document snippet for diagnostic logging when search fails.
     Uses first non-empty line to anchor; if found, samples from that offset; else from doc start.
     Returns (doc_snippet, doc_snippet_repr, break_chars_hex). Any can be empty on error."""
-    from plugin.modules.core.document import get_document_length, get_text_cursor_at_range
+    from plugin.modules.core.services.document import get_document_length, get_text_cursor_at_range
     doc_len = get_document_length(model)
     if doc_len <= 0:
         return "", "[]", ""
@@ -633,7 +633,7 @@ def _apply_markdown_at_search(model, ctx, markdown_string, search_string, all_ma
     """Find search_string (first or all), replace each match with rendered markdown content.
     Builds literal search candidates from the raw string and always from LO plain (when available)
     via _literal_search_candidates, so we handle markdown stripping and multiple line-ending variants."""
-    from plugin.modules.core.document import get_document_length
+    from plugin.modules.core.services.document import get_document_length
     search_candidates = _search_candidates_with_plain(ctx, search_string)
     t0 = time.time()
     debug_log("markdown_support: _apply_markdown_at_search LO plain took %.3fs, %d candidates" % (time.time() - t0, len(search_candidates)), context="Markdown")
@@ -684,7 +684,7 @@ def _find_text_ranges(model, ctx, search_string, start=0, limit=None, case_sensi
     Optional start offset to search from, and limit on number of matches.
     Each range includes "text": the exact document string at that span.
     Tries exact search_string first; if no match, converts markdown to plain via LO and retries."""
-    from plugin.modules.core.document import get_document_length
+    from plugin.modules.core.services.document import get_document_length
     doc_len = get_document_length(model)
     if start >= doc_len:
         return []
@@ -899,7 +899,7 @@ def _ensure_html_linebreaks(content):
 def tool_get_document_content(model, ctx, args):
     """Tool: get document, selection, or range. Returns document_length and optionally start/end for scope=range."""
     try:
-        from plugin.modules.core.document import get_document_length
+        from plugin.modules.core.services.document import get_document_length
         max_chars = args.get("max_chars")
         scope = args.get("scope", "full")
         range_start = args.get("start") if scope == "range" else None
@@ -986,7 +986,7 @@ def tool_apply_document_content(model, ctx, args):
             # use_preserve already computed above
             if use_preserve:
                 debug_log("tool_apply_document_content: full with plain text, using format-preserving replacement", context="Markdown")
-                from plugin.modules.core.document import get_document_length, get_text_cursor_at_range
+                from plugin.modules.core.services.document import get_document_length, get_text_cursor_at_range
                 doc_len = get_document_length(model)
                 rng = get_text_cursor_at_range(model, 0, doc_len)
                 _replace_text_preserving_format(model, rng, raw_content)
@@ -1007,7 +1007,7 @@ def tool_apply_document_content(model, ctx, args):
             # use_preserve already computed above
             if use_preserve:
                 debug_log("tool_apply_document_content: range with plain text, using format-preserving replacement", context="Markdown")
-                from plugin.modules.core.document import get_text_cursor_at_range
+                from plugin.modules.core.services.document import get_text_cursor_at_range
                 rng = get_text_cursor_at_range(model, int(start_val), int(end_val))
                 _replace_text_preserving_format(model, rng, raw_content)
                 return json.dumps({"status": "ok", "message": "Replaced range [%s, %s). (formatting preserved)" % (start_val, end_val)})

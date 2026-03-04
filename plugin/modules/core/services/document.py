@@ -514,3 +514,37 @@ def resolve_locator(model, locator: str):
                 return {"para_index": find_paragraph_for_range(anchor, para_ranges, model.getText())}
     
     return {"para_index": 0}
+
+
+from plugin.framework.service_base import ServiceBase
+from plugin.framework.uno_context import get_ctx
+
+class DocumentService(ServiceBase):
+    name = "document"
+
+    def initialize(self, ctx):
+        pass
+
+    def get_active_document(self):
+        try:
+            ctx = get_ctx()
+            smgr = ctx.getServiceManager()
+            desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+            return desktop.getCurrentComponent()
+        except Exception:
+            return None
+
+    def detect_doc_type(self, doc):
+        if is_calc(doc): return "calc"
+        if is_draw(doc): return "draw"
+        return "writer"
+
+    def invalidate_cache(self, doc):
+        DocumentCache.invalidate(doc)
+
+    def is_writer(self, doc): return is_writer(doc)
+    def is_calc(self, doc): return is_calc(doc)
+    def is_draw(self, doc): return is_draw(doc)
+    def get_full_text(self, doc, max_chars=8000): return get_full_document_text(doc, max_chars)
+    def get_document_context_for_chat(self, doc, max_context=8000, include_end=True, include_selection=True):
+        return get_document_context_for_chat(doc, max_context, include_end, include_selection, get_ctx())

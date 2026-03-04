@@ -1,6 +1,6 @@
 import json
 from plugin.framework.logging import debug_log
-from plugin.modules.core.document import get_paragraph_ranges, find_paragraph_for_range
+from plugin.modules.core.services.document import get_paragraph_ranges, find_paragraph_for_range
 
 def _err(message):
     return json.dumps({"status": "error", "message": message})

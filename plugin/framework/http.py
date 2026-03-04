@@ -1,6 +1,6 @@
 """
 LLM API client for LocalWriter.
-Takes a config dict (from plugin.modules.core.config.get_api_config) and UNO ctx.
+Takes a config dict (from plugin.modules.core.services.config.get_api_config) and UNO ctx.
 """
 import collections
 import json

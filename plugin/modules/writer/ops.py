@@ -1,7 +1,7 @@
 import json
 
 from plugin.framework.logging import debug_log
-from plugin.modules.core.document import (
+from plugin.modules.core.services.document import (
     get_paragraph_ranges,
     find_paragraph_for_range,
     build_heading_tree,

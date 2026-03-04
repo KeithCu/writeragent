@@ -2,7 +2,7 @@
 
 The goal of this plan is to incrementally reduce the diffs between the `localwriter` (current directory with some new features not in localwriter2) and `localwriter2` (refactoring from a week old fork), ensuring the plugin remains functional at every step.
 
-**Current status:** Phases 1–4 are complete (tooling/Make, docs/cleanup, framework infrastructure porting, Writer/Calc/Chatbot module reorganization). Most framework files from `localwriter2` are now present and `mcp_thread.py` has been updated to use the new `main_thread.py`. Phase 5 (AI/HTTP modules) remains.
+**Current status:** Phases 1–4 are complete (tooling/Make, docs/cleanup, framework infrastructure porting, Writer/Calc/Chatbot module reorganization). We have successfully implemented the dynamic `ToolRegistry`, patched `main.py` to use a `bootstrap()` loader, split the Writer tools into modular files, deleted the legacy `document_tools.py`, and completed the Service Decoupling. Phase 5 (AI/HTTP modules) remains.
 
 ## Proposed Changes
 
@@ -59,10 +59,15 @@ The current `localwriter` uses a simple `build.sh` script, while `localwriter2` 
 ### Completed: EventBus Reconciliation ✅
 `localwriter` now exclusively uses the robust `plugin/framework/event_bus.py`. The legacy `plugin/modules/core/tool_bus.py` was successfully migrated and removed.
 
-### Recommended Next Step (Simple, Robust, Incremental)
-**Writer tool layout (purely organizational):** Refactor Writer tools from a single block in `document_tools.py` into one module per domain (e.g. `plugin/modules/writer/format_tools.py`, `outline_tools.py`, ...) to match localwriter2. This involves zero logic changes, just breaking a large file into smaller, focused files.
+### Completed: Writer Tool Auto-Discovery & main.py Patching ✅
+The legacy `document_tools.py` monolithic registry was deleted. All Writer, Calc, and Draw tools now inherit from `ToolBase` and live in their respective `tools/` subdirectories. `main.py` was successfully patched to use the dynamic `bootstrap()` loader and `ToolRegistry` auto-discovery, resolving tool discovery dynamically.
+
+### Completed: Service Decoupling ✅
+Mocks in `main.py` (`ConfigMock` and `DocumentServiceMock`) were removed. `localwriter` now utilizes fully decoupled `ConfigService` and `DocumentService` modules, and `main.py` acts as a pure bootstrapper. Legacy module imports were refactored to point to the new service abstractions.
+
+### Recommended Next Step (AI Module Porting)
+**Phase 5 (AI Module):** Port the AI module (`plugin/modules/ai/`). This may be slightly more complex due to recent AI tool restorations, but it is necessary for full architectural alignment to complete the migration to the localwriter2 module structure.
 
 ### Other Follow-ups 
-- **Writer tools with logic in ToolBase:** Replace the thin Writer wrappers with "real" `ToolBase` classes that contain the logic and use `ctx.services` (requires introducing a document service).
-- **Phase 5 (AI Module):** Port the AI module (`plugin/modules/ai/`). This may be slightly more complex due to recent AI tool restorations, but it is necessary for full architectural alignment.
+- **Writer tools with logic in ToolBase:** Replace the thin Writer wrappers with "real" `ToolBase` classes that contain the logic and use `ctx.services` (now possible thanks to `DocumentService`).
 - **Config Migration:** Move `config.py` toward the new schema-based system to fully decouple settings.

@@ -154,15 +154,14 @@ repack-deploy: repack
 	-unopkg remove org.extension.localwriter 2>/dev/null; sleep 1
 	unopkg add build/$(EXTENSION_NAME).oxt
 	@rm -f $(HOME_DIR)/localwriter.log
-	@sleep 1
+	#@sleep 1
 	$(MAKE) lo-start
 	@echo "Waiting for LO to load..."
 	@sleep 12
 	@$(MAKE) log
 
 manifest:
-	@echo "Skipping manifest generation in phase 1..."
-	# $(PYTHON) $(SCRIPTS)/generate_manifest.py
+	$(PYTHON) $(SCRIPTS)/generate_manifest.py
 
 xcu: manifest
 
@@ -257,12 +256,12 @@ lo-restart:
 
 deploy: build
 	$(MAKE) lo-kill
-	@sleep 3
+	#@sleep 3
 	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
-	-unopkg remove org.extension.localwriter 2>/dev/null; sleep 1
+	-unopkg remove org.extension.localwriter 2>/dev/null
 	unopkg add build/$(EXTENSION_NAME).oxt
 	@rm -f $(HOME_DIR)/localwriter.log
-	@sleep 1
+	#@sleep 1
 	$(MAKE) lo-start
 	@echo "Waiting for LO to load..."
 	@sleep 12

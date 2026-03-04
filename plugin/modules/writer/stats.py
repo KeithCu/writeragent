@@ -1,5 +1,5 @@
 import json
-from plugin.modules.core.document import get_document_length, get_paragraph_ranges
+from plugin.modules.core.services.document import get_document_length, get_paragraph_ranges
 
 def _err(message):
     return json.dumps({"status": "error", "message": message})

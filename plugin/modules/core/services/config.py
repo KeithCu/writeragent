@@ -437,3 +437,31 @@ def populate_image_model_selector(ctx, ctrl, override_endpoint=None):
     current_image_model = get_image_model(ctx)
     endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint(ctx)
     return populate_combobox_with_lru(ctx, ctrl, current_image_model, "image_model_lru", endpoint, strict=True)
+
+
+from plugin.framework.service_base import ServiceBase
+from plugin.framework.uno_context import get_ctx
+
+class ConfigService(ServiceBase):
+    name = "config"
+
+    def initialize(self, ctx):
+        pass
+
+    def get(self, key, default=None):
+        ctx = get_ctx()
+        if key == "mcp_enabled": return as_bool(get_config(ctx, "mcp_enabled", False))
+        if key == "enabled": return True
+        if key == "port": return int(get_config(ctx, "mcp_port", 8765))
+        if key == "host": return "localhost"
+        if key == "use_ssl": return False
+        if key == "smolagents_enabled": return as_bool(get_config(ctx, "smolagents_enabled", False))
+        if key == "fast_model": return str(get_config(ctx, "text_model", ""))
+        return get_config(ctx, key, default)
+
+    def set(self, key, value):
+        set_config(get_ctx(), key, value)
+
+    def proxy_for(self, name):
+        return self
+

@@ -13,10 +13,10 @@ if _plugin_dir not in sys.path:
 import unohelper
 import officehelper
 
-from plugin.modules.core.config import get_config, set_config, as_bool, get_api_config, get_current_endpoint, validate_api_config, populate_combobox_with_lru, update_lru_history, notify_config_changed, populate_image_model_selector, populate_endpoint_selector, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint
+from plugin.modules.core.services.config import get_config, set_config, as_bool, get_api_config, get_current_endpoint, validate_api_config, populate_combobox_with_lru, update_lru_history, notify_config_changed, populate_image_model_selector, populate_endpoint_selector, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint
 from plugin.framework.http import LlmClient, format_error_message
 from plugin.framework.uno_helpers import is_checkbox_control, get_checkbox_state, set_checkbox_state
-from plugin.modules.core.document import get_full_document_text, get_document_context_for_chat
+from plugin.modules.core.services.document import get_full_document_text, get_document_context_for_chat
 from plugin.modules.chatbot.streaming import run_stream_completion_async
 from plugin.framework.logging import agent_log, init_logging
 from plugin.framework.constants import get_chat_system_prompt_for_document
@@ -106,41 +106,8 @@ def bootstrap(ctx=None):
         
         _services = ServiceRegistry()
         
-        # 1. Mock config service mapping old config to new
-        class ConfigMock:
-            def __init__(self, ctx):
-                self.ctx = ctx
-            def proxy_for(self, name):
-                return self
-            def get(self, key, default=None):
-                from plugin.modules.core.config import get_config, as_bool
-                if key == "mcp_enabled": return as_bool(get_config(self.ctx, "mcp_enabled", False))
-                if key == "enabled": return True
-                if key == "port": return int(get_config(self.ctx, "mcp_port", 8765))
-                if key == "host": return "localhost"
-                if key == "use_ssl": return False
-                if key == "smolagents_enabled": return as_bool(get_config(self.ctx, "smolagents_enabled", False))
-                if key == "fast_model": return str(get_config(self.ctx, "text_model", ""))
-                return get_config(self.ctx, key, default)
-        _services.register_instance("config", ConfigMock(ctx))
-
-        # 2. Document Service implementation
-        from plugin.modules.core.document import is_writer, is_calc, is_draw
-        class DocumentServiceMock:
-            def get_active_document(self):
-                try:
-                    smgr = ctx.getServiceManager()
-                    desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-                    return desktop.getCurrentComponent()
-                except Exception:
-                    return None
-            def detect_doc_type(self, doc):
-                if is_calc(doc): return "calc"
-                if is_draw(doc): return "draw"
-                return "writer"
-            def invalidate_cache(self, doc):
-                pass
-        _services.register_instance("document", DocumentServiceMock())
+        # 1. Config Service (Loaded from core module)
+        # 2. Document Service (Loaded from core module)
 
         # 3. Events Service
         from plugin.framework.event_bus import EventBus
@@ -204,7 +171,7 @@ def _get_http_module(ctx=None):
 
 def _start_mcp_server(ctx):
     """Start HTTP/MCP server if enabled."""
-    from plugin.modules.core.config import get_config, as_bool
+    from plugin.modules.core.services.config import get_config, as_bool
     if not as_bool(get_config(ctx, "mcp_enabled", False)):
         return
     bootstrap(ctx)
@@ -756,7 +723,7 @@ class MainJob(unohelper.Base, XJobExecutor):
         desktop = self.ctx.ServiceManager.createInstanceWithContext(
             "com.sun.star.frame.Desktop", self.ctx)
         model = desktop.getCurrentComponent()
-        from plugin.modules.core.document import is_writer, is_calc, is_draw
+        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
         agent_log("main.py:trigger", "model state", data={"model_is_none": model is None, "is_writer": is_writer(model) if model else False, "is_calc": is_calc(model) if model else False, "is_draw": is_draw(model) if model else False}, hypothesis_id="H2")
         #if not hasattr(model, "Text"):
         #    model = self.desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())

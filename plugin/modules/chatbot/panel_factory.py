@@ -186,7 +186,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         root = self.m_panelRootWindow
         if not root or not hasattr(root, "getControl"):
             return
-        from plugin.modules.core.config import get_config, get_current_endpoint, populate_combobox_with_lru, get_text_model, get_image_model, populate_image_model_selector, set_config, set_image_model
+        from plugin.modules.core.services.config import get_config, get_current_endpoint, populate_combobox_with_lru, get_text_model, get_image_model, populate_image_model_selector, set_config, set_image_model
 
         def get_optional(name):
             return get_optional_control(root, name)
@@ -270,9 +270,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         try:
             # Read system prompt from config; use helper so Writer/Calc prompt matches document
             debug_log("_wireControls: importing core config...", context="Chat")
-            from plugin.modules.core.config import get_config, get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
+            from plugin.modules.core.services.config import get_config, get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
             from plugin.framework.constants import get_chat_system_prompt_for_document, DEFAULT_CHAT_SYSTEM_PROMPT
-            from plugin.modules.core.document import is_writer, is_calc, is_draw
+            from plugin.modules.core.services.document import is_writer, is_calc, is_draw
             
             extra_instructions = get_config(self.ctx, "additional_instructions", "")
             current_model = get_text_model(self.ctx)
@@ -375,7 +375,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # "Use Image model" checkbox
             if direct_image_check:
                 try:
-                    from plugin.modules.core.config import set_config
+                    from plugin.modules.core.services.config import set_config
                     direct_checked = get_config(self.ctx, "chat_direct_image", False)
                     set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
                     toggle_image_ui(direct_checked)
@@ -433,7 +433,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             # Register for config changes (e.g. Settings dialog). Weakref so this panel can be
             # GC'd without unregistering; callback no-ops if panel is gone.
-            from plugin.modules.core.config import add_config_listener
+            from plugin.modules.core.services.config import add_config_listener
             _self_ref = weakref.ref(self)
             def on_config_changed(ctx):
                 panel = _self_ref()
@@ -482,7 +482,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             # Detect and store initial document type for strict verification
             if model:
-                from plugin.modules.core.document import is_calc, is_draw, is_writer
+                from plugin.modules.core.services.document import is_calc, is_draw, is_writer
                 if is_calc(model):
                     send_listener.initial_doc_type = "Calc"
                 elif is_draw(model):

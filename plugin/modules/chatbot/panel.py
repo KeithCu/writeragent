@@ -157,7 +157,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
     def _on_mcp_request(self, event_name, tool="", args=None, method=None, **kwargs):
         """Handle MCP request events from the bus (background thread)."""
         from plugin.framework.main_thread import execute_on_main_thread
-        from plugin.modules.core.config import get_config
+        from plugin.modules.core.services.config import get_config
 
         if not get_config(self.ctx, "show_mcp_activity", True):
             return
@@ -188,7 +188,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
     def _on_mcp_result(self, event_name, tool="", result_snippet="", **kwargs):
         """Handle MCP result events from the bus (background thread)."""
         from plugin.framework.main_thread import execute_on_main_thread
-        from plugin.modules.core.config import get_config
+        from plugin.modules.core.services.config import get_config
 
         if not get_config(self.ctx, "show_mcp_activity", True):
             return
@@ -218,7 +218,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                 "com.sun.star.frame.Desktop", self.ctx)
             model = desktop.getCurrentComponent()
 
-        from plugin.modules.core.document import is_writer, is_calc, is_draw
+        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
         if model and (is_writer(model) or is_calc(model) or is_draw(model)):
             return model
         return None
@@ -264,9 +264,9 @@ class SendButtonListener(unohelper.Base, XActionListener):
 
         try:
             debug_log("_do_send: importing core modules...", context="Chat")
-            from plugin.modules.core.config import get_config, get_api_config, update_lru_history, validate_api_config
+            from plugin.modules.core.services.config import get_config, get_api_config, update_lru_history, validate_api_config
             from plugin.framework.http import LlmClient
-            from plugin.modules.core.document import get_document_context_for_chat, is_calc, is_draw, is_writer
+            from plugin.modules.core.services.document import get_document_context_for_chat, is_calc, is_draw, is_writer
             debug_log("_do_send: core modules imported OK", context="Chat")
         except Exception as e:
             debug_log("_do_send: core import FAILED: %s" % e, context="Chat")
@@ -405,7 +405,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                         )
                         try:
                             # Also update LRU
-                            from plugin.modules.core.config import update_lru_history, get_current_endpoint
+                            from plugin.modules.core.services.config import update_lru_history, get_current_endpoint
                             current_endpoint = get_current_endpoint(self.ctx)
                             update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
                         except Exception as elru:
@@ -478,7 +478,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         try:
             # Re-derive document type here so this block is robust even if earlier
             # locals were not set due to a partial update or early return.
-            from plugin.modules.core.document import is_calc as _is_calc_doc, is_draw as _is_draw_doc, is_writer as _is_writer_doc
+            from plugin.modules.core.services.document import is_calc as _is_calc_doc, is_draw as _is_draw_doc, is_writer as _is_writer_doc
             doc_is_calc = _is_calc_doc(model)
             doc_is_draw = _is_draw_doc(model)
             doc_is_writer = _is_writer_doc(model)
@@ -520,7 +520,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             return
 
         # System prompt: extra_instructions from config only (not in sidebar)
-        from plugin.modules.core.config import set_config, update_lru_history, set_image_model, get_config, get_current_endpoint
+        from plugin.modules.core.services.config import set_config, update_lru_history, set_image_model, get_config, get_current_endpoint
         extra_instructions = get_config(self.ctx, "additional_instructions", "") or ""
         from plugin.framework.constants import get_chat_system_prompt_for_document
         self.session.messages[0]["content"] = get_chat_system_prompt_for_document(model, extra_instructions)
@@ -603,7 +603,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         from plugin.framework.http import format_error_message
         from plugin.main import get_tools
-        from plugin.modules.core.document import is_calc, is_draw
+        from plugin.modules.core.services.document import is_calc, is_draw
 
         self._append_response("\nYou: %s\n" % query_text)
         self._append_response("\n[Using web research.]\n")
@@ -613,7 +613,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         job_done = [False]
         # Read show_thinking before spawning the thread so apply_chunk can use it
         try:
-            from plugin.modules.core.config import get_config, as_bool
+            from plugin.modules.core.services.config import get_config, as_bool
             show_thinking = as_bool(get_config(self.ctx, "show_search_thinking", False))
         except Exception:
             show_thinking = False
@@ -791,7 +791,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
 
         # Read config once for web research thinking display
         try:
-            from plugin.modules.core.config import get_config, as_bool
+            from plugin.modules.core.services.config import get_config, as_bool
             show_search_thinking = as_bool(get_config(self.ctx, "show_search_thinking", False))
         except Exception:
             show_search_thinking = False

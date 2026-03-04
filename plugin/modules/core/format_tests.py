@@ -246,7 +246,7 @@ def run_markdown_tests(ctx, model=None):
 
     # Test I: target="range" with start=0, end=document_length
     try:
-        from plugin.modules.core.document import get_document_length
+        from plugin.modules.core.services.document import get_document_length
         doc_len = get_document_length(doc)
         range_content = "<h2>Range Replace</h2><p>Replaced [0, %d).</p>" % doc_len
         result = tool_apply_document_content(doc, ctx, {"content": range_content, "target": "range", "start": 0, "end": doc_len})
@@ -578,7 +578,7 @@ def _run_tool_integration_tests(ctx, doc, passed, failed, log):
 
     def _insert_colored_word(word):
         """Insert word at end of doc with per-char background colors. Returns (start_offset, end_offset)."""
-        from plugin.modules.core.document import get_document_length
+        from plugin.modules.core.services.document import get_document_length
         sep = text.createTextCursor()
         sep.gotoEnd(False)
         text.insertString(sep, "\n", False)
@@ -596,7 +596,7 @@ def _run_tool_integration_tests(ctx, doc, passed, failed, log):
 
     def _get_colors_at_range(start_off, length):
         """Read CharBackColor for `length` chars starting at absolute offset start_off."""
-        from plugin.modules.core.document import get_text_cursor_at_range
+        from plugin.modules.core.services.document import get_text_cursor_at_range
         colors = []
         pos_cursor = text.createTextCursor()
         pos_cursor.gotoStart(False)

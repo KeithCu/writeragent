@@ -1,5 +1,5 @@
 import json
-from plugin.modules.core.document import build_heading_tree, resolve_locator, get_paragraph_ranges
+from plugin.modules.core.services.document import build_heading_tree, resolve_locator, get_paragraph_ranges
 
 def _err(message):
     return json.dumps({"status": "error", "message": message})

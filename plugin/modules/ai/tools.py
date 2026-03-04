@@ -25,7 +25,7 @@ class WebResearchTool(ToolBase):
     def execute(self, ctx, query, history_text=None):
         import os
         from urllib.parse import urlparse
-        from plugin.modules.core.config import get_api_config, get_config, user_config_dir
+        from plugin.modules.core.services.config import get_api_config, get_config, user_config_dir
         from plugin.framework.http import LlmClient
         from plugin.modules.core.smol_model import LocalWriterSmolModel
         from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -146,7 +146,7 @@ class GenerateImageTool(ToolBase):
 
     def execute(self, ctx, prompt, **args):
         from plugin.framework.image_utils import ImageService
-        from plugin.modules.core.config import get_config_dict, as_bool, get_text_model, update_lru_history
+        from plugin.modules.core.services.config import get_config_dict, as_bool, get_text_model, update_lru_history
         from plugin.modules.core.image_tools import insert_image
         
         status_callback = getattr(ctx, "status_callback", None)
@@ -232,7 +232,7 @@ class EditImageTool(ToolBase):
 
     def execute(self, ctx, prompt, **args):
         from plugin.framework.image_utils import ImageService
-        from plugin.modules.core.config import get_config_dict, as_bool, get_text_model, update_lru_history
+        from plugin.modules.core.services.config import get_config_dict, as_bool, get_text_model, update_lru_history
         from plugin.modules.core.image_tools import get_selected_image_base64, replace_image_in_place, insert_image
         
         status_callback = getattr(ctx, "status_callback", None)
