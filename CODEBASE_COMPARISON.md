@@ -11,7 +11,7 @@ This document summarizes the current state of the two trees. You have successful
 | **Draw Tools** | ✅ Full support (shapes, slides) | ❌ Missing |
 | **smolagents** | ✅ Web Research (DuckDuckGo, Visit) | ❌ Missing |
 | **Writer Tools** | ✅ Advanced (fully ported) | ✅ Advanced (navigation, tree, search) |
-| **Calc Tools** | ✅ Full support | ⚠️ Partial / Refactored |
+| **Calc Tools** | ✅ Full support (fully ported) | ✅ Advanced (cells, sheets, charts) |
 | **Evaluation** | ✅ Eval Runner + Dashboard | ❌ Missing |
 | **Batch Tools** | ✅ Variable chaining | ✅ Batch tool exec |
 | **Tunnels** | ✅ Bore, Cloudflare, Ngrok | ✅ Provider framework |

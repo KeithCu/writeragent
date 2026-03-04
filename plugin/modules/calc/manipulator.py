@@ -1,4 +1,4 @@
-"""Cell manipulator - Writing data and formatting LibreOffice Calc cells.
+"""Cell manipulator — writing data and formatting LibreOffice Calc cells.
 
 Ported from core/calc_manipulator.py for the plugin framework.
 UNO imports are deferred to method bodies.
@@ -15,18 +15,22 @@ from plugin.modules.calc.address_utils import parse_address
 logger = logging.getLogger("localwriter.calc")
 
 
-def _parse_formula_or_values_string(s: str):
-    """
-    Parse formula_or_values when it arrives as a JSON string (e.g. from the AI tool call)
-    or as a raw semicolon-separated string.
+# ── Helper ─────────────────────────────────────────────────────────────
 
-    Workaround: The AI often sends formula_or_values as a JSON-encoded string (e.g.
-    '\"Name\"; \"Category\"; \"Value\"') or as a raw string 'Name;Category;Value'.
-    Without this, write_formula_range would write that whole string as one value per cell.
-    We normalize LibreOffice-style semicolon separators and return a flat list.
+
+def _parse_formula_or_values_string(s: str):
+    """Parse *formula_or_values* when it arrives as a JSON string or as a
+    raw semicolon-separated string.
+
+    The AI often sends formula_or_values as a JSON-encoded string (e.g.
+    ``'["Name"; "Category"; "Value"]'``) or as a raw string like
+    ``'Name;Category;Value'``.  Without this, write_formula_range would
+    write the whole string as one value per cell.  We normalise
+    LibreOffice-style semicolon separators and return a flat list.
 
     Returns:
-        A flat list of values, or None if s should be treated as a single literal value.
+        A flat list of values, or *None* if *s* should be treated as a
+        single literal value.
     """
     if not isinstance(s, str):
         return None
@@ -35,23 +39,20 @@ def _parse_formula_or_values_string(s: str):
     if not s_strip:
         return None
 
-    # Case 1: JSON array e.g. [\"a\"; \"b\"] or [\"a\", \"b\"]
+    # Case 1: JSON array e.g. ["a"; "b"] or ["a", "b"]
     if s_strip.startswith("["):
         try:
-            # Formula-safe replacement: only replace semicolons NOT inside double quotes.
-            # Manual character-by-character scan to correctly handle escaped quotes.
+            # Replace semicolons NOT inside double quotes with commas.
             normalized_list = []
             in_quotes = False
             escaped = False
             for char in s_strip:
-                if char == '\"' and not escaped:
+                if char == '"' and not escaped:
                     in_quotes = not in_quotes
-
                 if char == ';' and not in_quotes:
                     normalized_list.append(',')
                 else:
                     normalized_list.append(char)
-
                 if char == '\\' and not escaped:
                     escaped = True
                 else:
@@ -71,10 +72,12 @@ def _parse_formula_or_values_string(s: str):
             pass
 
     # Case 2: Raw semicolon-separated string e.g. "Name;Age;Country"
-    # But ONLY if it's not a formula (starting with =) and not a single value
+    # Only if it is not a formula (starting with =) and not a single value.
     if ";" in s and not s_strip.startswith("="):
         try:
-            reader = csv.reader(io.StringIO(s), delimiter=";", skipinitialspace=True)
+            reader = csv.reader(
+                io.StringIO(s), delimiter=";", skipinitialspace=True,
+            )
             rows = list(reader)
             if rows:
                 return [val.strip() for val in rows[0]]
@@ -84,28 +87,23 @@ def _parse_formula_or_values_string(s: str):
     return None
 
 
+# ── Manipulator ────────────────────────────────────────────────────────
+
+
 class CellManipulator:
-    """Class that manages data writing and style application to cells."""
+    """Manages data writing and style application to cells."""
 
     def __init__(self, bridge):
         """
-        CellManipulator initializer.
-
         Args:
             bridge: CalcBridge instance.
         """
         self.bridge = bridge
 
+    # ── Internal helpers ───────────────────────────────────────────────
+
     def _get_cell(self, address: str):
-        """
-        Returns the cell object according to the address.
-
-        Args:
-            address: Cell address (e.g. "A1").
-
-        Returns:
-            Cell object.
-        """
+        """Return the cell object for *address*."""
         col, row = parse_address(address)
         sheet = self.bridge.get_active_sheet()
         return self.bridge.get_cell(sheet, col, row)

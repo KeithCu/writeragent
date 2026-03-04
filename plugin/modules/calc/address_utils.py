@@ -8,8 +8,7 @@ import re
 
 
 def column_to_index(col_str: str) -> int:
-    """
-    Converts column letter to 0-based index.
+    """Convert column letter to 0-based index.
 
     Args:
         col_str: Column letter (e.g. "A", "AB").
@@ -24,8 +23,7 @@ def column_to_index(col_str: str) -> int:
 
 
 def index_to_column(index: int) -> str:
-    """
-    Converts 0-based column index to letter notation.
+    """Convert 0-based column index to letter notation.
 
     Args:
         index: 0-based column index.
@@ -42,8 +40,7 @@ def index_to_column(index: int) -> str:
 
 
 def parse_address(address: str) -> tuple[int, int]:
-    """
-    Converts cell address to column and row indices.
+    """Convert cell address to column and row indices.
 
     Args:
         address: Cell address (e.g. "A1", "AB10").
@@ -69,8 +66,7 @@ def parse_address(address: str) -> tuple[int, int]:
 
 
 def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]]:
-    """
-    Converts cell range string to column/row indices.
+    """Convert cell range string to column/row indices.
 
     Args:
         range_str: Range string in "A1:D10" or "A1" format.
@@ -103,8 +99,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
 
 
 def format_address(col: int, row: int) -> str:
-    """
-    Creates cell address from column and row indices.
+    """Create cell address from column and row indices.
 
     Args:
         col: 0-based column index.

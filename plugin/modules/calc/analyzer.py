@@ -1,4 +1,4 @@
-"""Sheet analyzer - Analyzes the structure and statistics of LibreOffice Calc sheets.
+"""Sheet analyzer — analyses the structure and statistics of Calc sheets.
 
 Ported from core/calc_sheet_analyzer.py for the plugin framework.
 """
@@ -16,31 +16,24 @@ logger = logging.getLogger("localwriter.calc")
 
 
 class SheetAnalyzer:
-    """Class that analyzes the structure and data of a worksheet."""
+    """Analyses the structure and data of a worksheet."""
 
     def __init__(self, bridge):
         """
-        SheetAnalyzer initializer.
-
         Args:
             bridge: CalcBridge instance.
         """
         self.bridge = bridge
 
     def get_sheet_summary(self, sheet_name=None) -> dict:
-        """
-        Returns a general summary of the active sheet or specified sheet.
+        """Return a general summary of the active or specified sheet.
 
         Args:
-            sheet_name: Optional name of the sheet to analyze.
+            sheet_name: Optional name of the sheet to analyse.
 
         Returns:
-            Sheet summary info dictionary:
-            - sheet_name: Sheet name
-            - used_range: Used range (e.g. "A1:F100")
-            - row_count: Number of used rows
-            - col_count: Number of used columns
-            - headers: List of headers in the first row
+            dict with keys: sheet_name, used_range, row_count, col_count,
+            headers.
         """
         try:
             if sheet_name:

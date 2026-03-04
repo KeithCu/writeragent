@@ -17,10 +17,13 @@ logger = logging.getLogger("localwriter.calc")
 
 
 class CalcBridge:
+    """Bridge between the plugin layer and the UNO Calc document."""
+
     def __init__(self, doc):
         self.doc = doc
 
     def get_active_document(self):
+        """Return the wrapped document."""
         return self.doc
 
     def get_active_sheet(self):
@@ -47,9 +50,11 @@ class CalcBridge:
         return sheet
 
     def get_cell(self, sheet, col: int, row: int):
+        """Return the cell object at *col*, *row* on *sheet*."""
         return sheet.getCellByPosition(col, row)
 
     def get_cell_range(self, sheet, range_str: str):
+        """Return a cell range object from a range string like ``A1:D10``."""
         start, end = parse_range_string(range_str)
         return sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
 
