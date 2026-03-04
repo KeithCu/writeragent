@@ -15,7 +15,7 @@
               <value xml:lang="en-US">Extend Selection</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?ExtendSelection</value>
+              <value>org.extension.localwriter:chatbot.extend_selection</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
@@ -26,18 +26,18 @@
               <value xml:lang="en-US">Edit Selection</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?EditSelection</value>
+              <value>org.extension.localwriter:chatbot.edit_selection</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
             </prop>
           </node>
-            <node oor:name="M3" oor:op="replace">
+             <node oor:name="M3" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Settings</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?settings</value>
+              <value>org.extension.localwriter:main.settings</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
@@ -48,7 +48,7 @@
               <value xml:lang="en-US">Toggle MCP Server</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?ToggleMCPServer</value>
+              <value>org.extension.localwriter:http.toggle_server</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
@@ -59,7 +59,7 @@
               <value xml:lang="en-US">MCP Server Status</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?MCPStatus</value>
+              <value>org.extension.localwriter:http.server_status</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
@@ -70,7 +70,7 @@
               <value xml:lang="en-US">Debug</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?NoOp</value>
+              <value>org.extension.localwriter:main.NoOp</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
@@ -81,7 +81,7 @@
                   <value xml:lang="en-US">Run format tests</value>
                 </prop>
                 <prop oor:name="URL">
-                  <value>service:org.extension.localwriter.Main?RunFormatTests</value>
+                  <value>org.extension.localwriter:main.RunFormatTests</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>
@@ -92,7 +92,7 @@
                   <value xml:lang="en-US">Run calc tests</value>
                 </prop>
                 <prop oor:name="URL">
-                  <value>service:org.extension.localwriter.Main?RunCalcTests</value>
+                  <value>org.extension.localwriter:main.RunCalcTests</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>
@@ -103,7 +103,7 @@
                   <value xml:lang="en-US">Run Calc API integration tests</value>
                 </prop>
                 <prop oor:name="URL">
-                  <value>service:org.extension.localwriter.Main?RunCalcIntegrationTests</value>
+                  <value>org.extension.localwriter:main.RunCalcIntegrationTests</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>
@@ -114,7 +114,7 @@
                   <value xml:lang="en-US">Run draw tests</value>
                 </prop>
                 <prop oor:name="URL">
-                  <value>service:org.extension.localwriter.Main?RunDrawTests</value>
+                  <value>org.extension.localwriter:main.RunDrawTests</value>
                 </prop>
                 <prop oor:name="Target" oor:type="xs:string">
                   <value>_self</value>
@@ -127,7 +127,7 @@
               <value xml:lang="en-US">Evaluation Dashboard</value>
             </prop>
             <prop oor:name="URL">
-              <value>service:org.extension.localwriter.Main?EvaluationDashboard</value>
+              <value>org.extension.localwriter:main.EvaluationDashboard</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>

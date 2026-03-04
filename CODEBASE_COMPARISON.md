@@ -60,8 +60,8 @@ Your new features have been converted into "localwriter2-style" modules:
 ### C. Writer Enhancements ✅ (Completed)
 The `plugin/modules/writer/` directory has been completely unified with `localwriter2`, replacing legacy registry wrappers with fully isolated `ToolBase` subclasses and importing the advanced `services/` (navigation, structural, tree, bookmarks).
 
-### D. Startup Philosophy
-- **Protocol Handler**: Migrate your menu dispatches in `Addons.xcu` to use the `org.extension.localwriter:module.action` protocol handled by the new `DispatchHandler`. This enables dynamic menu text and icons (e.g., "Stop AI" vs "Send").
+### D. Startup Philosophy ✅
+- **Protocol Handler**: Migrated menu dispatches in `Addons.xcu` to use the `org.extension.localwriter:module.action` protocol handled by `DispatchHandler` in `main.py`. This enables dynamic menu text and icons (e.g., "Start" vs "Stop" HTTP server).
 
 ## Summary Recommendation
 The main tree is **"Feature Rich but Architecturally Legacy"**, while `localwriter2` is **"Feature Lean but Architecturally Modern"**. 

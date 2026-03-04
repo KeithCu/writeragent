@@ -77,5 +77,8 @@ Replaced the thin Writer wrappers with "real" `ToolBase` classes and advanced im
 ### Completed: Framework Testing Suite ✅
 Ported the comprehensive unit tests from `localwriter2/tests/` (e.g., `test_config_service.py`, `test_event_bus.py`, etc.) and updated the framework to ensure stability, with 80 tests passing in the main tree.
 
+### Completed: Protocol Handler Migration ✅
+Migrated all menu items to the new `org.extension.localwriter:` protocol handled by `DispatchHandler`. This enables dynamic menu labels and icons while simplifying `main.py` dispatches.
+
 ### Other Follow-ups
 - **Config Migration:** Move `config.py` toward the new schema-based system to fully decouple settings.
