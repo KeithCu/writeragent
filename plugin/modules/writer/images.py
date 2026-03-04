@@ -3,7 +3,7 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase
-from plugin.framework.image_utils import (
+from plugin.modules.core.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
 )
 

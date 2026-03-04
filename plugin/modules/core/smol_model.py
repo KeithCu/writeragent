@@ -31,7 +31,7 @@ class LocalWriterSmolModel(Model):
         
         # Push heartbeat so the UI drain loop stays active during this blocking call
         if self._status_callback:
-            self._status_callback("Calling model...")
+            self._status_callback("Thinking...")
 
         # Make the request to LocalWriter's backend
         result = self.api.request_with_tools(msg_dicts, max_tokens=self.max_tokens, tools=tools)

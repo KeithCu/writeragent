@@ -1,15 +1,79 @@
 import json
 from plugin.modules.writer.format_support import (
-    document_to_markdown,
-    tool_get_document_content,
-    tool_apply_document_content,
-    tool_find_text,
-    _insert_markdown_at_position,
-    _doc_text_length,
-    _replace_text_preserving_format,
-    _content_has_markup,
+    document_to_content as document_to_markdown,
+    insert_content_at_position as _insert_markdown_at_position,
+    content_has_markup as _content_has_markup,
+    replace_preserving_format as _replace_text_preserving_format,
+    apply_content_at_range,
+    apply_content_at_search,
+    replace_full_document,
+    find_text_ranges,
 )
+from plugin.modules.core.services.document import get_document_length as _doc_text_length_raw
 from plugin.framework.logging import debug_log
+
+# Compatibility shim: old _doc_text_length returned (length, text), new returns int
+def _doc_text_length(doc):
+    length = _doc_text_length_raw(doc)
+    return (length, "")
+
+
+# ---------------------------------------------------------------------------
+# Compatibility shims for old tool_* dispatch functions (return JSON strings)
+# ---------------------------------------------------------------------------
+
+def tool_get_document_content(doc, ctx, params):
+    """Shim for old tool_get_document_content dispatch function."""
+    scope = params.get("scope", "full")
+    start = params.get("start")
+    end = params.get("end")
+    max_chars = params.get("max_chars")
+    try:
+        content = document_to_markdown(doc, ctx, services=None,
+                                       max_chars=max_chars, scope=scope,
+                                       range_start=start, range_end=end)
+        doc_len = _doc_text_length_raw(doc)
+        result = {"status": "ok", "content": content, "document_length": doc_len}
+        if scope == "range" and start is not None and end is not None:
+            result["start"] = start
+            result["end"] = end
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+def tool_apply_document_content(doc, ctx, params):
+    """Shim for old tool_apply_document_content dispatch function."""
+    content = params.get("content", "")
+    target = params.get("target", "end")
+    if isinstance(content, list):
+        content = "\n".join(str(x) for x in content)
+    try:
+        if target == "full":
+            replace_full_document(doc, ctx, content)
+        elif target == "range":
+            start = int(params.get("start", 0))
+            end = int(params.get("end", 0))
+            apply_content_at_range(doc, ctx, content, start, end)
+        elif target == "search":
+            search = params.get("search", "")
+            apply_content_at_search(doc, ctx, content, search)
+        else:
+            _insert_markdown_at_position(doc, ctx, content, target)
+        return json.dumps({"status": "ok"})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+def tool_find_text(doc, ctx, params):
+    """Shim for old tool_find_text dispatch function."""
+    search = params.get("search", "")
+    case_sensitive = params.get("case_sensitive", True)
+    try:
+        ranges = find_text_ranges(doc, ctx, search, case_sensitive=case_sensitive)
+        return json.dumps({"status": "ok", "ranges": ranges})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
 
 
 # ---------------------------------------------------------------------------
