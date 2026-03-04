@@ -29,7 +29,7 @@ from plugin.framework.uno_helpers import get_optional as get_optional_control, g
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 from com.sun.star.ui.UIElementType import TOOLPANEL
-from com.sun.star.awt import XActionListener, XItemListener
+from com.sun.star.awt import XActionListener, XItemListener, XWindowListener
 
 # Extension ID from description.xml; XDL path inside the .oxt
 EXTENSION_ID = "org.extension.localwriter"
@@ -80,14 +80,90 @@ def _ensure_extension_on_path(ctx):
 
 
 
-# FIXME: Dynamic resizing of panel controls when sidebar is resized.
-# The sidebar allocates a fixed height (from getHeightForWidth) and does not
-# scroll, so a PanelResizeListener (XWindowListener) that repositions controls
-# bottom-up would be the right approach.  However, the sidebar gives the panel
-# window a very large initial height (1375px) before settling to the requested
-# size, which causes controls to be positioned off-screen during the first
-# layout pass.  Needs investigation into the sidebar's resize lifecycle.
-# For now the XDL uses a compact fixed layout that works at the default size.
+class _PanelResizeListener(unohelper.Base, XWindowListener):
+    """Adjusts panel layout on resize. Reads control sizes/gaps from the XDL;
+    only the response area height changes to fill available space."""
+
+    def __init__(self, controls):
+        self._c = controls        # dict name -> control or None
+        self._initial = None      # captured from XDL-loaded pixel positions
+
+    def windowResized(self, evt):
+        try:
+            self._relayout(evt.Source)
+        except Exception:
+            pass
+
+    def windowMoved(self, evt): pass
+    def windowShown(self, evt): pass
+    def windowHidden(self, evt): pass
+    def disposing(self, evt): pass
+
+    def _capture_initial(self, win):
+        """Snapshot XDL-loaded pixel positions/sizes of every control."""
+        r = win.getPosSize()
+        if r.Width <= 0 or r.Height <= 0:
+            return
+        info = {"win_w": r.Width, "win_h": r.Height, "ctrls": {}}
+        resp = self._c.get("response")
+        if resp:
+            rr = resp.getPosSize()
+            info["resp_bottom"] = rr.Y + rr.Height
+        for name, ctrl in self._c.items():
+            if ctrl:
+                cr = ctrl.getPosSize()
+                info["ctrls"][name] = (cr.X, cr.Y, cr.Width, cr.Height)
+        self._initial = info
+
+    def _relayout(self, win):
+        r = win.getPosSize()
+        w, h = r.Width, r.Height
+        if w <= 0 or h <= 0:
+            return
+
+        if self._initial is None:
+            self._capture_initial(win)
+        if self._initial is None:
+            return
+
+        iw = self._initial["win_w"]
+        ih = self._initial["win_h"]
+        resp_bottom = self._initial.get("resp_bottom", 0)
+        width_ratio = w / iw if iw > 0 else 1.0
+
+        # First pass: position all non-response controls and find
+        # the topmost y of the bottom-anchored section.
+        top_of_bottom = h  # will track highest new_y below response
+        for name, ctrl in self._c.items():
+            if not ctrl or name == "response":
+                continue
+            orig = self._initial["ctrls"].get(name)
+            if not orig:
+                continue
+            ox, oy, ow, oh = orig
+            new_x = int(ox * width_ratio)
+            new_w = int(ow * width_ratio)
+
+            if oy >= resp_bottom:
+                # Anchor to bottom: preserve distance from bottom edge
+                new_y = h - (ih - oy)
+                ctrl.setPosSize(new_x, new_y, new_w, oh, 15)
+                top_of_bottom = min(top_of_bottom, new_y)
+            else:
+                # Above response (e.g. response_label): scale width only
+                ctrl.setPosSize(new_x, oy, new_w, oh, 15)
+
+        # Second pass: stretch response to fill gap up to bottom section
+        resp_orig = self._initial["ctrls"].get("response")
+        resp_ctrl = self._c.get("response")
+        if resp_orig and resp_ctrl:
+            rx, ry, rw, rh = resp_orig
+            gap = resp_bottom - (ry + rh)  # original gap below response
+            if gap < 0:
+                gap = 2
+            new_rh = max(30, top_of_bottom - gap - ry)
+            resp_ctrl.setPosSize(int(rx * width_ratio), ry,
+                                int(rw * width_ratio), new_rh, 15)
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +190,13 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         # Constrain panel to sidebar width (and parent height when available).
         if self.parent_window and self.PanelWindow and width > 0:
             parent_rect = self.parent_window.getPosSize()
-            h = parent_rect.Height if parent_rect.Height > 0 else 280
+            h = parent_rect.Height if parent_rect.Height > 0 else 400
             self.PanelWindow.setPosSize(0, 0, width, h, 15)
             debug_log("panel constrained to W=%s H=%s" % (width, h), context="Chat")
-        # Min 280, preferred -1 (let sidebar decide), max 280 — matches working Git layout.
-        return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 280, -1, 280)
+        # LayoutSize(Minimum, Maximum, Preferred) — IDL field order.
+        # Maximum=-1 means unbounded; the sidebar gives all remaining height
+        # to panels with unbounded max (see DeckLayouter.cxx DistributeHeights).
+        return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
     def getMinimalWidth(self):
         return 180
@@ -538,8 +616,31 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         except Exception as e:
             debug_log("try_ensure_mcp_timer: %s" % e, context="Chat")
 
-        # FIXME: Wire PanelResizeListener here once dynamic resizing is fixed.
-        # See FIXME comment above the commented-out PanelResizeListener class.
+        # Dynamic resize: reposition controls when sidebar resizes
+        try:
+            _ctrl_map = {
+                "response_label": get_optional("response_label"),
+                "response": response_ctrl,
+                "model_label": model_label,
+                "model_selector": model_selector,
+                "image_model_selector": image_model_selector,
+                "base_size_label": base_size_label,
+                "base_size_input": base_size_input,
+                "aspect_ratio_selector": aspect_ratio_selector,
+                "direct_image_check": direct_image_check,
+                "web_search_check": web_search_check,
+                "query_label": get_optional("query_label"),
+                "query": query_ctrl,
+                "status": status_ctrl,
+                "send": send_btn,
+                "stop": get_optional("stop"),
+                "clear": get_optional("clear"),
+            }
+            _resize = _PanelResizeListener(_ctrl_map)
+            root_window.addWindowListener(_resize)
+            _resize._relayout(root_window)
+        except Exception as e:
+            debug_log("Resize listener error: %s" % e, context="Chat")
 
 
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):
