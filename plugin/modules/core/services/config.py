@@ -4,7 +4,14 @@ Reads/writes localwriter.json in LibreOffice's user config directory.
 """
 import os
 import json
-import uno
+try:
+    import uno
+    import unohelper
+except ImportError:
+    uno = None
+    unohelper = None
+from plugin.framework.service_base import ServiceBase
+from plugin.framework.uno_context import get_ctx
 # from plugin.contrib.default_models import DEFAULT_MODELS
 DEFAULT_MODELS = {}
 
@@ -35,13 +42,18 @@ ENDPOINT_PRESETS = [
 
 def _config_path(ctx):
     """Return the absolute path to localwriter.json."""
-    sm = ctx.getServiceManager()
-    path_settings = sm.createInstanceWithContext(
-        "com.sun.star.util.PathSettings", ctx)
-    user_config_path = getattr(path_settings, "UserConfig", "")
-    if user_config_path and str(user_config_path).startswith("file://"):
-        user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
-    return os.path.join(user_config_path, CONFIG_FILENAME)
+    if ctx is None:
+        return None
+    try:
+        sm = ctx.getServiceManager()
+        path_settings = sm.createInstanceWithContext(
+            "com.sun.star.util.PathSettings", ctx)
+        user_config_path = getattr(path_settings, "UserConfig", "")
+        if user_config_path and str(user_config_path).startswith("file://"):
+            user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
+        return os.path.join(user_config_path, CONFIG_FILENAME)
+    except Exception:
+        return None
 
 
 def user_config_dir(ctx):
@@ -58,7 +70,7 @@ def user_config_dir(ctx):
 def get_config(ctx, key, default):
     """Get a config value by key. Returns default if missing or on error."""
     config_file_path = _config_path(ctx)
-    if not os.path.exists(config_file_path):
+    if not config_file_path or not os.path.exists(config_file_path):
         return default
     try:
         with open(config_file_path, "r", encoding="utf-8") as f:
@@ -71,7 +83,7 @@ def get_config(ctx, key, default):
 def get_config_dict(ctx):
     """Return the full config as a dict. Returns {} if missing or on error."""
     config_file_path = _config_path(ctx)
-    if not os.path.exists(config_file_path):
+    if not config_file_path or not os.path.exists(config_file_path):
         return {}
     try:
         with open(config_file_path, "r", encoding="utf-8") as f:
@@ -88,6 +100,8 @@ def get_current_endpoint(ctx):
 def set_config(ctx, key, value):
     """Set a config key to value. Creates file if needed."""
     config_file_path = _config_path(ctx)
+    if not config_file_path:
+        return
     if os.path.exists(config_file_path):
         try:
             with open(config_file_path, "r", encoding="utf-8") as f:
@@ -108,7 +122,7 @@ def set_config(ctx, key, value):
 def remove_config(ctx, key):
     """Remove a config key. Used e.g. to delete legacy api_key after migration."""
     config_file_path = _config_path(ctx)
-    if not os.path.exists(config_file_path):
+    if not config_file_path or not os.path.exists(config_file_path):
         return
     try:
         with open(config_file_path, "r", encoding="utf-8") as f:
@@ -439,29 +453,155 @@ def populate_image_model_selector(ctx, ctrl, override_endpoint=None):
     return populate_combobox_with_lru(ctx, ctrl, current_image_model, "image_model_lru", endpoint, strict=True)
 
 
-from plugin.framework.service_base import ServiceBase
-from plugin.framework.uno_context import get_ctx
+class ConfigAccessError(Exception):
+    """Raised when a module tries to access a private config key."""
+    pass
 
+
+def _dummy_impl(name, services=()):
+    def decorator(cls):
+        return cls
+    return decorator
+_implementation = unohelper.implementation if (unohelper and hasattr(unohelper, "implementation")) else _dummy_impl
+
+@_implementation("org.extension.localwriter.ConfigService")
 class ConfigService(ServiceBase):
     name = "config"
+
+    def __init__(self):
+        self._defaults = {}   # "module.key" -> default_value
+        self._manifest = {}   # "module.key" -> field schema
+        self._events = None   # EventBus, set after init
+        self._config_path = None # For testing
 
     def initialize(self, ctx):
         pass
 
-    def get(self, key, default=None):
+    def set_events(self, events):
+        """Wire the event bus."""
+        self._events = events
+
+    def set_manifest(self, manifest):
+        """Load config schemas from the merged manifest."""
+        for mod_name, mod_data in manifest.items():
+            for field_name, schema in mod_data.get("config", {}).items():
+                full_key = f"{mod_name}.{field_name}"
+                self._defaults[full_key] = schema.get("default")
+                self._manifest[full_key] = schema
+
+    def register_default(self, key, default):
+        """Register a single default value."""
+        self._defaults[key] = default
+
+    def get(self, key, default=None, caller_module=None):
+        """Get a config value, fallback to defaults."""
+        self._check_read_access(key, caller_module)
+        
+        # Test fallback
+        if self._config_path and os.path.exists(self._config_path):
+             try:
+                 with open(self._config_path, "r") as f:
+                     data = json.load(f)
+                     if key in data:
+                         return data[key]
+             except Exception:
+                 pass
+
         ctx = get_ctx()
-        if key == "mcp_enabled": return as_bool(get_config(ctx, "mcp_enabled", False))
-        if key == "enabled": return True
-        if key == "port": return int(get_config(ctx, "mcp_port", 8765))
-        if key == "host": return "localhost"
-        if key == "use_ssl": return False
-        if key == "smolagents_enabled": return as_bool(get_config(ctx, "smolagents_enabled", False))
-        if key == "fast_model": return str(get_config(ctx, "text_model", ""))
-        return get_config(ctx, key, default)
+        val = get_config(ctx, key, None)
+        if val is not None:
+            return val
+        return self._defaults.get(key, default)
+
+    def set(self, key, value, caller_module=None):
+        """Set a config value."""
+        self._check_write_access(key, caller_module)
+        old_value = self.get(key)
+        
+        # Test fallback
+        if self._config_path:
+            data = {}
+            if os.path.exists(self._config_path):
+                try:
+                    with open(self._config_path, "r") as f:
+                        data = json.load(f)
+                except Exception:
+                    pass
+            data[key] = value
+            with open(self._config_path, "w") as f:
+                json.dump(data, f)
+        else:
+            set_config(get_ctx(), key, value)
+
+        if self._events and value != old_value:
+            self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+
+    def remove(self, key, caller_module=None):
+        """Reset a config key."""
+        self._check_write_access(key, caller_module)
+        if self._config_path and os.path.exists(self._config_path):
+             try:
+                 with open(self._config_path, "r") as f:
+                     data = json.load(f)
+                 if key in data:
+                     del data[key]
+                     with open(self._config_path, "w") as f:
+                         json.dump(data, f)
+             except Exception:
+                 pass
+        else:
+            remove_config(get_ctx(), key)
+
+    def get_dict(self):
+        """Return all config."""
+        # This is a simplification for now
+        ctx = get_ctx()
+        if self._config_path and os.path.exists(self._config_path):
+             try:
+                 with open(self._config_path, "r") as f:
+                     return json.load(f)
+             except Exception:
+                 pass
+        return get_config_dict(ctx)
+
+    def _check_read_access(self, key, caller_module):
+        if caller_module is None or "." not in key:
+            return
+        module = key.split(".", 1)[0]
+        if module == caller_module:
+            return
+        schema = self._manifest.get(key, {})
+        if not schema.get("public", False):
+            raise ConfigAccessError(f"Module '{caller_module}' cannot read private config '{key}'")
+
+    def _check_write_access(self, key, caller_module):
+        if caller_module is None or "." not in key:
+            return
+        module = key.split(".", 1)[0]
+        if module != caller_module:
+            raise ConfigAccessError(f"Module '{caller_module}' cannot write to '{key}'")
+
+    def proxy_for(self, module_name):
+        return ModuleConfigProxy(self, module_name)
+
+
+class ModuleConfigProxy:
+    def __init__(self, config_service, module_name):
+        self._config = config_service
+        self._module = module_name
+
+    def get(self, key, default=None):
+        if "." not in key:
+            key = f"{self._module}.{key}"
+        return self._config.get(key, default, caller_module=self._module)
 
     def set(self, key, value):
-        set_config(get_ctx(), key, value)
+        if "." not in key:
+            key = f"{self._module}.{key}"
+        self._config.set(key, value, caller_module=self._module)
 
-    def proxy_for(self, name):
-        return self
+    def remove(self, key):
+        if "." not in key:
+            key = f"{self._module}.{key}"
+        self._config.remove(key, caller_module=self._module)
 

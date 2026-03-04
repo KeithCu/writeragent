@@ -45,6 +45,7 @@ The core framework files have been ported to `plugin/framework/`, providing a ro
 - `main_thread.py`: Safe execution helper using `AsyncCallback` (prevents UI freezes).
 - `uno_context.py`: Reliable context singleton for long-lived services.
 - `dialogs.py`: Common dialog abstractions (msgbox, clipboard).
+- `tests/`: ✅ Framework unit tests (80+ tests) ported and passing.
 
 **Refactoring Note**: `plugin/modules/core/mcp_thread.py` has been updated to delegate its UNO execution logic to the new `main_thread.py` helper, consolidating the safe execution pattern.
 

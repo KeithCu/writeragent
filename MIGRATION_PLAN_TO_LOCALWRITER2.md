@@ -2,7 +2,7 @@
 
 The goal of this plan is to incrementally reduce the diffs between the `localwriter` (current directory with some new features not in localwriter2) and `localwriter2` (refactoring from a week old fork), ensuring the plugin remains functional at every step.
 
-**Current status:** Phases 1–4 are complete (tooling/Make, docs/cleanup, framework infrastructure porting, Writer/Calc/Chatbot module reorganization). We have successfully implemented the dynamic `ToolRegistry`, patched `main.py` to use a `bootstrap()` loader, split the Writer tools into modular files, deleted the legacy `document_tools.py`, and completed the Service Decoupling. Phase 5 (AI/HTTP modules) remains.
+**Current status:** Phases 1–4 are complete (tooling/Make, docs/cleanup, framework infrastructure porting, Writer/Calc/Chatbot module reorganization). We have successfully implemented the dynamic `ToolRegistry`, patched `main.py` to use a `bootstrap()` loader, split the Writer tools into modular files, and completed the Service Decoupling. Most of Phase 5 is also complete, including the port of the **comprehensive framework test suite** (80+ tests).
 
 ## Proposed Changes
 
@@ -74,6 +74,8 @@ Mocks in `main.py` (`ConfigMock` and `DocumentServiceMock`) were removed. `local
 ### Completed: Writer tools with logic in ToolBase ✅
 Replaced the thin Writer wrappers with "real" `ToolBase` classes and advanced implementations ported directly from `localwriter2` that leverage `ctx.services`.
 
-### Other Follow-ups 
-- **Framework Testing Suite:** Port the comprehensive unit tests from `localwriter2/tests/` (e.g., `test_config_service.py`, `test_event_bus.py`, etc.) to ensure framework stability.
+### Completed: Framework Testing Suite ✅
+Ported the comprehensive unit tests from `localwriter2/tests/` (e.g., `test_config_service.py`, `test_event_bus.py`, etc.) and updated the framework to ensure stability, with 80 tests passing in the main tree.
+
+### Other Follow-ups
 - **Config Migration:** Move `config.py` toward the new schema-based system to fully decouple settings.
