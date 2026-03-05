@@ -8,165 +8,73 @@ tools:
   - plugin.modules.ai.tools:EditImageTool
 
 config:
-  default_text_instance:
+  endpoint:
+    type: string
+    default: "http://127.0.0.1:5000"
+    widget: combo
+    label: "Endpoint"
+    helper: "Base URL of your OpenAI-compatible chat server."
+    options_provider: "plugin.modules.core.services.config:get_endpoint_options"
+  text_model:
     type: string
     default: ""
-    widget: select
-    label: "Default Text AI"
-    public: true
-    options_provider: "plugin.modules.ai.service:get_text_instance_options"
-  default_image_instance:
+    widget: combo
+    label: "Text model"
+    helper: "Model ID for chat/edit; recent models are remembered per endpoint."
+    options_provider: "plugin.modules.core.services.config:get_text_model_options"
+  image_model:
     type: string
     default: ""
-    widget: select
-    label: "Default Image AI"
-    public: true
-    options_provider: "plugin.modules.ai.service:get_image_instance_options"
-  custom_models:
-    type: string
-    default: "[]"
-    widget: list_detail
-    inline: true
-    label: "Custom Models"
-    helper: "Close Options to save; model lists refresh on reopen"
-    name_field: display_name
-    item_fields:
-      id:
-        type: string
-        label: "Model ID"
-        widget: text
-        default: ""
-      display_name:
-        type: string
-        label: "Display Name"
-        widget: text
-        default: ""
-      capability:
-        type: string
-        label: "Capabilities"
-        widget: text
-        default: text
-        helper: "Comma-separated: text, image, vision, tools"
-      providers:
-        type: string
-        label: "Providers"
-        widget: text
-        default: ""
-        helper: "Comma-separated: openai, openrouter, together, ollama (empty = all)"
-      priority:
-        type: int
-        label: "Priority"
-        widget: number
-        default: 5
-        min: 0
-        max: 10
-        helper: "Higher = listed first in model dropdowns (0-10)"
-  models_file:
+    widget: combo
+    label: "Image model"
+    helper: "Image model when using the same endpoint for image generation."
+    options_provider: "plugin.modules.core.services.config:get_image_model_options"
+  api_key:
     type: string
     default: ""
-    widget: file
-    label: "Models File (YAML)"
-    helper: "Override or extend the built-in model catalog for all providers"
-  openai_endpoint:
-    type: string
-    default: ""
-    label: "OpenAI Default Endpoint"
-    placeholder: "https://api.openai.com/v1"
-  openai_model:
-    type: string
-    default: ""
-    widget: select
-    label: "OpenAI Default Model"
-    options_provider: "plugin.modules.ai:get_openai_model_options"
-  openai_instances:
-    type: string
-    default: "[]"
-    widget: list_detail
-    inline: true
-    label: "OpenAI Instances"
-    name_field: name
-    item_fields:
-      name:
-        type: string
-        label: "Name"
-      endpoint:
-        type: string
-        label: "Endpoint"
-      api_key:
-        type: string
-        label: "API Key"
-        widget: password
-      model:
-        type: string
-        label: "Model"
-        widget: select
-        options_from: openai_model
-      image:
-        type: boolean
-        label: "Images"
-        widget: checkbox
-  ollama_endpoint:
-    type: string
-    default: "http://localhost:11434"
-    label: "Ollama Default URL"
-  ollama_model:
-    type: string
-    default: ""
-    widget: select
-    label: "Ollama Default Model"
-    options_provider: "plugin.modules.ai:get_ollama_model_options"
-  ollama_instances:
-    type: string
-    default: "[]"
-    widget: list_detail
-    inline: true
-    label: "Ollama Instances"
-    name_field: name
-    item_fields:
-      name:
-        type: string
-        label: "Name"
-      endpoint:
-        type: string
-        label: "URL"
-        default: "http://localhost:11434"
-      model:
-        type: string
-        label: "Model"
-        widget: select
-        options_from: ollama_model
-  horde_api_key:
-    type: string
-    default: "0000000000"
     widget: password
-    label: "Horde API Key"
-  horde_instances:
+    label: "API key"
+    helper: "Stored per endpoint; leave blank if your endpoint does not require a key."
+  api_type:
     type: string
-    default: "[]"
-    widget: list_detail
-    inline: true
-    label: "Horde Instances"
-    name_field: name
-    item_fields:
-      name:
-        type: string
-        label: "Name"
-      api_key:
-        type: string
-        label: "API Key"
-        widget: password
-      model:
-        type: string
-        label: "Model"
-  ai_temperature:
+    default: chat
+    widget: select
+    label: "API type"
+    options:
+      - value: chat
+        label: "Chat (recommended)"
+      - value: completions
+        label: "Completions (legacy)"
+  openai_compatibility:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: "OpenAI-compatible endpoint"
+    helper: "Disable only if your endpoint does not follow the OpenAI API."
+  temperature:
     type: float
-    default: 0.7
+    default: 0.5
     min: 0.0
     max: 2.0
     widget: slider
     label: "Temperature"
-  ai_max_tokens:
+  chat_max_tokens:
     type: int
-    default: 4096
+    default: 16384
     widget: number
-    label: "Max Tokens"
+    label: "Chat max tokens"
+  chat_context_length:
+    type: int
+    default: 8000
+    widget: number
+    label: "Chat context length (characters)"
+  request_timeout:
+    type: int
+    default: 120
+    widget: number
+    label: "Request timeout (seconds)"
+  additional_instructions:
+    type: string
+    default: ""
+    widget: textarea
+    label: "Additional instructions"

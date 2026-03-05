@@ -12,8 +12,7 @@ except ImportError:
     unohelper = None
 from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
-# from plugin.contrib.default_models import DEFAULT_MODELS
-DEFAULT_MODELS = {}
+from plugin.contrib.default_models import DEFAULT_MODELS, resolve_model_id
 
 
 CONFIG_FILENAME = "localwriter.json"
@@ -38,6 +37,22 @@ ENDPOINT_PRESETS = [
     # ("Modal", "https://your-workspace--endpoint.modal.run/v1"),  # per-deployment URL
     # ("RunPod", "https://api.runpod.ai/v2"),  # verify; often per-endpoint
 ]
+
+# Simple AI settings fields that the Tools → Options \"AI\" page should map
+# directly to top-level config keys (endpoint, model, etc.).
+AI_SIMPLE_FIELDS = {
+    "endpoint",
+    "text_model",
+    "image_model",
+    "api_key",
+    "api_type",
+    "openai_compatibility",
+    "temperature",
+    "chat_max_tokens",
+    "chat_context_length",
+    "request_timeout",
+    "additional_instructions",
+}
 
 
 def _config_path(ctx):
@@ -213,12 +228,14 @@ def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, strict
     
     # Always try to merge DEFAULT_MODELS into the options so they are always choices
     provider = get_provider_from_endpoint(endpoint)
-    if provider and provider in DEFAULT_MODELS:
-        model_type = "image" if "image" in lru_key.lower() else "text"
-        defaults = DEFAULT_MODELS[provider].get(model_type, [])
-        for m in defaults:
-            if m["id"] not in lru:
-                lru.append(m["id"])
+    if provider:
+        req_cap = "image" if "image" in lru_key.lower() else "text"
+        for m in DEFAULT_MODELS:
+            caps = m.get("capability", "text").split(",")
+            if req_cap in caps:
+                effective_id = resolve_model_id(m, provider)
+                if effective_id and effective_id not in lru:
+                    lru.append(effective_id)
 
     curr_val_str = str(current_val).strip()
     to_show = list(lru)
@@ -331,6 +348,32 @@ def populate_endpoint_selector(ctx, ctrl, current_endpoint):
         ctrl.setText(current_url)
 
 
+def get_endpoint_options(services):
+    """Options provider for AI endpoint combobox in Tools → Options.
+
+    Returns presets first (value = URL, label = preset label), followed by
+    any custom endpoints from endpoint_lru (value/label = URL).
+    """
+    ctx = get_ctx()
+    options = []
+    presets = get_endpoint_presets()
+    preset_urls = set()
+    for label, url in presets:
+        url_norm = _normalize_endpoint_url(url)
+        preset_urls.add(url_norm)
+        options.append({"value": url_norm, "label": label})
+
+    lru = get_config(ctx, "endpoint_lru", [])
+    if not isinstance(lru, list):
+        lru = []
+    for url in lru:
+        u = _normalize_endpoint_url(url)
+        if not u or u in preset_urls:
+            continue
+        options.append({"value": u, "label": u})
+    return options
+
+
 def validate_api_config(config):
     """Validate API config dict (from get_api_config). Returns (ok: bool, error_message: str)."""
     endpoint = (config.get("endpoint") or "").strip()
@@ -369,6 +412,46 @@ def set_image_model(ctx, val, update_lru=True):
             update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
     
     notify_config_changed(ctx)
+
+
+def get_text_model_options(services):
+    """Options provider for the simple text model combobox in Tools → Options.
+
+    Uses the per-endpoint model LRU; models are returned as value=ID, label=ID.
+    """
+    ctx = get_ctx()
+    endpoint = get_current_endpoint(ctx)
+    scoped_key = f"model_lru@{endpoint}" if endpoint else "model_lru"
+    lru = get_config(ctx, scoped_key, [])
+    if not isinstance(lru, list):
+        lru = []
+    options = [{"value": "", "label": "(none)"}]
+    for mid in lru:
+        mid_str = str(mid).strip()
+        if not mid_str:
+            continue
+        options.append({"value": mid_str, "label": mid_str})
+    return options
+
+
+def get_image_model_options(services):
+    """Options provider for the simple image model combobox in Tools → Options.
+
+    Uses the per-endpoint image_model_lru; models are returned as value=ID, label=ID.
+    """
+    ctx = get_ctx()
+    endpoint = get_current_endpoint(ctx)
+    scoped_key = f"image_model_lru@{endpoint}" if endpoint else "image_model_lru"
+    lru = get_config(ctx, scoped_key, [])
+    if not isinstance(lru, list):
+        lru = []
+    options = [{"value": "", "label": "(none)"}]
+    for mid in lru:
+        mid_str = str(mid).strip()
+        if not mid_str:
+            continue
+        options.append({"value": mid_str, "label": mid_str})
+    return options
 
 
 def _migrate_api_key_to_map_if_needed(ctx):
@@ -496,7 +579,24 @@ class ConfigService(ServiceBase):
     def get(self, key, default=None, caller_module=None):
         """Get a config value, fallback to defaults."""
         self._check_read_access(key, caller_module)
-        
+
+        # Simple mapping: ai.<field> keys from the AI Options page should read
+        # from the corresponding top-level settings so Tools → Options and the
+        # legacy Settings dialog stay in sync.
+        if key.startswith("ai."):
+            field = key.split(".", 1)[1]
+            if field in AI_SIMPLE_FIELDS:
+                ctx = get_ctx()
+                if field == "endpoint":
+                    return str(
+                        get_config(ctx, "endpoint", "http://127.0.0.1:5000")
+                    ).strip()
+                if field == "api_key":
+                    endpoint = get_current_endpoint(ctx)
+                    return str(get_api_key_for_endpoint(ctx, endpoint) or "")
+                # Other simple fields map 1:1 to top-level keys.
+                return get_config(ctx, field, default)
+
         # Test fallback
         if self._config_path and os.path.exists(self._config_path):
              try:
@@ -517,7 +617,35 @@ class ConfigService(ServiceBase):
         """Set a config value."""
         self._check_write_access(key, caller_module)
         old_value = self.get(key)
-        
+
+        # Simple mapping: ai.<field> keys from the AI Options page should write
+        # into the corresponding top-level settings (endpoint, model, etc.).
+        if key.startswith("ai."):
+            field = key.split(".", 1)[1]
+            if field in AI_SIMPLE_FIELDS:
+                ctx = get_ctx()
+                if field == "endpoint":
+                    resolved = endpoint_from_selector_text(str(value))
+                    if resolved:
+                        set_config(ctx, "endpoint", resolved)
+                elif field == "api_key":
+                    endpoint = get_current_endpoint(ctx)
+                    set_api_key_for_endpoint(ctx, endpoint, value or "")
+                elif field == "image_model":
+                    set_image_model(ctx, value or "", update_lru=True)
+                else:
+                    # Direct 1:1 mapping to top-level key.
+                    set_config(ctx, field, value)
+
+                if self._events and value != old_value:
+                    self._events.emit(
+                        "config:changed",
+                        key=key,
+                        value=value,
+                        old_value=old_value,
+                    )
+                return
+
         # Test fallback
         if self._config_path:
             data = {}
@@ -535,6 +663,21 @@ class ConfigService(ServiceBase):
 
         if self._events and value != old_value:
             self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+
+    def set_batch(self, changes, old_values=None):
+        """Set multiple config values at once. Returns dict of changed keys.
+
+        Used by the generic Options handler; delegates to set() so that
+        ai.<field> keys are also mapped through the simple AI settings layer.
+        """
+        diffs = {}
+        for key, value in (changes or {}).items():
+            before = self.get(key)
+            if value == before:
+                continue
+            self.set(key, value)
+            diffs[key] = (before, value)
+        return diffs
 
     def remove(self, key, caller_module=None):
         """Reset a config key."""

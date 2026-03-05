@@ -38,7 +38,7 @@ def settings_box(ctx, title="", x=None, y=None):
 
     from plugin.framework.logging import agent_log
     import unohelper
-    from com.sun.star.awt import XActionListener, XItemListener
+    from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
     smgr = ctx.getServiceManager()
     field_specs = get_settings_field_specs(ctx)
@@ -72,11 +72,31 @@ def settings_box(ctx, title="", x=None, y=None):
                 elif field["name"] == "endpoint":
                     populate_endpoint_selector(ctx, ctrl, field["value"])
                     if hasattr(ctrl, "addItemListener"):
-                        class EndpointItemListener(unohelper.Base, XItemListener):
+                        class EndpointCombinedListener(unohelper.Base, XItemListener, XTextListener):
                             def __init__(self, dialog, context, combo_ctrl):
                                 self._dlg = dialog
                                 self._ctx = context
                                 self._ctrl = combo_ctrl
+                            
+                            def update_dropdowns(self):
+                                try:
+                                    resolved = endpoint_from_selector_text(self._ctrl.getText())
+                                    if not resolved: return
+                                    text_ctrl = self._dlg.getControl("text_model")
+                                    image_ctrl = self._dlg.getControl("image_model")
+                                    if text_ctrl:
+                                        populate_combobox_with_lru(self._ctx, text_ctrl, get_config(self._ctx, "text_model", "") or get_config(self._ctx, "model", ""), "model_lru", resolved, strict=True)
+                                    if image_ctrl:
+                                        if get_config(self._ctx, "image_provider", "aihorde") == "endpoint":
+                                            populate_combobox_with_lru(self._ctx, image_ctrl, get_image_model(self._ctx), "image_model_lru", resolved, strict=True)
+                                        else:
+                                            populate_image_model_selector(self._ctx, image_ctrl)
+                                    api_key_ctrl = self._dlg.getControl("api_key")
+                                    if api_key_ctrl:
+                                        api_key_ctrl.getModel().Text = get_api_key_for_endpoint(self._ctx, resolved)
+                                except Exception:
+                                    pass
+
                             def itemStateChanged(self, ev):
                                 try:
                                     idx = getattr(ev, "Selected", -1)
@@ -85,25 +105,20 @@ def settings_box(ctx, title="", x=None, y=None):
                                     if item_text:
                                         url = endpoint_from_selector_text(item_text)
                                         if url: self._ctrl.setText(url)
-                                        resolved = endpoint_from_selector_text(self._ctrl.getText())
-                                        if not resolved: return
-                                        text_ctrl = self._dlg.getControl("text_model")
-                                        image_ctrl = self._dlg.getControl("image_model")
-                                        if text_ctrl:
-                                            populate_combobox_with_lru(self._ctx, text_ctrl, get_config(self._ctx, "text_model", "") or get_config(self._ctx, "model", ""), "model_lru", resolved, strict=True)
-                                        if image_ctrl:
-                                            if get_config(self._ctx, "image_provider", "aihorde") == "endpoint":
-                                                populate_combobox_with_lru(self._ctx, image_ctrl, get_image_model(self._ctx), "image_model_lru", resolved, strict=True)
-                                            else:
-                                                populate_image_model_selector(self._ctx, image_ctrl)
-                                        api_key_ctrl = self._dlg.getControl("api_key")
-                                        if api_key_ctrl:
-                                            api_key_ctrl.getModel().Text = get_api_key_for_endpoint(self._ctx, resolved)
+                                        self.update_dropdowns()
                                 except Exception:
                                     pass
+
+                            def textChanged(self, ev):
+                                self.update_dropdowns()
+
                             def disposing(self, ev):
                                 pass
-                        ctrl.addItemListener(EndpointItemListener(dlg, ctx, ctrl))
+                        
+                        listener = EndpointCombinedListener(dlg, ctx, ctrl)
+                        ctrl.addItemListener(listener)
+                        if hasattr(ctrl, "addTextListener"):
+                            ctrl.addTextListener(listener)
                 elif field["name"] == "image_base_size":
                     populate_combobox_with_lru(ctx, ctrl, field["value"], "image_base_size_lru", "")
                 else:
