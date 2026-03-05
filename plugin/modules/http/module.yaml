@@ -1,0 +1,21 @@
+name: http
+title: HTTP / MCP Services
+provides_services: [http_routes]
+requires: [config, events]
+
+config:
+  mcp_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Enable MCP Server
+    helper: Localhost only, no auth. Access via stdio is always enabled.
+    public: true
+  mcp_port:
+    type: int
+    default: 8765
+    min: 1024
+    max: 65535
+    widget: number
+    label: MCP Port
+    public: true

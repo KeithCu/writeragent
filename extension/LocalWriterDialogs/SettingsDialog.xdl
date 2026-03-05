@@ -12,7 +12,7 @@
   <dlg:button dlg:id="btn_tab_image" dlg:left="68" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="Image Settings"/>
 
   <!-- AUTO_GENERATED_TABS -->
-  <dlg:button dlg:id="btn_tab_core" dlg:left="131" dlg:top="5" dlg:width="35" dlg:height="14" dlg:value="Core"/>
+  <dlg:button dlg:id="btn_tab_http" dlg:left="131" dlg:top="5" dlg:width="35" dlg:height="14" dlg:value="Http"/>
   <dlg:button dlg:id="btn_tab_writer" dlg:left="169" dlg:top="5" dlg:width="45" dlg:height="14" dlg:value="Writer"/>
   <dlg:button dlg:id="btn_tab_chatbot" dlg:left="217" dlg:top="5" dlg:width="50" dlg:height="14" dlg:value="Chatbot"/>
   <dlg:button dlg:id="btn_tab_tunnel" dlg:left="270" dlg:top="5" dlg:width="45" dlg:height="14" dlg:value="Tunnel"/>
@@ -47,15 +47,8 @@
   <dlg:text dlg:id="label_additional_instructions" dlg:page="1" dlg:left="8" dlg:top="122" dlg:width="150" dlg:height="10" dlg:value="Additional Instructions:" dlg:align="left"/>
   <dlg:combobox dlg:id="additional_instructions" dlg:page="1" dlg:left="165" dlg:top="120" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
 
-  <!-- MCP Server section -->
-  <dlg:fixedline dlg:id="fixedline_mcp" dlg:page="1" dlg:left="8" dlg:top="138" dlg:width="424" dlg:height="6" dlg:value=""/>
-  <dlg:checkbox dlg:id="mcp_enabled" dlg:page="1" dlg:left="8" dlg:top="146" dlg:width="120" dlg:height="10" dlg:value="Enable MCP Server" dlg:checked="false"/>
-  <dlg:text dlg:id="label_mcp_port" dlg:page="1" dlg:left="140" dlg:top="148" dlg:width="25" dlg:height="10" dlg:value="Port:" dlg:align="left"/>
-  <dlg:textfield dlg:id="mcp_port" dlg:page="1" dlg:left="168" dlg:top="146" dlg:width="40" dlg:height="14" dlg:tabstop="true" dlg:value="8765"/>
-  <dlg:text dlg:id="label_mcp_info" dlg:page="1" dlg:left="220" dlg:top="148" dlg:width="210" dlg:height="10" dlg:value="Localhost only, no auth." dlg:align="left"/>
-
   <!-- Search Settings -->
-  <dlg:checkbox dlg:id="show_search_thinking" dlg:page="1" dlg:left="8" dlg:top="162" dlg:width="150" dlg:height="10" dlg:value="Show Web Search Thinking" dlg:checked="false"/>
+  <dlg:checkbox dlg:id="show_search_thinking" dlg:page="1" dlg:left="8" dlg:top="138" dlg:width="150" dlg:height="10" dlg:value="Show Web Search Thinking" dlg:checked="false"/>
 
 
 
@@ -95,16 +88,10 @@
   <dlg:checkbox dlg:id="image_censor_nsfw" dlg:page="2" dlg:left="120" dlg:top="150" dlg:width="100" dlg:height="10" dlg:value="Censor NSFW" dlg:checked="true"/>
 
   <!-- AUTO_GENERATED_PAGES -->
-  <!-- === Page 3: Core Settings === -->
-  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_core__log_level" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="100" dlg:height="10" dlg:value="Log Level" dlg:align="left" dlg:page="3" />
-  <dlg:combobox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="core__log_level" dlg:tab-index="0" dlg:left="110" dlg:top="26" dlg:width="144" dlg:height="14" dlg:dropdown="true" dlg:spin="true" dlg:border="1" dlg:page="3">
-  <dlg:menupopup>
-    <dlg:menuitem dlg:value="{'value': 'DEBUG', 'label': 'Debug'}" />
-    <dlg:menuitem dlg:value="{'value': 'INFO', 'label': 'Info'}" />
-    <dlg:menuitem dlg:value="{'value': 'WARN', 'label': 'Warning'}" />
-    <dlg:menuitem dlg:value="{'value': 'ERROR', 'label': 'Error'}" />
-  </dlg:menupopup>
-</dlg:combobox>
+  <!-- === Page 3: Http Settings === -->
+  <dlg:checkbox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="http__mcp_enabled" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="120" dlg:height="10" dlg:value="Enable MCP Server" dlg:checked="false" dlg:page="3" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_http__mcp_port" dlg:tab-index="0" dlg:left="8" dlg:top="44" dlg:width="100" dlg:height="10" dlg:value="MCP Port" dlg:align="left" dlg:page="3" />
+  <dlg:numericfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="http__mcp_port" dlg:tab-index="0" dlg:left="110" dlg:top="42" dlg:width="60" dlg:height="14" dlg:spin="true" dlg:page="3" />
 
   <!-- === Page 4: Writer Settings === -->
   <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_writer__max_content_chars" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="100" dlg:height="10" dlg:value="Max Content Size" dlg:align="left" dlg:page="4" />

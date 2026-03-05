@@ -24,31 +24,37 @@ MODULES = [
                 "events",
                 "format"
         ],
+        "config": {},
+        "actions": [],
+        "action_icons": {}
+},
+    {
+        "name": "http",
+        "title": "HTTP / MCP Services",
+        "requires": [
+                "config",
+                "events"
+        ],
+        "provides_services": [
+                "http_routes"
+        ],
         "config": {
-                "log_level": {
-                        "type": "string",
-                        "default": "WARN",
-                        "widget": "select",
-                        "label": "Log Level",
-                        "public": True,
-                        "options": [
-                                {
-                                        "value": "DEBUG",
-                                        "label": "Debug"
-                                },
-                                {
-                                        "value": "INFO",
-                                        "label": "Info"
-                                },
-                                {
-                                        "value": "WARN",
-                                        "label": "Warning"
-                                },
-                                {
-                                        "value": "ERROR",
-                                        "label": "Error"
-                                }
-                        ]
+                "mcp_enabled": {
+                        "type": "boolean",
+                        "default": False,
+                        "widget": "checkbox",
+                        "label": "Enable MCP Server",
+                        "helper": "Localhost only, no auth. Access via stdio is always enabled.",
+                        "public": True
+                },
+                "mcp_port": {
+                        "type": "int",
+                        "default": 8765,
+                        "min": 1024,
+                        "max": 65535,
+                        "widget": "number",
+                        "label": "MCP Port",
+                        "public": True
                 }
         },
         "actions": [],

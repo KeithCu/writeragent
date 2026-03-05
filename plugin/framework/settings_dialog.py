@@ -15,6 +15,20 @@ def get_settings_field_specs(ctx):
         {"name": "openai_compatibility", "value": openai_compatibility_value, "type": "bool"},
         {"name": "temperature", "value": str(get_config(ctx, "temperature", "0.5")), "type": "float"},
         {"name": "seed", "value": str(get_config(ctx, "seed", ""))},
+        {"name": "use_aihorde", "value": "true" if get_config(ctx, "image_provider", "aihorde") == "aihorde" else "false", "type": "bool"},
+        {"name": "aihorde_api_key", "value": str(get_config(ctx, "aihorde_api_key", ""))},
+        {"name": "image_base_size", "value": str(get_config(ctx, "image_base_size", "512")), "type": "int"},
+        {"name": "image_default_aspect", "value": str(get_config(ctx, "image_default_aspect", "Square"))},
+        {"name": "image_cfg_scale", "value": str(get_config(ctx, "image_cfg_scale", "7.5")), "type": "float"},
+        {"name": "image_steps", "value": str(get_config(ctx, "image_steps", "30")), "type": "int"},
+        {"name": "image_nsfw", "value": "true" if as_bool(get_config(ctx, "image_nsfw", False)) else "false", "type": "bool"},
+        {"name": "image_censor_nsfw", "value": "true" if as_bool(get_config(ctx, "image_censor_nsfw", True)) else "false", "type": "bool"},
+        {"name": "image_max_wait", "value": str(get_config(ctx, "image_max_wait", "5")), "type": "int"},
+        {"name": "image_auto_gallery", "value": "true" if as_bool(get_config(ctx, "image_auto_gallery", True)) else "false", "type": "bool"},
+        {"name": "image_insert_frame", "value": "true" if as_bool(get_config(ctx, "image_insert_frame", False)) else "false", "type": "bool"},
+        {"name": "image_translate_prompt", "value": "true" if as_bool(get_config(ctx, "image_translate_prompt", True)) else "false", "type": "bool"},
+        {"name": "image_translate_from", "value": str(get_config(ctx, "image_translate_from", ""))},
+        {"name": "show_search_thinking", "value": "true" if as_bool(get_config(ctx, "show_search_thinking", False)) else "false", "type": "bool"},
     ]
 
     try:
@@ -50,7 +64,7 @@ def apply_settings_result(ctx, result):
     """Apply settings dialog result to config. Shared by Writer and Calc."""
     from plugin.modules.core.services.config import update_lru_history
     # Keys to set directly from result; derived from dialog field specs (exclude specially handled ones)
-    _apply_skip = ("endpoint", "api_key", "use_aihorde", "api_type", "mcp_port")
+    _apply_skip = ("endpoint", "api_key", "use_aihorde", "api_type")
     apply_keys = [f["name"] for f in get_settings_field_specs(ctx) if f["name"] not in _apply_skip]
 
     # Resolve endpoint first so LRU updates use the endpoint being saved
@@ -59,7 +73,7 @@ def apply_settings_result(ctx, result):
         set_config(ctx, "endpoint", effective_endpoint)
     current_endpoint = effective_endpoint or get_current_endpoint(ctx)
 
-    # Set keys from result (endpoint, api_key, use_aihorde, api_type, mcp_port handled below)
+    # Set keys from result (endpoint, api_key, use_aihorde, api_type handled below)
     for key in apply_keys:
         if key in result:
             val = result[key]
@@ -92,14 +106,6 @@ def apply_settings_result(ctx, result):
         if api_type_value not in ("chat", "completions"):
             api_type_value = "completions"
         set_config(ctx, "api_type", api_type_value)
-
-    if "mcp_port" in result:
-        try:
-            port = int(result["mcp_port"])
-            if 1 <= port <= 65535:
-                set_config(ctx, "mcp_port", port)
-        except (TypeError, ValueError):
-            pass
 
     if "api_key" in result:
         set_api_key_for_endpoint(ctx, current_endpoint, result["api_key"])
