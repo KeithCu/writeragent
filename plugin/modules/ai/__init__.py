@@ -47,7 +47,7 @@ class Module(ModuleBase):
                 ))
                 
                 if inst_def.get("image"):
-                    from .providers.openai_image import EndpointImageProvider
+                    from .providers.openai import EndpointImageProvider
                     img_provider = EndpointImageProvider(proxy)
                     ai.register_instance(instance_id + ":image", AiInstance(
                         name=name + " (image)", module_name="ai",
