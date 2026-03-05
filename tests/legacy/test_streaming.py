@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Import; tests patch core.logging and init_logging per test
-from plugin.framework.http import LlmClient, _normalize_message_content
+from plugin.modules.http.client import LlmClient, _normalize_message_content
 
 
 def _make_sse_lines(*chunks, done=True):

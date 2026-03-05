@@ -18,7 +18,7 @@ class HttpModule(ModuleBase):
     """
 
     def initialize(self, services):
-        from plugin.framework.http_routes import HttpRouteRegistry
+        from plugin.modules.http.routes import HttpRouteRegistry
 
         self._registry = HttpRouteRegistry()
         services.register_instance("http_routes", self._registry)
@@ -64,7 +64,7 @@ class HttpModule(ModuleBase):
                 self._unregister_mcp_routes(self._services)
 
     def _start_server(self, services):
-        from plugin.framework.http_server import HttpServer
+        from plugin.modules.http.server import HttpServer
 
         cfg = services.config.proxy_for(self.name)
         event_bus = getattr(services, "events", None)

@@ -2,7 +2,7 @@ import json
 import time
 import ast
 import traceback
-from plugin.framework.http import LlmClient
+from plugin.modules.http.client import LlmClient
 from plugin.modules.core.services.config import get_api_config
 from plugin.framework.logging import debug_log, agent_log
 from plugin.modules.core.services.document import get_document_context_for_chat

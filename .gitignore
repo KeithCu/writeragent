@@ -28,3 +28,9 @@ log.txt
 # Vendor or external components
 libre_calc_ai*/
 loshd*/
+libreoffice-mcp*/
+litellm*/
+langchain*/
+build*/
+vendor*/
+localwriter.egg*/extension/META-INF/manifest.xml

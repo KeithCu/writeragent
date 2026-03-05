@@ -18,7 +18,7 @@ import urllib.parse
 # from com.sun.star.sheet import XAddIn
 from org.extension.localwriter.PromptFunction import XPromptFunction
 from plugin.modules.core.services.config import get_config, get_api_config
-from plugin.framework.http import LlmClient
+from plugin.modules.http.client import LlmClient
 
 # Enable debug logging
 DEBUG = True
@@ -142,7 +142,7 @@ class PromptFunction(unohelper.Base, XPromptFunction):
                     self.client.config = config
                 return self.client.chat_completion_sync(messages, max_tokens=max_tokens)
             except Exception as e:
-                from plugin.framework.http import format_error_for_display
+                from plugin.modules.http.client import format_error_for_display
                 debug_log("PROMPT error: %s" % str(e))
                 return format_error_for_display(e)
         return ""

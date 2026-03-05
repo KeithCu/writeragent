@@ -30,7 +30,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 from plugin.modules.core.translation_tool import opustm_hf_translate, OPUSTM_SOURCE_LANGUAGES  # noqa F401
 
-from plugin.framework.http import sync_request, format_error_message
+from plugin.modules.http.client import sync_request, format_error_message
 from plugin.framework.logging import debug_log, log_exception
 from plugin.framework.constants import USER_AGENT
 

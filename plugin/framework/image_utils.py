@@ -8,7 +8,7 @@ import urllib.parse
 import re
 import base64
 from pathlib import Path
-from plugin.framework.http import sync_request, LlmClient, _format_http_error_response
+from plugin.modules.http.client import sync_request, LlmClient, _format_http_error_response
 from plugin.framework.logging import debug_log
 from plugin.contrib.aihordeclient import AiHordeClient
 

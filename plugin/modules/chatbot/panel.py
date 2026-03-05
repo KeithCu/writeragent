@@ -265,7 +265,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         try:
             debug_log("_do_send: importing core modules...", context="Chat")
             from plugin.modules.core.services.config import get_config, get_api_config, update_lru_history, validate_api_config
-            from plugin.framework.http import LlmClient
+            from plugin.modules.http.client import LlmClient
             from plugin.modules.core.services.document import get_document_context_for_chat, is_calc, is_draw, is_writer
             debug_log("_do_send: core modules imported OK", context="Chat")
         except Exception as e:
@@ -455,7 +455,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                     self._set_status("Stopped")
 
                 def on_error(e):
-                    from plugin.framework.http import format_error_message
+                    from plugin.modules.http.client import format_error_message
                     self._append_response("\n[%s]\n" % format_error_message(e))
                     self._terminal_status = "Error"
                     self._set_status("Error")
@@ -602,7 +602,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
 
     def _run_web_search(self, query_text, model):
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
-        from plugin.framework.http import format_error_message
+        from plugin.modules.http.client import format_error_message
         from plugin.main import get_tools
         from plugin.modules.core.services.document import is_calc, is_draw
 
@@ -981,7 +981,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._append_response("\n[Stopped by user]\n")
 
         def on_error(e):
-            from plugin.framework.http import format_error_message
+            from plugin.modules.http.client import format_error_message
             err_msg = format_error_message(e)
             self._append_response("\n[API error: %s]\n" % err_msg)
             self._terminal_status = "Error"
@@ -1034,7 +1034,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                 self._append_response("\n[Stopped by user]\n")
 
         def on_error(e):
-            from plugin.framework.http import format_error_message
+            from plugin.modules.http.client import format_error_message
             err_msg = format_error_message(e)
             self._append_response("[Error: %s]\n" % err_msg)
             self._terminal_status = "Error"

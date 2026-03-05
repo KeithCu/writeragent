@@ -411,7 +411,7 @@ class EndpointImageProvider(ImageProvider):
 
     @staticmethod
     def _save_url(url):
-        from plugin.framework.http import sync_request
+        from plugin.modules.http.client import sync_request
         with tempfile.NamedTemporaryFile(
                 delete=False, suffix=".webp") as tmp:
             tmp.write(sync_request(url, parse_json=False))

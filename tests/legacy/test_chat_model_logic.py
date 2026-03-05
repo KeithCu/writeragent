@@ -74,7 +74,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.modules.core.config.get_config')
     @patch('plugin.modules.core.config.set_config')
     @patch('plugin.modules.core.config.update_lru_history')
-    @patch('plugin.framework.http.LlmClient')
+    @patch('plugin.modules.http.client.LlmClient')
     def test_do_send_updates_model(self, mock_llm_client, mock_update_lru, mock_set_config, mock_get_config, mock_ensure_path):
         # Setup mocks
         self.query_control.getModel().Text = "Hello AI"

@@ -1,6 +1,6 @@
 """Legacy operations for Writer (Extend/Edit Selection)."""
 from plugin.modules.core.services.config import get_config, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
-from plugin.framework.http import format_error_message
+from plugin.modules.http.client import format_error_message
 from plugin.modules.core.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
 from plugin.framework.uno_context import get_ctx
@@ -28,7 +28,7 @@ def do_extend_selection(ctx, model, input_box_fn):
         msgbox(ctx, "LocalWriter: Extend Selection", err_msg)
         return
 
-    from plugin.framework.http import LlmClient
+    from plugin.modules.http.client import LlmClient
     client = LlmClient(api_config)
 
     def apply_chunk(chunk_text, is_thinking=False):
@@ -74,7 +74,7 @@ def do_edit_selection(ctx, model, input_box_fn):
         msgbox(ctx, "LocalWriter: Edit Selection", err_msg)
         return
 
-    from plugin.framework.http import LlmClient
+    from plugin.modules.http.client import LlmClient
     client = LlmClient(api_config)
 
     text_range.setString("")

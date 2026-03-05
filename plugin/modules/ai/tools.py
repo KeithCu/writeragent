@@ -26,7 +26,7 @@ class WebResearchTool(ToolBase):
         import os
         from urllib.parse import urlparse
         from plugin.modules.core.services.config import get_api_config, get_config, user_config_dir
-        from plugin.framework.http import LlmClient
+        from plugin.modules.http.client import LlmClient
         from plugin.modules.core.smol_model import LocalWriterSmolModel
         from plugin.contrib.smolagents.agents import ToolCallingAgent
         from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool

@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from plugin.framework.http import sync_request
+from plugin.modules.http.client import sync_request
 from plugin.modules.core.services.config import user_config_dir
 from plugin.framework.logging import debug_log
 

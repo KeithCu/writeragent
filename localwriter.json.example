@@ -4,7 +4,7 @@
     "api_key": "",
     "api_type": "chat",
     "is_openwebui": true,
-    "openai_compatibility": false,
+    "openai_compatibility": true,
     "extend_selection_max_tokens": 70,
     "extend_selection_system_prompt": "",
     "edit_selection_max_new_tokens": 0,

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch, mock_open
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugin.framework.image_utils import EndpointImageProvider
-from plugin.framework.http import LlmClient
+from plugin.modules.http.client import LlmClient
 
 class TestEndpointImageProvider(unittest.TestCase):
     def setUp(self):
@@ -189,8 +189,8 @@ class TestEndpointImageProvider(unittest.TestCase):
         kwargs = mock_client.make_image_request.call_args[1]
         self.assertEqual(kwargs.get("source_image"), b64)
 
-    @patch('plugin.framework.http.init_logging')
-    @patch('plugin.framework.http.debug_log')
+    @patch('plugin.modules.http.client.init_logging')
+    @patch('plugin.modules.http.client.debug_log')
     def test_make_image_request_body_includes_image_url_when_source_image(self, mock_debug, mock_init):
         """LlmClient.make_image_request adds image_url (data URL) to body when source_image is provided."""
         config = {"endpoint": "https://api.example.com", "model": "test-model"}

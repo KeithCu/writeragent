@@ -14,7 +14,7 @@ import unohelper
 import officehelper
 
 from plugin.modules.core.services.config import get_config, set_config, as_bool, get_api_config, get_current_endpoint, validate_api_config, populate_combobox_with_lru, update_lru_history, notify_config_changed, populate_image_model_selector, populate_endpoint_selector, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint
-from plugin.framework.http import LlmClient, format_error_message
+from plugin.modules.http.client import LlmClient, format_error_message
 from plugin.framework.uno_helpers import is_checkbox_control, get_checkbox_state, set_checkbox_state
 from plugin.modules.core.services.document import get_full_document_text, get_document_context_for_chat
 from plugin.modules.core.async_stream import run_stream_completion_async

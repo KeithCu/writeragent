@@ -10,7 +10,7 @@
 
 import json
 from urllib.request import Request
-from plugin.framework.http import sync_request
+from plugin.modules.http.client import sync_request
 
 API_TRANSLATE_GRADIO = "https://igortamara-opus-translate.hf.space/call/translate"
 
