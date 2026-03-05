@@ -16,7 +16,7 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 5.  **Font Audit**: "Change all text in 'Comic Sans' to 'Inter'." -> Search and replace formatting.
 
 ### Level 2: Structural Manipulation (Advanced)
-6.  **Table Engineering**: "Convert this comma-separated list into a 2-column table with headers." -> Verify `write_table_cell`.
+6.  **Table Engineering**: "Convert this comma-separated list into a 2-column table with headers." -> Verify `write_table_cells` (2D batch).
 7.  **Markdown Import**: "Replace the second paragraph with a Markdown table from the clipboard." -> Verify `apply_markdown`.
 8.  **TOC Generation**: "Insert a Table of Contents at the start of the document." -> Verify TOC structure nodes.
 9.  **Section Break**: "Insert a section break and set the next page to Landscape orientation." -> Complex layout tool call.

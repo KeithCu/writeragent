@@ -97,15 +97,16 @@ class ReadTable(ToolBase):
         }
 
 
-class WriteTableCell(ToolBase):
-    """Write a value to a specific cell in a Writer table."""
+class WriteTableCells(ToolBase):
+    """Write a 2D block of values to a named Writer table."""
 
-    name = "write_table_cell"
+    name = "write_table_cells"
     intent = "edit"
     description = (
-        "Write a value to a specific cell in a named Writer table. "
-        "Use Excel-style cell references (e.g. 'A1', 'B2'). "
-        "Numeric strings are stored as numbers automatically."
+        "Write a 2D block of values to a named Writer table. "
+        "Data is the same shape as read_table's data (array of rows, each row an array of values). "
+        "Use start_cell (default A1) as the top-left corner. "
+        "Numeric values are stored as numbers; others as text. Ragged rows are allowed."
     )
     parameters = {
         "type": "object",
@@ -114,51 +115,96 @@ class WriteTableCell(ToolBase):
                 "type": "string",
                 "description": "The table name from list_tables.",
             },
-            "cell": {
-                "type": "string",
-                "description": "Cell reference, e.g. 'A1', 'B3'.",
+            "data": {
+                "type": "array",
+                "items": {
+                    "type": "array",
+                    "items": {"oneOf": [{"type": "string"}, {"type": "number"}]},
+                },
+                "description": "2D array of values (same shape as read_table data).",
             },
-            "value": {
+            "start_cell": {
                 "type": "string",
-                "description": "The value to write.",
+                "description": "Top-left cell where data[0][0] is written (default A1).",
             },
         },
-        "required": ["table_name", "cell", "value"],
+        "required": ["table_name", "data"],
     }
     doc_types = ["writer"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        table_name = kwargs.get("table_name", "")
-        cell_ref = kwargs.get("cell", "")
-        value = kwargs.get("value", "")
+        table_name = kwargs.get("table_name", "").strip()
+        data = kwargs.get("data")
+        start_cell = (kwargs.get("start_cell") or "A1").strip().upper()
 
-        if not table_name or not cell_ref:
-            return {"status": "error", "message": "table_name and cell are required."}
+        if not table_name:
+            return {"status": "error", "message": "table_name is required."}
+        if not data or not isinstance(data, list):
+            return {"status": "error", "message": "data must be a non-empty array of rows."}
+        if not any(isinstance(row, list) and len(row) > 0 for row in data):
+            return {"status": "error", "message": "data must contain at least one row with at least one value."}
+
+        parsed = _parse_cell(start_cell)
+        if parsed is None:
+            return {"status": "error", "message": "Invalid start_cell: %s (use Excel-style e.g. A1, B3)." % start_cell}
+        start_row, start_col = parsed
 
         doc = ctx.doc
         tables_sup = doc.getTextTables()
         if not tables_sup.hasByName(table_name):
-            return {"status": "error", "message": "Table '%s' not found." % table_name}
-
-        table = tables_sup.getByName(table_name)
-        cell_obj = table.getCellByName(cell_ref)
-        if cell_obj is None:
+            available = list(tables_sup.getElementNames())
             return {
                 "status": "error",
-                "message": "Cell '%s' not found in table '%s'." % (cell_ref, table_name),
+                "message": "Table '%s' not found." % table_name,
+                "available": available,
             }
 
-        try:
-            cell_obj.setValue(float(value))
-        except (ValueError, TypeError):
-            cell_obj.setString(str(value))
+        table = tables_sup.getByName(table_name)
+        table_rows = table.getRows().getCount()
+        table_cols = table.getColumns().getCount()
+        num_rows = len(data)
+        num_cols = max(len(row) for row in data if isinstance(row, list)) if data else 0
 
+        if start_row + num_rows > table_rows or start_col + num_cols > table_cols:
+            return {
+                "status": "error",
+                "message": "Data block (rows=%d, cols=%d) at %s would exceed table %s dimensions (%d x %d)."
+                % (num_rows, num_cols, start_cell, table_name, table_rows, table_cols),
+                "table_rows": table_rows,
+                "table_cols": table_cols,
+            }
+
+        cells_written = 0
+        for r, row in enumerate(data):
+            if not isinstance(row, list):
+                continue
+            for c, value in enumerate(row):
+                cell_row = start_row + r
+                cell_col = start_col + c
+                cell_ref = _col_letter(cell_col) + str(cell_row + 1)
+                try:
+                    cell_obj = table.getCellByName(cell_ref)
+                    try:
+                        cell_obj.setValue(float(value))
+                    except (ValueError, TypeError):
+                        cell_obj.setString(str(value))
+                    cells_written += 1
+                except Exception as e:
+                    log.warning("write_table_cells: failed to write %s: %s", cell_ref, e)
+                    return {
+                        "status": "error",
+                        "message": "Failed to write cell %s: %s" % (cell_ref, e),
+                        "cells_written": cells_written,
+                    }
+
+        end_cell = _col_letter(start_col + num_cols - 1) + str(start_row + num_rows)
         return {
             "status": "ok",
-            "table": table_name,
-            "cell": cell_ref,
-            "value": value,
+            "table_name": table_name,
+            "cells_written": cells_written,
+            "start_cell": start_cell,
+            "end_cell": end_cell,
         }
 
 
@@ -270,6 +316,33 @@ class CreateTable(ToolBase):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+def _parse_cell(ref):
+    """Parse Excel-style cell reference to 0-based (row, col). Returns None if invalid.
+
+    Examples: A1 -> (0, 0), B3 -> (2, 1), AA10 -> (9, 26).
+    """
+    if not ref or not isinstance(ref, str):
+        return None
+    ref = ref.strip().upper()
+    if not ref:
+        return None
+    i = 0
+    while i < len(ref) and ref[i].isalpha():
+        i += 1
+    col_letters = ref[:i]
+    row_digits = ref[i:]
+    if not col_letters or not row_digits or not row_digits.isdigit():
+        return None
+    col_0 = 0
+    for ch in col_letters:
+        col_0 = col_0 * 26 + (ord(ch) - ord("A") + 1)
+    col_0 -= 1
+    row_0 = int(row_digits) - 1
+    if row_0 < 0 or col_0 < 0:
+        return None
+    return (row_0, col_0)
+
 
 def _col_letter(c):
     """Convert 0-based column index to Excel-style letter(s)."""

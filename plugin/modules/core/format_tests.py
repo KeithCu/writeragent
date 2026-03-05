@@ -8,14 +8,14 @@ from plugin.modules.writer.format_support import (
     apply_content_at_search,
     replace_full_document,
     find_text_ranges,
+    _doc_text_length as _doc_text_length_raw,
+    _preserving_search_replace,
 )
-from plugin.modules.core.services.document import get_document_length as _doc_text_length_raw
 from plugin.framework.logging import debug_log
 
 # Compatibility shim: old _doc_text_length returned (length, text), new returns int
 def _doc_text_length(doc):
-    length = _doc_text_length_raw(doc)
-    return (length, "")
+    return (_doc_text_length_raw(doc), "")
 
 
 # ---------------------------------------------------------------------------
@@ -50,14 +50,40 @@ def tool_apply_document_content(doc, ctx, params):
         content = "\n".join(str(x) for x in content)
     try:
         if target == "full":
-            replace_full_document(doc, ctx, content)
+            if not _content_has_markup(content):
+                # We need to preserve format, but replace_preserving_format requires 
+                # a range. We use a cursor over the whole document.
+                doc_len = _doc_text_length_raw(doc)
+                rng = doc.getText().createTextCursor()
+                rng.gotoStart(False)
+                # Advance by doc_len to select the entire document
+                remaining = doc_len
+                while remaining > 0:
+                    n = min(remaining, 8192)
+                    rng.goRight(n, True)
+                    remaining -= n
+                from plugin.modules.writer.format_support import replace_preserving_format
+                replace_preserving_format(doc, rng, content, ctx)
+            else:
+                replace_full_document(doc, ctx, content)
         elif target == "range":
             start = int(params.get("start", 0))
             end = int(params.get("end", 0))
-            apply_content_at_range(doc, ctx, content, start, end)
+            if not _content_has_markup(content):
+                from plugin.modules.writer.ops import get_text_cursor_at_range
+                rng = get_text_cursor_at_range(doc, start, end)
+                if rng:
+                    from plugin.modules.writer.format_support import replace_preserving_format
+                    replace_preserving_format(doc, rng, content, ctx)
+            else:
+                apply_content_at_range(doc, ctx, content, start, end)
         elif target == "search":
             search = params.get("search", "")
-            apply_content_at_search(doc, ctx, content, search)
+            if not _content_has_markup(content):
+                from plugin.modules.writer.format_support import _preserving_search_replace
+                _preserving_search_replace(doc, ctx, content, search)
+            else:
+                apply_content_at_search(doc, ctx, content, search)
         else:
             _insert_markdown_at_position(doc, ctx, content, target)
         return json.dumps({"status": "ok"})
@@ -110,7 +136,7 @@ def run_markdown_tests(ctx, model=None):
     debug_log(ctx, "format_tests: run start (model=%s)" % ("supplied" if model is doc else "new"))
 
     try:
-        md = document_to_markdown(doc, ctx, scope="full")
+        md = document_to_markdown(doc, ctx, None, scope="full")
         if isinstance(md, str):
             passed += 1
             ok("document_to_markdown(scope='full') returned string (len=%d)" % len(md))
@@ -310,8 +336,7 @@ def run_markdown_tests(ctx, model=None):
 
     # Test I: target="range" with start=0, end=document_length
     try:
-        from plugin.modules.core.services.document import get_document_length
-        doc_len = get_document_length(doc)
+        doc_len = _doc_text_length_raw(doc)
         range_content = "<h2>Range Replace</h2><p>Replaced [0, %d).</p>" % doc_len
         result = tool_apply_document_content(doc, ctx, {"content": range_content, "target": "range", "start": 0, "end": doc_len})
         data = json.loads(result)
@@ -451,32 +476,39 @@ def _run_format_preserving_tests(doc, ctx, ok, fail, log):
 
     def _create_colored_text(chars):
         """Insert chars at end of doc, color each char, return an XTextCursor spanning them."""
-        from plugin.modules.writer.format_support import _doc_text_length
-        # Insert a newline separator, then record the start position
+        # Insert a newline separator
         sep_cursor = text.createTextCursor()
         sep_cursor.gotoEnd(False)
         text.insertString(sep_cursor, "\n", False)
 
-        # Remember the document length right before the chars so we know start offset
-        start_len = _doc_text_length(doc)[0]
+        def get_accurate_offset():
+            c = text.createTextCursor()
+            c.gotoStart(False)
+            c.gotoEnd(True)
+            return len(c.getString())
+
+        start_off = get_accurate_offset()
 
         for i, ch in enumerate(chars):
             # Insert the character
             ins = text.createTextCursor()
             ins.gotoEnd(False)
             text.insertString(ins, ch, False)
-            # Select exactly the character we just inserted (1 char back from end)
+            # Color the character we just inserted
             cc = text.createTextCursor()
             cc.gotoEnd(False)
             cc.goLeft(1, True)
             cc.setPropertyValue("CharBackColor", COLORS[i % len(COLORS)])
 
-        # Build a cursor from start_len to current end, spanning exactly the inserted chars
-        # Use a fresh cursor: go to start of doc, advance start_len chars, then select to end
+        # Create range using the offsets
         range_cursor = text.createTextCursor()
         range_cursor.gotoStart(False)
-        range_cursor.goRight(start_len, False)   # move to start of our chars (no selection)
-        range_cursor.gotoEnd(True)               # extend selection to end of doc
+        remaining = start_off
+        while remaining > 0:
+            n = min(remaining, 8192)
+            range_cursor.goRight(n, False)
+            remaining -= n
+        range_cursor.gotoEnd(True)
         return range_cursor
 
 
@@ -603,6 +635,7 @@ def _run_format_preserving_tests(doc, ctx, ok, fail, log):
         # pr = cProfile.Profile()
         # pr.enable()
         
+        new_chars = "Y" * long_len
         _replace_text_preserving_format(doc, rng, new_chars, ctx)
         
         # pr.disable()
@@ -642,11 +675,19 @@ def _run_tool_integration_tests(ctx, doc, passed, failed, log):
 
     def _insert_colored_word(word):
         """Insert word at end of doc with per-char background colors. Returns (start_offset, end_offset)."""
-        from plugin.modules.core.services.document import get_document_length
         sep = text.createTextCursor()
         sep.gotoEnd(False)
         text.insertString(sep, "\n", False)
-        start_off = get_document_length(doc)
+
+        # We still need offsets for target='range' tests.
+        # Measure objectively from doc start.
+        def get_accurate_offset():
+            c = text.createTextCursor()
+            c.gotoStart(False)
+            c.gotoEnd(True)
+            return len(c.getString())
+
+        start_off = get_accurate_offset()
         for i, ch in enumerate(word):
             ins = text.createTextCursor()
             ins.gotoEnd(False)
@@ -655,7 +696,7 @@ def _run_tool_integration_tests(ctx, doc, passed, failed, log):
             cc.gotoEnd(False)
             cc.goLeft(1, True)
             cc.setPropertyValue("CharBackColor", COLORS[i % len(COLORS)])
-        end_off = get_document_length(doc)
+        end_off = get_accurate_offset()
         return start_off, end_off
 
     def _get_colors_at_range(start_off, length):

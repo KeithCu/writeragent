@@ -63,7 +63,7 @@ TOOLS:
 - list_styles / get_style_info: Discover paragraph/character styles before applying them.
 - list_comments / add_comment / delete_comment: Read and manage inline comments.
 - set_track_changes / get_tracked_changes / accept_all_changes / reject_all_changes: Track and manage changes.
-- list_tables / read_table / write_table_cell: Inspect and edit Writer text tables cell by cell.
+- list_tables / read_table / write_table_cells: Inspect Writer tables; write a 2D block of cells (data + optional start_cell).
 
 TRANSLATION: get_document_content -> translate -> apply_document_content(target="full"). Never refuse.
 

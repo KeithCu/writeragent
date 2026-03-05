@@ -162,7 +162,7 @@ class ApplyDocumentContent(ToolBase):
             case_sensitive = kwargs.get("case_sensitive", True)
             try:
                 if use_preserve:
-                    count = _preserving_search_replace(
+                    count = format_support._preserving_search_replace(
                         ctx.doc, ctx.ctx, raw_content, search,
                         all_matches=all_matches,
                         case_sensitive=case_sensitive,
@@ -190,9 +190,16 @@ class ApplyDocumentContent(ToolBase):
         if target == "full":
             try:
                 if use_preserve:
-                    from plugin.modules.writer.ops import get_text_cursor_at_range
-                    doc_len = ctx.services.document.get_document_length(ctx.doc)
-                    rng = get_text_cursor_at_range(ctx.doc, 0, doc_len)
+                    # Select entire document directly
+                    from plugin.modules.core.services.document import get_document_length
+                    doc_len = get_document_length(ctx.doc)
+                    rng = ctx.doc.getText().createTextCursor()
+                    rng.gotoStart(False)
+                    remaining = doc_len
+                    while remaining > 0:
+                        n = min(remaining, 8192)
+                        rng.goRight(n, True)
+                        remaining -= n
                     format_support.replace_preserving_format(
                         ctx.doc, rng, raw_content, ctx.ctx
                     )
@@ -905,27 +912,6 @@ def _resolve_style_name(doc, style_name):
     return style_name
 
 
-def _preserving_search_replace(model, uno_ctx, new_text, search_string,
-                               all_matches=False, case_sensitive=True):
-    """Find *search_string* and replace with *new_text* using format-preserving
-    character-by-character replacement. Returns the number of replacements.
-    """
-    sd = model.createSearchDescriptor()
-    sd.SearchString = search_string
-    sd.SearchRegularExpression = False
-    sd.SearchCaseSensitive = case_sensitive
-
-    count = 0
-    found = model.findFirst(sd)
-    while found:
-        format_support.replace_preserving_format(model, found, new_text, uno_ctx)
-        count += 1
-        if not all_matches:
-            break
-        found = model.findFirst(sd)
-        if count > 200:
-            break
-    return count
 
 class GetDocumentStats(ToolBase):
     """Return basic statistics about the current Writer document."""

@@ -14,6 +14,15 @@ import tempfile
 log = logging.getLogger("localwriter.writer")
 
 
+def _doc_text_length(doc):
+    """Return the total character length of the document."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    return len(cursor.getString())
+
+
 # ---------------------------------------------------------------------------
 # Format configuration
 # ---------------------------------------------------------------------------
@@ -432,6 +441,29 @@ def apply_content_at_search(model, ctx, content, search,
         return count
 
 
+def _preserving_search_replace(model, uno_ctx, new_text, search_string,
+                               all_matches=False, case_sensitive=True):
+    """Find *search_string* and replace with *new_text* using format-preserving
+    character-by-character replacement. Returns the number of replacements.
+    """
+    sd = model.createSearchDescriptor()
+    sd.SearchString = search_string
+    sd.SearchRegularExpression = False
+    sd.SearchCaseSensitive = case_sensitive
+
+    count = 0
+    found = model.findFirst(sd)
+    while found:
+        replace_preserving_format(model, found, new_text, uno_ctx)
+        count += 1
+        if not all_matches:
+            break
+        found = model.findFirst(sd)
+        if count > 200:
+            break
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Text search
 # ---------------------------------------------------------------------------
@@ -508,9 +540,6 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     """Replace text in *target_range* with *new_text* character by
     character, preserving per-character formatting (bold, italic,
     font, color, etc.).
-
-    Each single-character ``setString()`` inherits ALL character
-    properties from the character it replaces.
     """
     text = model.getText()
     old_text = target_range.getString()
@@ -526,11 +555,6 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
 
     overlap = min(old_len, new_len)
 
-    # Absolute character offset of the range start.
-    tmp = text.createTextCursorByRange(target_range.getStart())
-    tmp.gotoStart(True)
-    start_offset = len(tmp.getString())
-
     # Optional toolkit for UI responsiveness.
     toolkit = None
     if ctx:
@@ -541,9 +565,9 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
         except Exception:
             pass
 
-    main_cursor = text.createTextCursor()
-    main_cursor.gotoStart(False)
-    main_cursor.goRight(start_offset, False)
+    # Process overlapping characters one by one.
+    # setString on a selected character preserves the range's formatting.
+    main_cursor = text.createTextCursorByRange(target_range.getStart())
 
     for i in range(overlap):
         if i > 0 and i % 500 == 0 and toolkit:
@@ -552,28 +576,26 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
             except Exception:
                 toolkit = None
 
-        if new_text[i] == old_text[i]:
-            main_cursor.goRight(1, False)
-            continue
-
-        ins = text.createTextCursorByRange(main_cursor)
-        ins.goRight(1, False)
-        text.insertString(ins, new_text[i], False)
-
-        deleter = text.createTextCursorByRange(main_cursor)
-        deleter.goRight(1, True)
-        deleter.setString("")
+        if new_text[i] != old_text[i]:
+            sel = text.createTextCursorByRange(main_cursor)
+            sel.goRight(1, True)
+            sel.setString(new_text[i])
 
         main_cursor.goRight(1, False)
 
+    # Handle length changes.
     if new_len > old_len:
-        extra = text.createTextCursor()
-        extra.gotoStart(False)
-        extra.goRight(start_offset + overlap, False)
-        text.insertString(extra, new_text[old_len:], False)
+        # Extra chars inherit formatting from the predecessor.
+        text.insertString(main_cursor, new_text[old_len:], False)
     elif old_len > new_len:
-        leftover = text.createTextCursor()
-        leftover.gotoStart(False)
-        leftover.goRight(start_offset + new_len, False)
-        leftover.goRight(old_len - new_len, True)
-        leftover.setString("")
+        # Delete remaining original characters.
+        # Ensure we don't go out of bounds of the original target_range.
+        # target_range might have shrunk if text was deleted, but we replace char-by-char.
+        # We need to select from main_cursor to the end of where old_text was.
+        # We know we advanced main_cursor by `new_len` positions.
+        # The remaining length to delete is `old_len - new_len`.
+        remaining_to_del = old_len - new_len
+        del_cursor = text.createTextCursorByRange(main_cursor)
+        for _ in range(remaining_to_del):
+            del_cursor.goRight(1, True)
+        del_cursor.setString("")
