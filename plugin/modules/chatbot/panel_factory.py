@@ -23,7 +23,7 @@ if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 
 from plugin.framework.logging import agent_log, debug_log, update_activity_state, start_watchdog_thread, init_logging
-from plugin.modules.chatbot.streaming import run_stream_completion_async, run_stream_drain_loop
+from plugin.modules.core.async_stream import run_stream_completion_async, run_stream_drain_loop
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.uno_helpers import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state
 

@@ -118,7 +118,7 @@ class ChatbotModule(ModuleBase):
     def _extend_writer(self, ctx, doc, provider):
         """Extend selection in a Writer document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.chatbot.streaming import run_stream_async
+        from plugin.modules.core.async_stream import run_stream_async
 
         try:
             selection = doc.CurrentController.getSelection()
@@ -163,7 +163,7 @@ class ChatbotModule(ModuleBase):
     def _extend_calc(self, ctx, doc, provider):
         """Extend selection in a Calc document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.chatbot.streaming import run_stream_async
+        from plugin.modules.core.async_stream import run_stream_async
 
         try:
             sheet = doc.CurrentController.ActiveSheet
@@ -277,7 +277,7 @@ class ChatbotModule(ModuleBase):
     def _edit_writer(self, ctx, doc, provider):
         """Edit selection in a Writer document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.chatbot.streaming import run_stream_async
+        from plugin.modules.core.async_stream import run_stream_async
 
         try:
             selection = doc.CurrentController.getSelection()
@@ -344,7 +344,7 @@ class ChatbotModule(ModuleBase):
     def _edit_calc(self, ctx, doc, provider):
         """Edit selection in a Calc document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.chatbot.streaming import run_stream_async
+        from plugin.modules.core.async_stream import run_stream_async
 
         try:
             sheet = doc.CurrentController.ActiveSheet

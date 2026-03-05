@@ -1,7 +1,7 @@
 """Legacy operations for Writer (Extend/Edit Selection)."""
 from plugin.modules.core.services.config import get_config, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
 from plugin.framework.http import format_error_message
-from plugin.modules.chatbot.streaming import run_stream_completion_async
+from plugin.modules.core.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
 from plugin.framework.uno_context import get_ctx
 

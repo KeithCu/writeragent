@@ -17,7 +17,7 @@ from plugin.modules.core.services.config import get_config, set_config, as_bool,
 from plugin.framework.http import LlmClient, format_error_message
 from plugin.framework.uno_helpers import is_checkbox_control, get_checkbox_state, set_checkbox_state
 from plugin.modules.core.services.document import get_full_document_text, get_document_context_for_chat
-from plugin.modules.chatbot.streaming import run_stream_completion_async
+from plugin.modules.core.async_stream import run_stream_completion_async
 from plugin.framework.logging import agent_log, init_logging
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from com.sun.star.task import XJobExecutor

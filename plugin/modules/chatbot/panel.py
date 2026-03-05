@@ -16,7 +16,7 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.logging import agent_log, debug_log, update_activity_state
 from plugin.framework.uno_helpers import get_checkbox_state
-from plugin.modules.chatbot.streaming import run_stream_completion_async, run_stream_drain_loop
+from plugin.modules.core.async_stream import run_stream_completion_async, run_stream_drain_loop
 
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
@@ -813,230 +813,189 @@ class SendButtonListener(unohelper.Base, XActionListener):
         supports_status = ("status_callback" in sig.parameters or "kwargs" in sig.parameters)
 
         # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
-        thinking_open = False
-
-        def flush_thinking():
-            nonlocal thinking_open
-            if thinking_open:
-                self._append_response(" /thinking\n")
-                thinking_open = False
+        thinking_open = [False]
 
         # --- Kick off the first LLM stream ---
         self._spawn_llm_worker(q, client, max_tokens, tools, round_num)
 
-        # ===================================================================
-        # MAIN EVENT LOOP — replaces run_stream_drain_loop + all callbacks
-        # ===================================================================
-        while True:
-            # --- Drain queue with timeout (keeps UI alive) ---
-            items = []
-            try:
-                items.append(q.get(timeout=0.1))
-                # Batch any additional items that arrived
-                try:
-                    while True:
-                        items.append(q.get_nowait())
-                except queue.Empty:
-                    pass
-            except queue.Empty:
-                toolkit.processEventsToIdle()
-                continue
+        def on_stream_done(item):
+            nonlocal round_num, pending_tools
+            # item can be ('stream_done', response) or ('tool_done', ...) or ('final_done', ...) or ('next_tool',)
+            kind = item[0] if isinstance(item, (tuple, list)) else item
+            data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
 
-            for item in items:
-                kind = item[0]
+            if kind == "stream_done":
+                response = data
+                tool_calls = response.get("tool_calls")
+                if isinstance(tool_calls, list) and len(tool_calls) == 0:
+                    tool_calls = None
+                content = response.get("content")
+                finish_reason = response.get("finish_reason")
 
-                # --- Content chunks from LLM stream ---
-                if kind == "chunk":
-                    flush_thinking()
-                    self._append_response(item[1])
+                agent_log("chat_panel.py:tool_round", "Tool loop round response",
+                          data={"round": round_num, "has_tool_calls": bool(tool_calls),
+                                "num_tool_calls": len(tool_calls) if tool_calls else 0},
+                          hypothesis_id="A")
 
-                # --- Thinking/reasoning tokens ---
-                elif kind == "thinking":
-                    if not thinking_open:
-                        self._append_response("[Thinking] ")
-                        thinking_open = True
-                    self._append_response(item[1])
-
-                # --- Status updates ---
-                elif kind == "status":
-                    self._set_status(item[1])
-
-                # --- LLM stream finished (may have tool_calls) ---
-                elif kind == "stream_done":
-                    flush_thinking()
-                    response = item[1]
-                    tool_calls = response.get("tool_calls")
-                    if isinstance(tool_calls, list) and len(tool_calls) == 0:
-                        tool_calls = None
-                    content = response.get("content")
-                    finish_reason = response.get("finish_reason")
-
-                    agent_log("chat_panel.py:tool_round", "Tool loop round response",
-                              data={"round": round_num, "has_tool_calls": bool(tool_calls),
-                                    "num_tool_calls": len(tool_calls) if tool_calls else 0},
-                              hypothesis_id="A")
-
-                    # --- No tool calls: conversation is done ---
-                    if not tool_calls:
-                        agent_log("chat_panel.py:exit_no_tools", "Exiting loop: no tool_calls",
-                                  data={"round": round_num}, hypothesis_id="A")
-                        if content:
-                            debug_log("Tool loop: Adding assistant message to session", context="Chat")
-                            self.session.add_assistant_message(content=content)
-                            self._append_response("\n")
-                        elif finish_reason == "length":
-                            self._append_response(
-                                "\n[Response truncated -- the model ran out of tokens...]\n")
-                        elif finish_reason == "content_filter":
-                            self._append_response("\n[Content filter: response was truncated.]\n")
-                        else:
-                            self._append_response(
-                                "\n[No text from model; any tool changes were still applied.]\n")
-                        self._terminal_status = "Ready"
-                        self._set_status("Ready")
-                        return  # EXIT the event loop
-                    # --- Has tool calls: queue them up ---
-                    self.session.add_assistant_message(content=content, tool_calls=tool_calls)
+                # --- No tool calls: conversation is done ---
+                if not tool_calls:
+                    agent_log("chat_panel.py:exit_no_tools", "Exiting loop: no tool_calls",
+                              data={"round": round_num}, hypothesis_id="A")
                     if content:
+                        debug_log("Tool loop: Adding assistant message to session", context="Chat")
+                        self.session.add_assistant_message(content=content)
                         self._append_response("\n")
-
-                    pending_tools.extend(tool_calls)
-                    q.put(("next_tool",))
-
-                # --- Dispatch next tool ---
-                elif kind == "next_tool":
-                    if not pending_tools or self.stop_requested:
-                        # --- Advance to next round ---
-                        if not self.stop_requested:
-                            self._set_status("Sending results to AI...")
-                        round_num += 1
-                        if round_num >= max_tool_rounds:
-                            agent_log("chat_panel.py:exit_exhausted",
-                                      "Exiting loop: exhausted max_tool_rounds",
-                                      data={"rounds": max_tool_rounds}, hypothesis_id="A")
-                            self._spawn_final_stream(q, client, max_tokens)
-                        else:
-                            self._spawn_llm_worker(q, client, max_tokens, tools, round_num)
-                        continue
-
-                    tc = pending_tools.pop(0)
-                    func_name = tc.get("function", {}).get("name", "unknown")
-                    func_args_str = tc.get("function", {}).get("arguments", "{}")
-                    call_id = tc.get("id", "")
-
-                    self._set_status("Running: %s" % func_name)
-                    update_activity_state("tool_execute", round_num=round_num, tool_name=func_name)
-
-                    try:
-                        func_args = json.loads(func_args_str)
-                    except (json.JSONDecodeError, TypeError):
-                        try:
-                            import ast
-                            func_args = ast.literal_eval(func_args_str)
-                            if not isinstance(func_args, dict):
-                                func_args = {}
-                        except Exception:
-                            func_args = {}
-
-                    agent_log("chat_panel.py:tool_execute", "Executing tool",
-                              data={"tool": func_name, "round": round_num}, hypothesis_id="C,D,E")
-                    debug_log("Tool call: %s(%s)" % (func_name, func_args_str), context="Chat")
-
-                    image_model_override = self.image_model_selector.getText() if self.image_model_selector else None
-                    if image_model_override and func_name in ("generate_image", "edit_image"):
-                        func_args["image_model"] = image_model_override
-
-                    def tool_status_callback(msg):
-                        q.put(("status", msg))
-
-                    if func_name in ASYNC_TOOLS:
-                        # --- ASYNC EXECUTION ---
-                        def run_async():
-                            try:
-                                def tool_thinking_callback(msg):
-                                    q.put(("tool_thinking", msg))
-                                
-                                if supports_status:
-                                    res = execute_tool_fn(func_name, func_args, model, self.ctx,
-                                                          status_callback=tool_status_callback,
-                                                          append_thinking_callback=tool_thinking_callback,
-                                                          stop_checker=lambda: self.stop_requested)
-                                else:
-                                    res = execute_tool_fn(func_name, func_args, model, self.ctx,
-                                                         stop_checker=lambda: self.stop_requested)
-                                q.put(("tool_done", call_id, func_name, func_args_str, res))
-                            except Exception as e:
-                                q.put(("tool_done", call_id, func_name, func_args_str, json.dumps({"status": "error", "message": str(e)})))
-                        
-                        threading.Thread(target=run_async, daemon=True).start()
+                    elif finish_reason == "length":
+                        self._append_response(
+                            "\n[Response truncated -- the model ran out of tokens...]\n")
+                    elif finish_reason == "content_filter":
+                        self._append_response("\n[Content filter: response was truncated.]\n")
                     else:
-                        # --- SYNC EXECUTION (UNO tools) ---
+                        self._append_response(
+                            "\n[No text from model; any tool changes were still applied.]\n")
+                    self._terminal_status = "Ready"
+                    self._set_status("Ready")
+                    return True  # EXIT the drain loop
+
+                # --- Has tool calls: queue them up ---
+                self.session.add_assistant_message(content=content, tool_calls=tool_calls)
+                if content:
+                    self._append_response("\n")
+
+                pending_tools.extend(tool_calls)
+                q.put(("next_tool",))
+                return False
+
+            elif kind == "next_tool":
+                if not pending_tools or self.stop_requested:
+                    # --- Advance to next round ---
+                    if not self.stop_requested:
+                        self._set_status("Sending results to AI...")
+                    round_num += 1
+                    if round_num >= max_tool_rounds:
+                        agent_log("chat_panel.py:exit_exhausted",
+                                  "Exiting loop: exhausted max_tool_rounds",
+                                  data={"rounds": max_tool_rounds}, hypothesis_id="A")
+                        self._spawn_final_stream(q, client, max_tokens)
+                    else:
+                        self._spawn_llm_worker(q, client, max_tokens, tools, round_num)
+                    return False
+
+                tc = pending_tools.pop(0)
+                func_name = tc.get("function", {}).get("name", "unknown")
+                func_args_str = tc.get("function", {}).get("arguments", "{}")
+                call_id = tc.get("id", "")
+
+                self._set_status("Running: %s" % func_name)
+                update_activity_state("tool_execute", round_num=round_num, tool_name=func_name)
+
+                try:
+                    func_args = json.loads(func_args_str)
+                except (json.JSONDecodeError, TypeError):
+                    try:
+                        import ast
+                        func_args = ast.literal_eval(func_args_str)
+                        if not isinstance(func_args, dict):
+                            func_args = {}
+                    except Exception:
+                        func_args = {}
+
+                agent_log("chat_panel.py:tool_execute", "Executing tool",
+                          data={"tool": func_name, "round": round_num}, hypothesis_id="C,D,E")
+                debug_log("Tool call: %s(%s)" % (func_name, func_args_str), context="Chat")
+
+                image_model_override = self.image_model_selector.getText() if self.image_model_selector else None
+                if image_model_override and func_name in ("generate_image", "edit_image"):
+                    func_args["image_model"] = image_model_override
+
+                def tool_status_callback(msg):
+                    q.put(("status", msg))
+
+                if func_name in ASYNC_TOOLS:
+                    # --- ASYNC EXECUTION ---
+                    def run_async():
                         try:
+                            def tool_thinking_callback(msg):
+                                q.put(("tool_thinking", msg))
+                            
                             if supports_status:
                                 res = execute_tool_fn(func_name, func_args, model, self.ctx,
-                                                      status_callback=tool_status_callback)
+                                                      status_callback=tool_status_callback,
+                                                      append_thinking_callback=tool_thinking_callback,
+                                                      stop_checker=lambda: self.stop_requested)
                             else:
-                                res = execute_tool_fn(func_name, func_args, model, self.ctx)
+                                res = execute_tool_fn(func_name, func_args, model, self.ctx,
+                                                     stop_checker=lambda: self.stop_requested)
                             q.put(("tool_done", call_id, func_name, func_args_str, res))
                         except Exception as e:
                             q.put(("tool_done", call_id, func_name, func_args_str, json.dumps({"status": "error", "message": str(e)})))
-
-                # --- Tool finished ---
-                elif kind == "tool_done":
-                    call_id, func_name, func_args_str, result = item[1], item[2], item[3], item[4]
                     
-                    debug_log("Tool result: %s" % result, context="Chat")
+                    threading.Thread(target=run_async, daemon=True).start()
+                else:
+                    # --- SYNC EXECUTION (UNO tools) ---
                     try:
-                        result_data = json.loads(result)
-                        note = result_data.get("message", result_data.get("status", "done"))
-                    except Exception:
-                        note = "done"
-                    self._append_response("[%s: %s]\n" % (func_name, note))
-                    if (func_name == "apply_document_content"
-                            and (note or "").strip().startswith("Replaced 0 occurrence")):
-                        params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
-                        self._append_response("[Debug: params %s]\n" % params_display)
-                    self.session.add_tool_result(call_id, result)
+                        if supports_status:
+                            res = execute_tool_fn(func_name, func_args, model, self.ctx,
+                                                  status_callback=tool_status_callback)
+                        else:
+                            res = execute_tool_fn(func_name, func_args, model, self.ctx)
+                        q.put(("tool_done", call_id, func_name, func_args_str, res))
+                    except Exception as e:
+                        q.put(("tool_done", call_id, func_name, func_args_str, json.dumps({"status": "error", "message": str(e)})))
+                return False
 
-                    # Trigger next tool
-                    q.put(("next_tool",))
+            elif kind == "tool_done":
+                call_id, func_name, func_args_str, result = item[1], item[2], item[3], item[4]
+                
+                debug_log("Tool result: %s" % result, context="Chat")
+                try:
+                    result_data = json.loads(result)
+                    note = result_data.get("message", result_data.get("status", "done"))
+                except Exception:
+                    note = "done"
+                self._append_response("[%s: %s]\n" % (func_name, note))
+                if (func_name == "apply_document_content"
+                        and (note or "").strip().startswith("Replaced 0 occurrence")):
+                    params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
+                    self._append_response("[Debug: params %s]\n" % params_display)
+                self.session.add_tool_result(call_id, result)
 
-                # --- Async tool thinking (e.g. web search reasoning steps) ---
-                elif kind == "tool_thinking":
-                    if show_search_thinking:
-                        self._append_response(item[1])
+                # Trigger next tool
+                q.put(("next_tool",))
+                return False
 
-                # --- Final stream completed (no-tools follow-up) ---
-                elif kind == "final_done":
-                    flush_thinking()
-                    final_content = item[1]
-                    if final_content:
-                        self.session.add_assistant_message(content=final_content)
-                        self._append_response("\n")
-                    self._terminal_status = "Ready"
-                    self._set_status("Ready")
-                    return  # EXIT the event loop
+            elif kind == "final_done":
+                final_content = data
+                if final_content:
+                    self.session.add_assistant_message(content=final_content)
+                    self._append_response("\n")
+                self._terminal_status = "Ready"
+                self._set_status("Ready")
+                return True
 
-                # --- User pressed Stop ---
-                elif kind == "stopped":
-                    flush_thinking()
-                    self._terminal_status = "Stopped"
-                    self._set_status("Stopped")
-                    self._append_response("\n[Stopped by user]\n")
-                    return  # EXIT the event loop
+            return False
 
-                # --- Error from background thread ---
-                elif kind == "error":
-                    flush_thinking()
-                    from plugin.framework.http import format_error_message
-                    err_msg = format_error_message(item[1])
-                    self._append_response("\n[API error: %s]\n" % err_msg)
-                    self._terminal_status = "Error"
-                    self._set_status("Error")
-                    return  # EXIT the event loop
+        def on_stopped():
+            self._terminal_status = "Stopped"
+            self._set_status("Stopped")
+            self._append_response("\n[Stopped by user]\n")
 
-            # --- End of batch: pump UI events ---
-            toolkit.processEventsToIdle()
+        def on_error(e):
+            from plugin.framework.http import format_error_message
+            err_msg = format_error_message(e)
+            self._append_response("\n[API error: %s]\n" % err_msg)
+            self._terminal_status = "Error"
+            self._set_status("Error")
+
+        run_stream_drain_loop(
+            q, toolkit, [False], self._append_response,
+            on_stream_done=on_stream_done,
+            on_stopped=on_stopped,
+            on_error=on_error,
+            on_status_fn=self._set_status,
+            ctx=self.ctx,
+            show_search_thinking=show_search_thinking,
+        )
 
     def _start_simple_stream_async(self, client, max_tokens, api_type):
         """Start simple streaming (no tools) via async helper; returns immediately."""
