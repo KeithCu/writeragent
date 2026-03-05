@@ -16,7 +16,7 @@
                     <value>LocalWriterDeck</value>
                 </prop>
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.localwriter/assets/icon_16.png</value>
+                    <value>vnd.sun.star.extension://org.extension.localwriter/assets/icon_64.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.text.TextDocument, any, visible; com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.drawing.DrawingDocument, any, visible; com.sun.star.presentation.PresentationDocument, any, visible;</value>
