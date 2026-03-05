@@ -19,7 +19,7 @@
 - **Calc** `=PROMPT()`: Cell formula that calls the model
 - **MCP Server** (opt-in): HTTP server on localhost that exposes Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop proxy, scripts). Document targeting via `X-Document-URL` header; opt-in via Settings.
 
-**Connection Management & Identification**: LocalWriter includes built-in connection management in `core/api.py` that maintains persistent HTTP/HTTPS connections. All requests use unified `USER_AGENT`, `APP_REFERER`, and `APP_TITLE` headers from `core.constants` for consistent identification across providers (OpenRouter, Together AI, etc.).
+**Connection Management & Identification**: LocalWriter includes built-in connection management in `plugin/modules/ai/service.py` that maintains persistent HTTP/HTTPS connections. All requests use unified `USER_AGENT`, `APP_REFERER`, and `APP_TITLE` headers from `core.constants` for consistent identification across providers (OpenRouter, Together AI, etc.).
 
 Config is stored in `localwriter.json` in LibreOffice's user config directory. See `CONFIG_EXAMPLES.md` for examples (Ollama, OpenWebUI, OpenRouter, etc.).
 
@@ -29,57 +29,44 @@ Config is stored in `localwriter.json` in LibreOffice's user config directory. S
 
 ```
 localwriter/
-├── main.py              # MainJob: trigger(), dialogs, delegates to core
-├── core/                # Shared core logic
-│   ├── config.py        # get_config, set_config, get_api_config, add_config_listener, notify_config_changed (localwriter.json)
-│   ├── api.py           # LlmClient: streaming, chat, tool-calling, connection management
-│   ├── document.py      # get_full_document_text, get_document_end, get_selection_range, get_document_length, DocumentCache (caching), get_paragraph_ranges, build_heading_tree, ensure_heading_bookmarks, resolve_locator, get_document_context_for_chat (Writer/Calc), get_calc_context_for_chat (Calc)
-│   ├── logging.py       # init_logging, debug_log(msg, context), agent_log; single debug file + optional agent log
-│   ├── constants.py     # DEFAULT_CHAT_SYSTEM_PROMPT, DEFAULT_CALC_CHAT_SYSTEM_PROMPT, get_chat_system_prompt_for_document
-│   ├── uno_ui_helpers.py # get_optional, is_checkbox_control, get_checkbox_state, set_checkbox_state (shared dialog/panel helpers)
-│   ├── async_stream.py  # run_stream_completion_async: worker + queue + main-thread drain (no UNO Timer)
-│   ├── mcp_thread.py    # execute_on_main_thread, drain_mcp_queue (for MCP HTTP handler → main thread)
-│   ├── mcp_server.py    # MCPHttpServer, MCPHandler (GET /health, /tools, /, /documents; POST /tools/{name}); port utilities
-│   ├── calc_bridge.py   # in-process get_active_document, get_active_sheet, etc.
-│   ├── calc_address_utils.py
-│   ├── calc_inspector.py
-│   ├── calc_sheet_analyzer.py
-│   ├── calc_error_detector.py
-│   ├── calc_manipulator.py
-│   ├── calc_tools.py    # CALC_TOOLS (schemas), execute_calc_tool
-│   ├── aihordeclient/   # AI Horde async API client (queue, poll, download; Img2Img/inpainting)
-│   ├── image_service.py # ImageService: aihorde or endpoint (Settings URL), get_provider, generate_image
-│   ├── image_tools.py   # insert_image, replace_image_in_place, add_image_to_gallery, get_selected_image_base64
-│   ├── draw_bridge.py   # Draw/Impress page and shape manipulation
-│   ├── draw_tools.py    # DRAW_TOOLS (schemas), execute_draw_tool (pages, shapes)
-│   └── writer_ops.py    # WRITER_OPS_TOOLS (schemas) + implementations: styles, comments, track-changes, tables
-├── prompt_function.py   # Calc =PROMPT() formula
-├── plugin/modules/chatbot/
-│   ├── panel_factory.py # Chat sidebar UNO: ChatPanelFactory, ChatPanelElement, ChatToolPanel; XDL wiring
-│   ├── panel.py         # ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener (session + send/tool loop)
-│   ├── streaming.py     # run_stream_drain_loop, run_stream_completion_async
-│   └── streaming_deltas.py
-├── core/document_tools.py  # WRITER_TOOLS (from Writer ToolRegistry), execute_tool; ToolBase wrappers delegate to format_support + writer_ops
-├── markdown_support.py  # Markdown read/write: document_to_markdown, apply_markdown (hidden doc + transferable)
-├── XPromptFunction.rdb  # Type library for PromptFunction
-├── LocalWriterDialogs/  # XDL dialogs (XML, Map AppFont units)
-│   ├── SettingsDialog.xdl
-│   ├── EditInputDialog.xdl
-│   ├── ChatPanelDialog.xdl   # Chat panel UI (response, query, send)
-│   ├── dialog.xlb           # Library index
-│   └── script.xlb          # Empty (required for Basic library)
-├── registry/
-│   └── org/openoffice/Office/UI/
-│       ├── Sidebar.xcu      # LocalWriter deck + ChatPanel
-│       └── Factories.xcu    # ChatPanelFactory registration
-├── META-INF/manifest.xml
-├── Addons.xcu             # Menu entries
-├── Accelerators.xcu       # Ctrl+Q, Ctrl+E
-├── description.xml
-├── build.sh               # Creates localwriter.oxt
-├── assets/                # icon_16.png, logo.png, MCP icons (running_*, starting_*, stopped_*.png)
-├── localwriter.json.example
-└── CONFIG_EXAMPLES.md     # Config templates
+├── plugin/
+│   ├── main.py              # MainJob: trigger(), dialogs, loads modules via bootstrap()
+│   ├── _manifest.py         # Auto-generated module manifest from plugin.yaml/module.yaml
+│   ├── prompt_function.py   # Calc =PROMPT() formula
+│   ├── options_handler.py   # Settings dialog
+│   ├── framework/           # Core infrastructure (EventBus, ServiceRegistry, ToolRegistry)
+│   │   ├── config_schema.py # Central configuration schema validation
+│   │   ├── event_bus.py     # Global pub/sub event bus
+│   │   ├── service_registry.py # Dependency injection for services
+│   │   ├── tool_registry.py # Tool discovery and execution framework
+│   │   ├── module_base.py   # Base class for all modules
+│   │   ├── service_base.py  # Base class for injectable services
+│   │   ├── tool_base.py     # Base class for tools exposed to AI
+│   │   ├── http_server.py   # MCP Server implementation
+│   │   └── dialogs.py       # Base helpers for UNO dialogs
+│   └── modules/             # Feature-specific modules
+│       ├── core/            # Core services (config, document context, logging, events)
+│       │   └── services/    # Implementation of ConfigService, DocumentService
+│       ├── ai/              # AI provider framework (OpenAI, Ollama, Horde, etc.)
+│       │   ├── service.py   # AIService: unified chat/tool-calling interface
+│       │   └── providers/   # Provider-specific implementations
+│       ├── chatbot/         # Sidebar chat panel UI and interactions
+│       │   ├── panel.py     # ChatSession, logic loop (Send/Stop/Clear)
+│       │   └── panel_factory.py # UNO Sidebar Factory
+│       ├── writer/          # Writer-specific tools and formatting
+│       │   ├── format_support.py # HTML/Markdown handling, format-preserving replacement
+│       │   └── ops.py       # Tools implementation (styles, comments, track-changes, tables)
+│       ├── calc/            # Calc-specific tools and logic
+│       ├── draw/            # Draw/Impress page and shape tools
+│       ├── batch/           # Batch processing tools
+│       ├── tunnel/          # Tunnels (Bore, Cloudflare, Ngrok)
+│       └── http/            # MCP Protocol tools
+├── pyproject.toml           # Defines project metadata and dependencies
+├── Makefile                 # Build system
+├── scripts/                 # Build and deploy scripts (make build, make deploy)
+├── LocalWriterDialogs/      # XDL dialogs (XML, Map AppFont units)
+├── registry/                # Extension registry (Sidebar.xcu, Addons.xcu, etc.)
+└── localwriter.json.example # Config templates
 ```
 
 ---
@@ -114,16 +101,16 @@ localwriter/
 
 The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextList includes `com.sun.star.sheet.SpreadsheetDocument`).
 
-- **Sidebar panel**: LocalWriter deck in Writer's or Calc's right sidebar; panel has Response area, Ask field, Send button, Stop button, and Clear button. When the user changes Settings (e.g. model or additional instructions), the sidebar is notified via **config-change listeners** in `core/config.py` (`add_config_listener`, `notify_config_changed`); the panel refreshes its model and prompt selectors from config so they stay in sync. Listeners use weakref so panels can be GC'd without unregistering.
+- **Sidebar panel**: LocalWriter deck in Writer's or Calc's right sidebar; panel has Response area, Ask field, Send button, Stop button, and Clear button. When the user changes Settings (e.g. model or additional instructions), the sidebar is notified via **config-change listeners** in `plugin/modules/core/services/config.py` (`add_config_listener`, `notify_config_changed`); the panel refreshes its model and prompt selectors from config so they stay in sync. Listeners use weakref so panels can be GC'd without unregistering.
   - **Auto-scroll**: The response area automatically scrolls to the bottom as text is streamed or tools are called, ensuring the latest AI output is always visible.
   - **Stop button**: A dedicated "Stop" button allows users to halt AI generation mid-stream. It is enabled only while the AI is active and disabled when idle.
   - **Undo grouping**: AI edits performed during tool-calling rounds are grouped into a single undo context ("AI Edit"). Users can revert all changes from an AI turn with a single Ctrl+Z.
   - **Send/Stop button state (lifecycle-based)**: "AI is busy" is defined by the single run of `actionPerformed`: Send is disabled (Stop enabled) at the **start** of the run, and re-enabled (Stop disabled) **only** in the `finally` block when `_do_send()` has returned. No dependence on internal job_done or drain-loop state. `_set_button_states(send_enabled, stop_enabled)` uses per-control try/except with a simple `control.getModel().Enabled = val` check so a UNO failure on one control cannot leave Send stuck disabled. `SendButtonListener._send_busy` is set True at run start and False in finally for external checks. This prevents multiple concurrent requests.
 - **Implementation**: `plugin/modules/chatbot/panel_factory.py` (ChatPanelFactory, ChatPanelElement, ChatToolPanel); `ContainerWindowProvider` + `ChatPanelDialog.xdl`; `setVisible(True)` required after `createContainerWindow()`.
-- **Tool-calling**: `panel_factory.py` (and the menu path in `main.py`) detect document type using robust service-based identification (`supportsService`) in `core/document.py`. This ensures Writer, Calc, and Draw/Impress documents are never misidentified. **Gotcha**: `hasattr(model, "getDrawPages")` is `True` for Writer (drawing layer for shapes), so strict service checks are required.
-    - **Writer**: `com.sun.star.text.TextDocument`. `core/document_tools.py` exposes **WRITER_TOOLS** = `get_document_content`, `apply_document_content`, `find_text` (in `core/format_support.py`) + `tool_get_document_outline`, `tool_get_heading_content`, `tool_read_paragraphs`, `tool_insert_at_paragraph`, `tool_get_document_stats`, `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`, `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`, `list_tables`, `read_table`, `write_table_cell` (in `core/writer_ops.py`) + `generate_image`, `edit_image`.
-    - **Calc**: `com.sun.star.sheet.SpreadsheetDocument`. `core/calc_tools.py` exposes **CALC_TOOLS** and `execute_calc_tool`; core logic in `core/calc_*.py`.
-    - **Draw/Impress**: `com.sun.star.drawing.DrawingDocument` or `com.sun.star.presentation.PresentationDocument`. `core/draw_tools.py` exposes **DRAW_TOOLS** and `execute_draw_tool`. Includes slide/page management (`add_slide`, `delete_slide`) and speaker notes context.
+- **Tool-calling**: `panel_factory.py` (and the menu path in `plugin/main.py`) detect document type using robust service-based identification (`supportsService`) in `plugin/modules/core/services/document.py`. This ensures Writer, Calc, and Draw/Impress documents are never misidentified. **Gotcha**: `hasattr(model, "getDrawPages")` is `True` for Writer (drawing layer for shapes), so strict service checks are required.
+    - **Writer**: `com.sun.star.text.TextDocument`. `plugin/modules/writer/tools.py` exposes **WRITER_TOOLS** = `get_document_content`, `apply_document_content`, `find_text` (in `plugin/modules/writer/format_support.py`) + `tool_get_document_outline`, `tool_get_heading_content`, `tool_read_paragraphs`, `tool_insert_at_paragraph`, `tool_get_document_stats`, `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`, `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`, `list_tables`, `read_table`, `write_table_cell` (in `plugin/modules/writer/ops.py`) + `generate_image`, `edit_image`.
+    - **Calc**: `com.sun.star.sheet.SpreadsheetDocument`. `plugin/modules/calc/tools.py` exposes **CALC_TOOLS** and `execute_calc_tool`; core logic in `core/calc_*.py`.
+    - **Draw/Impress**: `com.sun.star.drawing.DrawingDocument` or `com.sun.star.presentation.PresentationDocument`. `plugin/modules/draw/tools.py` exposes **DRAW_TOOLS** and `execute_draw_tool`. Includes slide/page management (`add_slide`, `delete_slide`) and speaker notes context.
 - **Menu fallback**: Menu item "Chat with Document" opens input dialog, streams response with no tool-calling. **Writer**: appends to document end. **Calc**: streams to "AI Response" sheet. Both sidebar and menu use the same robust document detection.
 - **Config keys** (used by chat): `chat_context_length`, `chat_max_tokens`, `additional_instructions` (in Settings).
 - **Unified Prompt System**: See Section 3c.
@@ -131,15 +118,15 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
 ### Document context for chat (current implementation)
 
 - **Refreshed every Send**: On each user message we re-read the document and rebuild the context; the single `[DOCUMENT CONTENT]` system message is **replaced** (not appended), so the conversation history grows but the context block does not duplicate.
-- **Writer**: `core/document.py` provides `get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=None)` which builds one string with: document length (metadata); **start and end excerpts** (for long docs, first/last half of `chat_context_length` with `[DOCUMENT START]` / `[DOCUMENT END]` / `[END DOCUMENT]` labels); **selection/cursor**: `(start_offset, end_offset)` from `get_selection_range(model)` with **`[SELECTION_START]`** / **`[SELECTION_END]`** injected at those positions (capped for very long selections). Helpers: `get_document_end`, `get_selection_range`, `get_document_length`, `get_text_cursor_at_range`, `_inject_markers_into_excerpt()`).
-- **Calc**: For Calc documents, `get_document_context_for_chat(..., ctx=...)` delegates to `get_calc_context_for_chat(model, max_context, ctx)` in `core/document.py`. **`ctx` is required for Calc** (component context from panel or MainJob); do not use `uno.getComponentContext()` in this path. Calc context includes: document URL, active sheet name, used range, column headers, current selection range, and (for small selections) selection content. See [Calc support from LibreCalc.md](Calc%20support%20from%20LibreCalc.md).
+- **Writer**: `plugin/modules/core/services/document.py` provides `get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=None)` which builds one string with: document length (metadata); **start and end excerpts** (for long docs, first/last half of `chat_context_length` with `[DOCUMENT START]` / `[DOCUMENT END]` / `[END DOCUMENT]` labels); **selection/cursor**: `(start_offset, end_offset)` from `get_selection_range(model)` with **`[SELECTION_START]`** / **`[SELECTION_END]`** injected at those positions (capped for very long selections). Helpers: `get_document_end`, `get_selection_range`, `get_document_length`, `get_text_cursor_at_range`, `_inject_markers_into_excerpt()`).
+- **Calc**: For Calc documents, `get_document_context_for_chat(..., ctx=...)` delegates to `get_calc_context_for_chat(model, max_context, ctx)` in `plugin/modules/core/services/document.py`. **`ctx` is required for Calc** (component context from panel or MainJob); do not use `uno.getComponentContext()` in this path. Calc context includes: document URL, active sheet name, used range, column headers, current selection range, and (for small selections) selection content. See [Calc support from LibreCalc.md](Calc%20support%20from%20LibreCalc.md).
 - **Scope**: Chat with Document only. Extend Selection and Edit Selection are legacy and unchanged.
 
 ### Web search sub-agent (sidebar toggle)
 
 - **Web search checkbox**: The chat sidebar includes a **Web search** checkbox (`web_search_check`) below the Send/Stop/Clear buttons. When checked for a send:
   - The panel bypasses normal Chat with Document behavior (no document context or document tools are used for that turn).
-  - It directly invokes the `web_research` tool from `core/document_tools.py`, which runs the `ToolCallingAgent`-based sub-agent (`DuckDuckGoSearchTool` + `VisitWebpageTool`) to research the query.
+  - It directly invokes the `web_research` tool from `plugin/modules/writer/tools.py`, which runs the `ToolCallingAgent`-based sub-agent (`DuckDuckGoSearchTool` + `VisitWebpageTool`) to research the query.
   - The synthesized answer is streamed back into the response area as `AI (web): ...`, without modifying the document.
   - When unchecked (default), the sidebar behaves as standard Chat with Document; the main model may still call `web_research` autonomously via tool-calling when appropriate.
   - The sub-agent uses smolagents' JSON-in-text parsing for tool calls; if the model returns malformed or missing JSON for a tool call, LocalWriter now falls back to the last useful text the web agent produced instead of surfacing a low-level "no JSON blob" error to the user.
@@ -147,7 +134,7 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
 
 ### Markdown tool-calling (current)
 
-- **get_markdown**: Returns the document (or selection/range) as Markdown. Parameters: optional `max_chars`, optional `scope` (`"full"` | `"selection"` | `"range"`); when `scope="range"`, required `start` and `end` (character offsets). Result JSON includes **`document_length`** so the AI can replace the whole doc with `apply_markdown(target="range", start=0, end=document_length)` or use `target="full"`. When `scope="range"`, result also includes `start` and `end` echoed back. Implementation: for full scope tries `XStorable.storeToURL` with FilterName `"Markdown"` to a temp file; on failure or for selection/range uses structural fallback (paragraph enumeration + `ParaStyleName` → headings, lists, blockquote). See `markdown_support.py`.
+- **get_markdown**: Returns the document (or selection/range) as Markdown. Parameters: optional `max_chars`, optional `scope` (`"full"` | `"selection"` | `"range"`); when `scope="range"`, required `start` and `end` (character offsets). Result JSON includes **`document_length`** so the AI can replace the whole doc with `apply_markdown(target="range", start=0, end=document_length)` or use `target="full"`. When `scope="range"`, result also includes `start` and `end` echoed back. Implementation: for full scope tries `XStorable.storeToURL` with FilterName `"Markdown"` to a temp file; on failure or for selection/range uses structural fallback (paragraph enumeration + `ParaStyleName` → headings, lists, blockquote). See `plugin/modules/writer/markdown_support.py`.
 - **apply_markdown / apply_document_content**: Inserts or replaces content using Markdown/HTML **with native formatting**, or plain text **with format preservation**. Parameters: `content` (string), `target` (`"beginning"` | `"end"` | `"selection"` | `"search"` | **`"full"`** | **`"range"`**); when `target="search"`, also `search`, optional `all_matches`, `case_sensitive`; when **`target="range"`**, required **`start`** and **`end`** (character offsets). **`target="full"`** replaces the entire document (clear all, insert at start). **`target="range"`** replaces the character span `[start, end)` with the markdown (no need to send the original text back). Preferred flow for "make my resume look nice" or reformat: call `get_markdown(scope="full")` once, then `apply_markdown(markdown=<new content>, target="full")` or `target="range", start=0, end=document_length` — **only the new markdown is sent**, never the original document text. Implementation: writes markdown to a temp `.md` file, then **`cursor.insertDocumentFromURL(file_url, {FilterName: "Markdown"})`** at the chosen position; for `"full"` uses `_insert_markdown_full`; for `"range"` uses `get_text_cursor_at_range()` then `setString("")` and `insertDocumentFromURL`. See `format_support.py`. **Note**: Both Markdown and HTML injection are implemented; further testing will determine the default path for rich formatting and layout control.
   - **Format-preserving replacement (auto-detected)**: When `target="search"` and the replacement content is **plain text** (no Markdown/HTML markup detected by `_content_has_markup()`), the system automatically uses `_replace_text_preserving_format()` instead of `insertDocumentFromURL`. This replaces text **character-by-character**, so every per-character property (CharBackColor, CharColor, CharWeight, CharHeight, CharPosture, CharUnderline, etc.) is preserved — including exotic formatting the AI has no knowledge of. If the new text is longer, extra characters inherit formatting from the last original character; if shorter, leftover characters are deleted.
     - **Auto-detect logic** (`_content_has_markup()`): Scans content for common Markdown patterns (`**`, `# `, `` ` ` ``, `|---`) and HTML tags (`<b>`, `<table>`, `</`, etc.). If markup is found → import path (existing behavior). If plain text → format-preserving path. Deliberately errs on the side of detecting markup, since a false positive just falls back to the existing behavior. No tool schema changes and no AI decision needed — works identically for 30B local models and frontier models.
@@ -159,8 +146,8 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
 
 ### System prompt and reasoning (latest)
 
-- **Chat** uses `get_chat_system_prompt_for_document(model, additional_instructions)` in `core/constants.py` so the correct prompt is chosen by document type: **Writer** → `DEFAULT_CHAT_SYSTEM_PROMPT` + additional_instructions (get_markdown/apply_markdown, presume document editing, translate/proofread, no preamble); **Calc** → `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` + additional_instructions (semicolon formula syntax, 4-step workflow: understand → get state → use tools → short confirmation; tools grouped READ / WRITE & FORMAT / SHEET MANAGEMENT / CHART / ERRORS). Used by both sidebar and menu Chat.
-- **Reasoning tokens**: `main.py` sends `reasoning: { effort: 'minimal' }` on all chat requests.
+- **Chat** uses `get_chat_system_prompt_for_document(model, additional_instructions)` in `plugin/framework/constants.py` so the correct prompt is chosen by document type: **Writer** → `DEFAULT_CHAT_SYSTEM_PROMPT` + additional_instructions (get_markdown/apply_markdown, presume document editing, translate/proofread, no preamble); **Calc** → `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` + additional_instructions (semicolon formula syntax, 4-step workflow: understand → get state → use tools → short confirmation; tools grouped READ / WRITE & FORMAT / SHEET MANAGEMENT / CHART / ERRORS). Used by both sidebar and menu Chat.
+- **Reasoning tokens**: `plugin/main.py` sends `reasoning: { effort: 'minimal' }` on all chat requests.
 - **Thinking display**: Reasoning tokens are shown in the response area as `[Thinking] ... /thinking`. When thinking ends we append a newline after ` /thinking` so the following response text starts on a new line.
 
 See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for implementation details.
@@ -169,7 +156,7 @@ See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for impleme
   All streaming paths (sidebar tool-calling, sidebar simple stream, Writer Extend/Edit/menu Chat, Calc) use the same pattern so the UI stays responsive without relying on UNO Timers/listeners:
   - **Worker thread**: Runs blocking API/streaming (e.g. `stream_completion`, `stream_request_with_tools`), puts items on a **`queue.Queue`** (`("chunk", text)`, `("thinking", text)`, `("stream_done", ...)`, `("error", e)`, `("stopped",)`).
   - **Main thread**: After starting the worker, runs a **drain loop**: `q.get(timeout=0.1)` → process item (append text, update status, call on_done/on_error) → **`toolkit.processEventsToIdle()`**. Repeats until job_done.
-  - **Connection Keep-Alive**: `LlmClient` uses `http.client.HTTPConnection` (or `HTTPSConnection`) for persistent connections. The client instance is cached in `plugin/modules/chatbot/panel_factory.py` (sidebar), `main.py` (MainJob), and `prompt_function.py` (Calc =PROMPT()) to reuse connections across multiple requests, significantly improving performance for multi-turn chat and cell recalculations.
+  - **Connection Keep-Alive**: `LlmClient` uses `http.client.HTTPConnection` (or `HTTPSConnection`) for persistent connections. The client instance is cached in `plugin/modules/chatbot/panel_factory.py` (sidebar), `plugin/main.py` (MainJob), and `plugin/prompt_function.py` (Calc =PROMPT()) to reuse connections across multiple requests, significantly improving performance for multi-turn chat and cell recalculations.
   - **Streaming edge cases (LiteLLM-inspired):** `finish_reason=error` → raise; repeated identical content chunks → raise (infinite-loop guard); `finish_reason=stop` with tool_calls → remap to `tool_calls`; delta normalization for Mistral/Azure (`role`/`tool.type`/`function.arguments`). See [LITELLM_INTEGRATION.md](LITELLM_INTEGRATION.md).
 
 ---
@@ -193,7 +180,7 @@ See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for impleme
 
 ## 3e. Calc plugin refactor and tool framework migration
 
-- **Calc plugin modules** under `plugin/modules/calc` now mirror the core Calc helpers more closely (`core/calc_address_utils.py`, `core/calc_sheet_analyzer.py`, `core/calc_inspector.py`, `core/calc_error_detector.py`, `core/calc_manipulator.py`) with small, focused docstrings that explain only non-obvious behavior (UNO assumptions, fallbacks, and porting notes). Earlier AI-driven churn that rewrote docstrings and comments without changing behavior was reverted so diffs stay tight and readable.
+- **Calc plugin modules** under `plugin/modules/calc` now mirror the core Calc helpers more closely (`plugin/modules/calc/address_utils.py`, `plugin/modules/calc/analyzer.py`, `plugin/modules/calc/inspector.py`, `plugin/modules/calc/error_detector.py`, `plugin/modules/calc/manipulator.py`) with small, focused docstrings that explain only non-obvious behavior (UNO assumptions, fallbacks, and porting notes). Earlier AI-driven churn that rewrote docstrings and comments without changing behavior was reverted so diffs stay tight and readable.
 - **Behavioral changes preserved**: We keep the functional refactor that routes Calc tools through the plugin framework (`plugin.framework.tool_registry`, `ToolContext`) and the new modular tools (`plugin/modules/calc/cells.py`, `formulas.py`, `sheets.py`). `plugin/modules/calc/tools.py` is now a thin compatibility shim that builds `CALC_TOOLS` from the registry and forwards `execute_calc_tool` calls into the framework.
 - **Inspector / Analyzer / ErrorDetector**: Unused “extra analysis” helpers (`detect_data_regions`, `find_empty_cells`, `get_column_statistics`, `get_cell_precedents`, `get_cell_dependents`, `analyze_spreadsheet_structure`) were removed from the plugin copies after confirming they are not called from the new framework. Error explanations now derive precedents by parsing formulas directly, but legacy public entry points and result shapes (addresses, error codes, suggestions) remain compatible with tests and existing prompts.
 - **CalcBridge / Manipulator**: `CalcBridge` gained clearer error handling for non-spreadsheet documents and an explicit `get_active_sheet` contract, and `CellManipulator` keeps the newer style/number-format helpers and CSV import utilities while restoring concise, stable docstrings. Overall, Calc plugin diffs against git focus on real behavior changes (tool wiring, error/precedent handling, style application) rather than wording-only comment updates.
@@ -205,7 +192,7 @@ See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for impleme
 The "Additional Instructions" (previously system prompts) are now unified across **Chat, Edit Selection, and Extend Selection** into a single configuration key with a history dropdown (ComboBox).
 
 - **Implementation**:
-    - **Shared LRU Logic**: `core/config.py` contains `populate_combobox_with_lru()` and `update_lru_history()` used by all dialogs and features.
+    - **Shared LRU Logic**: `plugin/modules/core/services/config.py` contains `populate_combobox_with_lru()` and `update_lru_history()` used by all dialogs and features.
     - **Unified Key**: All features use the `additional_instructions` config key. LEGACY: The key was renamed from `chat_system_prompt` to avoid legacy data from "full system prompt" iterations.
     - **History Persistence**: Up to 10 entries are stored in `prompt_lru` (JSON list). Not per-endpoint.
 - **Behavior**:
@@ -223,25 +210,25 @@ LocalWriter can generate and edit images inside Writer and Calc via tools expose
 
 ### Providers
 
-- **AI Horde** (`core/aihordeclient/`): Dedicated **async image API** (not an LLM). Submit job → poll `generate/check` and `generate/status` until done → download images. Uses its own API key and model list (e.g. Stable Diffusion, SDXL). Built-in queueing, progress (informer), Img2Img and inpainting. Non-blocking UI via `run_blocking_in_thread` + `toolkit.processEvents()` in the informer. Config: `image_provider=aihorde`, `aihorde_api_key`, plus image dimensions/steps/NSFW etc.
+- **AI Horde** (`plugin/modules/core/aihordeclient/`): Dedicated **async image API** (not an LLM). Submit job → poll `generate/check` and `generate/status` until done → download images. Uses its own API key and model list (e.g. Stable Diffusion, SDXL). Built-in queueing, progress (informer), Img2Img and inpainting. Non-blocking UI via `run_blocking_in_thread` + `toolkit.processEvents()` in the informer. Config: `image_provider=aihorde`, `aihorde_api_key`, plus image dimensions/steps/NSFW etc.
 - **Endpoint** (config value `endpoint`): Uses the **endpoint URL/port and API key from Settings** — the same values the user configured for chat. Only the **model** differs: chat uses the text model, image generation uses **`image_model`**. Single request/response (no queue). Config: `image_provider=endpoint`, and **`image_model`** for the image model id (fallback: text model). **`image_model_lru`** holds recently used image models for combobox dropdowns. Legacy: a previous config value for this provider is also accepted and treated as `endpoint`.
 
 **Image edit (img2img)** is supported by **AI Horde** (already) and by **endpoint** when the backend supports it: **OpenRouter** (source image in chat message with `modalities: ["image"]`) and **Together** and other OpenAI-compatible endpoints that accept `image_url` on `/images/generations`. See [docs/features/image-generation.md](docs/features/image-generation.md) for the provider matrix and how to add edit for new providers.
 
 ### Text model vs image model
 
-- **`text_model`** (backward compat: read `model` if unset): The chat/LLM model. Used by Chat, Extend/Edit Selection, and `get_api_config()` (exposed to LlmClient as `"model"`). See `core/config.py` `get_text_model(ctx)`.
+- **`text_model`** (backward compat: read `model` if unset): The chat/LLM model. Used by Chat, Extend/Edit Selection, and `get_api_config()` (exposed to LlmClient as `"model"`). See `plugin/modules/core/services/config.py` `get_text_model(ctx)`.
 - **`image_model`**: Used when `image_provider=endpoint`. Same endpoint and API key as chat; this key selects which model handles image requests. Comboboxes (Settings + Chat sidebar) are filled from **`image_model_lru`**; after a successful image generation via the endpoint, the model used is pushed into that LRU.
 
 ### ImageService and tools
 
-- **ImageService** (`core/image_service.py`): `get_provider(name)` returns `AIHordeImageProvider` or `EndpointImageProvider`. For `name=="endpoint"` it builds API config from `get_api_config(ctx)` (endpoint URL + API key from Settings) and sets `api_config["model"]` to `image_model` or `get_text_model(ctx)`. `generate_image(prompt, provider_name=..., **kwargs)` merges config defaults (width, height, steps, etc.), optional prompt translation, then calls `provider.generate(prompt, **kwargs)`; returns list of local temp file paths.
-- **Image tools** (`core/image_tools.py`): **`get_selected_image_base64(model, ctx=None)`** exports the selected graphic (Writer `GraphicObject` or Calc `GraphicObjectShape`) to PNG and returns base64 for Img2Img; pass `ctx` from panel/MainJob for Calc. **`insert_image`** / **`replace_image_in_place`** insert or replace the image in the document; **`add_image_to_gallery`** adds to the LibreOffice Media Gallery.
-- **Tools exposed to LLM** (`core/document_tools.py`): **`generate_image`** (prompt, optional width, height, provider) — generates and inserts; **`edit_image`** (prompt, optional strength, provider) — Img2Img on selected image, replace or insert. Both use ImageService; when provider is the chat endpoint, after success they update `image_model_lru`.
+- **ImageService** (`plugin/modules/core/image_service.py`): `get_provider(name)` returns `AIHordeImageProvider` or `EndpointImageProvider`. For `name=="endpoint"` it builds API config from `get_api_config(ctx)` (endpoint URL + API key from Settings) and sets `api_config["model"]` to `image_model` or `get_text_model(ctx)`. `generate_image(prompt, provider_name=..., **kwargs)` merges config defaults (width, height, steps, etc.), optional prompt translation, then calls `provider.generate(prompt, **kwargs)`; returns list of local temp file paths.
+- **Image tools** (`plugin/modules/core/image_tools.py`): **`get_selected_image_base64(model, ctx=None)`** exports the selected graphic (Writer `GraphicObject` or Calc `GraphicObjectShape`) to PNG and returns base64 for Img2Img; pass `ctx` from panel/MainJob for Calc. **`insert_image`** / **`replace_image_in_place`** insert or replace the image in the document; **`add_image_to_gallery`** adds to the LibreOffice Media Gallery.
+- **Tools exposed to LLM** (`plugin/modules/writer/tools.py`): **`generate_image`** (prompt, optional width, height, provider) — generates and inserts; **`edit_image`** (prompt, optional strength, provider) — Img2Img on selected image, replace or insert. Both use ImageService; when provider is the chat endpoint, after success they update `image_model_lru`.
 
 ### UI and config
 
-- **Settings** (`LocalWriterDialogs/SettingsDialog.xdl`): Tabbed. **Chat/Text** tab: Text/Chat Model and **Image model (same endpoint as chat)** comboboxes (LRU). **Image Settings** tab: shared section (width, height, auto gallery, insert frame, translate prompt) and **AI Horde** section (provider enabled via **"Use AI Horde for Image Generation"** on this tab, `aihorde_api_key`, CFG scale, steps, max wait, NSFW) with a fixedline separator. All image-related keys applied via `_apply_settings_result` in `main.py`.
+- **Settings** (`LocalWriterDialogs/SettingsDialog.xdl`): Tabbed. **Chat/Text** tab: Text/Chat Model and **Image model (same endpoint as chat)** comboboxes (LRU). **Image Settings** tab: shared section (width, height, auto gallery, insert frame, translate prompt) and **AI Horde** section (provider enabled via **"Use AI Horde for Image Generation"** on this tab, `aihorde_api_key`, CFG scale, steps, max wait, NSFW) with a fixedline separator. All image-related keys applied via `_apply_settings_result` in `plugin/main.py`.
 - **Chat sidebar** (`LocalWriterDialogs/ChatPanelDialog.xdl`, `plugin/modules/chatbot/panel_factory.py`): **AI Model** combobox (text model → `text_model`, `model_lru`) and **Image model (same endpoint as chat)** combobox (→ `image_model`, `image_model_lru`). **"Use Image model"** checkbox (config `chat_direct_image`): when checked, the current message is sent directly to the image pipeline (AI Horde or image model per Settings) for Writer, Calc, and Draw — no chat model round-trip. Orthogonal to which tools are given to the LLM; uses `document_tools.execute_tool("generate_image", ...)` for all doc types. No additional-instructions control in the sidebar; extra instructions come from config only when building the system prompt.
 
 ### Config keys (summary)
@@ -269,8 +256,8 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 
 ## 4. Shared Helpers
 
-- **`MainJob._apply_settings_result(self, result)`** (`main.py`): Applies settings dialog result to config. Used by both Writer and Calc settings branches.
-- **`core/logging.py`**:
+- **`MainJob._apply_settings_result(self, result)`** (`plugin/main.py`): Applies settings dialog result to config. Used by both Writer and Calc settings branches.
+- **`plugin/framework/logging.py`**:
   - Call `init_logging(ctx)` once from an entry point (e.g. start of `trigger`, or when the chat panel wires controls). Sets global log paths and optional `enable_agent_log` from config.
   - `debug_log(msg, context=None)` — single debug file. Writes to `localwriter_debug.log` in user config dir (or `~/localwriter_debug.log`). Use `context="API"`, `"Chat"`, or `"Markdown"` for prefixed lines. No ctx passed at write time.
   - `agent_log(location, message, ...)` — NDJSON to `localwriter_agent.log` (user config or `~/`), only if config `enable_agent_log` is true.
@@ -328,7 +315,7 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 - Margins ~8. Tighter = more compact but must stay readable.
 
 ### Optional Controls
-- When wiring controls that might not exist in all XDL versions (e.g. backward compatibility), use **`get_optional(root_window, name)`** from `core/uno_ui_helpers` (returns control or None). For checkboxes, use **`get_checkbox_state(ctrl)`** / **`set_checkbox_state(ctrl, value)`** and **`is_checkbox_control(ctrl)`** from the same module so LibreOffice control quirks are handled in one place.
+- When wiring controls that might not exist in all XDL versions (e.g. backward compatibility), use **`get_optional(root_window, name)`** from `plugin/framework/uno_helpers.py` (returns control or None). For checkboxes, use **`get_checkbox_state(ctrl)`** / **`set_checkbox_state(ctrl, value)`** and **`is_checkbox_control(ctrl)`** from the same module so LibreOffice control quirks are handled in one place.
 
 ---
 
@@ -338,7 +325,7 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 When replacing text (e.g., correcting a name), we must preserve character-level formatting (fonts, colors, bold/italic) even if the replacement text length differs. By default, LibreOffice replacements inherit the formatting of the *insertion point* (usually the character *before*), which wipes out specific formatting on the replaced text itself.
 
 ### The Solution: `_replace_text_preserving_format`
-We implemented a custom engine in `core/format_support.py` that iterates character-by-character.
+We implemented a custom engine in `plugin/modules/writer/format_support.py` that iterates character-by-character.
 - **Same length**: 1:1 replacement, keeping each character's properties.
 - **Longer**: 1:1 for the overlap, then insert extra chars inheriting from the last original char.
 - **Shorter**: 1:1 for the overlap, then delete the leftover original chars.
@@ -379,8 +366,8 @@ We implemented a custom engine in `core/format_support.py` that iterates charact
   - macOS: `~/Library/Application Support/LibreOffice/4/user/localwriter.json`
   - Windows: `%APPDATA%\LibreOffice\4\user\localwriter.json`
 - **Single file**: No presets or multiple configs. To use a different setup, copy your config to the path above as `localwriter.json`.
-- **Settings dialog** reads/writes this file via `get_config()` / `set_config()` in `core/config.py`. Use **`get_current_endpoint(ctx)`** for the normalized current endpoint URL (single source; used by main.py and panel_factory.py).
-- **Chat-related keys**: `chat_context_length` (default 8000), `chat_max_tokens` (default 512 menu / 16384 sidebar), `additional_instructions`. Also **per-endpoint API keys**: `api_keys_by_endpoint` (JSON map: normalized endpoint URL → API key); `get_api_key_for_endpoint(ctx, endpoint)` / `set_api_key_for_endpoint(ctx, endpoint, key)` in `core/config.py`. Legacy `api_key` is migrated once into the map under the current endpoint and then removed. Settings dialog shows and saves the key for the selected endpoint. `api_type` (default `"chat"`) and `openai_compatibility` (default true) for the configured endpoint.
+- **Settings dialog** reads/writes this file via `get_config()` / `set_config()` in `plugin/modules/core/services/config.py`. Use **`get_current_endpoint(ctx)`** for the normalized current endpoint URL (single source; used by plugin/main.py and panel_factory.py).
+- **Chat-related keys**: `chat_context_length` (default 8000), `chat_max_tokens` (default 512 menu / 16384 sidebar), `additional_instructions`. Also **per-endpoint API keys**: `api_keys_by_endpoint` (JSON map: normalized endpoint URL → API key); `get_api_key_for_endpoint(ctx, endpoint)` / `set_api_key_for_endpoint(ctx, endpoint, key)` in `plugin/modules/core/services/config.py`. Legacy `api_key` is migrated once into the map under the current endpoint and then removed. Settings dialog shows and saves the key for the selected endpoint. `api_type` (default `"chat"`) and `openai_compatibility` (default true) for the configured endpoint.
 - **Model keys**: `text_model` (chat/LLM model; backward compat: `model`), `model_lru` (recent text models); `image_model` (image model when using chat endpoint for images), `image_model_lru` (recent image models). See Section 3d.
 
 ---
@@ -393,7 +380,7 @@ We implemented a custom engine in `core/format_support.py` that iterates charact
 
 ### Finding log files (and image generation debugging)
 
-Log paths are set in `core/logging.py` by `init_logging(ctx)` and live in the **same directory as `localwriter.json`** (from `PathSettings.UserConfig` in `core/config.py`). Locations to check, in order:
+Log paths are set in `plugin/framework/logging.py` by `init_logging(ctx)` and live in the **same directory as `localwriter.json`** (from `PathSettings.UserConfig` in `plugin/modules/core/services/config.py`). Locations to check, in order:
 
 - `~/.config/libreoffice/4/user/localwriter_debug.log` and `localwriter_agent.log`
 - `~/.config/libreoffice/24/user/` (same filenames; version-dependent)
@@ -402,16 +389,16 @@ Log paths are set in `core/logging.py` by `init_logging(ctx)` and live in the **
 
 **Which logs show image generation failures:**
 
-- **AI Horde** (`image_provider=aihorde`): `localwriter_debug.log` — search for `[AIHorde]` for request flow, errors, and stack traces. `core/aihordeclient/` uses `debug_log` and `log_exception` with context `"AIHorde"`.
-- **Endpoint** (`image_provider=endpoint`): Debug log only shows `[Chat] Tool call: generate_image(...)` (no error text). For the actual error: enable **Settings → Enable agent log**, reproduce, then open `localwriter_agent.log` and look for `"Tool result"` with `tool` `"generate_image"` or `"edit_image"` — the error is in `data.result_snippet`. `core/image_service.py` does not write to the debug log.
+- **AI Horde** (`image_provider=aihorde`): `localwriter_debug.log` — search for `[AIHorde]` for request flow, errors, and stack traces. `plugin/modules/core/aihordeclient/` uses `debug_log` and `log_exception` with context `"AIHorde"`.
+- **Endpoint** (`image_provider=endpoint`): Debug log only shows `[Chat] Tool call: generate_image(...)` (no error text). For the actual error: enable **Settings → Enable agent log**, reproduce, then open `localwriter_agent.log` and look for `"Tool result"` with `tool` `"generate_image"` or `"edit_image"` — the error is in `data.result_snippet`. `plugin/modules/core/image_service.py` does not write to the debug log.
 
 ---
 
 ## 6. Build and Install
 
 ```bash
-bash build.sh
-unopkg add localwriter.oxt   # or remove first: unopkg remove org.extension.localwriter
+make build
+make deploy   # or remove first: unopkg remove org.extension.localwriter
 ```
 
 Restart LibreOffice after install/update. Test: menu **LocalWriter → Settings** and **LocalWriter → Edit Selection**.
@@ -444,26 +431,26 @@ Restart LibreOffice after install/update. Test: menu **LocalWriter → Settings*
 
 ### Optional refactoring (future work)
 - **panel_factory.py**: Split `SendButtonListener._do_send` into smaller methods (e.g. `_do_send_direct_image`, `_do_send_with_tools`, `_do_send_simple_stream`) with a short `_do_send` that validates and dispatches. Optionally simplify `_wireControls` by extracting "build initial model/prompt from config," "wire Send/Stop/Clear," "wire optional image UI."
-- **main.py**: Split `trigger()` into handlers (e.g. `_handle_mcp`, `_handle_writer`, `_handle_calc`, `_handle_draw`) so `trigger` only delegates; optionally extract settings populate/read into helpers driven by `field_specs`.
-- **core/config.py**: Introduce internal helpers for "read full config" / "write full config" (e.g. build on `get_config_dict`) so `set_config`/`remove_config` share one write path and future caching or storage changes touch one place.
+- **plugin/main.py**: Split `trigger()` into handlers (e.g. `_handle_mcp`, `_handle_writer`, `_handle_calc`, `_handle_draw`) so `trigger` only delegates; optionally extract settings populate/read into helpers driven by `field_specs`.
+- **plugin/modules/core/services/config.py**: Introduce internal helpers for "read full config" / "write full config" (e.g. build on `get_config_dict`) so `set_config`/`remove_config` share one write path and future caching or storage changes touch one place.
 - **panel_factory.py**: Consider a small doc-type registry (Writer/Calc/Draw → tools + execute function) so choosing tools and executor in `_do_send` is data-driven and adding a new doc type doesn't require editing a long if/elif chain.
 
 ### Chat settings in UI — DONE
 - ~~Expose `chat_context_length`, `chat_max_tokens`, `additional_instructions` in the Settings dialog~~ (implemented in SettingsDialog.xdl).
 
 ### Writer Tools Expansion — DONE
-- ~~**Writer tool set expansion**~~: Added 12 new Writer tools in `core/writer_ops.py` and wired into `core/document_tools.py`. Removed 7 legacy unused functions. New tools: `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`, `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`, `list_tables`, `read_table`, `write_table_cell`. System prompt updated to mention them.
+- ~~**Writer tool set expansion**~~: Added 12 new Writer tools in `plugin/modules/writer/ops.py` and wired into `plugin/modules/writer/tools.py`. Removed 7 legacy unused functions. New tools: `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`, `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`, `list_tables`, `read_table`, `write_table_cell`. System prompt updated to mention them.
 
 ### MCP Server (external AI client access) — DONE
-- **`core/mcp_thread.py`**: `_Future`, `execute_on_main_thread`, `drain_mcp_queue` — work is queued from HTTP handler threads and drained on the main thread.
-- **`core/mcp_server.py`**: `MCPHttpServer` and `MCPHandler`; GET `/health`, `/tools`, `/`, `/documents`; POST `/tools/{name}`. **Document targeting**: `X-Document-URL` header; server resolves document by iterating `desktop.getComponents()` and matching `getURL()`. Falls back to active document if header absent. Port utilities: `_probe_health`, `_is_port_bound`, `_kill_zombies_on_port` (Windows).
-- **Idle-time draining**: **AsyncCallback thread** in `main.py` (Path A). A background Python thread schedules `XCallback` via `com.sun.star.awt.AsyncCallback` every 100ms, which safely executes `drain_mcp_queue()` on the main VCL thread. Option B (piggyback on the chat stream drain loop) was **not** used — it would only service MCP during active chat, which is inadequate for standalone MCP use.
+- **`plugin/modules/core/mcp_thread.py`**: `_Future`, `execute_on_main_thread`, `drain_mcp_queue` — work is queued from HTTP handler threads and drained on the main thread.
+- **`plugin/framework/http_server.py`**: `MCPHttpServer` and `MCPHandler`; GET `/health`, `/tools`, `/`, `/documents`; POST `/tools/{name}`. **Document targeting**: `X-Document-URL` header; server resolves document by iterating `desktop.getComponents()` and matching `getURL()`. Falls back to active document if header absent. Port utilities: `_probe_health`, `_is_port_bound`, `_kill_zombies_on_port` (Windows).
+- **Idle-time draining**: **AsyncCallback thread** in `plugin/main.py` (Path A). A background Python thread schedules `XCallback` via `com.sun.star.awt.AsyncCallback` every 100ms, which safely executes `drain_mcp_queue()` on the main VCL thread. Option B (piggyback on the chat stream drain loop) was **not** used — it would only service MCP during active chat, which is inadequate for standalone MCP use.
 - **Config**: `mcp_enabled` (default false), `mcp_port` (default 8765). Settings Page 1 has an MCP section (below fixedline): Enable MCP Server checkbox, Port field, "Localhost only, no auth." label. No separate tab.
 - **Menu**: "Toggle MCP Server" and "MCP Server Status" under LocalWriter. Status dialog shows RUNNING/STOPPED, port, URL, and health check. Auto-start: when user saves Settings with MCP enabled, server (and timer) start if not already running.
 - **Icons**: `assets/` includes `running_16.png`, `running_26.png`, `starting_16.png`, `starting_26.png`, `stopped_16.png`, `stopped_26.png` (from libreoffice-mcp-extension).
 - See **`MCP_PROTOCOL.md`** for protocol details and architecture.
 
-- **Document Tree & Navigation (DONE)**: Ported `build_heading_tree`, `ensure_heading_bookmarks`, and `resolve_locator` to `core/document.py`. New tools `get_document_outline` and `get_heading_content` provide structured access to long documents.
+- **Document Tree & Navigation (DONE)**: Ported `build_heading_tree`, `ensure_heading_bookmarks`, and `resolve_locator` to `plugin/modules/core/services/document.py`. New tools `get_document_outline` and `get_heading_content` provide structured access to long documents.
 
 ---
 
@@ -496,7 +483,7 @@ Image generation and AI Horde integration are **complete** (generate_image, edit
 - **Writer has a Drawing Layer**: `hasattr(model, "getDrawPages")` returns `True` for Writer documents because they have a drawing layer for shapes. Always use `is_writer(model)` (via `supportsService`) to avoid misidentifying Writer as Draw.
 - **Context function signatures**: All document context functions should follow the signature `(model, max_context, ctx=None)`. Missing the `ctx` default can lead to `TypeError` during document type transitions in the sidebar.
 - **API Keys / Security**: API keys MUST be handled via the Settings dialog and stored in `localwriter.json`. Never bake in fallbacks to environment variables (like `OPENROUTER_API_KEY`) in production code, as this bypasses the user's manual configuration and complicates privacy auditing. Env vars are for developer testing ONLY.
-- **MCP Server**: The MCP HTTP server and UNO Timer for `drain_mcp_queue` are started from `main.py` only (not from the sidebar). Server binds to localhost only; no authentication. External clients target a document via the `X-Document-URL` header to avoid races with the active document.
+- **MCP Server**: The MCP HTTP server and UNO Timer for `drain_mcp_queue` are started from `plugin/main.py` only (not from the sidebar). Server binds to localhost only; no authentication. External clients target a document via the `X-Document-URL` header to avoid races with the active document.
 
 ---
 
