@@ -1504,7 +1504,183 @@ def _add_leaf(parent, node_name, label, module_name, safe_name,
         ET.SubElement(gix_prop, "value").text = str(group_index)
 
 
-def generate_manifest_xml(modules, output_path):
+def generate_settings_dialog_tabs(modules, xdl_path):
+    """Auto-generate tabs and pages for SettingsDialog.xdl."""
+    if not os.path.exists(xdl_path):
+        return
+
+    with open(xdl_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    tab_marker = "<!-- AUTO_GENERATED_TABS -->"
+    page_marker = "<!-- AUTO_GENERATED_PAGES -->"
+
+    if tab_marker not in content or page_marker not in content:
+        return
+
+    # Calculate targets for inline configs
+    inline_targets = {}
+    for m in modules:
+        inline_val = m.get("config_inline")
+        if not inline_val:
+            continue
+        target = inline_val if isinstance(inline_val, str) else (m["name"].rsplit(".", 1)[0] if "." in m["name"] else None)
+        if target:
+            inline_targets[m["name"]] = target
+
+    inline_set = set()
+    for name, target in inline_targets.items():
+        if target not in inline_targets:
+            inline_set.add(name)
+
+    by_name = {m["name"]: m for m in modules}
+    inline_map = {}
+    for name in inline_set:
+        target = inline_targets[name]
+        inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
+
+    tabs = []
+    pages = []
+    
+    # Start after the 'Image' tab
+    tab_x = 131
+    page_num = 3
+
+    for m in modules:
+        name = m["name"]
+        if name == "ai" or name == "main" or name in inline_set:
+            continue
+
+        config = m.get("config", {})
+        children = inline_map.get(name)
+
+        # Skip modules with no config properties and no inline children
+        if not config and not children:
+            continue
+
+        # Create tab button
+        tab_label = name.title()
+        width = min(len(tab_label) * 5 + 15, 60)
+        tabs.append(f'  <dlg:button dlg:id="btn_tab_{name.replace(".", "_")}" dlg:left="{tab_x}" dlg:top="5" dlg:width="{width}" dlg:height="14" dlg:value="{tab_label}"/>')
+        tab_x += width + 3
+
+        # Create dummy board for fields
+        board = ET.Element(_dlg("bulletinboard"))
+        y = 26
+
+        def add_fields(prefix, cfg, curr_y):
+            for field_name, schema in cfg.items():
+                if schema.get("internal") or schema.get("widget") == "list_detail":
+                    continue
+                
+                widget = schema.get("widget", "text")
+                ctrl_id = f"{prefix}__{field_name}" if prefix else field_name
+                label_text = schema.get("label", field_name.replace("_", " ").title() + ":")
+                
+                # We render our own UI to avoid the standard XDL layout gap padding, 
+                # because SettingsDialog uses slightly tighter spacing
+                ET.SubElement(board, _dlg("text"), {
+                    _dlg("id"): f"label_{ctrl_id}",
+                    _dlg("tab-index"): "0",
+                    _dlg("left"): "8",
+                    _dlg("top"): str(curr_y + 2),
+                    _dlg("width"): "100",
+                    _dlg("height"): "10",
+                    _dlg("value"): label_text,
+                    _dlg("align"): "left",
+                })
+                
+                field_attrs = {
+                    _dlg("id"): ctrl_id,
+                    _dlg("tab-index"): "0",
+                    _dlg("left"): "110",
+                    _dlg("top"): str(curr_y),
+                    _dlg("width"): "144",
+                    _dlg("height"): "14",
+                }
+                
+                if widget == "checkbox":
+                    field_attrs.update({
+                        _dlg("width"): "120",
+                        _dlg("height"): "10",
+                        _dlg("value"): label_text,
+                        _dlg("checked"): "false",
+                    })
+                    # Remove the duplicate label for checkbox
+                    board.remove(board[-1])
+                    field_attrs[_dlg("top")] = str(curr_y + 2)
+                    field_attrs[_dlg("left")] = "8"
+                    ET.SubElement(board, _dlg("checkbox"), field_attrs)
+                elif widget == "password":
+                    field_attrs[_dlg("echochar")] = "42"
+                    ET.SubElement(board, _dlg("textfield"), field_attrs)
+                elif widget in ("number", "slider"):
+                    field_attrs.update({_dlg("spin"): "true", _dlg("width"): "60"})
+                    ET.SubElement(board, _dlg("numericfield"), field_attrs)
+                elif widget == "select" or widget == "combo":
+                    field_attrs.update({_dlg("dropdown"): "true", _dlg("spin"): "true", _dlg("border"): "1"})
+                    el = ET.SubElement(board, _dlg("combobox"), field_attrs)
+                    menu = ET.SubElement(el, _dlg("menupopup"))
+                    for opt in schema.get("options", []):
+                        ET.SubElement(menu, _dlg("menuitem"), {_dlg("value"): str(opt)})
+                else:
+                    ET.SubElement(board, _dlg("textfield"), field_attrs)
+                
+                curr_y += 16
+            return curr_y
+            
+        y = add_fields(name.replace(".", "_"), config, y)
+        if children:
+            for child_m, child_cfg in children:
+                y += 6 # Gap for new section
+                y = add_fields(child_m["name"].replace(".", "_"), child_cfg, y)
+        
+        # Add dlg:page to all elements in this page
+        for el in board.iter():
+            if el != board and "menupopup" not in el.tag and "menuitem" not in el.tag:
+                el.set(_dlg("page"), str(page_num))
+
+        page_str = ""
+        for child in board:
+            ET.indent(child, space="  ")
+            child_str = ET.tostring(child, encoding="unicode")
+            # Remove namespace prefixes from output for clean merge
+            child_str = child_str.replace(f"xmlns:ns0=\"{_DLG_NS}\" ", "")
+            child_str = child_str.replace("ns0:", "dlg:")
+            page_str += "  " + child_str + "\n"
+            
+        pages.append(f"  <!-- === Page {page_num}: {name.title()} Settings === -->\n{page_str}")
+        page_num += 1
+
+    import re
+    # Replace markers
+    # For tabs, we keep everything before tab_marker, and everything starting with "<!-- === Page 1:"
+    # For pages, we keep everything up to page_marker, and everything starting with "\n  <!-- OK Button" or "</dlg:bulletinboard>"
+    
+    before_tabs, rest1 = content.split(tab_marker, 1)
+    idx_p1 = rest1.find("<!-- === Page 1:")
+    after_tabs = rest1[idx_p1:] if idx_p1 != -1 else rest1
+    
+    # We now split the remaining text with page_marker
+    if page_marker in after_tabs:
+        middle, rest2 = after_tabs.split(page_marker, 1)
+        # Find the OK button or </dlg:bulletinboard> to mark the end of generated pages
+        idx_ok = rest2.find("<!-- OK Button")
+        if idx_ok == -1:
+            idx_ok = rest2.find("</dlg:bulletinboard>")
+        rest2 = rest2[idx_ok:] if idx_ok != -1 else rest2
+    else:
+        middle = after_tabs
+        rest2 = ""
+
+    new_content = before_tabs + tab_marker + "\n" + "\n".join(tabs) + "\n\n  " + middle + page_marker + "\n" + "\n".join(pages) + "\n\n  " + rest2
+
+    with open(xdl_path, "w", encoding="utf-8") as f:
+        f.write(new_content)
+    print(f"  Injected {len(tabs)} tabs into {os.path.basename(xdl_path)}")
+
+
+def generate_manifest_xml(modules, output_path, enable_options=False):
     """Generate META-INF/manifest.xml with XCS/XCU entries for selected modules."""
     MANIFEST_NS = "http://openoffice.org/2001/manifest"
     MF = "manifest:"
@@ -1520,22 +1696,23 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Jobs.xcu'),
         ('application/vnd.sun.star.configuration-data', 'ProtocolHandler.xcu'),
-        ('application/vnd.sun.star.configuration-data', 'OptionsDialog.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Sidebar.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Factories.xcu'),
     ]
 
-    # Dynamic XCS/XCU entries for modules with config
-    for m in modules:
-        if not m.get("config"):
-            continue
-        safe = m["name"].replace(".", "_")
-        entries.append(
-            ('application/vnd.sun.star.configuration-schema',
-             'registry/%s.xcs' % safe))
-        entries.append(
-            ('application/vnd.sun.star.configuration-data',
-             'registry/%s.xcu' % safe))
+    if enable_options:
+        entries.append(('application/vnd.sun.star.configuration-data', 'OptionsDialog.xcu'))
+        # Dynamic XCS/XCU entries for modules with config
+        for m in modules:
+            if not m.get("config"):
+                continue
+            safe = m["name"].replace(".", "_")
+            entries.append(
+                ('application/vnd.sun.star.configuration-schema',
+                 'registry/%s.xcs' % safe))
+            entries.append(
+                ('application/vnd.sun.star.configuration-data',
+                 'registry/%s.xcu' % safe))
 
     # Build XML tree
     def _mf(tag):
@@ -1622,6 +1799,11 @@ def main():
 
     build_dir = os.path.join(PROJECT_ROOT, "build", "generated")
 
+    # Read Tools -> Options enable flag
+    enable_options = os.environ.get("LOCALWRITER_ENABLE_OPTIONS", "1") == "1"
+    if not enable_options:
+        print("  LOCALWRITER_ENABLE_OPTIONS is false. Skipping Tools -> Options generation.")
+
     # 1. Addons.xcu (menus) — run first to collect conditional menus
     addons_xcu_path = os.path.join(build_dir, "Addons.xcu")
     generate_addons_xcu(
@@ -1631,19 +1813,20 @@ def main():
     manifest_path = os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path)
 
-    # 3. XCS/XCU
-    registry_dir = os.path.join(build_dir, "registry")
-    generate_xcs_xcu(sorted_modules, registry_dir)
+    if enable_options:
+        # 3. XCS/XCU
+        registry_dir = os.path.join(build_dir, "registry")
+        generate_xcs_xcu(sorted_modules, registry_dir)
 
-    # 4. XDL dialog pages
-    dialogs_dir = os.path.join(build_dir, "dialogs")
-    generate_xdl_files(sorted_modules, dialogs_dir)
+        # 4. XDL dialog pages
+        dialogs_dir = os.path.join(build_dir, "dialogs")
+        generate_xdl_files(sorted_modules, dialogs_dir)
 
-    # 5. OptionsDialog.xcu
-    options_xcu_path = os.path.join(build_dir, "OptionsDialog.xcu")
-    with open(options_xcu_path, "w") as f:
-        f.write(generate_options_dialog_xcu(sorted_modules))
-    print("  Generated %s" % options_xcu_path)
+        # 5. OptionsDialog.xcu
+        options_xcu_path = os.path.join(build_dir, "OptionsDialog.xcu")
+        with open(options_xcu_path, "w") as f:
+            f.write(generate_options_dialog_xcu(sorted_modules))
+        print("  Generated %s" % options_xcu_path)
 
     # 6. Accelerators.xcu (shortcuts)
     accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")
@@ -1651,9 +1834,12 @@ def main():
 
     # 7. META-INF/manifest.xml
     manifest_xml_path = os.path.join(PROJECT_ROOT, "extension", "META-INF", "manifest.xml")
-    generate_manifest_xml(sorted_modules, manifest_xml_path)
+    generate_manifest_xml(sorted_modules, manifest_xml_path, enable_options)
 
-    # 8. Patch version
+    # 8. SettingsDialog Tabs
+    generate_settings_dialog_tabs(sorted_modules, os.path.join(PROJECT_ROOT, "extension", "LocalWriterDialogs", "SettingsDialog.xdl"))
+
+    # 9. Patch version
     patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
 
     print("Done.")

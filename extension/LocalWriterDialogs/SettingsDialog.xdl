@@ -7,8 +7,15 @@
  <dlg:bulletinboard>
 
   <!-- Tab buttons (always visible, no page attribute) -->
-  <dlg:button dlg:id="btn_tab_chat" dlg:left="5" dlg:top="5" dlg:width="100" dlg:height="14" dlg:value="Chat / Text"/>
-  <dlg:button dlg:id="btn_tab_image" dlg:left="110" dlg:top="5" dlg:width="100" dlg:height="14" dlg:value="Image Settings"/>
+  <!-- Tab buttons (always visible, no page attribute) -->
+  <dlg:button dlg:id="btn_tab_chat" dlg:left="5" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="Chat / Text"/>
+  <dlg:button dlg:id="btn_tab_image" dlg:left="68" dlg:top="5" dlg:width="60" dlg:height="14" dlg:value="Image Settings"/>
+
+  <!-- AUTO_GENERATED_TABS -->
+  <dlg:button dlg:id="btn_tab_core" dlg:left="131" dlg:top="5" dlg:width="35" dlg:height="14" dlg:value="Core"/>
+  <dlg:button dlg:id="btn_tab_writer" dlg:left="169" dlg:top="5" dlg:width="45" dlg:height="14" dlg:value="Writer"/>
+  <dlg:button dlg:id="btn_tab_chatbot" dlg:left="217" dlg:top="5" dlg:width="50" dlg:height="14" dlg:value="Chatbot"/>
+  <dlg:button dlg:id="btn_tab_tunnel" dlg:left="270" dlg:top="5" dlg:width="45" dlg:height="14" dlg:value="Tunnel"/>
 
   <!-- === Page 1: Chat / Text Settings === -->
   <dlg:text dlg:id="label_endpoint" dlg:page="1" dlg:left="8" dlg:top="26" dlg:width="150" dlg:height="10" dlg:value="Endpoint URL (/v1 added):" dlg:align="left"/>
@@ -86,6 +93,71 @@
 
   <dlg:checkbox dlg:id="image_nsfw" dlg:page="2" dlg:left="8" dlg:top="150" dlg:width="100" dlg:height="10" dlg:value="Allow NSFW" dlg:checked="false"/>
   <dlg:checkbox dlg:id="image_censor_nsfw" dlg:page="2" dlg:left="120" dlg:top="150" dlg:width="100" dlg:height="10" dlg:value="Censor NSFW" dlg:checked="true"/>
+
+  <!-- AUTO_GENERATED_PAGES -->
+  <!-- === Page 3: Core Settings === -->
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_core__log_level" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="100" dlg:height="10" dlg:value="Log Level" dlg:align="left" dlg:page="3" />
+  <dlg:combobox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="core__log_level" dlg:tab-index="0" dlg:left="110" dlg:top="26" dlg:width="144" dlg:height="14" dlg:dropdown="true" dlg:spin="true" dlg:border="1" dlg:page="3">
+  <dlg:menupopup>
+    <dlg:menuitem dlg:value="{'value': 'DEBUG', 'label': 'Debug'}" />
+    <dlg:menuitem dlg:value="{'value': 'INFO', 'label': 'Info'}" />
+    <dlg:menuitem dlg:value="{'value': 'WARN', 'label': 'Warning'}" />
+    <dlg:menuitem dlg:value="{'value': 'ERROR', 'label': 'Error'}" />
+  </dlg:menupopup>
+</dlg:combobox>
+
+  <!-- === Page 4: Writer Settings === -->
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_writer__max_content_chars" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="100" dlg:height="10" dlg:value="Max Content Size" dlg:align="left" dlg:page="4" />
+  <dlg:numericfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="writer__max_content_chars" dlg:tab-index="0" dlg:left="110" dlg:top="26" dlg:width="60" dlg:height="14" dlg:spin="true" dlg:page="4" />
+
+  <!-- === Page 5: Chatbot Settings === -->
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__max_tool_rounds" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="100" dlg:height="10" dlg:value="Max Tool Rounds" dlg:align="left" dlg:page="5" />
+  <dlg:numericfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__max_tool_rounds" dlg:tab-index="0" dlg:left="110" dlg:top="26" dlg:width="60" dlg:height="14" dlg:spin="true" dlg:page="5" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__context_strategy" dlg:tab-index="0" dlg:left="8" dlg:top="44" dlg:width="100" dlg:height="10" dlg:value="Document Context Strategy" dlg:align="left" dlg:page="5" />
+  <dlg:combobox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__context_strategy" dlg:tab-index="0" dlg:left="110" dlg:top="42" dlg:width="144" dlg:height="14" dlg:dropdown="true" dlg:spin="true" dlg:border="1" dlg:page="5">
+  <dlg:menupopup>
+    <dlg:menuitem dlg:value="{'value': 'auto', 'label': 'Auto (by document size)'}" />
+    <dlg:menuitem dlg:value="{'value': 'full', 'label': 'Full document text'}" />
+    <dlg:menuitem dlg:value="{'value': 'page', 'label': 'Pages around cursor'}" />
+    <dlg:menuitem dlg:value="{'value': 'tree', 'label': 'Outline + excerpt'}" />
+    <dlg:menuitem dlg:value="{'value': 'stats', 'label': 'Stats + outline only'}" />
+  </dlg:menupopup>
+</dlg:combobox>
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__system_prompt" dlg:tab-index="0" dlg:left="8" dlg:top="60" dlg:width="100" dlg:height="10" dlg:value="System Prompt" dlg:align="left" dlg:page="5" />
+  <dlg:textfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__system_prompt" dlg:tab-index="0" dlg:left="110" dlg:top="58" dlg:width="144" dlg:height="14" dlg:page="5" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__image_provider" dlg:tab-index="0" dlg:left="8" dlg:top="76" dlg:width="100" dlg:height="10" dlg:value="Image Provider" dlg:align="left" dlg:page="5" />
+  <dlg:combobox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__image_provider" dlg:tab-index="0" dlg:left="110" dlg:top="74" dlg:width="144" dlg:height="14" dlg:dropdown="true" dlg:spin="true" dlg:border="1" dlg:page="5">
+  <dlg:menupopup>
+    <dlg:menuitem dlg:value="{'value': 'endpoint', 'label': 'LLM Endpoint'}" />
+    <dlg:menuitem dlg:value="{'value': 'ai_horde', 'label': 'AI Horde (free)'}" />
+  </dlg:menupopup>
+</dlg:combobox>
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__extend_selection_max_tokens" dlg:tab-index="0" dlg:left="8" dlg:top="92" dlg:width="100" dlg:height="10" dlg:value="Extend Selection Max Tokens" dlg:align="left" dlg:page="5" />
+  <dlg:numericfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__extend_selection_max_tokens" dlg:tab-index="0" dlg:left="110" dlg:top="90" dlg:width="60" dlg:height="14" dlg:spin="true" dlg:page="5" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__edit_selection_max_new_tokens" dlg:tab-index="0" dlg:left="8" dlg:top="108" dlg:width="100" dlg:height="10" dlg:value="Edit Selection Extra Tokens" dlg:align="left" dlg:page="5" />
+  <dlg:numericfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__edit_selection_max_new_tokens" dlg:tab-index="0" dlg:left="110" dlg:top="106" dlg:width="60" dlg:height="14" dlg:spin="true" dlg:page="5" />
+  <dlg:checkbox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__tool_broker" dlg:tab-index="0" dlg:left="8" dlg:top="124" dlg:width="120" dlg:height="10" dlg:value="Tool Broker" dlg:checked="false" dlg:page="5" />
+  <dlg:checkbox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__enter_sends" dlg:tab-index="0" dlg:left="8" dlg:top="140" dlg:width="120" dlg:height="10" dlg:value="Enter Sends Message" dlg:checked="false" dlg:page="5" />
+  <dlg:checkbox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__show_mcp_activity" dlg:tab-index="0" dlg:left="8" dlg:top="156" dlg:width="120" dlg:height="10" dlg:value="Show MCP Activity" dlg:checked="false" dlg:page="5" />
+  <dlg:checkbox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__api_enabled" dlg:tab-index="0" dlg:left="8" dlg:top="172" dlg:width="120" dlg:height="10" dlg:value="Enable Chat API" dlg:checked="false" dlg:page="5" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_chatbot__api_auth_token" dlg:tab-index="0" dlg:left="8" dlg:top="188" dlg:width="100" dlg:height="10" dlg:value="API Auth Token" dlg:align="left" dlg:page="5" />
+  <dlg:textfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="chatbot__api_auth_token" dlg:tab-index="0" dlg:left="110" dlg:top="186" dlg:width="144" dlg:height="14" dlg:page="5" />
+
+  <!-- === Page 6: Tunnel Settings === -->
+  <dlg:checkbox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="tunnel__auto_start" dlg:tab-index="0" dlg:left="8" dlg:top="28" dlg:width="120" dlg:height="10" dlg:value="Auto Start Tunnel" dlg:checked="false" dlg:page="6" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_tunnel__provider" dlg:tab-index="0" dlg:left="8" dlg:top="44" dlg:width="100" dlg:height="10" dlg:value="Tunnel Provider" dlg:align="left" dlg:page="6" />
+  <dlg:combobox xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="tunnel__provider" dlg:tab-index="0" dlg:left="110" dlg:top="42" dlg:width="144" dlg:height="14" dlg:dropdown="true" dlg:spin="true" dlg:border="1" dlg:page="6">
+  <dlg:menupopup />
+</dlg:combobox>
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_tunnel__server" dlg:tab-index="0" dlg:left="8" dlg:top="60" dlg:width="100" dlg:height="10" dlg:value="Bore Server" dlg:align="left" dlg:page="6" />
+  <dlg:textfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="tunnel__server" dlg:tab-index="0" dlg:left="110" dlg:top="58" dlg:width="144" dlg:height="14" dlg:page="6" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_tunnel__tunnel_name" dlg:tab-index="0" dlg:left="8" dlg:top="76" dlg:width="100" dlg:height="10" dlg:value="Cloudflare Tunnel Name" dlg:align="left" dlg:page="6" />
+  <dlg:textfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="tunnel__tunnel_name" dlg:tab-index="0" dlg:left="110" dlg:top="74" dlg:width="144" dlg:height="14" dlg:page="6" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_tunnel__public_url" dlg:tab-index="0" dlg:left="8" dlg:top="92" dlg:width="100" dlg:height="10" dlg:value="Cloudflare Public URL" dlg:align="left" dlg:page="6" />
+  <dlg:textfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="tunnel__public_url" dlg:tab-index="0" dlg:left="110" dlg:top="90" dlg:width="144" dlg:height="14" dlg:page="6" />
+  <dlg:text xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="label_tunnel__authtoken" dlg:tab-index="0" dlg:left="8" dlg:top="108" dlg:width="100" dlg:height="10" dlg:value="Ngrok Authtoken" dlg:align="left" dlg:page="6" />
+  <dlg:textfield xmlns:dlg="http://openoffice.org/2000/dialog" dlg:id="tunnel__authtoken" dlg:tab-index="0" dlg:left="110" dlg:top="106" dlg:width="144" dlg:height="14" dlg:echochar="42" dlg:page="6" />
+
 
   <!-- OK Button (always visible, at bottom of dialog with small margin) -->
   <dlg:button dlg:id="btn_ok" dlg:left="170" dlg:top="176" dlg:width="100" dlg:height="18" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>

@@ -5,7 +5,7 @@ def get_settings_field_specs(ctx):
     openai_compatibility_value = "true" if as_bool(get_config(ctx, "openai_compatibility", True)) else "false"
     is_openwebui_value = "true" if as_bool(get_config(ctx, "is_openwebui", False)) else "false"
     current_endpoint_for_specs = get_current_endpoint(ctx)
-    return [
+    field_specs = [
         {"name": "endpoint", "value": str(get_config(ctx, "endpoint", "http://127.0.0.1:5000"))},
         {"name": "text_model", "value": str(get_config(ctx, "text_model", "") or get_config(ctx, "model", ""))},
         {"name": "image_model", "value": str(get_image_model(ctx))},
@@ -15,30 +15,36 @@ def get_settings_field_specs(ctx):
         {"name": "openai_compatibility", "value": openai_compatibility_value, "type": "bool"},
         {"name": "temperature", "value": str(get_config(ctx, "temperature", "0.5")), "type": "float"},
         {"name": "seed", "value": str(get_config(ctx, "seed", ""))},
-        {"name": "extend_selection_max_tokens", "value": str(get_config(ctx, "extend_selection_max_tokens", "70")), "type": "int"},
-        {"name": "edit_selection_max_new_tokens", "value": str(get_config(ctx, "edit_selection_max_new_tokens", "0")), "type": "int"},
-        {"name": "chat_max_tokens", "value": str(get_config(ctx, "chat_max_tokens", "16384")), "type": "int"},
-        {"name": "chat_context_length", "value": str(get_config(ctx, "chat_context_length", "8000")), "type": "int"},
-        {"name": "additional_instructions", "value": str(get_config(ctx, "additional_instructions", ""))},
-        {"name": "request_timeout", "value": str(get_config(ctx, "request_timeout", "120")), "type": "int"},
-        {"name": "chat_max_tool_rounds", "value": str(get_config(ctx, "chat_max_tool_rounds", "5")), "type": "int"},
-        {"name": "use_aihorde", "value": "true" if get_config(ctx, "image_provider", "aihorde") == "aihorde" else "false", "type": "bool"},
-        {"name": "aihorde_api_key", "value": str(get_config(ctx, "aihorde_api_key", ""))},
-        {"name": "image_base_size", "value": str(get_config(ctx, "image_base_size", "512")), "type": "int"},
-        {"name": "image_default_aspect", "value": str(get_config(ctx, "image_default_aspect", "Square"))},
-        {"name": "image_cfg_scale", "value": str(get_config(ctx, "image_cfg_scale", "7.5")), "type": "float"},
-        {"name": "image_steps", "value": str(get_config(ctx, "image_steps", "30")), "type": "int"},
-        {"name": "image_nsfw", "value": "true" if as_bool(get_config(ctx, "image_nsfw", False)) else "false", "type": "bool"},
-        {"name": "image_censor_nsfw", "value": "true" if as_bool(get_config(ctx, "image_censor_nsfw", True)) else "false", "type": "bool"},
-        {"name": "image_max_wait", "value": str(get_config(ctx, "image_max_wait", "5")), "type": "int"},
-        {"name": "image_auto_gallery", "value": "true" if as_bool(get_config(ctx, "image_auto_gallery", True)) else "false", "type": "bool"},
-        {"name": "image_insert_frame", "value": "true" if as_bool(get_config(ctx, "image_insert_frame", False)) else "false", "type": "bool"},
-        {"name": "image_translate_prompt", "value": "true" if as_bool(get_config(ctx, "image_translate_prompt", True)) else "false", "type": "bool"},
-        {"name": "image_translate_from", "value": str(get_config(ctx, "image_translate_from", ""))},
-        {"name": "mcp_enabled", "value": "true" if as_bool(get_config(ctx, "mcp_enabled", False)) else "false", "type": "bool"},
-        {"name": "mcp_port", "value": str(get_config(ctx, "mcp_port", 8765)), "type": "int"},
-        {"name": "show_search_thinking", "value": "true" if as_bool(get_config(ctx, "show_search_thinking", False)) else "false", "type": "bool"},
     ]
+
+    try:
+        from plugin._manifest import MODULES
+        for m in MODULES:
+            if m["name"] in ("main", "ai"):
+                continue
+            for field_name, schema in m.get("config", {}).items():
+                if schema.get("internal") or schema.get("widget") == "list_detail":
+                    continue
+                
+                prefix = m["name"].replace(".", "_")
+                ctrl_id = f"{prefix}__{field_name}"
+                config_key = f"{m['name']}.{field_name}"
+                
+                default = str(schema.get("default", ""))
+                val = get_config(ctx, config_key, default)
+                
+                field = {"name": ctrl_id, "value": str(val)}
+                schema_type = schema.get("type", "string")
+                if schema_type in ("bool", "int", "float"):
+                    field["type"] = schema_type
+                    if schema_type == "bool":
+                        field["value"] = "true" if as_bool(val) else "false"
+                        
+                field_specs.append(field)
+    except ImportError:
+        pass
+
+    return field_specs
 
 def apply_settings_result(ctx, result):
     """Apply settings dialog result to config. Shared by Writer and Calc."""
@@ -57,7 +63,10 @@ def apply_settings_result(ctx, result):
     for key in apply_keys:
         if key in result:
             val = result[key]
-            set_config(ctx, key, val)
+            
+            # Map module__field to module.field for saving in JSON
+            save_key = key.replace("__", ".")
+            set_config(ctx, save_key, val)
             
             # Update LRU history
             if key == "text_model" and val:

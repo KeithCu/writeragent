@@ -30,6 +30,9 @@
 
 EXTENSION_NAME = localwriter
 
+# Control whether Tools -> Options configuration UI is generated
+LOCALWRITER_ENABLE_OPTIONS ?= 0
+
 # ── Local overrides (gitignored) ────────────────────────────────────────────
 # Create Makefile.local with e.g. USE_DOCKER = 1
 -include Makefile.local
@@ -161,7 +164,7 @@ repack-deploy: repack
 	@$(MAKE) log
 
 manifest:
-	$(PYTHON) $(SCRIPTS)/generate_manifest.py
+	LOCALWRITER_ENABLE_OPTIONS=$(LOCALWRITER_ENABLE_OPTIONS) $(PYTHON) $(SCRIPTS)/generate_manifest.py
 
 xcu: manifest
 

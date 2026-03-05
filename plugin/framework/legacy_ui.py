@@ -56,6 +56,48 @@ def settings_box(ctx, title="", x=None, y=None):
 
     dlg.getControl("btn_tab_chat").addActionListener(TabListener(dlg, 1))
     dlg.getControl("btn_tab_image").addActionListener(TabListener(dlg, 2))
+    
+    try:
+        from plugin._manifest import MODULES
+        
+        inline_targets = {}
+        for m in MODULES:
+            inline_val = m.get("config_inline")
+            if not inline_val:
+                continue
+            target = inline_val if isinstance(inline_val, str) else (m["name"].rsplit(".", 1)[0] if "." in m["name"] else None)
+            if target:
+                inline_targets[m["name"]] = target
+
+        inline_set = set()
+        for name, target in inline_targets.items():
+            if target not in inline_targets:
+                inline_set.add(name)
+
+        by_name = {m["name"]: m for m in MODULES}
+        inline_map = {}
+        for name in inline_set:
+            target = inline_targets[name]
+            inline_map.setdefault(target, []).append((by_name[name], by_name[name].get("config", {})))
+
+        page_num = 3
+        for m in MODULES:
+            if m["name"] in ("main", "ai") or m["name"] in inline_set:
+                continue
+            
+            config = m.get("config", {})
+            children = inline_map.get(m["name"])
+            
+            if not config and not children:
+                continue
+
+            btn_id = f"btn_tab_{m['name'].replace('.', '_')}"
+            ctrl = dlg.getControl(btn_id)
+            if ctrl:
+                ctrl.addActionListener(TabListener(dlg, page_num))
+                page_num += 1
+    except ImportError:
+        pass
 
     current_endpoint = get_current_endpoint(ctx)
 
@@ -128,8 +170,14 @@ def settings_box(ctx, title="", x=None, y=None):
                             set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
                         except Exception as e:
                             pass
+                    elif hasattr(ctrl, "setText"):
+                        # Works for comboboxes
+                        ctrl.setText(field["value"])
                     else:
-                        ctrl.getModel().Text = field["value"]
+                        try:
+                            ctrl.getModel().Text = field["value"]
+                        except Exception:
+                            pass
         dlg.getControl("endpoint").setFocus()
 
         result = {}
@@ -138,7 +186,7 @@ def settings_box(ctx, title="", x=None, y=None):
                 try:
                     ctrl = dlg.getControl(field["name"])
                     if ctrl:
-                        if field["name"] in ("text_model", "image_model", "additional_instructions", "endpoint", "image_base_size"):
+                        if hasattr(ctrl, "getText") and not is_checkbox_control(ctrl):
                             control_text = ctrl.getText()
                         else:
                             try:
