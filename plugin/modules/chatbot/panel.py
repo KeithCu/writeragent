@@ -144,7 +144,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         except Exception:
             pass
 
-    def _append_response(self, text):
+    def _append_response(self, text, is_thinking=False):
         """Append text to the response area."""
         try:
             if self.response_control and self.response_control.getModel():

@@ -102,7 +102,7 @@ def run_stream_drain_loop(
                 elif kind == "stream_done":
                     flush_buffers()
                     close_thinking()
-                    if on_stream_done(data):
+                    if on_stream_done(item): # Pass whole item for consistency
                         job_done[0] = True
                     break
                 elif kind == "tool_done":
