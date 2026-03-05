@@ -1296,212 +1296,6 @@ def generate_accelerators_xcu(modules, output_path):
     print("  Generated %s" % output_path)
 
 
-# ── OptionsDialog.xcu Generation ─────────────────────────────────────
-
-
-def _pretty_name(module_name):
-    """Convert module_name to a pretty display label."""
-    # For dotted names like "tunnel.bore", use last part
-    last = module_name.rsplit(".", 1)[-1]
-    return last.replace("_", " ").title()
-
-
-def generate_options_dialog_xcu(modules):
-    """Generate OptionsDialog.xcu for the LO options tree.
-
-    LO OptionsDialog schema: top-level ``Nodes`` set contains ``Node`` groups,
-    each ``Node`` has a ``Leaves`` set. Nodes do NOT nest — sub-module groups
-    become separate top-level Nodes (like "LibreOffice" / "LibreOffice Writer").
-
-    Structure produced::
-
-        Nodes
-        ├── LocalWriter (Node)
-        │   └── Leaves: [Main], Core, Http, Mcp, Chatbot ...
-        ├── LocalWriter Tunnel (Node)    ← only if tunnel has sub-modules
-        │   └── Leaves: Main, Ngrok, Bore, Cloudflare
-        └── ...
-    """
-    handler_service = "org.extension.localwriter.OptionsHandler"
-
-    root = ET.Element(_oor("component-data"), {
-        _oor("name"): "OptionsDialog",
-        _oor("package"): "org.openoffice.Office",
-    })
-    root.set("xmlns:xs", _XS_NS)
-
-    nodes_el = ET.SubElement(root, "node", {_oor("name"): "Nodes"})
-
-    # Classify modules
-    top_level = []       # modules without dots (in order)
-    children = {}        # parent_name -> [child_modules] (in order)
-    has_children = set()
-    inline_set = set()       # modules inlined into another page
-    inline_target_set = set()  # modules that receive inline children
-
-    for m in modules:
-        inline_val = m.get("config_inline")
-        if not inline_val:
-            continue
-        name = m["name"]
-        inline_set.add(name)
-        if isinstance(inline_val, str):
-            inline_target_set.add(inline_val)
-        elif "." in name:
-            inline_target_set.add(name.rsplit(".", 1)[0])
-
-    for m in modules:
-        name = m["name"]
-        if "." in name:
-            parent = name.rsplit(".", 1)[0]
-            children.setdefault(parent, []).append(m)
-            has_children.add(parent)
-        else:
-            top_level.append(m)
-
-    # ── Main Node: "LocalWriter" ─────────────────────────────────────
-    lw_node_name = "LocalWriter"
-    lw_node = _add_node(nodes_el, lw_node_name, "LocalWriter")
-    lw_leaves = ET.SubElement(lw_node, "node", {_oor("name"): "Leaves"})
-
-    # GroupId matches parent Node oor:name → appears first group.
-    # GroupIndex controls display order within the group.
-    group_idx = 0
-
-    # Framework-level "Main" leaf (first if it has config or inline children)
-    for m in top_level:
-        if m["name"] == "main" and (m.get("config") or "main" in inline_target_set):
-            _add_leaf(lw_leaves, "LocalWriter_main", "Main",
-                      "main", "main", handler_service,
-                      group_id=lw_node_name, group_index=group_idx)
-            group_idx += 1
-            break
-
-    # Simple modules (no sub-modules) as leaves under LocalWriter
-    for m in top_level:
-        name = m["name"]
-        if name == "main" or name in has_children or name in inline_set:
-            continue
-        config = m.get("config", {})
-        if not config and name not in inline_target_set:
-            continue
-        safe = name.replace(".", "_")
-        _add_leaf(lw_leaves, "LocalWriter_%s" % safe, _pretty_name(name),
-                  name, safe, handler_service,
-                  group_id=lw_node_name, group_index=group_idx)
-        group_idx += 1
-
-        # Extra leaves for non-inline list_detail fields
-        for field_name, schema in config.items():
-            if schema.get("widget") != "list_detail":
-                continue
-            if schema.get("inline"):
-                continue  # inline list_detail is on the main page
-            ld_safe = "%s__%s" % (safe, field_name)
-            ld_label = "%s: %s" % (
-                _pretty_name(name),
-                schema.get("page_label") or schema.get("label", field_name))
-            _add_leaf(lw_leaves, "LocalWriter_%s" % ld_safe, ld_label,
-                      name, ld_safe, handler_service,
-                      group_id=lw_node_name, group_index=group_idx)
-            group_idx += 1
-
-    # ── Sub-module groups as leaves under LocalWriter ────────────────
-    # LO doesn't reliably show multiple top-level Nodes from one extension.
-    # Instead, add parent + children as leaves with a group separator label.
-    for m in top_level:
-        name = m["name"]
-        if name not in has_children:
-            continue
-
-        config = m.get("config", {})
-
-        # Parent's own config (labeled "Tunnel" not "Main" since it's flat)
-        if config or name in inline_target_set:
-            safe = name.replace(".", "_")
-            _add_leaf(lw_leaves, "LocalWriter_%s" % safe,
-                      _pretty_name(name),
-                      name, safe, handler_service,
-                      group_id=lw_node_name, group_index=group_idx)
-            group_idx += 1
-
-        # Sub-module leaves (labeled "Tunnel: Ngrok" etc.)
-        # Skip children that opt into config_inline (merged onto parent page).
-        for child in children.get(name, []):
-            if child.get("config_inline"):
-                continue
-            child_name = child["name"]
-            child_config = child.get("config", {})
-            if not child_config:
-                continue
-            child_safe = child_name.replace(".", "_")
-            # Label: "Tunnel: Ngrok"
-            child_label = "%s: %s" % (_pretty_name(name),
-                                      _pretty_name(child_name))
-            _add_leaf(lw_leaves, "LocalWriter_%s" % child_safe,
-                      child_label,
-                      child_name, child_safe, handler_service,
-                      group_id=lw_node_name, group_index=group_idx)
-            group_idx += 1
-
-            # list_detail leaves for sub-modules (non-inline only)
-            for field_name, schema in child_config.items():
-                if schema.get("widget") != "list_detail":
-                    continue
-                if schema.get("inline"):
-                    continue  # inline list_detail is on the main page
-                ld_safe = "%s__%s" % (child_safe, field_name)
-                ld_label = "%s: %s" % (
-                    child_label,
-                    schema.get("page_label") or schema.get("label", field_name))
-                _add_leaf(lw_leaves, "LocalWriter_%s" % ld_safe, ld_label,
-                          child_name, ld_safe, handler_service,
-                          group_id=lw_node_name, group_index=group_idx)
-                group_idx += 1
-
-    ET.indent(root, space="  ")
-    return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
-
-
-def _add_node(parent, node_name, label):
-    """Add a Node element to the OptionsDialog Nodes set."""
-    node = ET.SubElement(parent, "node", {
-        _oor("name"): node_name,
-        _oor("op"): "fuse",
-    })
-    label_prop = ET.SubElement(node, "prop", {_oor("name"): "Label"})
-    ET.SubElement(label_prop, "value").text = label
-    all_mod_prop = ET.SubElement(node, "prop", {_oor("name"): "AllModules"})
-    ET.SubElement(all_mod_prop, "value").text = "true"
-    return node
-
-
-def _add_leaf(parent, node_name, label, module_name, safe_name,
-              handler_service, group_id=None, group_index=None):
-    """Add a leaf node to the OptionsDialog XCU tree."""
-    leaf = ET.SubElement(parent, "node", {
-        _oor("name"): node_name,
-        _oor("op"): "fuse",
-    })
-
-    id_prop = ET.SubElement(leaf, "prop", {_oor("name"): "Id"})
-    ET.SubElement(id_prop, "value").text = "org.extension.localwriter"
-
-    lbl_prop = ET.SubElement(leaf, "prop", {_oor("name"): "Label"})
-    ET.SubElement(lbl_prop, "value").text = label
-
-    page_prop = ET.SubElement(leaf, "prop", {_oor("name"): "OptionsPage"})
-    ET.SubElement(page_prop, "value").text = "%%origin%%/dialogs/%s.xdl" % safe_name
-
-    handler_prop = ET.SubElement(leaf, "prop", {_oor("name"): "EventHandlerService"})
-    ET.SubElement(handler_prop, "value").text = handler_service
-
-    if group_id is not None:
-        gid_prop = ET.SubElement(leaf, "prop", {_oor("name"): "GroupId"})
-        ET.SubElement(gid_prop, "value").text = group_id
-    if group_index is not None:
-        gix_prop = ET.SubElement(leaf, "prop", {_oor("name"): "GroupIndex"})
-        ET.SubElement(gix_prop, "value").text = str(group_index)
 
 
 def generate_settings_dialog_tabs(modules, xdl_path):
@@ -1680,7 +1474,7 @@ def generate_settings_dialog_tabs(modules, xdl_path):
     print(f"  Injected {len(tabs)} tabs into {os.path.basename(xdl_path)}")
 
 
-def generate_manifest_xml(modules, output_path, enable_options=False):
+def generate_manifest_xml(modules, output_path):
     """Generate META-INF/manifest.xml with XCS/XCU entries for selected modules."""
     MANIFEST_NS = "http://openoffice.org/2001/manifest"
     MF = "manifest:"
@@ -1699,20 +1493,17 @@ def generate_manifest_xml(modules, output_path, enable_options=False):
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Sidebar.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Factories.xcu'),
     ]
-
-    if enable_options:
-        entries.append(('application/vnd.sun.star.configuration-data', 'OptionsDialog.xcu'))
-        # Dynamic XCS/XCU entries for modules with config
-        for m in modules:
-            if not m.get("config"):
-                continue
-            safe = m["name"].replace(".", "_")
-            entries.append(
-                ('application/vnd.sun.star.configuration-schema',
-                 'registry/%s.xcs' % safe))
-            entries.append(
-                ('application/vnd.sun.star.configuration-data',
-                 'registry/%s.xcu' % safe))
+    # Dynamic XCS/XCU entries for modules with config
+    for m in modules:
+        if not m.get("config"):
+            continue
+        safe = m["name"].replace(".", "_")
+        entries.append(
+            ('application/vnd.sun.star.configuration-schema',
+             'registry/%s.xcs' % safe))
+        entries.append(
+            ('application/vnd.sun.star.configuration-data',
+             'registry/%s.xcu' % safe))
 
     # Build XML tree
     def _mf(tag):
@@ -1813,33 +1604,26 @@ def main():
     manifest_path = os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path)
 
-    if enable_options:
-        # 3. XCS/XCU
-        registry_dir = os.path.join(build_dir, "registry")
-        generate_xcs_xcu(sorted_modules, registry_dir)
+    # 3. XCS/XCU
+    registry_dir = os.path.join(build_dir, "registry")
+    generate_xcs_xcu(sorted_modules, registry_dir)
 
-        # 4. XDL dialog pages
-        dialogs_dir = os.path.join(build_dir, "dialogs")
-        generate_xdl_files(sorted_modules, dialogs_dir)
+    # 4. XDL dialog pages
+    dialogs_dir = os.path.join(build_dir, "dialogs")
+    generate_xdl_files(sorted_modules, dialogs_dir)
 
-        # 5. OptionsDialog.xcu
-        options_xcu_path = os.path.join(build_dir, "OptionsDialog.xcu")
-        with open(options_xcu_path, "w") as f:
-            f.write(generate_options_dialog_xcu(sorted_modules))
-        print("  Generated %s" % options_xcu_path)
-
-    # 6. Accelerators.xcu (shortcuts)
+    # 5. Accelerators.xcu (shortcuts)
     accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")
     generate_accelerators_xcu(sorted_modules, accel_xcu_path)
 
-    # 7. META-INF/manifest.xml
+    # 6. META-INF/manifest.xml
     manifest_xml_path = os.path.join(PROJECT_ROOT, "extension", "META-INF", "manifest.xml")
-    generate_manifest_xml(sorted_modules, manifest_xml_path, enable_options)
+    generate_manifest_xml(sorted_modules, manifest_xml_path)
 
-    # 8. SettingsDialog Tabs
+    # 7. SettingsDialog Tabs
     generate_settings_dialog_tabs(sorted_modules, os.path.join(PROJECT_ROOT, "extension", "LocalWriterDialogs", "SettingsDialog.xdl"))
 
-    # 9. Patch version
+    # 8. Patch version
     patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
 
     print("Done.")
