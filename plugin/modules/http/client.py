@@ -9,6 +9,7 @@ import urllib.request
 import urllib.parse
 import http.client
 import socket
+import datetime
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
@@ -328,7 +329,9 @@ class LlmClient:
             url = endpoint + api_path + "/chat/completions"
             messages = []
             if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
+                today = datetime.date.today().strftime("%Y-%m-%d")
+                full_system_prompt = f"Today's date is {today}.\n\n{system_prompt}"
+                messages.append({"role": "system", "content": full_system_prompt})
             messages.append({"role": "user", "content": prompt})
             data = {
                 "messages": messages,
@@ -341,9 +344,16 @@ class LlmClient:
             url = endpoint + api_path + "/completions"
             full_prompt = prompt
             if system_prompt:
+                today = datetime.date.today().strftime("%Y-%m-%d")
                 full_prompt = (
-                    "SYSTEM PROMPT\n%s\nEND SYSTEM PROMPT\n%s"
-                    % (system_prompt, prompt)
+                    "SYSTEM PROMPT\nToday's date is %s.\n\n%s\nEND SYSTEM PROMPT\n%s"
+                    % (today, system_prompt, prompt)
+                )
+            else:
+                today = datetime.date.today().strftime("%Y-%m-%d")
+                full_prompt = (
+                    "SYSTEM PROMPT\nToday's date is %s.\nEND SYSTEM PROMPT\n%s"
+                    % (today, prompt)
                 )
             data = {
                 "prompt": full_prompt,
@@ -414,6 +424,23 @@ class LlmClient:
             "top_p": 0.9,
             "stream": stream,
         }
+
+        # Inject date into the first system message if present, or add one
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        date_msg = f"Today's date is {today}."
+        
+        system_msg = None
+        for m in messages:
+            if m.get("role") == "system":
+                system_msg = m
+                break
+        
+        if system_msg:
+            old_content = system_msg.get("content") or ""
+            system_msg["content"] = f"{date_msg}\n\n{old_content}"
+        else:
+            messages.insert(0, {"role": "system", "content": date_msg})
+
         if model_name:
             data["model"] = model_name
         if tools:
