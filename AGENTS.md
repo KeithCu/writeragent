@@ -269,6 +269,12 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
   - Watchdog: `update_activity_state(phase, ...)`, `start_watchdog_thread(ctx, status_control)` for hang detection (logs and status "Hung: ..." if no activity for threshold).
 - **`SendButtonListener._send_busy`** (`panel_factory.py`): Boolean; True from run start until the `finally` block of `actionPerformed` (single source of truth for "is the AI running?"). Used together with lifecycle-based `_set_button_states(send_enabled, stop_enabled)`.
 - **`core/api.format_error_for_display(e)`**: Returns user-friendly error string for cells/dialogs (e.g. `"Error: Connection refused..."`).
+- **Dialog control helpers** (`plugin/framework/dialogs.py`):
+  - `add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_type=None, enabled=True)`
+  - `add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True)`
+  - `add_dialog_edit(dlg_model, name, text, x, y, width, height, readonly=False)`
+  - `add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height)`
+  These encapsulate the boilerplate required to create and insert UNO control models into a dialog model.
 
 ---
 
@@ -321,6 +327,9 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 
 ### Optional Controls
 - When wiring controls that might not exist in all XDL versions (e.g. backward compatibility), use **`get_optional(root_window, name)`** from `plugin/framework/uno_helpers.py` (returns control or None). For checkboxes, use **`get_checkbox_state(ctrl)`** / **`set_checkbox_state(ctrl, value)`** and **`is_checkbox_control(ctrl)`** from the same module so LibreOffice control quirks are handled in one place.
+
+### Programmatic Control Creation
+- When creating dialogs or controls programmatically (without XDL), use the helpers in `plugin/framework/dialogs.py` (e.g., `add_dialog_button`). This ensures consistent naming, positioning (still using Map AppFont units by convention if the dialog model is set up that way), and property configuration.
 
 ---
 
