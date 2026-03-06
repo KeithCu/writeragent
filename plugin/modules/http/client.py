@@ -329,7 +329,7 @@ class LlmClient:
             url = endpoint + api_path + "/chat/completions"
             messages = []
             if system_prompt:
-                today = datetime.date.today().strftime("%Y-%m-%d")
+                today = datetime.date.today().strftime("%A, %Y-%m-%d")
                 full_system_prompt = f"Today's date is {today}.\n\n{system_prompt}"
                 messages.append({"role": "system", "content": full_system_prompt})
             messages.append({"role": "user", "content": prompt})
@@ -344,13 +344,13 @@ class LlmClient:
             url = endpoint + api_path + "/completions"
             full_prompt = prompt
             if system_prompt:
-                today = datetime.date.today().strftime("%Y-%m-%d")
+                today = datetime.date.today().strftime("%A, %Y-%m-%d")
                 full_prompt = (
                     "SYSTEM PROMPT\nToday's date is %s.\n\n%s\nEND SYSTEM PROMPT\n%s"
                     % (today, system_prompt, prompt)
                 )
             else:
-                today = datetime.date.today().strftime("%Y-%m-%d")
+                today = datetime.date.today().strftime("%A, %Y-%m-%d")
                 full_prompt = (
                     "SYSTEM PROMPT\nToday's date is %s.\nEND SYSTEM PROMPT\n%s"
                     % (today, prompt)
@@ -426,7 +426,7 @@ class LlmClient:
         }
 
         # Inject date into the first system message if present, or add one
-        today = datetime.date.today().strftime("%Y-%m-%d")
+        today = datetime.date.today().strftime("%A, %Y-%m-%d")
         date_msg = f"Today's date is {today}."
         
         system_msg = None

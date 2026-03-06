@@ -261,6 +261,34 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 parent_rect.Width, parent_rect.Height), context="Chat")
         return self.m_panelRootWindow
 
+    def _render_session_history(self, session, response_ctrl, model, greeting=""):
+        """Update the response control with the contents of the given session."""
+        try:
+            if response_ctrl and response_ctrl.getModel():
+                text = greeting + "\n" if greeting else ""
+                
+                # Append loaded history (skipping system context)
+                for msg in session.messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        text += "\nUser: %s\n" % content
+                    elif role == "assistant":
+                        if content:
+                            text += "\nAssistant: %s" % content
+                        elif msg.get("tool_calls"):
+                            text += "\nAssistant: [Thinking...]"
+                        text += "\n"
+                
+                response_ctrl.getModel().Text = text
+                # Scroll to bottom
+                if hasattr(response_ctrl, "setSelection"):
+                    length = len(text)
+                    import uno
+                    response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
+        except Exception as e:
+            debug_log("_render_session_history error: %s" % e, context="Chat")
+
     def _refresh_controls_from_config(self):
         """Reload model and prompt selectors from config (e.g. after user changes Settings)."""
         root = self.m_panelRootWindow
@@ -485,31 +513,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 except Exception as e:
                     debug_log("direct_image_check wire error: %s" % e, context="Chat")
 
-            # "Web Research" checkbox
+            # "Web Research" (now Research Chat) checkbox - initial listener just to disable image model
+            # Full listener with session switching will be added after send_listener is created below.
             if web_search_check:
                 try:
-                    # If web search should also disable image model at startup if it was checked:
                     from plugin.framework.uno_helpers import get_checkbox_state
                     web_is_checked = get_checkbox_state(web_search_check) == 1
                     if web_is_checked:
                         set_control_enabled(direct_image_check, False)
-
-                    if hasattr(web_search_check, "addItemListener"):
-                        class WebSearchCheckListener(unohelper.Base, XItemListener):
-                            def __init__(self, img_check):
-                                self.img_check = img_check
-                            def itemStateChanged(self, ev):
-                                try:
-                                    state = getattr(ev, "Selected", 0)
-                                    is_checked = (state == 1)
-                                    set_control_enabled(self.img_check, not is_checked)
-                                except Exception as e:
-                                    debug_log("Web search check listener error: %s" % e, context="Chat")
-                            def disposing(self, ev):
-                                pass
-                        web_search_check.addItemListener(WebSearchCheckListener(direct_image_check))
                 except Exception as e:
-                    debug_log("web_search_check wire error: %s" % e, context="Chat")
+                    debug_log("web_search_check initial wire error: %s" % e, context="Chat")
 
             # Register for config changes (e.g. Settings dialog). Weakref so this panel can be
             # GC'd without unregistering; callback no-ops if panel is gone.
@@ -567,8 +580,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         
         debug_log("Using Session ID: %s" % session_id, context="Chat")
         
-        # Create session
-        self.session = ChatSession(system_prompt, session_id=session_id)
+        # Create sessions: Doc and Web (research)
+        from plugin.framework.constants import DEFAULT_RESEARCH_GREETING
+        self.doc_session = ChatSession(system_prompt, session_id=session_id)
+        self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
+        self.session = self.doc_session
 
         # Wire Send button
         try:
@@ -609,44 +625,75 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             _show_init_error("Send/Stop button: %s" % e)
 
         # Show ready message and loaded history
-        try:
-            if response_ctrl and response_ctrl.getModel():
-                from plugin.framework.constants import get_greeting_for_document
-                greeting = get_greeting_for_document(model)
-                text = "%s\n" % greeting
-                
-                # Append loaded history (skipping system context if desired, or showing all)
-                for msg in self.session.messages:
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role == "user":
-                        text += "\nUser: %s\n" % content
-                    elif role == "assistant":
-                        text += "\nAssistant: %s" % (content or "")
-                        if msg.get("tool_calls"):
-                            text += " [Thinking...]"
-                        text += "\n"
-                    # We skip system messages to keep the UI clean
-                
-                response_ctrl.getModel().Text = text
-                # Scroll to bottom
-                if hasattr(response_ctrl, "setSelection"):
-                    length = len(text)
-                    response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
-        except Exception as e:
-            debug_log("Rendering history error: %s" % e, context="Chat")
+        from plugin.framework.constants import get_greeting_for_document
+        doc_greeting = get_greeting_for_document(model)
+        
+        # Determine starting mode
+        web_checked = False
+        if web_search_check:
+            try:
+                web_checked = get_checkbox_state(web_search_check) == 1
+            except Exception: pass
+            
+        if web_checked:
+            self.session = self.web_session
+            active_greeting = DEFAULT_RESEARCH_GREETING
+        else:
+            self.session = self.doc_session
+            active_greeting = doc_greeting
 
-        # Wire Clear button (may not exist in older XDL)
+        self._render_session_history(self.session, response_ctrl, model, active_greeting)
+
+        # Wire Clear button
         try:
             clear_btn = root_window.getControl("clear")
             if clear_btn:
-                from plugin.framework.constants import get_greeting_for_document
-                greeting = get_greeting_for_document(model)
-                clear_btn.addActionListener(ClearButtonListener(
-                    self.session, response_ctrl, status_ctrl, greeting=greeting))
+                clear_listener = ClearButtonListener(
+                    self.session, response_ctrl, status_ctrl, greeting=active_greeting)
+                clear_btn.addActionListener(clear_listener)
                 debug_log("Clear button wired", context="Chat")
         except Exception:
+            clear_listener = None
             pass
+
+        # Update WebSearch (Research Chat) check listener with dual-session logic
+        if web_search_check and hasattr(web_search_check, "addItemListener"):
+            class ResearchChatToggledListener(unohelper.Base, XItemListener):
+                def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check):
+                    self.panel = panel
+                    self.response_ctrl = response_ctrl
+                    self.model = model
+                    self.send_listener = send_listener
+                    self.clear_listener = clear_listener
+                    self.img_check = img_check
+
+                def itemStateChanged(self, ev):
+                    try:
+                        state = getattr(ev, "Selected", 0)
+                        is_research = (state == 1)
+                        set_control_enabled(self.img_check, not is_research)
+                        
+                        if is_research:
+                            self.panel.session = self.panel.web_session
+                            greeting = DEFAULT_RESEARCH_GREETING
+                        else:
+                            self.panel.session = self.panel.doc_session
+                            greeting = get_greeting_for_document(self.model)
+                        
+                        # Update downstream listeners
+                        self.send_listener.set_session(self.panel.session)
+                        if self.clear_listener:
+                            self.clear_listener.set_session(self.panel.session, greeting=greeting)
+                            
+                        # Refresh visual history
+                        self.panel._render_session_history(self.panel.session, self.response_ctrl, self.model, greeting)
+                        
+                    except Exception as e:
+                        debug_log("Research Chat listener error: %s" % e, context="Chat")
+                def disposing(self, ev): pass
+
+            web_search_check.addItemListener(ResearchChatToggledListener(
+                self, response_ctrl, model, send_listener, clear_listener, direct_image_check))
 
         try:
             if status_ctrl and hasattr(status_ctrl, "setText"):
