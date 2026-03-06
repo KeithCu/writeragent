@@ -1,0 +1,208 @@
+plugin/prompt_function.py
+    M 117:4 PromptFunction.prompt - C (11)
+plugin/options_handler.py
+    M 403:4 OptionsHandler._ld_on_initialize - D (23)
+    M 276:4 OptionsHandler._load_module_fields - D (22)
+    M 572:4 OptionsHandler._ld_show_detail - C (16)
+    M 144:4 _BrowseListener.actionPerformed - C (12)
+    M 608:4 OptionsHandler._ld_save_current_detail - C (12)
+    M 325:4 OptionsHandler._on_ok - C (11)
+plugin/main.py
+    F 192:0 _dispatch_command - D (28)
+    F 100:0 bootstrap - C (14)
+    F 411:0 _update_menu_icons - C (14)
+plugin/framework/settings_dialog.py
+    F 63:0 apply_settings_result - D (24)
+    F 3:0 get_settings_field_specs - C (20)
+plugin/framework/legacy_ui.py
+    F 35:0 settings_box - F (47)
+plugin/framework/image_utils.py
+    M 38:4 EndpointImageProvider.generate - D (29)
+    M 249:4 ImageService.generate_image - C (12)
+plugin/framework/tool_registry.py
+    M 142:4 ToolRegistry.execute - C (17)
+    M 44:4 ToolRegistry.discover - C (11)
+    M 685:4 AiHordeClient.generate_image - D (26)
+    M 487:4 AiHordeClient.refresh_models - C (17)
+    M 324:4 AiHordeClient.__update_models_requirements__ - C (16)
+    M 413:4 AiHordeClient.__get_model_requirements__ - C (13)
+    M 910:4 AiHordeClient.__check_if_ready__ - C (13)
+    M 641:4 AiHordeClient._raise_horde_http_error - C (11)
+    M 124:4 MethodChecker.visit_Name - C (12)
+    M 140:4 MethodChecker.visit_Call - C (11)
+    M 81:4 AgentImage.__init__ - C (13)
+    F 332:0 get_clean_message_list - C (19)
+    F 220:0 agglomerate_stream_deltas - C (17)
+    F 288:0 get_tool_json_schema - C (12)
+    M 906:4 TransformersModel.__init__ - C (11)
+    M 76:4 SafeSerializer.to_json_safe - F (43)
+    M 174:4 SafeSerializer.from_json_safe - D (28)
+    C 45:0 SafeSerializer - C (13)
+    F 285:0 instance_to_source - D (30)
+    F 123:0 make_json_serializable - C (15)
+    F 376:0 get_source - C (12)
+    M 565:4 Retrying.__call__ - C (12)
+    M 334:4 VisitWebpageTool.forward - C (18)
+    M 212:4 DuckDuckGoSearchTool.forward - C (15)
+    F 326:0 _parse_type_hint - C (19)
+    F 291:0 _convert_type_hints_to_json_schema - C (11)
+    M 1716:4 CodeAgent._step_stream - D (21)
+    M 1334:4 ToolCallingAgent._step_stream - C (20)
+    M 498:4 MultiStepAgent.run - C (17)
+    M 602:4 MultiStepAgent._run_stream - C (17)
+    M 701:4 MultiStepAgent._generate_planning_step - C (15)
+    M 1599:4 CodeAgent.__init__ - C (14)
+    M 1028:4 MultiStepAgent.to_dict - C (12)
+    M 1433:4 ToolCallingAgent.process_tool_calls - C (11)
+    M 148:4 Tool.validate_arguments - D (30)
+    F 1065:0 tool - C (16)
+    F 1365:0 validate_tool_arguments - C (16)
+    M 296:4 Tool.to_dict - C (11)
+    C 51:0 ActionStep - C (11)
+plugin/modules/writer/tree.py
+    M 288:4 TreeService.get_heading_children - D (22)
+    M 487:4 TreeService.resolve_writer_locator - C (14)
+    M 103:4 TreeService._get_body_preview - C (11)
+plugin/modules/writer/frames.py
+    C 173:0 SetTextFrameProperties - C (12)
+    M 215:4 SetTextFrameProperties.execute - C (11)
+plugin/modules/writer/format_support.py
+    F 170:0 _range_to_content_via_temp_doc - C (19)
+    F 533:0 replace_preserving_format - C (15)
+    F 257:0 document_to_content - C (11)
+plugin/modules/writer/index.py
+    M 346:4 IndexService.search_boolean - C (17)
+    M 286:4 IndexService._parse_query - C (14)
+    M 141:4 _DocIndex.query_near - C (11)
+plugin/modules/writer/structural.py
+    M 111:4 GetPageObjects._scan_page - C (13)
+    C 254:0 ResolveBookmark - C (13)
+    M 276:4 ResolveBookmark.execute - C (12)
+    C 57:0 GetPageObjects - C (11)
+plugin/modules/writer/images.py
+    C 228:0 GetImageInfo - C (14)
+    C 347:0 SetImageProperties - C (14)
+    C 707:0 ReplaceImage - C (14)
+    M 249:4 GetImageInfo.execute - C (13)
+    M 399:4 SetImageProperties.execute - C (13)
+    M 740:4 ReplaceImage.execute - C (13)
+    C 530:0 InsertImage - C (12)
+    M 573:4 InsertImage.execute - C (11)
+plugin/modules/writer/content.py
+    C 85:0 ApplyDocumentContent - D (26)
+    M 137:4 ApplyDocumentContent.execute - D (25)
+plugin/modules/writer/proximity.py
+    M 237:4 ProximityService.get_surroundings - E (35)
+    M 105:4 ProximityService.navigate_heading - D (29)
+    M 207:4 ProximityService._find_sibling - C (12)
+plugin/modules/writer/tables.py
+    C 100:0 WriteTableCells - D (21)
+    M 136:4 WriteTableCells.execute - C (20)
+    F 320:0 _parse_cell - C (12)
+    C 211:0 CreateTable - C (12)
+    M 257:4 CreateTable.execute - C (11)
+plugin/modules/writer/comments.py
+    C 166:0 DeleteComment - C (13)
+    M 472:4 Workflow._check_stop - C (13)
+    M 197:4 DeleteComment.execute - C (12)
+    M 376:4 Workflow._scan_tasks - C (12)
+    C 69:0 AddComment - C (11)
+plugin/modules/writer/search.py
+    C 10:0 SearchInDocument - D (21)
+    M 57:4 SearchInDocument.execute - C (20)
+    C 259:0 AdvancedSearch - C (12)
+    M 315:4 AdvancedSearch.execute - C (11)
+plugin/modules/batch/batch.py
+    C 54:0 ExecuteBatch - F (42)
+    M 132:4 ExecuteBatch.execute - F (41)
+    F 20:0 _follow_result - C (11)
+plugin/modules/batch/batch_vars.py
+    F 35:0 _resolve_var - C (14)
+plugin/modules/calc/error_detector.py
+    M 303:4 ErrorDetector._generate_suggestion - C (13)
+plugin/modules/calc/manipulator.py
+    F 21:0 _parse_formula_or_values_string - C (20)
+    M 111:4 CellManipulator._apply_style_properties - C (14)
+    M 395:4 CellManipulator.write_formula_range - C (12)
+    M 460:4 CellManipulator.import_csv_from_string - C (11)
+plugin/modules/calc/inspector.py
+    M 143:4 CellInspector.read_range - C (11)
+plugin/modules/calc/legacy.py
+    F 8:0 do_calc_extend_edit - C (11)
+plugin/modules/ai/service.py
+    M 183:4 AiService.get_model_catalog - C (16)
+    M 152:4 AiService._load_custom_models - C (15)
+    M 65:4 AiService.get_instance - C (13)
+plugin/modules/ai/__init__.py
+    M 11:4 Module.initialize - C (15)
+plugin/modules/ai/yaml_loader.py
+    F 39:0 load_ai_config - D (23)
+plugin/modules/ai/tools.py
+    C 4:0 WebResearchTool - E (32)
+    M 25:4 WebResearchTool.execute - E (31)
+    C 120:0 GenerateImageTool - C (17)
+    M 150:4 GenerateImageTool.execute - C (16)
+    C 221:0 EditImageTool - C (11)
+plugin/modules/ai/providers/openai.py
+    M 183:4 OpenAICompatProvider.stream - D (24)
+    M 345:4 EndpointImageProvider.generate - C (13)
+plugin/modules/ai/providers/ollama.py
+    M 155:4 OllamaProvider.is_ready - C (11)
+plugin/modules/ai/providers/horde.py
+    M 72:4 HordeProvider.generate - C (12)
+plugin/modules/tunnel/__init__.py
+    M 100:4 TunnelManager._run_and_parse - C (14)
+plugin/modules/core/streaming_deltas.py
+    F 17:0 accumulate_delta - D (23)
+plugin/modules/core/async_stream.py
+    F 14:0 run_stream_drain_loop - E (31)
+plugin/modules/core/format_tests.py
+    F 109:0 run_markdown_tests - F (58)
+    F 451:0 _run_format_preserving_tests - D (30)
+    F 663:0 _run_tool_integration_tests - C (20)
+    F 45:0 tool_apply_document_content - C (12)
+plugin/modules/core/services/config.py
+    F 218:0 populate_combobox_with_lru - D (21)
+    M 616:4 ConfigService.set - C (16)
+    F 320:0 populate_endpoint_selector - C (15)
+    M 579:4 ConfigService.get - C (11)
+plugin/modules/core/services/document.py
+    F 280:0 get_draw_context_for_chat - C (19)
+    F 242:0 get_calc_context_for_chat - C (12)
+    F 175:0 get_document_context_for_chat - C (11)
+    F 483:0 resolve_locator - C (11)
+plugin/modules/launcher/__init__.py
+    M 375:4 LauncherModule._action_launch - D (22)
+    F 230:0 _build_terminal_cmd - C (14)
+    F 45:0 run_install_for_provider - C (12)
+plugin/modules/draw/shapes.py
+    C 158:0 EditShape - C (13)
+    M 182:4 EditShape.execute - C (12)
+plugin/modules/draw/pages.py
+    C 54:0 ReadSlideText - C (14)
+    M 75:4 ReadSlideText.execute - C (13)
+plugin/modules/draw/tests.py
+    F 5:0 run_draw_tests - D (26)
+plugin/modules/http/mcp_protocol.py
+    M 216:4 MCPProtocolHandler._handle_mcp - C (13)
+plugin/modules/http/__init__.py
+    M 47:4 HttpModule._on_config_changed - C (12)
+    M 285:4 HttpModule._handle_config_get - C (12)
+plugin/modules/http/client.py
+    M 497:4 LlmClient._run_streaming_loop - E (33)
+    F 24:0 format_error_message - C (16)
+    F 154:0 _extract_thinking_from_delta - C (16)
+    F 92:0 sync_request - C (15)
+    M 373:4 LlmClient.extract_content_from_response - C (14)
+    M 304:4 LlmClient.make_api_request - C (13)
+    M 693:4 LlmClient.request_with_tools - C (13)
+    F 186:0 _normalize_message_content - C (11)
+plugin/modules/chatbot/panel_factory.py
+    M 305:4 ChatPanelElement._wireControls - F (63)
+    C 207:0 ChatPanelElement - C (17)
+    M 120:4 _PanelResizeListener._relayout - C (14)
+    M 264:4 ChatPanelElement._refresh_controls_from_config - C (11)
+plugin/modules/chatbot/panel.py
+    M 283:4 SendButtonListener._do_send - D (22)
+    M 472:4 SendButtonListener._do_send_chat_with_tools - C (13)
+    M 982:4 SendButtonListener._start_simple_stream_async - C (12)
