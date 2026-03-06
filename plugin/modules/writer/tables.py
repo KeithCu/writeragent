@@ -76,17 +76,25 @@ class ReadTable(ToolBase):
         table = tables_sup.getByName(table_name)
         rows = table.getRows().getCount()
         cols = table.getColumns().getCount()
-        data = []
-        for r in range(rows):
-            row_data = []
-            for c in range(cols):
-                col_letter = _col_letter(c)
-                cell_ref = "%s%d" % (col_letter, r + 1)
-                try:
-                    row_data.append(table.getCellByName(cell_ref).getString())
-                except Exception:
-                    row_data.append("")
-            data.append(row_data)
+
+        try:
+            # Fetch all data in a single API call for performance
+            raw_data = table.getDataArray()
+            # getDataArray returns tuple of tuples; original API returned list of lists of strings
+            data = [[str(cell) if cell is not None else "" for cell in row] for row in raw_data]
+        except Exception as e:
+            log.warning("getDataArray failed on table %s: %s. Falling back to cell-by-cell.", table_name, e)
+            data = []
+            for r in range(rows):
+                row_data = []
+                for c in range(cols):
+                    col_letter = _col_letter(c)
+                    cell_ref = "%s%d" % (col_letter, r + 1)
+                    try:
+                        row_data.append(table.getCellByName(cell_ref).getString())
+                    except Exception:
+                        row_data.append("")
+                data.append(row_data)
 
         return {
             "status": "ok",
