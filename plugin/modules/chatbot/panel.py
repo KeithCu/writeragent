@@ -289,18 +289,6 @@ class SendButtonListener(unohelper.Base, XActionListener):
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
 
-        try:
-            debug_log("_do_send: importing core modules...", context="Chat")
-            from plugin.modules.core.services.config import get_config, get_api_config, update_lru_history, validate_api_config
-            from plugin.modules.http.client import LlmClient
-            from plugin.modules.core.services.document import get_document_context_for_chat, is_calc, is_draw, is_writer
-            debug_log("_do_send: core modules imported OK", context="Chat")
-        except Exception as e:
-            debug_log("_do_send: core import FAILED: %s" % e, context="Chat")
-            self._append_response("\n[Import error - core: %s]\n" % e)
-            self._terminal_status = "Error"
-            return
-
         # 1. Get document model
         self._set_status("Getting document...")
         debug_log("_do_send: getting document model...", context="Chat")
@@ -312,22 +300,10 @@ class SendButtonListener(unohelper.Base, XActionListener):
             return
         debug_log("_do_send: got document model OK", context="Chat")
 
-        # Defensive defaults so later tool import logic never sees undefined flags,
-        # even if this function is partially updated or an earlier step fails.
-        is_calc_doc = False
-        is_draw_doc = False
-        is_writer_doc = False
-
-        # Verify document type matches what we expect from sidebar initialization
-        # (A new sidebar is created/wired for a new document, so it shouldn't change).
-        is_calc_doc = is_calc(model)
-        is_draw_doc = is_draw(model)
-        is_writer_doc = is_writer(model)
-        
-        doc_type_str = "Calc" if is_calc_doc else "Draw" if is_draw_doc else "Writer" if is_writer_doc else "Unknown"
+        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
+        doc_type_str = "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
         debug_log("_do_send: detected document type: %s" % doc_type_str, context="Chat")
         
-        # Verify document type hasn't changed since this sidebar was wired
         if self.initial_doc_type and doc_type_str != self.initial_doc_type:
             err_msg = "[Internal Error: Document type changed from %s to %s! Please file an error.]" % (self.initial_doc_type, doc_type_str)
             debug_log("_do_send ERROR: %s" % err_msg, context="Chat")
@@ -335,8 +311,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._terminal_status = "Error"
             return
 
-        # If no type detected, show error as per user request to identify "slop"
-        if not (is_calc_doc or is_draw_doc or is_writer_doc):
+        if doc_type_str == "Unknown":
             err_msg = "[Internal Error: Could not identify document type for %s. Please report this!]" % (model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
             debug_log("_do_send ERROR: %s" % err_msg, context="Chat")
             self._append_response("\n%s\n" % err_msg)
@@ -353,183 +328,172 @@ class SendButtonListener(unohelper.Base, XActionListener):
         if self.query_control and self.query_control.getModel():
             self.query_control.getModel().Text = ""
 
-        # Optional web-search path: when checked, bypass normal document chat and run the web search sub-agent directly.
+        # Optional web-search path
         web_search_checked = False
-        web_read_state = None
         if self.web_search_checkbox:
             try:
-                web_read_state = get_checkbox_state(self.web_search_checkbox)
-                web_search_checked = (web_read_state == 1)
+                web_search_checked = (get_checkbox_state(self.web_search_checkbox) == 1)
             except Exception as e:
                 debug_log("_do_send: Web search checkbox read error: %s" % e, context="Chat")
-        debug_log("_do_send: Web search checkbox state=%s" % (web_read_state,), context="Chat")
         if web_search_checked:
             debug_log("_do_send: using web search sub-agent — skip chat model and direct image", context="Chat")
             self._run_web_search(query_text, model)
             return
 
-        # Direct image path: orthogonal to LLM tool list; uses document_tools.execute_tool for all doc types
+        # Direct image path
         direct_image_checked = False
-        read_state = None
         if self.direct_image_checkbox:
             try:
-                read_state = get_checkbox_state(self.direct_image_checkbox)
-                direct_image_checked = (read_state == 1)
+                direct_image_checked = (get_checkbox_state(self.direct_image_checkbox) == 1)
             except Exception as e:
                 debug_log("_do_send: Use Image model checkbox read error: %s" % e, context="Chat")
-        debug_log("_do_send: Use Image model checkbox state=%s -> %s" % (read_state, "image model (direct)" if direct_image_checked else "chat model"), context="Chat")
         if direct_image_checked:
             debug_log("_do_send: using image model (direct) — skip chat model", context="Chat")
-            try:
-                self._append_response("\nYou: %s\n" % query_text)
-                self._append_response("\n[Using image model (direct).]\n")
-                self._append_response("AI: Creating image...\n")
-                self._set_status("Creating image...")
-                q = queue.Queue()
-                job_done = [False]
-
-                def run_direct_image():
-                    try:
-                        # Fetch aspect ratio and base size from UI
-                        aspect_ratio_str = "Square"
-                        if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
-                            aspect_ratio_str = self.aspect_ratio_selector.getText()
-                            
-                        # Map UI string to backend enum
-                        aspect_map = {
-                            "Square": "square",
-                            "Landscape (16:9)": "landscape_16_9",
-                            "Portrait (9:16)": "portrait_9_16",
-                            "Landscape (3:2)": "landscape_3_2",
-                            "Portrait (2:3)": "portrait_2_3"
-                        }
-                        mapped_aspect = aspect_map.get(aspect_ratio_str, "square")
-                        
-                        image_model_text = ""
-                        if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
-                            image_model_text = self.image_model_selector.getText()
-
-                        base_size_val = 512
-                        if self.base_size_input:
-                            if hasattr(self.base_size_input, "getText"):
-                                base_size_val = self.base_size_input.getText()
-                            elif hasattr(self.base_size_input.getModel(), "Text"):
-                                base_size_val = self.base_size_input.getModel().Text
-                        try:
-                            base_size_val = int(base_size_val)
-                        except (ValueError, TypeError):
-                            base_size_val = 512
-
-                        from plugin.main import get_tools
-                        from plugin.framework.tool_context import ToolContext
-                        tctx = ToolContext(
-                            doc=model,
-                            ctx=self.ctx,
-                            doc_type="writer",
-                            services=get_tools()._services,
-                            caller="chat",
-                            status_callback=lambda t: q.put(("status", t))
-                        )
-                        try:
-                            # Also update LRU
-                            from plugin.modules.core.services.config import update_lru_history, get_current_endpoint
-                            current_endpoint = get_current_endpoint(self.ctx)
-                            update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
-                        except Exception as elru:
-                            debug_log("LRU update error: %s" % elru, context="Chat")
-                            
-                        import json
-                        res = get_tools().execute(
-                            "generate_image",
-                            tctx,
-                            **{
-                                "prompt": query_text,
-                                "aspect_ratio": mapped_aspect,
-                                "base_size": base_size_val,
-                                "image_model": image_model_text
-                            }
-                        )
-                        result = json.dumps(res) if isinstance(res, dict) else str(res)
-                        try:
-                            data = json.loads(result)
-                            note = data.get("message", data.get("status", "done"))
-                        except Exception:
-                            note = "done"
-                        q.put(("chunk", "[generate_image: %s]\n" % note))
-                        q.put(("stream_done", {}))
-                    except Exception as e:
-                        debug_log("Direct image path ERROR: %s" % e, context="Chat")
-                        q.put(("error", e))
-
-                threading.Thread(target=run_direct_image, daemon=True).start()
-                try:
-                    toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                        "com.sun.star.awt.Toolkit", self.ctx)
-                except Exception as e:
-                    self._append_response("\n[Error: %s]\n" % str(e))
-                    self._terminal_status = "Error"
-                    return
-
-                def apply_chunk(chunk_text, is_thinking=False):
-                    self._append_response(chunk_text)
-
-                def on_stream_done(response):
-                    job_done[0] = True
-                    return True
-
-                def on_stopped():
-                    self._terminal_status = "Stopped"
-                    self._set_status("Stopped")
-
-                def on_error(e):
-                    from plugin.modules.http.client import format_error_message
-                    self._append_response("\n[%s]\n" % format_error_message(e))
-                    self._terminal_status = "Error"
-                    self._set_status("Error")
-
-                run_stream_drain_loop(
-                    q, toolkit, job_done, apply_chunk,
-                    on_stream_done=on_stream_done,
-                    on_stopped=on_stopped,
-                    on_error=on_error,
-                    on_status_fn=self._set_status,
-                    ctx=self.ctx,
-                )
-                if self._terminal_status != "Error":
-                    self._terminal_status = "Ready"
-            finally:
-                self._set_status(self._terminal_status)
-                self._set_button_states(send_enabled=True, stop_enabled=False)
+            self._do_send_direct_image(query_text, model)
             return
 
-        try:
-            # Re-derive document type here so this block is robust even if earlier
-            # locals were not set due to a partial update or early return.
-            from plugin.modules.core.services.document import is_calc as _is_calc_doc, is_draw as _is_draw_doc, is_writer as _is_writer_doc
-            doc_is_calc = _is_calc_doc(model)
-            doc_is_draw = _is_draw_doc(model)
-            doc_is_writer = _is_writer_doc(model)
+        # Regular Chat with Tools or Streams
+        self._do_send_chat_with_tools(query_text, model, doc_type_str.lower())
 
+    def _do_send_direct_image(self, query_text, model):
+        self._append_response("\nYou: %s\n" % query_text)
+        self._append_response("\n[Using image model (direct).]\n")
+        self._append_response("AI: Creating image...\n")
+        self._set_status("Creating image...")
+        q = queue.Queue()
+        job_done = [False]
+
+        def run_direct_image():
+            try:
+                aspect_ratio_str = "Square"
+                if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
+                    aspect_ratio_str = self.aspect_ratio_selector.getText()
+                    
+                aspect_map = {
+                    "Square": "square",
+                    "Landscape (16:9)": "landscape_16_9",
+                    "Portrait (9:16)": "portrait_9_16",
+                    "Landscape (3:2)": "landscape_3_2",
+                    "Portrait (2:3)": "portrait_2_3"
+                }
+                mapped_aspect = aspect_map.get(aspect_ratio_str, "square")
+                
+                image_model_text = ""
+                if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
+                    image_model_text = self.image_model_selector.getText()
+
+                base_size_val = 512
+                if self.base_size_input:
+                    if hasattr(self.base_size_input, "getText"):
+                        base_size_val = self.base_size_input.getText()
+                    elif hasattr(self.base_size_input.getModel(), "Text"):
+                        base_size_val = self.base_size_input.getModel().Text
+                try:
+                    base_size_val = int(base_size_val)
+                except (ValueError, TypeError):
+                    base_size_val = 512
+
+                from plugin.main import get_tools
+                from plugin.framework.tool_context import ToolContext
+                tctx = ToolContext(
+                    doc=model,
+                    ctx=self.ctx,
+                    doc_type="writer",
+                    services=get_tools()._services,
+                    caller="chat",
+                    status_callback=lambda t: q.put(("status", t))
+                )
+                try:
+                    from plugin.modules.core.services.config import update_lru_history, get_current_endpoint
+                    update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
+                except Exception as elru:
+                    debug_log("LRU update error: %s" % elru, context="Chat")
+                    
+                import json
+                res = get_tools().execute(
+                    "generate_image",
+                    tctx,
+                    **{
+                        "prompt": query_text,
+                        "aspect_ratio": mapped_aspect,
+                        "base_size": base_size_val,
+                        "image_model": image_model_text
+                    }
+                )
+                result = json.dumps(res) if isinstance(res, dict) else str(res)
+                try:
+                    data = json.loads(result)
+                    note = data.get("message", data.get("status", "done"))
+                except Exception:
+                    note = "done"
+                q.put(("chunk", "[generate_image: %s]\n" % note))
+                q.put(("stream_done", {}))
+            except Exception as e:
+                debug_log("Direct image path ERROR: %s" % e, context="Chat")
+                q.put(("error", e))
+
+        threading.Thread(target=run_direct_image, daemon=True).start()
+        try:
+            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
+                "com.sun.star.awt.Toolkit", self.ctx)
+        except Exception as e:
+            self._append_response("\n[Error: %s]\n" % str(e))
+            self._terminal_status = "Error"
+            return
+
+        def apply_chunk(chunk_text, is_thinking=False):
+            self._append_response(chunk_text)
+
+        def on_stream_done(response):
+            job_done[0] = True
+            return True
+
+        def on_stopped():
+            self._terminal_status = "Stopped"
+            self._set_status("Stopped")
+
+        def on_error(e):
+            from plugin.modules.http.client import format_error_message
+            self._append_response("\n[%s]\n" % format_error_message(e))
+            self._terminal_status = "Error"
+            self._set_status("Error")
+
+        run_stream_drain_loop(
+            q, toolkit, job_done, apply_chunk,
+            on_stream_done=on_stream_done,
+            on_stopped=on_stopped,
+            on_error=on_error,
+            on_status_fn=self._set_status,
+            ctx=self.ctx,
+        )
+        if self._terminal_status != "Error":
+            self._terminal_status = "Ready"
+
+    def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
+        try:
+            debug_log("_do_send: importing core modules...", context="Chat")
+            from plugin.modules.core.services.config import get_config, get_api_config, update_lru_history, validate_api_config, set_config, set_image_model, get_current_endpoint
+            from plugin.modules.http.client import LlmClient
+            from plugin.modules.core.services.document import get_document_context_for_chat
             from plugin.main import get_tools
+            debug_log("_do_send: core modules imported OK", context="Chat")
+        except Exception as e:
+            debug_log("_do_send: core import FAILED: %s" % e, context="Chat")
+            self._append_response("\n[Import error - core: %s]\n" % e)
+            self._terminal_status = "Error"
+            return
             
-            if doc_is_calc:
-                debug_log("_do_send: loading calc schema...", context="Chat")
-                active_tools = get_tools().get_openai_schemas(doc_type="calc")
-            elif doc_is_draw:
-                debug_log("_do_send: loading draw schema...", context="Chat")
-                active_tools = get_tools().get_openai_schemas(doc_type="draw")
-            else:
-                debug_log("_do_send: loading writer schema...", context="Chat")
-                active_tools = get_tools().get_openai_schemas(doc_type="writer")
+        try:
+            debug_log("_do_send: loading %s schema..." % doc_type_str, context="Chat")
+            active_tools = get_tools().get_openai_schemas(doc_type=doc_type_str)
 
             def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
                 import json
                 from plugin.framework.tool_context import ToolContext
-                doc_type = "calc" if doc_is_calc else "draw" if doc_is_draw else "writer"
                 tctx = ToolContext(
                     doc=doc,
                     ctx=ctx,
-                    doc_type=doc_type,
+                    doc_type=doc_type_str,
                     services=get_tools()._services,
                     caller="chat",
                     status_callback=status_callback,
@@ -547,13 +511,10 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._terminal_status = "Error"
             return
 
-        # System prompt: extra_instructions from config only (not in sidebar)
-        from plugin.modules.core.services.config import set_config, update_lru_history, set_image_model, get_config, get_current_endpoint
         extra_instructions = get_config(self.ctx, "additional_instructions", "") or ""
         from plugin.framework.constants import get_chat_system_prompt_for_document
         self.session.messages[0]["content"] = get_chat_system_prompt_for_document(model, extra_instructions)
 
-        # Update text model and image model from selectors
         if self.model_selector:
             selected_model = self.model_selector.getText()
             if selected_model:
@@ -567,14 +528,11 @@ class SendButtonListener(unohelper.Base, XActionListener):
                 set_image_model(self.ctx, selected_image_model)
                 debug_log("_do_send: image model updated to %s" % selected_image_model, context="Chat")
 
-        # 3. Set up config and LlmClient
         max_context = int(get_config(self.ctx, "chat_context_length", 8000))
         max_tokens = int(get_config(self.ctx, "chat_max_tokens", 16384))
         api_type = str(get_config(self.ctx, "api_type", "chat")).lower()
-        debug_log("_do_send: config loaded: api_type=%s, max_tokens=%d, max_context=%d" %
-                    (api_type, max_tokens, max_context), context="Chat")
+        debug_log("_do_send: config loaded: api_type=%s, max_tokens=%d, max_context=%d" % (api_type, max_tokens, max_context), context="Chat")
 
-        # Determine if tool-calling is available (requires chat API)
         use_tools = (api_type == "chat")
 
         api_config = get_api_config(self.ctx)
@@ -591,7 +549,6 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self.client.config = api_config
         client = self.client
 
-        # 4. Refresh document context in session (start + end excerpts, inline selection/cursor markers)
         self._set_status("Reading document...")
         try:
             doc_text = get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=self.ctx)
@@ -605,16 +562,14 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._set_status("Error")
             return
 
-        # 5. Add user message to session and display
         self.session.add_user_message(query_text)
         self._append_response("\nYou: %s\n" % query_text)
         self._append_response("\n[Using chat model.]\n")
         debug_log("_do_send: using chat model", context="Chat")
-        debug_log("_do_send: user query='%s'" % query_text[:100], context="Chat")
 
         self._set_status("Connecting to AI (api_type=%s, tools=%s)..." % (api_type, use_tools))
-        debug_log("_do_send: calling AI, use_tools=%s, messages=%d" %
-                    (use_tools, len(self.session.messages)), context="Chat")
+        debug_log("_do_send: calling AI, use_tools=%s, messages=%d" % (use_tools, len(self.session.messages)), context="Chat")
+        
         if use_tools:
             max_tool_rounds = api_config.get("chat_max_tool_rounds", DEFAULT_MAX_TOOL_ROUNDS)
             self._start_tool_calling_async(client, model, max_tokens, active_tools, execute_fn, max_tool_rounds)

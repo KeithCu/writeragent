@@ -528,38 +528,51 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             _dispatch_command(cmd)
             return
 
-        desk = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
-        model = desk.getCurrentComponent()
-        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
-        
         if args == "settings":
             _dispatch_command("main.settings")
             return
 
-        if args in ("ToggleMCPServer", "MCPStatus", "TestTypes", "DrainMCP", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp"):
-            if args == "ToggleMCPServer": _dispatch_command("http.toggle_server")
-            elif args == "MCPStatus": _dispatch_command("http.server_status")
-            elif args == "DrainMCP":
-                from plugin.modules.core.mcp_thread import drain_mcp_queue
-                drain_mcp_queue()
-            else:
-                _dispatch_command("main." + args)
+        if self._handle_framework_actions(args):
             return
 
+        desk = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
+        model = desk.getCurrentComponent()
+        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
+        
         if is_writer(model):
-            if args == "ExtendSelection":
-                from plugin.modules.writer.legacy import do_extend_selection
-                from plugin.framework.legacy_ui import input_box
-                do_extend_selection(self.ctx, model, input_box)
-            elif args == "EditSelection":
-                from plugin.modules.writer.legacy import do_edit_selection
-                from plugin.framework.legacy_ui import input_box
-                do_edit_selection(self.ctx, model, input_box)
+            self._handle_writer_actions(args, model)
         elif is_calc(model):
-            if args in ("ExtendSelection", "EditSelection"):
-                from plugin.modules.calc.legacy import do_calc_extend_edit
-                from plugin.framework.legacy_ui import input_box
-                do_calc_extend_edit(self.ctx, model, input_box, args == "EditSelection")
+            self._handle_calc_actions(args, model)
+
+    def _handle_framework_actions(self, args):
+        framework_args = ("ToggleMCPServer", "MCPStatus", "TestTypes", "DrainMCP", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
+        if args not in framework_args:
+            return False
+            
+        if args == "ToggleMCPServer": _dispatch_command("http.toggle_server")
+        elif args == "MCPStatus": _dispatch_command("http.server_status")
+        elif args == "DrainMCP":
+            from plugin.modules.core.mcp_thread import drain_mcp_queue
+            drain_mcp_queue()
+        else:
+            _dispatch_command("main." + args)
+        return True
+
+    def _handle_writer_actions(self, args, model):
+        if args == "ExtendSelection":
+            from plugin.modules.writer.legacy import do_extend_selection
+            from plugin.framework.legacy_ui import input_box
+            do_extend_selection(self.ctx, model, input_box)
+        elif args == "EditSelection":
+            from plugin.modules.writer.legacy import do_edit_selection
+            from plugin.framework.legacy_ui import input_box
+            do_edit_selection(self.ctx, model, input_box)
+
+    def _handle_calc_actions(self, args, model):
+        if args in ("ExtendSelection", "EditSelection"):
+            from plugin.modules.calc.legacy import do_calc_extend_edit
+            from plugin.framework.legacy_ui import input_box
+            do_calc_extend_edit(self.ctx, model, input_box, args == "EditSelection")
 
 # Starting from Python IDE
 def main():
