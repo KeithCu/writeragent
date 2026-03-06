@@ -154,14 +154,6 @@ class MCPProtocolHandler:
             "debug": True,
             "usage": "POST /debug with JSON body",
             "actions": {
-                "eval": {
-                    "description": "Evaluate a Python expression",
-                    "body": {"action": "eval", "code": "1 + 1"},
-                },
-                "exec": {
-                    "description": "Execute Python code (result in _result var)",
-                    "body": {"action": "exec", "code": "_result = 'hello'"},
-                },
                 "call_tool": {
                     "description": "Call a registered tool",
                     "body": {"action": "call_tool", "tool": "get_document_info", "args": {}},
@@ -196,11 +188,7 @@ class MCPProtocolHandler:
             return
         action = body.get("action", "")
         try:
-            if action == "eval":
-                result = self._debug_eval(body.get("code", ""))
-            elif action == "exec":
-                result = self._debug_exec(body.get("code", ""))
-            elif action == "call_tool":
+            if action == "call_tool":
                 result = self._debug_call_tool(
                     body.get("tool", ""), body.get("args", {}))
             elif action == "trigger":
@@ -451,17 +439,6 @@ class MCPProtocolHandler:
 
     # ── Debug helpers ────────────────────────────────────────────────
 
-    def _debug_eval(self, code):
-        ns = self._debug_namespace()
-        return repr(eval(code, ns))
-
-    def _debug_exec(self, code):
-        ns = self._debug_namespace()
-        ns["_result"] = None
-        exec(code, ns)
-        r = ns.get("_result")
-        return repr(r) if r is not None else "OK (no _result set)"
-
     def _debug_call_tool(self, tool_name, arguments):
         if not tool_name:
             return {"error": "Missing 'tool' parameter"}
@@ -471,7 +448,7 @@ class MCPProtocolHandler:
         return result
 
     def _debug_trigger(self, command):
-        from plugin.main import _modules, get_services
+        from plugin.main import get_services
         if command == "settings":
             from plugin.modules.core.settings_dialog import show_settings
             from plugin._manifest import MODULES
@@ -499,24 +476,6 @@ class MCPProtocolHandler:
             return {key: config_svc.get(key)}
         config_svc.set(key, value)
         return {key: value, "persisted": True}
-
-    def _debug_namespace(self):
-        """Build a namespace for eval/exec with useful references."""
-        import plugin.main as main_mod
-        ns = {
-            "services": self.services,
-            "tools": self.tool_registry,
-            "events": self.event_bus,
-            "modules": getattr(main_mod, "_modules", []),
-            "log": log,
-        }
-        try:
-            import uno
-            ns["uno"] = uno
-            ns["ctx"] = uno.getComponentContext()
-        except ImportError:
-            pass
-        return ns
 
     # ── Helpers ───────────────────────────────────────────────────────
 
