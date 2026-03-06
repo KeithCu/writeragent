@@ -330,348 +330,228 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception:
                 pass
 
-    def _wireControls(self, root_window):
-        """Attach listeners to Send and Clear buttons."""
-        debug_log("_wireControls entered", context="Chat")
-        if not hasattr(root_window, "getControl"):
-            debug_log("_wireControls: root_window has no getControl, aborting", context="Chat")
-            return
-
-        # Get controls -- these must exist in the XDL
-        send_btn = root_window.getControl("send")
-        query_ctrl = root_window.getControl("query")
-        response_ctrl = root_window.getControl("response")
-
-        def get_optional(name):
-            return get_optional_control(root_window, name)
-
-        image_model_selector = get_optional("image_model_selector")
-        prompt_selector = get_optional("prompt_selector")
-        model_selector = get_optional("model_selector")
-        model_label = get_optional("model_label")
-        status_ctrl = get_optional("status")
-        direct_image_check = get_optional("direct_image_check")
-        web_search_check = get_optional("web_search_check")
-        aspect_ratio_selector = get_optional("aspect_ratio_selector")
-        base_size_input = get_optional("base_size_input")
-        base_size_label = get_optional("base_size_label")
-        
-        if status_ctrl:
-             debug_log("_wireControls: got status control", context="Chat")
-        else:
-             debug_log("_wireControls: no status control in XDL (ok)", context="Chat")
-
-        # Helper to show errors visibly in the response area
-        def _show_init_error(msg):
-            debug_log("_wireControls ERROR: %s" % msg, context="Chat")
+    def _get_document_model(self):
+        """Helper to get the current document model."""
+        model = None
+        if self.xFrame:
             try:
-                if response_ctrl and response_ctrl.getModel():
-                    current = response_ctrl.getModel().Text or ""
-                    response_ctrl.getModel().Text = current + "[Init error: %s]\n" % msg
+                model = self.xFrame.getController().getModel()
             except Exception:
                 pass
+        if model is None:
+            try:
+                smgr = self.ctx.getServiceManager()
+                desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
+                model = desktop.getCurrentComponent()
+            except Exception:
+                pass
+        return model
 
-        # Ensure extension directory is on sys.path for cross-module imports
-        _ensure_extension_on_path(self.ctx)
+    def _wire_model_selectors(self, model_selector, image_model_selector):
+        """Initializes model selectors and their sync listeners."""
+        from plugin.modules.core.services.config import get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
+        
+        current_model = get_text_model(self.ctx)
+        current_endpoint = get_current_endpoint(self.ctx)
+        
+        if model_selector:
+            set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint, strict=True)
+            if set_model_val != current_model:
+                set_config(self.ctx, "text_model", set_model_val)
+                
+        if image_model_selector:
+            current_image = get_image_model(self.ctx)
+            set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
+            if set_image_val != current_image:
+                set_image_model(self.ctx, set_image_val, update_lru=False)
 
-        model = None
-        try:
-            # Read system prompt from config; use helper so Writer/Calc prompt matches document
-            debug_log("_wireControls: importing core config...", context="Chat")
-            from plugin.modules.core.services.config import get_config, get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
-            from plugin.framework.constants import get_chat_system_prompt_for_document, DEFAULT_CHAT_SYSTEM_PROMPT
-            from plugin.modules.core.services.document import is_writer, is_calc, is_draw
+        if model_selector and hasattr(model_selector, "addItemListener"):
+            class ModelSyncListener(unohelper.Base, XItemListener):
+                def __init__(self, ctx): self.ctx = ctx
+                def itemStateChanged(self, ev):
+                    try:
+                        txt = model_selector.getText()
+                        if txt: set_config(self.ctx, "text_model", txt)
+                    except Exception: pass
+                def disposing(self, ev): pass
+            model_selector.addItemListener(ModelSyncListener(self.ctx))
+
+        if image_model_selector and hasattr(image_model_selector, "addItemListener"):
+            class ImageModelSyncListener(unohelper.Base, XItemListener):
+                def __init__(self, ctx): self.ctx = ctx
+                def itemStateChanged(self, ev):
+                    try:
+                        txt = image_model_selector.getText()
+                        if txt: set_image_model(self.ctx, txt, update_lru=False)
+                    except Exception: pass
+                def disposing(self, ev): pass
+            image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
+
+    def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, 
+                       direct_image_check, web_search_check, model_label, model_selector, image_model_selector):
+        """Initializes image-related UI controls and their listeners."""
+        from plugin.modules.core.services.config import get_config, set_config
+        
+        if aspect_ratio_selector:
+            aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
+            aspect_ratio_selector.setText(get_config(self.ctx, "image_default_aspect", "Square"))
             
-            extra_instructions = get_config(self.ctx, "additional_instructions", "")
-            current_model = get_text_model(self.ctx)
-            current_endpoint = get_current_endpoint(self.ctx)
-            
-            # Model selector: strict so only current endpoint's models shown; persist correction if needed
-            if model_selector:
-                set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint, strict=True)
-                if set_model_val != current_model:
-                    set_config(self.ctx, "text_model", set_model_val)
-            # Adaptive image model population via shared helper (uses strict for endpoint); persist correction if needed
-            if image_model_selector:
-                current_image = get_image_model(self.ctx)
-                set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
-                if set_image_val != current_image:
-                    set_image_model(self.ctx, set_image_val, update_lru=False)
+        if base_size_input:
+            from plugin.modules.core.services.config import populate_combobox_with_lru
+            populate_combobox_with_lru(self.ctx, base_size_input, str(get_config(self.ctx, "image_base_size", 512)), "image_base_size_lru", "")
 
-            # Add real-time sync listeners to selectors
-            if model_selector and hasattr(model_selector, "addItemListener"):
-                class ModelSyncListener(unohelper.Base, XItemListener):
-                    def __init__(self, ctx): self.ctx = ctx
+        def update_base_size_label(aspect_str):
+            if not base_size_label: return
+            txt = "Size:"
+            if "Landscape" in aspect_str: txt = "Height:"
+            elif "Portrait" in aspect_str: txt = "Width:"
+            if hasattr(base_size_label, "setText"):
+                base_size_label.setText(txt)
+            elif hasattr(base_size_label.getModel(), "Label"):
+                base_size_label.getModel().Label = txt
+
+        if aspect_ratio_selector:
+            update_base_size_label(aspect_ratio_selector.getText())
+            if hasattr(aspect_ratio_selector, "addItemListener"):
+                class AspectListener(unohelper.Base, XItemListener):
                     def itemStateChanged(self, ev):
                         try:
-                            txt = model_selector.getText()
-                            if txt:
-                                set_config(self.ctx, "text_model", txt)
-                                # No LRU update here to avoid cluttering history from accidental clicks
+                            idx = getattr(ev, "Selected", -1)
+                            if idx >= 0:
+                                update_base_size_label(aspect_ratio_selector.getItem(idx))
                         except Exception: pass
                     def disposing(self, ev): pass
-                model_selector.addItemListener(ModelSyncListener(self.ctx))
+                aspect_ratio_selector.addItemListener(AspectListener())
 
-            if image_model_selector and hasattr(image_model_selector, "addItemListener"):
-                class ImageModelSyncListener(unohelper.Base, XItemListener):
-                    def __init__(self, ctx): self.ctx = ctx
-                    def itemStateChanged(self, ev):
-                        try:
-                            txt = image_model_selector.getText()
-                            if txt:
-                                set_image_model(self.ctx, txt, update_lru=False)
-                        except Exception: pass
-                    def disposing(self, ev): pass
-                image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
+        def set_control_enabled(ctrl, enabled):
+            if ctrl:
+                if hasattr(ctrl, "setEnable"): ctrl.setEnable(enabled)
+                elif hasattr(ctrl.getModel(), "Enabled"): ctrl.getModel().Enabled = enabled
 
-            # Initialize aspect ratio and base size
-            if aspect_ratio_selector:
-                aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
-                aspect_ratio_selector.setText(get_config(self.ctx, "image_default_aspect", "Square"))
-            if base_size_input:
-                populate_combobox_with_lru(self.ctx, base_size_input, str(get_config(self.ctx, "image_base_size", 512)), "image_base_size_lru", "")
+        def toggle_image_ui(is_image_mode):
+            if model_label and hasattr(model_label, "setVisible"): model_label.setVisible(not is_image_mode)
+            if model_selector and hasattr(model_selector, "setVisible"): model_selector.setVisible(not is_image_mode)
+            if image_model_selector and hasattr(image_model_selector, "setVisible"): image_model_selector.setVisible(is_image_mode)
+            if aspect_ratio_selector and hasattr(aspect_ratio_selector, "setVisible"): aspect_ratio_selector.setVisible(is_image_mode)
+            if base_size_input and hasattr(base_size_input, "setVisible"): base_size_input.setVisible(is_image_mode)
+            if base_size_label and hasattr(base_size_label, "setVisible"): base_size_label.setVisible(is_image_mode)
 
-            def update_base_size_label(aspect_str):
-                if not base_size_label: return
-                txt = "Size:"
-                if "Landscape" in aspect_str: txt = "Height:"
-                elif "Portrait" in aspect_str: txt = "Width:"
-                if hasattr(base_size_label, "setText"):
-                    base_size_label.setText(txt)
-                elif hasattr(base_size_label.getModel(), "Label"):
-                    base_size_label.getModel().Label = txt
-
-            if aspect_ratio_selector:
-                update_base_size_label(aspect_ratio_selector.getText())
-                if hasattr(aspect_ratio_selector, "addItemListener"):
-                    class AspectListener(unohelper.Base, XItemListener):
+        if direct_image_check:
+            try:
+                direct_checked = get_config(self.ctx, "chat_direct_image", False)
+                set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
+                toggle_image_ui(direct_checked)
+                
+                if direct_checked:
+                    set_control_enabled(web_search_check, False)
+                    
+                if hasattr(direct_image_check, "addItemListener"):
+                    class DirectImageCheckListener(unohelper.Base, XItemListener):
+                        def __init__(self, ctx, toggle_cb, web_check):
+                            self.ctx = ctx
+                            self.toggle_cb = toggle_cb
+                            self.web_check = web_check
                         def itemStateChanged(self, ev):
                             try:
-                                idx = getattr(ev, "Selected", -1)
-                                if idx >= 0:
-                                    update_base_size_label(aspect_ratio_selector.getItem(idx))
-                            except Exception: pass
+                                is_checked = (getattr(ev, "Selected", 0) == 1)
+                                set_config(self.ctx, "chat_direct_image", is_checked)
+                                self.toggle_cb(is_checked)
+                                set_control_enabled(self.web_check, not is_checked)
+                            except Exception as e:
+                                debug_log("Image checkbox listener error: %s" % e, context="Chat")
                         def disposing(self, ev): pass
-                    aspect_ratio_selector.addItemListener(AspectListener())
+                    direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_search_check))
+            except Exception as e:
+                debug_log("direct_image_check wire error: %s" % e, context="Chat")
 
-            # Helper to toggle visibility
-            def toggle_image_ui(is_image_mode):
-                if model_label and hasattr(model_label, "setVisible"):
-                    model_label.setVisible(not is_image_mode)
-                if model_selector and hasattr(model_selector, "setVisible"):
-                    model_selector.setVisible(not is_image_mode)
+        if web_search_check:
+            try:
+                if get_checkbox_state(web_search_check) == 1:
+                    set_control_enabled(direct_image_check, False)
+            except Exception as e:
+                debug_log("web_search_check initial wire error: %s" % e, context="Chat")
                 
-                if image_model_selector and hasattr(image_model_selector, "setVisible"):
-                    image_model_selector.setVisible(is_image_mode)
-                    
-                if aspect_ratio_selector and hasattr(aspect_ratio_selector, "setVisible"):
-                    aspect_ratio_selector.setVisible(is_image_mode)
-                    
-                if base_size_input and hasattr(base_size_input, "setVisible"):
-                    base_size_input.setVisible(is_image_mode)
-                if base_size_label and hasattr(base_size_label, "setVisible"):
-                    base_size_label.setVisible(is_image_mode)
+        return set_control_enabled
 
-            # Helper to enable/disable controls
-            def set_control_enabled(ctrl, enabled):
-                if ctrl:
-                    if hasattr(ctrl, "setEnable"):
-                        ctrl.setEnable(enabled)
-                    elif hasattr(ctrl.getModel(), "Enabled"):
-                        ctrl.getModel().Enabled = enabled
-
-            # "Use Image model" checkbox
-            if direct_image_check:
-                try:
-                    from plugin.modules.core.services.config import set_config
-                    direct_checked = get_config(self.ctx, "chat_direct_image", False)
-                    set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
-                    toggle_image_ui(direct_checked)
-                    
-                    if direct_checked:
-                        set_control_enabled(web_search_check, False)
-                        
-                    if hasattr(direct_image_check, "addItemListener"):
-                        class DirectImageCheckListener(unohelper.Base, XItemListener):
-                            def __init__(self, ctx, toggle_cb, web_check):
-                                self.ctx = ctx
-                                self.toggle_cb = toggle_cb
-                                self.web_check = web_check
-                            def itemStateChanged(self, ev):
-                                try:
-                                    state = getattr(ev, "Selected", 0)
-                                    is_checked = (state == 1)
-                                    
-                                    set_config(self.ctx, "chat_direct_image", is_checked)
-                                    self.toggle_cb(is_checked)
-                                    set_control_enabled(self.web_check, not is_checked)
-                                except Exception as e:
-                                    debug_log("Image checkbox listener error: %s" % e, context="Chat")
-                            def disposing(self, ev):
-                                pass
-                        direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_search_check))
-                except Exception as e:
-                    debug_log("direct_image_check wire error: %s" % e, context="Chat")
-
-            # "Web Research" (now Research Chat) checkbox - initial listener just to disable image model
-            # Full listener with session switching will be added after send_listener is created below.
-            if web_search_check:
-                try:
-                    from plugin.framework.uno_helpers import get_checkbox_state
-                    web_is_checked = get_checkbox_state(web_search_check) == 1
-                    if web_is_checked:
-                        set_control_enabled(direct_image_check, False)
-                except Exception as e:
-                    debug_log("web_search_check initial wire error: %s" % e, context="Chat")
-
-            # Register for config changes (e.g. Settings dialog). Weakref so this panel can be
-            # GC'd without unregistering; callback no-ops if panel is gone.
-            from plugin.modules.core.services.config import add_config_listener
-            _self_ref = weakref.ref(self)
-            def on_config_changed(ctx):
-                panel = _self_ref()
-                if panel is not None:
-                    panel._refresh_controls_from_config()
-            add_config_listener(on_config_changed)
-
-            if self.xFrame:
-                try:
-                    model = self.xFrame.getController().getModel()
-                except Exception:
-                    pass
-            if model is None:
-                try:
-                    smgr = self.ctx.getServiceManager()
-                    desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
-                    model = desktop.getCurrentComponent()
-                except Exception:
-                    pass
-            if model and (is_writer(model) or is_calc(model) or is_draw(model)):
-                system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
-            else:
-                system_prompt = (DEFAULT_CHAT_SYSTEM_PROMPT + "\n\n" + str(extra_instructions)) if extra_instructions else DEFAULT_CHAT_SYSTEM_PROMPT
-            debug_log("_wireControls: config loaded", context="Chat")
-        except Exception as e:
-            import traceback
-            _show_init_error("Config: %s" % e)
-            debug_log(traceback.format_exc(), context="Chat")
-            system_prompt = DEFAULT_SYSTEM_PROMPT_FALLBACK
-
-        # Generate session_id from document metadata for persistent history
-        # robustness: renames/moves won't break history if ID is in the doc.
+    def _setup_sessions(self, model, extra_instructions):
+        """Creates the document and web research chat sessions."""
+        from plugin.framework.constants import get_chat_system_prompt_for_document, DEFAULT_CHAT_SYSTEM_PROMPT
+        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
         from plugin.framework.uno_helpers import get_document_property, set_document_property
-        session_id = get_document_property(model, "LocalWriterSessionID")
         
+        if model and (is_writer(model) or is_calc(model) or is_draw(model)):
+            system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
+        else:
+            system_prompt = (DEFAULT_CHAT_SYSTEM_PROMPT + "\n\n" + str(extra_instructions)) if extra_instructions else DEFAULT_CHAT_SYSTEM_PROMPT
+
+        session_id = get_document_property(model, "LocalWriterSessionID")
         if not session_id:
-            debug_log("No session ID in document, generating new one", context="Chat")
             if model and hasattr(model, "getURL"):
                 url = model.getURL()
-                if url:
-                    session_id = hashlib.sha256(url.encode('utf-8')).hexdigest()
-            
+                if url: session_id = hashlib.sha256(url.encode('utf-8')).hexdigest()
             if not session_id:
                 session_id = str(uuid.uuid4())
-            
-            # Persist it back to the document if possible
             if model:
                 set_document_property(model, "LocalWriterSessionID", session_id)
-                # Try to save the document to persist the property immediately?
-                # No, that might be too intrusive. The user will save it eventually.
         
-        debug_log("Using Session ID: %s" % session_id, context="Chat")
-        
-        # Create sessions: Doc and Web (research)
-        from plugin.framework.constants import DEFAULT_RESEARCH_GREETING
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
         self.session = self.doc_session
 
-        # Wire Send button
+    def _wire_buttons(self, controls, model, active_greeting, set_control_enabled):
+        """Wires up the Send, Stop, Clear, and Research toggle buttons."""
+        send_listener = None
         try:
-            stop_btn = root_window.getControl("stop")
             send_listener = SendButtonListener(
                 self.ctx, self.xFrame,
-                send_btn, stop_btn, query_ctrl, response_ctrl,
-                image_model_selector, model_selector, status_ctrl, self.session,
-                direct_image_checkbox=direct_image_check,
-                aspect_ratio_selector=aspect_ratio_selector,
-                base_size_input=base_size_input,
-                web_search_checkbox=web_search_check,
+                controls["send"], controls["stop"], controls["query"], controls["response"],
+                controls["image_model_selector"], controls["model_selector"], controls["status"], self.session,
+                direct_image_checkbox=controls["direct_image_check"],
+                aspect_ratio_selector=controls["aspect_ratio_selector"],
+                base_size_input=controls["base_size_input"],
+                web_search_checkbox=controls["web_search_check"],
                 ensure_path_fn=_ensure_extension_on_path)
 
-            # Detect and store initial document type for strict verification
             if model:
                 from plugin.modules.core.services.document import is_calc, is_draw, is_writer
-                if is_calc(model):
-                    send_listener.initial_doc_type = "Calc"
-                elif is_draw(model):
-                    send_listener.initial_doc_type = "Draw"
-                elif is_writer(model):
-                    send_listener.initial_doc_type = "Writer"
-                else:
-                    send_listener.initial_doc_type = "Unknown"
-                debug_log("_wireControls: detected initial_doc_type=%s" % send_listener.initial_doc_type, context="Chat")
+                if is_calc(model): send_listener.initial_doc_type = "Calc"
+                elif is_draw(model): send_listener.initial_doc_type = "Draw"
+                elif is_writer(model): send_listener.initial_doc_type = "Writer"
+                else: send_listener.initial_doc_type = "Unknown"
 
-            send_btn.addActionListener(send_listener)
-            debug_log("Send button wired", context="Chat")
-            start_watchdog_thread(self.ctx, status_ctrl)
+            if controls["send"]:
+                controls["send"].addActionListener(send_listener)
+            start_watchdog_thread(self.ctx, controls["status"])
 
-            if stop_btn:
-                stop_btn.addActionListener(StopButtonListener(send_listener))
-                debug_log("Stop button wired", context="Chat")
-            # Initial state: Send enabled, Stop disabled (no AI running yet)
+            if controls["stop"]:
+                controls["stop"].addActionListener(StopButtonListener(send_listener))
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
         except Exception as e:
-            _show_init_error("Send/Stop button: %s" % e)
+            debug_log("Send/Stop button error: %s" % e, context="Chat")
 
-        # Show ready message and loaded history
-        from plugin.framework.constants import get_greeting_for_document
-        doc_greeting = get_greeting_for_document(model)
-        
-        # Determine starting mode
-        web_checked = False
-        if web_search_check:
+        clear_listener = None
+        if controls["clear"]:
             try:
-                web_checked = get_checkbox_state(web_search_check) == 1
+                clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting)
+                controls["clear"].addActionListener(clear_listener)
             except Exception: pass
-            
-        if web_checked:
-            self.session = self.web_session
-            active_greeting = DEFAULT_RESEARCH_GREETING
-        else:
-            self.session = self.doc_session
-            active_greeting = doc_greeting
 
-        self._render_session_history(self.session, response_ctrl, model, active_greeting)
-
-        # Wire Clear button
-        try:
-            clear_btn = root_window.getControl("clear")
-            if clear_btn:
-                clear_listener = ClearButtonListener(
-                    self.session, response_ctrl, status_ctrl, greeting=active_greeting)
-                clear_btn.addActionListener(clear_listener)
-                debug_log("Clear button wired", context="Chat")
-        except Exception:
-            clear_listener = None
-            pass
-
-        # Update WebSearch (Research Chat) check listener with dual-session logic
-        if web_search_check and hasattr(web_search_check, "addItemListener"):
+        if controls["web_search_check"] and hasattr(controls["web_search_check"], "addItemListener"):
+            from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
             class ResearchChatToggledListener(unohelper.Base, XItemListener):
-                def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check):
+                def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check, set_control_enabled):
                     self.panel = panel
                     self.response_ctrl = response_ctrl
                     self.model = model
                     self.send_listener = send_listener
                     self.clear_listener = clear_listener
                     self.img_check = img_check
+                    self.set_control_enabled = set_control_enabled
 
                 def itemStateChanged(self, ev):
                     try:
-                        state = getattr(ev, "Selected", 0)
-                        is_research = (state == 1)
-                        set_control_enabled(self.img_check, not is_research)
+                        is_research = (getattr(ev, "Selected", 0) == 1)
+                        self.set_control_enabled(self.img_check, not is_research)
                         
                         if is_research:
                             self.panel.session = self.panel.web_session
@@ -680,60 +560,127 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             self.panel.session = self.panel.doc_session
                             greeting = get_greeting_for_document(self.model)
                         
-                        # Update downstream listeners
-                        self.send_listener.set_session(self.panel.session)
+                        if self.send_listener:
+                            self.send_listener.set_session(self.panel.session)
                         if self.clear_listener:
                             self.clear_listener.set_session(self.panel.session, greeting=greeting)
-                            
-                        # Refresh visual history
                         self.panel._render_session_history(self.panel.session, self.response_ctrl, self.model, greeting)
-                        
                     except Exception as e:
                         debug_log("Research Chat listener error: %s" % e, context="Chat")
                 def disposing(self, ev): pass
+            controls["web_search_check"].addItemListener(ResearchChatToggledListener(
+                self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"], set_control_enabled))
 
-            web_search_check.addItemListener(ResearchChatToggledListener(
-                self, response_ctrl, model, send_listener, clear_listener, direct_image_check))
+    def _wireControls(self, root_window):
+        """Main entry point to wire all controls for the panel."""
+        debug_log("_wireControls entered", context="Chat")
+        if not hasattr(root_window, "getControl"):
+            debug_log("_wireControls: root_window has no getControl, aborting", context="Chat")
+            return
 
+        def get_optional(name):
+            return get_optional_control(root_window, name)
+
+        controls = {
+            "send": root_window.getControl("send"),
+            "query": root_window.getControl("query"),
+            "response": root_window.getControl("response"),
+            "stop": get_optional("stop"),
+            "clear": get_optional("clear"),
+            "image_model_selector": get_optional("image_model_selector"),
+            "prompt_selector": get_optional("prompt_selector"),
+            "model_selector": get_optional("model_selector"),
+            "model_label": get_optional("model_label"),
+            "status": get_optional("status"),
+            "direct_image_check": get_optional("direct_image_check"),
+            "web_search_check": get_optional("web_search_check"),
+            "aspect_ratio_selector": get_optional("aspect_ratio_selector"),
+            "base_size_input": get_optional("base_size_input"),
+            "base_size_label": get_optional("base_size_label"),
+            "response_label": get_optional("response_label"),
+            "query_label": get_optional("query_label")
+        }
+
+        # Helper to show errors visibly in the response area
+        def _show_init_error(msg):
+            debug_log("_wireControls ERROR: %s" % msg, context="Chat")
+            try:
+                if controls["response"] and controls["response"].getModel():
+                    current = controls["response"].getModel().Text or ""
+                    controls["response"].getModel().Text = current + "[Init error: %s]\n" % msg
+            except Exception:
+                pass
+
+        _ensure_extension_on_path(self.ctx)
+
+        # 1. Config, Models, and UI
         try:
-            if status_ctrl and hasattr(status_ctrl, "setText"):
-                status_ctrl.setText("Ready")
-        except Exception:
-            pass
+            from plugin.modules.core.services.config import get_config
+            extra_instructions = get_config(self.ctx, "additional_instructions", "")
+            
+            self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
+            
+            set_control_enabled = self._wire_image_ui(
+                controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"],
+                controls["direct_image_check"], controls["web_search_check"], controls["model_label"], 
+                controls["model_selector"], controls["image_model_selector"]
+            )
+        except Exception as e:
+            import traceback
+            _show_init_error("Config: %s" % e)
+            debug_log(traceback.format_exc(), context="Chat")
+            extra_instructions = ""
+            set_control_enabled = lambda ctrl, en: None
 
-        # Start MCP drain timer if server is running but timer was not started from main.
-        # If timer fails (e.g. no 'com' in this context), we still drain on user interaction below.
+        # 2. Setup Sessions
+        model = self._get_document_model()
+        self._setup_sessions(model, extra_instructions)
+
+        # 3. Determine Mode & Greeting
+        from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
+        web_checked = False
+        if controls["web_search_check"]:
+            try: web_checked = (get_checkbox_state(controls["web_search_check"]) == 1)
+            except Exception: pass
+            
+        if web_checked:
+            self.session = self.web_session
+            active_greeting = DEFAULT_RESEARCH_GREETING
+        else:
+            self.session = self.doc_session
+            active_greeting = get_greeting_for_document(model)
+
+        self._render_session_history(self.session, controls["response"], model, active_greeting)
+
+        # 4. Buttons
+        self._wire_buttons(controls, model, active_greeting, set_control_enabled)
+
+        if controls["status"] and hasattr(controls["status"], "setText"):
+            try: controls["status"].setText("Ready")
+            except Exception: pass
+
+        # 5. Timer and Resize
         try:
             from main import try_ensure_mcp_timer
             try_ensure_mcp_timer(self.ctx)
         except Exception as e:
             debug_log("try_ensure_mcp_timer: %s" % e, context="Chat")
 
-        # Dynamic resize: reposition controls when sidebar resizes
         try:
-            _ctrl_map = {
-                "response_label": get_optional("response_label"),
-                "response": response_ctrl,
-                "model_label": model_label,
-                "model_selector": model_selector,
-                "image_model_selector": image_model_selector,
-                "base_size_label": base_size_label,
-                "base_size_input": base_size_input,
-                "aspect_ratio_selector": aspect_ratio_selector,
-                "direct_image_check": direct_image_check,
-                "web_search_check": web_search_check,
-                "query_label": get_optional("query_label"),
-                "query": query_ctrl,
-                "status": status_ctrl,
-                "send": send_btn,
-                "stop": get_optional("stop"),
-                "clear": get_optional("clear"),
-            }
-            _resize = _PanelResizeListener(_ctrl_map)
+            _resize = _PanelResizeListener(controls)
             root_window.addWindowListener(_resize)
             _resize._relayout(root_window)
         except Exception as e:
             debug_log("Resize listener error: %s" % e, context="Chat")
+            
+        # 6. Global Config Listener
+        from plugin.modules.core.services.config import add_config_listener
+        _self_ref = weakref.ref(self)
+        def on_config_changed(ctx):
+            panel = _self_ref()
+            if panel is not None:
+                panel._refresh_controls_from_config()
+        add_config_listener(on_config_changed)
 
 
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):
