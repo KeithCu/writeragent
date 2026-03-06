@@ -8,7 +8,6 @@ import csv
 import io
 import json
 import logging
-import re
 
 from plugin.modules.calc.address_utils import parse_address
 
@@ -280,17 +279,14 @@ class CellManipulator:
 
     def _set_range_number_format(self, range_str: str, format_str: str):
         sheet = self.bridge.get_active_sheet()
-        start, end = self.bridge.parse_range_string(range_str)
+        cell_range = self.bridge.get_cell_range(sheet, range_str)
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
         locale = doc.getPropertyValue("CharLocale")
         format_id = formats.queryKey(format_str, locale, False)
         if format_id == -1:
             format_id = formats.addNew(format_str, locale)
-        for row in range(start[1], end[1] + 1):
-            for col in range(start[0], end[0] + 1):
-                cell = sheet.getCellByPosition(col, row)
-                cell.setPropertyValue("NumberFormat", format_id)
+        cell_range.setPropertyValue("NumberFormat", format_id)
 
     def _set_number_format(self, address: str, format_str: str):
         cell = self._get_cell(address)
