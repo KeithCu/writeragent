@@ -481,22 +481,37 @@ class CellManipulator:
             total_rows = len(rows)
             total_cols = max(len(r) for r in rows) if rows else 0
 
-            for r_idx, row_data in enumerate(rows):
-                for c_idx, cell_value in enumerate(row_data):
-                    col = col_start + c_idx
-                    row = row_start + r_idx
-                    cell = sheet.getCellByPosition(col, row)
-                    try:
-                        num = float(cell_value)
-                        cell.setValue(num)
-                    except ValueError:
-                        cell.setString(cell_value)
+            data_array = []
+            for row_data in rows:
+                data_row = []
+                for c_idx in range(total_cols):
+                    if c_idx < len(row_data):
+                        cell_value = row_data[c_idx]
+                        try:
+                            # Convert to float if possible, but keeping it as a string
+                            # if we just want to import it as string. Wait, if we use
+                            # setDataArray, it takes floats and strings.
+                            data_row.append(float(cell_value))
+                        except ValueError:
+                            data_row.append(cell_value)
+                    else:
+                        data_row.append("")
+                data_array.append(tuple(data_row))
 
             range_imported = (
                 f"{target_cell}:"
                 f"{self.bridge._index_to_column(col_start + total_cols - 1)}"
                 f"{row_start + total_rows}"
             )
+            # -1 because rows are 1-based in address strings but total_rows is count
+            end_col = col_start + total_cols - 1
+            end_row = row_start + total_rows - 1
+
+            cell_range = sheet.getCellRangeByPosition(
+                col_start, row_start, end_col, end_row
+            )
+            cell_range.setDataArray(tuple(data_array))
+
             logger.info("CSV imported to range %s.", range_imported)
             return f"Imported {total_rows} rows, {total_cols} cols to {range_imported}."
         except Exception as e:
