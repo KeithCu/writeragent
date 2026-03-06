@@ -1,9 +1,8 @@
 """Legacy operations for Calc (Extend/Edit Selection)."""
-from plugin.modules.core.services.config import get_config, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
+from plugin.modules.core.services.config import get_config, get_api_config, validate_api_config
 from plugin.modules.http.client import format_error_message, LlmClient
 from plugin.modules.core.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
-from plugin.framework.uno_context import get_ctx
 
 def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     sheet = model.CurrentController.ActiveSheet
@@ -29,18 +28,25 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
         edit_max = 0
 
     tasks = []
-    for row in row_range:
-        for col in col_range:
-            cell = sheet.getCellByPosition(col, row)
+    cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
+    data_array = cell_range.getDataArray()
+
+    for row_idx, row in enumerate(row_range):
+        for col_idx, col in enumerate(col_range):
+            raw_val = data_array[row_idx][col_idx]
+            # Convert values/empty cells to strings (similar to what getString() would do)
+            cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
+
             if not is_edit:
-                cell_text = cell.getString()
                 if not cell_text:
                     continue
+                cell = sheet.getCellByPosition(col, row)
                 tasks.append((cell, cell_text, extend_sys, extend_max, None))
             else:
-                cell_original = cell.getString()
+                cell_original = cell_text
                 prompt = "ORIGINAL VERSION:\n" + cell_original + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
                 max_tokens = len(cell_original) + edit_max
+                cell = sheet.getCellByPosition(col, row)
                 tasks.append((cell, prompt, edit_sys, max_tokens, cell_original))
 
     if not tasks:

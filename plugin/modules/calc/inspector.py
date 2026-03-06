@@ -160,27 +160,34 @@ class CellInspector:
             cell_range = self.bridge.get_cell_range(sheet, range_name)
             addr = cell_range.getRangeAddress()
 
-            result = []
-            for row in range(addr.StartRow, addr.EndRow + 1):
-                row_data = []
-                for col in range(addr.StartColumn, addr.EndColumn + 1):
-                    cell = sheet.getCellByPosition(col, row)
-                    cell_type = cell.getType()
+            data_array = cell_range.getDataArray()
+            formula_array = cell_range.getFormulaArray()
 
-                    if cell_type == EMPTY:
-                        value = None
-                    elif cell_type == VALUE:
-                        value = cell.getValue()
-                    elif cell_type == TEXT:
-                        value = cell.getString()
-                    elif cell_type == FORMULA:
-                        value = cell.getValue() if cell.getValue() != 0 else cell.getString()
+            result = []
+            for row_idx, row in enumerate(range(addr.StartRow, addr.EndRow + 1)):
+                row_data = []
+                for col_idx, col in enumerate(range(addr.StartColumn, addr.EndColumn + 1)):
+                    # Extract raw data and formula strings from batch fetched arrays
+                    raw_val = data_array[row_idx][col_idx]
+                    raw_formula = formula_array[row_idx][col_idx]
+
+                    value = raw_val
+                    formula = None
+
+                    if raw_formula and raw_formula.startswith("="):
+                        cell_type = FORMULA
+                        formula = raw_formula
+                        # Keep value as raw_val which already contains the evaluated formula result
+                    elif isinstance(raw_val, float):
+                        cell_type = VALUE
+                    elif isinstance(raw_val, str) and raw_val:
+                        cell_type = TEXT
                     else:
-                        value = cell.getString()
+                        cell_type = EMPTY
+                        value = None
 
                     col_letter = self.bridge._index_to_column(col)
                     cell_address = f"{col_letter}{row + 1}"
-                    formula = cell.getFormula() if cell_type == FORMULA else None
 
                     row_data.append({
                         "address": cell_address,
@@ -219,12 +226,24 @@ class CellInspector:
             addr = cursor.getRangeAddress()
             formulas = []
 
-            for row in range(addr.StartRow, addr.EndRow + 1):
-                for col in range(addr.StartColumn, addr.EndColumn + 1):
-                    cell = sheet.getCellByPosition(col, row)
-                    if cell.getType() == FORMULA:
-                        col_letter = self.bridge._index_to_column(col)
-                        cell_address = f"{col_letter}{row + 1}"
+            cell_range = sheet.getCellRangeByPosition(
+                addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow
+            )
+            # Result 7 means value, datetime, string. Here we query cells with formulas.
+            # Using queryFormulaCells with 23 (1|2|4|16) to get all formula cells, or actually just 23 for all formula results
+            formula_cells = cell_range.queryFormulaCells(23)
+
+            if formula_cells:
+                cells_collection = formula_cells.getCells()
+                if cells_collection:
+                    enum = cells_collection.createEnumeration()
+                    while enum.hasMoreElements():
+                        cell = enum.nextElement()
+                        cell_addr = cell.getCellAddress()
+
+                        col_letter = self.bridge._index_to_column(cell_addr.Column)
+                        cell_address = f"{col_letter}{cell_addr.Row + 1}"
+
                         formula = cell.getFormula()
                         value = cell.getValue() if cell.getValue() != 0 else cell.getString()
 

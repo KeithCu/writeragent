@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: localwriter
+Version: 1.7.3
+Summary: LibreOffice AI writing assistant with MCP server
+Requires-Python: >=3.8
+Provides-Extra: dev
+Requires-Dist: pyyaml; extra == "dev"
+Requires-Dist: pytest; extra == "dev"

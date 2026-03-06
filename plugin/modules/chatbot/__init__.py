@@ -179,11 +179,16 @@ class ChatbotModule(ModuleBase):
 
         # Build task list
         tasks = []
-        for row in range(area.StartRow, area.EndRow + 1):
-            for col in range(area.StartColumn, area.EndColumn + 1):
-                cell = sheet.getCellByPosition(col, row)
-                cell_text = cell.getString()
+        cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
+        data_array = cell_range.getDataArray()
+
+        for row_idx, row in enumerate(range(area.StartRow, area.EndRow + 1)):
+            for col_idx, col in enumerate(range(area.StartColumn, area.EndColumn + 1)):
+                raw_val = data_array[row_idx][col_idx]
+                cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
+
                 if cell_text:
+                    cell = sheet.getCellByPosition(col, row)
                     tasks.append((cell, cell_text))
 
         if not tasks:
@@ -364,10 +369,14 @@ class ChatbotModule(ModuleBase):
 
         # Build task list
         tasks = []
-        for row in range(area.StartRow, area.EndRow + 1):
-            for col in range(area.StartColumn, area.EndColumn + 1):
-                cell = sheet.getCellByPosition(col, row)
-                original = cell.getString()
+        cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
+        data_array = cell_range.getDataArray()
+
+        for row_idx, row in enumerate(range(area.StartRow, area.EndRow + 1)):
+            for col_idx, col in enumerate(range(area.StartColumn, area.EndColumn + 1)):
+                raw_val = data_array[row_idx][col_idx]
+                original = str(raw_val) if raw_val != "" and raw_val is not None else ""
+
                 prompt = (
                     "ORIGINAL VERSION:\n" + original +
                     "\n Below is an edited version according to the following "
@@ -381,6 +390,8 @@ class ChatbotModule(ModuleBase):
                     "\nEDITED VERSION:\n"
                 )
                 max_tokens = len(original) + max_new_tokens
+
+                cell = sheet.getCellByPosition(col, row)
                 tasks.append((cell, prompt, max_tokens, original))
 
         if not tasks:

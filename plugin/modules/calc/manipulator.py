@@ -423,27 +423,59 @@ class CellManipulator:
             else:
                 values = [formula_or_values] * total_cells
 
+            data_array = []
+            formula_array = []
+            has_formulas = False
+
             cell_idx = 0
             for row in range(start[1], end[1] + 1):
+                data_row = []
+                formula_row = []
                 for col in range(start[0], end[0] + 1):
-                    cell = sheet.getCellByPosition(col, row)
                     value = values[cell_idx]
 
                     if isinstance(value, str):
                         if value.startswith("="):
-                            cell.setFormula(value)
+                            data_row.append("")
+                            formula_row.append(value)
+                            has_formulas = True
                         else:
                             try:
                                 num = float(value)
-                                cell.setValue(num)
+                                data_row.append(num)
+                                formula_row.append("")
                             except ValueError:
-                                cell.setString(value)
+                                data_row.append(value)
+                                formula_row.append("")
                     elif isinstance(value, (int, float)):
-                        cell.setValue(value)
+                        data_row.append(value)
+                        formula_row.append("")
                     else:
-                        cell.setString(str(value))
+                        data_row.append(str(value))
+                        formula_row.append("")
 
                     cell_idx += 1
+                data_array.append(tuple(data_row))
+                formula_array.append(tuple(formula_row))
+
+            cell_range = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
+
+            if not has_formulas:
+                cell_range.setDataArray(tuple(data_array))
+            else:
+                string_formulas = []
+                cell_idx = 0
+                for row in range(start[1], end[1] + 1):
+                    row_data = []
+                    for col in range(start[0], end[0] + 1):
+                        value = values[cell_idx]
+                        if value is None:
+                            row_data.append("")
+                        else:
+                            row_data.append(str(value))
+                        cell_idx += 1
+                    string_formulas.append(tuple(row_data))
+                cell_range.setFormulaArray(tuple(string_formulas))
 
             logger.info(
                 "Range %s filled with %d values.", range_str.upper(), len(values),

@@ -59,11 +59,16 @@ class SheetAnalyzer:
             end_col_str = self.bridge._index_to_column(end_col)
             used_range = f"{start_col_str}{start_row + 1}:{end_col_str}{end_row + 1}"
 
+            header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
+            header_data = header_range.getDataArray()
+
             headers = []
-            for col in range(start_col, end_col + 1):
-                cell = sheet.getCellByPosition(col, start_row)
-                cell_value = cell.getString()
-                headers.append(cell_value if cell_value else None)
+            if header_data and len(header_data) > 0:
+                for val in header_data[0]:
+                    # getDataArray returns floats for numbers and strings for text.
+                    # Convert float to string if needed, empty strings to None.
+                    str_val = str(val) if val != "" else None
+                    headers.append(str_val)
 
             return {
                 "sheet_name": sheet.getName(),
