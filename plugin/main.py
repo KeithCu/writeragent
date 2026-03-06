@@ -153,7 +153,6 @@ def bootstrap(ctx=None):
                     mod.initialize(_services)
                     _modules.append(mod)
             except Exception as e:
-                import logging
                 logging.getLogger("localwriter").warning("Failed to load module %s: %s", name, e)
 
         # Wire event bus into config service
@@ -610,8 +609,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
 
     # ── XDispatchProvider ────────────────────────────────────────
 
-    def queryDispatch(self, url, target, flags):
-        if url.Protocol == _DISPATCH_PROTOCOL:
+    def queryDispatch(self, url, name, flags):
+        if url.Protocol == "org.extension.localwriter:":
             return self
         return None
 
@@ -625,6 +624,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         command = url.Path
         try:
             bootstrap(self.ctx)
+            init_logging(self.ctx)
             _dispatch_command(command)
             # After action, push updated menu text
             threading.Thread(target=notify_menu_update,

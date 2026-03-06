@@ -509,3 +509,22 @@ Image generation and AI Horde integration are **complete** (generate_image, edit
 - DTD: `xmlscript/dtd/dialog.dtd`
 - Example XDL: `odk/examples/DevelopersGuide/Extensions/DialogWithHelp/DialogWithHelp/Dialog1.xdl`
 - DevGuide: https://wiki.documentfoundation.org/Documentation/DevGuide/Graphical_User_Interfaces
+
+---
+
+## 10. Debugging Tips (Agent Hard-won Lessons)
+
+### UNO UI Controls
+- **Populating ListBox/ComboBox**: Setting `.Text` or `.String` is often not enough for selection lists. Use the **`StringItemList`** property (a tuple of strings) to populate a `ListBox` or `ComboBox` model. The UI will not show items otherwise.
+- **Dynamic Options**: Use `options_provider` in your config schema and a corresponding resolver in `SettingsHandler` to fetch dynamic lists (like AI providers or models) at runtime.
+
+### Python Scoping & Imports
+- **DO NOT shadow global modules**: Be extremely careful with `import logging` inside functions if `logging` is also imported at the top level. This can cause `UnboundLocalError` when the function tries to use the global `logging` but sees a local "not yet initialized" name instead.
+- **Traceback Logging**: When debugging silent failures in UNO dispatch, catch `Exception` and use `traceback.format_exc()` to write to a hard-coded file in `/tmp/`. Standard `logging` might not be initialized or visible yet.
+
+### Build & Deploy
+- **`make deploy` vs `make repack`**: If code changes aren't appearing in the application, your `.oxt` bundle might be out of sync. Use `make deploy` for a full clean/build/reinstall. `make repack` only re-zips the *existing* bundle directory and might miss new file edits.
+- **Check `manifest.xml`**: If a new UNO component or XCU file isn't working, verify it is registered in `extension/META-INF/manifest.xml`.
+
+### Multi-process Logging
+- LibreOffice/Python logs can be buffered. If you don't see your changes, check `/tmp/` logs first or use `flush=True` (or `f.flush()`) when writing diagnostic files.

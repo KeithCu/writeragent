@@ -31,16 +31,19 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
     finally:
         dlg.dispose()
 
-def settings_box(ctx, title="", x=None, y=None):
+def settings_box(ctx, title="Settings", x=None, y=None):
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
     from plugin.modules.core.services.config import get_image_model, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
 
-    from plugin.framework.logging import agent_log
+    from plugin.framework.logging import debug_log
+    debug_log("settings_box entry", context="Settings")
     import unohelper
     from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
     smgr = ctx.getServiceManager()
+    debug_log("Calling get_settings_field_specs", context="Settings")
     field_specs = get_settings_field_specs(ctx)
+    debug_log(f"get_settings_field_specs returned {len(field_specs)} fields", context="Settings")
 
     pip = ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
     base_url = pip.getPackageLocation("org.extension.localwriter")
@@ -101,7 +104,10 @@ def settings_box(ctx, title="", x=None, y=None):
     current_endpoint = get_current_endpoint(ctx)
 
     try:
+        from plugin.framework.logging import debug_log
         for field in field_specs:
+            with open("/tmp/lo_settings.log", "a") as f: f.write(f"processing {field['name']}\n")
+            debug_log(f"Processing setting field: {field['name']} (options: {'yes' if 'options' in field else 'no'})", context="Settings")
             ctrl = dlg.getControl(field["name"])
             if ctrl:
                 if field["name"] == "text_model":
@@ -170,7 +176,23 @@ def settings_box(ctx, title="", x=None, y=None):
                         except Exception as e:
                             pass
                     elif hasattr(ctrl, "setText"):
-                        # Works for comboboxes
+                        # Populate options if provided (for select/combo widgets)
+                        if "options" in field:
+                            opts = field["options"]
+                            # For ComboBox/ListBox, we set the items
+                            try:
+                                # ComboBox/ListBox typically have StringItemList or can be added directly
+                                # In SettingsDialog.xdl, select=menulist, combo=combobox
+                                labels = tuple(o.get("label", o.get("value", "")) for o in opts)
+                                model = ctrl.getModel()
+                                if hasattr(model, "StringItemList"):
+                                    debug_log(f"Populating {field['name']} with {len(labels)} options: {labels}", context="Settings")
+                                    model.StringItemList = labels
+                                else:
+                                    debug_log(f"Control {field['name']} model does NOT have StringItemList", context="Settings")
+                            except Exception as e:
+                                debug_log(f"Failed to set StringItemList for {field['name']}: {e}", context="Settings")
+                        
                         ctrl.setText(field["value"])
                     else:
                         try:

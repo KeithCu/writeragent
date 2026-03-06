@@ -94,3 +94,6 @@ class EventBus:
             self._subscribers[event] = [
                 (cb, w) for cb, w in subs if cb is not ref
             ]
+
+
+global_event_bus = EventBus()

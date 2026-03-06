@@ -2,6 +2,8 @@ from plugin.modules.core.services.config import get_config, set_config, get_curr
 
 def get_settings_field_specs(ctx):
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
+    from plugin.framework.logging import debug_log
+    debug_log("get_settings_field_specs entry", context="Settings")
     openai_compatibility_value = "true" if as_bool(get_config(ctx, "openai_compatibility", True)) else "false"
     is_openwebui_value = "true" if as_bool(get_config(ctx, "is_openwebui", False)) else "false"
     current_endpoint_for_specs = get_current_endpoint(ctx)
@@ -48,6 +50,16 @@ def get_settings_field_specs(ctx):
                 val = get_config(ctx, config_key, default)
                 
                 field = {"name": ctrl_id, "value": str(val)}
+                
+                # Resolve dynamic options if options_provider is present
+                provider_path = schema.get("options_provider")
+                if provider_path:
+                    try:
+                        field["options"] = _call_options_provider(ctx, provider_path)
+                    except Exception:
+                        from plugin.framework.logging import debug_log
+                        debug_log(f"Failed to resolve options_provider: {provider_path}", context="Settings")
+
                 schema_type = schema.get("type", "string")
                 if schema_type in ("bool", "int", "float"):
                     field["type"] = schema_type
@@ -111,3 +123,29 @@ def apply_settings_result(ctx, result):
         set_api_key_for_endpoint(ctx, current_endpoint, result["api_key"])
 
     notify_config_changed(ctx)
+
+
+def _call_options_provider(ctx, provider_path):
+    """Import a module and call a function to get options.
+    
+    provider_path format: "plugin.modules.core.services.ai:get_text_instance_options"
+    The function receives the ServiceRegistry as its argument.
+    """
+    from plugin.framework.logging import debug_log
+    debug_log(f"_call_options_provider: {provider_path}", context="Settings")
+    try:
+        module_path, func_name = provider_path.rsplit(":", 1)
+        import importlib
+        mod = importlib.import_module(module_path)
+        func = getattr(mod, func_name)
+        
+        from plugin.main import get_services
+        services = get_services()
+        options = func(services)
+        debug_log(f"_call_options_provider success: {len(options)} options returned", context="Settings")
+        return options
+    except Exception as e:
+        debug_log(f"_call_options_provider FAILED for {provider_path}: {e}", context="Settings")
+        import traceback
+        debug_log(traceback.format_exc(), context="Settings")
+        raise

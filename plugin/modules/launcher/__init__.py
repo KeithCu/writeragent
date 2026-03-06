@@ -131,14 +131,19 @@ def get_provider_options(services):
     select widget. Discovers registered providers from the launcher_manager.
     """
     try:
+        log.debug("get_provider_options called with services: %s", "available" if services else "None")
         if services and hasattr(services, "launcher_manager"):
             mgr = services.launcher_manager
-            return [
+            options = [
                 {"value": name, "label": prov.label if hasattr(prov, "label") else name.title()}
                 for name, prov in sorted(mgr.providers.items())
             ]
-    except Exception:
-        log.debug("get_provider_options: services not ready yet")
+            log.info("get_provider_options returning %d options: %s", len(options), [o["value"] for o in options])
+            return options
+        else:
+            log.warning("get_provider_options: launcher_manager service not found in services")
+    except Exception as e:
+        log.error("get_provider_options exception: %s", e)
     return []
 
 
@@ -289,7 +294,7 @@ class LauncherManager:
 
     def register_provider(self, name, provider):
         self.providers[name] = provider
-        log.info("CLI provider registered: %s", name)
+        log.info("CLI provider registered: %s (total: %d)", name, len(self.providers))
 
     def get_provider(self, name):
         return self.providers.get(name)
