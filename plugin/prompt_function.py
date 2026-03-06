@@ -10,10 +10,10 @@ if _ext_root not in sys.path:
 if _plugin_dir not in sys.path:
     sys.path.insert(0, _plugin_dir)
 
-import uno
+
 import unohelper
-import urllib.request
-import urllib.parse
+
+
 # from com.sun.star.lang import XServiceInfo
 # from com.sun.star.sheet import XAddIn
 from org.extension.localwriter.PromptFunction import XPromptFunction
