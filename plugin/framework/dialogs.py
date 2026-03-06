@@ -96,6 +96,68 @@ def copy_to_clipboard(ctx, text):
         return False
 
 
+# ── Dialog control helpers ──────────────────────────────────────────
+
+
+def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_type=None, enabled=True):
+    """Add a button to a dialog model."""
+    btn = dlg_model.createInstance("com.sun.star.awt.UnoControlButtonModel")
+    btn.Name = name
+    btn.PositionX = x
+    btn.PositionY = y
+    btn.Width = width
+    btn.Height = height
+    btn.Label = label
+    btn.Enabled = enabled
+    if push_button_type is not None:
+        btn.PushButtonType = push_button_type
+    dlg_model.insertByName(name, btn)
+    return btn
+
+
+def add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True):
+    """Add a fixed text label to a dialog model."""
+    lbl = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedTextModel")
+    lbl.Name = name
+    lbl.PositionX = x
+    lbl.PositionY = y
+    lbl.Width = width
+    lbl.Height = height
+    lbl.MultiLine = multiline
+    lbl.Label = label
+    dlg_model.insertByName(name, lbl)
+    return lbl
+
+
+def add_dialog_edit(dlg_model, name, text, x, y, width, height, readonly=False):
+    """Add an edit (text field) control to a dialog model."""
+    edit = dlg_model.createInstance("com.sun.star.awt.UnoControlEditModel")
+    edit.Name = name
+    edit.PositionX = x
+    edit.PositionY = y
+    edit.Width = width
+    edit.Height = height
+    edit.Text = text
+    edit.ReadOnly = readonly
+    dlg_model.insertByName(name, edit)
+    return edit
+
+
+def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
+    """Add a clickable hyperlink to a dialog model."""
+    link = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedHyperlinkModel")
+    link.Name = name
+    link.PositionX = x
+    link.PositionY = y
+    link.Width = width
+    link.Height = height
+    link.Label = label
+    link.URL = url
+    link.TextColor = 0x0563C1  # standard link blue
+    dlg_model.insertByName(name, link)
+    return link
+
+
 # ── Message box with Copy button ─────────────────────────────────────
 
 
@@ -116,37 +178,9 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         dlg_model.Width = 250
         dlg_model.Height = 80
 
-        lbl = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlFixedTextModel")
-        lbl.Name = "Msg"
-        lbl.PositionX = 10
-        lbl.PositionY = 6
-        lbl.Width = 230
-        lbl.Height = 42
-        lbl.MultiLine = True
-        lbl.Label = message
-        dlg_model.insertByName("Msg", lbl)
-
-        copy_btn = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlButtonModel")
-        copy_btn.Name = "CopyBtn"
-        copy_btn.PositionX = 10
-        copy_btn.PositionY = 56
-        copy_btn.Width = 75
-        copy_btn.Height = 14
-        copy_btn.Label = "Copy URL"
-        dlg_model.insertByName("CopyBtn", copy_btn)
-
-        ok_btn = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlButtonModel")
-        ok_btn.Name = "OKBtn"
-        ok_btn.PositionX = 190
-        ok_btn.PositionY = 56
-        ok_btn.Width = 50
-        ok_btn.Height = 14
-        ok_btn.Label = "OK"
-        ok_btn.PushButtonType = 1  # OK
-        dlg_model.insertByName("OKBtn", ok_btn)
+        add_dialog_label(dlg_model, "Msg", message, 10, 6, 230, 42)
+        add_dialog_button(dlg_model, "CopyBtn", "Copy URL", 10, 56, 75, 14)
+        add_dialog_button(dlg_model, "OKBtn", "OK", 190, 56, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialog", ctx)
@@ -213,41 +247,15 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         dlg_model.Width = 230
         dlg_model.Height = 110
 
-        lbl = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlFixedTextModel")
-        lbl.Name = "StatusText"
-        lbl.PositionX = 10
-        lbl.PositionY = 6
-        lbl.Width = 210
-        lbl.Height = 72
-        lbl.MultiLine = True
-        lbl.Label = initial_text
-        dlg_model.insertByName("StatusText", lbl)
+        add_dialog_label(dlg_model, "StatusText", initial_text, 10, 6, 210, 72)
 
         # Copy button (disabled until copy_url_fn returns something)
         has_copy = copy_url_fn is not None
         if has_copy:
-            copy_btn = dlg_model.createInstance(
-                "com.sun.star.awt.UnoControlButtonModel")
-            copy_btn.Name = "CopyBtn"
-            copy_btn.PositionX = 10
-            copy_btn.PositionY = 88
-            copy_btn.Width = 65
-            copy_btn.Height = 14
-            copy_btn.Label = "Copy URL"
-            copy_btn.Enabled = bool(copy_url_fn())
-            dlg_model.insertByName("CopyBtn", copy_btn)
+            add_dialog_button(dlg_model, "CopyBtn", "Copy URL", 10, 88, 65, 14,
+                              enabled=bool(copy_url_fn()))
 
-        ok_btn = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlButtonModel")
-        ok_btn.Name = "OKBtn"
-        ok_btn.PositionX = 170
-        ok_btn.PositionY = 88
-        ok_btn.Width = 50
-        ok_btn.Height = 14
-        ok_btn.Label = "OK"
-        ok_btn.PushButtonType = 1
-        dlg_model.insertByName("OKBtn", ok_btn)
+        add_dialog_button(dlg_model, "OKBtn", "OK", 170, 88, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialog", ctx)
@@ -326,44 +334,18 @@ def about_dialog(ctx):
         dlg_model.Height = 90
 
         # Info text
-        lbl = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlFixedTextModel")
-        lbl.Name = "Info"
-        lbl.PositionX = 10
-        lbl.PositionY = 8
-        lbl.Width = 200
-        lbl.Height = 36
-        lbl.MultiLine = True
-        lbl.Label = (
+        info_text = (
             "LocalWriter\n"
             "Version: %s\n"
             "AI-powered extension for LibreOffice" % EXTENSION_VERSION
         )
-        dlg_model.insertByName("Info", lbl)
+        add_dialog_label(dlg_model, "Info", info_text, 10, 8, 200, 36)
 
         # Clickable hyperlink
-        link = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlFixedHyperlinkModel")
-        link.Name = "GitHubLink"
-        link.PositionX = 10
-        link.PositionY = 48
-        link.Width = 200
-        link.Height = 12
-        link.Label = "GitHub: quazardous/localwriter"
-        link.URL = "https://github.com/quazardous/localwriter"
-        link.TextColor = 0x0563C1  # standard link blue
-        dlg_model.insertByName("GitHubLink", link)
+        add_dialog_hyperlink(dlg_model, "GitHubLink", "GitHub: quazardous/localwriter",
+                             "https://github.com/quazardous/localwriter", 10, 48, 200, 12)
 
-        ok_btn = dlg_model.createInstance(
-            "com.sun.star.awt.UnoControlButtonModel")
-        ok_btn.Name = "OKBtn"
-        ok_btn.PositionX = 160
-        ok_btn.PositionY = 68
-        ok_btn.Width = 50
-        ok_btn.Height = 14
-        ok_btn.Label = "OK"
-        ok_btn.PushButtonType = 1
-        dlg_model.insertByName("OKBtn", ok_btn)
+        add_dialog_button(dlg_model, "OKBtn", "OK", 160, 68, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialog", ctx)
