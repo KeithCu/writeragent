@@ -1,8 +1,8 @@
 """Format conversion helpers for Writer tools.
 
-Handles exporting documents as markdown/HTML, importing formatted
-content via ``insertDocumentFromURL``, format-preserving text
-replacement, and text search utilities.
+Handles exporting documents as HTML, importing formatted content via
+``insertDocumentFromURL``, format-preserving text replacement, and
+text search utilities.
 """
 
 import contextlib
@@ -21,35 +21,16 @@ from plugin.modules.core.services.document import get_document_length as _doc_te
 # Format configuration
 # ---------------------------------------------------------------------------
 
-FORMAT_CONFIG = {
-    "markdown": {"filter": "Markdown", "extension": ".md"},
-    "html": {"filter": "HTML (StarWriter)", "extension": ".html"},
-}
+HTML_FILTER = "HTML (StarWriter)"
+HTML_EXTENSION = ".html"
 
 # System temp directory (cross-platform).
 TEMP_DIR = tempfile.gettempdir()
 
 
-def _get_format(config_svc=None):
-    """Return the active format name (``'html'`` or ``'markdown'``).
-
-    Reads from the config service when available, defaults to ``'html'``.
-    """
-    if config_svc is not None:
-        try:
-            fmt = config_svc.get("core.document_format", caller_module=None)
-            if fmt and fmt in FORMAT_CONFIG:
-                return fmt
-        except Exception:
-            pass
-    return "html"
-
-
 def _get_format_props(config_svc=None):
-    """Return ``(filter_name, file_extension)`` for the active format."""
-    fmt = _get_format(config_svc)
-    cfg = FORMAT_CONFIG.get(fmt, FORMAT_CONFIG["html"])
-    return cfg["filter"], cfg["extension"]
+    """Return ``(filter_name, file_extension)`` for HTML format."""
+    return HTML_FILTER, HTML_EXTENSION
 
 
 # ---------------------------------------------------------------------------
@@ -232,14 +213,12 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
             return ""
 
         filter_name, _ = _get_format_props(config_svc)
-        fmt = _get_format(config_svc)
         with _with_temp_buffer(None, config_svc) as (path, file_url):
             props = (_create_property_value("FilterName", filter_name),)
             temp_doc.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-        if fmt == "html":
-            content = _strip_html_boilerplate(content)
+        content = _strip_html_boilerplate(content)
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... truncated ...]"
         return content
@@ -256,7 +235,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
 
 def document_to_content(model, ctx, services, max_chars=None,
                         scope="full", range_start=None, range_end=None):
-    """Export a Writer document (or part of it) as markdown/HTML.
+    """Export a Writer document (or part of it) as HTML.
 
     Args:
         model: UNO document model.
@@ -292,14 +271,12 @@ def document_to_content(model, ctx, services, max_chars=None,
     # scope == "full"
     try:
         filter_name, _ = _get_format_props(config_svc)
-        fmt = _get_format(config_svc)
         with _with_temp_buffer(None, config_svc) as (path, file_url):
             props = (_create_property_value("FilterName", filter_name),)
             model.storeToURL(file_url, props)
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-            if fmt == "html":
-                content = _strip_html_boilerplate(content)
+            content = _strip_html_boilerplate(content)
             if max_chars and len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[... truncated ...]"
             return content
@@ -317,11 +294,9 @@ def insert_content_at_position(model, ctx, content, position,
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
-    fmt = _get_format(config_svc)
-    if fmt == "html":
-        import html as html_mod
-        content = html_mod.unescape(content)
-        content = _ensure_html_linebreaks(content)
+    import html as html_mod
+    content = html_mod.unescape(content)
+    content = _ensure_html_linebreaks(content)
 
     with _with_temp_buffer(content, config_svc) as (_path, file_url):
         text = model.getText()
@@ -354,11 +329,9 @@ def insert_content_at_position(model, ctx, content, position,
 
 def replace_full_document(model, ctx, content, config_svc=None):
     """Clear the document and insert *content*."""
-    fmt = _get_format(config_svc)
-    if fmt == "html":
-        import html as html_mod
-        content = html_mod.unescape(content)
-        content = _ensure_html_linebreaks(content)
+    import html as html_mod
+    content = html_mod.unescape(content)
+    content = _ensure_html_linebreaks(content)
 
     with _with_temp_buffer(content, config_svc) as (_path, file_url):
         text = model.getText()
@@ -383,11 +356,9 @@ def apply_content_at_range(model, ctx, content, start, end,
             "Invalid range or could not create cursor for (%d, %d)" % (start, end)
         )
 
-    fmt = _get_format(config_svc)
-    if fmt == "html":
-        import html as html_mod
-        content = html_mod.unescape(content)
-        content = _ensure_html_linebreaks(content)
+    import html as html_mod
+    content = html_mod.unescape(content)
+    content = _ensure_html_linebreaks(content)
 
     with _with_temp_buffer(content, config_svc) as (_path, file_url):
         cursor.setString("")
@@ -403,12 +374,9 @@ def apply_content_at_search(model, ctx, content, search,
 
     Returns the number of replacements made.
     """
-    fmt = _get_format(config_svc)
-    prepared = content
-    if fmt == "html":
-        import html as html_mod
-        prepared = html_mod.unescape(content)
-        prepared = _ensure_html_linebreaks(prepared)
+    import html as html_mod
+    prepared = html_mod.unescape(content)
+    prepared = _ensure_html_linebreaks(prepared)
 
     with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
         filter_name, _ = _get_format_props(config_svc)

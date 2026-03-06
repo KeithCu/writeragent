@@ -230,11 +230,7 @@ def run_markdown_tests(ctx, model=None):
 
     # Test D: formatting (bold, italic) - VISIBLE TEST
     try:
-        from plugin.framework.constants import DOCUMENT_FORMAT
-        if DOCUMENT_FORMAT == "markdown":
-            formatted_input = "# Heading\n\n**Bold text** and *italic text*"
-        else:
-            formatted_input = "<h1>Heading</h1><p><b>Bold text</b> and <i>italic text</i></p>"
+        formatted_input = "<h1>Heading</h1><p><b>Bold text</b> and <i>italic text</i></p>"
 
         len_before = _doc_text_length(doc)[0]
         result = tool_apply_document_content(doc, ctx, {
@@ -273,7 +269,7 @@ def run_markdown_tests(ctx, model=None):
         cursor.gotoEnd(False)
         text.insertString(cursor, "\n" + marker, False)
         
-        replacement = "<b>replaced</b>" if DOCUMENT_FORMAT == "html" else "**replaced**"
+        replacement = "<b>replaced</b>"
         
         result = tool_apply_document_content(doc, ctx, {
             "content": replacement,
@@ -407,30 +403,25 @@ def run_markdown_tests(ctx, model=None):
 
     # Test L: HTML linebreak preservation
     try:
-        from plugin.framework.constants import DOCUMENT_FORMAT
-        if DOCUMENT_FORMAT == "html":
-            plain_input = "Line 1\nLine 2\n\nParagraph 2"
-            len_before = _doc_text_length(doc)[0]
-            result = tool_apply_document_content(doc, ctx, {
-                "content": plain_input,
-                "target": "end",
-            })
-            full_text = _read_doc_text(doc)
-            # Check if all words are present. 
-            # In HTML mode, if the fix works, these will be separated.
-            # If it failed, they might be merged, but still present.
-            # The real validation is that it doesn't error and content is there.
-            has_content = "Line 1" in full_text and "Line 2" in full_text and "Paragraph 2" in full_text
-            
-            if has_content:
-                passed += 1
-                ok("HTML linebreak preservation: content inserted")
-            else:
-                failed += 1
-                fail("HTML linebreak preservation: content missing")
-        else:
+        plain_input = "Line 1\nLine 2\n\nParagraph 2"
+        len_before = _doc_text_length(doc)[0]
+        result = tool_apply_document_content(doc, ctx, {
+            "content": plain_input,
+            "target": "end",
+        })
+        full_text = _read_doc_text(doc)
+        # Check if all words are present. 
+        # If the fix works, these will be separated.
+        # If it failed, they might be merged, but still present.
+        # The real validation is that it doesn't error and content is there.
+        has_content = "Line 1" in full_text and "Line 2" in full_text and "Paragraph 2" in full_text
+        
+        if has_content:
             passed += 1
-            ok("HTML linebreak preservation: skipped (not in HTML mode)")
+            ok("HTML linebreak preservation: content inserted")
+        else:
+            failed += 1
+            fail("HTML linebreak preservation: content missing")
     except Exception as e:
         failed += 1
         log.append("FAIL: HTML linebreak preservation test raised: %s" % e)

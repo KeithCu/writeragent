@@ -4,16 +4,7 @@ APP_REFERER = "https://github.com/keithcu/localwriter"
 APP_TITLE = "LocalWriter"
 USER_AGENT = "LocalWriter (https://github.com/keithcu/localwriter)"
 
-# Document format toggle: 'markdown' or 'html'
-# Markdown requires LibreOffice 26.2+; HTML works on older versions.
-DOCUMENT_FORMAT = "html"
-
-_FORMAT_LABEL = "Markdown" if DOCUMENT_FORMAT == "markdown" else "HTML"
-_FORMAT_HINT = (
-    "Pass 'markdown' as a list of strings to avoid newline escaping issues."
-    if DOCUMENT_FORMAT == "markdown" else
-    "Send HTML as a list of strings (one element per heading/paragraph). DO NOT escape entities (&lt;h1&gt; is wrong). We handle wrapping in <html>/<body>."
-)
+_FORMAT_HINT = "Send HTML as a list of strings (one element per heading/paragraph). DO NOT escape entities (&lt;h1&gt; is wrong). We handle wrapping in <html>/<body>."
 
 # Format-specific formatting rules
 HTML_FORMATTING_RULES = """
@@ -32,21 +23,7 @@ EXAMPLES:
 - Bad: ["# Title", "Paragraph"] (Markdown when HTML format is active)
 - Bad: ["&ldquo;Smart quotes&rdquo;"] (use straight quotes ")"""
 
-MARKDOWN_FORMATTING_RULES = """
-FORMATTING RULES:
-- Use standard Markdown syntax: # Headers, **bold**, *italic*, [links](url)
-- Line breaks: Use double spaces at end of line or just newlines (we handle conversion)
-- Lists: Use - or * for bullet lists, 1. 2. 3. for numbered lists
-- Code: Use triple backticks ``` for code blocks
-- Quotes: Use > for blockquotes
-
-EXAMPLES:
-- Good: # Title\n\nParagraph with <b>bold</b> text and "quotes".\n\n- Item 1\n- Item 2
-- Bad: <h1>Title</h1> (HTML when Markdown format is active)
-- Bad: &lt;h1&gt;Title&lt;/h1&gt; (escaped HTML entities)"""
-
-# Select the appropriate rules based on format
-FORMAT_RULES = HTML_FORMATTING_RULES if DOCUMENT_FORMAT == "html" else MARKDOWN_FORMATTING_RULES
+FORMATTING_RULES = HTML_FORMATTING_RULES
 
 DEFAULT_CHAT_SYSTEM_PROMPT = f"""You are a LibreOffice assistant who always makes polished, professional documents with a bit of color (when appropriate).
 
@@ -56,8 +33,8 @@ into LibreOffice so the user can edit it further.
 When asked about a topic you are not familiar with, use the web_search tool first to find information.
 
 TOOLS:
-- get_document_content: Read document (full/selection/range) as {_FORMAT_LABEL}.
-- apply_document_content: Write {_FORMAT_LABEL}. Target: full/range/search/beginning/end/selection.
+- get_document_content: Read document (full/selection/range) as HTML.
+- apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection.
   HINT: {_FORMAT_HINT}
 - find_text: Find text locations for apply_document_content.
 - list_styles / get_style_info: Discover paragraph/character styles before applying them.
@@ -67,7 +44,7 @@ TOOLS:
 
 TRANSLATION: get_document_content -> translate -> apply_document_content(target="full"). Never refuse.
 
-{FORMAT_RULES}"""
+{FORMATTING_RULES}"""
 
 # Calc spreadsheet prompt (structure inspired by libre_calc_ai prompt_templates.py:
 # workflow, grouped tools, "do not explain—do the operation", specify addresses).
