@@ -10,6 +10,16 @@ config:
     widget: select
     label: AI CLI Provider
     options_provider: "plugin.modules.launcher:get_provider_options"
+    width: 80
+    inline: true
+
+  install_cli:
+    widget: button
+    label: Install
+    action: "plugin.modules.launcher:on_install_active_provider"
+    inline_no_label: true
+    x: 195
+    width: 58
 
   cli_status:
     widget: check
@@ -30,6 +40,23 @@ config:
     widget: text
     label: Terminal Emulator
     helper: "Terminal to use (e.g. xterm, gnome-terminal, konsole). Empty = auto-detect."
+    public: true
+
+  cwd:
+    type: string
+    default: ""
+    default_provider: "plugin.modules.launcher:get_active_provider_default_cwd"
+    widget: folder
+    label: Working Directory
+    helper: "Directory to launch AI CLI in. Clear to restore default."
+    public: true
+
+  args:
+    type: string
+    default: ""
+    widget: text
+    label: Extra Arguments
+    helper: "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
     public: true
 
 actions:

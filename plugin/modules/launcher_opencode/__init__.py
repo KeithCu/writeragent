@@ -78,20 +78,6 @@ class OpenCodeProvider:
         except Exception:
             log.exception("Failed to write opencode config")
 
-        # 2. AGENTS.md — LocalWriter instructions (always)
-        self._copy_prompt_file("AGENTS.md", cwd)
-
-    def _copy_prompt_file(self, filename, cwd):
-        """Copy a prompt template file into the working directory."""
-        src = os.path.join(_PROMPTS_DIR, filename)
-        dst = os.path.join(cwd, filename)
-        if os.path.isfile(src):
-            try:
-                shutil.copy2(src, dst)
-                log.info("Copied %s to %s", filename, dst)
-            except Exception:
-                log.exception("Failed to copy %s", filename)
-
 
 def get_default_cwd(services):
     """Return the default working directory for OpenCode."""

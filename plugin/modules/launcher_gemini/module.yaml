@@ -3,21 +3,4 @@ title: Gemini CLI provider
 requires: [launcher_manager]
 config_inline: true
 
-config:
-  cwd:
-    type: string
-    default: ""
-    default_provider: "plugin.modules.launcher_gemini:get_default_cwd"
-    widget: folder
-    label: Working Directory
-    helper: "Directory to launch Gemini CLI in. Clear to restore default."
-  args:
-    type: string
-    default: ""
-    widget: text
-    label: Extra Arguments
-    helper: "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
-  install:
-    widget: button
-    label: Install Gemini CLI
-    action: "plugin.modules.launcher_gemini:on_install"
+config: {}

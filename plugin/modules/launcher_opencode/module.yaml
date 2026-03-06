@@ -4,19 +4,6 @@ requires: [launcher_manager]
 config_inline: true
 
 config:
-  cwd:
-    type: string
-    default: ""
-    default_provider: "plugin.modules.launcher_opencode:get_default_cwd"
-    widget: folder
-    label: Working Directory
-    helper: "Directory to launch OpenCode in. Clear to restore default."
-  args:
-    type: string
-    default: ""
-    widget: text
-    label: Extra Arguments
-    helper: "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
   handle_config:
     type: boolean
     default: true
@@ -36,7 +23,3 @@ config:
     options_provider: "plugin.modules.launcher_opencode:get_ollama_models"
     label: Ollama Model
     helper: "Select an installed model. Custom values are preserved if typed in config."
-  install:
-    widget: button
-    label: Install OpenCode
-    action: "plugin.modules.launcher_opencode:on_install"

@@ -76,7 +76,17 @@ MODULES = [
                         "default": "",
                         "widget": "select",
                         "label": "AI CLI Provider",
-                        "options_provider": "plugin.modules.launcher:get_provider_options"
+                        "options_provider": "plugin.modules.launcher:get_provider_options",
+                        "width": 80,
+                        "inline": True
+                },
+                "install_cli": {
+                        "widget": "button",
+                        "label": "Install",
+                        "action": "plugin.modules.launcher:on_install_active_provider",
+                        "inline_no_label": True,
+                        "x": 195,
+                        "width": 58
                 },
                 "cli_status": {
                         "widget": "check",
@@ -97,6 +107,23 @@ MODULES = [
                         "widget": "text",
                         "label": "Terminal Emulator",
                         "helper": "Terminal to use (e.g. xterm, gnome-terminal, konsole). Empty = auto-detect.",
+                        "public": True
+                },
+                "cwd": {
+                        "type": "string",
+                        "default": "",
+                        "default_provider": "plugin.modules.launcher:get_active_provider_default_cwd",
+                        "widget": "folder",
+                        "label": "Working Directory",
+                        "helper": "Directory to launch AI CLI in. Clear to restore default.",
+                        "public": True
+                },
+                "args": {
+                        "type": "string",
+                        "default": "",
+                        "widget": "text",
+                        "label": "Extra Arguments",
+                        "helper": "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}.",
                         "public": True
                 }
         },
@@ -142,21 +169,6 @@ MODULES = [
         ],
         "provides_services": [],
         "config": {
-                "cwd": {
-                        "type": "string",
-                        "default": "",
-                        "default_provider": "plugin.modules.launcher_opencode:get_default_cwd",
-                        "widget": "folder",
-                        "label": "Working Directory",
-                        "helper": "Directory to launch OpenCode in. Clear to restore default."
-                },
-                "args": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Extra Arguments",
-                        "helper": "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
-                },
                 "handle_config": {
                         "type": "boolean",
                         "default": True,
@@ -178,11 +190,6 @@ MODULES = [
                         "options_provider": "plugin.modules.launcher_opencode:get_ollama_models",
                         "label": "Ollama Model",
                         "helper": "Select an installed model. Custom values are preserved if typed in config."
-                },
-                "install": {
-                        "widget": "button",
-                        "label": "Install OpenCode",
-                        "action": "plugin.modules.launcher_opencode:on_install"
                 }
         },
         "actions": [],
@@ -195,28 +202,7 @@ MODULES = [
                 "launcher_manager"
         ],
         "provides_services": [],
-        "config": {
-                "cwd": {
-                        "type": "string",
-                        "default": "",
-                        "default_provider": "plugin.modules.launcher_claude:get_default_cwd",
-                        "widget": "folder",
-                        "label": "Working Directory",
-                        "helper": "Directory to launch Claude Code in. Clear to restore default."
-                },
-                "args": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Extra Arguments",
-                        "helper": "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
-                },
-                "install": {
-                        "widget": "button",
-                        "label": "Install Claude Code",
-                        "action": "plugin.modules.launcher_claude:on_install"
-                }
-        },
+        "config": {},
         "actions": [],
         "action_icons": {}
 },
@@ -428,28 +414,7 @@ MODULES = [
                 "launcher_manager"
         ],
         "provides_services": [],
-        "config": {
-                "cwd": {
-                        "type": "string",
-                        "default": "",
-                        "default_provider": "plugin.modules.launcher_gemini:get_default_cwd",
-                        "widget": "folder",
-                        "label": "Working Directory",
-                        "helper": "Directory to launch Gemini CLI in. Clear to restore default."
-                },
-                "args": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Extra Arguments",
-                        "helper": "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
-                },
-                "install": {
-                        "widget": "button",
-                        "label": "Install Gemini CLI",
-                        "action": "plugin.modules.launcher_gemini:on_install"
-                }
-        },
+        "config": {},
         "actions": [],
         "action_icons": {}
 },

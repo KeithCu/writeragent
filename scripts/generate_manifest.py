@@ -1347,45 +1347,51 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
                 ctrl_id = f"{prefix}__{field_name}" if prefix else field_name
                 label_text = schema.get("label", field_name.replace("_", " ").title() + ":")
                 
+                # Support custom positioning
+                field_x = str(schema.get("x", 110))
+                field_w = str(schema.get("width", 144))
+                
                 # We render our own UI to avoid the standard XDL layout gap padding, 
                 # because SettingsDialog uses slightly tighter spacing
-                ET.SubElement(board, _dlg("text"), {
-                    _dlg("id"): f"label_{ctrl_id}",
-                    _dlg("tab-index"): "0",
-                    _dlg("left"): "8",
-                    _dlg("top"): str(curr_y + 2),
-                    _dlg("width"): "100",
-                    _dlg("height"): "10",
-                    _dlg("value"): label_text,
-                    _dlg("align"): "left",
-                })
+                if not schema.get("inline_no_label"):
+                    ET.SubElement(board, _dlg("text"), {
+                        _dlg("id"): f"label_{ctrl_id}",
+                        _dlg("tab-index"): "0",
+                        _dlg("left"): "8",
+                        _dlg("top"): str(curr_y + 2),
+                        _dlg("width"): "100",
+                        _dlg("height"): "10",
+                        _dlg("value"): label_text,
+                        _dlg("align"): "left",
+                    })
                 
                 field_attrs = {
                     _dlg("id"): ctrl_id,
                     _dlg("tab-index"): "0",
-                    _dlg("left"): "110",
+                    _dlg("left"): field_x,
                     _dlg("top"): str(curr_y),
-                    _dlg("width"): "144",
+                    _dlg("width"): field_w,
                     _dlg("height"): "14",
                 }
                 
                 if widget == "checkbox":
                     field_attrs.update({
-                        _dlg("width"): "120",
+                        _dlg("width"): field_w if "width" in schema else "120",
                         _dlg("height"): "10",
                         _dlg("value"): label_text,
                         _dlg("checked"): "false",
                     })
                     # Remove the duplicate label for checkbox
-                    board.remove(board[-1])
+                    if not schema.get("inline_no_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
+                        board.remove(board[-1])
                     field_attrs[_dlg("top")] = str(curr_y + 2)
-                    field_attrs[_dlg("left")] = "8"
+                    field_attrs[_dlg("left")] = field_x if "x" in schema else "8"
                     ET.SubElement(board, _dlg("checkbox"), field_attrs)
                 elif widget == "password":
                     field_attrs[_dlg("echochar")] = "42"
                     ET.SubElement(board, _dlg("textfield"), field_attrs)
                 elif widget in ("number", "slider"):
-                    field_attrs.update({_dlg("spin"): "true", _dlg("width"): "60"})
+                    field_attrs.update({_dlg("spin"): "true", _dlg("width"): field_w if "width" in schema else "60"})
                     ET.SubElement(board, _dlg("numericfield"), field_attrs)
                 elif widget == "select" or widget == "combo":
                     field_attrs.update({_dlg("dropdown"): "true", _dlg("spin"): "true", _dlg("border"): "1"})
@@ -1393,15 +1399,35 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
                     menu = ET.SubElement(el, _dlg("menupopup"))
                     for opt in schema.get("options", []):
                         ET.SubElement(menu, _dlg("menuitem"), {_dlg("value"): str(opt)})
+                elif widget == "button":
+                    field_attrs.update({
+                        _dlg("width"): field_w if "width" in schema else "100",
+                        _dlg("height"): "14",
+                        _dlg("value"): schema.get("label", "Click"),
+                    })
+                    # Use a standard button instead of label + textbox
+                    if not schema.get("inline_no_label") and board[-1].get(_dlg("id")) == f"label_{ctrl_id}":
+                        board.remove(board[-1])
+                    field_attrs[_dlg("left")] = field_x if "x" in schema else "8"
+                    ET.SubElement(board, _dlg("button"), field_attrs)
                 else:
                     ET.SubElement(board, _dlg("textfield"), field_attrs)
                 
-                curr_y += 16
+                if not schema.get("inline"):
+                    curr_y += 16
             return curr_y
             
         y = add_fields(name.replace(".", "_"), config, y)
         if children:
             for child_m, child_cfg in children:
+                # Skip children with no visible config fields
+                visible_child_fields = [
+                    (fn, s) for fn, s in child_cfg.items()
+                    if not s.get("internal") and s.get("widget") != "list_detail"
+                ]
+                if not visible_child_fields:
+                    continue
+
                 # Add gap and separator line with label
                 y += 2
                 sep_label = child_m.get("title", _pretty_name(child_m["name"]))

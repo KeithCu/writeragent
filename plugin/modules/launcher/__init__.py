@@ -142,6 +142,53 @@ def get_provider_options(services):
     return []
 
 
+def get_active_provider_default_cwd(services):
+    """Return default CWD of the currently selected provider."""
+    try:
+        if services and hasattr(services, "launcher_manager"):
+            cfg = services.config.proxy_for("launcher")
+            name = cfg.get("provider")
+            if name:
+                prov = services.launcher_manager.get_provider(name)
+                if prov:
+                    return prov.default_cwd
+    except Exception:
+        pass
+    return ""
+
+
+def get_global_instructions_default(services):
+    """Return default content for AGENTS.md from the filesystem."""
+    try:
+        # Try to find AGENTS.md in launcher_opencode or similar
+        # For now, we'll look in a standard location or hardcode a fallback
+        import os
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        agents_md = os.path.join(base_dir, "launcher_opencode", "prompts", "AGENTS.md")
+        if os.path.isfile(agents_md):
+            with open(agents_md, "r") as f:
+                return f.read()
+    except Exception:
+        log.warning("Failed to load default global instructions")
+    return "# AI CLI Instructions\nYou are an AI assistant helping with LibreOffice documents via LocalWriter MCP."
+
+
+def on_install_active_provider():
+    """Action handler for the unified Install button."""
+    from plugin.main import get_services
+    services = get_services()
+    if not services:
+        return
+    cfg = services.config.proxy_for("launcher")
+    name = cfg.get("provider")
+    if name:
+        run_install_for_provider(name)
+    else:
+        from plugin.framework.dialogs import msgbox
+        from plugin.framework.uno_context import get_ctx
+        msgbox(get_ctx(), "LocalWriter", "Please select a provider first.")
+
+
 def _find_terminal(configured):
     """Return terminal command (str or list).
 
@@ -340,16 +387,17 @@ class LauncherModule(ModuleBase):
             return
 
         cfg = self._services.config.proxy_for(self.name)
-        provider_cfg = self._services.config.proxy_for(
-            "launcher.%s" % provider.name)
-        args_str = provider_cfg.get("args") or ""
+        args_str = cfg.get("args") or ""
         auto_config = cfg.get("auto_config", True)
         terminal = cfg.get("terminal") or ""
         mcp_url, host, port = self._get_mcp_url()
 
         # Resolve working directory
-        cwd = provider_cfg.get("cwd") or provider.default_cwd
+        cwd = cfg.get("cwd") or provider.default_cwd
         os.makedirs(cwd, exist_ok=True)
+
+        provider_cfg = self._services.config.proxy_for(
+            "launcher.%s" % provider.name)
 
         # Check command exists
         if not shutil.which(provider.binary_name):
