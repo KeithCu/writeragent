@@ -189,7 +189,7 @@ class HttpModule(ModuleBase):
                        "HTTP server failed to start\nCheck ~/localwriter.log")
 
     def _action_server_status(self):
-        from plugin.framework.dialogs import msgbox
+        from plugin.framework.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
         from plugin.framework.uno_context import get_ctx
 
         ctx = get_ctx()
@@ -216,39 +216,12 @@ class HttpModule(ModuleBase):
             dlg_model.Width = 230
             dlg_model.Height = 80
 
-            lbl = dlg_model.createInstance(
-                "com.sun.star.awt.UnoControlFixedTextModel")
-            lbl.Name = "Msg"
-            lbl.PositionX = 10
-            lbl.PositionY = 6
-            lbl.Width = 210
-            lbl.Height = 24
-            lbl.MultiLine = True
-            lbl.Label = msg
-            dlg_model.insertByName("Msg", lbl)
+            add_dialog_label(dlg_model, "Msg", msg, 10, 6, 210, 24)
 
             # Read-only textfield for the URL — user can select + Ctrl+C
-            url_field = dlg_model.createInstance(
-                "com.sun.star.awt.UnoControlEditModel")
-            url_field.Name = "UrlField"
-            url_field.PositionX = 10
-            url_field.PositionY = 34
-            url_field.Width = 210
-            url_field.Height = 14
-            url_field.ReadOnly = True
-            url_field.Text = url
-            dlg_model.insertByName("UrlField", url_field)
+            add_dialog_edit(dlg_model, "UrlField", url, 10, 34, 210, 14, readonly=True)
 
-            ok_btn = dlg_model.createInstance(
-                "com.sun.star.awt.UnoControlButtonModel")
-            ok_btn.Name = "OKBtn"
-            ok_btn.PositionX = 170
-            ok_btn.PositionY = 58
-            ok_btn.Width = 50
-            ok_btn.Height = 14
-            ok_btn.Label = "OK"
-            ok_btn.PushButtonType = 1
-            dlg_model.insertByName("OKBtn", ok_btn)
+            add_dialog_button(dlg_model, "OKBtn", "OK", 170, 58, 50, 14, push_button_type=1)
 
             dlg = smgr.createInstanceWithContext(
                 "com.sun.star.awt.UnoControlDialog", ctx)

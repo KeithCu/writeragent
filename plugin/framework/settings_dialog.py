@@ -1,4 +1,4 @@
-from plugin.modules.core.services.config import get_config, set_config, get_current_endpoint, as_bool, populate_combobox_with_lru, populate_endpoint_selector, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, populate_image_model_selector, notify_config_changed
+from plugin.modules.core.services.config import get_config, set_config, get_current_endpoint, as_bool, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, notify_config_changed
 
 def get_settings_field_specs(ctx):
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""

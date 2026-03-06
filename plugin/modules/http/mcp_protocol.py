@@ -184,6 +184,13 @@ class MCPProtocolHandler:
 
     def handle_debug_post(self, handler):
         """POST /debug — execute debug actions."""
+        # Security: restrict debug actions to localhost
+        client_ip = handler.client_address[0]
+        if client_ip not in ("127.0.0.1", "::1", "localhost"):
+            log.warning("Blocked remote access to /debug from %s", client_ip)
+            self._send_json(handler, 403, {"error": "Forbidden: Debug actions restricted to localhost"})
+            return
+
         body = self._read_body(handler)
         if body is None:
             return

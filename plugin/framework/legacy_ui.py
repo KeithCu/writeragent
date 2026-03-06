@@ -1,7 +1,6 @@
 """Legacy UI functions for settings, input, and Eval Dashboard."""
-from plugin.framework.dialogs import load_framework_dialog, msgbox
-from plugin.framework.uno_helpers import TabListener, get_optional, is_checkbox_control, get_checkbox_state, set_checkbox_state
-from plugin.modules.core.services.config import get_config, set_config, get_current_endpoint, populate_combobox_with_lru
+from plugin.framework.uno_helpers import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state
+from plugin.modules.core.services.config import get_config, get_current_endpoint, populate_combobox_with_lru
 import uno
 
 def input_box(ctx, message, title="", default="", x=None, y=None):
@@ -34,7 +33,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 
 def settings_box(ctx, title="", x=None, y=None):
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
-    from plugin.modules.core.services.config import get_image_model, set_image_model, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
+    from plugin.modules.core.services.config import get_image_model, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
 
     from plugin.framework.logging import agent_log
     import unohelper
