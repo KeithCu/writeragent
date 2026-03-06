@@ -136,7 +136,6 @@ class SendButtonListener(unohelper.Base, XActionListener):
         self._terminal_status = "Ready"
         self._send_busy = False
         self.client = None
-
         # Subscribe to MCP/tool bus events
         try:
             from plugin.framework.event_bus import global_event_bus
@@ -144,6 +143,11 @@ class SendButtonListener(unohelper.Base, XActionListener):
             global_event_bus.subscribe("mcp:result", self._on_mcp_result)
         except Exception as e:
             debug_log("MCP subscribe error: %s" % e, context="Chat")
+
+    def set_session(self, session):
+        """Update the active session (e.g. when switching between Document and Research chat)."""
+        self.session = session
+        self.client = None # Force client recreation if needed, though they usually share same config
 
     def _set_status(self, text):
         """Update the status field in the sidebar (read-only TextField).
@@ -589,8 +593,11 @@ class SendButtonListener(unohelper.Base, XActionListener):
         from plugin.modules.core.services.document import is_calc, is_draw
 
         self._append_response("\nYou: %s\n" % query_text)
-        self._append_response("\n[Using web research.]\n")
-        self._set_status("Starting web research...")
+        self._append_response("\n[Using research chat.]\n")
+        self._set_status("Starting research...")
+
+        # Persist user message to the research session
+        self.session.add_user_message(query_text)
 
         q = queue.Queue()
         job_done = [False]
@@ -647,10 +654,13 @@ class SendButtonListener(unohelper.Base, XActionListener):
                     answer = data.get("result", "")
                     if not isinstance(answer, str):
                         answer = str(answer)
-                    q.put(("chunk", "AI (web): %s\n" % answer))
+                    msg = "AI (research): %s\n" % answer
+                    q.put(("chunk", msg))
+                    # Persist assistant result to current session
+                    self.session.add_assistant_message(content=msg)
                 else:
-                    msg = data.get("message", "Unknown web search error.")
-                    q.put(("chunk", "[Web research error: %s]\n" % msg))
+                    msg = data.get("message", "Unknown research error.")
+                    q.put(("chunk", "[Research error: %s]\n" % msg))
 
                 q.put(("stream_done", {}))
             except Exception as e:
@@ -688,7 +698,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
 
         def on_error(e):
             err_msg = format_error_message(e)
-            self._append_response("\n[Web research error: %s]\n" % err_msg)
+            self._append_response("\n[Research Chat error: %s]\n" % err_msg)
             self._terminal_status = "Error"
             self._set_status("Error")
 
@@ -1069,6 +1079,12 @@ class ClearButtonListener(unohelper.Base, XActionListener):
         self.response_control = response_control
         self.status_control = status_control
         self.greeting = greeting
+
+    def set_session(self, session, greeting=None):
+        """Update the active session and optionally the greeting used for clear."""
+        self.session = session
+        if greeting is not None:
+            self.greeting = greeting
 
     def actionPerformed(self, evt):
         self.session.clear()
