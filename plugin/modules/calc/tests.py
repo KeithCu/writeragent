@@ -104,7 +104,10 @@ def run_calc_tests(ctx, doc):
 
             def execute_calc_tool(name, args):
                 tctx = ToolContext(test_doc, None, "calc", {}, "test")
-                res = get_tools().execute(name, tctx, **args)
+                try:
+                    res = get_tools().execute(name, tctx, **args)
+                except (KeyError, ValueError) as e:
+                    res = {"status": "error", "error": str(e)}
                 return json.dumps(res) if isinstance(res, dict) else res
 
             active_sheet = test_doc.getCurrentController().getActiveSheet()
