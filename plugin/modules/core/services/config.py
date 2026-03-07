@@ -503,18 +503,22 @@ def get_api_config(ctx):
     )
     api_key = get_api_key_for_endpoint(ctx, endpoint)
 
-    is_openrouter = "openrouter.ai" in endpoint.lower()
-    return {
+    api_config = {
         "endpoint": endpoint,
         "api_key": api_key,
         "model": get_text_model(ctx),
         "is_openwebui": is_openwebui,
-        "is_openrouter": is_openrouter,
-        "temperature": _safe_float(get_config(ctx, "temperature", 0.5), 0.5),
+        "is_openrouter": "openrouter.ai" in endpoint.lower(),
         "seed": get_config(ctx, "seed", ""),
         "request_timeout": _safe_int(get_config(ctx, "request_timeout", 120), 120),
         "chat_max_tool_rounds": _safe_int(get_config(ctx, "chat_max_tool_rounds", 5), 5),
     }
+
+    temp = _safe_float(get_config(ctx, "temperature", -1), -1)
+    if temp >= 0:
+        api_config["temperature"] = temp
+
+    return api_config
 
 
 def populate_image_model_selector(ctx, ctrl, override_endpoint=None):

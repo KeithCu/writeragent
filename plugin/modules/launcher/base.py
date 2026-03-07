@@ -2,8 +2,9 @@
 
 import os
 from abc import ABC
-
-from plugin.framework.uno_context import get_ctx
+import uno
+import unohelper
+from plugin.framework.uno_helpers import get_desktop, get_active_document
 from plugin.modules.core.services.document import get_document_path
 
 
@@ -34,15 +35,8 @@ class BaseProvider(ABC):
 
     def get_default_cwd(self):
         """Return the default working directory."""
-        ctx = get_ctx()
-        if not ctx:
-            return os.path.expanduser("~")
-
         try:
-            desk = ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.frame.Desktop", ctx
-            )
-            model = desk.getCurrentComponent()
+            model = get_active_document()
             if model:
                 p = get_document_path(model)
                 if p and os.path.isfile(p):

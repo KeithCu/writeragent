@@ -157,17 +157,22 @@ class OpenAICompatProvider(LlmProvider):
 
     def _build_body(self, messages, tools=None, stream=False, **kwargs):
         model = self._config.get("model") or ""
-        temp = self._config.get("temperature")
-        if temp is None:
-            temp = 0.7
         max_tok = kwargs.get("max_tokens") or self._config.get("max_tokens") or 4096
 
         body = {
             "messages": messages,
             "max_tokens": int(max_tok),
-            "temperature": float(temp),
             "stream": stream,
         }
+        
+        # Only include temperature if explicitly provided (e.g. from get_api_config)
+        # or passed via kwargs. If -1 was used, it's omitted from config and thus here.
+        temp = kwargs.get("temperature")
+        if temp is None:
+            temp = self._config.get("temperature")
+            
+        if temp is not None:
+            body["temperature"] = float(temp)
         if model:
             body["model"] = model
         if tools:

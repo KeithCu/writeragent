@@ -10,7 +10,7 @@ def get_settings_field_specs(ctx):
         {"name": "text_model", "value": str(get_config(ctx, "text_model", "") or get_config(ctx, "model", ""))},
         {"name": "image_model", "value": str(get_image_model(ctx))},
         {"name": "api_key", "value": str(get_api_key_for_endpoint(ctx, current_endpoint_for_specs))},
-        {"name": "temperature", "value": str(get_config(ctx, "temperature", "0.5")), "type": "float"},
+        {"name": "temperature", "value": str(get_config(ctx, "temperature", "-1")), "type": "float"},
         {"name": "use_aihorde", "value": "true" if get_config(ctx, "image_provider", "aihorde") == "aihorde" else "false", "type": "bool"},
         {"name": "aihorde_api_key", "value": str(get_config(ctx, "aihorde_api_key", ""))},
         {"name": "image_base_size", "value": str(get_config(ctx, "image_base_size", "512")), "type": "int"},
@@ -89,6 +89,20 @@ def apply_settings_result(ctx, result):
             
             # Map module__field to module.field for saving in JSON
             save_key = key.replace("__", ".")
+            
+            # Special validation for temperature
+            if save_key == "temperature":
+                try:
+                    f_val = float(val)
+                    if f_val > 1.0:
+                        from plugin.framework.dialogs import msgbox
+                        msgbox(ctx, "Invalid Setting", "Temperature must be <= 1.0")
+                        continue
+                    if f_val < 0:
+                        val = -1.0
+                except (ValueError, TypeError):
+                    pass
+            
             set_config(ctx, save_key, val)
             
             # Update LRU history

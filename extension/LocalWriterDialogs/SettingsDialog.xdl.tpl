@@ -28,7 +28,7 @@
 
   <!-- Row 5: Temperature -->
   <dlg:text dlg:id="label_temperature" dlg:page="1" dlg:left="8" dlg:top="90" dlg:width="58" dlg:height="10" dlg:value="Temperature:" dlg:align="left"/>
-  <dlg:textfield dlg:id="temperature" dlg:page="1" dlg:left="68" dlg:top="88" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:value="0.5"/>
+  <dlg:textfield dlg:id="temperature" dlg:page="1" dlg:left="68" dlg:top="88" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:value="-1"/>
 
   <!-- Row 6: Max Tokens + Context Len -->
   <dlg:text dlg:id="label_chat_max_tokens" dlg:page="1" dlg:left="8" dlg:top="106" dlg:width="58" dlg:height="10" dlg:value="Max Tokens:" dlg:align="left"/>
