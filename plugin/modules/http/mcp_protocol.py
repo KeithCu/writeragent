@@ -487,7 +487,7 @@ class MCPProtocolHandler:
     def _debug_trigger(self, command):
         from plugin.main import _modules, get_services
         if command == "settings":
-            from plugin.modules.core.settings_dialog import show_settings
+            from plugin.framework.settings_dialog import show_settings
             from plugin._manifest import MODULES
             config_svc = get_services().config
             execute_on_main_thread(

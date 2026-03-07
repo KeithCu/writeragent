@@ -141,7 +141,7 @@ def run_draw_tests(ctx, model=None):
 
         # Test: get_draw_context_for_chat
         try:
-            from plugin.modules.core.services.document import get_draw_context_for_chat
+            from plugin.framework.document import get_draw_context_for_chat
             ctx_str = get_draw_context_for_chat(doc, 8000, ctx)
             if "Draw/Impress Document" in ctx_str and "Total Pages" in ctx_str:
                 passed += 1

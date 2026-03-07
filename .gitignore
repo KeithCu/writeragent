@@ -33,4 +33,7 @@ litellm*/
 langchain*/
 build*/
 vendor*/
-localwriter.egg*/extension/META-INF/manifest.xml
+localwriter.egg*/
+extension/META-INF/manifest.xml
+uv.lock
+

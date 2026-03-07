@@ -14,7 +14,7 @@ import os
 import tempfile
 
 from plugin.framework.tool_base import ToolBase
-from plugin.modules.core.image_tools import (
+from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
 )
 

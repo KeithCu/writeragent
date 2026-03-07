@@ -191,7 +191,7 @@ class ApplyDocumentContent(ToolBase):
             try:
                 if use_preserve:
                     # Select entire document directly
-                    from plugin.modules.core.services.document import get_document_length
+                    from plugin.framework.document import get_document_length
                     doc_len = get_document_length(ctx.doc)
                     rng = ctx.doc.getText().createTextCursor()
                     rng.gotoStart(False)

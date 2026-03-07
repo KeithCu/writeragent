@@ -1,5 +1,5 @@
 from plugin.framework.uno_helpers import get_desktop, get_active_document, get_extension_url, TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional
-from plugin.modules.core.services.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
+from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
 from plugin.framework.logging import init_logging, debug_log
 import uno
 
@@ -65,7 +65,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 
 def settings_box(ctx, title="Settings", x=None, y=None):
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
-    from plugin.modules.core.services.config import get_image_model, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
+    from plugin.framework.config import get_image_model, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
 
     from plugin.framework.logging import debug_log
     debug_log("settings_box entry", context="Settings")
@@ -275,7 +275,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 def show_eval_dashboard(ctx):
     import unohelper
     from com.sun.star.awt import XActionListener
-    from plugin.modules.core.eval_runner import run_benchmark_suite
+    from plugin.framework.eval_runner import run_benchmark_suite
 
     smgr = ctx.getServiceManager()
     base_url = get_extension_url()

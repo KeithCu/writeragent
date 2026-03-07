@@ -112,4 +112,4 @@ def get_text_cursor_at_range(model, start, end):
         return None
 
 
-from plugin.modules.core.services.document import get_document_length as _doc_length
+from plugin.framework.document import get_document_length as _doc_length

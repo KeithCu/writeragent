@@ -99,11 +99,15 @@ def bootstrap(ctx=None):
         
         _services = ServiceRegistry()
         
-        # 1. Config Service (Loaded from core module)
-        # 2. Document Service (Loaded from core module)
-
-        # 3. Events Service
+        # 1. Platform Services (Unified into framework)
+        from plugin.framework.config import ConfigService
+        from plugin.framework.document import DocumentService
+        from plugin.framework.format import FormatService
         from plugin.framework.event_bus import get_event_bus
+
+        _services.register(ConfigService())
+        _services.register(DocumentService())
+        _services.register(FormatService())
         _services.register_instance("events", get_event_bus())
 
         # 4. Tool Registry
@@ -111,12 +115,12 @@ def bootstrap(ctx=None):
         _services.register_instance("tools", _tools)
 
         # 5. Load manifest and initialize modules
-        # Modules in localwriter lack ModuleBase in many places. 
-        # We will just use auto-discovery on directories for tools, and manual init for HttpModule/AiModule.
         manifests = _topo_sort(_load_manifest())
         
         for manifest in manifests:
             name = manifest["name"]
+            if name == "core":
+                continue
             
             # Auto-discover tools from tools/ subpackage
             # Try nested path first (e.g. "launcher/providers/claude")
@@ -222,8 +226,8 @@ def _dispatch_command(command):
                 pass
         elif action == "RunFormatTests":
             from plugin.framework.uno_context import get_ctx
-            from plugin.modules.core.format_tests import run_markdown_tests
-            from plugin.modules.core.services.document import is_writer
+            from plugin.framework.format_tests import run_markdown_tests
+            from plugin.framework.document import is_writer
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
@@ -236,7 +240,7 @@ def _dispatch_command(command):
         elif action == "RunCalcTests":
             from plugin.framework.uno_context import get_ctx
             from plugin.modules.calc.tests import run_calc_tests
-            from plugin.modules.core.services.document import is_calc
+            from plugin.framework.document import is_calc
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
@@ -249,7 +253,7 @@ def _dispatch_command(command):
         elif action == "RunCalcIntegrationTests":
             from plugin.framework.uno_context import get_ctx
             from plugin.modules.calc.tests import run_calc_integration_tests
-            from plugin.modules.core.services.document import is_calc
+            from plugin.framework.document import is_calc
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
@@ -261,8 +265,8 @@ def _dispatch_command(command):
                 msgbox(ctx, "Calc tests", f"Integration tests failed: {e}")
         elif action == "RunDrawTests":
             from plugin.framework.uno_context import get_ctx
-            from plugin.modules.core.draw_tests import run_draw_tests
-            from plugin.modules.core.services.document import is_draw
+            from plugin.framework.draw_tests import run_draw_tests
+            from plugin.framework.document import is_draw
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
@@ -458,7 +462,7 @@ def _get_http_module(ctx=None):
 
 def _start_mcp_server(ctx):
     """Ensure HTTP/MCP server is loaded. Start happens natively in module lifecycle."""
-    from plugin.modules.core.services.config import get_config, as_bool
+    from plugin.framework.config import get_config, as_bool
     if not as_bool(get_config(ctx, "mcp_enabled", False)):
         return
     bootstrap(ctx)
@@ -522,7 +526,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             return
 
         model = get_active_document(self.ctx)
-        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
+        from plugin.framework.document import is_writer, is_calc, is_draw
         
         if is_writer(model):
             self._handle_writer_actions(args, model)
@@ -537,7 +541,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         if args == "ToggleMCPServer": _dispatch_command("http.toggle_server")
         elif args == "MCPStatus": _dispatch_command("http.server_status")
         elif args == "DrainMCP":
-            from plugin.modules.core.mcp_thread import drain_mcp_queue
+            from plugin.framework.mcp_thread import drain_mcp_queue
             drain_mcp_queue()
         else:
             _dispatch_command("main." + args)

@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MODEL = "x-ai/grok-4.1-fast"
 
-from plugin.modules.core.streaming_deltas import accumulate_delta
+from plugin.framework.streaming_deltas import accumulate_delta
 from plugin.main import get_tools
 try:
     WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")

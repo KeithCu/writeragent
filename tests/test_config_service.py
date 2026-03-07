@@ -1,4 +1,4 @@
-"""Tests for plugin.modules.core.services.config (ConfigService + ModuleConfigProxy)."""
+"""Tests for plugin.framework.config (ConfigService + ModuleConfigProxy)."""
 
 import json
 import os
@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from plugin.modules.core.services.config import (
+from plugin.framework.config import (
     ConfigService,
     ConfigAccessError,
     ModuleConfigProxy,

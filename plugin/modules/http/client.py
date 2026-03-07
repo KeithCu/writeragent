@@ -1,6 +1,6 @@
 """
 LLM API client for LocalWriter.
-Takes a config dict (from plugin.modules.core.services.config.get_api_config) and UNO ctx.
+Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
 """
 import collections
 import json
@@ -16,7 +16,7 @@ REPEATED_STREAMING_CHUNK_LIMIT = 20
 from collections import deque
 
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
-from plugin.modules.core.streaming_deltas import accumulate_delta
+from plugin.framework.streaming_deltas import accumulate_delta
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
 from plugin.framework.logging import debug_log, update_activity_state, init_logging

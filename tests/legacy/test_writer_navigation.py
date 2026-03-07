@@ -1,6 +1,6 @@
 import unittest
 import json
-from plugin.modules.core.document import (
+from plugin.framework.document import (
     DocumentCache,
     build_heading_tree,
     resolve_locator,

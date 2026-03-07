@@ -25,7 +25,7 @@ if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 
 from plugin.framework.logging import agent_log, debug_log, update_activity_state, start_watchdog_thread, init_logging
-from plugin.modules.core.async_stream import run_stream_completion_async, run_stream_drain_loop
+from plugin.framework.async_stream import run_stream_completion_async, run_stream_drain_loop
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.uno_helpers import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, get_active_document, get_extension_url, get_extension_path, is_writer, is_calc, is_draw
 
@@ -285,7 +285,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         root = self.m_panelRootWindow
         if not root or not hasattr(root, "getControl"):
             return
-        from plugin.modules.core.services.config import get_config, get_current_endpoint, populate_combobox_with_lru, get_text_model, get_image_model, populate_image_model_selector, set_config, set_image_model
+        from plugin.framework.config import get_config, get_current_endpoint, populate_combobox_with_lru, get_text_model, get_image_model, populate_image_model_selector, set_config, set_image_model
 
         def get_optional(name):
             return get_optional_control(root, name)
@@ -335,7 +335,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _wire_model_selectors(self, model_selector, image_model_selector):
         """Initializes model selectors and their sync listeners."""
-        from plugin.modules.core.services.config import get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
+        from plugin.framework.config import get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
         
         current_model = get_text_model(self.ctx)
         current_endpoint = get_current_endpoint(self.ctx)
@@ -376,14 +376,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, 
                        direct_image_check, web_search_check, model_label, model_selector, image_model_selector):
         """Initializes image-related UI controls and their listeners."""
-        from plugin.modules.core.services.config import get_config, set_config
+        from plugin.framework.config import get_config, set_config
         
         if aspect_ratio_selector:
             aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
             aspect_ratio_selector.setText(get_config(self.ctx, "image_default_aspect", "Square"))
             
         if base_size_input:
-            from plugin.modules.core.services.config import populate_combobox_with_lru
+            from plugin.framework.config import populate_combobox_with_lru
             populate_combobox_with_lru(self.ctx, base_size_input, str(get_config(self.ctx, "image_base_size", 512)), "image_base_size_lru", "")
 
         def update_base_size_label(aspect_str):
@@ -599,7 +599,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         # 1. Config, Models, and UI
         try:
-            from plugin.modules.core.services.config import get_config
+            from plugin.framework.config import get_config
             extra_instructions = get_config(self.ctx, "additional_instructions", "")
             
             self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
@@ -658,7 +658,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             debug_log("Resize listener error: %s" % e, context="Chat")
             
         # 6. Global Config Listener
-        from plugin.modules.core.services.config import add_config_listener
+        from plugin.framework.config import add_config_listener
         _self_ref = weakref.ref(self)
         def on_config_changed(ctx):
             panel = _self_ref()

@@ -1577,8 +1577,12 @@ def main():
         framework_manifest.setdefault("name", "main")
         print("  Loaded framework config: plugin/plugin.yaml")
 
-    print("Scanning modules in %s..." % modules_dir)
+    print("Scanning modules in %s and framework..." % modules_dir)
     manifests = find_modules(modules_dir, args.modules)
+    framework_dir = os.path.join(PROJECT_ROOT, "plugin", "framework")
+    if os.path.isdir(framework_dir):
+        manifests.extend(find_modules(framework_dir, args.modules))
+    
     if not manifests:
         print("  No modules found!")
         return 1

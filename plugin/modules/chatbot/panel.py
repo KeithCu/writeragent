@@ -19,8 +19,8 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.logging import agent_log, debug_log, update_activity_state
 from plugin.framework.uno_helpers import get_checkbox_state
-from plugin.modules.core.async_stream import run_stream_completion_async, run_stream_drain_loop
-from plugin.modules.core.services.history_db import get_chat_history
+from plugin.framework.async_stream import run_stream_completion_async, run_stream_drain_loop
+from plugin.framework.history_db import get_chat_history
 
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
@@ -224,7 +224,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         """Get the Writer document model."""
         model = get_active_document(self.ctx)
 
-        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
+        from plugin.framework.document import is_writer, is_calc, is_draw
         if model and (is_writer(model) or is_calc(model) or is_draw(model)):
             return model
         return None
@@ -279,7 +279,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             return
         debug_log("_do_send: got document model OK", context="Chat")
 
-        from plugin.modules.core.services.document import is_writer, is_calc, is_draw
+        from plugin.framework.document import is_writer, is_calc, is_draw
         doc_type_str = "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
         debug_log("_do_send: detected document type: %s" % doc_type_str, context="Chat")
         
@@ -383,7 +383,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                     status_callback=lambda t: q.put(("status", t))
                 )
                 try:
-                    from plugin.modules.core.services.config import update_lru_history, get_current_endpoint
+                    from plugin.framework.config import update_lru_history, get_current_endpoint
                     update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
                 except Exception as elru:
                     debug_log("LRU update error: %s" % elru, context="Chat")
@@ -451,9 +451,9 @@ class SendButtonListener(unohelper.Base, XActionListener):
     def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
         try:
             debug_log("_do_send: importing core modules...", context="Chat")
-            from plugin.modules.core.services.config import get_config, get_api_config, update_lru_history, validate_api_config, set_config, set_image_model, get_current_endpoint
+            from plugin.framework.config import get_config, get_api_config, update_lru_history, validate_api_config, set_config, set_image_model, get_current_endpoint
             from plugin.modules.http.client import LlmClient
-            from plugin.modules.core.services.document import get_document_context_for_chat
+            from plugin.framework.document import get_document_context_for_chat
             from plugin.main import get_tools
             debug_log("_do_send: core modules imported OK", context="Chat")
         except Exception as e:
@@ -561,7 +561,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         from plugin.modules.http.client import format_error_message
         from plugin.main import get_tools
-        from plugin.modules.core.services.document import is_calc, is_draw
+        from plugin.framework.document import is_calc, is_draw
 
         self._append_response("\nYou: %s\n" % query_text)
         self._append_response("\n[Using research chat.]\n")
@@ -574,7 +574,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         job_done = [False]
         # Read show_thinking before spawning the thread so apply_chunk can use it
         try:
-            from plugin.modules.core.services.config import get_config, as_bool
+            from plugin.framework.config import get_config, as_bool
             show_thinking = as_bool(get_config(self.ctx, "show_search_thinking", False))
         except Exception:
             show_thinking = False
@@ -756,7 +756,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
 
         # Read config once for web research thinking display
         try:
-            from plugin.modules.core.services.config import get_config, as_bool
+            from plugin.framework.config import get_config, as_bool
             show_search_thinking = as_bool(get_config(self.ctx, "show_search_thinking", False))
         except Exception:
             show_search_thinking = False

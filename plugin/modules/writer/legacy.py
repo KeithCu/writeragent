@@ -1,7 +1,7 @@
 """Legacy operations for Writer (Extend/Edit Selection)."""
-from plugin.modules.core.services.config import get_config, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
+from plugin.framework.config import get_config, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
 from plugin.modules.http.client import format_error_message
-from plugin.modules.core.async_stream import run_stream_completion_async
+from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
 from plugin.framework.uno_context import get_ctx
 
@@ -55,7 +55,7 @@ def do_edit_selection(ctx, model, input_box_fn):
         if not user_input:
             return
         if extra_instructions:
-            from plugin.modules.core.services.config import set_config
+            from plugin.framework.config import set_config
             set_config(ctx, "additional_instructions", extra_instructions)
             update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
     except Exception as e:

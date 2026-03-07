@@ -788,7 +788,7 @@ class OptionsHandler(unohelper.Base, XContainerWindowEventHandler, XServiceInfo)
     def _call_options_provider(self, provider_path):
         """Import a module and call a function to get options.
 
-        provider_path format: "plugin.modules.core.services.ai:get_text_instance_options"
+        provider_path format: "plugin.framework.ai:get_text_instance_options"
         The function receives the ServiceRegistry as its argument.
         """
         module_path, func_name = provider_path.rsplit(":", 1)

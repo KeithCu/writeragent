@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
-from plugin.modules.core.eval_runner import EvalRunner
+from plugin.framework.eval_runner import EvalRunner
 
 class TestEvalRunner(unittest.TestCase):
     def setUp(self):

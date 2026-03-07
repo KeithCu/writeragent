@@ -692,7 +692,7 @@ def _run_tool_integration_tests(ctx, doc, passed, failed, log):
 
     def _get_colors_at_range(start_off, length):
         """Read CharBackColor for `length` chars starting at absolute offset start_off."""
-        from plugin.modules.core.services.document import get_text_cursor_at_range
+        from plugin.framework.document import get_text_cursor_at_range
         colors = []
         pos_cursor = text.createTextCursor()
         pos_cursor.gotoStart(False)

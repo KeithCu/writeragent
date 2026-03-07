@@ -17,7 +17,7 @@ import tempfile
 log = logging.getLogger("localwriter.writer")
 
 
-from plugin.modules.core.services.document import get_document_length as _doc_text_length
+from plugin.framework.document import get_document_length as _doc_text_length
 
 
 # ---------------------------------------------------------------------------

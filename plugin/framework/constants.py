@@ -129,7 +129,7 @@ DEFAULT_RESEARCH_GREETING = "AI: I can do web research to answer any question, o
 
 def get_greeting_for_document(model):
     """Return a greeting relevant to the document type."""
-    from plugin.modules.core.services.document import is_calc, is_draw
+    from plugin.framework.document import is_calc, is_draw
     if is_calc(model):
         return DEFAULT_CALC_GREETING
     elif is_draw(model):
@@ -142,7 +142,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions=""):
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
-    from plugin.modules.core.services.document import is_calc, is_draw
+    from plugin.framework.document import is_calc, is_draw
     if is_calc(model):
         base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT
     elif is_draw(model):

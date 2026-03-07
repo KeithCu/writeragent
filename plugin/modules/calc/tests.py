@@ -1,5 +1,5 @@
 import traceback
-from plugin.modules.core.services.document import is_calc
+from plugin.framework.document import is_calc
 
 def run_calc_tests(ctx, doc):
     """Entry point for testing the calc module functionality inside LibreOffice."""

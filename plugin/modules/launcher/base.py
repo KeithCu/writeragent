@@ -5,7 +5,7 @@ from abc import ABC
 import uno
 import unohelper
 from plugin.framework.uno_helpers import get_desktop, get_active_document
-from plugin.modules.core.services.document import get_document_path
+from plugin.framework.document import get_document_path
 
 
 class BaseProvider(ABC):

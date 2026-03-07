@@ -9,7 +9,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from unittest.mock import MagicMock
-from plugin.modules.core.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import run_stream_drain_loop
 
 class TestAsyncStream(unittest.TestCase):
     def test_drain_loop_basic(self):

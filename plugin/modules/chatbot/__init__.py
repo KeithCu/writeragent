@@ -118,8 +118,8 @@ class ChatbotModule(ModuleBase):
     def _extend_writer(self, ctx, doc, provider):
         """Extend selection in a Writer document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.core.async_stream import run_stream_async
-        from plugin.modules.core.services.config import get_api_config
+        from plugin.framework.async_stream import run_stream_async
+        from plugin.framework.config import get_api_config
         from plugin.modules.http.client import LlmClient
 
         try:
@@ -167,8 +167,8 @@ class ChatbotModule(ModuleBase):
     def _extend_calc(self, ctx, doc, provider):
         """Extend selection in a Calc document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.core.async_stream import run_stream_async
-        from plugin.modules.core.services.config import get_api_config
+        from plugin.framework.async_stream import run_stream_async
+        from plugin.framework.config import get_api_config
         from plugin.modules.http.client import LlmClient
 
         try:
@@ -283,8 +283,8 @@ class ChatbotModule(ModuleBase):
     def _edit_writer(self, ctx, doc, provider):
         """Edit selection in a Writer document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.core.async_stream import run_stream_async
-        from plugin.modules.core.services.config import get_api_config
+        from plugin.framework.async_stream import run_stream_async
+        from plugin.framework.config import get_api_config
         from plugin.modules.http.client import LlmClient
 
         try:
@@ -303,7 +303,7 @@ class ChatbotModule(ModuleBase):
         if not user_input:
             return
         if extra_instructions:
-            from plugin.modules.core.services.config import set_config, update_lru_history, get_current_endpoint
+            from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
             set_config(ctx, "additional_instructions", extra_instructions)
             update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
@@ -358,8 +358,8 @@ class ChatbotModule(ModuleBase):
     def _edit_calc(self, ctx, doc, provider):
         """Edit selection in a Calc document."""
         from plugin.framework.dialogs import msgbox
-        from plugin.modules.core.async_stream import run_stream_async
-        from plugin.modules.core.services.config import get_api_config
+        from plugin.framework.async_stream import run_stream_async
+        from plugin.framework.config import get_api_config
         from plugin.modules.http.client import LlmClient
 
         try:
@@ -374,7 +374,7 @@ class ChatbotModule(ModuleBase):
         if not user_input:
             return
         if extra_instructions:
-            from plugin.modules.core.services.config import set_config, update_lru_history, get_current_endpoint
+            from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
             set_config(ctx, "additional_instructions", extra_instructions)
             update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 

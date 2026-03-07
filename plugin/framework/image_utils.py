@@ -240,7 +240,7 @@ class ImageService:
         if name == "aihorde":
             return AIHordeImageProvider(self.config, self.ctx)
         if name == "endpoint":
-            from plugin.modules.core.services.config import get_api_config, get_text_model
+            from plugin.framework.config import get_api_config, get_text_model
             api_config = get_api_config(self.ctx).copy()
             api_config["model"] = (self.config.get("image_model") or "").strip() or get_text_model(self.ctx)
             return EndpointImageProvider(api_config, self.ctx)
@@ -292,7 +292,7 @@ class ImageService:
             src_lang = (self.config.get("image_translate_from") or "").strip()
             if src_lang:
                 try:
-                    from plugin.modules.core.translation_tool import opustm_hf_translate
+                    from plugin.framework.translation_tool import opustm_hf_translate
                     prompt = opustm_hf_translate(prompt, src_lang, "English")
                 except Exception as e:
                     logger.warning("Prompt translation failed, using original: %s", e)

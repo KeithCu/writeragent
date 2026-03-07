@@ -125,6 +125,14 @@ MODULES = [
                         "label": "Extra Arguments",
                         "helper": "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}.",
                         "public": True
+                },
+                "global_ai_instructions": {
+                        "type": "string",
+                        "default_provider": "plugin.modules.launcher:get_global_instructions_default",
+                        "widget": "textarea",
+                        "label": "Global AI Instructions",
+                        "helper": "Persona and rules sent to any AI CLI you launch. For Claude this is CLAUDE.md, for OpenCode this is AGENTS.md.",
+                        "public": True
                 }
         },
         "actions": [
@@ -155,51 +163,6 @@ MODULES = [
                 "document",
                 "config",
                 "ai"
-        ],
-        "provides_services": [],
-        "config": {},
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "launcher.opencode",
-        "title": "OpenCode CLI provider",
-        "requires": [
-                "launcher_manager"
-        ],
-        "provides_services": [],
-        "config": {
-                "handle_config": {
-                        "type": "boolean",
-                        "default": True,
-                        "widget": "checkbox",
-                        "label": "Handle Ollama Config",
-                        "helper": "Inject Ollama provider settings into opencode.json. Uncheck to manage config yourself."
-                },
-                "ollama_url": {
-                        "type": "string",
-                        "default": "http://localhost:11434/v1",
-                        "widget": "text",
-                        "label": "Ollama URL",
-                        "helper": "Ollama API endpoint."
-                },
-                "ollama_model": {
-                        "type": "string",
-                        "default": "qwen3:8b",
-                        "widget": "select",
-                        "options_provider": "plugin.modules.launcher_opencode:get_ollama_models",
-                        "label": "Ollama Model",
-                        "helper": "Select an installed model. Custom values are preserved if typed in config."
-                }
-        },
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "launcher.claude",
-        "title": "Claude Code CLI provider",
-        "requires": [
-                "launcher_manager"
         ],
         "provides_services": [],
         "config": {},
@@ -373,13 +336,6 @@ MODULES = [
                         "label": "Enter Sends Message",
                         "helper": "Press Enter to send, Shift+Enter for newline"
                 },
-                "show_mcp_activity": {
-                        "type": "boolean",
-                        "default": True,
-                        "widget": "checkbox",
-                        "label": "Show MCP Activity",
-                        "public": True
-                },
                 "api_enabled": {
                         "type": "boolean",
                         "default": False,
@@ -405,28 +361,6 @@ MODULES = [
                 "extend_selection",
                 "edit_selection"
         ],
-        "action_icons": {}
-},
-    {
-        "name": "launcher.hermes",
-        "title": "Hermes Agent CLI provider",
-        "requires": [
-                "launcher_manager"
-        ],
-        "provides_services": [],
-        "config": {},
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "launcher.gemini",
-        "title": "Gemini CLI provider",
-        "requires": [
-                "launcher_manager"
-        ],
-        "provides_services": [],
-        "config": {},
-        "actions": [],
         "action_icons": {}
 },
     {

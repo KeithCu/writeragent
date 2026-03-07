@@ -1,7 +1,7 @@
 """Legacy operations for Calc (Extend/Edit Selection)."""
-from plugin.modules.core.services.config import get_config, get_api_config, validate_api_config
+from plugin.framework.config import get_config, get_api_config, validate_api_config
 from plugin.modules.http.client import format_error_message, LlmClient
-from plugin.modules.core.async_stream import run_stream_completion_async
+from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
 
 def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):

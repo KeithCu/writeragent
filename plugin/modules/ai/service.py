@@ -87,7 +87,7 @@ class AiService(ServiceBase):
             endpoint = ""
             if self._config:
                 # Use current_endpoint directly from config service
-                from plugin.modules.core.services.config import get_current_endpoint
+                from plugin.framework.config import get_current_endpoint
                 from plugin.framework.uno_context import get_ctx
                 endpoint = get_current_endpoint(get_ctx())
 

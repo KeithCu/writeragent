@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_SQLALCHEMY = False
 
-from plugin.modules.core.services.config import user_config_dir
+from plugin.framework.config import user_config_dir
 from plugin.framework.uno_context import get_ctx
 
 def _get_db_path():

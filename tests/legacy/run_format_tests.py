@@ -12,6 +12,6 @@ if __name__ == "__main__":
     if _root not in sys.path:
         sys.path.insert(0, _root)
 
-from plugin.modules.core.format_tests import run_markdown_tests
+from plugin.framework.format_tests import run_markdown_tests
 
 __all__ = ["run_markdown_tests"]

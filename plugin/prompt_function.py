@@ -17,7 +17,7 @@ import unohelper
 # from com.sun.star.lang import XServiceInfo
 # from com.sun.star.sheet import XAddIn
 from org.extension.localwriter.PromptFunction import XPromptFunction
-from plugin.modules.core.services.config import get_config, get_api_config
+from plugin.framework.config import get_config, get_api_config
 from plugin.modules.http.client import LlmClient
 
 # Enable debug logging

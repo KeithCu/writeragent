@@ -1,4 +1,4 @@
-from plugin.modules.core.services.config import get_config, set_config, get_current_endpoint, as_bool, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, notify_config_changed
+from plugin.framework.config import get_config, set_config, get_current_endpoint, as_bool, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, notify_config_changed
 
 def get_settings_field_specs(ctx):
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
@@ -71,7 +71,7 @@ def get_settings_field_specs(ctx):
 
 def apply_settings_result(ctx, result):
     """Apply settings dialog result to config. Shared by Writer and Calc."""
-    from plugin.modules.core.services.config import update_lru_history
+    from plugin.framework.config import update_lru_history
     # Keys to set directly from result; derived from dialog field specs (exclude specially handled ones)
     _apply_skip = ("endpoint", "api_key", "use_aihorde")
     apply_keys = [f["name"] for f in get_settings_field_specs(ctx) if f["name"] not in _apply_skip]
@@ -133,7 +133,7 @@ def apply_settings_result(ctx, result):
 def _call_options_provider(ctx, provider_path):
     """Import a module and call a function to get options.
     
-    provider_path format: "plugin.modules.core.services.ai:get_text_instance_options"
+    provider_path format: "plugin.framework.ai:get_text_instance_options"
     The function receives the ServiceRegistry as its argument.
     """
     from plugin.framework.logging import debug_log
