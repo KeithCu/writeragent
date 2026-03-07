@@ -1,5 +1,0 @@
-title: Gemini CLI provider
-requires: [launcher_manager]
-config_inline: true
-
-config: {}

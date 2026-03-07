@@ -71,15 +71,9 @@ def run_install_for_provider(provider_name):
     else:
         script_name = "install.sh"
 
-    # Locate script in provider's module directory
-    provider_mod = sys.modules.get(type(provider).__module__)
-    if provider_mod is None or not hasattr(provider_mod, "__file__"):
-        msgbox(ctx, "LocalWriter",
-               "Cannot locate install script for '%s'." % provider.name)
-        return
-
-    mod_dir = os.path.dirname(provider_mod.__file__)
-    script_path = os.path.join(mod_dir, "scripts", script_name)
+    # Locate script in launcher's providers/ directory
+    mod_dir = os.path.join(os.path.dirname(__file__), "providers")
+    script_path = os.path.join(mod_dir, f"{provider_name}_scripts", script_name)
 
     if not os.path.isfile(script_path):
         msgbox(ctx, "LocalWriter",
@@ -156,7 +150,7 @@ def get_active_provider_default_cwd(services):
             if name:
                 prov = services.launcher_manager.get_provider(name)
                 if prov:
-                    return prov.default_cwd
+                    return prov.get_default_cwd()
     except Exception:
         pass
     return ""
@@ -364,6 +358,13 @@ class LauncherModule(ModuleBase):
         self._process = None
         self._lock = threading.Lock()
         self._manager = LauncherManager()
+        
+        # Register providers
+        from .providers import ClaudeProvider, GeminiProvider, HermesProvider, OpenCodeProvider
+        for cls in (ClaudeProvider, GeminiProvider, HermesProvider, OpenCodeProvider):
+            p = cls(services)
+            self._manager.register_provider(p.name, p)
+            
         services.register_instance("launcher_manager", self._manager)
 
     def shutdown(self):
@@ -509,7 +510,7 @@ class LauncherModule(ModuleBase):
         # Auto-config: write MCP config into cwd
         if auto_config:
             try:
-                provider.setup_env(mcp_url, env, cwd, provider_cfg)
+                provider.setup_env(cwd, mcp_url)
             except Exception:
                 log.exception("Auto-config failed for %s", provider.name)
 
