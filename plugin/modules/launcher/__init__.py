@@ -169,7 +169,7 @@ def get_global_instructions_default(services):
         # For now, we'll look in a standard location or hardcode a fallback
         import os
         base_dir = os.path.dirname(os.path.dirname(__file__))
-        agents_md = os.path.join(base_dir, "launcher_opencode", "prompts", "AGENTS.md")
+        agents_md = os.path.join(base_dir, "launcher", "providers", "opencode", "prompts", "AGENTS.md")
         if os.path.isfile(agents_md):
             with open(agents_md, "r") as f:
                 return f.read()

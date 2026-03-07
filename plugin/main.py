@@ -117,26 +117,33 @@ def bootstrap(ctx=None):
             name = manifest["name"]
             
             # Auto-discover tools from tools/ subpackage
-            dir_name = name.replace(".", "_")
-            module_dir = os.path.join(os.path.dirname(__file__), "modules", dir_name)
+            # Try nested path first (e.g. "launcher/providers/claude")
+            rel_path = name.replace(".", os.sep)
+            module_dir = os.path.join(os.path.dirname(__file__), "modules", rel_path)
+            import_path = "plugin.modules." + name
             
             if not os.path.isdir(module_dir):
-                continue
+                # Legacy fallback for flat paths (e.g. "launcher_claude")
+                dir_name = name.replace(".", "_")
+                module_dir = os.path.join(os.path.dirname(__file__), "modules", dir_name)
+                import_path = "plugin.modules." + dir_name
+                if not os.path.isdir(module_dir):
+                    continue
                 
             # Tools may be in module root (like localwriter2 draw/calc)
-            _tools.discover(module_dir, "plugin.modules.%s" % dir_name)
+            _tools.discover(module_dir, import_path)
             
             # Structure approach (like the writer tools we generated)
             tools_dir = os.path.join(module_dir, "tools")
             if os.path.isdir(tools_dir):
-                _tools.discover(tools_dir, "plugin.modules.%s.tools" % dir_name)
+                _tools.discover(tools_dir, import_path + ".tools")
 
             # Dynamic ModuleBase initialization
             try:
                 import importlib
                 import inspect
                 
-                mod_pkg = importlib.import_module("plugin.modules.%s" % dir_name)
+                mod_pkg = importlib.import_module(import_path)
                 module_class = None
                 
                 # Look for a class subclassing ModuleBase by checking MRO names (avoids LO sys.path duplicate issues)
@@ -387,9 +394,10 @@ def _load_icon_graphic(module_name, icon_filename):
         gp = smgr.createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx)
         pv = PropertyValue()
-        pv.Name = "URL"
+        # Support nested module directories
+        mod_dir = module_name.replace(".", "/")
         pv.Value = "%s/plugin/modules/%s/icons/%s" % (
-            ext_url, module_name, icon_filename)
+            ext_url, mod_dir, icon_filename)
         return gp.queryGraphic((pv,))
     except Exception:
         return None

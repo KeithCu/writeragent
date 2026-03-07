@@ -1,4 +1,3 @@
-name: launcher.claude
 title: Claude Code CLI provider
 requires: [launcher_manager]
 config_inline: true
