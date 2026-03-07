@@ -34,6 +34,9 @@ class ToolRegistry:
     def register(self, tool):
         """Register a single ToolBase instance."""
         if tool.name in self._tools:
+            # If it's the exact same class, skip silently.
+            if type(self._tools[tool.name]) is type(tool):
+                return
             log.warning("Tool already registered, replacing: %s", tool.name)
         self._tools[tool.name] = tool
 

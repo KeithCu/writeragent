@@ -89,17 +89,25 @@ def _topo_sort(modules):
 
 def bootstrap(ctx=None):
     global _services, _tools, _modules, _initialized
-
-    if _initialized: return
+    
+    if _initialized:
+        return
+        
     with _init_lock:
-        if _initialized: return
-
+        if _initialized:
+            return
+            
+        # 1. Basic UNO context
+        if ctx is None:
+            from plugin.framework.uno_context import get_ctx
+            ctx = get_ctx()
+        
+        # 2. Service Container
         from plugin.framework.service_registry import ServiceRegistry
-        from plugin.framework.tool_registry import ToolRegistry
-        
         _services = ServiceRegistry()
-        
-        # 1. Platform Services (Unified into framework)
+        _services.register_instance("uno", ctx)
+
+        # 3. Core Services (Framework)
         from plugin.framework.config import ConfigService
         from plugin.framework.document import DocumentService
         from plugin.framework.format import FormatService
@@ -111,8 +119,13 @@ def bootstrap(ctx=None):
         _services.register_instance("events", get_event_bus())
 
         # 4. Tool Registry
+        from plugin.framework.tool_registry import ToolRegistry
         _tools = ToolRegistry(_services)
         _services.register_instance("tools", _tools)
+
+        # Set initialized early to prevent recursive calls from re-running bootstrap
+        # but after _services and _tools are created.
+        _initialized = True
 
         # 5. Load manifest and initialize modules
         manifests = _topo_sort(_load_manifest())
@@ -178,7 +191,7 @@ def bootstrap(ctx=None):
         # Pre-load icons into ImageManager so first menu display has them
         threading.Thread(target=_update_menu_icons, daemon=True).start()
 
-        _initialized = True
+
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
 
