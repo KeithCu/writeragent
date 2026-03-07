@@ -66,7 +66,7 @@ Sonnet 4.6 one-shotted this "pretty spreadsheet"
 Integrated cross-platform audio recording directly in the chat sidebar.
 *   **One-Click Recording**: Start and stop recording directly from the chat panel.
 *   **Multi-Platform**: Robust recording support on Linux, Windows, and macOS.
-*   **Talk to Your Document**: Recorded audio can be sent to models with audio capabilities or transcribed, enabling hands-free document interaction.
+*   **Talk to Your Document**: Recorded audio is handled intelligently—it will be sent directly to native audio LLMs or automatically transcribed via an STT engine before being sent as text, depending on your model's capabilities.
 *   **Flexible Deployment**: Optional build support (see `Makefile`) allows for deployment in environments where audio dependencies are not needed.
 
 ## LocalWriter Architecture
