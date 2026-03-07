@@ -62,6 +62,13 @@ Opus 4.6 one-shotted this Arch Linux resume:
 Sonnet 4.6 one-shotted this "pretty spreadsheet"
 ![Chat Sidebar with Dashboard](contrib/img/Sonnet46Spreadsheet.png)
 
+### 10. Audio Support & Voice Recording
+Integrated cross-platform audio recording directly in the chat sidebar.
+*   **One-Click Recording**: Start and stop recording directly from the chat panel.
+*   **Multi-Platform**: Robust recording support on Linux, Windows, and macOS.
+*   **Talk to Your Document**: Recorded audio can be sent to models with audio capabilities or transcribed, enabling hands-free document interaction.
+*   **Flexible Deployment**: Optional build support (see `Makefile`) allows for deployment in environments where audio dependencies are not needed.
+
 ## LocalWriter Architecture
 
 LocalWriter isn't just a wrapper; it's built for performance and deep integration with LibreOffice:
@@ -187,7 +194,7 @@ LocalWriter requires an OpenAI-compatible backend. Recommended options:
 
 ## Settings
 
-Configure your endpoint, model, and behavior in **LocalWriter > Settings**. The dialog has two tabs: **Chat/Text** (endpoint, models, API key, temperature, context length, additional instructions, and an **MCP Server** section: enable checkbox and port) and **Image Settings** (size, aspect ratio, AI Horde options).
+Configure your endpoint, model, and behavior in **LocalWriter > Settings**. The dialog has three main configuration areas: **Chat/Text** (endpoint, models, API key, etc.), **Audio** (recording device, model mapping), and **Image Settings** (size, aspect ratio, AI Horde options).
 
 *   **Endpoint URL**: e.g., `http://localhost:11434` for Ollama.
 *   **Additional Instructions**: A shared system prompt for all features with history support.
