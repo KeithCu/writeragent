@@ -71,8 +71,8 @@ def run_install_for_provider(provider_name):
     else:
         script_name = "install.sh"
 
-    # Locate script in launcher's providers/ directory
-    mod_dir = os.path.join(os.path.dirname(__file__), "providers")
+    # Locate script in launcher's directory
+    mod_dir = os.path.dirname(__file__)
     script_path = os.path.join(mod_dir, f"{provider_name}_scripts", script_name)
 
     if not os.path.isfile(script_path):
@@ -360,7 +360,10 @@ class LauncherModule(ModuleBase):
         self._manager = LauncherManager()
         
         # Register providers
-        from .providers import ClaudeProvider, GeminiProvider, HermesProvider, OpenCodeProvider
+        from .claude import ClaudeProvider
+        from .gemini import GeminiProvider
+        from .hermes import HermesProvider
+        from .opencode import OpenCodeProvider
         for cls in (ClaudeProvider, GeminiProvider, HermesProvider, OpenCodeProvider):
             p = cls(services)
             self._manager.register_provider(p.name, p)
