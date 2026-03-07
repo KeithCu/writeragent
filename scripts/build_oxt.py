@@ -33,7 +33,7 @@ ALWAYS_INCLUDE_EXTENSION = [
     "extension/registration/",
     "extension/registry/",
     "extension/dialogs/",
-    "extension/LocalWriterDialogs/",
+    "extension/WriterAgentDialogs/",
     "extension/assets/",
 ]
 
@@ -81,7 +81,7 @@ EXCLUDE_PATTERNS = (
 # Generated files (XCS/XCU, XDL dialogs)
 GENERATED_INCLUDES = [
     "build/generated/dialogs/",
-    "build/generated/LocalWriterDialogs/",
+    "build/generated/WriterAgentDialogs/",
     "build/generated/Addons.xcu",
     "build/generated/Accelerators.xcu",
 ]
@@ -230,12 +230,12 @@ def zip_bundle(base_dir, output):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build LocalWriter .oxt extension")
+    parser = argparse.ArgumentParser(description="Build WriterAgent .oxt extension")
     parser.add_argument(
         "--modules", nargs="+", default=None,
         help="Modules to include (default: auto-discover all)")
     parser.add_argument(
-        "--output", default="build/localwriter.oxt",
+        "--output", default="build/WriterAgent.oxt",
         help="Output file (default: build/localwriter.oxt)")
     parser.add_argument(
         "--repack", action="store_true",

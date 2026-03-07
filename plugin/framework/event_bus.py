@@ -3,7 +3,7 @@
 import logging
 import weakref
 
-log = logging.getLogger("localwriter.events")
+log = logging.getLogger("writeragent.events")
 
 
 class EventBus:

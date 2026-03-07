@@ -25,7 +25,7 @@ for arg in "$@"; do
 done
 
 LOG_FILE="$HOME/soffice-debug.log"
-PLUGIN_LOG="$HOME/localwriter.log"
+PLUGIN_LOG="$HOME/writeragent.log"
 
 if $FULL; then
     export SAL_LOG="+INFO+WARN+ERROR"
@@ -71,10 +71,10 @@ if [ -z "$SOFFICE" ]; then
     exit 1
 fi
 
-if [ -n "$LOCALWRITER_SET_CONFIG" ]; then
-    echo "Config overrides: $LOCALWRITER_SET_CONFIG"
+if [ -n "$WRITERAGENT_SET_CONFIG" ]; then
+    echo "Config overrides: $WRITERAGENT_SET_CONFIG"
 fi
 
 echo "Launching LibreOffice ($SOFFICE)..."
-LOCALWRITER_SET_CONFIG="${LOCALWRITER_SET_CONFIG:-}" $SOFFICE $LO_ARGS --writer 2>"$LOG_FILE" &
+WRITERAGENT_SET_CONFIG="${WRITERAGENT_SET_CONFIG:-}" $SOFFICE $LO_ARGS --writer 2>"$LOG_FILE" &
 echo "LibreOffice launched. Tail log: tail -f $LOG_FILE"

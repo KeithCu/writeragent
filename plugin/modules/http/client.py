@@ -1,5 +1,5 @@
 """
-LLM API client for LocalWriter.
+LLM API client for WriterAgent.
 Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
 """
 import collections

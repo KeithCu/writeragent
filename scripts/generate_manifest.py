@@ -539,7 +539,7 @@ def generate_xdl(module_name, config_fields, title=None,
             whose fields are appended after the parent's, each preceded by a
             labeled separator.
     """
-    page_id = "LocalWriter_%s" % module_name.replace(".", "_")
+    page_id = "WriterAgent_%s" % module_name.replace(".", "_")
 
     window = ET.Element(_dlg("window"), {
         _dlg("id"): page_id,
@@ -727,7 +727,7 @@ def generate_list_detail_xdl(module_name, field_name, schema):
     then detail fields below the listbox.
     """
     safe_mod = module_name.replace(".", "_")
-    page_id = "LocalWriter_%s__%s" % (safe_mod, field_name)
+    page_id = "WriterAgent_%s__%s" % (safe_mod, field_name)
 
     window = ET.Element(_dlg("window"), {
         _dlg("id"): page_id,
@@ -971,7 +971,7 @@ _CONTEXT_MAP = {
 # Default context: all document types
 _DEFAULT_CONTEXT = ",".join(sorted(_CONTEXT_MAP.values()))
 
-_PROTOCOL = "org.extension.localwriter"
+_PROTOCOL = "org.extension.writeragent"
 
 
 def _resolve_context(context_list):
@@ -1102,7 +1102,7 @@ def generate_addons_xcu(modules, framework_manifest, output_path):
     menubar = ET.SubElement(addon_ui, "node",
                             {_oor("name"): "OfficeMenuBar"})
     top_menu = ET.SubElement(menubar, "node", {
-        _oor("name"): "org.extension.localwriter.menubar",
+        _oor("name"): "org.extension.writeragent.menubar",
         _oor("op"): "replace",
     })
 
@@ -1113,7 +1113,7 @@ def generate_addons_xcu(modules, framework_manifest, output_path):
     })
     val = ET.SubElement(title_prop, "value")
     val.set("xml:lang", "en-US")
-    val.text = "LocalWriter"
+    val.text = "WriterAgent"
 
     # Empty ImageIdentifier — reserves space for runtime XImageManager icons
     img_prop = ET.SubElement(top_menu, "prop", {
@@ -1626,8 +1626,8 @@ def main():
     # 7. SettingsDialog Tabs
     generate_settings_dialog_tabs(
         sorted_modules,
-        os.path.join(PROJECT_ROOT, "extension", "LocalWriterDialogs", "SettingsDialog.xdl.tpl"),
-        os.path.join(PROJECT_ROOT, "build", "generated", "LocalWriterDialogs", "SettingsDialog.xdl")
+        os.path.join(PROJECT_ROOT, "extension", "WriterAgentDialogs", "SettingsDialog.xdl.tpl"),
+        os.path.join(PROJECT_ROOT, "build", "generated", "WriterAgentDialogs", "SettingsDialog.xdl")
     )
 
     # 8. Patch version

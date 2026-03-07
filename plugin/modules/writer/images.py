@@ -18,7 +18,7 @@ from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
 )
 
-log = logging.getLogger("localwriter.writer")
+log = logging.getLogger("writeragent.writer")
 
 
 class GenerateImage(ToolBase):
@@ -182,7 +182,7 @@ class EditImage(ToolBase):
             return {"status": "error", "message": str(e)}
 
 # Persistent cache directory for downloaded images.
-_IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "localwriter_images")
+_IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
 
 
 # ------------------------------------------------------------------
@@ -877,7 +877,7 @@ def _download_image_to_cache(url, verify_ssl=False, force=False):
         context.verify_mode = ssl.CERT_NONE
 
     request = urllib.request.Request(url)
-    request.add_header("User-Agent", "LocalWriter/1.0")
+    request.add_header("User-Agent", "WriterAgent/1.0")
 
     with urllib.request.urlopen(request, context=context) as response:
         data = response.read()

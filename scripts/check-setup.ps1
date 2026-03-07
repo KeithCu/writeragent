@@ -236,7 +236,7 @@ if (Test-Path $oxtPath) {
 if ($unopkg) {
     $unopkgExe = if ($unopkg -is [System.Management.Automation.CommandInfo]) { $unopkg.Source } else { $unopkg }
     $extList = & $unopkgExe list 2>&1 | Out-String
-    if ($extList -match "org.extension.localwriter") {
+    if ($extList -match "org.extension.writeragent") {
         Write-Ok "Extension registered in LibreOffice"
     } else {
         Write-Warn "Extension not registered - run: make deploy"

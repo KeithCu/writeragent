@@ -13,7 +13,7 @@ import queue
 
 from plugin.framework.main_thread import execute_on_main_thread
 
-log = logging.getLogger("localwriter.mcp.protocol")
+log = logging.getLogger("writeragent.mcp.protocol")
 
 # MCP protocol version we advertise
 MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -344,11 +344,11 @@ class MCPProtocolHandler:
                 "prompts": {"listChanged": False},
             },
             "serverInfo": {
-                "name": "LocalWriter MCP",
+                "name": "WriterAgent MCP",
                 "version": self.version,
             },
             "instructions": (
-                "LocalWriter MCP — AI document workspace. "
+                "WriterAgent MCP — AI document workspace. "
                 "WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
                 "2) Tools are filtered by document type (writer/calc/draw). "
                 "3) All UNO operations run on the main thread for thread safety."

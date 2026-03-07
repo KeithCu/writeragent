@@ -16,9 +16,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/build"
-OXT_FILE="$BUILD_DIR/localwriter.oxt"
+OXT_FILE="$BUILD_DIR/WriterAgent.oxt"
 
-EXTENSION_ID="org.extension.localwriter"
+EXTENSION_ID="org.extension.writeragent"
 
 # Parse args
 FORCE=false
@@ -104,7 +104,7 @@ ensure_lo_stopped() {
 
 build_oxt() {
     echo ""
-    echo "=== Building localwriter.oxt (modules: $MODULES) ==="
+    echo "=== Building WriterAgent.oxt (modules: $MODULES) ==="
     echo ""
 
     mkdir -p "$BUILD_DIR"
@@ -227,8 +227,8 @@ install_to_cache() {
     # Find the *.tmp_ directory containing our extension
     local ext_dir=""
     for d in "$packages_dir"/*.tmp_; do
-        if [ -d "$d/localwriter.oxt" ]; then
-            ext_dir="$d/localwriter.oxt"
+        if [ -d "$d/WriterAgent.oxt" ]; then
+            ext_dir="$d/WriterAgent.oxt"
             break
         fi
     done
@@ -257,7 +257,7 @@ install_to_cache() {
             deployed=$((deployed + 1))
         fi
     done
-    for dir in META-INF assets registration registry LocalWriterDialogs; do
+    for dir in META-INF assets registration registry WriterAgentDialogs; do
         if [ -d "$PROJECT_ROOT/extension/$dir" ]; then
             rsync -av --delete "$PROJECT_ROOT/extension/$dir/" "$ext_dir/$dir/"
             echo "    $dir/ synced"

@@ -183,7 +183,7 @@ def bootstrap(ctx=None):
                     mod.initialize(_services)
                     _modules.append(mod)
             except Exception as e:
-                logging.getLogger("localwriter").warning("Failed to load module %s: %s", name, e)
+                logging.getLogger("writeragent").warning("Failed to load module %s: %s", name, e)
 
         # Wire event bus into config service
         events_svc = _services.get("events")
@@ -199,18 +199,18 @@ def bootstrap(ctx=None):
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
 
-_DISPATCH_PROTOCOL = "org.extension.localwriter:"
+_DISPATCH_PROTOCOL = "org.extension.writeragent:"
 
 _status_listeners = []  # [(listener, url)]
 _status_lock = threading.Lock()
 
-EXTENSION_ID = "org.extension.localwriter"
+EXTENSION_ID = "org.extension.writeragent"
 
 def _dispatch_command(command):
     """Dispatch a module.action command. Used by both MainJob and DispatchHandler."""
     dot = command.find(".")
     if dot <= 0:
-        log = logging.getLogger("localwriter.main")
+        log = logging.getLogger("writeragent.main")
         log.warning("Unhandled command: %s", command)
         return
 
@@ -303,7 +303,7 @@ def _dispatch_command(command):
             mod.on_action(action)
             return
 
-    log = logging.getLogger("localwriter.main")
+    log = logging.getLogger("writeragent.main")
     log.warning("Module not found for command: %s", command)
 
 
@@ -596,13 +596,13 @@ if __name__ == "__main__":
 
 class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
                       XInitialization, XServiceInfo):
-    """Protocol handler for org.extension.localwriter: URLs.
+    """Protocol handler for org.extension.writeragent: URLs.
 
     Handles menu dispatch and supports dynamic menu text via
     FeatureStateEvent / addStatusListener.
     """
 
-    IMPL_NAME = "org.extension.localwriter.DispatchHandler"
+    IMPL_NAME = "org.extension.writeragent.DispatchHandler"
     SERVICE_NAMES = ("com.sun.star.frame.ProtocolHandler",)
 
     def __init__(self, ctx):
@@ -627,7 +627,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
     # ── XDispatchProvider ────────────────────────────────────────
 
     def queryDispatch(self, url, name, flags):
-        if url.Protocol == "org.extension.localwriter:":
+        if url.Protocol == "org.extension.writeragent:":
             return self
         return None
 
@@ -672,7 +672,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
     MainBootstrapJob,  # UNO object class
-    "org.extension.localwriter.Main",  # implementation name
+    "org.extension.writeragent.Main",  # implementation name
     ("com.sun.star.task.Job",), )  # implemented services (only 1)
 g_ImplementationHelper.addImplementation(
     DispatchHandler,

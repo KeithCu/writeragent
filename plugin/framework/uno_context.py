@@ -12,7 +12,7 @@ storing a ctx reference from ``initialize()``.
 
 import logging
 
-log = logging.getLogger("localwriter.context")
+log = logging.getLogger("writeragent.context")
 
 _fallback_ctx = None
 

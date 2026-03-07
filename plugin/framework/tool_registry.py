@@ -9,7 +9,7 @@ import pkgutil
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
 
-log = logging.getLogger("localwriter.tools")
+log = logging.getLogger("writeragent.tools")
 
 
 # Global visibility toggles

@@ -178,9 +178,9 @@ else
     warn "vendor/ empty — run: make vendor"
 fi
 
-if [[ -f "$PROJECT_ROOT/build/localwriter.oxt" ]]; then
-    OXT_SIZE=$(stat -c%s "$PROJECT_ROOT/build/localwriter.oxt" 2>/dev/null || stat -f%z "$PROJECT_ROOT/build/localwriter.oxt" 2>/dev/null || echo "?")
-    ok "build/localwriter.oxt exists ($OXT_SIZE bytes)"
+if [[ -f "$PROJECT_ROOT/build/WriterAgent.oxt" ]]; then
+    OXT_SIZE=$(stat -c%s "$PROJECT_ROOT/build/WriterAgent.oxt" 2>/dev/null || stat -f%z "$PROJECT_ROOT/build/WriterAgent.oxt" 2>/dev/null || echo "?")
+    ok "build/WriterAgent.oxt exists ($OXT_SIZE bytes)"
 else
     warn "No .oxt built yet — run: make build"
 fi
@@ -188,7 +188,7 @@ fi
 # ── Extension installed? ──────────────────────────────────────────────
 
 if [[ -n "$UNOPKG" ]]; then
-    if $UNOPKG list 2>&1 | grep -q "org.extension.localwriter"; then
+    if $UNOPKG list 2>&1 | grep -q "org.extension.writeragent"; then
         ok "Extension registered in LibreOffice"
     else
         warn "Extension not registered — run: make deploy"
@@ -197,7 +197,7 @@ fi
 
 # ── Log symlinks ─────────────────────────────────────────────────────
 
-LOG_FILES="localwriter.log soffice-debug.log"
+LOG_FILES="writeragent.log soffice-debug.log"
 for f in $LOG_FILES; do
     target="$HOME/$f"
     link="$PROJECT_ROOT/$f"

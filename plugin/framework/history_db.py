@@ -25,11 +25,11 @@ def _get_db_path():
         except Exception as e:
             from plugin.framework.logging import debug_log
             debug_log(f"Error creating config directory: {e}", context="HistoryDB")
-        path = os.path.join(config_dir, "localwriter_history.db")
+        path = os.path.join(config_dir, "writeragent_history.db")
         from plugin.framework.logging import debug_log
         debug_log(f"Using database path: {path}", context="HistoryDB")
         return path
-    return "localwriter_history.db"
+    return "writeragent_history.db"
 
 # LangChain-compatible JSON conversion
 def message_to_dict(role, content, tool_calls=None):

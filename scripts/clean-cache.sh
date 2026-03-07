@@ -13,9 +13,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-EXTENSION_ID="org.extension.localwriter"
-EXTENSION_OXT="localwriter.oxt"
-BUNDLE_NAME="localwriter"
+EXTENSION_ID="org.extension.writeragent"
+EXTENSION_OXT="WriterAgent.oxt"
+BUNDLE_NAME="WriterAgent"
 
 # Parse args
 NUKE=false

@@ -7,7 +7,7 @@ handlers during initialize() and the HTTP server dispatches to them.
 import logging
 from collections import namedtuple
 
-log = logging.getLogger("localwriter.framework.http_routes")
+log = logging.getLogger("writeragent.framework.http_routes")
 
 Route = namedtuple("Route", ["handler", "raw", "main_thread"])
 

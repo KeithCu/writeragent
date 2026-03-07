@@ -1,5 +1,5 @@
 """
-Unified async stream orchestration for LocalWriter.
+Unified async stream orchestration for WriterAgent.
 Handles both simple streaming and complex tool-calling loops with thinking/status updates.
 Runs blocking API calls on worker threads and drains logic via a main-thread loop
 to keep the LibreOffice UI responsive (processEventsToIdle).

@@ -1,4 +1,4 @@
-"""Simple file logging for LocalWriter. Single debug log + optional agent log; paths set via init_logging(ctx)."""
+"""Simple file logging for WriterAgent. Single debug log + optional agent log; paths set via init_logging(ctx)."""
 import os
 import sys
 import json
@@ -20,9 +20,9 @@ _watchdog_started = False
 _watchdog_interval_sec = 15
 _watchdog_threshold_sec = 30
 
-DEBUG_LOG_FILENAME = "localwriter_debug.log"
-AGENT_LOG_FILENAME = "localwriter_agent.log"
-FALLBACK_DEBUG = os.path.join(os.path.expanduser("~"), "localwriter_debug.log")
+DEBUG_LOG_FILENAME = "writeragent_debug.log"
+AGENT_LOG_FILENAME = "writeragent_agent.log"
+FALLBACK_DEBUG = os.path.join(os.path.expanduser("~"), "writeragent_debug.log")
 FALLBACK_AGENT = os.path.join(os.path.expanduser("~"), "localwriter_agent.log")
 
 

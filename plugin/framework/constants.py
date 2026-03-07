@@ -1,8 +1,8 @@
-"""Constants for LocalWriter."""
+"""Constants for WriterAgent."""
 
-APP_REFERER = "https://github.com/keithcu/localwriter"
-APP_TITLE = "LocalWriter"
-USER_AGENT = "LocalWriter (https://github.com/keithcu/localwriter)"
+APP_REFERER = "https://github.com/keithcu/WriterAgent"
+APP_TITLE = "WriterAgent"
+USER_AGENT = "WriterAgent (https://github.com/keithcu/WriterAgent)"
 
 _FORMAT_HINT = "Send HTML as a list of strings (one element per heading/paragraph). DO NOT escape entities (&lt;h1&gt; is wrong). We handle wrapping in <html>/<body>."
 

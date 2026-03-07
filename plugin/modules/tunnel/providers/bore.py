@@ -2,7 +2,7 @@
 
 import logging
 
-log = logging.getLogger("localwriter.tunnel.bore")
+log = logging.getLogger("writeragent.tunnel.bore")
 
 
 class BoreProvider:

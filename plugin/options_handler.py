@@ -1,4 +1,4 @@
-"""XContainerWindowEventHandler for Tools > Options > LocalWriter pages.
+"""XContainerWindowEventHandler for Tools > Options > WriterAgent pages.
 
 Each module with config gets its own Options page (XDL generated at build time).
 A hidden ``__module__`` control in each XDL identifies which module the page belongs to.
@@ -28,7 +28,7 @@ from com.sun.star.awt import (
     XContainerWindowEventHandler, XActionListener, XItemListener)
 from com.sun.star.lang import XServiceInfo
 
-log = logging.getLogger("localwriter.options")
+log = logging.getLogger("writeragent.options")
 
 
 # ── List-detail state and UNO listeners ──────────────────────────────
@@ -193,9 +193,9 @@ class _BrowseListener(unohelper.Base, XActionListener):
 
 
 class OptionsHandler(unohelper.Base, XContainerWindowEventHandler, XServiceInfo):
-    """Handles initialize / ok / back events for all LocalWriter Options pages."""
+    """Handles initialize / ok / back events for all WriterAgent Options pages."""
 
-    IMPLE_NAME = "org.extension.localwriter.OptionsHandler"
+    IMPLE_NAME = "org.extension.writeragent.OptionsHandler"
     SERVICE_NAMES = (IMPLE_NAME,)
 
     def __init__(self, ctx):

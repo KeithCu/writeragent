@@ -5,7 +5,7 @@ import logging
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.writer import format_support
 
-log = logging.getLogger("localwriter.writer")
+log = logging.getLogger("writeragent.writer")
 
 
 # ------------------------------------------------------------------

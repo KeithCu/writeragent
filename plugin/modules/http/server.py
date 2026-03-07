@@ -12,7 +12,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-log = logging.getLogger("localwriter.framework.http_server")
+log = logging.getLogger("writeragent.framework.http_server")
 
 
 class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):

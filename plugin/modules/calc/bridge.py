@@ -13,7 +13,7 @@ from plugin.modules.calc.address_utils import (
     parse_range_string,
 )
 
-logger = logging.getLogger("localwriter.calc")
+logger = logging.getLogger("writeragent.calc")
 
 
 class CalcBridge:

@@ -54,7 +54,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     api_config = get_api_config(ctx)
     ok, err_msg = validate_api_config(api_config)
     if not ok:
-        msgbox(ctx, "LocalWriter: Edit Selection (Calc)" if is_edit else "LocalWriter: Extend Selection (Calc)", err_msg)
+        msgbox(ctx, "WriterAgent: Edit Selection (Calc)" if is_edit else "WriterAgent: Extend Selection (Calc)", err_msg)
         return
 
     client = LlmClient(api_config)
@@ -78,7 +78,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
         def on_error(e):
             if original is not None:
                 cell.setString(original)
-            msgbox(ctx, "LocalWriter: Edit Selection (Calc)" if is_edit else "LocalWriter: Extend Selection (Calc)", format_error_message(e))
+            msgbox(ctx, "WriterAgent: Edit Selection (Calc)" if is_edit else "WriterAgent: Extend Selection (Calc)", format_error_message(e))
 
         run_stream_completion_async(
             ctx, client, prompt, system_prompt, max_tokens,

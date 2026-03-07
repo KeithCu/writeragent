@@ -28,7 +28,7 @@
 # Info:
 #   make help                      Show this help
 
-EXTENSION_NAME = localwriter
+EXTENSION_NAME = WriterAgent
 
 
 # ── Local overrides (gitignored) ────────────────────────────────────────────
@@ -87,7 +87,7 @@ endif
 
 help:
 	@echo ""
-	@echo "LocalWriter — build & dev targets"
+	@echo "WriterAgent — build & dev targets"
 	@echo "================================="
 	@echo ""
 	@echo "Build:"
@@ -161,9 +161,9 @@ repack-deploy: repack
 	$(MAKE) lo-kill
 	@sleep 3
 	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
-	-unopkg remove org.extension.localwriter 2>/dev/null; sleep 1
+	-unopkg remove org.extension.writeragent 2>/dev/null; sleep 1
 	unopkg add build/$(EXTENSION_NAME).oxt
-	@rm -f $(HOME_DIR)/localwriter.log
+	@rm -f $(HOME_DIR)/writeragent.log
 	#@sleep 1
 	$(MAKE) lo-start
 	@echo "Waiting for LO to load..."
@@ -221,7 +221,7 @@ endif
 # ── LibreOffice ──────────────────────────────────────────────────────────────
 
 lo-start:
-	LOCALWRITER_SET_CONFIG="$(LOCALWRITER_SET_CONFIG)" $(RUN_SH) $(SCRIPTS)/launch-lo-debug$(EXT)
+	WRITERAGENT_SET_CONFIG="$(WRITERAGENT_SET_CONFIG)" $(RUN_SH) $(SCRIPTS)/launch-lo-debug$(EXT)
 
 lo-start-full:
 ifeq ($(OS),Windows_NT)
@@ -268,9 +268,9 @@ deploy: build
 	$(MAKE) lo-kill
 	#@sleep 3
 	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
-	-unopkg remove org.extension.localwriter 2>/dev/null
+	-unopkg remove org.extension.writeragent 2>/dev/null
 	unopkg add build/$(EXTENSION_NAME).oxt
-	@rm -f $(HOME_DIR)/localwriter.log
+	@rm -f $(HOME_DIR)/writeragent.log
 	#@sleep 1
 	$(MAKE) lo-start
 	@echo "Waiting for LO to load..."
@@ -278,10 +278,10 @@ deploy: build
 	@$(MAKE) log
 
 log:
-	@cat $(HOME_DIR)/localwriter.log 2>/dev/null || echo "No localwriter.log found"
+	@cat $(HOME_DIR)/writeragent.log 2>/dev/null || echo "No writeragent.log found"
 
 log-tail:
-	@tail -f $(HOME_DIR)/localwriter.log
+	@tail -f $(HOME_DIR)/writeragent.log
 
 lo-log:
 	@cat $(HOME_DIR)/soffice-debug.log 2>/dev/null || echo "No soffice-debug.log found"
@@ -300,7 +300,7 @@ test:
 # ── POC extension ───────────────────────────────────────────────────────────
 
 set-config:
-	@echo "Usage: make deploy LOCALWRITER_SET_CONFIG=\"mcp.port=9000,mcp.host=0.0.0.0\""
+	@echo "Usage: make deploy WRITERAGENT_SET_CONFIG=\"mcp.port=9000,mcp.host=0.0.0.0\""
 	@echo ""
 	@echo "Available config keys (module.key = default):"
 	@$(PYTHON) -c "from plugin._manifest import MODULES; \

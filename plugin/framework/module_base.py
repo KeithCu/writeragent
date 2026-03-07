@@ -3,11 +3,11 @@
 import logging
 from abc import ABC
 
-log = logging.getLogger("localwriter.module_base")
+log = logging.getLogger("writeragent.module_base")
 
 
 class ModuleBase(ABC):
-    """Base class for all LocalWriter modules.
+    """Base class for all WriterAgent modules.
 
     Modules declare their manifest in module.yaml (config, requires,
     provides_services). This class handles the runtime behavior:

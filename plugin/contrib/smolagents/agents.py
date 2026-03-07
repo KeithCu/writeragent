@@ -160,7 +160,7 @@ def populate_template(template: str, variables: dict[str, Any]) -> str:
     and final-answer templates by performing plain string replacement.
 
     More advanced Jinja2 features (loops, conditionals) are NOT supported here.
-    They are not used by the LocalWriter `search_web` path.
+    They are not used by the WriterAgent `search_web` path.
     """
     result = template
     for key, value in (variables or {}).items():

@@ -2,7 +2,7 @@
 
 import logging
 
-log = logging.getLogger("localwriter.tunnel.cloudflare")
+log = logging.getLogger("writeragent.tunnel.cloudflare")
 
 
 class CloudflareProvider:

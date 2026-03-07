@@ -18,7 +18,7 @@ import tempfile
 
 from plugin.modules.ai.provider_base import LlmProvider, ImageProvider
 
-log = logging.getLogger("localwriter.ai_openai")
+log = logging.getLogger("writeragent.ai_openai")
 
 REPEATED_CHUNK_LIMIT = 20
 

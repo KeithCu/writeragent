@@ -1,5 +1,5 @@
 [project]
-name = "localwriter"
+name = "WriterAgent"
 dynamic = ["version"]
 description = "LibreOffice AI writing assistant with MCP server"
 requires-python = ">=3.8"

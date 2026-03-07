@@ -17,7 +17,7 @@ except ImportError:
     RESULT_ERROR = 4
     UNO_AVAILABLE = False
 
-logger = logging.getLogger("localwriter.calc")
+logger = logging.getLogger("writeragent.calc")
 
 # LibreOffice Calc error types and descriptions
 ERROR_TYPES = {

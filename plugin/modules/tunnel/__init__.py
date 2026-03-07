@@ -11,7 +11,7 @@ import threading
 
 from plugin.framework.module_base import ModuleBase
 
-log = logging.getLogger("localwriter.tunnel")
+log = logging.getLogger("writeragent.tunnel")
 
 # Windows: hide subprocess console window
 _CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)

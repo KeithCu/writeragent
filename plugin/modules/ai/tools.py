@@ -27,7 +27,7 @@ class WebResearchTool(ToolBase):
         from urllib.parse import urlparse
         from plugin.framework.config import get_api_config, get_config, user_config_dir
         from plugin.modules.http.client import LlmClient
-        from plugin.framework.smol_model import LocalWriterSmolModel
+        from plugin.framework.smol_model import WriterAgentSmolModel
         from plugin.contrib.smolagents.agents import ToolCallingAgent
         from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
         from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
@@ -54,7 +54,7 @@ class WebResearchTool(ToolBase):
             cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
             cache_path = os.path.join(udir, "localwriter_web_cache.db") if (udir and cache_max_mb > 0) else None
 
-            smol_model = LocalWriterSmolModel(
+            smol_model = WriterAgentSmolModel(
                 LlmClient(config, ctx.ctx), max_tokens=max_tokens,
                 status_callback=status_callback,
             )

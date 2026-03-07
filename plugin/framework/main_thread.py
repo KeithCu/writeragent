@@ -16,7 +16,7 @@ import logging
 import queue
 import threading
 
-log = logging.getLogger("localwriter.framework.main_thread")
+log = logging.getLogger("writeragent.framework.main_thread")
 
 
 class _WorkItem:

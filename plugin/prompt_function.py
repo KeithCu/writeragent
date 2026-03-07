@@ -16,7 +16,7 @@ import unohelper
 
 # from com.sun.star.lang import XServiceInfo
 # from com.sun.star.sheet import XAddIn
-from org.extension.localwriter.PromptFunction import XPromptFunction
+from org.extension.writeragent.PromptFunction import XPromptFunction
 from plugin.framework.config import get_config, get_api_config
 from plugin.modules.http.client import LlmClient
 
@@ -149,7 +149,7 @@ class PromptFunction(unohelper.Base, XPromptFunction):
 
     # XServiceInfo implementation
     def getImplementationName(self):
-        return "org.extension.localwriter.PromptFunction"
+        return "org.extension.writeragent.PromptFunction"
     
     def supportsService(self, name):
         return name in self.getSupportedServiceNames()
@@ -160,7 +160,7 @@ class PromptFunction(unohelper.Base, XPromptFunction):
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
     PromptFunction,
-    "org.extension.localwriter.PromptFunction",
+    "org.extension.writeragent.PromptFunction",
     ("com.sun.star.sheet.AddIn",),
 )
 

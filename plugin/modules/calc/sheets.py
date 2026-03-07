@@ -11,7 +11,7 @@ from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.manipulator import CellManipulator
 from plugin.modules.calc.analyzer import SheetAnalyzer
 
-logger = logging.getLogger("localwriter.calc")
+logger = logging.getLogger("writeragent.calc")
 
 
 class ListSheets(ToolBase):

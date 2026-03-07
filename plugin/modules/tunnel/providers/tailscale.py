@@ -3,7 +3,7 @@
 import logging
 import subprocess
 
-log = logging.getLogger("localwriter.tunnel.tailscale")
+log = logging.getLogger("writeragent.tunnel.tailscale")
 
 # Windows: hide subprocess console window
 _CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)

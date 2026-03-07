@@ -1,9 +1,9 @@
 name: main
-title: LocalWriter global settings
+title: WriterAgent global settings
 requires: []
 actions:
   about:
-    title: "About LocalWriter"
+    title: "About WriterAgent"
 
 menus:
   - separator: true

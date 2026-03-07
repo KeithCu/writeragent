@@ -8,7 +8,7 @@ import logging
 
 from plugin.modules.ai.provider_base import ImageProvider
 
-log = logging.getLogger("localwriter.ai_horde")
+log = logging.getLogger("writeragent.ai_horde")
 
 
 class _HordeInformer:
@@ -64,7 +64,7 @@ class HordeProvider(ImageProvider):
                 client_help_url="",
                 client_download_url="",
                 settings={},
-                client_name="LocalWriter_Horde_Client",
+                client_name="WriterAgent_Horde_Client",
                 informer=self._informer,
             )
         return self._client

@@ -1,13 +1,13 @@
-# LocalWriter
+# WriterAgent
 
 A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer, Calc, and Draw.
 
 ## Features
 
-LocalWriter provides powerful AI-driven capabilities integrated directly into your LibreOffice suite:
+WriterAgent provides powerful AI-driven capabilities integrated directly into your LibreOffice suite:
 
 ### 1. Local-First & Flexible (The Major Differentiator)
-Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, LocalWriter is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between them in less than 2 seconds, maintaining full control over where your data goes.
+Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between them in less than 2 seconds, maintaining full control over where your data goes.
 
 ### 2. Chat with Document (Writer, Calc, and Draw)
 The main way to interact with your document. While you can ask it anything, **its primary job is to edit your document**, not just answer questions.
@@ -45,13 +45,13 @@ Replacing text in Writer normally inherits formatting from the insertion point, 
 One of the unique challenges of building an AI assistant for a rich word processor, unlike a plain-text code editor, is the multiple ways of applying formatting, both directly and through character and paragraph styles. Eventually, we will encourage models to output properly classed HTML that maps to your LibreOffice template, ensuring documents remain maintainable and consistently branded. For more details, see [LLM_STYLES.md](LLM_STYLES.md).
 
 ### 7. Image generation and AI Horde integration
-Image generation and editing are integrated and complete. You can generate images from the chat (via tools or “Use Image model”) and edit selected images (Img2Img). Two backends are supported: **AI Horde** (Stable Diffusion, SDXL, etc., with its own API key and queue) and **same endpoint as chat** (uses your configured endpoint and a separate image model). Settings are in **LocalWriter > Settings** under the **Image Settings** tab, with shared options (size, insert behavior, prompt translation) and a clearly separated **AI Horde only** section.
+Image generation and editing are integrated and complete. You can generate images from the chat (via tools or “Use Image model”) and edit selected images (Img2Img). Two backends are supported: **AI Horde** (Stable Diffusion, SDXL, etc., with its own API key and queue) and **same endpoint as chat** (uses your configured endpoint and a separate image model). Settings are in **WriterAgent > Settings** under the **Image Settings** tab, with shared options (size, insert behavior, prompt translation) and a clearly separated **AI Horde only** section.
 
 ### 8. MCP Server (optional, external AI clients)
-When enabled in **LocalWriter > Settings** (Chat/Text page), an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop via a proxy, or any script).
-*   **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the LocalWriter chat sidebar, providing full visibility into how external agents are interacting with your document.
+When enabled in **WriterAgent > Settings** (Chat/Text page), an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop via a proxy, or any script).
+*   **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the WriterAgent chat sidebar, providing full visibility into how external agents are interacting with your document.
 *   **Targeting**: Clients target a document by sending the **`X-Document-URL`** header (or use the active document).
-*   **Control**: Use **LocalWriter > Toggle MCP Server** and **MCP Server Status** to control and check the server. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md) for endpoints, usage, and future work.
+*   **Control**: Use **WriterAgent > Toggle MCP Server** and **MCP Server Status** to control and check the server. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md) for endpoints, usage, and future work.
 
 ### 9. Calc `=PROMPT()` function
 A cell formula to call the model directly from within your spreadsheet:
@@ -69,16 +69,16 @@ Integrated cross-platform audio recording directly in the chat sidebar.
 *   **Talk to Your Document**: Recorded audio is handled intelligently—it will be sent directly to native audio LLMs or automatically transcribed via an STT engine before being sent as text, depending on your model's capabilities.
 *   **Flexible Deployment**: Optional build support (see `Makefile`) allows for deployment in environments where audio dependencies are not needed.
 
-## LocalWriter Architecture
+## WriterAgent Architecture
 
-LocalWriter isn't just a wrapper; it's built for performance and deep integration with LibreOffice:
+WriterAgent isn't just a wrapper; it's built for performance and deep integration with LibreOffice:
 
-*   **Responsive Streaming Architecture**: Unlike simple extensions that freeze when waiting for an AI response, LocalWriter now uses a background thread and queue system. This keeps the LibreOffice UI alive and responsive while text and tool calls stream in and are executed.
+*   **Responsive Streaming Architecture**: Unlike simple extensions that freeze when waiting for an AI response, WriterAgent now uses a background thread and queue system. This keeps the LibreOffice UI alive and responsive while text and tool calls stream in and are executed.
 *   **Interleaved Streaming & Multi-Step Tools**: The engine natively supports interleaved reasoning tokens, content streaming, and complex multi-turn tool calling. This allows for sophisticated AI behavior that handles multi-step tasks while keeping the user informed in real-time.
 *   **High-Throughput Performance (200+ tps)**: Optimized for speed, the system can easily handle 200 tokens per second with zero UI stutter.
-*   **Native Formatting Persistence**: For structured content (Markdown/HTML), LocalWriter injects AI-generated text using the import path, preserving native LibreOffice styles. For plain-text replacements (e.g. typo fixes), we preserve your existing per-character formatting so highlights, bold, and colors stay intact.
+*   **Native Formatting Persistence**: For structured content (Markdown/HTML), WriterAgent injects AI-generated text using the import path, preserving native LibreOffice styles. For plain-text replacements (e.g. typo fixes), we preserve your existing per-character formatting so highlights, bold, and colors stay intact.
 *   **Isolated Task Contexts**: Each open document in LibreOffice gets its own independent AI sidebar. The AI stays aware of the specific document it's attached to, preventing "cross-talk" when working on multiple projects.
-*   **Hybrid AI Orchestrator Model**: LocalWriter is moving towards a "hybrid orchestrator" architecture. While it has an embedded chat sidebar for direct document interaction, it also exposes its entire toolset (Writer, Calc, Draw) via an opt-in **MCP Server**. This allows you to delegate complex, system-wide coding or research tasks to specialized external agents (like `claude-code`) while maintaining the document as the single source of truth.
+*   **Hybrid AI Orchestrator Model**: WriterAgent is moving towards a "hybrid orchestrator" architecture. While it has an embedded chat sidebar for direct document interaction, it also exposes its entire toolset (Writer, Calc, Draw) via an opt-in **MCP Server**. This allows you to delegate complex, system-wide coding or research tasks to specialized external agents (like `claude-code`) while maintaining the document as the single source of truth.
 *   **Expanded Writer Tool Set**: The sidebar exposes a rich set of Writer operations:
     *   **Styles**: The AI can discover paragraph and character style names (including localized names) before applying them, ensuring it uses styles that actually exist.
     *   **Comments**: The AI can read, add, and remove inline comments, enabling full review workflows.
@@ -88,7 +88,7 @@ LocalWriter isn't just a wrapper; it's built for performance and deep integratio
 
 ## Credits & Collaboration
 
-LocalWriter stands on the shoulders of giants. We'd like to give massive credit to:
+WriterAgent stands on the shoulders of giants. We'd like to give massive credit to:
 
 **[LibreCalc AI Assistant](https://extensions.libreoffice.org/en/extensions/show/99509)**
 
@@ -96,11 +96,11 @@ Their pioneering work on AI support for LibreOffice provided the foundation and 
 
 **[LibreOffice MCP Extension](https://github.com/quazardous/mcp-libre)**
 
-Their work on an embedded MCP (Model Context Protocol) server for LibreOffice was an invaluable reference for expanding LocalWriter's Writer tool set. From their project we adapted production-quality UNO implementations for style inspection, comment management, track-changes control, and table editing — resulting in 12 new Writer tools now available to LocalWriter's embedded AI. We also used their patterns for server lifecycle, health-check probing, and port utilities when we added LocalWriter's built-in MCP HTTP server. We're grateful for the high-quality open work and encourage everyone to check it out.
+Their work on an embedded MCP (Model Context Protocol) server for LibreOffice was an invaluable reference for expanding WriterAgent's Writer tool set. From their project we adapted production-quality UNO implementations for style inspection, comment management, track-changes control, and table editing — resulting in 12 new Writer tools now available to WriterAgent's embedded AI. We also used their patterns for server lifecycle, health-check probing, and port utilities when we added WriterAgent's built-in MCP HTTP server. We're grateful for the high-quality open work and encourage everyone to check it out.
 
 ## Performance & Batch Optimizations
 
-To handle complex spreadsheet tasks, LocalWriter is optimized for high-throughput "batch" operations:
+To handle complex spreadsheet tasks, WriterAgent is optimized for high-throughput "batch" operations:
 
 *   **Batch Tool-Calling**: Instead of making one-by-one changes, tools like `write_formula_range` and `set_cell_style` operate on entire ranges in a single call.
 *   **High-Volume Insertion**: The `import_csv_from_string` tool allows the AI to generate and inject large datasets instantly. This is orders of magnitude faster than inserting data cell-by-cell; we found that providing these batch tools encourages the AI to perform far more ambitious spreadsheet automation and data analysis.
@@ -144,7 +144,7 @@ List prices don't tell the whole story. **Qwen 35B-A3B** (Rank 14) has a list pr
 By squaring the correctness score ($C^2$), we ensure that "cheap but broken" models like **Nemotron** (#4) no longer dominate the leaderboard. A model that fails ~45% of professional office tasks is accurately penalized as a liability, allowing smarter, more reliable models like **GPT-4o-mini** to leapfrog them in value.
 
 #### 3. The Value "Elite": Gemini 3 Flash
-**Google Gemini 3 Flash** (Rank 2) is currently the "best all-rounder" for LocalWriter. It maintains near-perfect accuracy (**0.940**) while remaining cheap enough to yield a value of **141.0**—nearly twice that of the nearest competitor in its tier.
+**Google Gemini 3 Flash** (Rank 2) is currently the "best all-rounder" for WriterAgent. It maintains near-perfect accuracy (**0.940**) while remaining cheap enough to yield a value of **141.0**—nearly twice that of the nearest competitor in its tier.
 
 #### 4. The "Budget Sonnet": Qwen 27B
 While **Claude Sonnet 4.6** (Rank 16) is our only perfect 1.000 accuracy model, **Qwen 3.5-27B** (Rank 10) achieved an incredible **0.993** accuracy at less than 1/6th the cost. If you need flawless document engineering on a budget, the dense Qwen 27B is currently the "Gold Standard" of high-intensity mid-range models.
@@ -157,14 +157,14 @@ This framework allows us to differentiate between "Flash" models that prioritize
 
 **Fine-tuning.** An interesting direction is to **fine-tune a model** specifically for this tool set and task distribution: the same correctness could potentially be achieved with fewer reasoning steps and fewer tokens, improving both latency and Value (C²/$). The existing eval and dataset are a natural training signal (correct vs incorrect tool use, minimal vs verbose traces).
 
-**Tool set and model size.** LocalWriter already exposes a rich but curated subset of Writer/Calc/Draw operations (styles, comments, tables, markdown apply, etc.), not the full OpenDocument/UNO surface. An open question is whether we should or can **expose more of the full UNO tool set** for capable models, while keeping a **smaller subset** for smaller or cheaper models that might be confused or wasteful with too many options. That would allow “right-sized” backends: minimal tools for fast local models, full power for frontier models when the user needs it.
+**Tool set and model size.** WriterAgent already exposes a rich but curated subset of Writer/Calc/Draw operations (styles, comments, tables, markdown apply, etc.), not the full OpenDocument/UNO surface. An open question is whether we should or can **expose more of the full UNO tool set** for capable models, while keeping a **smaller subset** for smaller or cheaper models that might be confused or wasteful with too many options. That would allow “right-sized” backends: minimal tools for fast local models, full power for frontier models when the user needs it.
 
 ### Implementation Details: Web Search via Smolagents
-LocalWriter can delegate “research on the open web” to a small autonomous sub-agent built with a vendored subset of Hugging Face’s **smolagents**:
+WriterAgent can delegate “research on the open web” to a small autonomous sub-agent built with a vendored subset of Hugging Face’s **smolagents**:
 
 *   **ToolCallingAgent + tools**: We vendor `ToolCallingAgent` and lightweight tools `DuckDuckGoSearchTool` and `VisitWebpageTool` in `plugin/contrib/smolagents/`. They use only standard library networking (`urllib.request`) and parsing (`html.parser`), plus a realistic Firefox user agent string for fewer 403s.
 *   **`search_web` tool (Writer Chat)**: In `core/document_tools.py` we expose a `search_web` tool that the main chat agent can call. It spins up a ToolCallingAgent with those web tools and runs a ReAct loop (search → visit → synthesize) until it calls the `final_answer` tool, then returns `{"status": "ok", "result": "<answer>"}` back to the main agent.
-*   **Same model & endpoint as chat**: Inside LibreOffice, the sub-agent uses `LocalWriterSmolModel`, which wraps LocalWriter’s existing `LlmClient` and therefore respects your configured endpoint, model, API key, temperature, etc.
+*   **Same model & endpoint as chat**: Inside LibreOffice, the sub-agent uses `WriterAgentSmolModel`, which wraps WriterAgent’s existing `LlmClient` and therefore respects your configured endpoint, model, API key, temperature, etc.
 *   **Sidebar “Web search” checkbox**: In the Chat with Document sidebar, a per-message **Web search** checkbox lets you bypass document-aware chat for that turn and directly invoke the `search_web` sub-agent. The answer is streamed into the response area (labeled `AI (web): ...`) without editing the document. When the checkbox is off, the AI can still call `search_web` autonomously as a normal tool when it decides web research is needed.
 
 ## Roadmap
@@ -176,25 +176,25 @@ We are moving towards a native "AI co-pilot" experience:
 *   **Reliability Foundations**: Strengthening timeout management, clear error recovery, and universal rollback-friendly behavior for professional stability.
 *   **Suite-Wide Completeness**: Finalizing deep integration for **LibreOffice Draw and Impress**, ensuring every application in the suite is AI-powered.
 *   **Offline First**: Continued focus on performance with the fastest local models (Ollama, etc.) to ensure privacy and speed without cloud dependencies.
-*   **MCP Server**: Implemented. Optional HTTP server (enable in Settings) exposes LocalWriter's tool set to external clients; document targeting via `X-Document-URL` header. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md) for status and future work (e.g. stdio proxy for Claude Desktop, dynamic menu icons).
+*   **MCP Server**: Implemented. Optional HTTP server (enable in Settings) exposes WriterAgent's tool set to external clients; document targeting via `X-Document-URL` header. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md) for status and future work (e.g. stdio proxy for Claude Desktop, dynamic menu icons).
 
 ## Setup
 
 ### 1. Installation
-1.  Download the latest `.oxt` file from the [releases page](https://github.com/balisujohn/localwriter/releases).
+1.  Download the latest `.oxt` file from the [releases page](https://github.com/balisujohn/writeragent/releases).
 2.  In LibreOffice, go to `Tools > Extension Manager`.
 3.  Click `Add` and select the downloaded file.
 4.  Restart LibreOffice.
 
 ### 2. Backend Setup
-LocalWriter requires an OpenAI-compatible backend. Recommended options:
+WriterAgent requires an OpenAI-compatible backend. Recommended options:
 *   **Ollama**: [ollama.com](https://ollama.com/) (easiest for local usage)
 *   **text-generation-webui**: [github.com/oobabooga/text-generation-webui](https://github.com/oobabooga/text-generation-webui)
 *   **OpenRouter / OpenAI**: Cloud-based providers.
 
 ## Settings
 
-Configure your endpoint, model, and behavior in **LocalWriter > Settings**. The dialog has three main configuration areas: **Chat/Text** (endpoint, models, API key, etc.), **Audio** (recording device, model mapping), and **Image Settings** (size, aspect ratio, AI Horde options).
+Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The dialog has three main configuration areas: **Chat/Text** (endpoint, models, API key, etc.), **Audio** (recording device, model mapping), and **Image Settings** (size, aspect ratio, AI Horde options).
 
 *   **Endpoint URL**: e.g., `http://localhost:11434` for Ollama.
 *   **Additional Instructions**: A shared system prompt for all features with history support.
@@ -214,8 +214,8 @@ Alternatively, use Docker to build with no local dependencies (see `make docker-
 
 ```bash
 # Clone the repository
-git clone https://github.com/KeithCu/localwriter.git
-cd localwriter
+git clone https://github.com/KeithCu/writeragent.git
+cd writeragent
 
 # Build the extension package (.oxt)
 make build
@@ -234,7 +234,7 @@ make help
 ```
 
 ## License
-LocalWriter is primarily released under the **MPL 2.0** license. See `License.txt` for details.
+WriterAgent is primarily released under the **MPL 2.0** license. See `License.txt` for details.
 Copyright (c) 2024 John Balis
 
 *Architecture diagram created by Sonnet 4.6.*

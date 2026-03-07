@@ -1,4 +1,4 @@
-# Minimal stub for LocalWriter's search_web path. The search_web tool only uses
+# Minimal stub for WriterAgent's search_web path. The search_web tool only uses
 # DuckDuckGoSearchTool and VisitWebpageTool; this module exists so that
 # default_tools and agents can import without failure. PythonInterpreterTool
 # is never invoked in that path.

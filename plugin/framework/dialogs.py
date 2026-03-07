@@ -25,9 +25,9 @@ import logging
 import threading
 from plugin.framework.uno_helpers import get_desktop, get_extension_url
 
-log = logging.getLogger("localwriter.dialogs")
+log = logging.getLogger("writeragent.dialogs")
 
-EXTENSION_ID = "org.extension.localwriter"
+EXTENSION_ID = "org.extension.writeragent"
 
 
 # ── Simple message box ──────────────────────────────────────────────
@@ -313,7 +313,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
 
 
 def about_dialog(ctx):
-    """Show the LocalWriter About dialog with a clickable GitHub link."""
+    """Show the WriterAgent About dialog with a clickable GitHub link."""
     try:
         from plugin.version import EXTENSION_VERSION
     except ImportError:
@@ -328,13 +328,13 @@ def about_dialog(ctx):
 
         dlg_model = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = "About LocalWriter"
+        dlg_model.Title = "About WriterAgent"
         dlg_model.Width = 220
         dlg_model.Height = 90
 
         # Info text
         info_text = (
-            "LocalWriter\n"
+            "WriterAgent\n"
             "Version: %s\n"
             "AI-powered extension for LibreOffice" % EXTENSION_VERSION
         )
@@ -356,8 +356,8 @@ def about_dialog(ctx):
         dlg.dispose()
     except Exception:
         log.exception("About dialog error")
-        msgbox(ctx, "About LocalWriter",
-               "LocalWriter %s\nhttps://github.com/quazardous/localwriter"
+        msgbox(ctx, "About WriterAgent",
+               "WriterAgent %s\nhttps://github.com/quazardous/localwriter"
                % EXTENSION_VERSION)
 
 

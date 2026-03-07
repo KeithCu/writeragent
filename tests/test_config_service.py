@@ -24,7 +24,7 @@ def config_dir(tmp_path):
 def config_svc(config_dir):
     """ConfigService with a temp config path (bypasses UNO)."""
     svc = ConfigService()
-    svc._config_path = str(config_dir / "localwriter.json")
+    svc._config_path = str(config_dir / "writeragent.json")
     return svc
 
 
@@ -87,7 +87,7 @@ class TestSetGet:
         config_svc.set_manifest(manifest)
         config_svc.set("mcp.port", 9000)
 
-        with open(config_dir / "localwriter.json") as f:
+        with open(config_dir / "writeragent.json") as f:
             data = json.load(f)
         assert data["mcp.port"] == 9000
 

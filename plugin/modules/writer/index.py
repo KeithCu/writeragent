@@ -11,7 +11,7 @@ import os
 import time
 import unicodedata
 
-log = logging.getLogger("localwriter.writer.index")
+log = logging.getLogger("writeragent.writer.index")
 
 # ── Language mapping (ISO 639-1 -> snowballstemmer algorithm) ─────────
 

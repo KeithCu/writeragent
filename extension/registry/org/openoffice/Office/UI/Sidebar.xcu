@@ -8,15 +8,15 @@
     xmlns:install="http://openoffice.org/2004/installation">
     <node oor:name="Content">
         <node oor:name="DeckList">
-            <node oor:name="LocalWriterDeck" oor:op="replace">
+            <node oor:name="WriterAgentDeck" oor:op="replace">
                 <prop oor:name="Title" oor:type="xs:string">
-                    <value xml:lang="en-US">LocalWriter</value>
+                    <value xml:lang="en-US">WriterAgent</value>
                 </prop>
                 <prop oor:name="Id" oor:type="xs:string">
-                    <value>LocalWriterDeck</value>
+                    <value>WriterAgentDeck</value>
                 </prop>
                 <prop oor:name="IconURL" oor:type="xs:string">
-                    <value>vnd.sun.star.extension://org.extension.localwriter/assets/icon_64.png</value>
+                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/logo_32.png</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.text.TextDocument, any, visible; com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.drawing.DrawingDocument, any, visible; com.sun.star.presentation.PresentationDocument, any, visible;</value>
@@ -32,7 +32,7 @@
                     <value>ChatPanel</value>
                 </prop>
                 <prop oor:name="DeckId" oor:type="xs:string">
-                    <value>LocalWriterDeck</value>
+                    <value>WriterAgentDeck</value>
                 </prop>
                 <prop oor:name="ContextList">
                     <value oor:separator=";">com.sun.star.text.TextDocument, any, visible; com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.drawing.DrawingDocument, any, visible; com.sun.star.presentation.PresentationDocument, any, visible;</value>

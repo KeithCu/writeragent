@@ -45,8 +45,8 @@ from com.sun.star.ui.UIElementType import TOOLPANEL
 from com.sun.star.awt import XItemListener, XWindowListener
 
 # Extension ID from description.xml; XDL path inside the .oxt
-EXTENSION_ID = "org.extension.localwriter"
-XDL_PATH = "LocalWriterDialogs/ChatPanelDialog.xdl"
+EXTENSION_ID = "org.extension.writeragent"
+XDL_PATH = "WriterAgentDialogs/ChatPanelDialog.xdl"
 
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
@@ -506,7 +506,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         else:
             system_prompt = (DEFAULT_CHAT_SYSTEM_PROMPT + "\n\n" + str(extra_instructions)) if extra_instructions else DEFAULT_CHAT_SYSTEM_PROMPT
 
-        session_id = get_document_property(model, "LocalWriterSessionID")
+        session_id = get_document_property(model, "WriterAgentSessionID")
         if not session_id:
             if model and hasattr(model, "getURL"):
                 url = model.getURL()
@@ -514,7 +514,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if not session_id:
                 session_id = str(uuid.uuid4())
             if model:
-                set_document_property(model, "LocalWriterSessionID", session_id)
+                set_document_property(model, "WriterAgentSessionID", session_id)
         
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
@@ -741,6 +741,6 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
     ChatPanelFactory,
-    "org.extension.localwriter.ChatPanelFactory",
+    "org.extension.writeragent.ChatPanelFactory",
     ("com.sun.star.ui.UIElementFactory",),
 )

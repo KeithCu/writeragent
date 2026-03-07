@@ -5,7 +5,7 @@ Ported from mcp-libre services/writer/tree.py.
 
 import logging
 
-log = logging.getLogger("localwriter.writer.nav.tree")
+log = logging.getLogger("writeragent.writer.nav.tree")
 
 
 class TreeService:

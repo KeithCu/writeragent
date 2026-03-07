@@ -12,7 +12,7 @@ from com.sun.star.beans.PropertyAttribute import TRANSIENT
 
 logger = logging.getLogger(__name__)
 
-GALLERY_NAME = "localwriter_images"
+GALLERY_NAME = "writeragent_images"
 GALLERY_IMAGE_DIR = GALLERY_NAME
 
 def get_type_doc(doc):

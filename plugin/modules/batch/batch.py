@@ -8,7 +8,7 @@ from plugin.modules.batch.batch_vars import (
     resolve_batch_vars, extract_step_info,
 )
 
-log = logging.getLogger("localwriter.batch")
+log = logging.getLogger("writeragent.batch")
 
 # Keys in tool results that hint at a document location
 _LOCATION_KEYS = (

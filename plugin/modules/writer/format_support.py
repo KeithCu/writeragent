@@ -14,7 +14,7 @@ import os
 import re
 import tempfile
 
-log = logging.getLogger("localwriter.writer")
+log = logging.getLogger("writeragent.writer")
 
 
 from plugin.framework.document import get_document_length as _doc_text_length

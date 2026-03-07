@@ -9,26 +9,26 @@
 
 ## 1. Project Overview
 
-**LocalWriter** is a LibreOffice extension (Python + UNO) that adds generative AI editing to Writer, Calc, and Draw:
+**WriterAgent** is a LibreOffice extension (Python + UNO) that adds generative AI editing to Writer, Calc, and Draw:
 
 - **Extend Selection** (Ctrl+Q): Model continues the selected text
 - **Edit Selection** (Ctrl+E): User enters instructions; model rewrites the selection
-- **Chat with Document** (Writer, Calc, and Draw): (a) **Sidebar panel**: LocalWriter deck in the right sidebar, multi-turn chat with tool-calling that edits the document; (b) **Persistent History**: Conversations are saved to a local SQLite database and restored automatically using document metadata for robust session tracking; (c) **Menu item** (fallback): Opens input dialog, appends response to end of document (Writer) or to "AI Response" sheet (Calc/Draw)
+- **Chat with Document** (Writer, Calc, and Draw): (a) **Sidebar panel**: WriterAgent deck in the right sidebar, multi-turn chat with tool-calling that edits the document; (b) **Persistent History**: Conversations are saved to a local SQLite database and restored automatically using document metadata for robust session tracking; (c) **Menu item** (fallback): Opens input dialog, appends response to end of document (Writer) or to "AI Response" sheet (Calc/Draw)
 - **Settings**: Configure endpoint, model, API key, temperature, request timeout, image generation settings (provider, API keys, dimensions), etc.
 - **Image Generation & Editing**: Multimodal capabilities via `generate_image` (create and insert) and `edit_image` (Img2Img on selected object) tools.
 - **Calc** `=PROMPT()`: Cell formula that calls the model
 - **MCP Server** (opt-in): HTTP server on localhost that exposes Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop proxy, scripts). Document targeting via `X-Document-URL` header; opt-in via Settings.
 
-**Connection Management & Identification**: LocalWriter includes built-in connection management in `plugin/modules/ai/service.py` that maintains persistent HTTP/HTTPS connections. All requests use unified `USER_AGENT`, `APP_REFERER`, and `APP_TITLE` headers from `core.constants` for consistent identification across providers (OpenRouter, Together AI, etc.).
+**Connection Management & Identification**: WriterAgent includes built-in connection management in `plugin/modules/ai/service.py` that maintains persistent HTTP/HTTPS connections. All requests use unified `USER_AGENT`, `APP_REFERER`, and `APP_TITLE` headers from `core.constants` for consistent identification across providers (OpenRouter, Together AI, etc.).
 
-Config is stored in `localwriter.json` in LibreOffice's user config directory. See `CONFIG_EXAMPLES.md` for examples (Ollama, OpenWebUI, OpenRouter, etc.).
+Config is stored in `writeragent.json` in LibreOffice's user config directory. See `CONFIG_EXAMPLES.md` for examples (Ollama, OpenWebUI, OpenRouter, etc.).
 
 ---
 
 ## 2. Repository Structure
 
 ```
-localwriter/
+writeragent/
 ├── plugin/
 │   ├── main.py              # MainJob: trigger(), dialogs, loads modules via bootstrap()
 │   ├── _manifest.py         # Auto-generated module manifest from plugin.yaml/module.yaml
@@ -64,9 +64,9 @@ localwriter/
 ├── pyproject.toml           # Defines project metadata and dependencies
 ├── Makefile                 # Build system
 ├── scripts/                 # Build and deploy scripts (make build, make deploy)
-├── LocalWriterDialogs/      # XDL dialogs (XML, Map AppFont units)
+├── WriterAgentDialogs/      # XDL dialogs (XML, Map AppFont units)
 ├── registry/                # Extension registry (Sidebar.xcu, Addons.xcu, etc.)
-└── localwriter.json.example # Config templates
+└── writeragent.json.example # Config templates
 ```
 
 ---
@@ -79,21 +79,21 @@ localwriter/
 
 ### After
 - Both dialogs use **XDL files** (XML) loaded via `DialogProvider`
-- `LocalWriterDialogs.SettingsDialog` — multi-page dialog (Chat/Text, **Image Settings**, and auto-generated tabs such as **Http**) using the `dlg:page` multi-page approach with tab-switching buttons. **Page 1 (Chat/Text)** uses a compact layout: endpoint, models, API key, Temperature, Max Tokens, Context Len, Additional Instructions. The **Image Settings** tab has shared options (base size, aspect, gallery, translate), **Seed** for reproducibility, and an **AI Horde** section (toggled by "Use AI Horde for Image Generation"). **MCP Server** (Enable checkbox, Port) is on the **Http** tab, not on Page 1.
-- `LocalWriterDialogs.EditInputDialog` — label + text field + OK
+- `WriterAgentDialogs.SettingsDialog` — multi-page dialog (Chat/Text, **Image Settings**, and auto-generated tabs such as **Http**) using the `dlg:page` multi-page approach with tab-switching buttons. **Page 1 (Chat/Text)** uses a compact layout: endpoint, models, API key, Temperature, Max Tokens, Context Len, Additional Instructions. The **Image Settings** tab has shared options (base size, aspect, gallery, translate), **Seed** for reproducibility, and an **AI Horde** section (toggled by "Use AI Horde for Image Generation"). **MCP Server** (Enable checkbox, Port) is on the **Http** tab, not on Page 1.
+- `WriterAgentDialogs.EditInputDialog` — label + text field + OK
 
 ### Key implementation details
 - **DialogProvider with direct package URL**: Dialogs are loaded by their XDL file URL, not the Basic library script URL. This avoids a deadlock that occurs when the sidebar panel is also registered as a UNO component.
   ```python
   pip = self.ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
-  base_url = pip.getPackageLocation("org.extension.localwriter")
+  base_url = pip.getPackageLocation("org.extension.writeragent")
   dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-  dlg = dp.createDialog(base_url + "/LocalWriterDialogs/SettingsDialog.xdl")
+  dlg = dp.createDialog(base_url + "/WriterAgentDialogs/SettingsDialog.xdl")
   ```
 - **Use `self.ctx`**, not `uno.getComponentContext()` — the extension's component context is required for `PackageInformationProvider` singleton lookup.
 - **Populate**: `dlg.getControl("endpoint").getModel().Text = value`
 - **Read**: `dlg.getControl("endpoint").getModel().Text` after `dlg.execute()`
-- **Manifest** must register the Basic library: `LocalWriterDialogs/` with `application/vnd.sun.star.basic-library`
+- **Manifest** must register the Basic library: `WriterAgentDialogs/` with `application/vnd.sun.star.basic-library`
 
 ---
 
@@ -101,7 +101,7 @@ localwriter/
 
 The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextList includes `com.sun.star.sheet.SpreadsheetDocument`).
 
-- **Sidebar panel**: LocalWriter deck in Writer's or Calc's right sidebar; panel has Response area, Ask field, Send button, Stop button, and Clear button. When the user changes Settings (e.g. model or additional instructions), the sidebar is notified via **config-change listeners** in `plugin/framework/config.py` (`add_config_listener`, `notify_config_changed`); the panel refreshes its model and prompt selectors from config so they stay in sync. Listeners use weakref so panels can be GC'd without unregistering.
+- **Sidebar panel**: WriterAgent deck in Writer's or Calc's right sidebar; panel has Response area, Ask field, Send button, Stop button, and Clear button. When the user changes Settings (e.g. model or additional instructions), the sidebar is notified via **config-change listeners** in `plugin/framework/config.py` (`add_config_listener`, `notify_config_changed`); the panel refreshes its model and prompt selectors from config so they stay in sync. Listeners use weakref so panels can be GC'd without unregistering.
   - **Auto-scroll**: The response area automatically scrolls to the bottom as text is streamed or tools are called, ensuring the latest AI output is always visible.
   - **Stop button**: A dedicated "Stop" button allows users to halt AI generation mid-stream. It is enabled only while the AI is active and disabled when idle.
   - **Undo grouping**: AI edits performed during tool-calling rounds are grouped into a single undo context ("AI Edit"). Users can revert all changes from an AI turn with a single Ctrl+Z.
@@ -129,8 +129,8 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
   - It directly invokes the `web_research` tool from `plugin/modules/writer/tools.py`, which runs the `ToolCallingAgent`-based sub-agent (`DuckDuckGoSearchTool` + `VisitWebpageTool`) to research the query.
   - The synthesized answer is streamed back into the response area as `AI (web): ...`, without modifying the document.
   - When unchecked (default), the sidebar behaves as standard Chat with Document; the main model may still call `web_research` autonomously via tool-calling when appropriate.
-  - The sub-agent uses smolagents' JSON-in-text parsing for tool calls; if the model returns malformed or missing JSON for a tool call, LocalWriter now falls back to the last useful text the web agent produced instead of surfacing a low-level "no JSON blob" error to the user.
-  - **Web cache (disk)**: Search and webpage results from the smolagents tools (`DuckDuckGoSearchTool`, `VisitWebpageTool` in `plugin/contrib/smolagents/default_tools.py`) are cached on disk in a SQLite DB at `{user_config_dir}/localwriter_web_cache.db`. Cache is shared across processes (retry on lock). Total size is bounded by config `web_cache_max_mb` (default 50, clamp 1–500; 0 disables). On cache hit the entry is touched (LRU) so it is not evicted soon. Key normalization: search = collapse whitespace; page = URL strip. All cache logic lives in `default_tools.py`; `tool_web_research` in `document_tools.py` passes `cache_path` and `cache_max_mb` from config.
+  - The sub-agent uses smolagents' JSON-in-text parsing for tool calls; if the model returns malformed or missing JSON for a tool call, WriterAgent now falls back to the last useful text the web agent produced instead of surfacing a low-level "no JSON blob" error to the user.
+  - **Web cache (disk)**: Search and webpage results from the smolagents tools (`DuckDuckGoSearchTool`, `VisitWebpageTool` in `plugin/contrib/smolagents/default_tools.py`) are cached on disk in a SQLite DB at `{user_config_dir}/writeragent_web_cache.db`. Cache is shared across processes (retry on lock). Total size is bounded by config `web_cache_max_mb` (default 50, clamp 1–500; 0 disables). On cache hit the entry is touched (LRU) so it is not evicted soon. Key normalization: search = collapse whitespace; page = URL strip. All cache logic lives in `default_tools.py`; `tool_web_research` in `document_tools.py` passes `cache_path` and `cache_max_mb` from config.
 
 ### Markdown tool-calling (current)
 
@@ -153,8 +153,8 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
 - **Thinking display**: Reasoning tokens are shown in the response area as `[Thinking] ... /thinking`. When thinking ends we append a newline after ` /thinking` so the following response text starts on a new line.
 - **Persistent Chat History**: Logic in `plugin/framework/history_db.py`. Uses a polyfill strategy: SQLAlchemy if available, fallback to native `sqlite3`.
     - **Schema**: Simple `message_store` table compatible with LangChain's SQL history JSON format.
-    - **Database Path**: Stored in LibreOffice user config directory (`localwriter_history.db`).
-    - **Robust Session IDs**: Instead of document URLs (which break on rename), we store a `LocalWriterSessionID` in the document's **`UserDefinedProperties`** via `getDocumentProperties()`. If missing, we generate one (hash or UUID) and persist it to the file. This ensures history remains linked even if the file is moved or renamed.
+    - **Database Path**: Stored in LibreOffice user config directory (`writeragent_history.db`).
+    - **Robust Session IDs**: Instead of document URLs (which break on rename), we store a `WriterAgentSessionID` in the document's **`UserDefinedProperties`** via `getDocumentProperties()`. If missing, we generate one (hash or UUID) and persist it to the file. This ensures history remains linked even if the file is moved or renamed.
     - **Save-As Awareness**: History logic handles "Save As" by either branching the history (generating a new ID) or inheriting it, depending on the implementation.
 
 See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for implementation details.
@@ -213,7 +213,7 @@ The "Additional Instructions" (previously system prompts) are now unified across
 
 ## 3d. Multimodal AI (Image Generation & Editing)
 
-LocalWriter can generate and edit images inside Writer and Calc via tools exposed to the chat LLM. Two backends are supported; they differ in API shape and where the “model” is configured.
+WriterAgent can generate and edit images inside Writer and Calc via tools exposed to the chat LLM. Two backends are supported; they differ in API shape and where the “model” is configured.
 
 ### Providers
 
@@ -235,8 +235,8 @@ LocalWriter can generate and edit images inside Writer and Calc via tools expose
 
 ### UI and config
 
-- **Settings** (`LocalWriterDialogs/SettingsDialog.xdl`): Tabbed. **Chat/Text** tab: Text/Chat Model and **Image model (same endpoint as chat)** comboboxes (LRU). **Image Settings** tab: shared section (width, height, auto gallery, insert frame, translate prompt) and **AI Horde** section (provider enabled via **"Use AI Horde for Image Generation"** on this tab, `aihorde_api_key`, CFG scale, steps, max wait, NSFW) with a fixedline separator. All image-related keys applied via `_apply_settings_result` in `plugin/main.py`.
-- **Chat sidebar** (`LocalWriterDialogs/ChatPanelDialog.xdl`, `plugin/modules/chatbot/panel_factory.py`): **AI Model** combobox (text model → `text_model`, `model_lru`) and **Image model (same endpoint as chat)** combobox (→ `image_model`, `image_model_lru`). **"Use Image model"** checkbox (config `chat_direct_image`): when checked, the current message is sent directly to the image pipeline (AI Horde or image model per Settings) for Writer, Calc, and Draw — no chat model round-trip. Orthogonal to which tools are given to the LLM; uses `document_tools.execute_tool("generate_image", ...)` for all doc types. No additional-instructions control in the sidebar; extra instructions come from config only when building the system prompt.
+- **Settings** (`WriterAgentDialogs/SettingsDialog.xdl`): Tabbed. **Chat/Text** tab: Text/Chat Model and **Image model (same endpoint as chat)** comboboxes (LRU). **Image Settings** tab: shared section (width, height, auto gallery, insert frame, translate prompt) and **AI Horde** section (provider enabled via **"Use AI Horde for Image Generation"** on this tab, `aihorde_api_key`, CFG scale, steps, max wait, NSFW) with a fixedline separator. All image-related keys applied via `_apply_settings_result` in `plugin/main.py`.
+- **Chat sidebar** (`WriterAgentDialogs/ChatPanelDialog.xdl`, `plugin/modules/chatbot/panel_factory.py`): **AI Model** combobox (text model → `text_model`, `model_lru`) and **Image model (same endpoint as chat)** combobox (→ `image_model`, `image_model_lru`). **"Use Image model"** checkbox (config `chat_direct_image`): when checked, the current message is sent directly to the image pipeline (AI Horde or image model per Settings) for Writer, Calc, and Draw — no chat model round-trip. Orthogonal to which tools are given to the LLM; uses `document_tools.execute_tool("generate_image", ...)` for all doc types. No additional-instructions control in the sidebar; extra instructions come from config only when building the system prompt.
 
 ### Config keys (summary)
 
@@ -266,8 +266,8 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 - **`MainJob._apply_settings_result(self, result)`** (`plugin/main.py`): Applies settings dialog result to config. Used by both Writer and Calc settings branches.
 - **`plugin/framework/logging.py`**:
   - Call `init_logging(ctx)` once from an entry point (e.g. start of `trigger`, or when the chat panel wires controls). Sets global log paths and optional `enable_agent_log` from config.
-  - `debug_log(msg, context=None)` — single debug file. Writes to `localwriter_debug.log` in user config dir (or `~/localwriter_debug.log`). Use `context="API"`, `"Chat"`, or `"Markdown"` for prefixed lines. No ctx passed at write time.
-  - `agent_log(location, message, ...)` — NDJSON to `localwriter_agent.log` (user config or `~/`), only if config `enable_agent_log` is true.
+  - `debug_log(msg, context=None)` — single debug file. Writes to `writeragent_debug.log` in user config dir (or `~/writeragent_debug.log`). Use `context="API"`, `"Chat"`, or `"Markdown"` for prefixed lines. No ctx passed at write time.
+  - `agent_log(location, message, ...)` — NDJSON to `writeragent_agent.log` (user config or `~/`), only if config `enable_agent_log` is true.
   - Watchdog: `update_activity_state(phase, ...)`, `start_watchdog_thread(ctx, status_control)` for hang detection (logs and status "Hung: ..." if no activity for threshold).
 - **`SendButtonListener._send_busy`** (`panel_factory.py`): Boolean; True from run start until the `finally` block of `actionPerformed` (single source of truth for "is the AI running?"). Used together with lifecycle-based `_set_button_states(send_enabled, stop_enabled)`.
 - **`core/api.format_error_for_display(e)`**: Returns user-friendly error string for cells/dialogs (e.g. `"Error: Connection refused..."`).
@@ -292,8 +292,8 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 - Scrollbars require manual implementation (complex). Prefer splitting into tabs or keeping content compact.
 
 ### Recommended approach: XDL + DialogProvider (direct package URL)
-- Design dialogs as **XDL files** (XML). Edit `LocalWriterDialogs/*.xdl` directly.
-- Load via `DialogProvider.createDialog(base_url + "/LocalWriterDialogs/DialogName.xdl")` where `base_url` comes from `PackageInformationProvider.getPackageLocation()`.
+- Design dialogs as **XDL files** (XML). Edit `WriterAgentDialogs/*.xdl` directly.
+- Load via `DialogProvider.createDialog(base_url + "/WriterAgentDialogs/DialogName.xdl")` where `base_url` comes from `PackageInformationProvider.getPackageLocation()`.
 - **Do NOT** use the Basic library script URL format (`vnd.sun.star.script:LibraryName.DialogName?location=application`) — it deadlocks when sidebar UNO components are also registered.
 - The Dialog Editor in LibreOffice Basic produces XDL; you can also hand-write or generate it.
 
@@ -377,12 +377,12 @@ We implemented a custom engine in `plugin/modules/writer/format_support.py` that
 
 ## 5. Config File
 
-- **Path**: LibreOffice UserConfig directory + `localwriter.json`
-  - Linux: `~/.config/libreoffice/4/user/localwriter.json` (or `24/user` for LO 24)
-  - macOS: `~/Library/Application Support/LibreOffice/4/user/localwriter.json`
-  - Windows: `%APPDATA%\LibreOffice\4\user\localwriter.json`
-- **Single file**: No presets or multiple configs. To use a different setup, copy your config to the path above as `localwriter.json`.
-- **Settings Dialog Integration**: AI and service configurations are unified in the `LocalWriter -> Settings` dialog. The Settings dialog tabs for service configuration (e.g., Writer, Calc, Chatbot, Tunnel, Http) are auto-generated from `module.yaml` configuration schemas by `scripts/generate_manifest.py`.
+- **Path**: LibreOffice UserConfig directory + `writeragent.json`
+  - Linux: `~/.config/libreoffice/4/user/writeragent.json` (or `24/user` for LO 24)
+  - macOS: `~/Library/Application Support/LibreOffice/4/user/writeragent.json`
+  - Windows: `%APPDATA%\LibreOffice\4\user\writeragent.json`
+- **Single file**: No presets or multiple configs. To use a different setup, copy your config to the path above as `writeragent.json`.
+- **Settings Dialog Integration**: AI and service configurations are unified in the `WriterAgent -> Settings` dialog. The Settings dialog tabs for service configuration (e.g., Writer, Calc, Chatbot, Tunnel, Http) are auto-generated from `module.yaml` configuration schemas by `scripts/generate_manifest.py`.
 - **Settings dialog** reads/writes this file via `get_config()` / `set_config()` in `plugin/framework/config.py`. Use **`get_current_endpoint(ctx)`** for the normalized current endpoint URL (single source; used by plugin/main.py and panel_factory.py).
 - **Chat-related keys**: `chat_context_length` (default 8000), `chat_max_tokens` (default 512 menu / 16384 sidebar), `additional_instructions`. Also **per-endpoint API keys**: `api_keys_by_endpoint` (JSON map: normalized endpoint URL → API key); `get_api_key_for_endpoint(ctx, endpoint)` / `set_api_key_for_endpoint(ctx, endpoint, key)` in `plugin/framework/config.py`. Legacy `api_key` is migrated once into the map under the current endpoint and then removed. Settings dialog shows and saves the key for the selected endpoint.
 - **Model keys**: `text_model` (chat/LLM model; backward compat: `model`), `model_lru` (recent text models); `image_model` (image model when using chat endpoint for images), `image_model_lru` (recent image models). See Section 3d.
@@ -391,23 +391,23 @@ We implemented a custom engine in `plugin/modules/writer/format_support.py` that
 
 ## 5b. Log Files
 
-- **Unified debug log**: `~/.config/libreoffice/4/user/config/localwriter_debug.log` (exact path; fallback `~/localwriter_debug.log` if user config dir not found). Written by `debug_log(msg, context=...)` with prefixes `[API]`, `[Chat]`, `[Markdown]`, `[AIHorde]`. Paths set once via `init_logging(ctx)`; no ctx needed at call sites.
-- **Agent log** (NDJSON, optional): `localwriter_agent.log` in user config (or `~/`). Written by `agent_log(...)` only when config key `enable_agent_log` is true (default false). Used for hypothesis/debug tracking.
+- **Unified debug log**: `~/.config/libreoffice/4/user/config/writeragent_debug.log` (exact path; fallback `~/writeragent_debug.log` if user config dir not found). Written by `debug_log(msg, context=...)` with prefixes `[API]`, `[Chat]`, `[Markdown]`, `[AIHorde]`. Paths set once via `init_logging(ctx)`; no ctx needed at call sites.
+- **Agent log** (NDJSON, optional): `writeragent_agent.log` in user config (or `~/`). Written by `agent_log(...)` only when config key `enable_agent_log` is true (default false). Used for hypothesis/debug tracking.
 - **Watchdog**: If no activity for the threshold (e.g. 30s), a line is written to the debug log and the status control shows "Hung: ...".
 
 ### Finding log files (and image generation debugging)
 
-Log paths are set in `plugin/framework/logging.py` by `init_logging(ctx)` and live in the **same directory as `localwriter.json`** (from `PathSettings.UserConfig` in `plugin/framework/config.py`). Locations to check, in order:
+Log paths are set in `plugin/framework/logging.py` by `init_logging(ctx)` and live in the **same directory as `writeragent.json`** (from `PathSettings.UserConfig` in `plugin/framework/config.py`). Locations to check, in order:
 
-- `~/.config/libreoffice/4/user/localwriter_debug.log` and `localwriter_agent.log`
+- `~/.config/libreoffice/4/user/writeragent_debug.log` and `writeragent_agent.log`
 - `~/.config/libreoffice/24/user/` (same filenames; version-dependent)
 - `~/.config/libreoffice/4/user/config/` and `24/user/config/` (some installs)
-- **Fallback** (if user config dir unavailable at init): `~/localwriter_debug.log` and `~/localwriter_agent.log`
+- **Fallback** (if user config dir unavailable at init): `~/writeragent_debug.log` and `~/writeragent_agent.log`
 
 **Which logs show image generation failures:**
 
-- **AI Horde** (`image_provider=aihorde`): `localwriter_debug.log` — search for `[AIHorde]` for request flow, errors, and stack traces. `plugin/framework/aihordeclient/` uses `debug_log` and `log_exception` with context `"AIHorde"`.
-- **Endpoint** (`image_provider=endpoint`): Debug log only shows `[Chat] Tool call: generate_image(...)` (no error text). For the actual error: enable **Settings → Enable agent log**, reproduce, then open `localwriter_agent.log` and look for `"Tool result"` with `tool` `"generate_image"` or `"edit_image"` — the error is in `data.result_snippet`. `plugin/framework/image_service.py` does not write to the debug log.
+- **AI Horde** (`image_provider=aihorde`): `writeragent_debug.log` — search for `[AIHorde]` for request flow, errors, and stack traces. `plugin/framework/aihordeclient/` uses `debug_log` and `log_exception` with context `"AIHorde"`.
+- **Endpoint** (`image_provider=endpoint`): Debug log only shows `[Chat] Tool call: generate_image(...)` (no error text). For the actual error: enable **Settings → Enable agent log**, reproduce, then open `writeragent_agent.log` and look for `"Tool result"` with `tool` `"generate_image"` or `"edit_image"` — the error is in `data.result_snippet`. `plugin/framework/image_service.py` does not write to the debug log.
 
 ---
 
@@ -415,10 +415,10 @@ Log paths are set in `plugin/framework/logging.py` by `init_logging(ctx)` and li
 
 ```bash
 make build
-make deploy   # or remove first: unopkg remove org.extension.localwriter
+make deploy   # or remove first: unopkg remove org.extension.writeragent
 ```
 
-Restart LibreOffice after install/update. Test: menu **LocalWriter → Settings** and **LocalWriter → Edit Selection**.
+Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings** and **WriterAgent → Edit Selection**.
 
 **Build without voice recording:** Run `make build-no-recording` (or `make build NO_RECORDING=1`) to produce an .oxt that excludes voice/audio recording: the bundle omits `contrib/audio/` and `plugin/modules/chatbot/audio_recorder.py`; the Chat sidebar stays and the Record button is simply not shown. This reduces extension size when recording is not needed.
 
@@ -465,7 +465,7 @@ Restart LibreOffice after install/update. Test: menu **LocalWriter → Settings*
 - **`plugin/framework/http_server.py`**: `MCPHttpServer` and `MCPHandler`; GET `/health`, `/tools`, `/`, `/documents`; POST `/tools/{name}`. **Document targeting**: `X-Document-URL` header; server resolves document by iterating `desktop.getComponents()` and matching `getURL()`. Falls back to active document if header absent. Port utilities: `_probe_health`, `_is_port_bound`, `_kill_zombies_on_port` (Windows).
 - **Idle-time draining**: **AsyncCallback thread** in `plugin/main.py` (Path A). A background Python thread schedules `XCallback` via `com.sun.star.awt.AsyncCallback` every 100ms, which safely executes `drain_mcp_queue()` on the main VCL thread. Option B (piggyback on the chat stream drain loop) was **not** used — it would only service MCP during active chat, which is inadequate for standalone MCP use.
 - **Config**: `mcp_enabled` (default false), `mcp_port` (default 8765). MCP settings are on the **Http** tab of the Settings dialog (auto-generated from `plugin/modules/http/module.yaml`); Enable MCP Server checkbox, Port field, "Localhost only, no auth." label.
-- **Menu**: "Toggle MCP Server" and "MCP Server Status" under LocalWriter. Status dialog shows RUNNING/STOPPED, port, URL, and health check. Auto-start: when user saves Settings with MCP enabled, server (and timer) start if not already running.
+- **Menu**: "Toggle MCP Server" and "MCP Server Status" under WriterAgent. Status dialog shows RUNNING/STOPPED, port, URL, and health check. Auto-start: when user saves Settings with MCP enabled, server (and timer) start if not already running.
 - **Icons**: `assets/` includes `running_16.png`, `running_26.png`, `starting_16.png`, `starting_26.png`, `stopped_16.png`, `stopped_26.png` (from libreoffice-mcp-extension).
 - See **`MCP_PROTOCOL.md`** for protocol details and architecture.
 
@@ -490,7 +490,7 @@ Image generation and AI Horde integration are **complete** (generate_image, edit
 ## 8. Gotchas
 
 - **Settings dialog fields**: The list of settings is defined in **`MainJob._get_settings_field_specs()`** (single source); `_apply_settings_result` derives apply keys from it. Settings dialog field list in XDL must match the names in that method.
-- **Library name**: `LocalWriterDialogs` (folder name) must match `library:name` in `dialog.xlb`.
+- **Library name**: `WriterAgentDialogs` (folder name) must match `library:name` in `dialog.xlb`.
 - **DialogProvider deadlock**: Using `vnd.sun.star.script:...?location=application` URLs with `DialogProvider.createDialog()` will deadlock when the sidebar panel (panel_factory.py) is also registered as a UNO component. Always use direct package URLs instead (see Section 3).
 - **Use `self.ctx` for PackageInformationProvider**: `uno.getComponentContext()` returns a limited global context that cannot look up extension singletons. Always use `self.ctx` (the context passed to the UNO component constructor).
 - **dtd reference**: XDL uses `<!DOCTYPE dlg:window PUBLIC "... "dialog.dtd">`. LibreOffice resolves this from its installation.
@@ -502,7 +502,7 @@ Image generation and AI Horde integration are **complete** (generate_image, edit
 - **Strict Verification**: `SendButtonListener` tracks `initial_doc_type` during `_wireControls`. In `_do_send`, it re-verifies the document type. If it differs from the initial type, it logs an error and refuses to send. This prevents document-type "leakage" and ensures the AI never uses the wrong tools.
 - **Writer has a Drawing Layer**: `hasattr(model, "getDrawPages")` returns `True` for Writer documents because they have a drawing layer for shapes. Always use `is_writer(model)` (via `supportsService`) to avoid misidentifying Writer as Draw.
 - **Context function signatures**: All document context functions should follow the signature `(model, max_context, ctx=None)`. Missing the `ctx` default can lead to `TypeError` during document type transitions in the sidebar.
-- **API Keys / Security**: API keys MUST be handled via the Settings dialog and stored in `localwriter.json`. Never bake in fallbacks to environment variables (like `OPENROUTER_API_KEY`) in production code, as this bypasses the user's manual configuration and complicates privacy auditing. Env vars are for developer testing ONLY.
+- **API Keys / Security**: API keys MUST be handled via the Settings dialog and stored in `writeragent.json`. Never bake in fallbacks to environment variables (like `OPENROUTER_API_KEY`) in production code, as this bypasses the user's manual configuration and complicates privacy auditing. Env vars are for developer testing ONLY.
 - **MCP Server**: The MCP HTTP server and UNO Timer for `drain_mcp_queue` are started from `plugin/main.py` only (not from the sidebar). Server binds to localhost only; no authentication. External clients target a document via the `X-Document-URL` header to avoid races with the active document.
 
 ---

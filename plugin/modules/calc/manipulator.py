@@ -11,7 +11,7 @@ import logging
 
 from plugin.modules.calc.address_utils import parse_address
 
-logger = logging.getLogger("localwriter.calc")
+logger = logging.getLogger("writeragent.calc")
 
 
 # ── Helper ─────────────────────────────────────────────────────────────

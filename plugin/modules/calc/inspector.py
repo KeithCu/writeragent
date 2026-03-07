@@ -15,7 +15,7 @@ except ImportError:
     EMPTY, VALUE, TEXT, FORMULA = 0, 1, 2, 3
     UNO_AVAILABLE = False
 
-logger = logging.getLogger("localwriter.calc")
+logger = logging.getLogger("writeragent.calc")
 
 
 class CellInspector:

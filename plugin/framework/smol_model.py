@@ -6,10 +6,10 @@ class DummyTokenUsage:
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
 
-class LocalWriterSmolModel(Model):
+class WriterAgentSmolModel(Model):
     """
     A wrapper that implements `smolagents.models.Model` by delegating 
-    requests to LocalWriter's `LlmClient` (`core.api`).
+    requests to WriterAgent's `LlmClient` (`core.api`).
     """
     def __init__(self, llm_client, max_tokens=1024, status_callback=None, **kwargs):
         super().__init__(**kwargs)
@@ -33,7 +33,7 @@ class LocalWriterSmolModel(Model):
         if self._status_callback:
             self._status_callback("Thinking...")
 
-        # Make the request to LocalWriter's backend
+        # Make the request to WriterAgent's backend
         result = self.api.request_with_tools(msg_dicts, max_tokens=self.max_tokens, tools=tools)
         
         if self._status_callback:

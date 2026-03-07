@@ -36,7 +36,7 @@ def check_endpoint(name, url, method="GET", data=None):
 
 if __name__ == "__main__":
     BASE_URL = "http://127.0.0.1:8765"
-    print("Testing LocalWriter MCP Server...")
+    print("Testing WriterAgent MCP Server...")
     
     # 1. Test Health
     check_endpoint("Health", f"{BASE_URL}/health")

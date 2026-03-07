@@ -5,7 +5,7 @@ import logging
 
 from plugin.modules.ai.provider_base import LlmProvider
 
-log = logging.getLogger("localwriter.ai_dummy")
+log = logging.getLogger("writeragent.ai_dummy")
 
 _RESPONSE = "D'oh!"
 

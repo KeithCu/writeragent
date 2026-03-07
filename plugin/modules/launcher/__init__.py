@@ -1,5 +1,5 @@
 # Adapted from Nelson MCP
-"""Launcher module — launches an external AI CLI tool connected to LocalWriter MCP.
+"""Launcher module — launches an external AI CLI tool connected to WriterAgent MCP.
 
 The parent module owns the subprocess lifecycle and terminal detection;
 each child provider supplies its binary, auto-config, and install scripts
@@ -16,7 +16,7 @@ import threading
 
 from plugin.framework.module_base import ModuleBase
 
-log = logging.getLogger("localwriter.launcher")
+log = logging.getLogger("writeragent.launcher")
 
 # Windows: open subprocess in a new console window (not hidden)
 _CREATION_FLAGS = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if sys.platform == "win32" else 0
@@ -61,7 +61,7 @@ def run_install_for_provider(provider_name):
     mgr = services.launcher_manager
     provider = mgr.get_provider(provider_name)
     if provider is None:
-        msgbox(ctx, "LocalWriter",
+        msgbox(ctx, "WriterAgent",
                "CLI provider '%s' not found." % provider_name)
         return
 
@@ -76,7 +76,7 @@ def run_install_for_provider(provider_name):
     script_path = os.path.join(mod_dir, f"{provider_name}_scripts", script_name)
 
     if not os.path.isfile(script_path):
-        msgbox(ctx, "LocalWriter",
+        msgbox(ctx, "WriterAgent",
                "Install script not found:\n%s" % script_path)
         return
 
@@ -95,7 +95,7 @@ def run_install_for_provider(provider_name):
             term = _find_terminal(terminal)
         except Exception:
             log.exception("Terminal detection failed")
-            msgbox(ctx, "LocalWriter", "Could not find a terminal emulator.")
+            msgbox(ctx, "WriterAgent", "Could not find a terminal emulator.")
             return
 
         cli_cmd = [
@@ -114,7 +114,7 @@ def run_install_for_provider(provider_name):
         )
     except Exception:
         log.exception("Failed to launch install script")
-        msgbox(ctx, "LocalWriter",
+        msgbox(ctx, "WriterAgent",
                "Failed to launch install script.")
 
 
@@ -165,9 +165,9 @@ def get_global_instructions_default(services):
 
     # Start with a strong persona and technical guidance
     # We use f-string to inject the shared rules from constants.py
-    base = f"""# LocalWriter MCP — AI CLI Instructions
+    base = f"""# WriterAgent MCP — AI CLI Instructions
 
-You are an AI assistant helping the user work with a LibreOffice document through **LocalWriter MCP**. Your goal is to help the user create polished, professional documents.
+You are an AI assistant helping the user work with a LibreOffice document through **WriterAgent MCP**. Your goal is to help the user create polished, professional documents.
 
 ## Core Directives
 
@@ -244,12 +244,12 @@ def on_install_active_provider():
     name = cfg.get("provider")
 
     if not name:
-        msgbox(get_ctx(), "LocalWriter", "Please select a provider first.")
+        msgbox(get_ctx(), "WriterAgent", "Please select a provider first.")
         return
 
     provider = services.launcher_manager.get_provider(name)
     if provider is None:
-        msgbox(get_ctx(), "LocalWriter", "CLI provider '%s' not found." % name)
+        msgbox(get_ctx(), "WriterAgent", "CLI provider '%s' not found." % name)
         return
 
     install_url = getattr(provider, "install_url", None)
@@ -258,9 +258,9 @@ def on_install_active_provider():
             webbrowser.open(install_url)
         except Exception:
             log.exception("Failed to open install URL: %s", install_url)
-            msgbox(get_ctx(), "LocalWriter", "Failed to open install URL.")
+            msgbox(get_ctx(), "WriterAgent", "Failed to open install URL.")
     else:
-        msgbox(get_ctx(), "LocalWriter", "No install URL available for provider '%s'." % name)
+        msgbox(get_ctx(), "WriterAgent", "No install URL available for provider '%s'." % name)
 
 
 def _find_terminal(configured):
@@ -438,11 +438,11 @@ class LauncherModule(ModuleBase):
         cfg = self._services.config.proxy_for(self.name)
         provider_name = cfg.get("provider")
         if not provider_name:
-            msgbox(get_ctx(), "LocalWriter",
+            msgbox(get_ctx(), "WriterAgent",
                    "No AI CLI provider selected.\n"
-                   "Go to Options → LocalWriter → Launcher to pick one.")
+                   "Go to Options → WriterAgent → Launcher to pick one.")
         else:
-            msgbox(get_ctx(), "LocalWriter",
+            msgbox(get_ctx(), "WriterAgent",
                    "CLI provider '%s' not found." % provider_name)
         return None
 
@@ -463,7 +463,7 @@ class LauncherModule(ModuleBase):
         ctx = get_ctx()
 
         if self._is_running():
-            msgbox(ctx, "LocalWriter", "AI CLI is already running.")
+            msgbox(ctx, "WriterAgent", "AI CLI is already running.")
             return
 
         provider = self._get_provider()
@@ -485,7 +485,7 @@ class LauncherModule(ModuleBase):
 
         # Check command exists
         if not shutil.which(provider.binary_name):
-            msgbox(ctx, "LocalWriter",
+            msgbox(ctx, "WriterAgent",
                    "Command '%s' not found.\n"
                    "Make sure it is installed and in your PATH.\n\n"
                    "Use 'Install AI CLI' from the menu to get install instructions."
@@ -539,11 +539,11 @@ class LauncherModule(ModuleBase):
                 term = _find_terminal(terminal)
             except Exception:
                 log.exception("Terminal detection failed")
-                msgbox(ctx, "LocalWriter", "Could not find a terminal emulator.")
+                msgbox(ctx, "WriterAgent", "Could not find a terminal emulator.")
                 return
 
             if not shutil.which(term) and not (sys.platform == "darwin" and term == "open"):
-                msgbox(ctx, "LocalWriter",
+                msgbox(ctx, "WriterAgent",
                        "Terminal '%s' not found.\n"
                        "Install it or set a different one in Options." % term)
                 return
@@ -576,11 +576,11 @@ class LauncherModule(ModuleBase):
             t.start()
 
         except FileNotFoundError:
-            msgbox(ctx, "LocalWriter",
+            msgbox(ctx, "WriterAgent",
                    "Failed to launch: terminal '%s' not found." % term)
         except Exception:
             log.exception("Failed to launch CLI")
-            msgbox(ctx, "LocalWriter",
+            msgbox(ctx, "WriterAgent",
                    "Failed to launch AI CLI.")
 
     def _wait_for_exit(self):

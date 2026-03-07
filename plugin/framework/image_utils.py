@@ -1,4 +1,4 @@
-"""Unified Image Generation Service for LocalWriter."""
+"""Unified Image Generation Service for WriterAgent."""
 import json
 import logging
 import time
@@ -184,7 +184,7 @@ class AIHordeImageProvider(ImageProvider):
             client_help_url="",
             client_download_url="",
             settings=config,
-            client_name="LocalWriter_Horde_Client",
+            client_name="WriterAgent_Horde_Client",
             informer=self.informer
         )
         # We need to manually inject the toolkit because SimpleInformer.__init__

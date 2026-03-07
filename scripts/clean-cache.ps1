@@ -23,9 +23,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot  = Split-Path $PSScriptRoot
-$ExtensionId  = "org.extension.localwriter"
-$ExtensionOxt = "localwriter.oxt"
-$BundleName   = "localwriter"
+$ExtensionId  = "org.extension.writeragent"
+$ExtensionOxt = "WriterAgent.oxt"
+$BundleName   = "WriterAgent"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

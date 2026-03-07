@@ -7,7 +7,7 @@ duplicating UNO details.
 
 import logging
 
-log = logging.getLogger("localwriter.writer")
+log = logging.getLogger("writeragent.writer")
 
 
 def find_paragraph_for_range(anchor, para_ranges, text_obj):

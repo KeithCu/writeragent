@@ -4,7 +4,7 @@ import logging
 
 from plugin.framework.tool_base import ToolBase
 
-log = logging.getLogger("localwriter.writer")
+log = logging.getLogger("writeragent.writer")
 
 
 class ListTables(ToolBase):

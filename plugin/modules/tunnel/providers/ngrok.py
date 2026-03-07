@@ -3,7 +3,7 @@
 import json
 import logging
 
-log = logging.getLogger("localwriter.tunnel.ngrok")
+log = logging.getLogger("writeragent.tunnel.ngrok")
 
 
 class NgrokProvider:

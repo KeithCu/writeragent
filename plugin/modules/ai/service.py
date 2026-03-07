@@ -13,7 +13,7 @@ from plugin.contrib.default_models import (
     DEFAULT_MODELS, merge_catalogs, resolve_model_id,
 )
 
-log = logging.getLogger("localwriter.ai")
+log = logging.getLogger("writeragent.ai")
 
 
 class AiInstance:

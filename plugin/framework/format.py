@@ -6,7 +6,7 @@ import tempfile
 
 from plugin.framework.service_base import ServiceBase
 
-log = logging.getLogger("localwriter.format")
+log = logging.getLogger("writeragent.format")
 
 
 class FormatService(ServiceBase):

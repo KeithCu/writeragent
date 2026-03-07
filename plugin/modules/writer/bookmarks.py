@@ -6,7 +6,7 @@ Ported from mcp-libre services/writer/tree.py (bookmark methods).
 import logging
 import uuid
 
-log = logging.getLogger("localwriter.writer.nav.bookmarks")
+log = logging.getLogger("writeragent.writer.nav.bookmarks")
 
 
 class BookmarkService:

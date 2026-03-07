@@ -13,7 +13,7 @@ import urllib.parse
 
 from plugin.modules.ai.providers.openai import OpenAICompatProvider
 
-log = logging.getLogger("localwriter.ai_ollama")
+log = logging.getLogger("writeragent.ai_ollama")
 
 
 class OllamaProvider(OpenAICompatProvider):

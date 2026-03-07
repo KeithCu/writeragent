@@ -491,7 +491,7 @@ def create_agent_gradio_app_template():
     """
     Return a Jinja2 template for generating a Gradio app, if Jinja2 is available.
 
-    LocalWriter does not rely on this for the `search_web` path; it is kept only
+    WriterAgent does not rely on this for the `search_web` path; it is kept only
     for completeness when users have the optional Jinja2 dependency installed.
     """
     try:

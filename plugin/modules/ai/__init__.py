@@ -3,7 +3,7 @@
 import logging
 from plugin.framework.module_base import ModuleBase
 
-log = logging.getLogger("localwriter.ai")
+log = logging.getLogger("writeragent.ai")
 
 
 class Module(ModuleBase):

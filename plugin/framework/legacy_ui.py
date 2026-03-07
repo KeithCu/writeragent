@@ -12,7 +12,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         base_url = get_extension_url()
         debug_log("input_box: base_url=%s" % (base_url or ""), context="Chat")
         dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-        dlg_url = base_url + "/LocalWriterDialogs/EditInputDialog.xdl"
+        dlg_url = base_url + "/WriterAgentDialogs/EditInputDialog.xdl"
         dlg = dp.createDialog(dlg_url)
         debug_log("input_box: dialog created successfully", context="Chat")
     except Exception as e:
@@ -79,7 +79,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 
     base_url = get_extension_url()
     dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-    dialog_url = base_url + "/LocalWriterDialogs/SettingsDialog.xdl"
+    dialog_url = base_url + "/WriterAgentDialogs/SettingsDialog.xdl"
     try:
         dlg = dp.createDialog(dialog_url)
     except Exception as e:
@@ -290,7 +290,7 @@ def show_eval_dashboard(ctx):
     smgr = ctx.getServiceManager()
     base_url = get_extension_url()
     dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-    dlg = dp.createDialog(base_url + "/LocalWriterDialogs/EvalDialog.xdl")
+    dlg = dp.createDialog(base_url + "/WriterAgentDialogs/EvalDialog.xdl")
 
     try:
         endpoint_ctrl = dlg.getControl("endpoint")

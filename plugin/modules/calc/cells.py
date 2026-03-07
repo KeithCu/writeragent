@@ -11,7 +11,7 @@ from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.inspector import CellInspector
 from plugin.modules.calc.manipulator import CellManipulator
 
-logger = logging.getLogger("localwriter.calc")
+logger = logging.getLogger("writeragent.calc")
 
 
 # ── Colour helper ──────────────────────────────────────────────────────

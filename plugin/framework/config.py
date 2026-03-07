@@ -1,6 +1,6 @@
 """
-Configuration logic for LocalWriter.
-Reads/writes localwriter.json in LibreOffice's user config directory.
+Configuration logic for WriterAgent.
+Reads/writes writeragent.json in LibreOffice's user config directory.
 """
 import os
 import json
@@ -15,7 +15,7 @@ from plugin.framework.uno_context import get_ctx
 from plugin.contrib.default_models import DEFAULT_MODELS, resolve_model_id
 
 
-CONFIG_FILENAME = "localwriter.json"
+CONFIG_FILENAME = "writeragent.json"
 
 # MCP server: mcp_enabled (bool, default False), mcp_port (int, default 8765)
 
@@ -60,7 +60,7 @@ AI_SIMPLE_FIELDS = {
 
 
 def _config_path(ctx):
-    """Return the absolute path to localwriter.json."""
+    """Return the absolute path to writeragent.json."""
     if ctx is None:
         return None
     try:
@@ -615,7 +615,7 @@ def _dummy_impl(name, services=()):
     return decorator
 _implementation = unohelper.implementation if (unohelper and hasattr(unohelper, "implementation")) else _dummy_impl
 
-@_implementation("org.extension.localwriter.ConfigService")
+@_implementation("org.extension.writeragent.ConfigService")
 class ConfigService(ServiceBase):
     name = "config"
 

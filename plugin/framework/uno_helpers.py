@@ -27,7 +27,7 @@ def get_package_info(ctx=None):
     return ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
 
 
-def get_extension_url(ctx=None, extension_id="org.extension.localwriter"):
+def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):
     """Return the base URL of the extension package."""
     pip = get_package_info(ctx)
     if not pip:
@@ -35,7 +35,7 @@ def get_extension_url(ctx=None, extension_id="org.extension.localwriter"):
     return pip.getPackageLocation(extension_id)
 
 
-def get_extension_path(ctx=None, extension_id="org.extension.localwriter"):
+def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):
     """Return the local filesystem path of the extension package."""
     url = get_extension_url(ctx, extension_id)
     if not url:

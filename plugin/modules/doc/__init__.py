@@ -3,7 +3,7 @@
 import logging
 from plugin.framework.module_base import ModuleBase
 
-log = logging.getLogger("localwriter.doc")
+log = logging.getLogger("writeragent.doc")
 
 
 class CommonModule(ModuleBase):
@@ -19,7 +19,7 @@ class CommonModule(ModuleBase):
                 from plugin.framework.uno_context import get_ctx
                 from plugin.framework.dialogs import msgbox
                 msgbox(get_ctx(), "Debug",
-                       "Enable debug in Options > LocalWriter > Common")
+                       "Enable debug in Options > WriterAgent > Common")
                 return
 
             if action == "debug_info":
@@ -36,7 +36,7 @@ class CommonModule(ModuleBase):
         from plugin.version import EXTENSION_VERSION
 
         ctx = get_ctx()
-        lines = ["LocalWriter v%s" % EXTENSION_VERSION, ""]
+        lines = ["WriterAgent v%s" % EXTENSION_VERSION, ""]
 
         # Registered services
         svc_names = sorted(self._services.list_services())
@@ -66,7 +66,7 @@ class CommonModule(ModuleBase):
                 lines.append("")
                 lines.append("Document: %s (%d chars)" % (doc_type, doc_len))
 
-        msgbox(ctx, "LocalWriter Debug Info", "\n".join(lines))
+        msgbox(ctx, "WriterAgent Debug Info", "\n".join(lines))
 
     def _test_providers(self):
         """Test each AI provider with a minimal request."""

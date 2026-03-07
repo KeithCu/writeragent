@@ -4,7 +4,7 @@ import logging
 
 from plugin.framework.module_base import ModuleBase
 
-log = logging.getLogger("localwriter.chatbot")
+log = logging.getLogger("writeragent.chatbot")
 
 
 class ChatbotModule(ModuleBase):
@@ -97,13 +97,13 @@ class ChatbotModule(ModuleBase):
         doc_svc = self._services.document
         doc = doc_svc.get_active_document()
         if not doc:
-            msgbox(ctx, "LocalWriter", "No document open")
+            msgbox(ctx, "WriterAgent", "No document open")
             return
 
         try:
             provider = self._services.ai.get_provider("text")
         except RuntimeError as e:
-            msgbox(ctx, "LocalWriter", str(e))
+            msgbox(ctx, "WriterAgent", str(e))
             return
 
         doc_type = doc_svc.detect_doc_type(doc)
@@ -112,7 +112,7 @@ class ChatbotModule(ModuleBase):
         elif doc_type == "calc":
             self._extend_calc(ctx, doc, provider)
         else:
-            msgbox(ctx, "LocalWriter",
+            msgbox(ctx, "WriterAgent",
                    "Extend selection not supported for this document type")
 
     def _extend_writer(self, ctx, doc, provider):
@@ -127,11 +127,11 @@ class ChatbotModule(ModuleBase):
             text_range = selection.getByIndex(0)
             selected_text = text_range.getString()
         except Exception:
-            msgbox(ctx, "LocalWriter", "No text selected")
+            msgbox(ctx, "WriterAgent", "No text selected")
             return
 
         if not selected_text:
-            msgbox(ctx, "LocalWriter", "No text selected")
+            msgbox(ctx, "WriterAgent", "No text selected")
             return
 
         config = self._services.config.proxy_for("chatbot")
@@ -152,7 +152,7 @@ class ChatbotModule(ModuleBase):
 
         def on_error(e):
             log.error("Extend selection failed: %s", e)
-            msgbox(ctx, "LocalWriter: Extend Selection", str(e))
+            msgbox(ctx, "WriterAgent: Extend Selection", str(e))
 
         api_config = get_api_config(ctx)
         client = LlmClient(api_config, ctx)
@@ -176,7 +176,7 @@ class ChatbotModule(ModuleBase):
             selection = doc.CurrentController.Selection
             area = selection.getRangeAddress()
         except Exception:
-            msgbox(ctx, "LocalWriter", "No cells selected")
+            msgbox(ctx, "WriterAgent", "No cells selected")
             return
 
         config = self._services.config.proxy_for("chatbot")
@@ -198,7 +198,7 @@ class ChatbotModule(ModuleBase):
                     tasks.append((cell, cell_text))
 
         if not tasks:
-            msgbox(ctx, "LocalWriter", "No cells with content selected")
+            msgbox(ctx, "WriterAgent", "No cells with content selected")
             return
 
         api_config = get_api_config(ctx)
@@ -227,7 +227,7 @@ class ChatbotModule(ModuleBase):
 
             def on_error(e):
                 log.error("Extend selection (calc) failed: %s", e)
-                msgbox(ctx, "LocalWriter: Extend Selection", str(e))
+                msgbox(ctx, "WriterAgent: Extend Selection", str(e))
 
             run_stream_async(
                 ctx, client, msgs, tools=None,
@@ -250,13 +250,13 @@ class ChatbotModule(ModuleBase):
         doc_svc = self._services.document
         doc = doc_svc.get_active_document()
         if not doc:
-            msgbox(ctx, "LocalWriter", "No document open")
+            msgbox(ctx, "WriterAgent", "No document open")
             return
 
         try:
             provider = self._services.ai.get_provider("text")
         except RuntimeError as e:
-            msgbox(ctx, "LocalWriter", str(e))
+            msgbox(ctx, "WriterAgent", str(e))
             return
 
         doc_type = doc_svc.detect_doc_type(doc)
@@ -265,7 +265,7 @@ class ChatbotModule(ModuleBase):
         elif doc_type == "calc":
             self._edit_calc(ctx, doc, provider)
         else:
-            msgbox(ctx, "LocalWriter",
+            msgbox(ctx, "WriterAgent",
                    "Edit selection not supported for this document type")
 
     def _show_edit_input(self):
@@ -292,11 +292,11 @@ class ChatbotModule(ModuleBase):
             text_range = selection.getByIndex(0)
             original_text = text_range.getString()
         except Exception:
-            msgbox(ctx, "LocalWriter", "No text selected")
+            msgbox(ctx, "WriterAgent", "No text selected")
             return
 
         if not original_text:
-            msgbox(ctx, "LocalWriter", "No text selected")
+            msgbox(ctx, "WriterAgent", "No text selected")
             return
 
         user_input, extra_instructions = self._show_edit_input()
@@ -343,7 +343,7 @@ class ChatbotModule(ModuleBase):
             except Exception:
                 pass
             log.error("Edit selection failed: %s", e)
-            msgbox(ctx, "LocalWriter: Edit Selection", str(e))
+            msgbox(ctx, "WriterAgent: Edit Selection", str(e))
 
         api_config = get_api_config(ctx)
         client = LlmClient(api_config, ctx)
@@ -367,7 +367,7 @@ class ChatbotModule(ModuleBase):
             selection = doc.CurrentController.Selection
             area = selection.getRangeAddress()
         except Exception:
-            msgbox(ctx, "LocalWriter", "No cells selected")
+            msgbox(ctx, "WriterAgent", "No cells selected")
             return
 
         user_input, extra_instructions = self._show_edit_input()
@@ -444,7 +444,7 @@ class ChatbotModule(ModuleBase):
                 except Exception:
                     pass
                 log.error("Edit selection (calc) failed: %s", e)
-                msgbox(ctx, "LocalWriter: Edit Selection", str(e))
+                msgbox(ctx, "WriterAgent: Edit Selection", str(e))
 
             run_stream_async(
                 ctx, client, msgs, tools=None,

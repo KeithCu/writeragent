@@ -7,7 +7,7 @@ Operates on the cached heading tree and bookmark map from TreeService.
 import bisect
 import logging
 
-log = logging.getLogger("localwriter.writer.nav.proximity")
+log = logging.getLogger("writeragent.writer.nav.proximity")
 
 
 class ProximityService:

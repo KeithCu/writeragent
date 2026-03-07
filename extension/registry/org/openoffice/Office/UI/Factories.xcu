@@ -19,7 +19,7 @@
                     <value></value>
                 </prop>
                 <prop oor:name="FactoryImplementation">
-                    <value>org.extension.localwriter.ChatPanelFactory</value>
+                    <value>org.extension.writeragent.ChatPanelFactory</value>
                 </prop>
             </node>
         </node>
