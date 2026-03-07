@@ -59,6 +59,15 @@ config:
     helper: "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
     public: true
 
+  global_ai_instructions:
+    type: string
+    default_provider: "plugin.modules.launcher:get_global_instructions_default"
+    widget: textarea
+    label: Global AI Instructions
+    helper: "Persona and rules sent to any AI CLI you launch. For Claude this is CLAUDE.md, for OpenCode this is AGENTS.md."
+    public: true
+
+
 actions:
   launch_cli:
     title: "Launch AI CLI"

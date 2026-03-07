@@ -78,6 +78,10 @@ class OpenCodeProvider:
         except Exception:
             log.exception("Failed to write opencode config")
 
+        # 2. AGENTS.md — unified prompt
+        from plugin.modules.launcher import write_unified_prompt
+        write_unified_prompt(cwd, "AGENTS.md")
+
 
 def get_default_cwd(services):
     """Return the default working directory for OpenCode."""

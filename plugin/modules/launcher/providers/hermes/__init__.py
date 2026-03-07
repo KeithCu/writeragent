@@ -10,8 +10,6 @@ from plugin.framework.module_base import ModuleBase
 
 log = logging.getLogger("localwriter.launcher.hermes")
 
-# Directory containing prompt templates shipped with this module
-_PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
 def find_hermes_agent_root():
     """Locate the hermes-agent directory in the workspace."""
@@ -110,19 +108,9 @@ class HermesProvider:
         except Exception:
             log.exception("Failed to write Hermes config")
 
-        # 2. HERMES.md — meta prompt
-        self._copy_prompt_file("HERMES.md", cwd)
-
-    def _copy_prompt_file(self, filename, cwd):
-        """Copy a prompt template file into the working directory."""
-        src = os.path.join(_PROMPTS_DIR, filename)
-        dst = os.path.join(cwd, filename)
-        if os.path.isfile(src):
-            try:
-                shutil.copy2(src, dst)
-                log.info("Copied %s to %s", filename, dst)
-            except Exception:
-                log.exception("Failed to copy %s", filename)
+        # 2. HERMES.md — unified prompt
+        from plugin.modules.launcher import write_unified_prompt
+        write_unified_prompt(cwd, "HERMES.md")
 
 class HermesModule(ModuleBase):
 

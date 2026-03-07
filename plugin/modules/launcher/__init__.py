@@ -163,19 +163,76 @@ def get_active_provider_default_cwd(services):
 
 
 def get_global_instructions_default(services):
-    """Return default content for AGENTS.md from the filesystem."""
+    """Return default content for AI CLI instructions."""
+    from plugin.framework.constants import (
+        FORMATTING_RULES, CORE_DIRECTIVES, TRANSLATION_RULES,
+        CALC_WORKFLOW, CALC_FORMULA_SYNTAX
+    )
+
+    # Start with a strong persona and technical guidance
+    # We use f-string to inject the shared rules from constants.py
+    base = f"""# LocalWriter MCP — AI CLI Instructions
+
+You are an AI assistant helping the user work with a LibreOffice document through **LocalWriter MCP**. Your goal is to help the user create polished, professional documents.
+
+## Core Directives
+
+{CORE_DIRECTIVES}
+
+{TRANSLATION_RULES}
+
+## Formatting Rules
+
+{FORMATTING_RULES}
+
+## Calc & Spreadsheet Rules
+
+{CALC_WORKFLOW}
+
+{CALC_FORMULA_SYNTAX}
+
+## Tool Usage Patterns
+
+- **Writer**: Use `get_document_tree` to see the structure. Use `_mcp_` bookmarks for stable addressing.
+- **Calc**: Use `get_sheet_summary` and `read_cell_range`. Use Excel-style A1 references.
+- **Navigation**: Prefer stable locators (bookmarks, heading text) over paragraph indices.
+- **Batching**: Use `execute_batch` to chain multiple edits for efficiency.
+
+## Context Awareness
+
+This file summarizes the current state of the project. AI Assistants: You SHOULD update this file if you learn something important about the user's workflow or project structure that would help future sessions.
+"""
+    return base
+
+
+def get_unified_prompt(services):
+    """Return the final prompt to be written to CLAUDE.md / AGENTS.md / etc."""
+    cfg = services.config.proxy_for("launcher")
+    instructions = cfg.get("global_ai_instructions")
+    if not instructions or not str(instructions).strip():
+        return get_global_instructions_default(services)
+    return instructions
+
+
+def write_unified_prompt(cwd, filename):
+    """Write the unified prompt to the given file in the working directory."""
+    from plugin.main import get_services
+    services = get_services()
+    if not services:
+        log.warning("Could not write %s: services not available", filename)
+        return False
+
+    prompt = get_unified_prompt(services)
+    prompt_path = os.path.join(cwd, filename)
     try:
-        # Try to find AGENTS.md in launcher_opencode or similar
-        # For now, we'll look in a standard location or hardcode a fallback
-        import os
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        agents_md = os.path.join(base_dir, "launcher", "providers", "opencode", "prompts", "AGENTS.md")
-        if os.path.isfile(agents_md):
-            with open(agents_md, "r") as f:
-                return f.read()
+        with open(prompt_path, "w") as f:
+            f.write(prompt)
+        log.info("Wrote unified prompt to %s", prompt_path)
+        return True
     except Exception:
-        log.warning("Failed to load default global instructions")
-    return "# AI CLI Instructions\nYou are an AI assistant helping with LibreOffice documents via LocalWriter MCP."
+        log.exception("Failed to write %s", prompt_path)
+        return False
+
 
 
 def on_install_active_provider():

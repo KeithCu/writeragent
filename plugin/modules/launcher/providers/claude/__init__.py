@@ -17,6 +17,7 @@ _DEFAULT_CWD = os.path.join(
 _PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
 
+
 class ClaudeProvider:
     """Claude Code — Anthropic's AI coding CLI."""
 
@@ -65,7 +66,8 @@ class ClaudeProvider:
             log.exception("Failed to write claude settings")
 
         # 3. CLAUDE.md — meta prompt
-        self._copy_prompt_file("CLAUDE.md", cwd)
+        from plugin.modules.launcher import write_unified_prompt
+        write_unified_prompt(cwd, "CLAUDE.md")
 
         # 4. Skills — .claude/skills/localwriter/SKILL.md
         skills_src = os.path.join(_PROMPTS_DIR, "skills")
@@ -83,16 +85,6 @@ class ClaudeProvider:
                             shutil.copy2(src_file, dst_file)
                             log.debug("Copied skill file: %s", dst_file)
 
-    def _copy_prompt_file(self, filename, cwd):
-        """Copy a prompt template file into the working directory."""
-        src = os.path.join(_PROMPTS_DIR, filename)
-        dst = os.path.join(cwd, filename)
-        if os.path.isfile(src):
-            try:
-                shutil.copy2(src, dst)
-                log.info("Copied %s to %s", filename, dst)
-            except Exception:
-                log.exception("Failed to copy %s", filename)
 
 
 def get_default_cwd(services):
