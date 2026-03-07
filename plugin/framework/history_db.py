@@ -33,6 +33,23 @@ def _get_db_path():
 
 # LangChain-compatible JSON conversion
 def message_to_dict(role, content, tool_calls=None):
+    # Don't persist MBs of base64 audio to history db.
+    if isinstance(content, list):
+        text_parts = []
+        has_audio = False
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+                elif item.get("type") == "input_audio":
+                    has_audio = True
+        content = " ".join(text_parts)
+        if has_audio:
+            if content:
+                content += " [Audio Attached]"
+            else:
+                content = "[Audio Attached]"
+
     return {
         "role": role,
         "content": content,

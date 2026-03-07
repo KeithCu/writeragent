@@ -1,0 +1,11 @@
+_sounddevice.py,sha256=2bWMz3S9scJIfu083UejZ_JSkpzFB5CQ69NDt3lINTE,13837
+sounddevice.py,sha256=X4cdOjzMUtc35FB9JfeF7EFNqHEVwASNa1ONhyeSvOc,111663
+_sounddevice_data/__init__.py,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+_sounddevice_data/portaudio-binaries/README.md,sha256=s8sFNWa284w4vfSCLlP4-KKjd-BcUD_dacUuXRxsEEw,974
+_sounddevice_data/portaudio-binaries/libportaudioarm64-asio.dll,sha256=V7eCb9OIPaq7uJUYFGVaTsJTrLgiwP9s5AAtqUYwZPU,316416
+_sounddevice_data/portaudio-binaries/libportaudioarm64.dll,sha256=456V6VwMsmLHDKTmduRAzzS-VkP-WjHN_iPoq28UIss,293888
+sounddevice-0.5.5.dist-info/licenses/LICENSE,sha256=tu6iG7r7r3ohd-SS8b5rXvxvTnCLGYB3PeUc2qUvghE,1063
+sounddevice-0.5.5.dist-info/METADATA,sha256=BghNpmMKbcAu9sYuZ9Va5zI8si8KVZYYyChstSNOJB0,1450
+sounddevice-0.5.5.dist-info/WHEEL,sha256=lJwJV8dA4PyDvNhjuL9oVsaRh8Tx7qQmowJyHFBPeK8,98
+sounddevice-0.5.5.dist-info/top_level.txt,sha256=4x_9IJSWMb6StbHBe-jbHWC1cJf_unhQwxaMBghH_L4,43
+sounddevice-0.5.5.dist-info/RECORD,,

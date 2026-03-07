@@ -4,9 +4,6 @@
 
 import os
 import sys
-import json
-import queue
-import threading
 import weakref
 import hashlib
 import uuid
@@ -24,14 +21,18 @@ _ext_root = _this_file
 if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 
-from plugin.framework.logging import agent_log, debug_log, update_activity_state, start_watchdog_thread, init_logging
-from plugin.framework.async_stream import run_stream_completion_async, run_stream_drain_loop
+# Add vendor directory here as well since this file is loaded directly by LibreOffice
+_vendor_dir = os.path.join(_ext_root, "plugin", "vendor")
+if _vendor_dir not in sys.path:
+    sys.path.insert(0, _vendor_dir)
+
+from plugin.framework.logging import debug_log, start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.uno_helpers import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, get_active_document, get_extension_url, get_extension_path, is_writer, is_calc, is_draw
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 from com.sun.star.ui.UIElementType import TOOLPANEL
-from com.sun.star.awt import XActionListener, XItemListener, XWindowListener
+from com.sun.star.awt import XItemListener, XWindowListener
 
 # Extension ID from description.xml; XDL path inside the .oxt
 EXTENSION_ID = "org.extension.localwriter"
@@ -638,6 +639,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         # 4. Buttons
         self._wire_buttons(controls, model, active_greeting, set_control_enabled)
+
+        # Wire query listener to update Record/Send button label
+        if controls["query"] and controls["send"]:
+            try:
+                from plugin.modules.chatbot.panel import QueryTextListener
+                controls["query"].addTextListener(QueryTextListener(controls["send"]))
+                if controls["query"].getModel().Text.strip():
+                    controls["send"].getModel().Label = "Send"
+                else:
+                    controls["send"].getModel().Label = "Record"
+            except Exception as e:
+                debug_log("QueryTextListener setup error: %s" % e, context="Chat")
 
         if controls["status"] and hasattr(controls["status"], "setText"):
             try: controls["status"].setText("Ready")

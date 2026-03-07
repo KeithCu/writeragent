@@ -9,12 +9,10 @@ remain in panel_factory.py.
 import json
 import queue
 import threading
-import hashlib
-import os
 
 import uno
 import unohelper
-from plugin.framework.uno_helpers import get_desktop, get_active_document
+from plugin.framework.uno_helpers import get_active_document
 from com.sun.star.awt import XActionListener
 
 from plugin.framework.logging import agent_log, debug_log, update_activity_state
@@ -110,6 +108,38 @@ class ChatSession:
 
 
 # ---------------------------------------------------------------------------
+# QueryTextListener - dynamic button toggling
+# ---------------------------------------------------------------------------
+
+from com.sun.star.awt import XTextListener
+
+class QueryTextListener(unohelper.Base, XTextListener):
+    def __init__(self, send_button):
+        self.send_button = send_button
+
+    def textChanged(self, ev):
+        try:
+            model = getattr(ev.Source, "Model", None)
+            if not model:
+                model = ev.Source.getModel()
+            text = model.Text.strip()
+
+            btn_model = self.send_button.getModel()
+            # If currently recording, do not toggle back to Record
+            if btn_model.Label == "Stop Rec":
+                return
+
+            if text:
+                btn_model.Label = "Send"
+            else:
+                btn_model.Label = "Record"
+        except Exception as e:
+            debug_log("QueryTextListener error: %s" % e, context="Chat")
+
+    def disposing(self, ev):
+        pass
+
+# ---------------------------------------------------------------------------
 # SendButtonListener - handles Send button click with tool-calling loop
 # ---------------------------------------------------------------------------
 
@@ -137,6 +167,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         self._terminal_status = "Ready"
         self._send_busy = False
         self.client = None
+        self.audio_wav_path = None
         # Subscribe to MCP/tool bus events
         try:
             from plugin.main import get_tools
@@ -240,6 +271,27 @@ class SendButtonListener(unohelper.Base, XActionListener):
 
     def actionPerformed(self, evt):
         try:
+            btn_model = self.send_control.getModel()
+            if btn_model.Label == "Record":
+                # Start recording
+                from plugin.modules.chatbot.audio_recorder import start_recording
+                try:
+                    start_recording()
+                except RuntimeError as re:
+                    self._append_response("\n[Audio error: %s]\n" % str(re))
+                    return
+                btn_model.Label = "Stop Rec"
+                self._set_status("Recording audio...")
+                return
+            elif btn_model.Label == "Stop Rec":
+                # Stop recording and proceed to send
+                from plugin.modules.chatbot.audio_recorder import stop_recording
+                self.audio_wav_path = stop_recording()
+                if self.query_control and self.query_control.getModel().Text.strip():
+                    btn_model.Label = "Send"
+                else:
+                    btn_model.Label = "Record"
+
             self.stop_requested = False
             self._terminal_status = "Ready"
             self._send_busy = True
@@ -255,6 +307,12 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._send_busy = False
             debug_log("actionPerformed finally: resetting UI", context="Chat")
             self._set_status(self._terminal_status)
+            if self.send_control and self.send_control.getModel().Label not in ("Record", "Stop Rec"):
+                # if empty, set to Record, else Send
+                if self.query_control and self.query_control.getModel().Text.strip():
+                    self.send_control.getModel().Label = "Send"
+                else:
+                    self.send_control.getModel().Label = "Record"
             self._set_button_states(send_enabled=True, stop_enabled=False)
             debug_log("control returned to LibreOffice", context="Chat")
             update_activity_state("")  # clear phase so watchdog does not report after we return
@@ -301,9 +359,12 @@ class SendButtonListener(unohelper.Base, XActionListener):
         query_text = ""
         if self.query_control and self.query_control.getModel():
             query_text = (self.query_control.getModel().Text or "").strip()
-        if not query_text:
+
+        # Audio implies we have input even if text is empty
+        if not query_text and not self.audio_wav_path:
             self._terminal_status = ""
             return
+
         if self.query_control and self.query_control.getModel():
             self.query_control.getModel().Text = ""
 
@@ -383,7 +444,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                     status_callback=lambda t: q.put(("status", t))
                 )
                 try:
-                    from plugin.framework.config import update_lru_history, get_current_endpoint
+                    from plugin.framework.config import update_lru_history
                     update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
                 except Exception as elru:
                     debug_log("LRU update error: %s" % elru, context="Chat")
@@ -540,8 +601,43 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._set_status("Error")
             return
 
-        self.session.add_user_message(query_text)
-        self._append_response("\nYou: %s\n" % query_text)
+        # If there's audio, embed it
+        if self.audio_wav_path:
+            import base64
+            try:
+                with open(self.audio_wav_path, "rb") as f:
+                    wav_data = f.read()
+                b64_audio = base64.b64encode(wav_data).decode("utf-8")
+                audio_msg = {
+                    "type": "input_audio",
+                    "input_audio": {
+                        "data": b64_audio,
+                        "format": "wav"
+                    }
+                }
+
+                content_list = []
+                if query_text:
+                    content_list.append({"type": "text", "text": query_text})
+                content_list.append(audio_msg)
+
+                self.session.add_user_message(content_list)
+
+                display_text = query_text + " [Audio Attached]" if query_text else "[Audio Message]"
+                self._append_response("\nYou: %s\n" % display_text)
+                # Cleanup
+                import os
+                try: os.remove(self.audio_wav_path)
+                except Exception: pass
+            except Exception as e:
+                debug_log("_do_send: Error reading audio: %s" % e, context="Chat")
+                self.session.add_user_message(query_text)
+                self._append_response("\nYou: %s\n" % query_text)
+            self.audio_wav_path = None
+        else:
+            self.session.add_user_message(query_text)
+            self._append_response("\nYou: %s\n" % query_text)
+
         self._append_response("\n[Using chat model.]\n")
         debug_log("_do_send: using chat model", context="Chat")
 

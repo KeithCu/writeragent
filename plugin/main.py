@@ -10,6 +10,11 @@ if _ext_root not in sys.path:
 if _plugin_dir not in sys.path:
     sys.path.insert(0, _plugin_dir)
 
+# Add the vendor directory so cross-platform audio wheels (sounddevice, cffi) can be found
+_vendor_dir = os.path.join(_plugin_dir, "vendor")
+if _vendor_dir not in sys.path:
+    sys.path.insert(0, _vendor_dir)
+
 import unohelper
 import officehelper
 
@@ -17,12 +22,11 @@ from plugin.framework.logging import init_logging
 import uno
 import logging
 
-from com.sun.star.beans import PropertyValue
 from com.sun.star.task import XJobExecutor, XJob
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from plugin.framework.uno_helpers import get_active_document, get_extension_url, get_package_info, is_writer, is_calc, is_draw
+from plugin.framework.uno_helpers import get_active_document, get_extension_url
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
@@ -338,7 +342,6 @@ def notify_menu_update():
 
 def _fire_status_event(listener, url, text):
     """Send a FeatureStateEvent to one listener."""
-    import uno
     ev = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
     ev.FeatureURL = url
     ev.IsEnabled = True
@@ -397,7 +400,6 @@ def _collect_icon_commands():
 def _load_icon_graphic(module_name, icon_filename):
     """Load a PNG icon from a module's icons/ directory as XGraphic."""
     try:
-        import uno
         from com.sun.star.beans import PropertyValue
         gp = smgr.createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx)
@@ -539,7 +541,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             return
 
         model = get_active_document(self.ctx)
-        from plugin.framework.document import is_writer, is_calc, is_draw
+        from plugin.framework.document import is_writer, is_calc
         
         if is_writer(model):
             self._handle_writer_actions(args, model)
