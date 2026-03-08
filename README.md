@@ -6,7 +6,7 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 
 WriterAgent provides powerful AI-driven capabilities integrated directly into your LibreOffice suite:
 
-### 1. Local-First & Flexible (The Major Differentiator)
+### 1. Local-First & Flexible
 Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between them in less than 2 seconds, maintaining full control over where your data goes.
 
 ### 2. Chat with Document (Writer, Calc, and Draw)
@@ -14,9 +14,7 @@ The main way to interact with your document. While you can ask it anything, **it
 *   **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly.
 *   **Persistent Chat History**: Previous conversations are automatically saved and restored when you reopen a document. History is stored in a local SQLite database in the user config directory.
 *   **Robust Session Tracking**: Chat history is linked directly to the document using an internal metadata ID (saved in the file). This means your conversation follows the document even if you rename it or move it to a different folder.
-*   **Menu Item**: A fallback option that opens an input dialog and appends responses to the document.
 *   **Performance**: Features built-in connection management with persistent HTTPS connections for fast response times.
-*   **Undo Integration**: AI edits are grouped so you can revert an entire AI turn with a single `Ctrl+Z`.
 
 ### 3. Web Research & Fact-Checking (Local & Private)
 Powered by [Hugging Face smolagents](https://github.com/huggingface/smolagents) (vendored and adapted to have zero dependencies, per [this discussion](https://github.com/huggingface/smolagents/issues/1999)). Now you can ask the AI a question and it will search the web and give you the answer—with all requests running directly from your computer. It uses DuckDuckGo for privacy and executes the entire search-and-browse loop locally, ensuring your research stays private.
