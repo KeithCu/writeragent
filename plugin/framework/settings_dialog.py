@@ -44,10 +44,16 @@ def get_settings_field_specs(ctx):
                 
                 default = str(schema.get("default", ""))
                 val = get_config(ctx, config_key, default)
-                
+                opts = schema.get("options", [])
+                # For select/combo with value/label options, use label for display so dropdown shows correctly
+                if opts and isinstance(opts[0], dict):
+                    for o in opts:
+                        if str(o.get("value", "")) == str(val).strip().lower():
+                            val = o.get("label", val)
+                            break
                 field = {"name": ctrl_id, "value": str(val)}
                 
-                # Resolve dynamic options if options_provider is present
+                # Resolve dynamic options if options_provider is present; else use schema options
                 provider_path = schema.get("options_provider")
                 if provider_path:
                     try:
@@ -55,6 +61,8 @@ def get_settings_field_specs(ctx):
                     except Exception:
                         from plugin.framework.logging import debug_log
                         debug_log(f"Failed to resolve options_provider: {provider_path}", context="Settings")
+                elif schema.get("options"):
+                    field["options"] = schema["options"]
 
                 schema_type = schema.get("type", "string")
                 if schema_type == "boolean":
@@ -90,6 +98,11 @@ def apply_settings_result(ctx, result):
             
             # Map module__field to module.field for saving in JSON
             save_key = key.replace("__", ".")
+            
+            # Map backend_id display label back to stored value
+            if save_key == "agent_backend.backend_id" and val:
+                _label_to_id = {"Built-in": "builtin", "Aider": "aider", "Hermes": "hermes"}
+                val = _label_to_id.get(str(val).strip(), val)
             
             # Special validation for temperature
             if save_key == "temperature":

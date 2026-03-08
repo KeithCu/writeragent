@@ -22,6 +22,7 @@ def run_stream_drain_loop(
     on_status_fn=None,
     ctx=None,
     show_search_thinking=False,
+    on_approval_required=None,
 ):
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
@@ -36,6 +37,7 @@ def run_stream_drain_loop(
     - ('tool_done', call_id, func_name, args_str, res): Handled by orchestration (if used).
     - ('tool_thinking', text): Thinking tokens from a tool (e.g. web search).
     - ('final_done', text): Final non-tool response.
+    - ('approval_required', description, tool_name, args, request_id): HITL; call on_approval_required(item).
     - ('stopped',): Calls on_stopped().
     - ('error', exception): Calls on_error(exception).
     """
@@ -117,6 +119,14 @@ def run_stream_drain_loop(
                 elif kind == "tool_thinking":
                     if show_search_thinking:
                         apply_chunk_fn(data, is_thinking=True)
+                elif kind == "approval_required":
+                    flush_buffers()
+                    close_thinking()
+                    if on_approval_required:
+                        try:
+                            on_approval_required(item)
+                        except Exception as e:
+                            debug_log("approval_required handler: %s" % e, context="API")
                 elif kind == "final_done":
                     flush_buffers()
                     close_thinking()
