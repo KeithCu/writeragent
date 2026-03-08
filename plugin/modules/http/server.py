@@ -95,7 +95,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods",
                          "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers",
-                         "Content-Type, Authorization, Mcp-Session-Id")
+                         "Content-Type, Authorization, Mcp-Session-Id, X-Document-URL")
         self.send_header("Access-Control-Expose-Headers",
                          "Mcp-Session-Id")
 

@@ -29,6 +29,58 @@ class DocumentCache:
 
 
 
+def _normalize_doc_url(url):
+    """Normalize document URL for comparison (strip, optional trailing slash)."""
+    if not url:
+        return ""
+    s = str(url).strip()
+    if s.endswith("/") and len(s) > 1:
+        s = s[:-1]
+    return s
+
+
+def resolve_document_by_url(ctx, url):
+    """Resolve an open document by URL. Must be called on the UNO main thread.
+
+    Returns (doc, doc_type) or (None, None) if not found.
+    doc_type is one of 'writer', 'calc', 'draw'.
+    """
+    if not url or not str(url).strip():
+        return (None, None)
+    from plugin.framework.uno_helpers import get_desktop
+    target = _normalize_doc_url(url)
+    try:
+        desktop = get_desktop(ctx)
+        comps = desktop.getComponents()
+        if not comps:
+            return (None, None)
+        enum = comps.createEnumeration()
+        if not enum:
+            return (None, None)
+        while enum and enum.hasMoreElements():
+            elem = enum.nextElement()
+            try:
+                model = None
+                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                    model = elem
+                elif hasattr(elem, "getController") and elem.getController():
+                    model = elem.getController().getModel()
+                if model and hasattr(model, "getURL"):
+                    doc_url = _normalize_doc_url(model.getURL())
+                    if doc_url and doc_url == target:
+                        doc_type = "writer"
+                        if is_calc(model):
+                            doc_type = "calc"
+                        elif is_draw(model):
+                            doc_type = "draw"
+                        return (model, doc_type)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return (None, None)
+
+
 def get_document_path(model):
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
     try:
@@ -514,6 +566,10 @@ class DocumentService(ServiceBase):
 
     def get_active_document(self):
         return get_active_doc()
+
+    def resolve_document_by_url(self, url):
+        """Resolve (doc, doc_type) by document URL; (None, None) if not found. Main-thread only."""
+        return resolve_document_by_url(get_ctx(), url)
 
     def detect_doc_type(self, doc):
         if is_calc(doc): return "calc"
