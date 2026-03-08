@@ -450,7 +450,12 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
                     el = ET.SubElement(board, _dlg("combobox"), field_attrs)
                     menu = ET.SubElement(el, _dlg("menupopup"))
                     for opt in schema.get("options", []):
-                        ET.SubElement(menu, _dlg("menuitem"), {_dlg("value"): str(opt)})
+                        # Support dict options: use label for display, value for stored
+                        if isinstance(opt, dict):
+                            menu_val = opt.get("label", opt.get("value", str(opt)))
+                        else:
+                            menu_val = str(opt)
+                        ET.SubElement(menu, _dlg("menuitem"), {_dlg("value"): menu_val})
                 elif widget == "button":
                     field_attrs.update({
                         _dlg("width"): field_w if "width" in schema else "100",

@@ -1,0 +1,31 @@
+name: agent_backend
+title: Agent backends (Aider, Hermes)
+requires: [config, document]
+
+config:
+  backend_id:
+    type: string
+    default: builtin
+    widget: select
+    label: Backend
+    options:
+      - value: builtin
+        label: Built-in
+      - value: aider
+        label: Aider
+      - value: hermes
+        label: Hermes
+
+  path:
+    type: string
+    default: ""
+    widget: text
+    label: Path
+    helper: "Path to backend CLI or Python module (e.g. aider, hermes). Empty = try default."
+
+  args:
+    type: string
+    default: ""
+    widget: text
+    label: Extra arguments
+    helper: "Optional arguments for the selected backend (space-separated)."

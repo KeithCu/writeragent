@@ -357,6 +357,37 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
             except Exception:
                 pass
+        # Backend indicator: show "Aider" / "Hermes" when external agent backend is enabled
+        self._update_backend_indicator(root)
+
+    def _update_backend_indicator(self, root_window=None):
+        """Set backend indicator label from config (visible when external backend enabled)."""
+        try:
+            from plugin.framework.config import get_config, as_bool
+            root = root_window or (getattr(self, "m_panelRootWindow", None))
+            if not root or not hasattr(root, "getControl"):
+                return
+            ctrl = get_optional_control(root, "backend_indicator")
+            if not ctrl:
+                return
+            backend_id = str(get_config(self.ctx, "agent_backend.backend_id", "builtin")).strip().lower()
+            if backend_id and backend_id != "builtin":
+                label = backend_id.capitalize()
+                if hasattr(ctrl.getModel(), "Label"):
+                    ctrl.getModel().Label = label
+                elif hasattr(ctrl, "setText"):
+                    ctrl.setText(label)
+                if hasattr(ctrl, "setVisible"):
+                    ctrl.setVisible(True)
+            else:
+                if hasattr(ctrl.getModel(), "Label"):
+                    ctrl.getModel().Label = ""
+                elif hasattr(ctrl, "setText"):
+                    ctrl.setText("")
+                if hasattr(ctrl, "setVisible"):
+                    ctrl.setVisible(False)
+        except Exception as e:
+            debug_log("_update_backend_indicator: %s" % e, context="Chat")
 
     def _get_document_model(self):
         """Helper to get the current document model."""
@@ -619,7 +650,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             "base_size_input": get_optional("base_size_input"),
             "base_size_label": get_optional("base_size_label"),
             "response_label": get_optional("response_label"),
-            "query_label": get_optional("query_label")
+            "query_label": get_optional("query_label"),
+            "backend_indicator": get_optional("backend_indicator"),
         }
 
         # Helper to show errors visibly in the response area
@@ -705,7 +737,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             _resize._relayout(root_window)
         except Exception as e:
             debug_log("Resize listener error: %s" % e, context="Chat")
-            
+
+        # Backend indicator (Aider / Hermes when external agent enabled)
+        self._update_backend_indicator(root_window)
+
         # 6. Global Config Listener
         from plugin.framework.config import add_config_listener
         _self_ref = weakref.ref(self)

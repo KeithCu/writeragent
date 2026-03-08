@@ -463,7 +463,7 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 ### MCP Server (external AI client access) — DONE
 - **`plugin/modules/http/mcp_protocol.py`**: `_Future`, `execute_on_main_thread_mcp`, `drain_mcp_queue` — work is queued from HTTP handler threads and drained on the main thread.
-- **`plugin/framework/http_server.py`**: `MCPHttpServer` and `MCPHandler`; GET `/health`, `/tools`, `/`, `/documents`; POST `/tools/{name}`. **Document targeting**: `X-Document-URL` header; server resolves document by iterating `desktop.getComponents()` and matching `getURL()`. Falls back to active document if header absent. Port utilities: `_probe_health`, `_is_port_bound`, `_kill_zombies_on_port` (Windows).
+- **`plugin/modules/http/mcp_protocol.py`** and **`plugin/modules/http/server.py`**: MCP JSON-RPC (POST `/mcp`, POST `/sse`, POST `/messages`, POST `/debug`). **Document targeting**: Implemented via `X-Document-URL` HTTP header; the server reads the header and resolves the document by enumerating `desktop.getComponents()` and matching `getURL()`. Used for `tools/list` and `tools/call`; when the header is absent, the server falls back to the active document. See `plugin/framework/document.py` (`resolve_document_by_url`) and `docs/mcp-protocol.md`. Port utilities in server/routes as needed.
 - **Idle-time draining**: **AsyncCallback thread** in `plugin/main.py` (Path A). A background Python thread schedules `XCallback` via `com.sun.star.awt.AsyncCallback` every 100ms, which safely executes `drain_mcp_queue()` on the main VCL thread. Option B (piggyback on the chat stream drain loop) was **not** used — it would only service MCP during active chat, which is inadequate for standalone MCP use.
 - **Config**: `mcp_enabled` (default false), `mcp_port` (default 8765). MCP settings are on the **Http** tab of the Settings dialog (auto-generated from `plugin/modules/http/module.yaml`); Enable MCP Server checkbox, Port field, "Localhost only, no auth." label.
 - **Menu**: "Toggle MCP Server" and "MCP Server Status" under WriterAgent. Status dialog shows RUNNING/STOPPED, port, URL, and health check. Auto-start: when user saves Settings with MCP enabled, server (and timer) start if not already running.
@@ -471,6 +471,12 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 - See **`MCP_PROTOCOL.md`** for protocol details and architecture.
 
 - **Document Tree & Navigation (DONE)**: Ported `build_heading_tree`, `ensure_heading_bookmarks`, and `resolve_locator` to `plugin/framework/document.py`. New tools `get_document_outline` and `get_heading_content` provide structured access to long documents.
+
+### Agent backends (Aider, Hermes) — Phase 2 DONE
+- **`plugin/modules/agent_backend/`**: Backend abstraction and registry; adapters for **Built-in**, **Aider**, **Hermes**. **Hermes** is implemented: spawns Hermes CLI, sends document context + user message on stdin, streams stdout to the sidebar; Hermes must have WriterAgent's MCP server in `~/.hermes/config.yaml`. **Aider** remains a stub. Contract: `send(queue, user_message, document_context, document_url, ...)` pushes events (`chunk`, `thinking`, `status`, `stream_done`, `error`, `approval_required`) into the same queue the sidebar drain loop consumes.
+- **Sidebar**: When backend is Aider or Hermes (selected in Settings), `_do_send` branches to `_do_send_via_agent_backend` (no fallback to built-in on failure). Stop button calls `adapter.stop()`. Backend indicator label shows "Aider" or "Hermes" when selected.
+- **Settings**: Config keys `agent_backend.backend_id` (builtin | aider | hermes), shared `agent_backend.path` and `agent_backend.args`. No separate "enabled" checkbox—backend choice is the dropdown. Auto-generated Settings tab from `plugin/modules/agent_backend/module.yaml`.
+- **HITL**: `plugin/framework/dialogs.show_approval_dialog(ctx, description, tool_name)` returns True/False. Drain loop in `async_stream.run_stream_drain_loop` handles `approval_required` event and calls optional `on_approval_required(item)`; panel passes callback that shows dialog and calls `adapter.submit_approval(request_id, approved)`.
 
 ---
 
@@ -504,7 +510,7 @@ Image generation and AI Horde integration are **complete** (generate_image, edit
 - **Writer has a Drawing Layer**: `hasattr(model, "getDrawPages")` returns `True` for Writer documents because they have a drawing layer for shapes. Always use `is_writer(model)` (via `supportsService`) to avoid misidentifying Writer as Draw.
 - **Context function signatures**: All document context functions should follow the signature `(model, max_context, ctx=None)`. Missing the `ctx` default can lead to `TypeError` during document type transitions in the sidebar.
 - **API Keys / Security**: API keys MUST be handled via the Settings dialog and stored in `writeragent.json`. Never bake in fallbacks to environment variables (like `OPENROUTER_API_KEY`) in production code, as this bypasses the user's manual configuration and complicates privacy auditing. Env vars are for developer testing ONLY.
-- **MCP Server**: The MCP HTTP server and UNO Timer for `drain_mcp_queue` are started from `plugin/main.py` only (not from the sidebar). Server binds to localhost only; no authentication. External clients target a document via the `X-Document-URL` header to avoid races with the active document.
+- **MCP Server**: The MCP HTTP server and UNO Timer for `drain_mcp_queue` are started from `plugin/main.py` only (not from the sidebar). Server binds to localhost only; no authentication. Document targeting is implemented via the `X-Document-URL` header: the server resolves the document by enumerating desktop components and matching URL; fallback is the active document. External clients should send this header when multiple documents are open to avoid races.
 
 ---
 
