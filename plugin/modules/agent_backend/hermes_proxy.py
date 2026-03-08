@@ -55,7 +55,7 @@ def _is_hermes_prompt(line):
 
 
 # Global to toggle character-by-character reading instead of block reading.
-_CHAR_MODE_READ = False
+_CHAR_MODE_READ = True
 
 # ── Shared long-lived process state (one Hermes per WriterAgent run) ──
 _lock = threading.Lock()
@@ -201,14 +201,15 @@ def _reader_loop(stdout_stream):
 
 
 def _ensure_process(path, args_str, queue, stop_checker):
-    """Start process and reader if not running. Return (proc, True) or (None, False).
+    """Start process and reader if not running. Return (proc, ok, just_started).
+    just_started is True when a new process was started (caller should wait for _reader_ready).
     Uses a PTY when available so Hermes sees a terminal and line-buffers output (fixes second-message hang).
     """
     global _process, _reader_thread, _reader_ready, _current_queue, _response_done, _pty_master_write
     with _lock:
         if _process is not None and _process.poll() is None:
             debug_log("ensure_process: reusing existing process (pid=%s)" % getattr(_process, "pid", None), context=_LOG)
-            return _process, True
+            return _process, True, False
         debug_log("ensure_process: no live process, starting new one", context=_LOG)
         _reader_ready.clear()
         _current_queue = None
@@ -289,10 +290,10 @@ def _ensure_process(path, args_str, queue, stop_checker):
                 )
             except FileNotFoundError as e:
                 debug_log("ensure_process: FileNotFoundError %s" % e, context=_LOG)
-                return None, False
+                return None, False, False
             except Exception as e:
                 debug_log("ensure_process: Popen failed %s" % e, context=_LOG)
-                return None, False
+                return None, False, False
             stdout_stream = _process.stdout
         try:
             _reader_thread = threading.Thread(target=_reader_loop, args=(stdout_stream,), daemon=True)
@@ -307,9 +308,9 @@ def _ensure_process(path, args_str, queue, stop_checker):
                 except Exception:
                     pass
             _process = None
-            return None, False
-        debug_log("ensure_process: process and reader started, returning (no wait for ❯)", context=_LOG)
-    return _process, True
+            return None, False, False
+        debug_log("ensure_process: process and reader started, returning (caller waits for ❯ when just_started)", context=_LOG)
+    return _process, True, True
 
 
 class HermesBackend(AgentBackend):
@@ -389,7 +390,7 @@ class HermesBackend(AgentBackend):
         debug_log("send(): entry, path=%r, need_start=%s" % (path or "hermes", need_start), context=_LOG)
         queue.put(("status", "Starting Hermes..." if need_start else "Sending..."))
 
-        proc, ok = _ensure_process(path, args_str, queue, stop_checker)
+        proc, ok, just_started = _ensure_process(path, args_str, queue, stop_checker)
         if not ok:
             debug_log("send(): _ensure_process returned not ok, proc=%s" % proc, context=_LOG)
             if proc is None:
@@ -402,6 +403,11 @@ class HermesBackend(AgentBackend):
             else:
                 queue.put(("error", RuntimeError("Hermes did not show ready prompt within 30s.")))
             return
+
+        if just_started:
+            if not _reader_ready.wait(timeout=30):
+                queue.put(("error", RuntimeError("Hermes did not show ready prompt within 30s.")))
+                return
 
         queue.put(("status", "Sending to Hermes..."))
         debug_log("send(): process ready, pid=%s, writing payload (%d bytes)" % (getattr(proc, "pid", None), len(stdin_payload)), context=_LOG)
@@ -469,5 +475,4 @@ class HermesBackend(AgentBackend):
                     % timeout_seconds
                 ),
             ))
-        else:
-            queue.put(("stream_done", None))
+        # Normal completion: _reader_loop already pushed ("stream_done", None); do nothing.
