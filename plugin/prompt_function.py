@@ -140,7 +140,9 @@ class PromptFunction(unohelper.Base, XPromptFunction):
                     self.client = LlmClient(config, self.ctx)
                 else:
                     self.client.config = config
-                return self.client.chat_completion_sync(messages, max_tokens=max_tokens)
+                
+                from plugin.framework.async_stream import run_blocking_in_thread
+                return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
             except Exception as e:
                 from plugin.modules.http.client import format_error_for_display
                 debug_log("PROMPT error: %s" % str(e))

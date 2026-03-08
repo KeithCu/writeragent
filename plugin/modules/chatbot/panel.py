@@ -331,84 +331,44 @@ class SendButtonListener(unohelper.Base, XActionListener):
             update_activity_state("")  # clear phase so watchdog does not report after we return
 
     def _transcribe_audio_async(self, wav_path, stt_model, model, query_text=""):
-        """Transcribe audio asynchronously using the STT model fallback."""
-        from plugin.framework.async_stream import run_stream_drain_loop
+        """Transcribe audio asynchronously and then proceed to chat."""
+        from plugin.framework.async_stream import run_blocking_in_thread
         from plugin.modules.http.client import format_error_message
         
         self._set_status("Transcribing audio...")
         self._append_response("\n[Transcribing audio...]\n")
         
-        q = queue.Queue()
-        job_done = [False]
-        
-        def run_transcription():
-            try:
-                # Ensure client is initialized
-                if not self.client:
-                    from plugin.framework.config import get_api_config
-                    from plugin.modules.http.client import LlmClient
-                    api_config = get_api_config(self.ctx)
-                    self.client = LlmClient(api_config, self.ctx)
-                
-                text = self.client.transcribe_audio(wav_path, model=stt_model)
-                q.put(("chunk", text))
-                q.put(("stream_done", text))
-            except Exception as e:
-                q.put(("error", e))
-
-        threading.Thread(target=run_transcription, daemon=True).start()
-
         try:
-            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", self.ctx)
-        except Exception as e:
-            self._append_response("\n[Error: %s]\n" % str(e))
-            self._terminal_status = "Error"
-            return
-
-        transcript_text = [None]
-
-        def apply_chunk(chunk_text, is_thinking=False):
-            # We don't stream transcription chunks yet (most APIs return full string), 
-            # but we could if we wanted to show progress. For now, just buffer it.
-            if transcript_text[0] is None: transcript_text[0] = ""
-            transcript_text[0] += chunk_text
-
-        def on_stream_done(item):
+            # Ensure client is initialized
+            if not self.client:
+                from plugin.framework.config import get_api_config
+                from plugin.modules.http.client import LlmClient
+                api_config = get_api_config(self.ctx)
+                self.client = LlmClient(api_config, self.ctx)
+            
+            transcript_text = run_blocking_in_thread(self.ctx, self.client.transcribe_audio, wav_path, model=stt_model)
+            
             # Clean up audio file
             import os
             try: os.remove(wav_path)
             except Exception: pass
             self.audio_wav_path = None
             
-            if transcript_text[0]:
+            if transcript_text:
                 combined_text = query_text
-                if transcript_text[0]:
-                    combined_text = (combined_text + "\n" + transcript_text[0]).strip() if combined_text else transcript_text[0]
+                if transcript_text:
+                    combined_text = (combined_text + "\n" + transcript_text).strip() if combined_text else transcript_text
                 
-                # Proceed to send with the transcript; _do_send_chat_with_tools will handle the UI append
+                # Proceed to send with the transcript
                 self._do_send_chat_with_tools(combined_text, model, self._get_doc_type_str(model).lower())
+            else:
+                self._terminal_status = "Ready"
+                self._set_status("Ready")
             
-            job_done[0] = True
-            return True
-
-        def on_stopped():
-            self._terminal_status = "Stopped"
-            self._set_status("Stopped")
-
-        def on_error(e):
+        except Exception as e:
             self._append_response("\n[Transcription error: %s]\n" % format_error_message(e))
             self._terminal_status = "Error"
             self._set_status("Error")
-
-        run_stream_drain_loop(
-            q, toolkit, job_done, apply_chunk,
-            on_stream_done=on_stream_done,
-            on_stopped=on_stopped,
-            on_error=on_error,
-            on_status_fn=self._set_status,
-            ctx=self.ctx,
-        )
 
     def _get_doc_type_str(self, model):
         from plugin.framework.document import is_writer, is_calc, is_draw

@@ -283,3 +283,48 @@ def run_stream_async(
         on_error=on_error_fn if on_error_fn else (lambda e: None),
         ctx=ctx,
     )
+
+
+def run_blocking_in_thread(ctx, func, *args, **kwargs):
+    """
+    Run a blocking function in a background thread while pumping UNO events
+    on the main thread to keep the UI responsive.
+    
+    Returns the result of the function or raises the exception encountered.
+    """
+    q = queue.Queue()
+    
+    def worker():
+        try:
+            result = func(*args, **kwargs)
+            q.put(("done", result))
+        except Exception as e:
+            q.put(("error", e))
+
+    try:
+        toolkit = ctx.getServiceManager().createInstanceWithContext(
+            "com.sun.star.awt.Toolkit", ctx)
+    except Exception as e:
+        # Fallback if toolkit isn't available (unlikely in UI context)
+        return func(*args, **kwargs)
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    while True:
+        try:
+            # Check for result without long block
+            item = q.get(timeout=0.1)
+            kind, data = item
+            if kind == "done":
+                return data
+            elif kind == "error":
+                raise data
+        except queue.Empty:
+            # Pulse MCP if enabled (similar to drain loop)
+            try:
+                from plugin.modules.http.mcp_protocol import drain_mcp_queue
+                drain_mcp_queue()
+            except (ImportError, AttributeError):
+                pass
+            toolkit.processEventsToIdle()

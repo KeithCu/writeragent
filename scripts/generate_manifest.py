@@ -1504,6 +1504,7 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Jobs.xcu'),
         ('application/vnd.sun.star.configuration-data', 'ProtocolHandler.xcu'),
+        ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/CalcAddIns.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Sidebar.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Factories.xcu'),
     ]

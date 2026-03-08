@@ -248,9 +248,10 @@ def _dispatch_command(command):
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
+                from plugin.framework.async_stream import run_blocking_in_thread
                 model = get_active_document(ctx)
                 w_model = model if (model and is_writer(model)) else None
-                p, f, log = run_markdown_tests(ctx, w_model)
+                p, f, log = run_blocking_in_thread(ctx, run_markdown_tests, ctx, w_model)
                 msgbox(ctx, "Format tests", f"Format tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
             except Exception as e:
                 msgbox(ctx, "Format tests", f"Tests failed to run: {e}")
@@ -261,9 +262,10 @@ def _dispatch_command(command):
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
+                from plugin.framework.async_stream import run_blocking_in_thread
                 model = get_active_document(ctx)
                 c_model = model if (model and is_calc(model)) else None
-                p, f, log = run_calc_tests(ctx, c_model)
+                p, f, log = run_blocking_in_thread(ctx, run_calc_tests, ctx, c_model)
                 msgbox(ctx, "Calc tests", f"Calc tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
             except Exception as e:
                 msgbox(ctx, "Calc tests", f"Tests failed to run: {e}")
@@ -274,9 +276,10 @@ def _dispatch_command(command):
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
+                from plugin.framework.async_stream import run_blocking_in_thread
                 model = get_active_document(ctx)
                 c_model = model if (model and is_calc(model)) else None
-                p, f, log = run_calc_integration_tests(ctx, c_model)
+                p, f, log = run_blocking_in_thread(ctx, run_calc_integration_tests, ctx, c_model)
                 msgbox(ctx, "Calc API tests", f"Calc API tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
             except Exception as e:
                 msgbox(ctx, "Calc tests", f"Integration tests failed: {e}")
@@ -287,9 +290,10 @@ def _dispatch_command(command):
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
             try:
+                from plugin.framework.async_stream import run_blocking_in_thread
                 model = get_active_document(ctx)
                 d_model = model if (model and is_draw(model)) else None
-                p, f, log = run_draw_tests(ctx, d_model)
+                p, f, log = run_blocking_in_thread(ctx, run_draw_tests, ctx, d_model)
                 msgbox(ctx, "Draw tests", f"Draw tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
             except Exception as e:
                 msgbox(ctx, "Draw tests", f"Tests failed to run: {e}")

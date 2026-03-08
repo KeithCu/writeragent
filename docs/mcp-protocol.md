@@ -384,7 +384,7 @@ def removeStatusListener(self, listener, url): ...
 ```
 
 Adapt: change the command URL prefix from `org.mcp.libreoffice:` to
-`org.extension.localwriter:`. The rest is identical.
+`org.extension.writeragent:`. The rest is identical.
 
 ---
 
@@ -448,12 +448,12 @@ Add a `MCP Server` submenu under LocalWriter's existing `LocalWriter` top-level 
 
 ```xml
 <node oor:name="N003" oor:op="replace">
-  <prop oor:name="URL"><value>org.extension.localwriter:toggle_mcp_server</value></prop>
+  <prop oor:name="URL"><value>org.extension.writeragent:toggle_mcp_server</value></prop>
   <prop oor:name="Title"><value xml:lang="en-US">Start MCP Server</value></prop>
   <!-- icon: assets/stopped_16.png -->
 </node>
 <node oor:name="N004" oor:op="replace">
-  <prop oor:name="URL"><value>org.extension.localwriter:mcp_status</value></prop>
+  <prop oor:name="URL"><value>org.extension.writeragent:mcp_status</value></prop>
   <prop oor:name="Title"><value xml:lang="en-US">MCP Server Status</value></prop>
 </node>
 ```
@@ -490,7 +490,7 @@ LocalWriter already handles settings.
 | `OptionsDialog.xcu` | Skip — use LocalWriter's existing Settings dialog tab instead. |
 | `dialogs/MCPSettings.xdl` | Reference only — adapt controls into LocalWriter's SettingsDialog.xdl. |
 | `description.xml` | Skip — different extension identity. |
-| `Addons.xcu` (theirs) | Reference for menu XML structure — adapt to `org.extension.localwriter:` URLs. |
+| `Addons.xcu` (theirs) | Reference for menu XML structure — adapt to `org.extension.writeragent:` URLs. |
 | `ProtocolHandler.xcu` (theirs) | Skip — LocalWriter already has its own protocol handler. |
 
 ---
