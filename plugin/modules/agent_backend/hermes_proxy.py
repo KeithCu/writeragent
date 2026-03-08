@@ -244,6 +244,9 @@ def _ensure_process(path, args_str, queue, stop_checker):
                         stdin=slave_fd,
                         stdout=slave_fd,
                         stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         env=os.environ.copy(),
                         start_new_session=True,  # own session: avoid SIGTERM from LO/parent
                     )
@@ -457,5 +460,14 @@ class HermesBackend(AgentBackend):
             queue.put(("error", RuntimeError(err)))
         elif _stop_requested or (stop_checker and stop_checker()):
             queue.put(("stopped",))
+        elif not _response_done.is_set():
+            queue.put((
+                "error",
+                RuntimeError(
+                    "Hermes did not respond within %d seconds. "
+                    "Ensure the MCP server is running (WriterAgent → Toggle MCP Server) and try again."
+                    % timeout_seconds
+                ),
+            ))
         else:
             queue.put(("stream_done", None))
