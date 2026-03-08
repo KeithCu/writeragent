@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import threading
 import time
@@ -20,6 +21,13 @@ try:
     _PTY_AVAILABLE = True
 except ImportError:
     _PTY_AVAILABLE = False
+
+try:
+    import fcntl
+    import termios
+    _WINSIZE_AVAILABLE = True
+except ImportError:
+    _WINSIZE_AVAILABLE = False
 
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.framework.logging import debug_log
@@ -55,15 +63,20 @@ _reader_ready = threading.Event()
 _current_queue = None
 _response_done = threading.Event()
 _stop_requested = False
+_stderr_lines = []  # last N stderr lines for diagnostics when process exits/hangs
 
 
 def _stderr_drain_loop(proc):
     """Drain stderr so Hermes never blocks on a full stderr pipe (can cause deadlock)."""
+    global _stderr_lines
     try:
         for line in iter(proc.stderr.readline, ""):
             line = _strip_ansi(line).strip()
             if line:
                 debug_log("hermes stderr: %s" % line[:200], context=_LOG)
+                _stderr_lines.append(line[:300])
+                if len(_stderr_lines) > 50:
+                    _stderr_lines.pop(0)
     except Exception:
         pass
 
@@ -113,12 +126,22 @@ def _reader_loop(stdout_stream):
             _current_queue.put(("chunk", line if line.endswith("\n") else line + "\n"))
     except (OSError, IOError) as e:
         if getattr(e, "errno", None) == 5:
-            debug_log("reader_loop: EIO (errno 5) - subprocess likely exited; check hermes stderr in log", context=_LOG)
+            proc = None
+            try:
+                with _lock:
+                    proc = _process
+            except Exception:
+                pass
+            alive = proc is not None and proc.poll() is None
+            stderr_snippet = ("; ".join(_stderr_lines[-5:])) if _stderr_lines else ""
+            debug_log("reader_loop: EIO (errno 5) - process_alive=%s returncode=%s; stderr tail: %s"
+                      % (alive, getattr(proc, "returncode", None) if proc else None, stderr_snippet[:200]), context=_LOG)
             if _current_queue is not None:
-                _current_queue.put(("error", RuntimeError(
+                msg = (
                     "Hermes subprocess ended unexpectedly (I/O error). "
-                    "Ensure the MCP server is running (WriterAgent → Toggle MCP Server) if Hermes uses it."
-                )))
+                    "Start the MCP server first (WriterAgent → Toggle MCP Server), then try again."
+                )
+                _current_queue.put(("error", RuntimeError(msg)))
         else:
             debug_log("reader_loop: exception %s" % e, context=_LOG)
             if _current_queue is not None:
@@ -146,6 +169,7 @@ def _ensure_process(path, args_str, queue, stop_checker):
         _reader_ready.clear()
         _current_queue = None
         _response_done.clear()
+        _stderr_lines[:] = []
         if _pty_master_write is not None:
             try:
                 _pty_master_write.close()
@@ -160,6 +184,12 @@ def _ensure_process(path, args_str, queue, stop_checker):
             master_read = None
             try:
                 master_fd, slave_fd = pty.openpty()
+                # Set a sane terminal size so Hermes (and libs like readline) don't exit or hang on 0x0
+                if _WINSIZE_AVAILABLE:
+                    try:
+                        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+                    except Exception as e:
+                        debug_log("ensure_process: set PTY winsize failed %s (continuing)" % e, context=_LOG)
                 # Two streams (read / write) avoid "r+" which can raise "not seekable" in some environments
                 master_read_fd = os.dup(master_fd)
                 master_read = open(master_read_fd, "r", encoding="utf-8", errors="replace", newline="\n")
@@ -171,6 +201,7 @@ def _ensure_process(path, args_str, queue, stop_checker):
                         stdout=slave_fd,
                         stderr=subprocess.PIPE,
                         env=os.environ.copy(),
+                        start_new_session=True,  # own session: avoid SIGTERM from LO/parent
                     )
                     os.close(slave_fd)
                     slave_fd = None
@@ -207,6 +238,7 @@ def _ensure_process(path, args_str, queue, stop_checker):
                     text=True,
                     env=os.environ.copy(),
                     bufsize=1,
+                    start_new_session=True,  # own session: avoid SIGTERM from LO/parent
                 )
             except FileNotFoundError as e:
                 debug_log("ensure_process: FileNotFoundError %s" % e, context=_LOG)
@@ -345,14 +377,19 @@ class HermesBackend(AgentBackend):
         timeout_seconds = 300
         deadline = time.monotonic() + timeout_seconds
         last_log = [time.monotonic()]
+        mcp_hint_shown = [False]
         while not _response_done.is_set() and time.monotonic() < deadline:
             if _stop_requested or (stop_checker and stop_checker()):
                 debug_log("send(): stop requested while waiting", context=_LOG)
                 break
             now = time.monotonic()
+            elapsed = now - (deadline - timeout_seconds)
             if now - last_log[0] >= 5.0:
                 debug_log("send(): still waiting for _response_done, proc.alive=%s, elapsed=%.1fs" % (
-                    proc.poll() is None, now - (deadline - timeout_seconds)), context=_LOG)
+                    proc.poll() is None, elapsed), context=_LOG)
+                if elapsed >= 15.0 and not mcp_hint_shown[0]:
+                    queue.put(("status", "Waiting for Hermes… (ensure MCP server is running: WriterAgent → Toggle MCP Server)"))
+                    mcp_hint_shown[0] = True
                 last_log[0] = now
             _response_done.wait(timeout=0.25)
 
@@ -365,9 +402,14 @@ class HermesBackend(AgentBackend):
         if proc.poll() is not None and proc.returncode != 0:
             try:
                 err = proc.stderr.read() if proc.stderr else ""
-                err = _strip_ansi(err).strip() or "Hermes exited with code %s" % proc.returncode
+                err = _strip_ansi(err).strip()
             except Exception:
-                err = "Hermes exited with code %s" % proc.returncode
+                err = ""
+            if not err and _stderr_lines:
+                err = "; ".join(_stderr_lines[-8:])
+            if not err:
+                err = "Hermes exited with code %s. Start the MCP server first (WriterAgent → Toggle MCP Server)." % proc.returncode
+            debug_log("send(): process exited, returncode=%s, stderr: %s" % (proc.returncode, err[:300]), context=_LOG)
             queue.put(("error", RuntimeError(err)))
         elif _stop_requested or (stop_checker and stop_checker()):
             queue.put(("stopped",))
