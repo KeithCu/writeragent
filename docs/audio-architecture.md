@@ -51,3 +51,25 @@ When the recording stops, `client.py` reads the `.wav` file and converts it to a
 
 **Crucial Database Optimization:** A 10-second audio clip base64-encoded is hundreds of kilobytes. If we saved the raw API payload to the SQLite history database (`localwriter_history.db`), the file would quickly bloat to gigabytes, severely degrading extension load times.
 In `history_db.py` -> `message_to_dict`, we intercept the message before saving. We strip out any `input_audio` dictionaries and append a simple `[Audio Attached]` tag to the text string. This keeps the database tiny while still indicating in the UI history that audio was used.
+
+## The Fallback System: Handling Non-Multimodal Models
+
+Not all AI models support native audio input (`input_audio`). To ensure a seamless user experience, WriterAgent implements a multi-stage fallback system.
+
+### 1. Capability Detection
+In `config.py` -> `has_native_audio()`, the system checks if the selected model supports audio:
+- **Persistent Cache:** If a model previously failed an audio request, it is marked as unsupported in `writeragent.json`.
+- **Model Catalog:** Known multimodal models (e.g., GPT-4o, Gemini 1.5/2.0) are hardcoded as "supported".
+- **Heuristics:** Model names containing "multimodal" or "flash" are prioritized for native audio.
+
+### 2. Transcription Fallback (STT)
+If a model lacks native audio support, the system switches to **Transcription Mode**:
+- The audio is sent to the configured **STT Model** (Settings -> STT Model).
+- We first attempt to use the STT model as a multimodal chat request (asking it to "Transcribe exactly").
+- If that fails, we fallback to the standard `v1/audio/transcriptions` (Whisper-compatible) endpoint.
+- Once the text transcript is received, it is combined with any typed query and sent to the main Chat Model as a normal text-only request.
+
+### 3. Dynamic Runtime Recovery
+Even if a model is *believed* to support audio, the API might return a "modality unsupported" error at runtime.
+- `client.py` -> `is_audio_unsupported_error()` identifies these specific failures.
+- If this occurs, `panel.py` automatically caches the unsupported status for that model/endpoint pair, notifies the user, and **retries the message immediately** using the STT fallback path. The user never has to re-record or manually toggle settings.
