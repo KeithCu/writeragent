@@ -181,6 +181,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         self._send_busy = False
         self.client = None
         self.audio_wav_path = None
+        self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
         # Subscribe to MCP/tool bus events
         try:
             from plugin.main import get_tools
@@ -470,6 +471,17 @@ class SendButtonListener(unohelper.Base, XActionListener):
             self._do_send_direct_image(query_text, model)
             return
 
+        # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
+        try:
+            from plugin.framework.config import get_config, as_bool
+            agent_backend_id = str(get_config(self.ctx, "agent_backend.backend_id", "builtin")).strip().lower()
+            if agent_backend_id and agent_backend_id != "builtin":
+                debug_log("_do_send: using agent backend %s" % agent_backend_id, context="Chat")
+                self._do_send_via_agent_backend(query_text, model, doc_type_str.lower())
+                return
+        except Exception as e:
+            debug_log("_do_send: agent backend check failed: %s" % e, context="Chat")
+
         # Regular Chat with Tools or Streams
         self._do_send_chat_with_tools(query_text, model, doc_type_str.lower())
 
@@ -723,6 +735,129 @@ class SendButtonListener(unohelper.Base, XActionListener):
         self._start_tool_calling_async(client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text)
 
         debug_log("=== _do_send END (async started) ===", context="Chat")
+
+    def _do_send_via_agent_backend(self, query_text, model, doc_type_str):
+        """Send via external agent backend (Aider, Hermes). No fallback to built-in on failure."""
+        from plugin.framework.config import get_config
+        from plugin.framework.document import get_document_context_for_chat
+        from plugin.modules.agent_backend import get_backend
+
+        self.session.add_user_message(query_text)
+        self._append_response("\nYou: %s\n" % query_text)
+        self._append_response("\n[Using external agent backend.]\n")
+        self._append_response("AI: ")
+        self._set_status("Starting agent...")
+
+        document_url = ""
+        try:
+            if model and hasattr(model, "getURL"):
+                document_url = str(model.getURL() or "")
+        except Exception:
+            pass
+
+        max_context = int(get_config(self.ctx, "chat_context_length", 8000))
+        try:
+            doc_context = get_document_context_for_chat(
+                model, max_context, include_end=True, include_selection=True, ctx=self.ctx
+            )
+        except Exception as e:
+            self._append_response("\n[Document context error: %s]\n" % str(e))
+            self._terminal_status = "Error"
+            self._set_status("Error")
+            return
+
+        backend_id = str(get_config(self.ctx, "agent_backend.backend_id", "builtin")).strip().lower()
+        adapter = get_backend(backend_id, ctx=self.ctx)
+        if not adapter:
+            self._append_response("\n[Agent backend '%s' not found.]\n" % backend_id)
+            self._terminal_status = "Error"
+            self._set_status("Error")
+            return
+        if not adapter.is_available(self.ctx):
+            self._append_response(
+                "\n[Agent backend '%s' is not available. Check Settings (path, install).]\n"
+                % getattr(adapter, "display_name", backend_id)
+            )
+            self._terminal_status = "Error"
+            self._set_status("Error")
+            return
+
+        q = queue.Queue()
+        job_done = [False]
+        self._current_agent_backend = adapter
+
+        def run_agent():
+            try:
+                adapter.send(
+                    queue=q,
+                    user_message=query_text,
+                    document_context=doc_context,
+                    document_url=document_url,
+                    system_prompt=self.session.messages[0].get("content", "") if self.session.messages else "",
+                    stop_checker=lambda: self.stop_requested,
+                )
+            except Exception as e:
+                q.put(("error", e))
+            finally:
+                self._current_agent_backend = None
+
+        threading.Thread(target=run_agent, daemon=True).start()
+
+        try:
+            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
+                "com.sun.star.awt.Toolkit", self.ctx)
+        except Exception as e:
+            self._append_response("\n[Error: %s]\n" % str(e))
+            self._terminal_status = "Error"
+            self._current_agent_backend = None
+            return
+
+        def apply_chunk(text, is_thinking=False):
+            self._append_response(text)
+
+        def on_stream_done(item):
+            job_done[0] = True
+            self._terminal_status = "Ready"
+            self._set_status("Ready")
+            return True
+
+        def on_stopped():
+            job_done[0] = True
+            self._terminal_status = "Stopped"
+            self._set_status("Stopped")
+            self._append_response("\n[Stopped by user]\n")
+
+        def on_error(e):
+            from plugin.modules.http.client import format_error_message
+            self._append_response("\n[Error: %s]\n" % format_error_message(e))
+            self._terminal_status = "Error"
+            self._set_status("Error")
+
+        def on_approval_required(item):
+            # item = ("approval_required", description, tool_name, args, request_id)
+            from plugin.framework.dialogs import show_approval_dialog
+            description = item[1] if len(item) > 1 else ""
+            tool_name = item[2] if len(item) > 2 else ""
+            request_id = item[4] if len(item) > 4 else None
+            approved = show_approval_dialog(self.ctx, description, tool_name)
+            if request_id is not None and hasattr(adapter, "submit_approval"):
+                try:
+                    adapter.submit_approval(request_id, approved)
+                except Exception:
+                    pass
+
+        run_stream_drain_loop(
+            q, toolkit, job_done, apply_chunk,
+            on_stream_done=on_stream_done,
+            on_stopped=on_stopped,
+            on_error=on_error,
+            on_status_fn=self._set_status,
+            ctx=self.ctx,
+            on_approval_required=on_approval_required,
+        )
+        if self._terminal_status != "Error" and self._terminal_status != "Stopped":
+            self._terminal_status = "Ready"
+        self._current_agent_backend = None
 
     # Future work: Undo grouping for AI edits (user can undo all edits from one turn with Ctrl+Z).
     # Previous attempt used enterUndoContext("AI Edit") / leaveUndoContext() but leaveUndoContext
@@ -1241,6 +1376,13 @@ class StopButtonListener(unohelper.Base, XActionListener):
     def actionPerformed(self, evt):
         if self.send_listener:
             self.send_listener.stop_requested = True
+            # If an external agent backend is running, tell it to stop
+            adapter = getattr(self.send_listener, "_current_agent_backend", None)
+            if adapter and hasattr(adapter, "stop"):
+                try:
+                    adapter.stop()
+                except Exception:
+                    pass
             # Update status immediately
             self.send_listener._set_status("Stopping...")
 

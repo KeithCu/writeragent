@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="wrap page-head">
-    <h1>Install WriterAgent</h1>
+    <h1>Install LocalWriter</h1>
     <p class="lead">Install the extension in LibreOffice, then point it at an OpenAI-compatible backend.</p>
 </div>
 
@@ -11,8 +11,7 @@
     <div class="wrap">
         <h2>1. Install the extension</h2>
         <ol class="steps-list">
-            <li>Download the latest <code>.oxt</code> from the <a href="{{ release_url }}" target="_blank"
-                    rel="noopener">releases page</a>.</li>
+            <li>Download the latest <code>.oxt</code> from the <a href="{{ release_url }}" target="_blank" rel="noopener">releases page</a>.</li>
             <li>In LibreOffice, go to <strong>Tools &gt; Extension Manager</strong>.</li>
             <li>Click <strong>Add</strong> and select the downloaded file.</li>
             <li>Restart LibreOffice.</li>
@@ -23,12 +22,10 @@
 <section class="backend-setup">
     <div class="wrap">
         <h2>2. Backend setup</h2>
-        <p>WriterAgent needs an OpenAI-compatible API. Recommended options:</p>
+        <p>LocalWriter needs an OpenAI-compatible API. Recommended options:</p>
         <ul>
-            <li><strong><a href="https://ollama.com/" target="_blank" rel="noopener">Ollama</a></strong> — Easiest for
-                local usage.</li>
-            <li><strong><a href="https://github.com/oobabooga/text-generation-webui" target="_blank"
-                        rel="noopener">text-generation-webui</a></strong></li>
+            <li><strong><a href="https://ollama.com/" target="_blank" rel="noopener">Ollama</a></strong> — Easiest for local usage.</li>
+            <li><strong><a href="https://github.com/oobabooga/text-generation-webui" target="_blank" rel="noopener">text-generation-webui</a></strong></li>
             <li><strong>OpenRouter / OpenAI</strong> — Cloud providers (API key required).</li>
         </ul>
     </div>
@@ -37,25 +34,22 @@
 <section class="settings-summary">
     <div class="wrap">
         <h2>Settings</h2>
-        <p>Configure everything under <strong>WriterAgent &gt; Settings</strong>:</p>
+        <p>Configure everything under <strong>LocalWriter &gt; Settings</strong>:</p>
         <ul>
-            <li><strong>Chat/Text</strong> — Endpoint URL (e.g. <code>http://localhost:11434</code> for Ollama), model,
-                API key, temperature, context length, additional instructions, and the optional <strong>MCP
-                    Server</strong> (enable and port).</li>
+            <li><strong>Chat/Text</strong> — Endpoint URL (e.g. <code>http://localhost:11434</code> for Ollama), model, API key, temperature, context length, additional instructions, and the optional <strong>MCP Server</strong> (enable and port).</li>
             <li><strong>Image Settings</strong> — Size, aspect ratio, AI Horde options.</li>
         </ul>
-        <p>Connection keep-alive is on by default. For detailed examples (Ollama, OpenWebUI, OpenRouter, etc.), see <a
-                href="{{ config_examples_url }}" target="_blank" rel="noopener">CONFIG_EXAMPLES.md</a> on GitHub.</p>
+        <p>Connection keep-alive is on by default. For detailed examples (Ollama, OpenWebUI, OpenRouter, etc.), see <a href="{{ config_examples_url }}" target="_blank" rel="noopener">CONFIG_EXAMPLES.md</a> on GitHub.</p>
     </div>
 </section>
 
 <section class="contributing">
     <div class="wrap">
         <h2>Contributing</h2>
-        <pre class="code-block"><code>git clone https://github.com/balisujohn/writeragent.git
-cd writeragent
+        <pre class="code-block"><code>git clone https://github.com/balisujohn/localwriter.git
+cd localwriter
 bash build.sh
-unopkg add writeragent.oxt</code></pre>
+unopkg add localwriter.oxt</code></pre>
         <p><a href="{{ github_url }}" target="_blank" rel="noopener">GitHub repository</a></p>
     </div>
 </section>

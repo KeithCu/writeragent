@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}WriterAgent{% endblock %} — AI in LibreOffice</title>
+    <title>{% block title %}LocalWriter{% endblock %} — AI in LibreOffice</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
     <link rel="icon" href="{{ url_for('static', filename='images/icon.png') }}" type="image/png">
     {% block head %}{% endblock %}
@@ -16,13 +16,13 @@
             <a href="{{ url_for('index') }}" class="logo">
                 <img src="{{ url_for('static', filename='images/icon.png') }}" alt="" width="32" height="32"
                     class="logo-img">
-                <span class="logo-text">WriterAgent</span>
+                <span class="logo-text">LocalWriter</span>
             </a>
             <nav class="nav">
                 <a href="{{ url_for('index') }}">Home</a>
                 <a href="{{ url_for('install') }}">Install</a>
                 <a href="{{ url_for('local') }}">Local Models</a>
-                <a href="https://github.com/balisujohn/writeragent" target="_blank" rel="noopener">GitHub</a>
+                <a href="https://github.com/balisujohn/localwriter" target="_blank" rel="noopener">GitHub</a>
             </nav>
         </div>
     </header>
@@ -34,10 +34,10 @@
     <footer class="site-footer">
         <div class="wrap">
             <p>
-                <a href="https://github.com/balisujohn/writeragent">GitHub</a>
+                <a href="https://github.com/balisujohn/localwriter">GitHub</a>
                 · <a href="https://ko-fi.com/johnbalis">Support on Ko-fi</a>
                 · <a href="{{ url_for('privacy') }}">Privacy</a>
-                · <a href="https://github.com/balisujohn/writeragent/blob/main/License.txt">MPL 2.0</a>
+                · <a href="https://github.com/balisujohn/localwriter/blob/main/License.txt">MPL 2.0</a>
             </p>
             <p class="copyright">Copyright &copy; 2024 John Balis</p>
         </div>

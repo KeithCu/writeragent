@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}WriterAgent{% endblock %}
+{% block title %}LocalWriter{% endblock %}
 
 {% block content %}
 <section class="hero">
@@ -16,7 +16,7 @@
 
 <section class="value-props">
     <div class="wrap">
-        <h2>Why WriterAgent</h2>
+        <h2>Why LocalWriter</h2>
         <ul class="props-list">
             <li><strong>Local-first</strong> — Run Ollama, LM Studio, or your own server; documents never leave your
                 machine.</li>
@@ -30,7 +30,7 @@
 <section class="cloud-providers">
     <div class="wrap">
         <h2>When you use the cloud, it’s not all the same cloud</h2>
-        <p>WriterAgent doesn’t send your data to Microsoft or Google by default. You choose the endpoint. The actual
+        <p>LocalWriter doesn’t send your data to Microsoft or Google by default. You choose the endpoint. The actual
             inference—the models and the GPUs—is run by <strong>inference providers</strong>. Those providers have
             different privacy policies regarding data training and retention. You can pick one that fits your
             priorities.</p>
@@ -124,7 +124,7 @@
         </ul>
         <figure>
             <img src="{{ url_for('static', filename='images/Sonnet46ArchDiagram.jpg') }}"
-                alt="WriterAgent architecture diagram" width="800" height="auto">
+                alt="LocalWriter architecture diagram" width="800" height="auto">
             <figcaption>Architecture diagram.</figcaption>
         </figure>
     </div>
@@ -133,7 +133,7 @@
 <section class="credits">
     <div class="wrap">
         <h2>Credits</h2>
-        <p>WriterAgent builds on <a href="https://extensions.libreoffice.org/en/extensions/show/99509" target="_blank"
+        <p>LocalWriter builds on <a href="https://extensions.libreoffice.org/en/extensions/show/99509" target="_blank"
                 rel="noopener">LibreCalc AI Assistant</a> and the <a href="https://github.com/quazardous/mcp-libre"
                 target="_blank" rel="noopener">LibreOffice MCP Extension</a>. We’re grateful for their open work.</p>
     </div>

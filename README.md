@@ -55,6 +55,15 @@ When enabled in **WriterAgent > Settings** (Chat/Text page), an HTTP server runs
 *   **Targeting**: Clients target a document by sending the **`X-Document-URL`** header (or use the active document).
 *   **Control**: Use **WriterAgent > Toggle MCP Server** and **MCP Server Status** to control and check the server. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md) for endpoints, usage, and future work.
 
+### 8b. Agent backends (Aider, Hermes)
+You can plug in **external agent backends** so that Chat with Document uses an external process (e.g. Aider or Hermes) instead of the built-in LLM. When enabled, the sidebar sends your message and document context to the selected backend; the backend uses WriterAgent’s MCP server as its tool layer, so edits still apply to your document. This is aimed at power users who want to use a dedicated coding or planning agent (Aider, Hermes) while keeping the document in LibreOffice.
+
+*   **Settings**: In **WriterAgent > Settings**, open the **Agent backends** tab. Enable **Use external agent backend** and choose **Aider** or **Hermes** (or **Built-in** to use the normal in-process chat). You can set optional paths and arguments per backend.
+*   **Sidebar**: When an external backend is selected, a small label in the chat panel (e.g. “Aider” or “Hermes”) shows which backend is active. Send and Stop behave as usual; if the backend is unavailable, you see a clear error and the extension does **not** fall back to built-in chat.
+*   **Document targeting**: The proxy ensures every MCP request from the external agent targets the correct document (via the `X-Document-URL` header), so multiple open documents are handled correctly.
+*   **HITL (approve/reject)**: If a backend requests approval for a tool call, a dialog appears with Approve and Reject; your choice is sent back so the agent can continue. Stub backends do not use this yet.
+*   **Status**: Aider and Hermes adapters are currently **stubs** that report “not yet implemented.” The plumbing (registry, sidebar branch, settings, HITL dialog) is in place so that real integrations can be added in `plugin/modules/agent_backend/` (e.g. `aider_proxy.py`, `hermes_proxy.py`). See [foss_agent_backend_integration.md](foss_agent_backend_integration.md) for the full plan.
+
 ### 9. Calc `=PROMPT()` function
 A cell formula to call the model directly from within your spreadsheet:
 `=PROMPT(message, [system_prompt], [model], [max_tokens])`
@@ -196,13 +205,14 @@ WriterAgent requires an OpenAI-compatible backend. Recommended options:
 
 ## Settings
 
-Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The dialog has three main configuration areas: **Chat/Text** (endpoint, models, API key, etc.), **Audio** (recording device, model mapping), and **Image Settings** (size, aspect ratio, AI Horde options).
+Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The dialog includes **Chat/Text** (endpoint, models, API key, etc.), **Image Settings** (size, aspect ratio, AI Horde options), **Http** (MCP server), **Agent backends**, and other tabs generated from the extension modules.
 
 *   **Endpoint URL**: e.g., `http://localhost:11434` for Ollama.
 *   **Additional Instructions**: A shared system prompt for all features with history support.
 *   **API Key**: Required for cloud providers.
 *   **Connection Keep-Alive**: Automatically enabled to reduce latency.
-*   **MCP Server**: Opt-in; when enabled, an HTTP server runs on the configured port (default 8765) for external AI clients. Use **Toggle MCP Server** and **MCP Server Status** from the menu.
+*   **MCP Server**: On the **Http** tab; when enabled, an HTTP server runs on the configured port (default 8765) for external AI clients. Use **Toggle MCP Server** and **MCP Server Status** from the menu.
+*   **Agent backends**: On the **Agent backends** tab; enable an external backend (Aider or Hermes) so Chat uses that agent instead of the built-in LLM. Paths and arguments are optional per backend.
 
 For detailed configuration examples, see [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
 

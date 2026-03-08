@@ -1,6 +1,6 @@
-# WriterAgent.org website
+# LocalWriter.org website
 
-Flask + HTML + CSS site for [writeragent.org](https://writeragent.org).
+Flask + HTML + CSS site for [localwriter.org](https://localwriter.org).
 
 ## Run locally
 
@@ -21,7 +21,7 @@ pip install gunicorn
 gunicorn -w 2 -b 0.0.0.0:8000 "app:app"
 ```
 
-Then point **writeragent.org** at your host (e.g. nginx reverse proxy to port 8000, or a PaaS like Render/Fly.io/Railway).
+Then point **localwriter.org** at your host (e.g. nginx reverse proxy to port 8000, or a PaaS like Render/Fly.io/Railway).
 
 ## Optional images
 

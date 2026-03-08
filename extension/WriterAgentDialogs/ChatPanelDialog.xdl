@@ -4,7 +4,8 @@
   dlg:id="ChatPanelDialog" dlg:left="0" dlg:top="0" dlg:width="168" dlg:height="303"
   dlg:closeable="false" dlg:moveable="false" dlg:resizeable="false" dlg:withtitlebar="false" dlg:title="">
  <dlg:bulletinboard>
-  <dlg:text dlg:id="response_label" dlg:left="4" dlg:top="4" dlg:width="158" dlg:height="10" dlg:value="Chat (Testing):" dlg:align="left"/>
+  <dlg:text dlg:id="response_label" dlg:left="4" dlg:top="4" dlg:width="100" dlg:height="10" dlg:value="Chat (Testing):" dlg:align="left"/>
+  <dlg:text dlg:id="backend_indicator" dlg:left="106" dlg:top="4" dlg:width="56" dlg:height="10" dlg:value="" dlg:align="right"/>
   <dlg:textfield dlg:id="response" dlg:left="4" dlg:top="16" dlg:width="158" dlg:height="110" dlg:tabstop="true" dlg:value="" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>
   <dlg:textfield dlg:id="status" dlg:left="4" dlg:top="128" dlg:width="158" dlg:height="10" dlg:value="" dlg:readonly="true" dlg:border="none" dlg:tabstop="false"/>
   

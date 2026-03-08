@@ -113,6 +113,18 @@ _EXECUTION_TIMEOUT = -32001
 _mcp_session_id = None
 
 
+def _resolve_doc_type_for_url(services, document_url):
+    """Run on main thread: resolve document by URL and return doc_type or None."""
+    if not document_url:
+        return None
+    try:
+        doc_svc = services.document
+        _doc, doc_type = doc_svc.resolve_document_by_url(document_url)
+        return doc_type
+    except Exception:
+        return None
+
+
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -134,7 +146,8 @@ class MCPProtocolHandler:
         body = self._read_body(handler)
         if body is None:
             return
-        self._handle_mcp(body, handler)
+        document_url = handler.headers.get("X-Document-URL") or None
+        self._handle_mcp(body, handler, document_url=document_url)
 
     def handle_mcp_sse(self, handler):
         """GET /mcp — SSE notification stream (keepalive)."""
@@ -185,12 +198,13 @@ class MCPProtocolHandler:
         body = self._read_body(handler)
         if body is None:
             return
+        document_url = handler.headers.get("X-Document-URL") or None
         msg = body
         method = msg.get("method", "?") if isinstance(msg, dict) else "batch"
         req_id = msg.get("id") if isinstance(msg, dict) else None
         log.info("[SSE] POST <<< %s (id=%s)", method, req_id)
 
-        result = self._process_jsonrpc(msg)
+        result = self._process_jsonrpc(msg, document_url=document_url)
         if result is None:
             handler.send_response(202)
             self._send_cors_headers(handler)
@@ -215,6 +229,14 @@ class MCPProtocolHandler:
             "debug": True,
             "usage": "POST /debug with JSON body",
             "actions": {
+                "eval": {
+                    "description": "Evaluate a Python expression",
+                    "body": {"action": "eval", "code": "1 + 1"},
+                },
+                "exec": {
+                    "description": "Execute Python code (result in _result var)",
+                    "body": {"action": "exec", "code": "_result = 'hello'"},
+                },
                 "call_tool": {
                     "description": "Call a registered tool",
                     "body": {"action": "call_tool", "tool": "get_document_info", "args": {}},
@@ -249,9 +271,15 @@ class MCPProtocolHandler:
             return
         action = body.get("action", "")
         try:
-            if action == "call_tool":
+            if action == "eval":
+                result = self._debug_eval(body.get("code", ""))
+            elif action == "exec":
+                result = self._debug_exec(body.get("code", ""))
+            elif action == "call_tool":
+                document_url = handler.headers.get("X-Document-URL") or None
                 result = self._debug_call_tool(
-                    body.get("tool", ""), body.get("args", {}))
+                    body.get("tool", ""), body.get("args", {}),
+                    document_url=document_url)
             elif action == "trigger":
                 result = self._debug_trigger(body.get("command", ""))
             elif action == "services":
@@ -269,7 +297,7 @@ class MCPProtocolHandler:
 
     # ── MCP protocol handler ─────────────────────────────────────────
 
-    def _handle_mcp(self, msg, handler):
+    def _handle_mcp(self, msg, handler, document_url=None):
         """Route MCP JSON-RPC request(s) — single or batch."""
         global _mcp_session_id
 
@@ -284,7 +312,7 @@ class MCPProtocolHandler:
         if isinstance(msg, list):
             responses = []
             for item in msg:
-                result = self._process_jsonrpc(item)
+                result = self._process_jsonrpc(item, document_url=document_url)
                 if result is not None:
                     _status, response = result
                     responses.append(response)
@@ -297,7 +325,7 @@ class MCPProtocolHandler:
             return
 
         # Single request
-        result = self._process_jsonrpc(msg)
+        result = self._process_jsonrpc(msg, document_url=document_url)
         if result is None:
             handler.send_response(202)
             self._send_cors_headers(handler)
@@ -346,8 +374,16 @@ class MCPProtocolHandler:
     def _mcp_ping(self, params):
         return {}
 
-    def _mcp_tools_list(self, params):
-        doc_type = self._detect_active_doc_type()
+    def _mcp_tools_list(self, params, document_url=None):
+        if document_url:
+            doc_type = execute_on_main_thread(
+                _resolve_doc_type_for_url, self.services, document_url,
+                timeout=10.0)
+            if doc_type is None:
+                doc_type = self._detect_active_doc_type()
+        else:
+            doc_type = self._detect_active_doc_type()
+        doc_type = doc_type or "writer"
         schemas = self.tool_registry.get_mcp_schemas(doc_type)
         return {"tools": schemas}
 
@@ -357,7 +393,7 @@ class MCPProtocolHandler:
     def _mcp_prompts_list(self, params):
         return {"prompts": []}
 
-    def _mcp_tools_call(self, params):
+    def _mcp_tools_call(self, params, document_url=None):
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
         if not tool_name:
@@ -377,7 +413,8 @@ class MCPProtocolHandler:
                 method="tools/call"
             )
 
-        result = self._execute_with_backpressure(tool_name, arguments)
+        result = self._execute_with_backpressure(
+            tool_name, arguments, document_url=document_url)
 
         if self.event_bus:
             snippet = str(result)[:100] if result else ""
@@ -398,7 +435,7 @@ class MCPProtocolHandler:
 
     # ── JSON-RPC processing ──────────────────────────────────────────
 
-    def _process_jsonrpc(self, msg):
+    def _process_jsonrpc(self, msg, document_url=None):
         """Process a JSON-RPC message.
 
         Returns (http_status, response_dict) or None for notifications.
@@ -432,7 +469,10 @@ class MCPProtocolHandler:
                 "Unknown method: %s" % method))
 
         try:
-            result = handler(params)
+            if method in ("tools/list", "tools/call"):
+                result = handler(params, document_url=document_url)
+            else:
+                result = handler(params)
             debug_log(f"*** MCP RESULT: {str(result)[:100]} ***", context="MCP Protocol")
             return (200, _jsonrpc_ok(req_id, result))
         except BusyError as e:
@@ -451,7 +491,7 @@ class MCPProtocolHandler:
 
     # ── Backpressure execution ───────────────────────────────────────
 
-    def _execute_with_backpressure(self, tool_name, arguments):
+    def _execute_with_backpressure(self, tool_name, arguments, document_url=None):
         """Execute a tool on the VCL main thread with backpressure."""
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
         if not acquired:
@@ -460,26 +500,31 @@ class MCPProtocolHandler:
                 "Please wait a moment and retry.")
         try:
             return execute_on_main_thread(
-                self._execute_tool_on_main, tool_name, arguments,
+                self._execute_tool_on_main, tool_name, arguments, document_url,
                 timeout=_PROCESS_TIMEOUT)
         finally:
             _tool_semaphore.release()
 
-    def _execute_tool_on_main(self, tool_name, arguments):
+    def _execute_tool_on_main(self, tool_name, arguments, document_url=None):
         """Execute a tool via the ToolRegistry. Runs on main thread."""
         from plugin.framework.tool_context import ToolContext
 
         registry = self.tool_registry
         svc_registry = self.services
 
-        # Resolve active document
         doc = None
         doc_type = "writer"
         try:
             doc_svc = svc_registry.document
-            doc = doc_svc.get_active_document()
-            if doc:
-                doc_type = doc_svc.detect_doc_type(doc)
+            if document_url:
+                doc, doc_type = doc_svc.resolve_document_by_url(document_url)
+                if doc is None:
+                    return {"status": "error",
+                            "message": "No document open matching X-Document-URL: %s" % (document_url or "")}
+            else:
+                doc = doc_svc.get_active_document()
+                if doc:
+                    doc_type = doc_svc.detect_doc_type(doc)
         except Exception:
             pass
 
@@ -514,16 +559,26 @@ class MCPProtocolHandler:
 
     # ── Debug helpers ────────────────────────────────────────────────
 
-    def _debug_call_tool(self, tool_name, arguments):
+    def _debug_eval(self, code):
+        ns = self._debug_namespace()
+        return repr(eval(code, ns))
+
+    def _debug_exec(self, code):
+        ns = self._debug_namespace()
+        ns["_result"] = None
+        exec(code, ns)
+        r = ns.get("_result")
+        return repr(r) if r is not None else "OK (no _result set)"
+
+    def _debug_call_tool(self, tool_name, arguments, document_url=None):
         if not tool_name:
             return {"error": "Missing 'tool' parameter"}
-        result = execute_on_main_thread(
-            self._execute_tool_on_main, tool_name, arguments,
-            timeout=_PROCESS_TIMEOUT)
+        result = self._execute_with_backpressure(
+            tool_name, arguments, document_url=document_url)
         return result
 
     def _debug_trigger(self, command):
-        from plugin.main import get_services
+        from plugin.main import _modules, get_services
         if command == "settings":
             from plugin.framework.settings_dialog import show_settings
             from plugin._manifest import MODULES
@@ -551,6 +606,24 @@ class MCPProtocolHandler:
             return {key: config_svc.get(key)}
         config_svc.set(key, value)
         return {key: value, "persisted": True}
+
+    def _debug_namespace(self):
+        """Build a namespace for eval/exec with useful references."""
+        import plugin.main as main_mod
+        ns = {
+            "services": self.services,
+            "tools": self.tool_registry,
+            "events": self.event_bus,
+            "modules": getattr(main_mod, "_modules", []),
+            "log": log,
+        }
+        try:
+            import uno
+            ns["uno"] = uno
+            ns["ctx"] = uno.getComponentContext()
+        except ImportError:
+            pass
+        return ns
 
     # ── Helpers ───────────────────────────────────────────────────────
 

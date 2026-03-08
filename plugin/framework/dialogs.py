@@ -54,6 +54,32 @@ def msgbox(ctx, title, message):
         log.exception("MSGBOX fallback - %s: %s", title, message)
 
 
+def show_approval_dialog(ctx, description, tool_name=""):
+    """Show HITL approval dialog: description + Approve (Yes) / Reject (No). Runs on main thread.
+    Returns True if user chose Approve, False if Reject or on error."""
+    if not ctx:
+        return False
+    try:
+        desktop = get_desktop(ctx)
+        frame = desktop.getCurrentFrame()
+        if frame is None:
+            return False
+        window = frame.getContainerWindow()
+        smgr = ctx.getServiceManager()
+        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+        title = "Agent requests approval"
+        message = (description or "Proceed with this action?") + (
+            "\n\nTool: %s" % tool_name if tool_name else ""
+        )
+        # 1 = INFO, 3 = BUTTONS_YES_NO. Result 1 = Yes (Approve), 2 = No (Reject)
+        box = toolkit.createMessageBox(window, 1, 3, title, message)
+        result = box.execute()
+        return result == 1
+    except Exception:
+        log.exception("Approval dialog failed")
+        return False
+
+
 # ── Clipboard ────────────────────────────────────────────────────────
 
 

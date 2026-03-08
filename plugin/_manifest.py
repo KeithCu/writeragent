@@ -5,7 +5,7 @@ VERSION = '1.7.3'
 MODULES = [
     {
         "name": "main",
-        "title": "WriterAgent global settings",
+        "title": "LocalWriter global settings",
         "requires": [],
         "provides_services": [],
         "config": {},
@@ -412,53 +412,6 @@ MODULES = [
                         "default": "",
                         "widget": "password",
                         "label": "Ngrok Authtoken"
-                }
-        },
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "agent_backend",
-        "title": "Agent backends (Aider, Hermes)",
-        "requires": [
-                "config",
-                "document"
-        ],
-        "provides_services": [],
-        "config": {
-                "backend_id": {
-                        "type": "string",
-                        "default": "builtin",
-                        "widget": "select",
-                        "label": "Backend",
-                        "options": [
-                                {
-                                        "value": "builtin",
-                                        "label": "Built-in"
-                                },
-                                {
-                                        "value": "aider",
-                                        "label": "Aider"
-                                },
-                                {
-                                        "value": "hermes",
-                                        "label": "Hermes"
-                                }
-                        ]
-                },
-                "path": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Path",
-                        "helper": "Path to backend CLI or Python module (e.g. aider, hermes). Empty = try default."
-                },
-                "args": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Extra arguments",
-                        "helper": "Optional arguments for the selected backend (space-separated)."
                 }
         },
         "actions": [],

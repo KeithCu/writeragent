@@ -33,8 +33,7 @@ litellm*/
 langchain*/
 build*/
 vendor*/
-*.egg-info/
-writeragent.egg*/
+localwriter.egg*/
 extension/META-INF/manifest.xml
 uv.lock
 
