@@ -225,21 +225,24 @@ def _dispatch_command(command):
             try:
                 settings_box(get_ctx())
                 _start_mcp_server(get_ctx())
-            except Exception:
+            except Exception as e:
+                logging.getLogger("writeragent.main").error("Failed to open settings: %s", e, exc_info=True)
                 pass
         elif action == "about":
             from plugin.framework.uno_context import get_ctx
             from plugin.framework.dialogs import about_dialog
             try:
                 about_dialog(get_ctx())
-            except ImportError:
+            except Exception as e:
+                logging.getLogger("writeragent.main").error("Failed to open about dialog: %s", e, exc_info=True)
                 pass
         elif action == "EvaluationDashboard":
             from plugin.framework.uno_context import get_ctx
             from plugin.framework.legacy_ui import show_eval_dashboard
             try:
                 show_eval_dashboard(get_ctx())
-            except Exception:
+            except Exception as e:
+                logging.getLogger("writeragent.main").error("Failed to show eval dashboard: %s", e, exc_info=True)
                 pass
         elif action == "RunFormatTests":
             from plugin.framework.uno_context import get_ctx
