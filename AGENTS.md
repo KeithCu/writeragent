@@ -25,6 +25,8 @@ Config is stored in `writeragent.json` in LibreOffice's user config directory. S
 
 **Licensing**: In March 2026, the project was relicensed from MPL 2.0 to **GPL v3 (or later)** to better support community contributions and clarify patent grants. Original work by John Balis (MPL 2.0) is attributed in file headers and the installer. Significant contributions to the framework and build system were provided by [quazardous](https://github.com/quazardous/), and Calc integration features were provided by **LibreCalc AI Assistant** (originally under MIT).
 
+**Environment Support (March 2026 Update)**: Supported Python versions were pruned to **3.11 through 3.14**. Support for Python 3.9 and 3.10 was dropped to reduce maintenance overhead and extension size. Additionally, experimental **free-threaded** binaries for Python 3.14 (314t) were removed from `contrib/audio` as they are not used by the standard LibreOffice interpreter, saving ~4MB of disk space.
+
 ---
 
 ## 2. Repository Structure

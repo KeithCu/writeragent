@@ -220,7 +220,7 @@ For detailed configuration examples, see [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md
 
 ### Local Development
 
-**Prerequisites:** Python 3.8+, [uv](https://docs.astral.sh/uv/), PyYAML (`uv pip install pyyaml`), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
+**Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), PyYAML (`uv pip install pyyaml`), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
 
 Alternatively, use Docker to build with no local dependencies (see `make docker-build`).
 
