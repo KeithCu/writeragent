@@ -163,7 +163,7 @@ Result: MIPROv2 will propose alternative instructions, evaluate each on your met
 ## Caveats and tips
 
 - **Token usage in multi-step ReAct**: If the program makes multiple LM calls, usage may be per-step. Aggregate total tokens from all steps in the trace (or use DSPy’s `track_usage=True` and any documented API for program-level usage) so the metric reflects full task cost.
-- **Cost**: MIPROv2 does many evaluations. Use a cheap model (e.g. `gpt-4o-mini` or your smallest local model) and `auto="light"` to keep cost low; once you’re happy with the setup, you can run a heavier run.
+- **Cost**: MIPROv2 does many evaluations. Use a cheap model (e.g. `google/gemini-3.1-flash-lite-preview` or your smallest local model) and `auto="light"` to keep cost low; once you’re happy with the setup, you can run a heavier run.
 - **Stability**: Run optimization a couple of times and compare winning instructions; if they’re similar, the result is more reliable.
 - **Format rules**: Keep `FORMAT_RULES` (and `_FORMAT_HINT` etc.) out of the search space or fixed so that only the “assistant behavior” part of the prompt is optimized; then append format rules when building the final `DEFAULT_CHAT_SYSTEM_PROMPT`.
 

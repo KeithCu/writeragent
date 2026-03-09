@@ -268,10 +268,7 @@ def has_native_audio(ctx, model_id, endpoint):
         
     # 3. Heuristics (Regex/Keywords) for known audio-native families
     # Gemini (Flash/Pro 1.5+)
-    if "gemini" in model_id and ("1.5" in model_id or "2.0" in model_id):
-        return True
-    # GPT-4o family
-    if "gpt-4o" in model_id:
+    if "gemini" in model_id and "1.5" in model_id:
         return True
     # Explicit audio models
     if "audio-preview" in model_id or "multimodal" in model_id:

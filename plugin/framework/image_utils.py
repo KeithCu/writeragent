@@ -39,7 +39,7 @@ class EndpointImageProvider(ImageProvider):
 
     def __init__(self, api_config, ctx):
         self.client = LlmClient(api_config, ctx)
-        self.model = api_config.get("model", "openai/gpt-4o-mini")
+        self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
 
     def _save_b64(self, b64_data):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:

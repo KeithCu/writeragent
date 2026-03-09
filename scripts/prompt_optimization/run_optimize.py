@@ -11,7 +11,7 @@ Usage:
   pip install dspy-ai
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   python run_optimize.py
-  python run_optimize.py --model google/gemini-2.0-flash-001
+  python run_optimize.py --model google/gemini-3.1-flash-lite-preview
   python run_optimize.py --model qwen/qwen3-coder-next --api-base https://openrouter.ai/api/v1
 """
 from __future__ import annotations
@@ -44,13 +44,13 @@ DEFAULT_MODEL = "qwen/qwen3-coder-next"
 def parse_args():
     p = argparse.ArgumentParser(description="Optimize Writer system prompt with DSPy MIPROv2 (OpenRouter by default).")
     p.add_argument("--model", "-m", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
-                   help=f"Model id (default: {DEFAULT_MODEL}). OpenRouter model e.g. qwen/qwen3-coder-next, google/gemini-2.0-flash-001.")
+                   help=f"Model id (default: {DEFAULT_MODEL}). OpenRouter model e.g. qwen/qwen3-coder-next, google/gemini-3.1-flash-lite-preview.")
     p.add_argument("--api-base", default=os.environ.get("OPENAI_API_BASE", DEFAULT_API_BASE),
                    help=f"API base URL (default: OpenRouter {DEFAULT_API_BASE}).")
     p.add_argument("--api-key", "-k", default=os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
                    help="API key (default: OPENROUTER_API_KEY or OPENAI_API_KEY env).")
     p.add_argument("--jobs", "-j", type=int, default=4,
-                   help="Parallel jobs for MIPROv2 valset evals (default: 4).")
+                   help="Parallel jobs for MIPROv2 valset evals (default: 4).") 
     p.add_argument("--auto", choices=("light", "medium", "heavy"), default="light",
                    help="Exploration level: light (fewer trials), medium, or heavy (more trials). Default: light.")
     p.add_argument("--trials", "-t", type=int, default=None,

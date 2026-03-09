@@ -100,17 +100,6 @@ MODELS: list[ModelConfig] = [
         ),
     ),
     ModelConfig(
-        openrouter_id="openai/gpt-4o-mini",
-        display_name="OpenAI: GPT-4o-mini",
-        context_window_tokens=128_000,
-        input_cost_per_million=0.15,
-        output_cost_per_million=0.60,
-        notes=(
-            "Newest small OpenAI model after GPT-4 Omni; multimodal; "
-            "very cost-effective with strong general intelligence."
-        ),
-    ),
-    ModelConfig(
         openrouter_id="anthropic/claude-sonnet-4.6",
         display_name="Anthropic: Claude Sonnet 4.6",
         context_window_tokens=200_000,

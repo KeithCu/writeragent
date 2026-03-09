@@ -125,7 +125,7 @@ DEFAULT_MODELS = [
 
     {
         "display_name": "Gemma 3 27B Instruct",
-        "capability": "text,image,audio",
+        "capability": "text,image",
         "context_length": 131072,
         "priority": 8,
         "notes": "Fast, efficient, excellent instruction following (Google)",
@@ -201,47 +201,20 @@ DEFAULT_MODELS = [
     # ---- Text + Image models ---------------------------------------------
 
     {
-        "display_name": "GPT-4o",
-        "capability": "text,image,audio",
-        "context_length": 128000,
-        "priority": 9,
-        "notes": "Mature tool calling, reliable baseline, built-in multimodal",
-        "ids": {"openai": "gpt-4o", "openrouter": "openai/gpt-4o"},
-        "id": "gpt-4o",
-    },
-    {
-        "display_name": "GPT-4o mini",
-        "capability": "text,image,audio",
-        "context_length": 128000,
-        "priority": 8,
-        "notes": "Cheaper, very fast, multimodal support",
-        "ids": {"openai": "gpt-4o-mini", "openrouter": "openai/gpt-4o-mini"},
-        "id": "gpt-4o-mini",
-    },
-    {
-        "display_name": "Gemini 1.5 Flash",
-        "capability": "text,image,audio",
-        "context_length": 1000000,
-        "priority": 9,
-        "notes": "Blazing fast, 1M context, strong multimodal (Google)",
-        "ids": {"openrouter": "google/gemini-flash-1.5"},
-        "id": "google/gemini-flash-1.5",
-    },
-    {
-        "display_name": "Gemini 2.0 Flash",
+        "display_name": "Gemini 3.1 Flash Lite Preview",
         "capability": "text,image,audio",
         "context_length": 1000000,
         "priority": 10,
-        "notes": "Latest Google model, extremely fast and capable",
-        "ids": {"openrouter": "google/gemini-2.0-flash-001"},
-        "id": "google/gemini-2.0-flash-001",
+        "notes": "Latest Google model, optimized for speed and low cost",
+        "ids": {"openrouter": "google/gemini-3.1-flash-lite-preview"},
+        "id": "google/gemini-3.1-flash-lite-preview",
     },
 
     # ---- Image-only models -----------------------------------------------
 
     {
         "display_name": "Gemini 3.1 Pro Preview",
-        "capability": "image,audio",
+        "capability": "image",
         "context_length": 1000000,
         "priority": 9,
         "notes": "Excellent vision + reasoning, 1M context (Google)",
@@ -285,7 +258,6 @@ DEFAULT_MODELS = [
         "notes": "High quality open-weight transcription (Together/Groq)",
         "ids": {
             "together": "openai/whisper-large-v3",
-            "openrouter": "openai/whisper-large-v3"
         },
         "id": "openai/whisper-large-v3",
     },
