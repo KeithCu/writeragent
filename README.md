@@ -69,9 +69,9 @@ A cell formula to call the model directly from within your spreadsheet:
 `=PROMPT(message, [system_prompt], [model], [max_tokens])`
 
 Opus 4.6 one-shotted this Arch Linux resume:
-![Opus 4.6 Resume](Opus46Resume.png)
+![Opus 4.6 Resume](Showcase/Opus46Resume.png)
 Sonnet 4.6 one-shotted this "pretty spreadsheet"
-![Chat Sidebar with Dashboard](contrib/img/Sonnet46Spreadsheet.png)
+![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)
 
 ### 10. Audio Support & Voice Recording
 Integrated cross-platform audio recording directly in the chat sidebar.
@@ -258,4 +258,4 @@ Copyright (c) 2026 KeithCu (modifications and relicensing)
 
 *Architecture diagram created by Sonnet 4.6.*
 
-![Architecture](contrib/img/Sonnet46ArchDiagram.jpg)
+![Architecture](Showcase/Sonnet46ArchDiagram.jpg)
