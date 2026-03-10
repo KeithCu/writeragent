@@ -175,7 +175,7 @@ class QueryTextListener(unohelper.Base, XTextListener):
 class SendButtonListener(unohelper.Base, XActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
-    def __init__(self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_search_checkbox=None, ensure_path_fn=None):
+    def __init__(self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_research_checkbox=None, ensure_path_fn=None):
         self.ctx = ctx
         self.frame = frame
         self.send_control = send_control
@@ -189,7 +189,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         self.direct_image_checkbox = direct_image_checkbox
         self.aspect_ratio_selector = aspect_ratio_selector
         self.base_size_input = base_size_input
-        self.web_search_checkbox = web_search_checkbox
+        self.web_research_checkbox = web_research_checkbox
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self.stop_requested = False
@@ -463,16 +463,16 @@ class SendButtonListener(unohelper.Base, XActionListener):
             else:
                 debug_log("_do_send: model %s supports native audio, proceeding" % current_model, context="Chat")
 
-        # Optional web-search path
-        web_search_checked = False
-        if self.web_search_checkbox:
+        # Optional web-research path
+        web_research_checked = False
+        if self.web_research_checkbox:
             try:
-                web_search_checked = (get_checkbox_state(self.web_search_checkbox) == 1)
-            except Exception as e:
-                debug_log("_do_send: Web search checkbox read error: %s" % e, context="Chat")
-        if web_search_checked:
-            debug_log("_do_send: using web search sub-agent — skip chat model and direct image", context="Chat")
-            self._run_web_search(query_text, model)
+                web_research_checked = (get_checkbox_state(self.web_research_checkbox) == 1)
+            except Exception:
+                pass
+        if web_research_checked:
+            debug_log("_do_send: using web research sub-agent — skip chat model and direct image", context="Chat")
+            self._run_web_research(query_text, model)
             return
 
         # Direct image path
@@ -879,7 +879,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
     # Previous attempt used enterUndoContext("AI Edit") / leaveUndoContext() but leaveUndoContext
     # was failing in some environments. Revisit when integrating with the async tool-calling path.
 
-    def _run_web_search(self, query_text, model):
+    def _run_web_research(self, query_text, model):
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         from plugin.modules.http.client import format_error_message
         from plugin.main import get_tools

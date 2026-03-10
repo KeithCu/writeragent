@@ -17,7 +17,7 @@
   <dlg:button dlg:id="clear" dlg:left="108" dlg:top="186" dlg:width="50" dlg:height="15" dlg:value="Clear" dlg:tabstop="true"/>
 
   <dlg:checkbox dlg:id="direct_image_check" dlg:left="4" dlg:top="203" dlg:width="78" dlg:height="10" dlg:value="Use Image model" dlg:checked="false"/>
-  <dlg:checkbox dlg:id="web_search_check" dlg:left="84" dlg:top="203" dlg:width="85" dlg:height="10" dlg:value="Research Chat" dlg:checked="false"/>
+  <dlg:checkbox dlg:id="web_research_check" dlg:left="84" dlg:top="203" dlg:width="85" dlg:height="10" dlg:value="Web Research" dlg:checked="false"/>
 
   <dlg:text dlg:id="model_label" dlg:left="4" dlg:top="217" dlg:width="158" dlg:height="10" dlg:value="AI Model:" dlg:align="left"/>
   <dlg:combobox dlg:id="model_selector" dlg:left="4" dlg:top="229" dlg:width="158" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>

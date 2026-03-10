@@ -463,7 +463,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
 
     def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, 
-                       direct_image_check, web_search_check, model_label, model_selector, image_model_selector):
+                       direct_image_check, web_research_check, model_label, model_selector, image_model_selector):
         """Initializes image-related UI controls and their listeners."""
         from plugin.framework.config import get_config, set_config
         
@@ -518,7 +518,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 toggle_image_ui(direct_checked)
                 
                 if direct_checked:
-                    set_control_enabled(web_search_check, False)
+                    set_control_enabled(web_research_check, False)
                     
                 if hasattr(direct_image_check, "addItemListener"):
                     class DirectImageCheckListener(unohelper.Base, XItemListener):
@@ -535,16 +535,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             except Exception as e:
                                 debug_log("Image checkbox listener error: %s" % e, context="Chat")
                         def disposing(self, ev): pass
-                    direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_search_check))
+                    direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_research_check))
             except Exception as e:
                 debug_log("direct_image_check wire error: %s" % e, context="Chat")
 
-        if web_search_check:
+        if web_research_check:
             try:
-                if get_checkbox_state(web_search_check) == 1:
+                if get_checkbox_state(web_research_check) == 1:
                     set_control_enabled(direct_image_check, False)
             except Exception as e:
-                debug_log("web_search_check initial wire error: %s" % e, context="Chat")
+                debug_log("web_research_check initial wire error: %s" % e, context="Chat")
                 
         return set_control_enabled
 
@@ -583,7 +583,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 direct_image_checkbox=controls["direct_image_check"],
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
-                web_search_checkbox=controls["web_search_check"],
+                web_research_checkbox=controls["web_research_check"],
                 ensure_path_fn=_ensure_extension_on_path)
 
             if model:
@@ -609,7 +609,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 controls["clear"].addActionListener(clear_listener)
             except Exception: pass
 
-        if controls["web_search_check"] and hasattr(controls["web_search_check"], "addItemListener"):
+        if controls["web_research_check"] and hasattr(controls["web_research_check"], "addItemListener"):
             from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
             class ResearchChatToggledListener(unohelper.Base, XItemListener):
                 def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check, set_control_enabled):
@@ -641,7 +641,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     except Exception as e:
                         debug_log("Research Chat listener error: %s" % e, context="Chat")
                 def disposing(self, ev): pass
-            controls["web_search_check"].addItemListener(ResearchChatToggledListener(
+            controls["web_research_check"].addItemListener(ResearchChatToggledListener(
                 self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"], set_control_enabled))
 
     def _wireControls(self, root_window):
@@ -666,7 +666,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             "model_label": get_optional("model_label"),
             "status": get_optional("status"),
             "direct_image_check": get_optional("direct_image_check"),
-            "web_search_check": get_optional("web_search_check"),
+            "web_research_check": get_optional("web_research_check"),
             "aspect_ratio_selector": get_optional("aspect_ratio_selector"),
             "base_size_input": get_optional("base_size_input"),
             "base_size_label": get_optional("base_size_label"),
@@ -696,7 +696,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             
             set_control_enabled = self._wire_image_ui(
                 controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"],
-                controls["direct_image_check"], controls["web_search_check"], controls["model_label"], 
+                controls["direct_image_check"], controls["web_research_check"], controls["model_label"], 
                 controls["model_selector"], controls["image_model_selector"]
             )
         except Exception as e:
@@ -713,8 +713,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # 3. Determine Mode & Greeting
         from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
         web_checked = False
-        if controls["web_search_check"]:
-            try: web_checked = (get_checkbox_state(controls["web_search_check"]) == 1)
+        if controls["web_research_check"]:
+            try: web_checked = (get_checkbox_state(controls["web_research_check"]) == 1)
             except Exception: pass
             
         if web_checked:
