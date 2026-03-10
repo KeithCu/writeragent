@@ -16,9 +16,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import uno
+import re
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 from plugin.framework.uno_helpers import is_writer, is_calc, is_draw, get_active_document as get_active_doc
+
+
+def normalize_linebreaks(text: str) -> str:
+    """Normalize various linebreak sequences (\\r\\n, \\n\\r, \\r) to \\n."""
+    if not text:
+        return ""
+    # Chain replacements to handle all cases safely
+    return text.replace("\r\n", "\n").replace("\n\r", "\n").replace("\r", "\n")
 
 
 class DocumentCache:
@@ -164,7 +173,7 @@ def get_document_length(model):
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
-        length = len(cursor.getString())
+        length = len(normalize_linebreaks(cursor.getString()))
         cache.length = length
         return length
     except Exception:
@@ -219,10 +228,10 @@ def get_selection_range(model):
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoRange(rng.getStart(), True)
-        start_offset = len(cursor.getString())
+        start_offset = len(normalize_linebreaks(cursor.getString()))
         cursor.gotoStart(False)
         cursor.gotoRange(rng.getEnd(), True)
-        end_offset = len(cursor.getString())
+        end_offset = len(normalize_linebreaks(cursor.getString()))
         return (start_offset, end_offset)
     except Exception:
         return (0, 0)
@@ -244,7 +253,7 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
-        full = cursor.getString()
+        full = normalize_linebreaks(cursor.getString())
         doc_len = len(full)
     except Exception:
         return "Document length: 0.\n\n[DOCUMENT START]\n(empty)\n[END DOCUMENT]"
@@ -367,7 +376,7 @@ def get_draw_context_for_chat(model, max_context=8000, ctx=None):
                 ctx_str += "- [%d] %s: pos(%d, %d) size(%dx%d)" % (
                     i, type_name, pos.X, pos.Y, size.Width, size.Height)
                 if hasattr(s, "getString"):
-                    text = s.getString()
+                    text = normalize_linebreaks(s.getString())
                     if text:
                         ctx_str += " text: \"%s\"" % text[:200]
                 ctx_str += "\n"

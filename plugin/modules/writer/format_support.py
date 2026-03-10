@@ -33,7 +33,10 @@ import tempfile
 log = logging.getLogger("writeragent.writer")
 
 
-from plugin.framework.document import get_document_length as _doc_text_length
+from plugin.framework.document import (
+    get_document_length as _doc_text_length,
+    normalize_linebreaks as _normalize,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +141,10 @@ def _ensure_html_linebreaks(content):
     if not isinstance(content, str) or not content:
         return content
     import html as html_mod
-
+    content = _normalize(content)
     unescaped = html_mod.unescape(content)
     html_tags = [
-        "<p>", "<br>", "</h1>", "</h2>", "</h3>",
+        "<p>", "<br>", "</h1>", "<h2>", "<h3>",
         "</ul>", "</li>", "</div>", "<html>",
     ]
     has_html = any(tag in unescaped.lower() for tag in html_tags)
@@ -521,7 +524,8 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     font, color, etc.).
     """
     text = model.getText()
-    old_text = target_range.getString()
+    old_text = _normalize(target_range.getString())
+    new_text = _normalize(new_text)
     old_len = len(old_text)
     new_len = len(new_text)
 

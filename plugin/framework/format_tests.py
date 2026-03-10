@@ -442,7 +442,52 @@ def run_markdown_tests(ctx, model=None):
         failed += 1
         log.append("FAIL: HTML linebreak preservation test raised: %s" % e)
 
-    # --- Format-preserving tests ---
+    # Test U: CRLF normalization integration
+    try:
+        crlf_input = "Line A\r\nLine B"
+        # We use a unique marker to find it back
+        marker_u = "UNIQUE_CRLF_TEST"
+        payload = crlf_input + "\n" + marker_u
+        
+        tool_apply_document_content(doc, ctx, {
+            "content": payload,
+            "target": "end",
+        })
+        
+        # Now find it
+        res_find = json.loads(tool_find_text(doc, ctx, {"search": marker_u}))
+        if res_find.get("status") == "ok" and res_find.get("ranges"):
+            r = res_find["ranges"][0]
+            # Look at the text just before the marker
+            # The payload was "Line A\r\nLine B\nUNIQUE_CRLF_TEST"
+            # Normalized it should be "Line A\nLine B\nUNIQUE_CRLF_TEST"
+            # Length should be 7 + 7 + 16 = 30? No. 
+            # "Line A" (6) + "\n" (1) + "Line B" (6) + "\n" (1) + "UNIQUE_CRLF_TEST" (16) = 30 chars.
+            # If CRLF was preserved it would be 31.
+            
+            # Get content from start of payload to end of marker
+            # We don't know the exact starting offset easily without searching for "Line A"
+            res_find_start = json.loads(tool_find_text(doc, ctx, {"search": "Line A"}))
+            if res_find_start.get("status") == "ok" and res_find_start.get("ranges"):
+                # Find the last "Line A"
+                r_start = res_find_start["ranges"][-1]
+                total_range_text = _read_doc_text(doc)[r_start["start"]:r["end"]]
+                expected_norm = "Line A\nLine B\nUNIQUE_CRLF_TEST"
+                if total_range_text == expected_norm:
+                    passed += 1
+                    ok("CRLF normalization: 'Line A\\r\\nLine B' correctly normalized to '\\n'")
+                else:
+                    failed += 1
+                    fail("CRLF normalization: expected %s, got %s" % (repr(expected_norm), repr(total_range_text)))
+            else:
+                failed += 1
+                fail("CRLF normalization: could not find 'Line A' for verification")
+        else:
+            failed += 1
+            fail("CRLF normalization: could not find test payload")
+    except Exception as e:
+        failed += 1
+        log.append("FAIL: CRLF normalization test raised: %s" % e)
     fp_passed, fp_failed = _run_format_preserving_tests(doc, ctx, ok, fail, log)
     passed += fp_passed
     failed += fp_failed
