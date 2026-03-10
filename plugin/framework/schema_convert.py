@@ -38,7 +38,11 @@ def _normalize_schema_for_strict_providers(params):
         params.pop("required", None)
     for key in ("properties", "items"):
         if key in params and isinstance(params[key], dict):
-            params[key] = _normalize_schema_for_strict_providers(params[key])
+            if key == "properties":
+                for k, v in params[key].items():
+                    params[key][k] = _normalize_schema_for_strict_providers(v)
+            else:
+                params[key] = _normalize_schema_for_strict_providers(params[key])
         elif key in params and isinstance(params[key], list):
             # items can be a list of schemas in JSON Schema; take first
             if params[key]:
