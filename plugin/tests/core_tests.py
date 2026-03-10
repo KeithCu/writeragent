@@ -46,14 +46,15 @@ def run_framework_tests(ctx, doc=None):
                 failed += 1
                 fail("DocumentCache returned same instance for different model")
 
-            DocumentCache.invalidate_all()
+            DocumentCache.invalidate(doc1)
+            DocumentCache.invalidate(doc2)
             cache1_new = DocumentCache.get(doc1)
             if cache1 is not cache1_new:
                 passed += 1
-                ok("DocumentCache.invalidate_all clears the entire cache")
+                ok("DocumentCache.invalidate clears cache for document")
             else:
                 failed += 1
-                fail("DocumentCache.invalidate_all failed")
+                fail("DocumentCache.invalidate failed")
         except Exception as e:
             failed += 1
             fail(f"DocumentCache test failed: {e}")

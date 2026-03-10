@@ -61,13 +61,14 @@ def run_draw_tests(ctx, model=None):
             res = get_tools().execute(name, tctx, **args)
             return json.dumps(res) if isinstance(res, dict) else res
 
-        # Test: list_pages
+        # Test: list_pages (returns pages and count, not result)
         try:
             result = exec_tool("list_pages", {})
             data = json.loads(result)
             if data.get("status") == "ok":
+                num_pages = data.get("count", len(data.get("pages", [])))
                 passed += 1
-                ok(f"list_pages success: {len(data['result'])} pages")
+                ok(f"list_pages success: {num_pages} pages")
             else:
                 failed += 1
                 fail(f"list_pages failed: {result}")
@@ -104,7 +105,7 @@ def run_draw_tests(ctx, model=None):
             if data.get("status") == "ok":
                 passed += 1
                 ok("get_draw_summary success")
-                shapes = data.get("result", {}).get("shapes", [])
+                shapes = data.get("shapes", [])
                 if any("RectangleShape" in s.get("type", "") for s in shapes):
                     passed += 1
                     ok("Summary contains the created rectangle")
@@ -156,11 +157,13 @@ def run_draw_tests(ctx, model=None):
                 failed += 1
                 log.append(f"FAIL: delete_shape raised: {e}")
 
-        # Test: get_draw_context_for_chat
+        # Test: get_draw_context_for_chat (returns "Draw Document" or "Impress Presentation" and "Total Pages" or "Total Slides")
         try:
             from plugin.framework.document import get_draw_context_for_chat
             ctx_str = get_draw_context_for_chat(doc, 8000, ctx)
-            if "Draw/Impress Document" in ctx_str and "Total Pages" in ctx_str:
+            has_doc_type = "Draw Document" in ctx_str or "Impress Presentation" in ctx_str
+            has_total = "Total" in ctx_str and ("Pages" in ctx_str or "Slides" in ctx_str)
+            if has_doc_type and has_total:
                 passed += 1
                 ok("get_draw_context_for_chat returns summary")
             else:

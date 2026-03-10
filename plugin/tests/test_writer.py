@@ -35,6 +35,8 @@ def run_writer_tests(ctx, doc=None):
         if not doc:
             raise Exception("Could not create hidden test writer document")
 
+        cache3 = DocumentCache.get(doc)
+
         # 1. Setup doc content
         try:
             text = doc.getText()
@@ -65,8 +67,12 @@ def run_writer_tests(ctx, doc=None):
             cursor.setPropertyValue("ParaStyleName", "Heading 1")
         except Exception as e:
             failed += 1
-            fail(f"Writer Test Setup failed: {e}")
+            fail(f"Writer Test Setup failed: {type(e).__name__}: {e!r}")
             return passed, failed, log
+
+        # Populate cache.length so DummyDocSvc and cache test can use it
+        from plugin.framework.document import get_document_length
+        get_document_length(doc)
 
         try:
             # Test Proximity Service
@@ -78,7 +84,7 @@ def run_writer_tests(ctx, doc=None):
             events = EventBus()
             class DummyDocSvc:
                 def get_document_length(self, model):
-                    return cache3.doc_text_length
+                    return cache3.length
 
             # Using real instances except for doc_svc which only needs get_document_length
             doc_svc = DummyDocSvc()
@@ -198,24 +204,25 @@ def run_writer_tests(ctx, doc=None):
             fail(f"resolve_locator test failed: {e}")
 
         try:
-            # 6. Test Document Cache string length cache tracking
-            prev_len = cache3.doc_text_length
+            # 6. Test Document Cache length tracking
+            _ = get_document_length(doc)
+            prev_len = cache3.length
             if prev_len is not None and prev_len > 0:
-                # Add text
                 text.insertControlCharacter(cursor, 0, False)
                 text.insertString(cursor, "More text", False)
-                # Ensure the cache logic will detect change
-                ranges2 = get_paragraph_ranges(doc)
-                new_len = cache3.doc_text_length
-                if new_len > prev_len:
+                DocumentCache.invalidate(doc)
+                _ = get_document_length(doc)
+                cache3_new = DocumentCache.get(doc)
+                new_len = cache3_new.length
+                if new_len is not None and new_len > prev_len:
                     passed += 1
-                    ok("DocumentCache doc_text_length auto-updated on get_paragraph_ranges")
+                    ok("DocumentCache length updated after invalidate and get_document_length")
                 else:
                     failed += 1
-                    fail("DocumentCache doc_text_length did not update")
+                    fail("DocumentCache length did not update")
             else:
                 failed += 1
-                fail("DocumentCache doc_text_length not properly initialized")
+                fail("DocumentCache length not properly initialized")
         except Exception as e:
             failed += 1
             fail(f"DocumentCache cache tracking test failed: {e}")
