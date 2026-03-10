@@ -28,6 +28,64 @@ class MinimalTool(ToolBase):
         return {"status": "ok"}
 
 
+from plugin.framework.schema_convert import _normalize_schema_for_strict_providers
+
+class TestNormalizeSchema:
+    def test_normalize_empty_or_none(self):
+        assert _normalize_schema_for_strict_providers(None) is None
+        assert _normalize_schema_for_strict_providers("string") == "string"
+        assert _normalize_schema_for_strict_providers({}) == {}
+
+    def test_normalize_union_type(self):
+        schema = {"type": ["string", "null"]}
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert normalized["type"] == "string"
+
+        schema = {"type": ["string", "array"]}
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert normalized["type"] == "array"
+
+        schema = {"type": []}
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert normalized["type"] == "string"
+
+    def test_normalize_removes_items_if_not_array(self):
+        schema = {"type": "string", "items": {"type": "string"}}
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert "items" not in normalized
+
+    def test_normalize_removes_empty_required(self):
+        schema = {"type": "object", "required": []}
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert "required" not in normalized
+
+    def test_normalize_recursive_properties(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "prop1": {"type": ["string", "null"]},
+                "prop2": {"type": "object", "properties": {"nested": {"type": ["number", "null"]}}}
+            }
+        }
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert normalized["properties"]["prop1"]["type"] == "string"
+        assert normalized["properties"]["prop2"]["properties"]["nested"]["type"] == "number"
+
+    def test_normalize_recursive_items(self):
+        schema = {
+            "type": "array",
+            "items": {"type": ["string", "null"]}
+        }
+        normalized = _normalize_schema_for_strict_providers(schema)
+        assert normalized["items"]["type"] == "string"
+
+        schema_list_items = {
+            "type": "array",
+            "items": [{"type": ["string", "null"]}]
+        }
+        normalized_list_items = _normalize_schema_for_strict_providers(schema_list_items)
+        assert normalized_list_items["items"]["type"] == "string"
+
 class TestToOpenaiSchema:
     def test_full_schema(self):
         schema = to_openai_schema(SampleTool())

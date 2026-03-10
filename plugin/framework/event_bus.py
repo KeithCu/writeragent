@@ -67,6 +67,7 @@ class EventBus:
         subs = self._subscribers.get(event)
         if not subs:
             return
+
         self._subscribers[event] = [
             (cb, is_weak)
             for cb, is_weak in subs
