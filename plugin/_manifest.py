@@ -1,6 +1,6 @@
 """Auto-generated module manifest. DO NOT EDIT."""
 
-VERSION = '1.7.3'
+VERSION = '0.4.0-beta'
 
 MODULES = [
     {
@@ -307,7 +307,7 @@ MODULES = [
                 },
                 "extend_selection_max_tokens": {
                         "type": "int",
-                        "default": 70,
+                        "default": 1000,
                         "min": 10,
                         "max": 4096,
                         "widget": "number",
@@ -315,7 +315,7 @@ MODULES = [
                 },
                 "edit_selection_max_new_tokens": {
                         "type": "int",
-                        "default": 0,
+                        "default": 1000,
                         "min": 0,
                         "max": 4096,
                         "widget": "number",

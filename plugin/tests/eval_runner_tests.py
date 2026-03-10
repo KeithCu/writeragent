@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import unittest
 from unittest.mock import MagicMock
-from plugin.framework.tests.eval_runner import EvalRunner
+from plugin.tests.eval_runner import EvalRunner
 
 class TestEvalRunner(unittest.TestCase):
     def setUp(self):

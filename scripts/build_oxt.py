@@ -51,6 +51,12 @@ ALWAYS_INCLUDE_PLUGIN = [
     "plugin/contrib/",
 ]
 
+# Only included when --with-tests (make release)
+RELEASE_INCLUDE_PLUGIN = [
+    "plugin/testing_runner.py",
+    "plugin/tests/",
+]
+
 ALWAYS_INCLUDE_ROOT = [
     "contrib/",
 ]
@@ -89,33 +95,37 @@ GENERATED_INCLUDES = [
 BUNDLE_DIR = "build/bundle"
 
 
-def should_exclude(path):
+def should_exclude(path, with_tests=False):
+    # When with_tests, allow plugin/tests/; otherwise exclude it (smaller default build)
+    path_norm = path.replace("\\", "/")
+    if path_norm.startswith("plugin/tests/") or path_norm == "plugin/tests":
+        return not with_tests
     for pat in EXCLUDE_PATTERNS:
         if pat in path:
             return True
     return False
 
 
-def collect_files(base_dir, include_paths):
+def collect_files(base_dir, include_paths, with_tests=False):
     """Collect all files from a list of paths relative to base_dir."""
     files = []
     for inc in include_paths:
         full = os.path.join(base_dir, inc)
         if os.path.isfile(full):
-            if not should_exclude(inc):
+            if not should_exclude(inc, with_tests):
                 files.append(inc)
         elif os.path.isdir(full):
             for root, dirs, filenames in os.walk(full):
-                dirs[:] = [d for d in dirs if not should_exclude(d)]
+                dirs[:] = [d for d in dirs if not should_exclude(d, with_tests)]
                 # Add empty directories just in case they are needed for structure
                 if not dirs and not filenames:
                     relpath = os.path.relpath(root, base_dir)
-                    if not should_exclude(relpath):
+                    if not should_exclude(relpath, with_tests):
                         files.append(relpath + "/")
                 for fn in filenames:
                     filepath = os.path.join(root, fn)
                     relpath = os.path.relpath(filepath, base_dir)
-                    if not should_exclude(relpath):
+                    if not should_exclude(relpath, with_tests):
                         files.append(relpath)
         else:
             print("  WARNING: %s not found, skipping" % inc, file=sys.stderr)
@@ -132,7 +142,7 @@ def remap_path(f):
     return f
 
 
-def assemble_bundle(base_dir, modules, no_recording=False):
+def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False):
     """Copy all files into build/bundle/ with final archive paths."""
     bundle_path = os.path.join(base_dir, BUNDLE_DIR)
 
@@ -142,6 +152,9 @@ def assemble_bundle(base_dir, modules, no_recording=False):
 
     include = list(ALWAYS_INCLUDE_EXTENSION)
     include.extend(ALWAYS_INCLUDE_PLUGIN)
+    if with_tests:
+        include.extend(RELEASE_INCLUDE_PLUGIN)
+        print("  Dev build: including plugin/tests/ and testing_runner.py")
     include.extend(ALWAYS_INCLUDE_ROOT)
 
     for mod in modules:
@@ -154,7 +167,7 @@ def assemble_bundle(base_dir, modules, no_recording=False):
                   file=sys.stderr)
 
     include.extend(GENERATED_INCLUDES)
-    files = collect_files(base_dir, include)
+    files = collect_files(base_dir, include, with_tests=with_tests)
 
     if no_recording:
         # Exclude voice recording: audio_recorder.py and entire contrib/audio/
@@ -217,11 +230,11 @@ def zip_bundle(base_dir, output):
     count = 0
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, dirs, filenames in os.walk(bundle_path):
-            dirs[:] = [d for d in dirs if not should_exclude(d)]
+            dirs[:] = [d for d in dirs if not should_exclude(d, with_tests=True)]
             for fn in filenames:
                 filepath = os.path.join(root, fn)
                 arcname = os.path.relpath(filepath, bundle_path)
-                if not should_exclude(arcname):
+                if not should_exclude(arcname, with_tests=True):
                     zf.write(filepath, arcname)
                     count += 1
 
@@ -243,11 +256,18 @@ def main():
     parser.add_argument(
         "--no-recording", action="store_true",
         help="Exclude voice recording: do not bundle contrib/audio/ or plugin/modules/chatbot/audio_recorder.py")
+    parser.add_argument(
+        "--no-tests", action="store_true",
+        help="Exclude plugin/tests/ and testing_runner.py (for release builds)")
     args = parser.parse_args()
 
     if not args.repack:
         modules = args.modules or _discover_modules(PROJECT_ROOT)
-        assemble_bundle(PROJECT_ROOT, modules, no_recording=args.no_recording)
+        assemble_bundle(
+            PROJECT_ROOT, modules,
+            no_recording=args.no_recording,
+            with_tests=not args.no_tests,
+        )
 
     return zip_bundle(PROJECT_ROOT, args.output)
 

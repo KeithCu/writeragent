@@ -59,15 +59,15 @@ def run_framework_tests(ctx, doc=None):
             fail(f"DocumentCache test failed: {e}")
 
         try:
-            # EventBus test
-            from plugin.framework.events import EventBus
+            # EventBus test (callbacks are invoked with **data only, not event name)
+            from plugin.framework.event_bus import EventBus
             events = EventBus()
             event_received = []
-            def handler(event, **kwargs):
-                event_received.append((event, kwargs))
+            def handler(**kwargs):
+                event_received.append(kwargs)
             events.subscribe("test_event", handler)
             events.emit("test_event", data=123)
-            if len(event_received) == 1 and event_received[0][0] == "test_event" and event_received[0][1]["data"] == 123:
+            if len(event_received) == 1 and event_received[0].get("data") == 123:
                 passed += 1
                 ok("EventBus subscribe and emit passed")
             else:

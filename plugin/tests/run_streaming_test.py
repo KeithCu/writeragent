@@ -4,7 +4,7 @@ Run streaming + tool-calling against your configured endpoint. No LibreOffice re
 Shows content, thinking, and tool_calls as they accumulate on screen.
 
 Usage:
-  python tests/run_streaming_test.py
+  python -m plugin.tests.run_streaming_test
 
 Requires CHAT_ENDPOINT and OPENROUTER_API_KEY in the environment.
 """

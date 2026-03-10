@@ -79,7 +79,7 @@ endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
-.PHONY: help build build-no-recording repack repack-deploy manifest xcu clean \
+.PHONY: help build build-no-recording release repack repack-deploy manifest xcu clean \
         install install-force uninstall cache \
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
@@ -95,7 +95,8 @@ help:
 	@echo "================================="
 	@echo ""
 	@echo "Build:"
-	@echo "  make build                  Build .oxt (all modules)"
+	@echo "  make build                  Build .oxt with plugin/tests (UI test menu + make test)"
+	@echo "  make release               Build .oxt without tests (smaller; use before uploading)"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no contrib/audio, no Record button)"
 	@echo "  make xcu                    Generate XCS/XCU from config schemas"
 	@echo "  make clean                  Remove build artifacts"
@@ -147,7 +148,7 @@ build:
 	@$(MAKE) docker-build
 else
 build: vendor manifest
-	@echo "Building $(EXTENSION_NAME).oxt..."
+	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
@@ -155,6 +156,11 @@ endif
 build-no-recording: vendor manifest
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
+	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
+
+release: vendor manifest
+	@echo "Building $(EXTENSION_NAME).oxt (release, no tests)..."
+	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 
 repack:

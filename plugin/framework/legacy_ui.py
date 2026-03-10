@@ -300,7 +300,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 def show_eval_dashboard(ctx):
     import unohelper
     from com.sun.star.awt import XActionListener
-    from plugin.framework.tests.eval_runner import run_benchmark_suite
+    from plugin.tests.eval_runner import run_benchmark_suite
 
     smgr = ctx.getServiceManager()
     base_url = get_extension_url()

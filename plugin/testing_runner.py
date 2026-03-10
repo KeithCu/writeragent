@@ -91,7 +91,7 @@ def run_all_tests(ctx: Any) -> str:
 
     # Framework tests
     try:
-        from plugin.framework.core_tests import run_framework_tests
+        from plugin.tests.core_tests import run_framework_tests
         _run_suite(ctx, suites, "framework.core_tests", run_framework_tests)
     except ImportError:
         pass
@@ -99,7 +99,7 @@ def run_all_tests(ctx: Any) -> str:
     # Writer markdown / format-preserving tests
     try:
         from plugin.framework.document import is_writer  # local import to avoid hard dependency if unused
-        from plugin.framework.format_tests import run_markdown_tests
+        from plugin.tests.format_tests import run_markdown_tests
 
         writer_doc = model if (model is not None and is_writer(model)) else None
         _run_suite(ctx, suites, "writer.format_tests", run_markdown_tests, writer_doc)
@@ -110,7 +110,7 @@ def run_all_tests(ctx: Any) -> str:
     # Writer core / navigation tests
     try:
         from plugin.framework.document import is_writer  # local import
-        from plugin.modules.writer.tests import run_writer_tests
+        from plugin.tests.test_writer import run_writer_tests
 
         # Writer core tests mutate the document and assume an empty starting state,
         # so we pass None to force it to create its own hidden temporary document.
@@ -121,14 +121,22 @@ def run_all_tests(ctx: Any) -> str:
     # Calc API / tool tests
     try:
         from plugin.framework.document import is_calc  # local import
-        from plugin.modules.calc.tests import run_calc_tests
+        from plugin.tests.test_calc import run_calc_tests
 
         calc_doc = model if (model is not None and is_calc(model)) else None
         _run_suite(ctx, suites, "calc.tests", run_calc_tests, calc_doc)
     except ImportError:
         pass
 
-    # Future: add Draw/Impress or other suites here as they are implemented.
+    # Draw / Impress tests
+    try:
+        from plugin.framework.document import is_draw  # local import
+        from plugin.tests.test_draw import run_draw_tests
+
+        draw_doc = model if (model is not None and is_draw(model)) else None
+        _run_suite(ctx, suites, "draw.tests", run_draw_tests, draw_doc)
+    except ImportError:
+        pass
 
     for suite in suites:
         total_passed += int(suite.get("passed", 0) or 0)

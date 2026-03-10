@@ -262,7 +262,7 @@ def _dispatch_command(command):
                 pass
         elif action == "RunFormatTests":
             from plugin.framework.uno_context import get_ctx
-            from plugin.framework.format_tests import run_markdown_tests
+            from plugin.tests.format_tests import run_markdown_tests
             from plugin.framework.document import is_writer
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
@@ -276,7 +276,7 @@ def _dispatch_command(command):
                 msgbox(ctx, "Format tests", f"Tests failed to run: {e}")
         elif action == "RunCalcTests":
             from plugin.framework.uno_context import get_ctx
-            from plugin.modules.calc.tests import run_calc_tests
+            from plugin.tests.test_calc import run_calc_tests
             from plugin.framework.document import is_calc
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
@@ -290,7 +290,7 @@ def _dispatch_command(command):
                 msgbox(ctx, "Calc tests", f"Tests failed to run: {e}")
         elif action == "RunCalcIntegrationTests":
             from plugin.framework.uno_context import get_ctx
-            from plugin.modules.calc.tests import run_calc_integration_tests
+            from plugin.tests.test_calc import run_calc_integration_tests
             from plugin.framework.document import is_calc
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()
@@ -304,7 +304,7 @@ def _dispatch_command(command):
                 msgbox(ctx, "Calc tests", f"Integration tests failed: {e}")
         elif action == "RunDrawTests":
             from plugin.framework.uno_context import get_ctx
-            from plugin.framework.draw_tests import run_draw_tests
+            from plugin.tests.test_draw import run_draw_tests
             from plugin.framework.document import is_draw
             from plugin.framework.dialogs import msgbox
             ctx = get_ctx()

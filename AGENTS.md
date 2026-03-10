@@ -149,7 +149,7 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
     - **Why auto-detect works**: The operation type and content type are naturally correlated. Small text edits like "change Joe Blow to Jane Doe" are sent as `target="search"` with plain text content like `"Jane Doe"` — auto-detect sees no markup → preserves all formatting (bold, italic, background colors, everything). Structural rewrites like "make this look pretty" or "convert to a table" naturally use `target="full"` or `target="range"` with markdown/HTML content — the auto-detect sees markup → uses the import path to apply the new formatting. No system prompt guidance is needed because the AI's natural behavior already routes correctly.
     - **Important subtlety**: The format-preserving path preserves ALL character properties, not just background colors. Bold (`CharWeight`), italic (`CharPosture`), underline, font size, font color — these are all per-character UNO properties that survive the single-character `setString()` call. So if the AI replaces `"Joe"` (bold+red-bg) with `"Jan"` (plain text), the result is `"Jan"` still bold with the same red background. The AI does NOT need to re-specify formatting it read from the document.
     - **Edge case**: If the AI unnecessarily wraps a simple replacement in markdown (e.g., sends `"**Jane** Doe"` instead of `"Jane Doe"`), the `**` triggers markup detection and the import path is used, losing background colors. This is a model behavior quirk, not a code issue — the import path is what we had before this feature, so it's no worse than previous behavior. Future hybrid approach: strip markup to plain text, do format-preserving replacement, then apply the markup as character properties on top.
-    - **Implementation**: `_replace_text_preserving_format()` and `_apply_preserving_format_at_search()` in `format_support.py`. Tests in `format_tests.py` verify `CharBackColor` preservation for same-length, longer, and shorter replacements.
+    - **Implementation**: `_replace_text_preserving_format()` and `_apply_preserving_format_at_search()` in `format_support.py`. Tests in `plugin/tests/format_tests.py` verify `CharBackColor` preservation for same-length, longer, and shorter replacements.
 
 ### System prompt and reasoning (latest)
 
@@ -457,9 +457,13 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 ### In-process test runner (debug-only)
 
-- **Mini test harness (no pytest inside LO)**: `plugin/testing_runner.py` defines `run_all_tests(ctx)` which aggregates existing in-LibreOffice tests:
-  - Writer markdown/format-preserving tests from `plugin/framework/format_tests.py` (`run_markdown_tests`).
-  - Calc API/tool tests from `plugin/modules/calc/tests.py` (`run_calc_tests`).
+- **All tests live under** `plugin/tests/`. Pytest uses `testpaths = ["plugin/tests"]` in pyproject.toml.
+- **Mini test harness (no pytest inside LO)**: `plugin/testing_runner.py` defines `run_all_tests(ctx)` which aggregates in-LibreOffice suites by importing from `plugin.tests.*`:
+  - Framework: `plugin/tests/core_tests.py` (`run_framework_tests`).
+  - Writer markdown/format: `plugin/tests/format_tests.py` (`run_markdown_tests`).
+  - Writer core/navigation: `plugin/tests/test_writer.py` (`run_writer_tests`).
+  - Calc: `plugin/tests/test_calc.py` (`run_calc_tests`).
+  - Draw: `plugin/tests/test_draw.py` (`run_draw_tests`).
 - **JSON summary**: `run_all_tests(ctx)` returns a JSON string:
 
   ```json
