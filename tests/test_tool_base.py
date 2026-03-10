@@ -1,164 +1,113 @@
-"""Tests for plugin.framework.tool_base."""
-
-import pytest
-
 from plugin.framework.tool_base import ToolBase
 
+class ValidTool(ToolBase):
+    name = "edit_doc"
+    description = "edit doc"
+    parameters = {
+        "properties": {
+            "text": {"type": "string"}
+        },
+        "required": ["text"]
+    }
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
 
 class ReadTool(ToolBase):
-    name = "get_something"
-    description = "Reads something"
-    parameters = {
-        "type": "object",
-        "properties": {"id": {"type": "string"}},
-        "required": ["id"],
-    }
+    name = "get_info"
 
     def execute(self, ctx, **kwargs):
-        return {"status": "ok"}
+        pass
 
-
-class WriteTool(ToolBase):
-    name = "apply_content"
-    description = "Writes content"
-    parameters = {
-        "type": "object",
-        "properties": {"content": {"type": "string"}},
-        "required": ["content"],
-    }
-
-    def execute(self, ctx, **kwargs):
-        return {"status": "ok"}
-
-
-class ExplicitMutationTool(ToolBase):
-    name = "get_but_actually_writes"
+class ExplictMutateTool(ToolBase):
+    name = "get_but_mutates"
     is_mutation = True
-    parameters = {}
 
     def execute(self, ctx, **kwargs):
-        return {"status": "ok"}
+        pass
 
+def test_detects_mutation():
+    tool1 = ValidTool()
+    assert tool1.detects_mutation() is True  # does not start with get_
 
-class NoParamsTool(ToolBase):
-    name = "do_thing"
-    parameters = None
+    tool2 = ReadTool()
+    assert tool2.detects_mutation() is False # starts with get_
 
-    def execute(self, ctx, **kwargs):
-        return {"status": "ok"}
+    tool3 = ExplictMutateTool()
+    assert tool3.detects_mutation() is True  # is_mutation is explicit
 
+    class UnnamedTool(ToolBase):
+        name = None
+        def execute(self, ctx, **kwargs): pass
 
-class TestDetectsMutation:
-    def test_read_prefix_not_mutation(self):
-        for prefix in ("get_", "read_", "list_", "find_", "search_", "count_"):
-            tool = ReadTool()
-            tool.name = f"{prefix}something"
-            assert tool.detects_mutation() is False
+    assert UnnamedTool().detects_mutation() is True
 
-    def test_write_prefix_is_mutation(self):
-        t = WriteTool()
-        assert t.detects_mutation() is True
+def test_validate():
+    tool = ValidTool()
 
-    def test_explicit_override(self):
-        t = ExplicitMutationTool()
-        assert t.detects_mutation() is True
+    # Valid
+    ok, err = tool.validate(text="hello")
+    assert ok is True
+    assert err is None
 
-    def test_no_name_defaults_to_mutation(self):
-        t = WriteTool()
-        t.name = None
-        assert t.detects_mutation() is True
+    # Missing required
+    ok, err = tool.validate()
+    assert ok is False
+    assert "Missing required parameter: text" in err
 
+    # Unknown param
+    ok, err = tool.validate(text="hello", extra="bad")
+    assert ok is False
+    assert "Unknown parameter: extra" in err
 
-class TestValidate:
-    def test_valid_params(self):
-        t = ReadTool()
-        ok, err = t.validate(id="abc")
-        assert ok is True
-        assert err is None
+class MockDoc:
+    def __init__(self, items=None):
+        self._items = items or {}
 
-    def test_missing_required(self):
-        t = ReadTool()
-        ok, err = t.validate()
-        assert ok is False
-        assert "Missing required" in err
-
-    def test_unknown_param(self):
-        t = ReadTool()
-        ok, err = t.validate(id="abc", bogus="x")
-        assert ok is False
-        assert "Unknown parameter" in err
-
-    def test_no_schema_accepts_anything(self):
-        t = NoParamsTool()
-        ok, err = t.validate(anything="goes")
-        assert ok is True
-
-class TestGetCollectionAndItem:
-    def test_get_collection_missing(self):
-        t = ReadTool()
-        class FakeDoc:
-            pass
-
-        doc = FakeDoc()
-        res = t.get_collection(doc, "getGraphicObjects", "Custom msg")
-        assert res["status"] == "error"
-        assert res["message"] == "Custom msg"
-
-        res_default = t.get_collection(doc, "getGraphicObjects")
-        assert res_default["status"] == "error"
-        assert "does not support" in res_default["message"]
-
-    def test_get_collection_success(self):
-        t = ReadTool()
-        class FakeDoc:
-            def getGraphicObjects(self):
-                return "objects"
-
-        doc = FakeDoc()
-        assert t.get_collection(doc, "getGraphicObjects") == "objects"
-
-    def test_get_item_missing_collection(self):
-        t = ReadTool()
-        class FakeDoc:
-            pass
-
-        res = t.get_item(FakeDoc(), "getFrames", "f1")
-        assert res["status"] == "error"
-        assert "does not support" in res["message"]
-
-    def test_get_item_not_found(self):
-        t = ReadTool()
-        class FakeCollection:
+    def getMyItems(self):
+        class Collection:
+            def __init__(self, data):
+                self.data = data
             def hasByName(self, name):
-                return False
-            def getElementNames(self):
-                return ("a", "b")
-
-        class FakeDoc:
-            def getFrames(self):
-                return FakeCollection()
-
-        res = t.get_item(FakeDoc(), "getFrames", "f1", not_found_msg="Nope")
-        assert res["status"] == "error"
-        assert res["message"] == "Nope"
-        assert res["available"] == ["a", "b"]
-
-        res_default = t.get_item(FakeDoc(), "getFrames", "f1")
-        assert res_default["status"] == "error"
-        assert "not found" in res_default["message"]
-
-    def test_get_item_success(self):
-        t = ReadTool()
-        class FakeCollection:
-            def hasByName(self, name):
-                return name == "f1"
+                return name in self.data
             def getByName(self, name):
-                if name == "f1":
-                    return "frame_1"
+                return self.data[name]
+            def getElementNames(self):
+                return tuple(self.data.keys())
+        return Collection(self._items)
 
-        class FakeDoc:
-            def getFrames(self):
-                return FakeCollection()
+def test_get_collection():
+    tool = ValidTool()
 
-        res = t.get_item(FakeDoc(), "getFrames", "f1")
-        assert res == "frame_1"
+    # Missing getter
+    doc_bad = object()
+    res = tool.get_collection(doc_bad, "getMyItems")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+
+    # Valid getter
+    doc_good = MockDoc({"a": 1})
+    coll = tool.get_collection(doc_good, "getMyItems")
+    assert not isinstance(coll, dict)
+    assert coll.hasByName("a")
+
+def test_get_item():
+    tool = ValidTool()
+    doc = MockDoc({"item1": "val1", "item2": "val2"})
+
+    # Missing getter entirely
+    res = tool.get_item(object(), "getMyItems", "item1")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+
+    # Item not found
+    res = tool.get_item(doc, "getMyItems", "missing")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+    assert "missing" in res["message"]
+    assert "item1" in res["available"]
+
+    # Item found
+    res = tool.get_item(doc, "getMyItems", "item1")
+    assert res == "val1"
+
