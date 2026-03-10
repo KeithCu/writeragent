@@ -89,6 +89,13 @@ def run_all_tests(ctx: Any) -> str:
     # otherwise the underlying helpers will create their own temporary docs.
     model = get_active_document(ctx)
 
+    # Framework tests
+    try:
+        from plugin.framework.core_tests import run_framework_tests
+        _run_suite(ctx, suites, "framework.core_tests", run_framework_tests)
+    except ImportError:
+        pass
+
     # Writer markdown / format-preserving tests
     try:
         from plugin.framework.document import is_writer  # local import to avoid hard dependency if unused
@@ -98,6 +105,17 @@ def run_all_tests(ctx: Any) -> str:
         _run_suite(ctx, suites, "writer.format_tests", run_markdown_tests, writer_doc)
     except ImportError:
         # Suite not available in this build; skip silently.
+        pass
+
+    # Writer core / navigation tests
+    try:
+        from plugin.framework.document import is_writer  # local import
+        from plugin.modules.writer.tests import run_writer_tests
+
+        # Writer core tests mutate the document and assume an empty starting state,
+        # so we pass None to force it to create its own hidden temporary document.
+        _run_suite(ctx, suites, "writer.core_tests", run_writer_tests)
+    except ImportError:
         pass
 
     # Calc API / tool tests
