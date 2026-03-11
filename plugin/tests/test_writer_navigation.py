@@ -6,41 +6,7 @@ from plugin.framework.document import (
     resolve_locator,
     get_paragraph_ranges
 )
-
-class ElementStub:
-    def __init__(self, text, outline_level=0, services=None):
-        self.text = text
-        self.outline_level = outline_level
-        self.services = services or ["com.sun.star.text.Paragraph"]
-    def getString(self): return self.text
-    def getPropertyValue(self, name):
-        if name == "OutlineLevel": return self.outline_level
-        raise Exception("Property not found")
-    def supportsService(self, service): return service in self.services
-    def getStart(self): return self # Stub for range
-    def getEnd(self): return self
-    def getText(self): return self
-
-class WriterDocStub:
-    def __init__(self, elements):
-        self.elements = elements
-        self.url = "test://writer"
-    def getText(self): 
-        class TextStub:
-            def __init__(self, el): self.el = el
-            def createEnumeration(self):
-                class EnumStub:
-                    def __init__(self, el): 
-                        self.el = el
-                        self.idx = 0
-                    def hasMoreElements(self): return self.idx < len(self.el)
-                    def nextElement(self):
-                        res = self.el[self.idx]
-                        self.idx += 1
-                        return res
-                return EnumStub(self.el)
-        return TextStub(self.elements)
-    def supportsService(self, s): return s == "com.sun.star.text.TextDocument"
+from plugin.tests.testing_utils import ElementStub, WriterDocStub
 
 class TestWriterNavigation(unittest.TestCase):
     def test_document_cache(self):

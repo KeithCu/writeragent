@@ -15,166 +15,102 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import json
-from plugin.main import get_tools
 from plugin.framework.logging import debug_log
 from plugin.framework.uno_helpers import get_desktop
+from plugin.testing_runner import setup, teardown, test
 
-def run_draw_tests(ctx, model=None):
-    """
-    Run Draw tool tests with real UNO.
-    ctx: UNO ComponentContext. model: optional XDrawingDocument; if None or not Draw, a new doc is created.
-    Returns (passed_count, failed_count, list of message strings).
-    """
-    log = []
-    passed = 0
-    failed = 0
 
-    def ok(msg):
-        log.append("OK: %s" % msg)
+_test_doc = None
+_test_ctx = None
 
-    def fail(msg):
-        log.append("FAIL: %s" % msg)
 
-    try:
-        smgr = ctx.getServiceManager()
-        desktop = get_desktop(ctx)
-        doc = model
-        
-        # Ensure we have a Draw document
-        if doc is None or not hasattr(doc, "getDrawPages"):
-            try:
-                # sdraw for Draw, simpress for Impress. Both use getDrawPages.
-                doc = desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, ())
-            except Exception as e:
-                return 0, 1, ["Could not create Draw document: %s" % e]
-        
-        if not doc or not hasattr(doc, "getDrawPages"):
-            return 0, 1, ["No Draw document available."]
+@setup
+def setup_draw_tests(ctx):
+    global _test_doc, _test_ctx
+    _test_ctx = ctx
 
-        debug_log("draw_tests: starting tests", context="DrawTests")
+    desktop = get_desktop(ctx)
+    from com.sun.star.beans import PropertyValue
+    hidden_prop = PropertyValue()
+    hidden_prop.Name = "Hidden"
+    hidden_prop.Value = True
 
-        # Helper for executing tests
-        def exec_tool(name, args):
-            from plugin.framework.tool_context import ToolContext
-            tctx = ToolContext(doc, ctx, "draw", {}, "test")
-            import json
-            res = get_tools().execute(name, tctx, **args)
-            return json.dumps(res) if isinstance(res, dict) else res
+    _test_doc = desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, (hidden_prop,))
+    assert _test_doc is not None, "Could not create Draw document"
+    assert hasattr(_test_doc, "getDrawPages"), "Not a valid Draw document"
 
-        # Test: list_pages (returns pages and count, not result)
-        try:
-            result = exec_tool("list_pages", {})
-            data = json.loads(result)
-            if data.get("status") == "ok":
-                num_pages = data.get("count", len(data.get("pages", [])))
-                passed += 1
-                ok(f"list_pages success: {num_pages} pages")
-            else:
-                failed += 1
-                fail(f"list_pages failed: {result}")
-        except Exception as e:
-            failed += 1
-            log.append(f"FAIL: list_pages raised: {e}")
+    debug_log("draw_tests: starting tests", context="DrawTests")
 
-        # Test: create_shape (Rectangle)
-        shape_id = None
-        try:
-            result = exec_tool("create_shape", {
-                "shape_type": "rectangle",
-                "x": 2000, "y": 2000, "width": 5000, "height": 3000,
-                "text": "Hello Draw",
-                "bg_color": "#FF0000"
-            })
-            data = json.loads(result)
-            if data.get("status") == "ok":
-                passed += 1
-                ok("create_shape (Rectangle) success")
-                # Note: create_shape currently returns message, not shape_index
-                # We'll get it from summary
-            else:
-                failed += 1
-                fail(f"create_shape failed: {result}")
-        except Exception as e:
-            failed += 1
-            log.append(f"FAIL: create_shape raised: {e}")
 
-        # Test: get_draw_summary
-        try:
-            result = exec_tool("get_draw_summary", {"page_index": 0})
-            data = json.loads(result)
-            if data.get("status") == "ok":
-                passed += 1
-                ok("get_draw_summary success")
-                shapes = data.get("shapes", [])
-                if any("RectangleShape" in s.get("type", "") for s in shapes):
-                    passed += 1
-                    ok("Summary contains the created rectangle")
-                    # Find the index of the rectangle we just created
-                    for s in shapes:
-                        if "RectangleShape" in s.get("type", ""):
-                            shape_id = s.get("index")
-                else:
-                    failed += 1
-                    fail("Summary missing the created rectangle")
-            else:
-                failed += 1
-                fail(f"get_draw_summary failed: {result}")
-        except Exception as e:
-            failed += 1
-            log.append(f"FAIL: get_draw_summary raised: {e}")
+@teardown
+def teardown_draw_tests(ctx):
+    global _test_doc, _test_ctx
+    if _test_doc:
+        _test_doc.close(True)
+    _test_doc = None
+    _test_ctx = None
 
-        # Test: edit_shape (Move/Resize/Color)
-        if shape_id is not None:
-            try:
-                result = exec_tool("edit_shape", {
-                    "shape_index": shape_id,
-                    "x": 3000, "y": 3000,
-                    "bg_color": "#00FF00"
-                })
-                data = json.loads(result)
-                if data.get("status") == "ok":
-                    passed += 1
-                    ok("edit_shape success")
-                else:
-                    failed += 1
-                    fail(f"edit_shape failed: {result}")
-            except Exception as e:
-                failed += 1
-                log.append(f"FAIL: edit_shape raised: {e}")
 
-        # Test: delete_shape
-        if shape_id is not None:
-            try:
-                result = exec_tool("delete_shape", {"shape_index": shape_id})
-                data = json.loads(result)
-                if data.get("status") == "ok":
-                    passed += 1
-                    ok("delete_shape success")
-                else:
-                    failed += 1
-                    fail(f"delete_shape failed: {result}")
-            except Exception as e:
-                failed += 1
-                log.append(f"FAIL: delete_shape raised: {e}")
+def _exec_tool(name, args):
+    from plugin.main import get_tools
+    from plugin.framework.tool_context import ToolContext
+    tctx = ToolContext(_test_doc, _test_ctx, "draw", {}, "test")
+    res = get_tools().execute(name, tctx, **args)
+    return json.dumps(res) if isinstance(res, dict) else res
 
-        # Test: get_draw_context_for_chat (returns "Draw Document" or "Impress Presentation" and "Total Pages" or "Total Slides")
-        try:
-            from plugin.framework.document import get_draw_context_for_chat
-            ctx_str = get_draw_context_for_chat(doc, 8000, ctx)
-            has_doc_type = "Draw Document" in ctx_str or "Impress Presentation" in ctx_str
-            has_total = "Total" in ctx_str and ("Pages" in ctx_str or "Slides" in ctx_str)
-            if has_doc_type and has_total:
-                passed += 1
-                ok("get_draw_context_for_chat returns summary")
-            else:
-                failed += 1
-                fail("get_draw_context_for_chat missing expected headers")
-        except Exception as e:
-            failed += 1
-            log.append(f"FAIL: get_draw_context_for_chat raised: {e}")
 
-    except Exception as e:
-        failed += 1
-        log.append(f"CRITICAL failure in Draw test runner: {e}")
+@test
+def test_list_pages():
+    result = _exec_tool("list_pages", {})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"list_pages failed: {result}"
+    num_pages = data.get("count", len(data.get("pages", [])))
+    assert num_pages > 0, "No pages found"
 
-    return passed, failed, log
+
+@test
+def test_create_and_verify_shape():
+    # 1. Create shape
+    result = _exec_tool("create_shape", {
+        "shape_type": "rectangle",
+        "x": 2000, "y": 2000, "width": 5000, "height": 3000,
+        "text": "Hello Draw",
+        "bg_color": "#FF0000"
+    })
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"create_shape failed: {result}"
+
+    # 2. Get draw summary to find shape_id
+    result = _exec_tool("get_draw_summary", {"page_index": 0})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"get_draw_summary failed: {result}"
+    shapes = data.get("shapes", [])
+
+    shape_id = None
+    for s in shapes:
+        if "RectangleShape" in s.get("type", ""):
+            shape_id = s.get("index")
+    assert shape_id is not None, "Summary missing the created rectangle"
+
+    # 3. Edit shape
+    result = _exec_tool("edit_shape", {
+        "shape_index": shape_id,
+        "x": 3000, "y": 3000,
+        "bg_color": "#00FF00"
+    })
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"edit_shape failed: {result}"
+
+    # 4. Delete shape
+    result = _exec_tool("delete_shape", {"shape_index": shape_id})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"delete_shape failed: {result}"
+
+
+@test
+def test_get_draw_context_for_chat():
+    from plugin.framework.document import get_draw_context_for_chat
+    ctx_str = get_draw_context_for_chat(_test_doc, 8000, _test_ctx)
+    has_doc_type = "Draw Document" in ctx_str or "Impress Presentation" in ctx_str
+    has_total = "Total" in ctx_str and ("Pages" in ctx_str or "Slides" in ctx_str)
+    assert has_doc_type and has_total, "get_draw_context_for_chat missing expected headers"
