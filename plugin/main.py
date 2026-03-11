@@ -222,6 +222,93 @@ _status_lock = threading.Lock()
 
 EXTENSION_ID = "org.extension.writeragent"
 
+def _handle_framework_dispatch_action(action):
+    """Handle framework actions dispatched to the main module."""
+    if action == "settings":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.framework.legacy_ui import settings_box
+        try:
+            settings_box(get_ctx())
+            _start_mcp_server(get_ctx())
+        except Exception as e:
+            logging.getLogger("writeragent.main").error("Failed to open settings: %s", e, exc_info=True)
+            pass
+    elif action == "about":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.framework.dialogs import about_dialog
+        try:
+            about_dialog(get_ctx())
+        except Exception as e:
+            logging.getLogger("writeragent.main").error("Failed to open about dialog: %s", e, exc_info=True)
+            pass
+    elif action == "EvaluationDashboard":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.framework.legacy_ui import show_eval_dashboard
+        try:
+            show_eval_dashboard(get_ctx())
+        except Exception as e:
+            logging.getLogger("writeragent.main").error("Failed to show eval dashboard: %s", e, exc_info=True)
+            pass
+    elif action == "RunFormatTests":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.tests.format_tests import run_markdown_tests
+        from plugin.framework.document import is_writer
+        from plugin.framework.dialogs import msgbox
+        ctx = get_ctx()
+        try:
+            from plugin.framework.async_stream import run_blocking_in_thread
+            model = get_active_document(ctx)
+            w_model = model if (model and is_writer(model)) else None
+            p, f, log = run_blocking_in_thread(ctx, run_markdown_tests, ctx, w_model)
+            msgbox(ctx, "Format tests", f"Format tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
+        except Exception as e:
+            msgbox(ctx, "Format tests", f"Tests failed to run: {e}")
+    elif action == "RunCalcTests":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.tests.test_calc import run_calc_tests
+        from plugin.framework.document import is_calc
+        from plugin.framework.dialogs import msgbox
+        ctx = get_ctx()
+        try:
+            from plugin.framework.async_stream import run_blocking_in_thread
+            model = get_active_document(ctx)
+            c_model = model if (model and is_calc(model)) else None
+            p, f, log = run_blocking_in_thread(ctx, run_calc_tests, ctx, c_model)
+            msgbox(ctx, "Calc tests", f"Calc tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
+        except Exception as e:
+            msgbox(ctx, "Calc tests", f"Tests failed to run: {e}")
+    elif action == "RunCalcIntegrationTests":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.tests.test_calc import run_calc_integration_tests
+        from plugin.framework.document import is_calc
+        from plugin.framework.dialogs import msgbox
+        ctx = get_ctx()
+        try:
+            from plugin.framework.async_stream import run_blocking_in_thread
+            model = get_active_document(ctx)
+            c_model = model if (model and is_calc(model)) else None
+            p, f, log = run_blocking_in_thread(ctx, run_calc_integration_tests, ctx, c_model)
+            msgbox(ctx, "Calc API tests", f"Calc API tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
+        except Exception as e:
+            msgbox(ctx, "Calc tests", f"Integration tests failed: {e}")
+    elif action == "RunDrawTests":
+        from plugin.framework.uno_context import get_ctx
+        from plugin.tests.test_draw import run_draw_tests
+        from plugin.framework.document import is_draw
+        from plugin.framework.dialogs import msgbox
+        ctx = get_ctx()
+        try:
+            from plugin.framework.async_stream import run_blocking_in_thread
+            model = get_active_document(ctx)
+            d_model = model if (model and is_draw(model)) else None
+            p, f, log = run_blocking_in_thread(ctx, run_draw_tests, ctx, d_model)
+            msgbox(ctx, "Draw tests", f"Draw tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
+        except Exception as e:
+            msgbox(ctx, "Draw tests", f"Tests failed to run: {e}")
+    elif action == "NoOp":
+        pass
+
+
 def _dispatch_command(command):
     """Dispatch a module.action command. Used by both MainJob and DispatchHandler."""
     dot = command.find(".")
@@ -235,89 +322,7 @@ def _dispatch_command(command):
 
     # Framework actions
     if mod_name == "main":
-        if action == "settings":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.framework.legacy_ui import settings_box
-            try:
-                settings_box(get_ctx())
-                _start_mcp_server(get_ctx())
-            except Exception as e:
-                logging.getLogger("writeragent.main").error("Failed to open settings: %s", e, exc_info=True)
-                pass
-        elif action == "about":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.framework.dialogs import about_dialog
-            try:
-                about_dialog(get_ctx())
-            except Exception as e:
-                logging.getLogger("writeragent.main").error("Failed to open about dialog: %s", e, exc_info=True)
-                pass
-        elif action == "EvaluationDashboard":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.framework.legacy_ui import show_eval_dashboard
-            try:
-                show_eval_dashboard(get_ctx())
-            except Exception as e:
-                logging.getLogger("writeragent.main").error("Failed to show eval dashboard: %s", e, exc_info=True)
-                pass
-        elif action == "RunFormatTests":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.tests.format_tests import run_markdown_tests
-            from plugin.framework.document import is_writer
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                w_model = model if (model and is_writer(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_markdown_tests, ctx, w_model)
-                msgbox(ctx, "Format tests", f"Format tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Format tests", f"Tests failed to run: {e}")
-        elif action == "RunCalcTests":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.tests.test_calc import run_calc_tests
-            from plugin.framework.document import is_calc
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                c_model = model if (model and is_calc(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_calc_tests, ctx, c_model)
-                msgbox(ctx, "Calc tests", f"Calc tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Calc tests", f"Tests failed to run: {e}")
-        elif action == "RunCalcIntegrationTests":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.tests.test_calc import run_calc_integration_tests
-            from plugin.framework.document import is_calc
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                c_model = model if (model and is_calc(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_calc_integration_tests, ctx, c_model)
-                msgbox(ctx, "Calc API tests", f"Calc API tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Calc tests", f"Integration tests failed: {e}")
-        elif action == "RunDrawTests":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.tests.test_draw import run_draw_tests
-            from plugin.framework.document import is_draw
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                d_model = model if (model and is_draw(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_draw_tests, ctx, d_model)
-                msgbox(ctx, "Draw tests", f"Draw tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Draw tests", f"Tests failed to run: {e}")
-        elif action == "NoOp":
-            pass
+        _handle_framework_dispatch_action(action)
         return
 
     # Module actions
