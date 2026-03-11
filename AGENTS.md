@@ -550,6 +550,8 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 Image generation and AI Horde integration are **complete** (generate_image, edit_image, AI Horde + endpoint providers, Image Settings tab with shared vs Horde-only sections).
 
+For the DSPy/OpenRouter prompt evaluation framework under `scripts/prompt_optimization/`, the multi-model suite in `model_configs.py` now also includes **`nvidia/nemotron-3-super-120b-a12b:free`**, so you can run `run_eval_multi.py` against this free Nemotron 3 Super 120B variant and see it ranked in the intelligence-per-dollar leaderboard.
+
 ---
 
 ## 8. Gotchas

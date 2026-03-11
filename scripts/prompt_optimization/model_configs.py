@@ -174,6 +174,18 @@ MODELS: list[ModelConfig] = [
         notes="Small MoE; open-weights; agentic AI; high compute efficiency.",
     ),
     ModelConfig(
+        openrouter_id="nvidia/nemotron-3-super-120b-a12b:free",
+        display_name="NVIDIA: Nemotron 3 Super 120B A12B (Free Tier)",
+        context_window_tokens=262_000,
+        input_cost_per_million=0.20,
+        output_cost_per_million=0.80,
+        notes=(
+            "Large Nemotron 3 Super 120B variant on OpenRouter; "
+            "configured here with approximate list pricing so it can "
+            "participate in intelligence-per-dollar benchmarking."
+        ),
+    ),
+    ModelConfig(
         openrouter_id="nvidia/llama-3.3-nemotron-super-49b-v1.5",
         display_name="NVIDIA: Llama 3.3 Nemotron Super 49B V1.5",
         context_window_tokens=131_072,

@@ -140,8 +140,8 @@ We have recently integrated an internal **LLM Evaluation Suite** directly into t
 | 13 | qwen/qwen3.5-122b-a10b | 14.9 | 0.932 | 62,424 | 0.0583 |
 | 14 | qwen/qwen3.5-35b-a3b | 13.1 | 0.980 | 80,773 | 0.0734 |
 | 15 | anthropic/claude-haiku-4.5 | 11.3 | 0.993 | 60,730 | 0.0874 |
-| 16 | anthropic/claude-sonnet-4.6 | 4.3 | 1.000 | 54,890 | 0.2351 |
-
+| 16 | nvidia/nemotron-3-super-120b-a12b:free | 9.3 | 0.770 | 138,870 | 0.0639 |
+| 17 | anthropic/claude-sonnet-4.6 | 4.3 | 1.000 | 54,890 | 0.2351 |
 ---
 
 ### Key Benchmarking Insights (Feb 2026)
