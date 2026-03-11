@@ -112,8 +112,13 @@ class ApplyDocumentContent(ToolBase):
         "type": "object",
         "properties": {
             "content": {
-                "type": "string",
-                "description": "The new content (HTML or plain text). Do not use Markdown.",
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "The new content as a list of HTML or plain-text "
+                    "fragments (one element per heading/paragraph). "
+                    "Do not use Markdown."
+                ),
             },
             "target": {
                 "type": "string",
@@ -154,7 +159,24 @@ class ApplyDocumentContent(ToolBase):
         content = kwargs.get("content", "")
         target = kwargs.get("target")
 
-        # Normalize list input.
+        # Normalize content:
+        # - If the model (or caller) serialized a list as a JSON string,
+        #   parse it back to a real list first so commas/brackets do not
+        #   become literal document text.
+        if isinstance(content, str):
+            stripped = content.strip()
+            if stripped.startswith("[") and "<" in stripped:
+                try:
+                    import json
+
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, list):
+                        content = parsed
+                except Exception:
+                    # On malformed JSON, fall back to the original string.
+                    pass
+
+        # Normalize list input to a single string for HTML import paths.
         if isinstance(content, list):
             content = "\n".join(str(x) for x in content)
         if isinstance(content, str):

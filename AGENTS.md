@@ -266,6 +266,8 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
     - `resolve_locator()`: Resolves structured strings (e.g., `heading:1.2`, `paragraph:5`) to document positions.
 - **New Navigation Tools**: `get_document_outline` (full tree), `get_heading_content` (fetch section text), `read_paragraphs` (read by offset), and `insert_at_paragraph` (precise positioning).
 
+- **Tool-calling HTML list normalization**: The `apply_document_content` Writer tool now accepts `content` as a JSON array of HTML/paragraph strings at the schema level (matching the system prompt examples). If a provider still sends `content` as a JSON-encoded string (e.g. `"[\\"<h1>...</h1>\\", \\"<p>...</p>\\"]"`), the tool parses it back into a list before importing. This prevents stray paragraphs containing literal `", "` or bracket artifacts when the model follows the "list of strings" hint but the transport layer serializes it as a single string.
+
 ---
 
 ## 4. Shared Helpers
