@@ -47,7 +47,7 @@ def debug_log(message):
             debug_file = os.path.expanduser("~/libreoffice_prompt_debug.log")
             with open(debug_file, "a", encoding="utf-8") as f:
                 f.write(f"{message}\n")
-        except:
+        except Exception:
             # Fallback to stdout
             print(f"DEBUG: {message}")
             sys.stdout.flush()
@@ -57,78 +57,6 @@ class PromptFunction(unohelper.Base, XPromptFunction):
         debug_log("=== PromptFunction.__init__ called ===")
         self.ctx = ctx
         self.client = None
-
-    def getProgrammaticFunctionName(self, aDisplayName):
-        debug_log(f"=== getProgrammaticFunctionName called with: '{aDisplayName}' ===")
-        if aDisplayName == "PROMPT":
-            return "prompt"
-        return ""
-
-    def getDisplayFunctionName(self, aProgrammaticName):
-        debug_log(f"=== getDisplayFunctionName called with: '{aProgrammaticName}' ===")
-        if aProgrammaticName == "prompt":
-            return "PROMPT"
-        return ""
-
-    def getFunctionDescription(self, aProgrammaticName):
-        if aProgrammaticName == "prompt":
-            return "Generates text using an LLM."
-        return ""
-
-    def getArgumentDescription(self, aProgrammaticName, nArgument):
-        if aProgrammaticName == "prompt":
-            if nArgument == 0:
-                return "The prompt to send to the LLM."
-            elif nArgument == 1:
-                return "The system prompt to use."
-            elif nArgument == 2:
-                return "The model to use."
-            elif nArgument == 3:
-                return "The maximum number of tokens to generate."
-        return ""
-        
-    def getArgumentName(self, aProgrammaticName, nArgument):
-        if aProgrammaticName == "prompt":
-            if nArgument == 0:
-                return "message"
-            elif nArgument == 1:
-                return "system_prompt"
-            elif nArgument == 2:
-                return "model"
-            elif nArgument == 3:
-                return "max_tokens"
-        return ""
-
-    def hasFunctionWizard(self, aProgrammaticName):
-        return True
-
-    def getArgumentCount(self, aProgrammaticName):
-        if aProgrammaticName == "prompt":
-            return 4
-        return 0
-
-    def getArgumentIsOptional(self, aProgrammaticName, nArgument):
-        if aProgrammaticName == "prompt":
-            return nArgument > 0
-        return False
-
-    def getProgrammaticCategoryName(self, aProgrammaticName):
-        return "Add-In"
-
-    def getDisplayCategoryName(self, aProgrammaticName):
-        return "Add-In"
-
-    def getLocale(self):
-        return self.ctx.ServiceManager.createInstance("com.sun.star.lang.Locale", ("en", "US", ""))
-
-    def setLocale(self, locale):
-        pass
-
-    def load(self, xSomething):
-        pass
-
-    def unload(self):
-        pass
 
     def prompt(self, message, systemPrompt, model, maxTokens):
         debug_log(f"=== PromptFunction.PROMPT({message}) called ===")
@@ -181,16 +109,3 @@ g_ImplementationHelper.addImplementation(
     "org.extension.writeragent.PromptFunction",
     ("com.sun.star.sheet.AddIn",),
 )
-
-# Test function registration
-def test_registration():
-    """Test if the function is properly registered"""
-    debug_log("=== Testing function registration ===")
-    try:
-        # This will be called when LibreOffice loads the extension
-        debug_log("Function registration test completed")
-    except Exception as e:
-        debug_log(f"Registration test failed: {e}")
-
-# Call test on module load
-test_registration()
