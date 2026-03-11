@@ -222,6 +222,22 @@ _status_lock = threading.Lock()
 
 EXTENSION_ID = "org.extension.writeragent"
 
+
+def _run_test_suite(test_func, doc_checker, test_name):
+    """Helper to run a test suite in a blocking thread and show the result."""
+    from plugin.framework.uno_context import get_ctx
+    from plugin.framework.dialogs import msgbox
+    ctx = get_ctx()
+    try:
+        from plugin.framework.async_stream import run_blocking_in_thread
+        model = get_active_document(ctx)
+        doc_model = model if (model and doc_checker(model)) else None
+        p, f, log = run_blocking_in_thread(ctx, test_func, ctx, doc_model)
+        msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(log))
+    except Exception as e:
+        msgbox(ctx, test_name, f"Tests failed to run: {e}")
+
+
 def _dispatch_command(command):
     """Dispatch a module.action command. Used by both MainJob and DispatchHandler."""
     dot = command.find(".")
@@ -261,61 +277,21 @@ def _dispatch_command(command):
                 logging.getLogger("writeragent.main").error("Failed to show eval dashboard: %s", e, exc_info=True)
                 pass
         elif action == "RunFormatTests":
-            from plugin.framework.uno_context import get_ctx
             from plugin.tests.format_tests import run_markdown_tests
             from plugin.framework.document import is_writer
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                w_model = model if (model and is_writer(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_markdown_tests, ctx, w_model)
-                msgbox(ctx, "Format tests", f"Format tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Format tests", f"Tests failed to run: {e}")
+            _run_test_suite(run_markdown_tests, is_writer, "Format tests")
         elif action == "RunCalcTests":
-            from plugin.framework.uno_context import get_ctx
             from plugin.tests.test_calc import run_calc_tests
             from plugin.framework.document import is_calc
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                c_model = model if (model and is_calc(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_calc_tests, ctx, c_model)
-                msgbox(ctx, "Calc tests", f"Calc tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Calc tests", f"Tests failed to run: {e}")
+            _run_test_suite(run_calc_tests, is_calc, "Calc tests")
         elif action == "RunCalcIntegrationTests":
-            from plugin.framework.uno_context import get_ctx
             from plugin.tests.test_calc import run_calc_integration_tests
             from plugin.framework.document import is_calc
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                c_model = model if (model and is_calc(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_calc_integration_tests, ctx, c_model)
-                msgbox(ctx, "Calc API tests", f"Calc API tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Calc tests", f"Integration tests failed: {e}")
+            _run_test_suite(run_calc_integration_tests, is_calc, "Calc API tests")
         elif action == "RunDrawTests":
-            from plugin.framework.uno_context import get_ctx
             from plugin.tests.test_draw import run_draw_tests
             from plugin.framework.document import is_draw
-            from plugin.framework.dialogs import msgbox
-            ctx = get_ctx()
-            try:
-                from plugin.framework.async_stream import run_blocking_in_thread
-                model = get_active_document(ctx)
-                d_model = model if (model and is_draw(model)) else None
-                p, f, log = run_blocking_in_thread(ctx, run_draw_tests, ctx, d_model)
-                msgbox(ctx, "Draw tests", f"Draw tests: {p} passed, {f} failed.\n\n" + "\n".join(log))
-            except Exception as e:
-                msgbox(ctx, "Draw tests", f"Tests failed to run: {e}")
+            _run_test_suite(run_draw_tests, is_draw, "Draw tests")
         elif action == "NoOp":
             pass
         return
