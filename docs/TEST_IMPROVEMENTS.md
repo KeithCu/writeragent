@@ -1,21 +1,21 @@
 # Test Code Improvements Report
 
 ## 1. Executive Summary
-This report analyzes the consolidated tests in the `plugin/tests/` directory of the `writeragent` codebase. The project uses a mix of standard `unittest`/`pytest` unit tests (which run quickly outside LibreOffice) and integration tests (which run via LibreOffice's internal Python interpreter using custom `run_x_tests` harnesses like `test_writer.py`, `test_calc.py`, and `test_draw.py`).
+This report analyzes the consolidated tests in the `plugin/tests/` directory of the `writeragent` codebase. The project uses a mix of standard `unittest` unit tests (which run quickly outside LibreOffice) and integration tests (which run natively inside LibreOffice's internal Python interpreter using custom `run_x_tests` harnesses like `test_writer.py`, `test_calc.py`, and `test_draw.py`).
 
-While the test coverage is reasonable for core framework components, there are significant gaps in testing edge cases, complex tool interactions, error recovery, and UI logic. Additionally, the hybrid test harness architecture introduces boilerplate and maintenance challenges.
+Because external packages like `pytest` cannot be assumed to exist inside the bundled LibreOffice Python environment, the custom native harness pattern is necessary. However, while the test coverage is reasonable for core framework components, there are significant gaps in testing edge cases, complex tool interactions, error recovery, and UI logic. Additionally, the native test harness architecture introduces boilerplate and maintenance challenges that can be streamlined.
 
 ## 2. Structural & Architectural Improvements
 
-### 2.1 Unified Test Harness (The `run_*_tests` pattern)
-Currently, `test_writer.py`, `test_calc.py`, and `test_draw.py` use a custom assertion harness (`ok()`, `fail()`, and tracking `passed`/`failed` counts manually) designed to run inside the LibreOffice environment.
+### 2.1 Streamlining the Native Test Harness
+Currently, `test_writer.py`, `test_calc.py`, and `test_draw.py` use a custom assertion harness (`ok()`, `fail()`, and tracking `passed`/`failed` counts manually) designed to run inside the LibreOffice environment without relying on `pytest`.
 
-*   **Problem:** This pattern reinvents a test runner, making tests harder to read, lacking standard fixture support (like `pytest` fixtures), and providing non-standard output. It requires wrapping every test block in a bare `try...except`.
-*   **Recommendation:** Evolve `plugin/testing_runner.py` to bridge standard `unittest.TestCase` or `pytest`-style functions *inside* the LibreOffice context. Consider using `unittest` primitives (like `self.assertEqual`) within these files, and having the runner aggregate standard `TestResult` objects. This dramatically reduces boilerplate.
+*   **Problem:** This pattern requires wrapping every test block in a bare `try...except`, making tests verbose and harder to read. It also lacks standardized setup and teardown logic.
+*   **Recommendation:** Evolve `plugin/testing_runner.py` to provide a lightweight, decorator-based or class-based runner that natively mimics the *structure* of standard tests (like `setUp` and `tearDown`) without requiring `unittest` or `pytest` dependencies. By abstracting the `try...except` blocks and state tracking, you can dramatically reduce boilerplate in the `run_x_tests` files.
 
 ### 2.2 Fixture Management & Mocking
 *   **Problem:** Some files (like `test_writer_navigation.py` and `test_image_service_refactor.py`) make heavy use of local stubs or `unittest.mock.patch`. While useful, the mocks are repeated across files. Conversely, the integration tests (`test_calc.py`) do a lot of raw UNO setup.
-*   **Recommendation:** Create a centralized `testing_utils.py` or `fixtures/` library for common UNO mocks (e.g., `MockDocument`, `MockTextCursor`, `MockSheet`) and standard test documents. This will accelerate adding new tests for edge cases.
+*   **Recommendation:** Create a centralized `testing_utils.py` or `fixtures/` library for common UNO mocks (e.g., `MockDocument`, `MockTextCursor`, `MockSheet`) and standard test documents. This will accelerate adding new tests for edge cases and standardize the setup for native LibreOffice tests.
 
 ## 3. Missing Coverage & Classes of Tests
 
@@ -57,7 +57,7 @@ The UI layer, specifically the chat panel (`panel_factory.py`) and settings dial
 
 ## 4. Prioritized Recommendations
 
-1.  **Refactor the LibreOffice Integration Harness:** Transition `test_writer.py`, `test_calc.py`, etc., to use `unittest.TestCase` structures invoked by `testing_runner.py`.
+1.  **Streamline the Native LibreOffice Harness:** Create a lightweight framework in `testing_runner.py` to abstract away the repetitive `try/except` and logging boilerplate in `run_x_tests` files.
 2.  **Add Format Preservation Edge Cases:** Expand `format_tests.py` to cover paragraph boundaries and complex mixed-formatting replacements.
 3.  **Implement Multi-Document Isolation Tests:** Ensure regressions don't occur when operating with multiple active frames.
 4.  **Simulate Network/API Failures:** Add tests for robust error handling in the LLM streaming paths and tool-calling execution.
