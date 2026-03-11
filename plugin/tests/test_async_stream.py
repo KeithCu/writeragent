@@ -111,7 +111,6 @@ def test_run_blocking_in_thread():
 
 def test_run_blocking_in_thread_error():
     from unittest.mock import MagicMock
-    import pytest
     from plugin.framework.async_stream import run_blocking_in_thread
 
     ctx = MagicMock()
@@ -122,3 +121,74 @@ def test_run_blocking_in_thread_error():
 
     with pytest.raises(ValueError, match="failed"):
         run_blocking_in_thread(ctx, blocking_func)
+
+
+def test_run_stream_drain_loop_connection_drop():
+    import threading
+
+    q = queue.Queue()
+    job_done = [False]
+    toolkit = DummyToolkit()
+
+    chunks_received = []
+    error_received = []
+    status_received = []
+
+    def apply_chunk_fn(text, is_thinking=False):
+        chunks_received.append((text, is_thinking))
+
+    def on_stream_done(response):
+        return True
+
+    def on_stopped():
+        pass
+
+    def on_error(err):
+        error_received.append(err)
+
+    def on_status_fn(text):
+        status_received.append(text)
+
+    # Simulate a background thread that yields some chunks then raises an error
+    def worker():
+        try:
+            q.put(("chunk", "Hello "))
+            time.sleep(0.01)
+            q.put(("chunk", "world"))
+            time.sleep(0.01)
+            # Simulate a connection drop halfway
+            raise ConnectionError("Connection dropped unexpectedly")
+        except Exception as e:
+            q.put(("error", e))
+
+    t = threading.Thread(target=worker)
+    t.start()
+
+    # Run the drain loop in the main thread (simulated)
+    # The loop should terminate when job_done[0] becomes True, which happens on error
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        job_done,
+        apply_chunk_fn,
+        on_stream_done,
+        on_stopped,
+        on_error,
+        on_status_fn,
+        ctx=None
+    )
+
+    t.join(timeout=1.0)
+    assert not t.is_alive(), "Worker thread should have finished"
+
+    # Verify that we received the initial chunks
+    assert ("Hello ", False) in chunks_received
+    assert ("world", False) in chunks_received
+
+    # Verify that the error was caught and propagated
+    assert len(error_received) == 1
+    assert isinstance(error_received[0], ConnectionError)
+    assert str(error_received[0]) == "Connection dropped unexpectedly"
+
+    # Verify that the job was marked as done
+    assert job_done[0] is True
