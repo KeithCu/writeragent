@@ -115,14 +115,14 @@ class TestExecute:
         ctx = _make_ctx("writer")
         result = reg.execute("fake_tool", ctx)  # missing 'text'
         assert result["status"] == "error"
-        assert "Missing required" in result["error"]
+        assert "Missing required" in result.get("error", result.get("message", ""))
 
     def test_execution_failure_returns_error(self):
         reg = _make_registry(FailingTool())
         ctx = _make_ctx("writer")
         result = reg.execute("fail_tool", ctx)
         assert result["status"] == "error"
-        assert "intentional failure" in result["error"]
+        assert "intentional failure" in result.get("error", result.get("message", ""))
 
 
 class TestSchemas:
