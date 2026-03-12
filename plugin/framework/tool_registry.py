@@ -29,10 +29,6 @@ from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
 log = logging.getLogger("writeragent.tools")
 
 
-# Global visibility toggles
-EXPOSE_BATCH_TO_CHATBOT = False
-
-
 class ToolRegistry:
     """Discovers, registers, and dispatches tools.
 
@@ -124,10 +120,6 @@ class ToolRegistry:
         tools = self.tools_for_doc_type(doc_type)
         if tier:
             tools = (t for t in tools if t.tier == tier)
-
-        # Filter out batch tool for chatbot scenarios if requested
-        if not EXPOSE_BATCH_TO_CHATBOT:
-            tools = (t for t in tools if t.name != "execute_batch")
 
         return [to_openai_schema(t) for t in tools]
 

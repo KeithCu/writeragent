@@ -33,7 +33,6 @@ def collect_tools():
     packages = [
         "plugin.modules.writer",
         "plugin.modules.common.tools",
-        "plugin.modules.batch.tools",
         "plugin.modules.calc.tools",
         "plugin.modules.draw.tools",
     ]

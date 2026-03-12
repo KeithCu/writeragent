@@ -206,7 +206,7 @@ You are an AI assistant helping the user work with a LibreOffice document throug
 - **Writer**: Use `get_document_tree` to see the structure. Use `_mcp_` bookmarks for stable addressing.
 - **Calc**: Use `get_sheet_summary` and `read_cell_range`. Use Excel-style A1 references.
 - **Navigation**: Prefer stable locators (bookmarks, heading text) over paragraph indices.
-- **Batching**: Use `execute_batch` to chain multiple edits for efficiency.
+- **Batching**: Prefer tools that operate on ranges or bulk data instead of many single-cell operations.
 
 ## Context Awareness
 

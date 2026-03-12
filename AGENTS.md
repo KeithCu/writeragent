@@ -64,7 +64,6 @@ writeragent/
 │       │   └── ops.py       # Tools implementation (styles, comments, track-changes, tables)
 │       ├── calc/            # Calc-specific tools and logic
 │       ├── draw/            # Draw/Impress page and shape tools
-│       ├── batch/           # Batch processing tools
 │       ├── tunnel/          # Tunnels (Bore, Cloudflare, Ngrok)
 │       └── http/            # MCP Protocol tools
 ├── pyproject.toml           # Defines project metadata and dependencies
