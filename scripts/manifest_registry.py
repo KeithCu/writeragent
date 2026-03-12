@@ -557,7 +557,6 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-typelibrary;type=RDB', 'XPromptFunction.rdb'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/main.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/prompt_function.py'),
-        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/options_handler.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/chatbot/panel_factory.py'),
         ('application/vnd.sun.star.configuration-data', 'Addons.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),

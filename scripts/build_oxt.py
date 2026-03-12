@@ -41,7 +41,6 @@ ALWAYS_INCLUDE_PLUGIN = [
     "plugin/__init__.py",
     "plugin/main.py",
     "plugin/modules/chatbot/panel_factory.py",
-    "plugin/options_handler.py",
     "plugin/version.py",
     "plugin/prompt_function.py",
     "plugin/_manifest.py",

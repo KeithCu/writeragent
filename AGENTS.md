@@ -37,7 +37,6 @@ writeragent/
 │   ├── main.py              # MainJob: trigger(), dialogs, loads modules via bootstrap()
 │   ├── _manifest.py         # Auto-generated module manifest from plugin.yaml/module.yaml
 │   ├── prompt_function.py   # Calc =PROMPT() formula
-│   ├── options_handler.py   # Settings dialog
 │   ├── framework/           # Core infrastructure (Config, Document, EventBus, Registries)
 │   │   ├── config.py        # Central configuration service
 │   │   ├── document.py      # Document context and manipulation service
