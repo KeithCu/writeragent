@@ -544,6 +544,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
                 tctx = ToolContext(
                     doc=model,
                     ctx=self.ctx,
+                    stop_checker=lambda: self.stop_requested,
                     doc_type="writer",
                     services=get_tools()._services,
                     caller="chat",
@@ -611,6 +612,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             on_error=on_error,
             on_status_fn=self._set_status,
             ctx=self.ctx,
+            stop_checker=lambda: self.stop_requested,
         )
         if self._terminal_status != "Error":
             self._terminal_status = "Ready"
@@ -869,6 +871,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             on_error=on_error,
             on_status_fn=self._set_status,
             ctx=self.ctx,
+            stop_checker=lambda: self.stop_requested,
             on_approval_required=on_approval_required,
         )
         if self._terminal_status != "Error" and self._terminal_status != "Stopped":
@@ -922,12 +925,12 @@ class SendButtonListener(unohelper.Base, XActionListener):
                 tctx = ToolContext(
                     doc=model,
                     ctx=self.ctx,
+                    stop_checker=lambda: self.stop_requested,
                     doc_type=doc_type,
                     services=get_tools()._services,
                     caller="chat",
                     status_callback=status_cb,
-                    append_thinking_callback=thinking_cb,
-                    stop_checker=lambda: self.stop_requested
+                    append_thinking_callback=thinking_cb
                 )
 
                 import json
@@ -1002,6 +1005,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             on_error=on_error,
             on_status_fn=self._set_status,
             ctx=self.ctx,
+            stop_checker=lambda: self.stop_requested,
         )
 
 
@@ -1010,7 +1014,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
         debug_log("Tool loop round %d: sending %d messages to API..." % (round_num, len(self.session.messages)), context="Chat")
-        self._set_status("Thinking..." if round_num == 0 else "Connecting (round %d)..." % (round_num + 1))
+        self._set_status("Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1))
 
         def run():
             try:
@@ -1318,6 +1322,7 @@ class SendButtonListener(unohelper.Base, XActionListener):
             on_error=on_error,
             on_status_fn=self._set_status,
             ctx=self.ctx,
+            stop_checker=lambda: self.stop_requested,
             show_search_thinking=show_search_thinking,
         )
 
@@ -1392,7 +1397,16 @@ class StopButtonListener(unohelper.Base, XActionListener):
     def actionPerformed(self, evt):
         if self.send_listener:
             self.send_listener.stop_requested = True
-            # If an external agent backend is running, tell it to stop
+            
+            # 1. Stop the HTTP client immediately (breaks hanging reads)
+            client = getattr(self.send_listener, "client", None)
+            if client and hasattr(client, "stop"):
+                try:
+                    client.stop()
+                except Exception:
+                    pass
+
+            # 2. If an external agent backend is running, tell it to stop
             adapter = getattr(self.send_listener, "_current_agent_backend", None)
             if adapter and hasattr(adapter, "stop"):
                 try:

@@ -304,11 +304,25 @@ class LlmClient:
     def _close_connection(self):
         if self._persistent_conn:
             try:
+                debug_log("Closing persistent connection to %s" % (self._conn_key,), context="API")
+                # Try to shut down the actual socket to break blocking reads in other threads
+                try:
+                    sock = getattr(self._persistent_conn, "sock", None)
+                    if sock:
+                        import socket
+                        sock.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
                 self._persistent_conn.close()
             except:
                 pass
             self._persistent_conn = None
             self._conn_key = None
+
+    def stop(self):
+        """Immediately stop any active request by closing the connection."""
+        debug_log("LlmClient.stop() called", context="API")
+        self._close_connection()
 
     def _endpoint(self):
         return self.config.get("endpoint", "http://127.0.0.1:5000")
@@ -714,6 +728,12 @@ class LlmClient:
         except (http.client.HTTPException, socket.error, OSError) as e:
             debug_log("Connection error, closing: %s" % e, context="API")
             self._close_connection()
+            # If the user requested a stop, don't retry. The connection error
+            # might be a side-effect of us closing the connection in stop().
+            if stop_checker and stop_checker():
+                debug_log("Connection error during stop; exiting streaming loop", context="API")
+                return "stop"
+            
             err_msg = format_error_message(e)
             if _retry:
                 debug_log("Retrying streaming request once on fresh connection", context="API")

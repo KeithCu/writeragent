@@ -39,6 +39,7 @@ def run_stream_drain_loop(
     ctx=None,
     show_search_thinking=False,
     on_approval_required=None,
+    stop_checker=None,
 ):
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
@@ -65,6 +66,12 @@ def run_stream_drain_loop(
             thinking_open[0] = False
 
     while not job_done[0]:
+        if stop_checker and stop_checker():
+            debug_log("run_stream_drain_loop: Stop requested via checker.", context="API")
+            on_stopped()
+            job_done[0] = True
+            break
+
         items = []
         try:
             # Wait for at least one item
@@ -240,6 +247,7 @@ def run_stream_completion_async(
         on_error=on_error_fn,
         on_status_fn=on_status_fn,
         ctx=ctx,
+        stop_checker=stop_checker,
     )
 
 
@@ -308,6 +316,7 @@ def run_stream_async(
         on_stopped=on_done_fn if on_done_fn else (lambda: None),
         on_error=on_error_fn if on_error_fn else (lambda e: None),
         ctx=ctx,
+        stop_checker=stop_checker,
     )
 
 

@@ -9,17 +9,6 @@ For specific, detailed feature plans, please see the **Referenced Feature Plans*
 ## 1. High-Priority UX & Configuration
 
 These are high-value, relatively contained changes that directly improve the user experience.
-
-### 1.1 Config & Endpoint Presets
-- **Config Presets**: Add a "Load from file" or preset dropdown in Settings so users can easily switch between different configuration files (e.g., `localwriter.json`, `localwriter.openrouter.json`, etc.) without manually moving files around.
-- **Endpoint Presets**: Add optional preset buttons or a dropdown in Settings that set the endpoint URL and API type (and optionally model) in one click for common providers (Local, OpenRouter, Together, etc.).
-
-### 1.2 Unified Settings Dialog
-- **Goal**: Make "LocalWriter -> Settings" the single, full-featured configuration UI (with tabs) and remove/minimize the legacy "Tools -> Options -> LocalWriter" auto-generated page to avoid confusion.
-- **Implementation**: Define all AI-related UI configurations directly in `SettingsDialog.xdl`. For non-AI modules (like Core, Writer, Calc), add `settings` annotations in their `module.yaml` files so the Settings dialog can dynamically render them into an "Other Settings" tab. This creates one single source of truth for the user.
-
-### 1.3 UI/UX Refinements
-- **EditInputDialog Multiline**: Make the Edit Selection instruction field multiline so that longer prompts are easier to enter and view.
 - **Advanced Settings Toggle**: Hide advanced settings (like max tokens, context length, reasoning effort) behind an "Advanced" toggle to declutter the main settings view.
 - **Status Indicators**: Improve status reporting in the UI. Make the status bar more dynamic (e.g., auto-clearing after timeouts, using colors to indicate success/warning/error states).
 - **Typing Indicators**: Show a visual typing indicator or animation in the chat panel when the AI is processing or responding.
