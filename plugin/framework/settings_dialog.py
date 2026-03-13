@@ -23,6 +23,7 @@ def get_settings_field_specs(ctx):
     current_endpoint_for_specs = get_current_endpoint(ctx)
     field_specs = [
         {"name": "endpoint", "value": str(get_config(ctx, "endpoint") or "")},
+        {"name": "request_timeout", "value": str(get_config(ctx, "request_timeout")), "type": "int"},
         {"name": "text_model", "value": str(get_config(ctx, "text_model") or get_config(ctx, "model") or "")},
         {"name": "image_model", "value": str(get_image_model(ctx))},
         {"name": "stt_model", "value": str(get_config(ctx, "stt_model") or "")},

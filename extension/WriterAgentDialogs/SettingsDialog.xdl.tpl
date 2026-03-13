@@ -15,7 +15,9 @@
 
   <!-- === Page 1: General Settings === -->
   <dlg:text dlg:id="label_endpoint" dlg:page="1" dlg:left="8" dlg:top="26" dlg:width="150" dlg:height="10" dlg:value="Endpoint URL (/v1 added):" dlg:align="left"/>
-  <dlg:combobox dlg:id="endpoint" dlg:page="1" dlg:left="165" dlg:top="24" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <dlg:combobox dlg:id="endpoint" dlg:page="1" dlg:left="165" dlg:top="24" dlg:width="165" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+  <dlg:text dlg:id="label_request_timeout" dlg:page="1" dlg:left="335" dlg:top="26" dlg:width="52" dlg:height="10" dlg:value="Timeout (s):" dlg:align="left"/>
+  <dlg:textfield dlg:id="request_timeout" dlg:page="1" dlg:left="390" dlg:top="24" dlg:width="40" dlg:height="14" dlg:tabstop="true" dlg:value="120"/>
 
   <dlg:text dlg:id="label_api_key" dlg:page="1" dlg:left="8" dlg:top="42" dlg:width="150" dlg:height="10" dlg:value="API Key:" dlg:align="left"/>
   <dlg:textfield dlg:id="api_key" dlg:page="1" dlg:left="165" dlg:top="40" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:value=""/>
