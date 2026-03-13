@@ -52,7 +52,7 @@ information to be inserted into the document. Use the apply_document_content too
 into LibreOffice so the user can edit it further.
 When asked about a topic you are not familiar with, use the web_research tool first to find information."""
 
-TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse."
+TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further."
 
 # Tool-usage workflow patterns learned from DSPy MIPROv2 optimization
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
