@@ -36,7 +36,7 @@ EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
-- Bad: ["# Title", "Paragraph"] (Markdown when HTML format is active)
+- Bad: ["# Title", "Paragraph"] (No Markdown)
 - Bad: ["&ldquo;Smart quotes&rdquo;"] (use straight quotes ")"""
 
 FORMATTING_RULES = HTML_FORMATTING_RULES
@@ -48,6 +48,15 @@ into LibreOffice so the user can edit it further.
 When asked about a topic you are not familiar with, use the web_research tool first to find information."""
 
 TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse."
+
+# Tool-usage workflow patterns learned from DSPy MIPROv2 optimization
+TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
+- ALWAYS include 'target' when calling apply_document_content. Use "full" for whole-document operations.
+- For precise text replacement, use find_text first to locate exact positions, then apply_document_content with target="range" and start/end.
+- For creative rewriting or reformatting, read the full document first with get_document_content, then apply with target="full".
+- When uncertain about document structure, call get_document_content before making modifications.
+- For bullet/list formatting, target each line individually using positions found via find_text.
+- If a tool call fails, verify your arguments (especially target: full/range/search/beginning/end/selection)."""
 
 # Shared Calc instruction blocks
 CALC_WORKFLOW = """WORKFLOW:

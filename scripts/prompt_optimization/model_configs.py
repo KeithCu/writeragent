@@ -45,17 +45,6 @@ MODELS: list[ModelConfig] = [
         ),
     ),
     ModelConfig(
-        openrouter_id="openai/gpt-5-nano",
-        display_name="OpenAI: GPT-5 Nano",
-        context_window_tokens=400_000,
-        input_cost_per_million=0.05,
-        output_cost_per_million=0.40,
-        notes=(
-            "Smallest / fastest GPT-5 variant; optimized for dev tools and "
-            "ultra-low latency; successor to GPT-4.1-nano."
-        ),
-    ),
-    ModelConfig(
         openrouter_id="google/gemini-3-flash-preview",
         display_name="Google: Gemini 3 Flash",
         context_window_tokens=1_050_000,
@@ -67,19 +56,8 @@ MODELS: list[ModelConfig] = [
         ),
     ),
     ModelConfig(
-        openrouter_id="anthropic/claude-haiku-4.5",
-        display_name="Anthropic: Claude Haiku 4.5",
-        context_window_tokens=200_000,
-        input_cost_per_million=1.00,
-        output_cost_per_million=5.00,
-        notes=(
-            "Fast / efficient Claude with near-frontier intelligence; strong "
-            "coding and tools; extended thinking and controllable reasoning."
-        ),
-    ),
-    ModelConfig(
-        openrouter_id="z-ai/glm-4.7",
-        display_name="Z.ai: GLM 4.7",
+        openrouter_id="z-ai/glm-5",
+        display_name="Z.ai: GLM 5",
         context_window_tokens=203_000,
         input_cost_per_million=0.30,
         output_cost_per_million=1.40,
@@ -89,23 +67,16 @@ MODELS: list[ModelConfig] = [
         ),
     ),
     ModelConfig(
-        openrouter_id="minimax/minimax-m2.1",
-        display_name="MiniMax: MiniMax M2.1",
+        openrouter_id="minimax/minimax-m2.5",
+        display_name="MiniMax: MiniMax M2.5",
         context_window_tokens=197_000,
         input_cost_per_million=0.27,
         output_cost_per_million=0.95,
         notes=(
-            "Lightweight model optimized for coding and agentic workflows; "
-            "10B activated parameters; strong multilingual coding benchmarks."
+            "Released Feb 12, 2026; 2.12T tokens; flagship model optimized for "
+            "office workflows (Word, Excel, PPT); scores 80.2% on SWE-Bench "
+            "Verified; strong planning and agentic capabilities."
         ),
-    ),
-    ModelConfig(
-        openrouter_id="anthropic/claude-sonnet-4.6",
-        display_name="Anthropic: Claude Sonnet 4.6",
-        context_window_tokens=200_000,
-        input_cost_per_million=3.00,
-        output_cost_per_million=15.00,
-        notes="Sonnet 4.6; used for gold standard generation.",
     ),
     ModelConfig(
         openrouter_id="x-ai/grok-4.1-fast",
@@ -141,22 +112,18 @@ MODELS: list[ModelConfig] = [
         output_cost_per_million=3.20,
         notes="VLM MoE; second to Qwen3.5-397B-A17B; strong text and visual.",
     ),
-#    ModelConfig(
-#        openrouter_id="qwen/qwen3.5-flash",
-#        display_name="Qwen: Qwen3.5-Flash",
-#        context_window_tokens=1_000_000,
-#        input_cost_per_million=0.10,
-#        output_cost_per_million=0.40,
-#        notes="Flash VLM; fast, efficient; leap over 3 series for text and multimodal.",
-#    ),
-#    ModelConfig(
-#        openrouter_id="liquid-ai/lfm2-24b-a2b",
-#        display_name="LiquidAI: LFM2-24B-A2B",
-#        context_window_tokens=33_000,
-#        input_cost_per_million=0.03,
-#        output_cost_per_million=0.12,
-#        notes="24B MoE, 2B active; on-device; 32 GB RAM; high quality, low cost.",
-#    ),
+    ModelConfig(
+        openrouter_id="qwen/qwen3.5-9b",
+        display_name="Qwen: Qwen3.5-9B",
+        context_window_tokens=262_000,
+        input_cost_per_million=0.10,
+        output_cost_per_million=0.15,
+        notes=(
+            "Released Mar 10, 2026; 9B-parameter multimodal foundation model "
+            "from the Qwen3.5 family; strong reasoning, coding, and visual "
+            "understanding via early fusion of multimodal tokens."
+        ),
+    ),
     ModelConfig(
         openrouter_id="allenai/olmo-3.1-32b-instruct",
         display_name="AllenAI: Olmo 3.1 32B Instruct",
@@ -211,6 +178,18 @@ MODELS: list[ModelConfig] = [
         input_cost_per_million=0.27,
         output_cost_per_million=1.00,
         notes="Released Dec 8, 2025; 131K context.",
+    ),
+    ModelConfig(
+        openrouter_id="inception/mercury-2",
+        display_name="Inception: Mercury 2",
+        context_window_tokens=128_000,
+        input_cost_per_million=0.25,
+        output_cost_per_million=0.75,
+        notes=(
+            "Released Mar 4, 2026; 9.15B tokens; first reasoning diffusion LLM "
+            "(dLLM); >1,000 tokens/sec; supports tunable reasoning levels, "
+            "native tool use, and schema-aligned JSON output."
+        ),
     ),
 ]
 

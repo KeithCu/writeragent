@@ -171,11 +171,11 @@ def _run_one_model(
     total_cost = _estimate_cost_usd(results, cfg)
     avg_cost_per_example = total_cost / len(results) if results else 0.0
     eps = 1e-9
-    # Intelligence per Dollar = (Correctness^2 / Cost). 
+    # Intelligence per Dollar = (Correctness^2 / AvgCost). 
     # Squaring the correctness (P=2) prioritizes quality/accuracy over raw cost, 
     # ensuring "cheap but broken" models don't dominate the leaderboard.
-    ipd_correctness = (summary["avg_correctness"]**2) / max(total_cost, eps) if total_cost > 0 else 0.0
-    ipd_metric = (summary["avg_metric_score"]**2) / max(total_cost, eps) if total_cost > 0 else 0.0
+    ipd_correctness = (summary["avg_correctness"]**2) / max(avg_cost_per_example, eps) if avg_cost_per_example > 0 else 0.0
+    ipd_metric = (summary["avg_metric_score"]**2) / max(avg_cost_per_example, eps) if avg_cost_per_example > 0 else 0.0
     details = []
     for r in results:
         details.append({
@@ -481,15 +481,15 @@ def main() -> int:
     print("=" * 60)
     print(
         f"{'Rank':<4}  {'Model':<32}  {'AvgCorr':>7}  {'AvgScore':>8}  "
-        f"{'Tokens':>10}  {'Cost($)':>10}  {'Value(C²/$)':>11}"
+        f"{'AvgToks':>10}  {'AvgCost($)':>11}  {'Value(C²/$)':>11}"
     )
     for idx, m in enumerate(model_summaries, start=1):
         print(
             f"{idx:<4}  {m['openrouter_id']:<32}  "
             f"{m['avg_correctness']:>7.3f}  "
             f"{m['avg_metric_score']:>8.3f}  "
-            f"{m['total_tokens']:>10}  "
-            f"{m['total_cost_usd']:>10.4f}  "
+            f"{m['total_tokens']/len(examples):>10.1f}  "
+            f"{m['avg_cost_per_example']:>11.5f}  "
             f"{m['intelligence_per_dollar_correctness']:>11.3f}"
         )
 
