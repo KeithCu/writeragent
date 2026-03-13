@@ -33,7 +33,7 @@ FORMATTING RULES (CRITICAL):
 - Formatting elements: Use <br> for single line breaks within an element, <p> tags for paragraphs. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - Special characters: Send raw characters (é, ü, ©, "smart quotes"), NOT HTML entities (&eacute;, &uuml;, &copy;, &ldquo;). When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - Quotation marks: Use straight quotes ("), NOT curly/smart quotes (" or &ldquo;/&rdquo;). When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
-- Whitespace: Preserve intentional spacing; we handle normalization
+- Whitespace: Preserve intentional spacing; we handle normalization. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - DO NOT escape HTML entities: Send <h1> NOT &lt;h1&gt;
 
 EXAMPLES:
