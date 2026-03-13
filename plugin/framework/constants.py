@@ -37,7 +37,7 @@ FORMATTING RULES (CRITICAL):
 - DO NOT escape HTML entities: Send <h1> NOT &lt;h1&gt;.
 
 EXAMPLES:
-- Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
+- Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"] When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
 - Bad: ["# Title", "Paragraph"] (No Markdown)
