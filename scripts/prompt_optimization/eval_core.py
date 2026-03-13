@@ -252,6 +252,9 @@ def run_eval_on_examples(
                 # Judge correctness
                 j_score = None
                 j_reasoning = None
+                j_accuracy = None
+                j_formatting = None
+                j_naturalness = None
                 
                 # Use judge if configured and the task is non-trivial OR has gold standard/rubric
                 is_non_trivial_task = getattr(ex, "is_non_trivial", False)
