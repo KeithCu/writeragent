@@ -80,7 +80,7 @@ TOOLS:
 - apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use this tool to insert content into LibreOffice so the user can edit it further.
   HINT: {_FORMAT_HINT}
 - get_document_content: Read document (full/selection/range) as HTML.
-- find_text: Find text locations for apply_document_content.
+- find_text: Find text locations for apply_document_content. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - list_styles / get_style_info: Discover paragraph/character styles before applying them.
 - list_comments / add_comment / delete_comment: Read and manage inline comments.
 - set_track_changes / get_tracked_changes / accept_all_changes / reject_all_changes: Track and manage changes.
