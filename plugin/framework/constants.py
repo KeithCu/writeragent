@@ -88,6 +88,8 @@ TOOLS:
 
 {TRANSLATION_RULES}
 
+{TOOL_USAGE_PATTERNS}
+
 {FORMATTING_RULES}"""
 
 # Calc spreadsheet prompt (structure inspired by libre_calc_ai prompt_templates.py:
