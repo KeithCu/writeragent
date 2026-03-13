@@ -517,6 +517,7 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 ### Chat settings in UI — DONE
 - ~~Expose `chat_context_length`, `chat_max_tokens`, `additional_instructions` in the Settings dialog~~ (implemented in SettingsDialog.xdl).
+  - *Fix:* Added missing fields into `_get_settings_field_specs()` in `settings_dialog.py` so that they are explicitly saved and applied.
 
 ### Writer Tools Expansion — DONE
 - ~~**Writer tool set expansion**~~: Added 12 new Writer tools in `plugin/modules/writer/ops.py` and wired into `plugin/modules/writer/tools.py`. Removed 7 legacy unused functions. New tools: `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`, `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`, `list_tables`, `read_table`, `write_table_cells`. System prompt updated to mention them.
