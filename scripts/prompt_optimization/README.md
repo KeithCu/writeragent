@@ -72,7 +72,7 @@ LocalWriter uses a sophisticated **LLM-as-a-Judge** scoring system (defaulting t
 
 ## Tool subset
 
-Mock tools in `tools_mock.py` implement `get_document_content`, `apply_document_content`, and `find_text` on an in-memory string. You can pass `tool_names` to `build_program()` to restrict which tools the model sees (for “how many tools is too many” sweeps).
+Mock tools in `tools_lo.py` implement `get_document_content`, `apply_document_content`, and `find_text` on an in-memory string. You can pass `tool_names` to `build_program()` to restrict which tools the model sees (for “how many tools is too many” sweeps).
 
 ## Applying the result
 

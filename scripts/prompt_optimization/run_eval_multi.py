@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -30,7 +30,7 @@ from dataset import ALL_EXAMPLES, to_dspy_examples
 from eval_core import ExampleEval, run_eval_on_examples, summarize_results
 from model_configs import MODEL_BY_ID, ModelConfig, get_default_models
 from program import build_program
-import tools_mock
+import tools_lo as _tools_lo
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
@@ -131,13 +131,12 @@ def _run_one_model(
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
     import dspy
-    import tools_mock as _tools_mock
     from dataset import ALL_EXAMPLES, to_dspy_examples
     from eval_core import run_eval_on_examples, summarize_results
     from model_configs import MODEL_BY_ID
     from program import build_program
 
-    _tools_mock.VERBOSE = verbose
+    _tools_lo.VERBOSE = verbose
     examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
     if example_arg:
         examples = [ex for ex in examples if getattr(ex, "task_id", "") == example_arg]
@@ -337,7 +336,7 @@ def main() -> int:
     if args.n is not None:
         examples = examples[: args.n]
 
-    tools_mock.VERBOSE = args.verbose
+    _tools_lo.VERBOSE = args.verbose
 
     # One-time gold generation logic
     if args.generate_golds:
@@ -370,52 +369,22 @@ def main() -> int:
     )
     sys.stdout.flush()
 
-    model_summaries: list[dict[str, Any]] = []
-    if jobs <= 1:
-        # Sequential: verbose per-model and per-example output
-        for model_id in model_ids:
-            cfg = MODEL_BY_ID[model_id]
-            model = model_id
-            print("=" * 60)
-            print(f"Model: {cfg.display_name} ({cfg.openrouter_id})")
-            print(f"  Context window: {cfg.context_window_tokens or 'unknown'} tokens")
-            print(f"  Pricing: ${cfg.input_cost_per_million}/M input, "
-                  f"${cfg.output_cost_per_million}/M output")
-            print(f"  Using model id: {model} @ {api_base}\n")
-            
-            res = _run_one_model(
-                model_id,
-                api_base,
-                api_key,
-                args.example,
-                args.n,
-                args.verbose,
-                args.debug_usage,
-                not args.no_bust_cache,
-                args.judge,
-                args.gold_model,
-            )
-            model_summaries.append(res["summary"])
-            
-            # Add model_id to each detail for tracking
-            for d in res["details"]:
-                d["model_id"] = model_id
-            all_details.extend(res["details"])
-            
-            out_path = _out_path(args)
-            if out_path:
-                _write_results(out_path, model_summaries)
-                _write_details(out_path, all_details)
+    _tools_lo.LOBackend.start()
+    try:
+        model_summaries: list[dict[str, Any]] = []
+        if jobs <= 1:
+            # Sequential: verbose per-model and per-example output
+            for model_id in model_ids:
+                cfg = MODEL_BY_ID[model_id]
+                model = model_id
+                print("=" * 60)
+                print(f"Model: {cfg.display_name} ({cfg.openrouter_id})")
+                print(f"  Context window: {cfg.context_window_tokens or 'unknown'} tokens")
+                print(f"  Pricing: ${cfg.input_cost_per_million}/M input, "
+                      f"${cfg.output_cost_per_million}/M output")
+                print(f"  Using model id: {model} @ {api_base}\n")
                 
-            m = res["summary"]
-            print(f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  cost=${m['total_cost_usd']:.4f}  ({len(model_summaries)}/{len(model_ids)} models)")
-    else:
-        # Parallel: worker processes, progress prints interleaved; save after each model
-        out_path = _out_path(args)
-        with ProcessPoolExecutor(max_workers=jobs) as pool:
-            futures = {
-                pool.submit(
-                    _run_one_model,
+                res = _run_one_model(
                     model_id,
                     api_base,
                     api_key,
@@ -426,45 +395,79 @@ def main() -> int:
                     not args.no_bust_cache,
                     args.judge,
                     args.gold_model,
-                ): model_id
-                for model_id in model_ids
-            }
-            for future in as_completed(futures):
-                model_id = futures[future]
-                try:
-                    res = future.result()
-                    model_summaries.append(res["summary"])
+                )
+                model_summaries.append(res["summary"])
+                
+                # Add model_id to each detail for tracking
+                for d in res["details"]:
+                    d["model_id"] = model_id
+                all_details.extend(res["details"])
+                
+                out_path = _out_path(args)
+                if out_path:
+                    _write_results(out_path, model_summaries)
+                    _write_details(out_path, all_details)
                     
-                    # Add model_id to each detail for tracking
-                    for d in res["details"]:
-                        d["model_id"] = model_id
-                    all_details.extend(res["details"])
-                    
-                    if out_path:
-                        _write_results(out_path, model_summaries)
-                        _write_details(out_path, all_details)
-                    
-                    m = res["summary"]
-                    print(f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  cost=${m['total_cost_usd']:.4f}  ({len(model_summaries)}/{len(model_ids)} models)")
-                except Exception as e:
-                    print(f"Model {model_id} failed: {e}", file=sys.stderr)
-                    cfg = MODEL_BY_ID[model_id]
-                    model_summaries.append({
-                        "openrouter_id": cfg.openrouter_id,
-                        "display_name": cfg.display_name,
-                        "context_window_tokens": cfg.context_window_tokens,
-                        "input_cost_per_million": cfg.input_cost_per_million,
-                        "output_cost_per_million": cfg.output_cost_per_million,
-                        "avg_correctness": 0.0,
-                        "avg_metric_score": 0.0,
-                        "total_tokens": 0,
-                        "total_cost_usd": 0.0,
-                        "avg_cost_per_example": 0.0,
-                        "intelligence_per_dollar_correctness": 0.0,
-                        "intelligence_per_dollar_metric": 0.0,
-                    })
-                    if out_path:
-                        _write_results(out_path, model_summaries)
+                m = res["summary"]
+                print(f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  cost=${m['total_cost_usd']:.4f}  ({len(model_summaries)}/{len(model_ids)} models)")
+        else:
+            # Parallel: worker processes, progress prints interleaved; save after each model
+            out_path = _out_path(args)
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                futures = {
+                    pool.submit(
+                        _run_one_model,
+                        model_id,
+                        api_base,
+                        api_key,
+                        args.example,
+                        args.n,
+                        args.verbose,
+                        args.debug_usage,
+                        not args.no_bust_cache,
+                        args.judge,
+                        args.gold_model,
+                    ): model_id
+                    for model_id in model_ids
+                }
+                for future in as_completed(futures):
+                    model_id = futures[future]
+                    try:
+                        res = future.result()
+                        model_summaries.append(res["summary"])
+                        
+                        # Add model_id to each detail for tracking
+                        for d in res["details"]:
+                            d["model_id"] = model_id
+                        all_details.extend(res["details"])
+                        
+                        if out_path:
+                            _write_results(out_path, model_summaries)
+                            _write_details(out_path, all_details)
+                        
+                        m = res["summary"]
+                        print(f"Done: {m['openrouter_id']}  avg_correctness={m['avg_correctness']:.3f}  cost=${m['total_cost_usd']:.4f}  ({len(model_summaries)}/{len(model_ids)} models)")
+                    except Exception as e:
+                        print(f"Model {model_id} failed: {e}", file=sys.stderr)
+                        cfg = MODEL_BY_ID[model_id]
+                        model_summaries.append({
+                            "openrouter_id": cfg.openrouter_id,
+                            "display_name": cfg.display_name,
+                            "context_window_tokens": cfg.context_window_tokens,
+                            "input_cost_per_million": cfg.input_cost_per_million,
+                            "output_cost_per_million": cfg.output_cost_per_million,
+                            "avg_correctness": 0.0,
+                            "avg_metric_score": 0.0,
+                            "total_tokens": 0,
+                            "total_cost_usd": 0.0,
+                            "avg_cost_per_example": 0.0,
+                            "intelligence_per_dollar_correctness": 0.0,
+                            "intelligence_per_dollar_metric": 0.0,
+                        })
+                        if out_path:
+                            _write_results(out_path, model_summaries)
+    finally:
+        _tools_lo.LOBackend.stop()
 
     # Print sorted summary
     if not model_summaries:

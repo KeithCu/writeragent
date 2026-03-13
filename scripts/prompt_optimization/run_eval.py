@@ -35,7 +35,7 @@ from dataset import ALL_EXAMPLES, to_dspy_examples
 from program import build_program
 from metric import TOKEN_PENALTY_LAMBDA
 from eval_core import ExampleEval, run_eval_on_examples, summarize_results
-import tools_mock
+import tools_lo
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
@@ -86,85 +86,89 @@ def main():
     if args.n is not None:
         examples = examples[: args.n]
 
-    tools_mock.VERBOSE = args.verbose
+    tools_lo.VERBOSE = args.verbose
     n = len(examples)
     print(f"Running {n} example(s). Each can take 15–60+ seconds (multiple API calls). Total often 2–10 min.\n")
     sys.stdout.flush()
 
-    if args.compare_with:
-        # Compare mode: run both prompts and report
-        compare_path = Path(args.compare_with)
-        if not compare_path.is_absolute():
-            compare_path = SCRIPT_DIR / compare_path
-        if not compare_path.exists():
-            print(f"Error: --compare-with file not found: {compare_path}", file=sys.stderr)
-            return 1
-        try:
-            alt_instruction = _load_prompt_from_json(compare_path)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
+    tools_lo.LOBackend.start()
+    try:
+        if args.compare_with:
+            # Compare mode: run both prompts and report
+            compare_path = Path(args.compare_with)
+            if not compare_path.is_absolute():
+                compare_path = SCRIPT_DIR / compare_path
+            if not compare_path.exists():
+                print(f"Error: --compare-with file not found: {compare_path}", file=sys.stderr)
+                return 1
+            try:
+                alt_instruction = _load_prompt_from_json(compare_path)
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
 
-        print("=" * 60)
-        print("PROMPT A: Current (from core/constants.py)")
-        print("=" * 60)
-        program_a = build_program(instruction=None, tool_names=None)
-        results_a = run_eval_on_examples(
-            program_a,
+            print("=" * 60)
+            print("PROMPT A: Current (from core/constants.py)")
+            print("=" * 60)
+            program_a = build_program(instruction=None, tool_names=None)
+            results_a = run_eval_on_examples(
+                program_a,
+                examples,
+                verbose=args.verbose,
+                debug_usage=args.debug_usage,
+                bust_cache=not args.no_bust_cache,
+            )
+            summary_a = summarize_results(results_a)
+
+            print("=" * 60)
+            print(f"PROMPT B: From {compare_path.name}")
+            print("=" * 60)
+            program_b = build_program(instruction=alt_instruction, tool_names=None)
+            results_b = run_eval_on_examples(
+                program_b,
+                examples,
+                verbose=args.verbose,
+                debug_usage=args.debug_usage,
+                bust_cache=not args.no_bust_cache,
+            )
+            summary_b = summarize_results(results_b)
+
+            avg_a = summary_a["avg_metric_score"]
+            total_tokens_a = summary_a["total_tokens"]
+            avg_b = summary_b["avg_metric_score"]
+            total_tokens_b = summary_b["total_tokens"]
+
+            print("=" * 60)
+            print("COMPARISON")
+            print("=" * 60)
+            print(f"  Current (git):  avg score = {avg_a:.3f}  total tokens = {total_tokens_a}")
+            print(f"  Optimized:      avg score = {avg_b:.3f}  total tokens = {total_tokens_b}")
+            diff = avg_b - avg_a
+            if diff > 0:
+                print(f"  -> Optimized is {diff:.3f} better (higher score)")
+            elif diff < 0:
+                print(f"  -> Current is {-diff:.3f} better (higher score)")
+            else:
+                print("  -> Tie")
+            return 0
+
+        program = build_program(instruction=None, tool_names=None)
+        results = run_eval_on_examples(
+            program,
             examples,
             verbose=args.verbose,
             debug_usage=args.debug_usage,
             bust_cache=not args.no_bust_cache,
         )
-        summary_a = summarize_results(results_a)
-
-        print("=" * 60)
-        print(f"PROMPT B: From {compare_path.name}")
-        print("=" * 60)
-        program_b = build_program(instruction=alt_instruction, tool_names=None)
-        results_b = run_eval_on_examples(
-            program_b,
-            examples,
-            verbose=args.verbose,
-            debug_usage=args.debug_usage,
-            bust_cache=not args.no_bust_cache,
-        )
-        summary_b = summarize_results(results_b)
-
-        avg_a = summary_a["avg_metric_score"]
-        total_tokens_a = summary_a["total_tokens"]
-        avg_b = summary_b["avg_metric_score"]
-        total_tokens_b = summary_b["total_tokens"]
-
-        print("=" * 60)
-        print("COMPARISON")
-        print("=" * 60)
-        print(f"  Current (git):  avg score = {avg_a:.3f}  total tokens = {total_tokens_a}")
-        print(f"  Optimized:      avg score = {avg_b:.3f}  total tokens = {total_tokens_b}")
-        diff = avg_b - avg_a
-        if diff > 0:
-            print(f"  -> Optimized is {diff:.3f} better (higher score)")
-        elif diff < 0:
-            print(f"  -> Current is {-diff:.3f} better (higher score)")
-        else:
-            print("  -> Tie")
+        summary = summarize_results(results)
+        if results:
+            print(
+                f"Average score: {summary['avg_metric_score']:.3f} "
+                f"({len(results)} examples)"
+            )
         return 0
-
-    program = build_program(instruction=None, tool_names=None)
-    results = run_eval_on_examples(
-        program,
-        examples,
-        verbose=args.verbose,
-        debug_usage=args.debug_usage,
-        bust_cache=not args.no_bust_cache,
-    )
-    summary = summarize_results(results)
-    if results:
-        print(
-            f"Average score: {summary['avg_metric_score']:.3f} "
-            f"({len(results)} examples)"
-        )
-    return 0
+    finally:
+        tools_lo.LOBackend.stop()
 
 
 if __name__ == "__main__":
