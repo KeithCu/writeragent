@@ -83,8 +83,8 @@ writeragent/
 
 ### After
 - Both dialogs use **XDL files** (XML) loaded via `DialogProvider`
-- `WriterAgentDialogs.SettingsDialog` — multi-page dialog (**General**, **Image Settings**, and auto-generated tabs such as **Http**, **Chatbot**) using the `dlg:page` multi-page approach with tab-switching buttons. **Page 1 (General)** uses a compact layout: endpoint, models, API key, Temperature, Max Tokens, Context Len, Additional Instructions. The **Image Settings** tab has shared options (base size, aspect, gallery, translate), **Seed** for reproducibility, and an **AI Horde** section (toggled by "Use AI Horde for Image Generation"). **MCP Server** (Enable checkbox, Port) is on the **Http** tab. **Show Web Search Thinking** is on the **Chatbot** tab (from `plugin/modules/chatbot/module.yaml`; config key `chatbot.show_search_thinking`). The **Writer** tab is omitted (Writer module has no config). The **Tunnel** tab is disabled in the Settings UI (skipped in `scripts/manifest_registry.py` and `plugin/framework/legacy_ui.py`); re-enable by removing those skips.
-- `WriterAgentDialogs.EditInputDialog` — label + text field + OK
+ - `WriterAgentDialogs.SettingsDialog` — multi-page dialog (**General**, **Image Settings**, and auto-generated tabs such as **Http**, **Chatbot**) using the `dlg:page` multi-page approach with tab-switching buttons. **Page 1 (General)** uses a compact layout: endpoint, models, API key, Temperature, Max Tokens, Context Len, Additional Instructions. The **Image Settings** tab has shared options (base size, aspect, gallery, translate), **Seed** for reproducibility, and an **AI Horde** section (toggled by "Use AI Horde for Image Generation"). **MCP Server** (Enable checkbox, Port) is on the **Http** tab. **Show Web Search Thinking** is on the **Chatbot** tab (from `plugin/modules/chatbot/module.yaml`; config key `chatbot.show_search_thinking`). The **Writer** tab is omitted (Writer module has no config). The **Tunnel** tab is disabled in the Settings UI (skipped in `scripts/manifest_registry.py` and `plugin/framework/legacy_ui.py`); re-enable by removing those skips.
+ - `WriterAgentDialogs.EditInputDialog` — label + multiline text area + OK
 
 ### Key implementation details
 - **DialogProvider with direct package URL**: Dialogs are loaded by their XDL file URL, not the Basic library script URL. This avoids a deadlock that occurs when the sidebar panel is also registered as a UNO component.
@@ -461,16 +461,13 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 - ~~Refactor duplicate logic~~ (see Section 3c Shared Helpers)
 
 ### Dialog-related
-- **Config presets**: Add "Load from file" or preset dropdown in Settings so users can switch config files.
-- **EditInputDialog**: Consider multiline for long instructions; current layout is single-line.
+- ~~**Config presets**: Add "Load from file" or preset dropdown in Settings so users can switch config files.~~ (decided against; single-config-file setup is intentionally simple)
+- ~~**EditInputDialog**: Consider multiline for long instructions; current layout is single-line.~~ (implemented: Edit Selection dialog now uses a multiline text area for long, multi-sentence instructions)
 
 ### Image generation / Settings dialog
 - ~~**Reorganize Settings Image tab**~~: Done. The tab is titled **Image Settings** and split into a shared section (width, height, auto gallery, insert frame, translate prompt) and an **AI Horde only** section (API key, CFG scale, steps, max wait, NSFW) with a visual separator so users can ignore Horde-specific options when using the same endpoint as chat.
 
 ### Format-preserving replacement
-- **Proportional format mapping**: For large length differences, distribute the original formatting pattern proportionally across the new text instead of simple 1:1 character mapping.
-- **Paragraph-style preservation**: Handle cases where replacement spans paragraph breaks.
-- **Edit Selection streaming**: Apply format-preserving logic to the Edit Selection streaming path for character-level formatting retention during live edits.
 
 ### General
 - API key and auth for the configured endpoint are already implemented; optional: endpoint preset dropdown in Settings.
