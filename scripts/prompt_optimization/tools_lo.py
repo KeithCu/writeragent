@@ -1,5 +1,7 @@
 import os
 import sys
+import random
+import subprocess
 import threading
 import queue
 import time
@@ -10,7 +12,52 @@ _lo_queue = queue.Queue()
 _lo_thread = None
 _lo_ctx = None
 _lo_desktop = None
-_lo_docs = {}  
+_lo_docs = {}
+_lo_proc = None  # headless soffice process, for cleanup
+
+
+def _bootstrap_headless():
+    """Start LibreOffice in headless mode and return the component context."""
+    global _lo_proc
+    # Resolve soffice executable (same logic as officehelper)
+    base = os.environ.get("UNO_PATH", "")
+    soffice = os.path.join(base, "soffice")
+    if sys.platform.startswith("win"):
+        soffice += ".exe"
+    if not os.path.isabs(soffice) and not soffice.startswith(os.sep):
+        # Rely on PATH if UNO_PATH not set
+        import shutil
+        soffice = shutil.which("soffice") or shutil.which("soffice.exe") or soffice
+    random.seed()
+    pipe_name = "uno" + str(random.random())[2:]
+    accept = f"--accept=pipe,name={pipe_name};urp;"
+    proc = subprocess.Popen(
+        [soffice, "--headless", "--nologo", "--nodefault", accept],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _lo_proc = proc
+    try:
+        import uno
+        from com.sun.star.connection import NoConnectException
+        local_ctx = uno.getComponentContext()
+        resolver = local_ctx.ServiceManager.createInstanceWithContext(
+            "com.sun.star.bridge.UnoUrlResolver", local_ctx
+        )
+        url = f"uno:pipe,name={pipe_name};urp;StarOffice.ComponentContext"
+        for _ in range(20):
+            try:
+                return resolver.resolve(url)
+            except NoConnectException:
+                time.sleep(0.5)
+        raise RuntimeError("Cannot connect to soffice server (headless).")
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        raise
+
 
 class LOBackend:
     @classmethod
@@ -35,11 +82,11 @@ class LOBackend:
                 sys.path.append(p)
 
         try:
-            import officehelper
+            import officehelper  # noqa: F401 - ensure UNO env is available
         except ImportError:
             raise ImportError("Could not find officehelper. Are you sure LibreOffice is installed? You may need to run your venv with --system-site-packages or install python3-uno.")
 
-        _lo_ctx = officehelper.bootstrap()
+        _lo_ctx = _bootstrap_headless()
         smgr = _lo_ctx.getServiceManager()
         _lo_desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", _lo_ctx)
         
@@ -62,6 +109,8 @@ class LOBackend:
         
     @classmethod
     def call(cls, func, *args, **kwargs):
+        if _lo_thread is not None and threading.get_ident() == _lo_thread.ident:
+            return func(*args, **kwargs)
         evt = threading.Event()
         result_box = []
         def _task():
@@ -87,16 +136,24 @@ class LOBackend:
             
     @classmethod
     def _cleanup(cls):
+        global _lo_proc
         for doc in list(_lo_docs.values()):
             try:
                 doc.close(True)
-            except:
+            except Exception:
                 pass
         _lo_docs.clear()
         try:
             _lo_desktop.terminate()
-        except:
+        except Exception:
             pass
+        if _lo_proc is not None:
+            try:
+                _lo_proc.terminate()
+                _lo_proc.wait(timeout=5)
+            except Exception:
+                pass
+            _lo_proc = None
 
     @classmethod
     def acquire_document(cls):

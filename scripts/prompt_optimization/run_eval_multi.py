@@ -154,18 +154,19 @@ def _run_one_model(
     if gold_model_id:
         gold_lm = _get_lm(gold_model_id, api_key, api_base)
 
-    dspy.configure(lm=lm)
-    program = build_program(instruction=None, tool_names=None)
-    results = run_eval_on_examples(
-        program,
-        examples,
-        verbose=verbose,
-        debug_usage=debug_usage,
-        bust_cache=bust_cache,
-        quiet=False,
-        judge_lm=judge_lm,
-        gold_lm=gold_lm,
-    )
+    # Use context instead of configure() so worker threads don't touch global dspy.settings
+    with dspy.settings.context(lm=lm, cache=False, track_usage=True):
+        program = build_program(instruction=None, tool_names=None)
+        results = run_eval_on_examples(
+            program,
+            examples,
+            verbose=verbose,
+            debug_usage=debug_usage,
+            bust_cache=bust_cache,
+            quiet=False,
+            judge_lm=judge_lm,
+            gold_lm=gold_lm,
+        )
     summary = summarize_results(results)
     total_cost = _estimate_cost_usd(results, cfg)
     avg_cost_per_example = total_cost / len(results) if results else 0.0
