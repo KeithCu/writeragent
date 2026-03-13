@@ -30,7 +30,7 @@ _FORMAT_HINT = "Send HTML as a list of strings (one element per heading/paragrap
 HTML_FORMATTING_RULES = """
 FORMATTING RULES (CRITICAL):
 - When calling apply_document_content, always supply the `content` as a list of HTML strings (one element per heading/paragraph) and include the required `target` field.
-- Formatting elements: Use <br> for single line breaks within an element, <p> tags for paragraphs
+- Formatting elements: Use <br> for single line breaks within an element, <p> tags for paragraphs. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - Special characters: Send raw characters (é, ü, ©, "smart quotes"), NOT HTML entities (&eacute;, &uuml;, &copy;, &ldquo;)
 - Quotation marks: Use straight quotes ("), NOT curly/smart quotes (" or &ldquo;/&rdquo;)
 - Whitespace: Preserve intentional spacing; we handle normalization
