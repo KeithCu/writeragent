@@ -34,7 +34,7 @@ FORMATTING RULES (CRITICAL):
 - Special characters: Send raw characters (é, ü, ©, "smart quotes"), NOT HTML entities (&eacute;, &uuml;, &copy;, &ldquo;). When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - Quotation marks: Use straight quotes ("), NOT curly/smart quotes (" or &ldquo;/&rdquo;). When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 - Whitespace: Preserve intentional spacing; we handle normalization. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
-- DO NOT escape HTML entities: Send <h1> NOT &lt;h1&gt;
+- DO NOT escape HTML entities: Send <h1> NOT &lt;h1&gt;. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
