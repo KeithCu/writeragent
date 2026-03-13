@@ -194,10 +194,8 @@ We are moving towards a native "AI co-pilot" experience:
 ## Setup
 
 ### 1. Installation
-1.  Download the latest `.oxt` file from the [releases page](https://github.com/balisujohn/writeragent/releases).
-2.  In LibreOffice, go to `Tools > Extension Manager`.
-3.  Click `Add` and select the downloaded file.
-4.  Restart LibreOffice.
+1. Download the latest `.oxt` file from the [releases page](https://github.com/KeithCu/writeragent/releases).
+2. Double-click the downloaded `.oxt` file to install it in LibreOffice, then restart LibreOffice if prompted.
 
 ### 2. Backend Setup
 WriterAgent requires an OpenAI-compatible backend. Recommended options:
