@@ -494,15 +494,10 @@ class ToolCallingMixin:
 
                 try:
                     func_args = json.loads(func_args_str)
-                except (json.JSONDecodeError, TypeError):
-                    try:
-                        import ast
-
-                        func_args = ast.literal_eval(func_args_str)
-                        if not isinstance(func_args, dict):
-                            func_args = {}
-                    except Exception:
+                    if not isinstance(func_args, dict):
                         func_args = {}
+                except (json.JSONDecodeError, TypeError):
+                    func_args = {}
 
                 agent_log(
                     "chat_panel.py:tool_execute",
