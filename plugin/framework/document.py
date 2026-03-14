@@ -657,3 +657,34 @@ class DocumentService(ServiceBase):
             return count
         except Exception:
             return 0
+
+    def doc_key(self, doc):
+        """Return a stable key for the document for use in caches."""
+        return id(doc)
+
+    def get_paragraph_ranges(self, doc):
+        """Return list of top-level paragraph elements. Uses DocumentCache."""
+        return get_paragraph_ranges(doc)
+
+    def find_paragraph_for_range(self, anchor, para_ranges, text_obj=None):
+        """Return the 0-based paragraph index that contains anchor."""
+        return find_paragraph_for_range(anchor, para_ranges, text_obj)
+
+    def resolve_locator(self, doc, locator):
+        """Resolve a locator string to a paragraph index or other document position."""
+        return resolve_locator(doc, locator)
+
+    def yield_to_gui(self):
+        """Yield to the UI event loop (no-op here)."""
+        pass
+
+    def annotate_pages(self, children, doc):
+        """Annotate tree children with page numbers (no-op here)."""
+        pass
+
+    def find_paragraph_element(self, doc, para_index):
+        """Return (paragraph_element, None) for the given index, or (None, None) if out of range."""
+        ranges = get_paragraph_ranges(doc)
+        if 0 <= para_index < len(ranges):
+            return (ranges[para_index], None)
+        return (None, None)
