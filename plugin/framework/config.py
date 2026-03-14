@@ -61,7 +61,6 @@ AI_SIMPLE_FIELDS = {
     "text_model",
     "image_model",
     "stt_model",
-    "api_key",
     "temperature",
     "chat_max_tokens",
     "chat_context_length",
@@ -155,7 +154,6 @@ _CONFIG_DEFAULTS = {
     "request_timeout": 120,
     "chat_max_tool_rounds": 5,
     "stt_model": "",
-    "api_key": "",
     "api_keys_by_endpoint": {},
     "aihorde_api_key": "",
     "image_base_size": 512,
@@ -215,9 +213,6 @@ def get_config(ctx, key):
         config_data = {}
     if key in config_data:
         return config_data[key]
-    # Legacy: show_search_thinking moved to chatbot.show_search_thinking
-    if key == "chatbot.show_search_thinking" and "show_search_thinking" in config_data:
-        return config_data["show_search_thinking"]
     for dotted in _dotted_fallback_keys(key):
         if dotted in config_data:
             return config_data[dotted]
@@ -273,7 +268,7 @@ def set_config(ctx, key, value):
 
 
 def remove_config(ctx, key):
-    """Remove a config key. Used e.g. to delete legacy api_key after migration."""
+    """Remove a config key."""
     config_file_path = _config_path(ctx)
     if not config_file_path or not os.path.exists(config_file_path):
         return
@@ -653,31 +648,13 @@ def get_image_model_options(services):
     return options
 
 
-def _migrate_api_key_to_map_if_needed(ctx):
-    """One-time upgrade: move legacy api_key into api_keys_by_endpoint under current endpoint, then delete api_key."""
-    data = get_config(ctx, "api_keys_by_endpoint")
-    if isinstance(data, dict) and data:
-        return
-    legacy_key = str(get_config(ctx, "api_key") or "").strip()
-    current_endpoint = get_current_endpoint(ctx)
-    if not legacy_key or not current_endpoint:
-        return
-    if not isinstance(data, dict):
-        data = {}
-    normalized = _normalize_endpoint_url(current_endpoint)
-    data[normalized] = legacy_key
-    set_config(ctx, "api_keys_by_endpoint", data)
-    remove_config(ctx, "api_key")
-
-
 def get_api_key_for_endpoint(ctx, endpoint):
-    """Return API key for the given endpoint. Runs migration first; then map lookup with legacy fallback."""
-    _migrate_api_key_to_map_if_needed(ctx)
+    """Return API key for the given endpoint."""
     data = get_config(ctx, "api_keys_by_endpoint")
     if not isinstance(data, dict):
         data = {}
     normalized = _normalize_endpoint_url(endpoint or "")
-    return data.get(normalized) or str(get_config(ctx, "api_key") or "")
+    return data.get(normalized) or ""
 
 
 def set_api_key_for_endpoint(ctx, endpoint, key):
@@ -787,20 +764,24 @@ class ConfigService(ServiceBase):
         # legacy Settings dialog stay in sync.
         if key.startswith("ai."):
             field = key.split(".", 1)[1]
+
+            # Internal mappings for missing AI_SIMPLE_FIELDS mapping if needed
+            if field == "api_key":
+                ctx = get_ctx()
+                endpoint = get_current_endpoint(ctx)
+                return str(get_api_key_for_endpoint(ctx, endpoint) or "")
+            elif field == "horde_model":
+                return get_config(get_ctx(), "image_model")
+
             if field in AI_SIMPLE_FIELDS:
                 ctx = get_ctx()
                 if field == "endpoint":
                     return str(get_config(ctx, "endpoint") or "").strip()
-                if field == "api_key":
-                    endpoint = get_current_endpoint(ctx)
-                    return str(get_api_key_for_endpoint(ctx, endpoint) or "")
                 
                 # Internal mappings
                 config_key = field
                 if field == "aihorde_api_key":
                     config_key = "aihorde_api_key"
-                elif field == "horde_model":
-                    config_key = "image_model"
                 elif field == "max_wait":
                     config_key = "image_max_wait"
                 elif field == "nsfw":
@@ -809,10 +790,6 @@ class ConfigService(ServiceBase):
                     config_key = "image_censor_nsfw"
 
                 return get_config(ctx, config_key)
-            
-            # Explicitly return None for removed multi-instance keys
-            if field in ("openai_instances", "ollama_instances", "horde_instances"):
-                return "[]"
 
         # Test fallback
         if self._config_path and os.path.exists(self._config_path):
@@ -842,22 +819,34 @@ class ConfigService(ServiceBase):
         if key.startswith("ai."):
             field = key.split(".", 1)[1]
             
-            # Legacy/Multi-instance cleanup (silently ignore)
-            if field in ("openai_instances", "ollama_instances", "horde_instances"):
+            # Internal mappings for keys missing from AI_SIMPLE_FIELDS if they map to methods
+            if field == "api_key":
+                ctx = get_ctx()
+                endpoint = get_current_endpoint(ctx)
+                set_api_key_for_endpoint(ctx, endpoint, value or "")
+                if self._events and value != old_value:
+                    self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+                return
+            elif field == "horde_model":
+                set_image_model(get_ctx(), value or "", update_lru=True)
+                if self._events and value != old_value:
+                    self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+                return
+            elif field == "horde_api_key":
+                set_config(get_ctx(), "aihorde_api_key", value)
+                if self._events and value != old_value:
+                    self._events.emit("config:changed", key=key, value=value, old_value=old_value)
                 return
 
-            if field in AI_SIMPLE_FIELDS or field in ("horde_api_key", "horde_model"):
+            if field in AI_SIMPLE_FIELDS:
                 ctx = get_ctx()
                 if field == "endpoint":
                     resolved = endpoint_from_selector_text(str(value))
                     if resolved:
                         set_config(ctx, "endpoint", resolved)
-                elif field == "api_key":
-                    endpoint = get_current_endpoint(ctx)
-                    set_api_key_for_endpoint(ctx, endpoint, value or "")
-                elif field == "image_model" or field == "horde_model":
+                elif field == "image_model":
                     set_image_model(ctx, value or "", update_lru=True)
-                elif field == "aihorde_api_key" or field == "horde_api_key":
+                elif field == "aihorde_api_key":
                     set_config(ctx, "aihorde_api_key", value)
                 elif field == "max_wait":
                     set_config(ctx, "image_max_wait", int(value) if value else 5)
