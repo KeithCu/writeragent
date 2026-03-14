@@ -24,11 +24,7 @@ USER_AGENT = "WriterAgent (https://github.com/keithcu/WriterAgent)"
 # (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"
 
-<<<<<<< HEAD
 _FORMAT_HINT = "Send HTML as a list of strings (one element per heading/paragraph). DO NOT escape entities (&lt;h1&gt; is wrong). We handle wrapping in <html>/<body>."
-=======
-_FORMAT_HINT = "Send HTML as a list of strings (one element per heading/paragraph). DO NOT escape entities (&lt;h1&gt; is wrong). We handle wrapping in <html>/<body>. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing."
->>>>>>> 78276d3 (docs: update HTML format hint with visual styling guidelines)
 
 # Format-specific formatting rules
 HTML_FORMATTING_RULES = """
@@ -50,30 +46,21 @@ EXAMPLES:
 FORMATTING_RULES = HTML_FORMATTING_RULES
 
 # General directives shared across all AI interfaces
-<<<<<<< HEAD
 CORE_DIRECTIVES = """When asked to answer a question or create or explain something, assume the user wants the
 information to be inserted into the document. Use the apply_document_content tool to insert content
 into LibreOffice so the user can edit it further.
 When asked about a topic you are not familiar with, use the web_research tool first to find information."""
-=======
-CORE_DIRECTIVES = """You are a LibreOffice assistant who always makes polished, professional documents with a bit of color (when appropriate).
-When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
-When asked about a topic you are not familiar with, use the web_research tool first to find information.
-Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
-You are a LibreOffice assistant who always makes polished, professional documents with a bit of color (when appropriate)."""
->>>>>>> 67de028 (docs: append redundant persona line to CORE_DIRECTIVES)
 
-TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further."
+TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse."
 
 # Tool-usage workflow patterns learned from DSPy MIPROv2 optimization
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
-- ALWAYS include 'target' when calling apply_document_content. Use "full" for whole-document operations. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
+- ALWAYS include 'target' when calling apply_document_content. Use "full" for whole-document operations.
 - For precise text replacement, use find_text first to locate exact positions, then apply_document_content with target="range" and start/end.
-- For creative rewriting or reformatting, read the full document first with get_document_content, then apply with target="full". Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
-- When uncertain about document structure, call get_document_content before making modifications. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
-- For bullet/list formatting, target each line individually using positions found via find_text. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
-- If a tool call fails, verify your arguments (especially target: full/range/search/beginning/end/selection).
-  Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing."""
+- For creative rewriting or reformatting, read the full document first with get_document_content, then apply with target="full".
+- When uncertain about document structure, call get_document_content before making modifications.
+- For bullet/list formatting, target each line individually using positions found via find_text.
+- If a tool call fails, verify your arguments (especially target: full/range/search/beginning/end/selection)."""
 
 # Shared Calc instruction blocks
 CALC_WORKFLOW = """WORKFLOW:
@@ -91,24 +78,7 @@ DEFAULT_CHAT_SYSTEM_PROMPT = f"""{CORE_DIRECTIVES}
 TOOLS:
 - apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection.
   HINT: {_FORMAT_HINT}
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-- web_research: Search the web for information.
-- apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document.
-  HINT: {_FORMAT_HINT}
->>>>>>> a6c0eff (refactor: update apply_document_content prompt to favor doc insertion)
 - get_document_content: Read document (full/selection/range) as HTML.
-=======
-<<<<<<< HEAD
-=======
-  Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
-- get_document_content: Read document (full/selection/range) as HTML.
->>>>>>> 5077689 (docs: add professional styling hint to apply_document_content tool)
->>>>>>> 4664f6a (docs: add professional styling hint to apply_document_content tool)
-=======
->>>>>>> 67de028 (docs: append redundant persona line to CORE_DIRECTIVES)
 - find_text: Find text locations for apply_document_content.
 - list_styles / get_style_info: Discover paragraph/character styles before applying them.
 - list_comments / add_comment / delete_comment: Read and manage inline comments.
