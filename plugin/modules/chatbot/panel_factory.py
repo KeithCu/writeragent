@@ -277,7 +277,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _update_backend_indicator(self, root_window=None):
         """Set backend indicator label from config (visible when external backend enabled)."""
         try:
-            from plugin.framework.config import get_config, as_bool
+            from plugin.framework.config import get_config
             root = root_window or (getattr(self, "m_panelRootWindow", None))
             if not root or not hasattr(root, "getControl"):
                 return
