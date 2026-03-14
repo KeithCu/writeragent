@@ -599,23 +599,33 @@ class TreeService:
         if not search_lower:
             return None
 
-        # Pass 1: exact match
+        best_prefix = None
+        best_substring = None
+
         for h in headings:
-            if h["text"].lower().strip() == search_lower:
+            text_lower = h["text"].lower()
+            text_stripped = text_lower.strip()
+
+            # Exact match - highest priority, return immediately
+            if text_stripped == search_lower:
                 h["bookmark"] = bookmark_map.get(h["para_index"])
                 return h
 
-        # Pass 2: prefix match
-        for h in headings:
-            if h["text"].lower().strip().startswith(search_lower):
-                h["bookmark"] = bookmark_map.get(h["para_index"])
-                return h
+            # Prefix match - second priority
+            if best_prefix is None and text_stripped.startswith(search_lower):
+                best_prefix = h
 
-        # Pass 3: substring match
-        for h in headings:
-            if search_lower in h["text"].lower():
-                h["bookmark"] = bookmark_map.get(h["para_index"])
-                return h
+            # Substring match - third priority
+            if best_substring is None and search_lower in text_lower:
+                best_substring = h
+
+        if best_prefix:
+            best_prefix["bookmark"] = bookmark_map.get(best_prefix["para_index"])
+            return best_prefix
+
+        if best_substring:
+            best_substring["bookmark"] = bookmark_map.get(best_substring["para_index"])
+            return best_substring
 
         return None
 
