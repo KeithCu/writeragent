@@ -1463,10 +1463,17 @@ class ToolCallingAgent(MultiStepAgent):
             tool_call_result_type = type(tool_call_result)
             if tool_call_result_type in [AgentImage, AgentAudio]:
                 if tool_call_result_type == AgentImage:
-                    observation_name = "image.png"
+                    base_observation_name = "image"
+                    extension = ".png"
                 elif tool_call_result_type == AgentAudio:
-                    observation_name = "audio.mp3"
-                # TODO: tool_call_result naming could allow for different names of same type
+                    base_observation_name = "audio"
+                    extension = ".mp3"
+
+                observation_name = f"{base_observation_name}{extension}"
+                i = 1
+                while observation_name in self.state:
+                    observation_name = f"{base_observation_name}_{i}{extension}"
+                    i += 1
                 self.state[observation_name] = tool_call_result
                 observation = f"Stored '{observation_name}' in memory."
             else:
