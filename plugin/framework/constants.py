@@ -71,8 +71,7 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - ALWAYS include 'target' when calling apply_document_content. Use "full" for whole-document operations. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - For precise text replacement, use find_text first to locate exact positions, then apply_document_content with target="range" and start/end.
 - For creative rewriting or reformatting, read the full document first with get_document_content, then apply with target="full". Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
-- When uncertain about document structure, call get_document_content before making modifications.
-  Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
+- When uncertain about document structure, call get_document_content before making modifications. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - For bullet/list formatting, target each line individually using positions found via find_text.
   Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - If a tool call fails, verify your arguments (especially target: full/range/search/beginning/end/selection).
