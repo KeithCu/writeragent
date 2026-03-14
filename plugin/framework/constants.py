@@ -96,7 +96,7 @@ TOOLS:
 <<<<<<< HEAD
 =======
 - web_research: Search the web for information.
-- apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
+- apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing. When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document.
   HINT: {_FORMAT_HINT}
 >>>>>>> a6c0eff (refactor: update apply_document_content prompt to favor doc insertion)
 - get_document_content: Read document (full/selection/range) as HTML.
