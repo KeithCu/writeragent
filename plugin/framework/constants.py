@@ -63,7 +63,7 @@ Always aim for a professional look, using appropriate colors for headings or hig
 You are a LibreOffice assistant who always makes polished, professional documents with a bit of color (when appropriate)."""
 >>>>>>> 67de028 (docs: append redundant persona line to CORE_DIRECTIVES)
 
-TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse."
+TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse. Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing."
 
 # Tool-usage workflow patterns learned from DSPy MIPROv2 optimization
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
