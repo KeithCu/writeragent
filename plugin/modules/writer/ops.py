@@ -90,6 +90,35 @@ def get_selection_range(model):
 _GO_RIGHT_CHUNK = 8192
 
 
+def insert_html_at_cursor(cursor, html_content):
+    """Insert HTML content at the given cursor position.
+
+    Uses the 'HTML (StarWriter)' filter to parse and insert content.
+    """
+    try:
+        import tempfile
+        import os
+        from com.sun.star.beans import PropertyValue
+
+        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
+            tmp.write(html_content.encode("utf-8"))
+            tmp_path = tmp.name
+
+        try:
+            file_url = "file://" + tmp_path.replace("\\", "/")
+            props = (
+                PropertyValue(Name="FilterName", Value="HTML (StarWriter)"),
+            )
+            cursor.insertDocumentFromURL(file_url, props)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        return True
+    except Exception:
+        log.debug("insert_html_at_cursor: failed", exc_info=True)
+        return False
+
+
 def get_text_cursor_at_range(model, start, end):
     """Create a text cursor that selects the character range ``[start, end)``.
 
