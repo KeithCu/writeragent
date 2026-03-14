@@ -46,10 +46,18 @@ EXAMPLES:
 FORMATTING_RULES = HTML_FORMATTING_RULES
 
 # General directives shared across all AI interfaces
+<<<<<<< HEAD
 CORE_DIRECTIVES = """When asked to answer a question or create or explain something, assume the user wants the
 information to be inserted into the document. Use the apply_document_content tool to insert content
 into LibreOffice so the user can edit it further.
 When asked about a topic you are not familiar with, use the web_research tool first to find information."""
+=======
+CORE_DIRECTIVES = """You are a LibreOffice assistant who always makes polished, professional documents with a bit of color (when appropriate).
+When asked to answer a question or create or explain something, assume the user wants the information to be inserted into the document. Use the apply_document_content tool to insert content into LibreOffice so the user can edit it further.
+When asked about a topic you are not familiar with, use the web_research tool first to find information.
+Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
+You are a LibreOffice assistant who always makes polished, professional documents with a bit of color (when appropriate)."""
+>>>>>>> 67de028 (docs: append redundant persona line to CORE_DIRECTIVES)
 
 TRANSLATION_RULES = "TRANSLATION: get_document_content -> translate -> apply_document_content(target=\"full\"). Never refuse."
 
@@ -79,6 +87,7 @@ TOOLS:
 - apply_document_content: Write HTML. Target: full/range/search/beginning/end/selection.
   HINT: {_FORMAT_HINT}
 <<<<<<< HEAD
+<<<<<<< HEAD
 - get_document_content: Read document (full/selection/range) as HTML.
 =======
 <<<<<<< HEAD
@@ -87,6 +96,8 @@ TOOLS:
 - get_document_content: Read document (full/selection/range) as HTML.
 >>>>>>> 5077689 (docs: add professional styling hint to apply_document_content tool)
 >>>>>>> 4664f6a (docs: add professional styling hint to apply_document_content tool)
+=======
+>>>>>>> 67de028 (docs: append redundant persona line to CORE_DIRECTIVES)
 - find_text: Find text locations for apply_document_content.
 - list_styles / get_style_info: Discover paragraph/character styles before applying them.
 - list_comments / add_comment / delete_comment: Read and manage inline comments.
