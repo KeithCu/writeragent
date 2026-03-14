@@ -28,7 +28,7 @@ except ImportError:
     unohelper = None
 from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
-from plugin.contrib.default_models import DEFAULT_MODELS, resolve_model_id
+from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
 
 
 CONFIG_FILENAME = "writeragent.json"
@@ -465,7 +465,7 @@ def get_text_model(ctx):
 
 def get_stt_model(ctx):
     """Return the configured STT model."""
-    from plugin.contrib.default_models import get_provider_defaults
+    from plugin.framework.default_models import get_provider_defaults
     val = get_config(ctx, "stt_model")
     if val is not None and str(val).strip():
         return str(val).strip()
