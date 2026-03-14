@@ -99,21 +99,31 @@ def _web_cache_with_connection(db_path: str, fn):
                 raise
 
 
-def _web_cache_get(db_path: str, kind: str, key: str) -> str | None:
+def _web_cache_get(db_path: str, kind: str, key: str, max_age_days: int = 7) -> str | None:
     """Return cached value for (kind, key), or None. On hit, touch row (update created_at). No-op when SQLite unavailable."""
     if not HAS_SQLITE or not db_path or not key:
         return None
 
     def do_get(conn):
-        row = conn.execute("SELECT value FROM web_cache WHERE kind = ? AND key = ?", (kind, key)).fetchone()
+        row = conn.execute("SELECT value, created_at FROM web_cache WHERE kind = ? AND key = ?", (kind, key)).fetchone()
         if row is None:
             return None
+
+        value, created_at = row
+        max_age_seconds = max_age_days * 86400
+        now = time.time()
+
+        if now - created_at > max_age_seconds:
+            conn.execute("DELETE FROM web_cache WHERE kind = ? AND key = ?", (kind, key))
+            conn.commit()
+            return None
+
         conn.execute(
             "UPDATE web_cache SET created_at = ? WHERE kind = ? AND key = ?",
-            (time.time(), kind, key),
+            (now, kind, key),
         )
         conn.commit()
-        return row[0]
+        return value
 
     return _web_cache_with_connection(db_path, do_get)
 
@@ -226,16 +236,17 @@ class DuckDuckGoSearchTool(Tool):
     inputs = {"query": {"type": "string", "description": "The search query to perform."}}
     output_type = "string"
 
-    def __init__(self, max_results: int = 10, cache_path: str | None = None, cache_max_mb: int = 50, **kwargs):
+    def __init__(self, max_results: int = 10, cache_path: str | None = None, cache_max_mb: int = 50, cache_max_age_days: int = 7, **kwargs):
         super().__init__()
         self.max_results = max_results
         self._cache_path = cache_path
         self._cache_max_mb = max(cache_max_mb, 0)
+        self._cache_max_age_days = max(cache_max_age_days, 1)
 
     def forward(self, query: str) -> str:
         key = " ".join(str(query).strip().split())
         if self._cache_path and self._cache_max_mb > 0 and key:
-            cached = _web_cache_get(self._cache_path, "search", key)
+            cached = _web_cache_get(self._cache_path, "search", key, max_age_days=self._cache_max_age_days)
             if cached is not None:
                 debug_log("web_cache: search hit: %s" % (key[:60] + "..." if len(key) > 60 else key), context="Chat")
                 return cached
@@ -325,11 +336,12 @@ class VisitWebpageTool(Tool):
     inputs = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type = "string"
 
-    def __init__(self, max_output_length: int = 40000, cache_path: str | None = None, cache_max_mb: int = 50, **kwargs):
+    def __init__(self, max_output_length: int = 40000, cache_path: str | None = None, cache_max_mb: int = 50, cache_max_age_days: int = 7, **kwargs):
         super().__init__()
         self.max_output_length = max_output_length
         self._cache_path = cache_path
         self._cache_max_mb = max(cache_max_mb, 0)
+        self._cache_max_age_days = max(cache_max_age_days, 1)
 
     def _truncate_content(self, content: str, max_length: int) -> str:
         if len(content) <= max_length:
@@ -353,7 +365,7 @@ class VisitWebpageTool(Tool):
 
         # Cache lookup
         if self._cache_path and self._cache_max_mb > 0 and key:
-            cached = _web_cache_get(self._cache_path, "page", key)
+            cached = _web_cache_get(self._cache_path, "page", key, max_age_days=self._cache_max_age_days)
             if cached is not None:
                 debug_log("web_cache: page hit: %s" % (key[:60] + "..." if len(key) > 60 else key), context="Chat")
                 return cached
