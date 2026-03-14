@@ -11,7 +11,7 @@ from plugin.framework.constants import BROWSER_USER_AGENT, USER_AGENT
 from plugin.framework.logging import debug_log
 
 try:
-    from plugin.framework.sqlite_available import HAS_SQLITE, sqlite3
+    from plugin.framework.history_db import HAS_SQLITE, sqlite3
 except Exception:
     HAS_SQLITE = False
     sqlite3 = None  # type: ignore[assignment]
