@@ -17,13 +17,9 @@
 """Unified Image Generation Service for WriterAgent."""
 import json
 import logging
-import time
 import tempfile
-import urllib.request
-import urllib.parse
 import re
 import base64
-from pathlib import Path
 from plugin.modules.http.client import sync_request, LlmClient, _format_http_error_response
 from plugin.framework.logging import debug_log
 from plugin.contrib.aihordeclient import AiHordeClient
@@ -250,9 +246,6 @@ class ImageService:
         self.providers = {}
 
     def get_provider(self, name):
-        # Legacy: treat "openrouter" as "endpoint" so old configs keep working
-        if name == "openrouter":
-            name = "endpoint"
         if name == "aihorde":
             return AIHordeImageProvider(self.config, self.ctx)
         if name == "endpoint":
