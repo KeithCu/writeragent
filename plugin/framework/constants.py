@@ -74,6 +74,7 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - When uncertain about document structure, call get_document_content before making modifications.
   Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - For bullet/list formatting, target each line individually using positions found via find_text.
+  Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - If a tool call fails, verify your arguments (especially target: full/range/search/beginning/end/selection)."""
 
 # Shared Calc instruction blocks
