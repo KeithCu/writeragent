@@ -108,6 +108,7 @@ TOOLS:
 - list_comments / add_comment / delete_comment: Read and manage inline comments.
   Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - set_track_changes / get_tracked_changes / accept_all_changes / reject_all_changes: Track and manage changes.
+  Always aim for a professional look, using appropriate colors for headings or highlights to make the document visually appealing.
 - list_tables / read_table / write_table_cells: Inspect Writer tables; write a 2D block of cells (data + optional start_cell).
 
 {TRANSLATION_RULES}
