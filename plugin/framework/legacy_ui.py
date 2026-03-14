@@ -182,15 +182,15 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                     text_ctrl = self._dlg.getControl("text_model")
                                     image_ctrl = self._dlg.getControl("image_model")
                                     if text_ctrl:
-                                        populate_combobox_with_lru(self._ctx, text_ctrl, get_config(self._ctx, "text_model") or get_config(self._ctx, "model") or "", "model_lru", resolved)
+                                        populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved)
                                     if image_ctrl:
                                         if get_config(self._ctx, "image_provider") == "endpoint":
-                                            populate_combobox_with_lru(self._ctx, image_ctrl, get_image_model(self._ctx), "image_model_lru", resolved)
+                                            populate_combobox_with_lru(self._ctx, image_ctrl, "", "image_model_lru", resolved)
                                         else:
                                             populate_image_model_selector(self._ctx, image_ctrl)
                                     stt_ctrl = self._dlg.getControl("stt_model")
                                     if stt_ctrl:
-                                        populate_combobox_with_lru(self._ctx, stt_ctrl, get_stt_model(self._ctx), "audio_model_lru", resolved)
+                                        populate_combobox_with_lru(self._ctx, stt_ctrl, "", "audio_model_lru", resolved)
                                     api_key_ctrl = self._dlg.getControl("api_key")
                                     if api_key_ctrl:
                                         api_key_ctrl.getModel().Text = get_api_key_for_endpoint(self._ctx, resolved)

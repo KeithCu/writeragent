@@ -213,6 +213,30 @@ DEFAULT_MODELS = [
     # ---- Image-only models -----------------------------------------------
 
     {
+        "display_name": "FLUX.2 Pro",
+        "capability": "image",
+        "priority": 9,
+        "notes": "Black Forest Labs image generation (Together AI)",
+        "ids": {"together": "black-forest-labs/FLUX.2-pro"},
+        "id": "black-forest-labs/FLUX.2-pro",
+    },
+    {
+        "display_name": "Flash Image 2.5",
+        "capability": "image",
+        "priority": 9,
+        "notes": "Google image generation (Together AI)",
+        "ids": {"together": "google/flash-image-2.5"},
+        "id": "google/flash-image-2.5",
+    },
+    {
+        "display_name": "Qwen Image",
+        "capability": "image",
+        "priority": 8,
+        "notes": "Qwen image generation (Together AI)",
+        "ids": {"together": "Qwen/Qwen-Image"},
+        "id": "Qwen/Qwen-Image",
+    },
+    {
         "display_name": "Gemini 3.1 Pro Preview",
         "capability": "image",
         "context_length": 1000000,
