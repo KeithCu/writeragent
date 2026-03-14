@@ -17,6 +17,7 @@
 from plugin.framework.uno_helpers import get_desktop, get_active_document, get_extension_url, TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
 from plugin.framework.logging import init_logging, debug_log, agent_log
+from plugin.framework.sqlite_available import HAS_SQLITE
 import uno
 
 def input_box(ctx, message, title="", default="", x=None, y=None):
@@ -252,6 +253,14 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                             ctrl.getModel().Text = field["value"]
                         except Exception:
                             pass
+        if not HAS_SQLITE:
+            for name in ("web_cache_max_mb", "web_cache_validity_days"):
+                ctrl = get_optional(dlg, name)
+                if ctrl:
+                    try:
+                        ctrl.getModel().Enabled = False
+                    except Exception:
+                        pass
         dlg.getControl("endpoint").setFocus()
 
         result = {}
