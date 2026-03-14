@@ -1,32 +1,13 @@
 """
-Metric for DSPy prompt optimization: correctness + token penalty.
+Metric for DSPy prompt optimization: judge-based score + token penalty.
 Higher score = better. Use with track_usage=True so we can read token counts.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 # Token penalty weight: score -= LAMBDA * (total_tokens / 1000)
 TOKEN_PENALTY_LAMBDA = 0.01
-
-
-def _correctness_score(example: Any, final_document: str) -> float:
-    """
-    Return a score in [0, 1] based on expected_contains and reject_contains.
-    final_document is the document content after the model's tool calls.
-    """
-    if not final_document:
-        return 0.0
-    score = 1.0
-    expected = getattr(example, "expected_contains", []) or []
-    reject = getattr(example, "reject_contains", []) or []
-    for s in expected:
-        if s not in final_document:
-            score -= 0.2
-    for s in reject:
-        if s in final_document:
-            score -= 0.3
-    return max(0.0, min(1.0, score))
 
 
 def _get_total_tokens(pred: Any) -> int:
@@ -48,21 +29,29 @@ def _get_total_tokens(pred: Any) -> int:
     return 0
 
 
-def writer_assistant_metric(
-    example: Any,
-    pred: Any,
-    trace: Optional[Any] = None,
+def make_judge_metric(
+    judge_lm: Any,
     token_penalty_lambda: float = TOKEN_PENALTY_LAMBDA,
-) -> float:
+) -> Callable[[Any, Any, Optional[Any]], float]:
     """
-    Metric for Writer prompt optimization.
-    - Correctness: 0–1 from expected_contains / reject_contains in final document.
-    - Token penalty: subtract token_penalty_lambda * (total_tokens / 1000).
-    Higher is better.
+    Return a metric callable (example, pred, trace=None) -> float for MIPROv2.
+    Uses shared score_with_judge from eval_core; applies token penalty.
     """
-    final_doc = getattr(pred, "final_document", None) or ""
-    correct = _correctness_score(example, final_doc)
-    total_tokens = _get_total_tokens(pred)
-    penalty = token_penalty_lambda * (total_tokens / 1000.0)
-    score = correct - penalty
-    return max(0.0, score)
+    from eval_core import score_with_judge
+
+    def metric(example: Any, pred: Any, trace: Optional[Any] = None) -> float:
+        final_doc = getattr(pred, "final_document", None) or ""
+        score, _ = score_with_judge(
+            judge_lm,
+            document_content=getattr(example, "document_content", "") or "",
+            user_question=getattr(example, "user_question", "") or "",
+            model_answer=final_doc,
+            gold_answer=getattr(example, "gold_document", "") or "N/A",
+            rubric=getattr(example, "rubric", "") or "N/A",
+            task_category=getattr(example, "category", "structural"),
+        )
+        total_tokens = _get_total_tokens(pred)
+        penalty = token_penalty_lambda * (total_tokens / 1000.0)
+        return max(0.0, score - penalty)
+
+    return metric

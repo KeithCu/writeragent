@@ -14,7 +14,6 @@ import dspy
 
 from dataset import to_dspy_examples
 from metric import TOKEN_PENALTY_LAMBDA
-from metric import TOKEN_PENALTY_LAMBDA
 from program import build_program
 
 
@@ -70,6 +69,44 @@ class JudgeModule(dspy.Module):
             pred.score = 0.0
             
         return pred
+
+
+_judge_module: JudgeModule | None = None
+
+
+def _get_judge_module() -> JudgeModule:
+    global _judge_module
+    if _judge_module is None:
+        _judge_module = JudgeModule()
+    return _judge_module
+
+
+def score_with_judge(
+    judge_lm: dspy.LM,
+    *,
+    document_content: str,
+    user_question: str,
+    model_answer: str,
+    gold_answer: str = "N/A",
+    rubric: str = "N/A",
+    task_category: str = "structural",
+) -> Tuple[float, Any]:
+    """
+    Run the judge LM on one (doc, question, model_answer) and return (weighted_score, judge_pred).
+    judge_pred has .score, .thought_process, .accuracy_score, .formatting_score, .naturalness_score.
+    Shared by run_eval_on_examples and make_judge_metric (MIPROv2).
+    """
+    with dspy.settings.context(lm=judge_lm):
+        judge_mod = _get_judge_module()
+        j_result = judge_mod(
+            document_content=document_content,
+            user_question=user_question,
+            model_answer=model_answer,
+            gold_answer=gold_answer or "N/A",
+            rubric=rubric or "N/A",
+            task_category=task_category,
+        )
+    return (float(j_result.score), j_result)
 
 
 @dataclass
@@ -197,8 +234,6 @@ def run_eval_on_examples(
     n = len(examples)
     base_instruction = getattr(program, "instruction", None) or ""
 
-    judge_mod = JudgeModule() if judge_lm else None
-
     # We need to track total tokens including judge/gold if we want complete cost,
     # but the current infra tracks usage per-prediction.
     with dspy.settings.context(track_usage=True, cache=False):
@@ -263,27 +298,22 @@ def run_eval_on_examples(
                 if use_judge:
                     if not quiet:
                         print("  Calling judge...", flush=True)
-                    with dspy.settings.context(lm=judge_lm):
-                        j_result = judge_mod(
-                            document_content=doc,
-                            user_question=question,
-                            model_answer=final,
-                            gold_answer=gold,
-                            rubric=rubric,
-                            task_category=category
-                        )
-                        j_score = float(j_result.score)
-                        j_reasoning = j_result.thought_process
-                        j_accuracy = getattr(j_result, "accuracy_score", None)
-                        j_formatting = getattr(j_result, "formatting_score", None)
-                        j_naturalness = getattr(j_result, "naturalness_score", None)
-                        
-                        if not quiet:
-                            print(f"  judge_score={j_score:.2f} [{category}] (Acc:{j_accuracy} Fmt:{j_formatting} Nat:{j_naturalness})")
-                            print(f"  judge_reasoning: {j_reasoning}")
-                    
-                    # Merge scores: prioritize judge if it exists, otherwise use string matching
-                    # User asked for "nuanced score", so judge score is the primary metric now.
+                    j_score, j_result = score_with_judge(
+                        judge_lm,
+                        document_content=doc,
+                        user_question=question,
+                        model_answer=final,
+                        gold_answer=gold or "N/A",
+                        rubric=rubric or "N/A",
+                        task_category=category,
+                    )
+                    j_reasoning = getattr(j_result, "thought_process", None)
+                    j_accuracy = getattr(j_result, "accuracy_score", None)
+                    j_formatting = getattr(j_result, "formatting_score", None)
+                    j_naturalness = getattr(j_result, "naturalness_score", None)
+                    if not quiet:
+                        print(f"  judge_score={j_score:.2f} [{category}] (Acc:{j_accuracy} Fmt:{j_formatting} Nat:{j_naturalness})")
+                        print(f"  judge_reasoning: {j_reasoning}")
                     effective_correctness = j_score
                 else:
                     effective_correctness = correctness
@@ -301,27 +331,27 @@ def run_eval_on_examples(
                     )
                     print(f"  doc snippet: {snippet!r}")
                 
-                    results.append(
-                        ExampleEval(
-                            task_id=task_id,
-                            correctness=effective_correctness,
-                            missing_expected=missing,
-                            found_reject=found_reject,
-                            metric_score=metric_score,
-                            prompt_tokens=prompt_tok,
-                            completion_tokens=completion_tok,
-                            total_tokens=total_tok,
-                            final_document=final,
-                            judge_score=j_score,
-                            judge_reasoning=j_reasoning,
-                            judge_accuracy=float(j_accuracy) if j_accuracy and j_accuracy != "N/A" else None,
-                            judge_formatting=float(j_formatting) if j_formatting and j_formatting != "N/A" else None,
-                            judge_naturalness=float(j_naturalness) if j_naturalness and j_naturalness != "N/A" else None,
-                            task_category=category,
-                            gold_document=gold,
-                            error=None,
-                        )
+                results.append(
+                    ExampleEval(
+                        task_id=task_id,
+                        correctness=effective_correctness,
+                        missing_expected=missing,
+                        found_reject=found_reject,
+                        metric_score=metric_score,
+                        prompt_tokens=prompt_tok,
+                        completion_tokens=completion_tok,
+                        total_tokens=total_tok,
+                        final_document=final,
+                        judge_score=j_score,
+                        judge_reasoning=j_reasoning,
+                        judge_accuracy=float(j_accuracy) if j_accuracy and str(j_accuracy) != "N/A" else None,
+                        judge_formatting=float(j_formatting) if j_formatting and str(j_formatting) != "N/A" else None,
+                        judge_naturalness=float(j_naturalness) if j_naturalness and str(j_naturalness) != "N/A" else None,
+                        task_category=category,
+                        gold_document=gold,
+                        error=None,
                     )
+                )
             except Exception as e:  # pragma: no cover - keep eval robust
                 error = str(e)
                 if not quiet:

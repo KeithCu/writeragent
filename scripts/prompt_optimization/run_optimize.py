@@ -34,23 +34,37 @@ from dspy.teleprompt import MIPROv2
 
 from dataset import ALL_EXAMPLES, get_trainset_valset, to_dspy_examples
 from program import build_program
-from metric import writer_assistant_metric
+from metric import make_judge_metric
 
 # OpenRouter defaults
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "qwen/qwen3-coder-next"
+DEFAULT_JUDGE = "x-ai/grok-4.1-fast"
+
+
+def _make_lm(model_id: str, api_base: str, api_key: str) -> dspy.LM:
+    if "openrouter" in api_base.lower() and not model_id.startswith("openrouter/"):
+        model_id = "openrouter/" + model_id
+    return dspy.LM(
+        model=model_id,
+        api_key=api_key,
+        api_base=api_base,
+        model_type="chat",
+    )
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Optimize Writer system prompt with DSPy MIPROv2 (OpenRouter by default).")
     p.add_argument("--model", "-m", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
                    help=f"Model id (default: {DEFAULT_MODEL}). OpenRouter model e.g. qwen/qwen3-coder-next, google/gemini-3.1-flash-lite-preview.")
+    p.add_argument("--judge", "-J", default=os.environ.get("WRITERAGENT_JUDGE_MODEL", DEFAULT_JUDGE),
+                   help=f"Judge model for grading (default: {DEFAULT_JUDGE}). Same as run_eval_multi.")
     p.add_argument("--api-base", default=os.environ.get("OPENAI_API_BASE", DEFAULT_API_BASE),
                    help=f"API base URL (default: OpenRouter {DEFAULT_API_BASE}).")
     p.add_argument("--api-key", "-k", default=os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY", ""),
                    help="API key (default: OPENROUTER_API_KEY or OPENAI_API_KEY env).")
     p.add_argument("--jobs", "-j", type=int, default=4,
-                   help="Parallel jobs for MIPROv2 valset evals (default: 4).") 
+                   help="Parallel jobs for MIPROv2 valset evals (default: 4).")
     p.add_argument("--auto", choices=("light", "medium", "heavy"), default="light",
                    help="Exploration level: light (fewer trials), medium, or heavy (more trials). Default: light.")
     p.add_argument("--trials", "-t", type=int, default=None,
@@ -67,17 +81,12 @@ def main():
     if not api_key and "openrouter" in api_base.lower():
         print("Warning: OPENROUTER_API_KEY (or OPENAI_API_KEY) not set. Set it for OpenRouter.", file=sys.stderr)
 
-    # LiteLLM (used by DSPy) needs provider prefix for OpenRouter: openrouter/model-id
-    if "openrouter" in api_base.lower() and not model.startswith("openrouter/"):
-        model = "openrouter/" + model
+    lm = _make_lm(model, api_base, api_key)
+    judge_lm = _make_lm(args.judge, api_base, api_key)
+    metric = make_judge_metric(judge_lm)
 
     print(f"Using model: {model} @ {api_base}")
-    lm = dspy.LM(
-        model=model,
-        api_key=api_key,
-        api_base=api_base,
-        model_type="chat",
-    )
+    print(f"Judge: {args.judge}")
     dspy.configure(lm=lm)
 
     # Dataset: convert to dspy.Example with inputs
@@ -99,7 +108,7 @@ def main():
     if use_explicit_trials:
         # auto=None requires num_candidates; num_trials passed to compile()
         teleprompter = MIPROv2(
-            metric=writer_assistant_metric,
+            metric=metric,
             auto=None,
             num_candidates=max(10, min(25, args.trials // 2)),
             max_bootstrapped_demos=0,
@@ -110,7 +119,7 @@ def main():
         run_desc = f"instruction-only, {args.trials} trials, {args.jobs} jobs"
     else:
         teleprompter = MIPROv2(
-            metric=writer_assistant_metric,
+            metric=metric,
             auto=args.auto,
             max_bootstrapped_demos=0,
             max_labeled_demos=0,
