@@ -18,7 +18,12 @@ import json
 import logging
 import os
 
-from plugin.framework.sqlite_available import HAS_SQLITE, sqlite3
+try:
+    import sqlite3
+    HAS_SQLITE = True
+except ImportError:
+    sqlite3 = None  # type: ignore[assignment]
+    HAS_SQLITE = False
 
 logger = logging.getLogger(__name__)
 
