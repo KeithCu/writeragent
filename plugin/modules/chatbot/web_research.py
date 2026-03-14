@@ -68,6 +68,7 @@ class WebResearchTool(ToolBase):
             udir = user_config_dir(ctx.ctx)
             raw_mb = int(get_config(ctx.ctx, "web_cache_max_mb"))
             cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
+            cache_max_age_days = int(get_config(ctx.ctx, "web_cache_validity_days") or 7)
             cache_path = os.path.join(udir, "localwriter_web_cache.db") if (udir and cache_max_mb > 0) else None
 
             smol_model = WriterAgentSmolModel(
@@ -78,8 +79,8 @@ class WebResearchTool(ToolBase):
             instructions = "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query."
             agent = ToolCallingAgent(
                 tools=[
-                    DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb),
-                    VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb),
+                    DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days),
+                    VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days),
                 ],
                 model=smol_model,
                 max_steps=max_steps,

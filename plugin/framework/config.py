@@ -176,6 +176,7 @@ _CONFIG_DEFAULTS = {
     "chatbot.show_search_thinking": False,
     "enable_agent_log": False,
     "web_cache_max_mb": 50,
+    "web_cache_validity_days": 7,
     "is_openwebui": False,
     "extend_selection_system_prompt": "",
     "edit_selection_system_prompt": "",

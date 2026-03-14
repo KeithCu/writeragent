@@ -67,6 +67,24 @@ config:
     widget: checkbox
     label: Show Web Search Thinking
 
+  web_cache_max_mb:
+    type: int
+    default: 50
+    min: 0
+    max: 500
+    widget: number
+    label: Web Cache Max Size (MB)
+    helper: "Max disk size for web search cache (0 to disable)"
+
+  web_cache_validity_days:
+    type: int
+    default: 7
+    min: 1
+    max: 30
+    widget: number
+    label: Web Cache Validity (Days)
+    helper: "How many days cache entries should be considered valid."
+
 #  enter_sends:
 #    type: boolean
 #    default: true
