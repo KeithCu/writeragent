@@ -14,6 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
 import sys
 import wave
 import tempfile
@@ -35,7 +36,8 @@ class AudioRecorder:
             raise RuntimeError("Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2") from e
 
         self.recording = True
-        self.temp_filename = tempfile.mktemp(suffix=".wav")
+        fd, self.temp_filename = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
         self.wav_file = wave.open(self.temp_filename, 'wb')
         self.wav_file.setnchannels(self.channels)
         self.wav_file.setsampwidth(2) # 16-bit
