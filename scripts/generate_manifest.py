@@ -155,6 +155,7 @@ def generate_manifest_py(modules, output_path):
             "requires": m.get("requires", []),
             "provides_services": m.get("provides_services", []),
             "config": m.get("config", {}),
+            "config_inline": m.get("config_inline"),
             "actions": list(m.get("actions", {}).keys()),
             "action_icons": {k: v["icon"] for k, v in m.get("actions", {}).items() if v.get("icon")},
         }
