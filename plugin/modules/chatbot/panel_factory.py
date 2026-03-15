@@ -20,7 +20,6 @@
 
 import os
 import sys
-import weakref
 import hashlib
 import uuid
 import uno
@@ -55,12 +54,11 @@ except ImportError:
 from plugin.framework.logging import debug_log, start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.uno_helpers import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, get_active_document, get_extension_url, get_extension_path, is_writer, is_calc, is_draw
-from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 from com.sun.star.ui.UIElementType import TOOLPANEL
-from com.sun.star.awt import XItemListener, XWindowListener
+from com.sun.star.awt import XItemListener
 
 # Extension ID from description.xml; XDL path inside the .oxt
 EXTENSION_ID = "org.extension.writeragent"
