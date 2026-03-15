@@ -29,13 +29,12 @@ import datetime
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
-from collections import deque
+from collections import deque  # noqa: E402, F401
 
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
-from plugin.framework.streaming_deltas import accumulate_delta
-from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
-
-from plugin.framework.logging import debug_log, update_activity_state, init_logging
+from plugin.framework.streaming_deltas import accumulate_delta  # noqa: E402
+from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT  # noqa: E402
+from plugin.framework.logging import debug_log, init_logging  # noqa: E402
 
 
 def format_error_message(e):
@@ -103,16 +102,23 @@ def is_audio_unsupported_error(e):
     msg = str(e).lower()
     
     # Common error strings across providers
-    if "unsupported content type" in msg: return True
-    if "unsupported modality" in msg: return True
-    if "audio" in msg and ("not supported" in msg or "unsupported" in msg): return True
-    if "modality" in msg and "not supported" in msg: return True
+    if "unsupported content type" in msg:
+        return True
+    if "unsupported modality" in msg:
+        return True
+    if "audio" in msg and ("not supported" in msg or "unsupported" in msg):
+        return True
+    if "modality" in msg and "not supported" in msg:
+        return True
     
     # Specific API error bodies (passed via _format_http_error_response)
-    if "model" in msg and "cannot process" in msg and "audio" in msg: return True
-    if "no endpoints found that support input audio" in msg: return True
+    if "model" in msg and "cannot process" in msg and "audio" in msg:
+        return True
+    if "no endpoints found that support input audio" in msg:
+        return True
     if "gpt-4" in msg and "audio" in msg: # Some legacy GPT-4 might not have it
-        if "not support" in msg: return True
+        if "not support" in msg:
+            return True
         
     return False
 
@@ -314,7 +320,7 @@ class LlmClient:
                 except Exception:
                     pass
                 self._persistent_conn.close()
-            except:
+            except Exception:
                 pass
             self._persistent_conn = None
             self._conn_key = None
@@ -720,7 +726,7 @@ class LlmClient:
                     remaining = response.read()
                     if remaining:
                         debug_log("Consumed extra %d bytes after loop" % len(remaining), context="API")
-                except:
+                except Exception:
                     pass
                 # Honor Connection: close so we don't try to reuse when the server closed.
                 conn_hdr = (response.getheader("Connection") or "").strip().lower()
