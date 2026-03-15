@@ -541,6 +541,8 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 - **Document Tree & Navigation (DONE)**: Ported `build_heading_tree`, `ensure_heading_bookmarks`, and `resolve_locator` to `plugin/framework/document.py`. New tools `get_document_outline` and `get_heading_content` provide structured access to long documents.
 
+- **Performance (DONE)**: Frequently used regular expressions (e.g., cell reference parsing in `error_detector.py`) are pre-compiled as module-level constants to avoid redundant compilation and cache lookups. Batch operations and efficient set comprehensions are preferred for large-scale document or spreadsheet analysis.
+
 ### Agent backends (Aider, Hermes) — Phase 2 DONE
 - **`plugin/modules/agent_backend/`**: Backend abstraction and registry; adapters for **Built-in**, **Aider**, **Hermes** (ACP), **OpenCode**, and **OpenHands**.
 - **Hermes ACP adapter** (`hermes_proxy.py`): Communicates with Hermes via the **Agent Communication Protocol (ACP)** — **stdio JSON-RPC** transport. Spawns `hermes acp` (or `hermes-acp`) as a subprocess; exchanges newline-delimited JSON-RPC messages over stdin/stdout. Protocol flow: `initialize` → `session/new` (with optional MCP server passthrough) → `prompt` (blocking, with streaming `SessionNotification` updates for text chunks, tool calls, and plans). `is_available()` checks for the `hermes`/`hermes-acp` binary in PATH. Supports multi-turn sessions via persistent session_id, cancel via `notifications/cancel`, and HITL approval via `permission/respond`.
