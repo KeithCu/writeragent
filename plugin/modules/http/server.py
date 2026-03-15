@@ -107,7 +107,11 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             data, ensure_ascii=False, default=str).encode("utf-8"))
 
     def _send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin")
+        if origin:
+            import re
+            if re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", origin):
+                self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods",
                          "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers",

@@ -563,7 +563,7 @@ class MCPProtocolHandler:
 
     # ── Debug helpers ────────────────────────────────────────────────
 
-    def _debug_call_tool(self, tool_name, arguments):
+    def _debug_call_tool(self, tool_name, arguments, document_url=None):
         if not tool_name:
             return {"error": "Missing 'tool' parameter"}
         result = self._execute_with_backpressure(
@@ -635,7 +635,11 @@ class MCPProtocolHandler:
             data, ensure_ascii=False, default=str).encode("utf-8"))
 
     def _send_cors_headers(self, handler):
-        handler.send_header("Access-Control-Allow-Origin", "*")
+        origin = handler.headers.get("Origin")
+        if origin:
+            import re
+            if re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", origin):
+                handler.send_header("Access-Control-Allow-Origin", origin)
         handler.send_header("Access-Control-Allow-Methods",
                             "GET, POST, DELETE, OPTIONS")
         handler.send_header("Access-Control-Allow-Headers",
