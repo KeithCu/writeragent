@@ -34,6 +34,7 @@ except ImportError:
 
 logger = logging.getLogger("writeragent.calc")
 
+_FORMULA_REF_RE = re.compile(r'\$?([A-Z]+)\$?(\d+)')
 
 class CellInspector:
     """Examines cell contents and properties."""
@@ -264,8 +265,8 @@ class CellInspector:
                         formula = cell.getFormula()
                         value = cell.getValue() if cell.getValue() != 0 else cell.getString()
 
-                        refs = re.findall(r'\$?([A-Z]+)\$?(\d+)', formula.upper())
-                        precedents = list(set([f"{c}{r}" for c, r in refs]))
+                        refs = _FORMULA_REF_RE.findall(formula.upper())
+                        precedents = list({f"{c}{r}" for c, r in refs})
 
                         formulas.append({
                             "address": cell_address,
