@@ -414,7 +414,7 @@ class LauncherModule(ModuleBase):
     # ── Process state ────────────────────────────────────────────────
 
     def _is_running(self):
-        return self._process is not None and self._process.process is not None and self._process.process.poll() is None
+        return self._process is not None and self._process.is_running
 
     def _stop_process(self):
         proc = self._process

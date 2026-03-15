@@ -205,8 +205,9 @@ def bootstrap(ctx=None):
         events_svc = _services.get("events")
         if events_svc:
             # Subscribe to menu:update for dynamic menu text + icons
+            from plugin.framework.main_thread import execute_on_main_thread
             events_svc.subscribe("menu:update",
-                                 lambda **kw: notify_menu_update())
+                                 lambda **kw: execute_on_main_thread(notify_menu_update))
 
         # Pre-load icons into ImageManager so first menu display has them
         from plugin.framework.worker_pool import run_in_background

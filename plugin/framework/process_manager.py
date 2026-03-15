@@ -48,6 +48,10 @@ class AsyncProcess:
         self._stderr_thread = None
         self._wait_thread = None
 
+    @property
+    def is_running(self):
+        return self.process is not None and self.process.poll() is None
+
     def start(self):
         """Starts the process and its monitoring threads."""
         try:

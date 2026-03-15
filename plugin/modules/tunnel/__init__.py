@@ -84,7 +84,7 @@ class TunnelManager:
 
     @property
     def is_running(self):
-        return self._process is not None and self._process.process is not None and self._process.process.poll() is None
+        return self._process is not None and self._process.is_running
 
     # ── Binary check ──────────────────────────────────────────────────
 
