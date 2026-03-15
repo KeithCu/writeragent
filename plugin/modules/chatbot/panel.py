@@ -25,11 +25,11 @@ remain in panel_factory.py.
 import uno
 import unohelper
 from plugin.framework.uno_helpers import get_active_document
-from com.sun.star.awt import XActionListener
+from com.sun.star.awt import XActionListener, XTextListener
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
 
-from plugin.framework.logging import agent_log, debug_log, update_activity_state
+from plugin.framework.logging import debug_log, update_activity_state
 from plugin.framework.uno_helpers import get_checkbox_state
 from plugin.framework.history_db import get_chat_history
 
@@ -131,7 +131,6 @@ class ChatSession:
 # QueryTextListener - dynamic button toggling
 # ---------------------------------------------------------------------------
 
-from com.sun.star.awt import XTextListener
 
 class QueryTextListener(unohelper.Base, XTextListener):
     def __init__(self, send_button):
@@ -448,7 +447,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
 
         # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
         try:
-            from plugin.framework.config import get_config, as_bool
+            from plugin.framework.config import get_config
             agent_backend_id = str(get_config(self.ctx, "agent_backend.backend_id") or "builtin").strip().lower()
             if agent_backend_id and agent_backend_id != "builtin":
                 debug_log("_do_send: using agent backend %s" % agent_backend_id, context="Chat")
