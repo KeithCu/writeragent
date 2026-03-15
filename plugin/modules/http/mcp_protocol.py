@@ -417,8 +417,15 @@ class MCPProtocolHandler:
                 method="tools/call"
             )
 
-        result = self._execute_with_backpressure(
-            tool_name, arguments, document_url=document_url)
+        tool = self.tool_registry.get(tool_name)
+        is_long_running = getattr(tool, "long_running", False) if tool else False
+
+        if is_long_running:
+            result = self._execute_long_running(
+                tool_name, arguments, document_url=document_url)
+        else:
+            result = self._execute_with_backpressure(
+                tool_name, arguments, document_url=document_url)
 
         if self.event_bus:
             snippet = str(result)[:100] if result else ""
@@ -509,15 +516,51 @@ class MCPProtocolHandler:
         finally:
             _tool_semaphore.release()
 
-    def _execute_tool_on_main(self, tool_name, arguments, document_url=None):
-        """Execute a tool via the ToolRegistry. Runs on main thread."""
+    def _execute_long_running(self, tool_name, arguments, document_url=None):
+        """Execute a long-running tool on the current background HTTP thread.
+        Context resolution (finding the active doc) is strictly done on the main thread
+        to ensure thread safety with LibreOffice UNO."""
+
+        def _get_context():
+            doc_svc = self.services.document
+            doc = None
+            doc_type = "writer"
+            if document_url:
+                doc, doc_type = doc_svc.resolve_document_by_url(document_url)
+            else:
+                doc = doc_svc.get_active_document()
+                if doc:
+                    doc_type = doc_svc.detect_doc_type(doc)
+            import uno
+            ctx = uno.getComponentContext()
+            return doc, doc_type, ctx
+
+        doc, doc_type, ctx = execute_on_main_thread(_get_context, timeout=10.0)
+
+        if doc is None and not document_url:
+            return {"status": "error", "message": "No document open in LibreOffice."}
+        elif doc is None:
+            return {"status": "error", "message": "No document open matching X-Document-URL: %s" % document_url}
+
         from plugin.framework.tool_context import ToolContext
+        context = ToolContext(
+            doc=doc,
+            ctx=ctx,
+            doc_type=doc_type,
+            services=self.services,
+            caller="mcp",
+        )
 
-        registry = self.tool_registry
-        svc_registry = self.services
+        t0 = time.perf_counter()
+        result = self.tool_registry.execute(tool_name, context, **arguments)
+        elapsed = time.perf_counter() - t0
 
-        doc = None
-        doc_type = "writer"
+        if isinstance(result, dict):
+            result["_elapsed_ms"] = round(elapsed * 1000, 1)
+
+        return result
+
+    def _execute_tool_on_main(self, tool_name, arguments, document_url=None):
         try:
             doc_svc = svc_registry.document
             if document_url:

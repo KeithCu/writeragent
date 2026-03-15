@@ -36,6 +36,7 @@ class WebResearchTool(ToolBase):
     doc_types = ["writer", "calc", "draw"]
     tier = "agent"
     is_mutation = False
+    long_running = True
 
     def execute(self, ctx, query, history_text=None):
         import os
