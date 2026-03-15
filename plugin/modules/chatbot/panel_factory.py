@@ -269,33 +269,49 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._update_backend_indicator(root)
 
     def _update_backend_indicator(self, root_window=None):
-        """Set backend indicator label from config (visible when external backend enabled)."""
+        """Set backend indicator label from config (visible when external backend enabled) and gray out controls."""
         try:
             from plugin.framework.config import get_config
             root = root_window or (getattr(self, "m_panelRootWindow", None))
             if not root or not hasattr(root, "getControl"):
                 return
-            ctrl = get_optional_control(root, "backend_indicator")
-            if not ctrl:
-                return
+            
             backend_id = str(get_config(self.ctx, "agent_backend.backend_id") or "builtin").strip().lower()
-            if backend_id and backend_id != "builtin":
-                label = backend_id.capitalize()
-                if hasattr(ctrl.getModel(), "Label"):
-                    ctrl.getModel().Label = label
-                elif hasattr(ctrl, "setText"):
-                    ctrl.setText(label)
-                if hasattr(ctrl, "setVisible"):
-                    ctrl.setVisible(True)
-            else:
-                if hasattr(ctrl.getModel(), "Label"):
-                    ctrl.getModel().Label = ""
-                elif hasattr(ctrl, "setText"):
-                    ctrl.setText("")
-                if hasattr(ctrl, "setVisible"):
-                    ctrl.setVisible(False)
+            is_external = bool(backend_id and backend_id != "builtin")
+            
+            ctrl = get_optional_control(root, "backend_indicator")
+            if ctrl:
+                if is_external:
+                    label = backend_id.capitalize()
+                    if hasattr(ctrl.getModel(), "Label"):
+                        ctrl.getModel().Label = label
+                    elif hasattr(ctrl, "setText"):
+                        ctrl.setText(label)
+                    if hasattr(ctrl, "setVisible"):
+                        ctrl.setVisible(True)
+                else:
+                    if hasattr(ctrl.getModel(), "Label"):
+                        ctrl.getModel().Label = ""
+                    elif hasattr(ctrl, "setText"):
+                        ctrl.setText("")
+                    if hasattr(ctrl, "setVisible"):
+                        ctrl.setVisible(False)
+                        
+            # Enable/disable the LLM model selector based on the agent backend
+            model_selector = get_optional_control(root, "model_selector")
+            if model_selector and hasattr(model_selector, "getModel"):
+                model_selector.getModel().Enabled = not is_external
+                
+            direct_image_check = get_optional_control(root, "direct_image_check")
+            if direct_image_check and hasattr(direct_image_check, "getModel"):
+                direct_image_check.getModel().Enabled = not is_external
+                
+            web_research_check = get_optional_control(root, "web_research_check")
+            if web_research_check and hasattr(web_research_check, "getModel"):
+                web_research_check.getModel().Enabled = not is_external
+                
         except Exception as e:
-            debug_log("_update_backend_indicator: %s" % e, context="Chat")
+            debug_log("_update_backend_indicator error: %s" % e, context="Chat")
 
     def _get_document_model(self):
         """Helper to get the current document model."""

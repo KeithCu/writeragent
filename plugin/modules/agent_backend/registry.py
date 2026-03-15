@@ -17,17 +17,17 @@
 """Registry of agent backends. Backend ids: builtin, aider, hermes."""
 
 from plugin.modules.agent_backend.builtin import BuiltinBackend
-from plugin.modules.agent_backend.aider_proxy import AiderBackend
+# from plugin.modules.agent_backend.aider_proxy import AiderBackend
 from plugin.modules.agent_backend.hermes_proxy import HermesBackend
-from plugin.modules.agent_backend.openhands_proxy import OpenHandsBackend
-from plugin.modules.agent_backend.opencode_proxy import OpenCodeBackend
+# from plugin.modules.agent_backend.openhands_proxy import OpenHandsBackend
+# from plugin.modules.agent_backend.opencode_proxy import OpenCodeBackend
 
 AGENT_BACKEND_REGISTRY = {
     "builtin": ("Built-in", BuiltinBackend),
-    "aider": ("Aider", AiderBackend),
+    # "aider": ("Aider", AiderBackend),
     "hermes": ("Hermes", HermesBackend),
-    "openhands": ("OpenHands", OpenHandsBackend),
-    "opencode": ("OpenCode", OpenCodeBackend),
+    # "openhands": ("OpenHands", OpenHandsBackend),
+    # "opencode": ("OpenCode", OpenCodeBackend),
 }
 
 
