@@ -923,7 +923,7 @@ class _StreamBase:
         info = _lib.Pa_GetStreamInfo(self._ptr)
         if not info:
             raise PortAudioError('Could not obtain stream info')
-        # TODO: assert info.structVersion == 1
+        assert info.structVersion == 1
         self._samplerate = info.sampleRate
         if not oparameters:
             self._latency = info.inputLatency
