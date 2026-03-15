@@ -20,7 +20,6 @@
 
 import os
 import sys
-import weakref
 import hashlib
 import uuid
 import uno
@@ -47,7 +46,7 @@ if _audio_dir not in sys.path:
 
 # Recording available only if audio_recorder (and thus contrib/audio) is present
 try:
-    from plugin.modules.chatbot.audio_recorder import start_recording, stop_recording  # noqa: F401
+    from plugin.modules.chatbot.audio_recorder import stop_recording  # noqa: F401
     HAS_RECORDING = True
 except ImportError:
     HAS_RECORDING = False
@@ -55,12 +54,11 @@ except ImportError:
 from plugin.framework.logging import debug_log, start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.uno_helpers import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, get_active_document, get_extension_url, get_extension_path, is_writer, is_calc, is_draw
-from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 from com.sun.star.ui.UIElementType import TOOLPANEL
-from com.sun.star.awt import XItemListener, XWindowListener
+from com.sun.star.awt import XItemListener
 
 # Extension ID from description.xml; XDL path inside the .oxt
 EXTENSION_ID = "org.extension.writeragent"
