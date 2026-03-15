@@ -25,6 +25,9 @@ import re
 
 from plugin.modules.calc.address_utils import parse_address
 
+# Regex for matching cell references (e.g. A1, $B$2)
+CELL_REF_PATTERN = re.compile(r'\$?([A-Z]+)\$?(\d+)')
+
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR
@@ -254,8 +257,8 @@ class ErrorDetector:
             sheet = self.bridge.get_active_sheet()
             cell = sheet.getCellByPosition(col, row)
             formula = cell.getFormula() or ""
-            refs = re.findall(r'\$?([A-Z]+)\$?(\d+)', formula.upper())
-            precedent_addrs = list(set([f"{c}{r}" for c, r in refs]))
+            refs = CELL_REF_PATTERN.findall(formula.upper())
+            precedent_addrs = list({f"{c}{r}" for c, r in refs})
 
             error_info = self.get_error_type(cell)
 
