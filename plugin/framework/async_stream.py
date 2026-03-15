@@ -85,11 +85,7 @@ def run_stream_drain_loop(
         except queue.Empty:
             # Pulse MCP if enabled
             if ctx:
-                try:
-                    from plugin.modules.http.mcp_protocol import drain_mcp_queue
-                    drain_mcp_queue()
-                except ImportError:
-                    pass
+                pass # MC P pulse removed, executes in LibreOffice event loop natively.
             if toolkit:
                 toolkit.processEventsToIdle()
             continue
@@ -359,9 +355,5 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
                 raise data
         except queue.Empty:
             # Pulse MCP if enabled (similar to drain loop)
-            try:
-                from plugin.modules.http.mcp_protocol import drain_mcp_queue
-                drain_mcp_queue()
-            except (ImportError, AttributeError):
-                pass
+            # MCP pulse removed
             toolkit.processEventsToIdle()

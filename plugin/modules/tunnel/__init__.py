@@ -84,7 +84,7 @@ class TunnelManager:
 
     @property
     def is_running(self):
-        return self._process is not None and self._process.poll() is None
+        return self._process is not None and self._process.process is not None and self._process.process.poll() is None
 
     # ── Binary check ──────────────────────────────────────────────────
 
@@ -113,74 +113,61 @@ class TunnelManager:
 
     # ── Subprocess lifecycle ──────────────────────────────────────────
 
-    def _run_and_parse(self, cmd, url_regex, provider):
-        """Run the tunnel command, parse stdout for the public URL.
-
-        Called in a daemon thread. Sets self._public_url when found.
-        """
+    def _start_async_process(self, cmd, url_regex, provider):
+        """Run the tunnel using AsyncProcess and parse stdout for the public URL."""
         log.info("Running: %s", " ".join(cmd))
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                creationflags=_CREATION_FLAGS,
-            )
-        except FileNotFoundError:
-            log.error("Binary not found: %s", cmd[0])
-            return
-        except Exception:
-            log.exception("Failed to start tunnel process")
-            return
-
-        self._process = proc
         pattern = re.compile(url_regex) if url_regex else None
+        
+        def _on_stdout(line):
+            if not line:
+                return
+            log.debug("[%s] %s", provider.name, line)
 
-        try:
-            for line in proc.stdout:
-                line = line.rstrip("\n")
-                if not line:
-                    continue
-                log.debug("[%s] %s", provider.name, line)
+            if self._public_url:
+                return
 
-                if self._public_url:
-                    continue
+            try:
+                custom_url = provider.parse_line(line)
+            except TunnelAuthError:
+                log.error("Authentication required for %s", provider.name)
+                self._stop_process()
+                return
+            except Exception:
+                custom_url = None
 
-                # Try provider custom parsing first
-                try:
-                    custom_url = provider.parse_line(line)
-                except TunnelAuthError:
-                    log.error("Authentication required for %s", provider.name)
-                    self._stop_process()
-                    return
-                except Exception:
-                    custom_url = None
+            if custom_url:
+                self._public_url = custom_url
+                log.info("Tunnel URL (custom): %s", self._public_url)
+                self._emit_started(provider)
+                return
 
-                if custom_url:
-                    self._public_url = custom_url
-                    log.info("Tunnel URL (custom): %s", self._public_url)
+            if pattern:
+                m = pattern.search(line)
+                if m:
+                    self._public_url = m.group(1)
+                    log.info("Tunnel URL (regex): %s", self._public_url)
                     self._emit_started(provider)
-                    continue
 
-                # Fallback: regex matching
-                if pattern:
-                    m = pattern.search(line)
-                    if m:
-                        self._public_url = m.group(1)
-                        log.info("Tunnel URL (regex): %s", self._public_url)
-                        self._emit_started(provider)
-
-        except Exception:
-            log.exception("Error reading tunnel output")
-        finally:
-            ret = proc.wait()
-            log.info("Tunnel process exited with code %s", ret)
+        def _on_exit(rc):
+            log.info("Tunnel process exited with code %s", rc)
             self._process = None
             if self._public_url:
                 self._public_url = None
                 self._emit_stopped("process_exited")
+
+        try:
+            from plugin.framework.process_manager import AsyncProcess
+            self._process = AsyncProcess(
+                cmd,
+                stdout_cb=_on_stdout,
+                on_exit_cb=_on_exit,
+                creationflags=_CREATION_FLAGS
+            )
+            self._process.start()
+        except FileNotFoundError:
+            log.error("Binary not found: %s", cmd[0])
+        except Exception:
+            log.exception("Failed to start tunnel process")
 
     def _emit_started(self, provider):
         if self._events:
@@ -201,11 +188,6 @@ class TunnelManager:
             return
         try:
             proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=3)
         except Exception:
             log.exception("Error stopping tunnel process")
         finally:
@@ -266,14 +248,8 @@ class TunnelManager:
                 self._public_url = pre_url
                 log.info("Tunnel URL (known): %s", self._public_url)
 
-            # Start in daemon thread
-            t = threading.Thread(
-                target=self._run_and_parse,
-                args=(cmd, url_regex, provider),
-                daemon=True,
-                name="tunnel-%s" % provider_name,
-            )
-            t.start()
+            # Start AsyncProcess
+            self._start_async_process(cmd, url_regex, provider)
 
             if pre_url:
                 self._emit_started(provider)

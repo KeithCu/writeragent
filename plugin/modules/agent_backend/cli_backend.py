@@ -354,10 +354,13 @@ class CLIProcessBackend(AgentBackend):
                 stdout_stream = self._process.stdout
 
             try:
-                self._reader_thread = threading.Thread(target=self._reader_loop, args=(stdout_stream,), daemon=True)
-                self._reader_thread.start()
-                _stderr_thread = threading.Thread(target=self._stderr_drain_loop, args=(self._process,), daemon=True)
-                _stderr_thread.start()
+                from plugin.framework.worker_pool import run_in_background
+                self._reader_thread = run_in_background(
+                    self._reader_loop, stdout_stream, name=f"{self.display_name}-reader"
+                )
+                _stderr_thread = run_in_background(
+                    self._stderr_drain_loop, self._process, name=f"{self.display_name}-stderr"
+                )
             except Exception as e:
                 debug_log(f"ensure_process: failed to start reader/stderr {e}", context=self._log_prefix)
                 if self._process:

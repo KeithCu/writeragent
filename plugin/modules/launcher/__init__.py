@@ -414,7 +414,7 @@ class LauncherModule(ModuleBase):
     # ── Process state ────────────────────────────────────────────────
 
     def _is_running(self):
-        return self._process is not None and self._process.poll() is None
+        return self._process is not None and self._process.process is not None and self._process.process.poll() is None
 
     def _stop_process(self):
         proc = self._process
@@ -422,11 +422,6 @@ class LauncherModule(ModuleBase):
             return
         try:
             proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=3)
         except Exception:
             log.exception("Error stopping CLI process")
         finally:
@@ -575,21 +570,22 @@ class LauncherModule(ModuleBase):
         try:
             log.info("Launching CLI: %s", " ".join(str(c) for c in full_cmd))
             log.info("Working directory: %s", cwd)
-            self._process = subprocess.Popen(
+            
+            def _on_exit(rc):
+                self._process = None
+                if hasattr(self._services, "events"):
+                    self._services.events.emit("menu:update")
+
+            from plugin.framework.process_manager import AsyncProcess
+            self._process = AsyncProcess(
                 full_cmd,
                 env=env,
                 cwd=cwd,
                 start_new_session=True,
                 creationflags=_CREATION_FLAGS,
+                on_exit_cb=_on_exit
             )
-
-            # Monitor in background thread to update menu when process exits
-            t = threading.Thread(
-                target=self._wait_for_exit,
-                daemon=True,
-                name="launcher-monitor",
-            )
-            t.start()
+            self._process.start()
 
         except FileNotFoundError:
             msgbox(ctx, "WriterAgent",
@@ -598,17 +594,3 @@ class LauncherModule(ModuleBase):
             log.exception("Failed to launch CLI")
             msgbox(ctx, "WriterAgent",
                    "Failed to launch AI CLI.")
-
-    def _wait_for_exit(self):
-        """Wait for CLI process to exit, then trigger menu update."""
-        proc = self._process
-        if proc is None:
-            return
-        try:
-            proc.wait()
-        except Exception:
-            pass
-        finally:
-            self._process = None
-            if hasattr(self._services, "events"):
-                self._services.events.emit("menu:update")

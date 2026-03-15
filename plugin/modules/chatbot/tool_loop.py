@@ -273,7 +273,8 @@ class ToolCallingMixin:
                 )
                 q.put(("error", e))
 
-        threading.Thread(target=run, daemon=True).start()
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(run, name=f"llm-worker-{round_num}")
 
     def _spawn_final_stream(self, q, client, max_tokens):
         """Spawn a background thread for a final no-tools stream into q."""
@@ -306,7 +307,8 @@ class ToolCallingMixin:
             except Exception as e:
                 q.put(("error", e))
 
-        threading.Thread(target=run_final, daemon=True).start()
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(run_final, name="llm-worker-final")
 
     def _start_tool_calling_async(
         self,
@@ -571,7 +573,8 @@ class ToolCallingMixin:
                                 )
                             )
 
-                    threading.Thread(target=run_async, daemon=True).start()
+                    from plugin.framework.worker_pool import run_in_background
+                    run_in_background(run_async, name=f"tool-async-{func_name}")
                 else:
                     # --- SYNC EXECUTION (UNO tools) ---
                     try:

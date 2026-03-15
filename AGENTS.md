@@ -286,7 +286,23 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
  
  ---
  
+ ## 3g. Threading and Process Management Consolidation
+ 
+ **Issue**: The codebase had scattered, ad-hoc usages of `threading.Thread` and `subprocess.Popen` for background tasks, leading to redundancy, potential resource leaks, and inconsistent error handling.
+ 
+ **Fix**:
+ - Created `plugin/framework/worker_pool.py` with `run_in_background` to standardize daemon thread creation with built-in exception catching and logging.
+ - Created `plugin/framework/process_manager.py` with `AsyncProcess` to handle `subprocess.Popen` lifecycles, stream draining (stdout/stderr), and exit callbacks asynchronously.
+ - Refactored `plugin/modules/http/mcp_protocol.py`, `plugin/main.py`, `plugin/framework/dialogs.py`, `plugin/modules/chatbot/send_handlers.py`, and `plugin/modules/chatbot/tool_loop.py` to use `run_in_background` instead of bare `threading.Thread`.
+ - Refactored `plugin/modules/launcher/__init__.py` and `plugin/modules/tunnel/__init__.py` to manage their external CLIs using `AsyncProcess`.
+ - Refactored `plugin/modules/agent_backend/cli_backend.py` to use `run_in_background` for its reader loops.
+ 
+ **Result**: Threading and process management are now centralized in the framework, making the system more robust and easier to maintain.
+ 
+ ---
+ 
  ## 4. Shared Helpers
+
 
 - **`MainJob._apply_settings_result(self, result)`** (`plugin/main.py`): Applies settings dialog result to config. Used by both Writer and Calc settings branches.
 - **`plugin/framework/logging.py`**:

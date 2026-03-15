@@ -209,7 +209,8 @@ def bootstrap(ctx=None):
                                  lambda **kw: notify_menu_update())
 
         # Pre-load icons into ImageManager so first menu display has them
-        threading.Thread(target=_update_menu_icons, daemon=True).start()
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(_update_menu_icons)
 
 
 
@@ -341,7 +342,8 @@ def notify_menu_update():
                 pass
         _status_listeners[:] = alive
     # Update icons in a background thread (avoids blocking UI)
-    threading.Thread(target=_update_menu_icons, daemon=True).start()
+    from plugin.framework.worker_pool import run_in_background
+    run_in_background(_update_menu_icons)
 
 
 def _fire_status_event(listener, url, text):
@@ -553,15 +555,12 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             self._handle_calc_actions(args, model)
 
     def _handle_framework_actions(self, args):
-        framework_args = ("ToggleMCPServer", "MCPStatus", "TestTypes", "DrainMCP", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
+        framework_args = ("ToggleMCPServer", "MCPStatus", "TestTypes", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
         if args not in framework_args:
             return False
             
         if args == "ToggleMCPServer": _dispatch_command("http.toggle_server")
         elif args == "MCPStatus": _dispatch_command("http.server_status")
-        elif args == "DrainMCP":
-            from plugin.modules.http.mcp_protocol import drain_mcp_queue
-            drain_mcp_queue()
         else:
             _dispatch_command("main." + args)
         return True
@@ -652,8 +651,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             bootstrap(self.ctx)
             _dispatch_command(command)
             # After action, push updated menu text
-            threading.Thread(target=notify_menu_update,
-                             daemon=True).start()
+            from plugin.framework.worker_pool import run_in_background
+            run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
             msgbox(self.ctx, "Dispatch Error", str(e))

@@ -157,7 +157,8 @@ class SendHandlersMixin:
                 debug_log("Direct image path ERROR: %s" % e, context="Chat")
                 q.put(("error", e))
 
-        threading.Thread(target=run_direct_image, daemon=True).start()
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(run_direct_image)
         try:
             toolkit = self.ctx.getServiceManager().createInstanceWithContext(
                 "com.sun.star.awt.Toolkit", self.ctx
@@ -302,7 +303,8 @@ class SendHandlersMixin:
             finally:
                 self._current_agent_backend = None
 
-        threading.Thread(target=run_agent, daemon=True).start()
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(run_agent)
 
         try:
             toolkit = self.ctx.getServiceManager().createInstanceWithContext(
@@ -461,7 +463,8 @@ class SendHandlersMixin:
             except Exception as e:
                 q.put(("error", e))
 
-        threading.Thread(target=run_search, daemon=True).start()
+        from plugin.framework.worker_pool import run_in_background
+        run_in_background(run_search)
 
         try:
             toolkit = self.ctx.getServiceManager().createInstanceWithContext(
