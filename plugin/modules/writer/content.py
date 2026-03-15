@@ -146,9 +146,10 @@ class ApplyDocumentContent(ToolBase):
 
     name = "apply_document_content"
     description = (
-        "Insert or replace content. Provide old_content and content. "
-        "Use '' or '_BEGIN_' to insert at beginning; '_END_' at end; '_SELECTION_' at cursor/selection. "
-        "Otherwise old_content is the text to find and replace. For full-doc replace, use full document text as old_content."
+        "Insert or replace content. "
+        "Use target='full_document' to replace the whole document. "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text."
     )
     parameters = {
         "type": "object",
@@ -162,19 +163,23 @@ class ApplyDocumentContent(ToolBase):
                     "Do not use Markdown."
                 ),
             },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to apply the content.",
+            },
             "old_content": {
                 "type": "string",
                 "description": (
-                    "Text to find and replace with content; or special value: '' or '_BEGIN_' = beginning of document, "
-                    "'_END_' = end of document, '_SELECTION_' = cursor/selection. HTML in old_content is converted to plain text for matching."
+                    "Text to find and replace with content if target = 'search'."
                 ),
             },
             "all_matches": {
                 "type": "boolean",
-                "description": "Replace all occurrences (true) or first only. Default false. Only for find-and-replace.",
+                "description": "Replace all occurrences (true) or first only. Default false. Only for target='search'.",
             },
         },
-        "required": ["content", "old_content"],
+        "required": ["content"],
     }
     doc_types = ["writer"]
     tier = "core"
@@ -183,8 +188,15 @@ class ApplyDocumentContent(ToolBase):
     def execute(self, ctx, **kwargs):
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
-        if old_content is None:
-            return {"status": "error", "message": "Provide old_content (use '' or '_BEGIN_' for beginning, '_END_' for end, '_SELECTION_' for selection, or text to find and replace)."}
+        target = kwargs.get("target")
+
+        if not target and old_content is not None:
+            target = "search"
+        if not target:
+            return {"status": "error", "message": "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace."}
+        
+        if target == "search" and old_content is None:
+            return {"status": "error", "message": "target='search' requires old_content."}
 
         # Normalize content:
         # - If the model (or caller) serialized a list as a JSON string,
@@ -215,7 +227,21 @@ class ApplyDocumentContent(ToolBase):
 
         config_svc = ctx.services.get("config")
 
-        # -- old_content: special values → insert at position; empty / _BEGIN_ → beginning; else find and replace ----
+        if target == "full_document":
+            format_support.replace_full_document(ctx.doc, ctx.ctx, content, config_svc=config_svc)
+            return {"status": "ok", "message": "Replaced entire document."}
+        if target == "end":
+            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end", config_svc=config_svc)
+            return {"status": "ok", "message": "Inserted content at end."}
+        if target == "selection":
+            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc)
+            return {"status": "ok", "message": "Inserted content at selection."}
+        if target == "beginning":
+            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc)
+            return {"status": "ok", "message": "Inserted content at beginning."}
+
+        # target == "search" from here on
+        # Backward-compatibility for old_content special values
         old_stripped = str(old_content).strip()
         if old_stripped == _OLD_CONTENT_END:
             format_support.insert_content_at_position(
