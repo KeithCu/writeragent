@@ -229,6 +229,17 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 - **StrReplace-style section replacement**: For replacing a section without finding character positions, use **`old_content`** + **`content`**. The AI sends the existing text (or HTML excerpt from `get_document_content`) as `old_content` and the replacement as `content`; the system finds the text (converting HTML to plain text via LibreOffice when needed) and replaces it. This replaces the previous flow of `search_in_document(return_offsets=true)` then `apply_document_content(target="range", start=..., end=...)`. The `replace_in_document` tool was removed in favor of this single-tool pattern.
 
 ---
+ 
+ ## 3f. Client-side Tool Call Parsers (Local Models)
+ 
+ WriterAgent includes client-side parsers to support local models (e.g., Hermes, Mistral, Llama, DeepSeek) that output raw text tool call markers (like `<tool_call>` or `[TOOL_CALLS]`) instead of structured JSON API responses.
+ 
+ - **Trigger**: Standard response processing in `plugin/modules/http/client.py` (`request_with_tools` and `stream_request_with_tools`) includes a fallback: if `tool_calls` is missing from the provider reply but text `content` is present, it uses `get_parser_for_model(model_name)` to process the string.
+ - **Implementation**: Located in **`plugin/contrib/tool_call_parsers/`**. 
+ - **Shims**: High-level individual parser modules use an internal `openai_compat.py` mock layer so that upstream files do not crash without an `openai` library installation inside the LibreOffice Python environment.
+ - **Credits**: Extracted and adapted from **[hermes-agent](https://github.com/NousResearch/hermes-agent)** (specifically code from its `environments/tool_call_parsers/` directory). Retaining original logic structures for easy upstream merging updates.
+ 
+ ---
 
 ## 3g. Threading and Process Management Consolidation
  

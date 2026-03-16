@@ -846,11 +846,21 @@ class LlmClient:
         raw_content = message.get("content")
         content = _normalize_message_content(raw_content)
         images = message.get("images") or []
+        tool_calls = message.get("tool_calls")
+
+        if not tool_calls and content:
+            from plugin.contrib.tool_call_parsers import get_parser_for_model
+            parser = get_parser_for_model(model or self.config.get("model", ""))
+            if parser:
+                p_content, p_tool_calls = parser.parse(content)
+                if p_tool_calls:
+                    tool_calls = p_tool_calls
+                    content = p_content
 
         return {
             "role": "assistant",
             "content": content,
-            "tool_calls": message.get("tool_calls"),
+            "tool_calls": tool_calls,
             "finish_reason": finish_reason,
             "images": images,
             "usage": result.get("usage", {}),
@@ -901,6 +911,18 @@ class LlmClient:
         raw_content = message_snapshot.get("content")
         content = _normalize_message_content(raw_content)
         tool_calls = message_snapshot.get("tool_calls")
+
+        if not tool_calls and content:
+            from plugin.contrib.tool_call_parsers import get_parser_for_model
+            parser = get_parser_for_model(self.config.get("model", ""))
+            if parser:
+                p_content, p_tool_calls = parser.parse(content)
+                if p_tool_calls:
+                    tool_calls = p_tool_calls
+                    content = p_content
+                    # If we parsed tool calls, finish reason should be 'tool_calls'
+                    if last_finish_reason != "tool_calls":
+                        last_finish_reason = "tool_calls"
 
         return {
             "role": "assistant",

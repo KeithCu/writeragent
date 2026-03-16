@@ -113,6 +113,10 @@ Their pioneering work on AI support for LibreOffice provided the foundation and 
 
 Their work on an embedded MCP (Model Context Protocol) server for LibreOffice was an invaluable reference for expanding WriterAgent's Writer tool set. From their project we adapted production-quality UNO implementations for style inspection, comment management, track-changes control, and table editing — resulting in 12 new Writer tools now available to WriterAgent's embedded AI. We also used their patterns for server lifecycle, health-check probing, and port utilities when we added WriterAgent's built-in MCP HTTP server. We're grateful for the high-quality open work.
 
+**[Hermes Agent](https://github.com/NousResearch/hermes-agent)**
+
+Their client-side tool call parsers (from `environments/tool_call_parsers/`) provide the core logic adapted in our `plugin/contrib/tool_call_parsers/` sub-module, allowing local inference models (Hermes, Mistral, Llama, DeepSeek) to trigger structured tool loops via raw text streams.
+
 ## Performance & Batch Optimizations
 
 To handle complex spreadsheet tasks, WriterAgent is optimized for high-throughput "batch" operations:
