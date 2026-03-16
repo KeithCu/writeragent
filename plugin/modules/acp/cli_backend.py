@@ -163,7 +163,7 @@ class CLIProcessBackend(AgentBackend):
             else:
                 self._reader_ready.set()
                 if line_count[0] <= 50 or line_count[0] % 100 == 0:
-                    debug_log("reader_loop: saw prompt (confirming readiness)", context=self._log_prefix)
+                    debug_log(f"reader_loop: saw prompt (confirming readiness)", context=self._log_prefix)
             return
 
         if not self.should_forward_chunk(line):

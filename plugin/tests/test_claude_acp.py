@@ -7,8 +7,11 @@
 # (at your option) any later version.
 """Tests for the Claude ACP backend adapter."""
 
+import json
+import os
+import queue
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from plugin.modules.acp.claude_proxy import (
     ClaudeBackend,

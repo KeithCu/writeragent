@@ -1,5 +1,6 @@
 """Pytest configuration. Skip tests that require LibreOffice UNO or optional deps when not available."""
 
+import pytest
 
 
 def pytest_ignore_collect(collection_path, config):

@@ -14,14 +14,19 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import json
 from plugin.modules.writer.format_support import (
     document_to_content,
     insert_content_at_position as _insert_content_at_position,
     content_has_markup as _content_has_markup,
     replace_preserving_format as _replace_text_preserving_format,
+    apply_content_at_search,
+    replace_full_document,
     find_text_ranges,
+    _preserving_search_replace,
     _normalize,
 )
+from plugin.framework.document import get_document_length as _doc_text_length_raw
 from plugin.framework.logging import debug_log
 from plugin.framework.uno_helpers import get_desktop
 
@@ -477,6 +482,7 @@ def _insert_colored_word(word):
 
 def _get_colors_at_range(start_off, length):
     """Read CharBackColor for `length` chars starting at absolute offset start_off."""
+    from plugin.framework.document import get_text_cursor_at_range
     text = _test_doc.getText()
     colors = []
     pos_cursor = text.createTextCursor()

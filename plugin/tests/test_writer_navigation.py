@@ -1,4 +1,5 @@
 import unittest
+import json
 from plugin.framework.document import (
     DocumentCache,
     build_heading_tree,

@@ -22,6 +22,7 @@ to keep the LibreOffice UI responsive (processEventsToIdle).
 """
 import queue
 import threading
+import json
 
 from plugin.framework.logging import debug_log
 
@@ -336,7 +337,7 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
     try:
         toolkit = ctx.getServiceManager().createInstanceWithContext(
             "com.sun.star.awt.Toolkit", ctx)
-    except Exception:
+    except Exception as e:
         # Fallback if toolkit isn't available (unlikely in UI context)
         return func(*args, **kwargs)
 

@@ -56,7 +56,7 @@ class AsyncProcess:
         """Starts the process and its monitoring threads."""
         try:
             self.process = subprocess.Popen(self.args, **self._popen_kwargs)
-        except Exception:
+        except Exception as e:
             log.error("Failed to start process: %s", self.args)
             raise
 

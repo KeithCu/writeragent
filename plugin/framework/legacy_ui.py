@@ -82,12 +82,12 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 
 def settings_box(ctx, title="Settings", x=None, y=None):
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
-    from plugin.framework.config import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
+    from plugin.framework.config import get_image_model, get_stt_model, populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
 
     from plugin.framework.logging import debug_log
     debug_log("settings_box entry", context="Settings")
     import unohelper
-    from com.sun.star.awt import XItemListener, XTextListener
+    from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
     smgr = ctx.getServiceManager()
     debug_log("Calling get_settings_field_specs", context="Settings")
@@ -227,7 +227,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                     if field.get("type") == "bool" and is_checkbox:
                         try:
                             set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
-                        except Exception:
+                        except Exception as e:
                             pass
                     elif hasattr(ctrl, "setText"):
                         # Populate options if provided (for select/combo widgets)

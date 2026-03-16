@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from plugin.framework.module_base import ModuleBase
 
 class MyModule(ModuleBase):

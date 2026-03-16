@@ -1,3 +1,4 @@
+import pytest
 
 from plugin.framework.document import (
     normalize_linebreaks,

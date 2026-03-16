@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 
 # Add core to path
 sys.path.insert(0, os.getcwd())
