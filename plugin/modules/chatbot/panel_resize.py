@@ -49,15 +49,50 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
         r = win.getPosSize()
         if r.Width <= 0 or r.Height <= 0:
             return
+        debug_log(
+            "_capture_initial: starting snapshot for win W=%d H=%d" % (r.Width, r.Height),
+            context="Chat",
+        )
         info = {"win_w": r.Width, "win_h": r.Height, "ctrls": {}}
         resp = self._c.get("response")
         if resp:
             rr = resp.getPosSize()
             info["resp_bottom"] = rr.Y + rr.Height
+        bottom_top = None
+        bottom_bottom = None
         for name, ctrl in self._c.items():
             if ctrl:
                 cr = ctrl.getPosSize()
                 info["ctrls"][name] = (cr.X, cr.Y, cr.Width, cr.Height)
+                if "resp_bottom" in info and cr.Y >= info["resp_bottom"]:
+                    if bottom_top is None or cr.Y < bottom_top:
+                        bottom_top = cr.Y
+                    bb = cr.Y + cr.Height
+                    if bottom_bottom is None or bb > bottom_bottom:
+                        bottom_bottom = bb
+
+        if "resp_bottom" in info:
+            if bottom_top is not None:
+                info["bottom_top"] = bottom_top
+                info["bottom_bottom"] = bottom_bottom
+                info["gap_below_response"] = max(0, bottom_top - info["resp_bottom"])
+            else:
+                # Fallback: no controls below response; keep a small gap.
+                info["bottom_top"] = info["resp_bottom"]
+                info["bottom_bottom"] = info["resp_bottom"]
+                info["gap_below_response"] = 2
+
+        debug_log(
+            "_capture_initial: win=(%d,%d) resp_bottom=%s bottom_top=%s gap=%s"
+            % (
+                info["win_w"],
+                info["win_h"],
+                str(info.get("resp_bottom")),
+                str(info.get("bottom_top")),
+                str(info.get("gap_below_response")),
+            ),
+            context="Chat",
+        )
         self._initial = info
 
     def _relayout(self, win):
@@ -65,6 +100,12 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
         w, h = r.Width, r.Height
         if w <= 0 or h <= 0:
             return
+
+        debug_log(
+            "_relayout: win W=%d H=%d (have_initial=%s)"
+            % (w, h, bool(self._initial)),
+            context="Chat",
+        )
 
         if self._initial is None:
             self._capture_initial(win)
@@ -76,6 +117,20 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
         iw = self._initial["win_w"]
         ih = self._initial["win_h"]
         resp_bottom = self._initial.get("resp_bottom", 0)
+        gap_below_response = self._initial.get("gap_below_response", 2)
+        bottom_top_initial = self._initial.get("bottom_top")
+        bottom_bottom_initial = self._initial.get("bottom_bottom")
+
+        # Compute where the bottom control group should start for this window height.
+        bottom_top_new = None
+        if bottom_top_initial is not None and bottom_bottom_initial is not None:
+            cluster_height = bottom_bottom_initial - bottom_top_initial
+            # Keep a small fixed margin from the true bottom so controls are visually "at the bottom".
+            bottom_margin = 10
+            candidate = h - bottom_margin - cluster_height
+            # Never push the bottom controls above the original gap below the response.
+            min_from_gap = resp_bottom + gap_below_response
+            bottom_top_new = max(min_from_gap, candidate)
 
         # Use anchoring/filling instead of scaling ratios to prevent feedback loops.
         # Controls in fluid_controls will stretch to fill width.
@@ -89,7 +144,7 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             "aspect_ratio_selector",
         )
 
-        top_of_bottom = h  # will track highest new_y below response
+        top_of_bottom = h  # will track highest new_y (smallest Y) below response
         for name, ctrl in self._c.items():
             if not ctrl or name == "response":
                 continue
@@ -109,8 +164,13 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
                 new_w = ow
 
             if oy >= resp_bottom:
-                # Anchor to bottom: preserve distance from bottom edge
-                new_y = h - (ih - oy)
+                # Part of the bottom control group: keep relative spacing but move group toward bottom.
+                if bottom_top_new is not None and bottom_top_initial is not None:
+                    delta = bottom_top_new - bottom_top_initial
+                    new_y = oy + delta
+                else:
+                    # Fallback: preserve distance from bottom edge (original behavior).
+                    new_y = h - (ih - oy)
                 cur = ctrl.getPosSize()
                 if (
                     cur.X != new_x
@@ -136,7 +196,7 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
         resp_ctrl = self._c.get("response")
         if resp_orig and resp_ctrl:
             rx, ry, rw, rh = resp_orig
-            gap = resp_bottom - (ry + rh)  # original gap below response
+            gap = gap_below_response
             if gap < 0:
                 gap = 2
             new_rh = max(30, top_of_bottom - gap - ry)
