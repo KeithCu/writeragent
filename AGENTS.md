@@ -230,13 +230,14 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 
 ---
  
- ## 3f. Client-side Tool Call Parsers (Local Models)
+ ## 3f. Client-side Tool Call Parsers & Hermes
  
  WriterAgent includes client-side parsers to support local models (e.g., Hermes, Mistral, Llama, DeepSeek) that output raw text tool call markers (like `<tool_call>` or `[TOOL_CALLS]`) instead of structured JSON API responses.
  
  - **Trigger**: Standard response processing in `plugin/modules/http/client.py` (`request_with_tools` and `stream_request_with_tools`) includes a fallback: if `tool_calls` is missing from the provider reply but text `content` is present, it uses `get_parser_for_model(model_name)` to process the string.
  - **Implementation**: Located in **`plugin/contrib/tool_call_parsers/`**. 
  - **Shims**: High-level individual parser modules use an internal `openai_compat.py` mock layer so that upstream files do not crash without an `openai` library installation inside the LibreOffice Python environment.
+ - **Hermes Slash Commands**: When the Agent Backend is set to Hermes, WriterAgent supports Hermes' native slash commands (like `/help`, `/reset`, `/model`). It detects the `/` prefix and forwards the message exactly as-is over the ACP stdio transport, bypassing `[DOCUMENT CONTENT]` context wrapping so the Hermes agent intercepts it cleanly.
  - **Credits**: Extracted and adapted from **[hermes-agent](https://github.com/NousResearch/hermes-agent)** (specifically code from its `environments/tool_call_parsers/` directory). Retaining original logic structures for easy upstream merging updates.
  
  ---

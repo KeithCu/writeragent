@@ -242,31 +242,42 @@ class HermesBackend(AgentBackend):
 
         # Build prompt content blocks
         prompt_blocks = []
-        if system_prompt:
+        is_slash_command = user_message.strip().startswith("/")
+
+        if is_slash_command:
+            # For slash commands, only send the command itself so that Hermes'
+            # ACP adapter (`user_text.startswith("/")`) can intercept it cleanly,
+            # and we avoid polluting the command with document context.
             prompt_blocks.append({
                 "type": "text",
-                "text": system_prompt,
+                "text": user_message,
             })
-        if document_context:
+        else:
+            if system_prompt:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": system_prompt,
+                })
+            if document_context:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": f"[DOCUMENT CONTENT]\n{document_context}",
+                })
+            if selection_text:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": f"[SELECTED TEXT]\n{selection_text}",
+                })
+            if document_url:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": f"Document URL: {document_url}",
+                })
+            # Always add the user message last
             prompt_blocks.append({
                 "type": "text",
-                "text": f"[DOCUMENT CONTENT]\n{document_context}",
+                "text": user_message,
             })
-        if selection_text:
-            prompt_blocks.append({
-                "type": "text",
-                "text": f"[SELECTED TEXT]\n{selection_text}",
-            })
-        if document_url:
-            prompt_blocks.append({
-                "type": "text",
-                "text": f"Document URL: {document_url}",
-            })
-        # Always add the user message last
-        prompt_blocks.append({
-            "type": "text",
-            "text": user_message,
-        })
 
         # Set up notification handler for streaming updates
         def on_notification(method, params, msg_id=None):
@@ -323,7 +334,7 @@ class HermesBackend(AgentBackend):
         session_update = update.get("session_update", update.get("sessionUpdate", ""))
         debug_log(f"session_update: {session_update}, payload: {update}", context=_LOG)
 
-        if session_update in ("text", "agent_thought_chunk"):
+        if session_update in ("text", "agent_thought_chunk", "agent_message_chunk"):
             # Streaming text or thought from the agent
             text = update.get("chunk", update.get("text", update.get("content", "")))
             if isinstance(text, dict):
