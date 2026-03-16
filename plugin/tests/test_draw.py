@@ -82,15 +82,41 @@ def test_create_and_verify_shape():
             pytest.skip("Requires LibreOffice document from native runner")
     except ImportError:
         pass
+
+    # 0. Test add_slide
+    initial_page_count = _test_doc.getDrawPages().getCount()
+    result = _exec_tool("add_slide", {})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"add_slide failed: {result}"
+    new_page_count = _test_doc.getDrawPages().getCount()
+    assert new_page_count == initial_page_count + 1, "Page count did not increase after add_slide"
+
     # 1. Create shape
+    active_page = _test_doc.getCurrentController().getCurrentPage()
+    if active_page is None:
+        active_page = _test_doc.getDrawPages().getByIndex(0)
+    initial_shape_count = active_page.getCount()
+
     result = _exec_tool("create_shape", {
         "shape_type": "rectangle",
-        "x": 2000, "y": 2000, "width": 5000, "height": 3000,
+        "x": 1000, "y": 1000, "width": 5000, "height": 3000,
         "text": "Hello Draw",
         "bg_color": "#FF0000"
     })
     data = json.loads(result)
     assert data.get("status") == "ok", f"create_shape failed: {result}"
+
+    new_shape_count = active_page.getCount()
+    assert new_shape_count == initial_shape_count + 1, "Shape count did not increase after create_shape"
+
+    # Query the created shape's Position and Size properties via UNO
+    created_shape = active_page.getByIndex(new_shape_count - 1)
+    pos = created_shape.getPosition()
+    size = created_shape.getSize()
+    assert pos.X == 1000, f"Expected X=1000, got {pos.X}"
+    assert pos.Y == 1000, f"Expected Y=1000, got {pos.Y}"
+    assert size.Width == 5000, f"Expected Width=5000, got {size.Width}"
+    assert size.Height == 3000, f"Expected Height=3000, got {size.Height}"
 
     # 2. Get draw summary to find shape_id
     result = _exec_tool("get_draw_summary", {"page_index": 0})
