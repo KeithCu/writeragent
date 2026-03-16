@@ -185,7 +185,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # Sidebar does not show the panel content without this (framework does not make it visible).
         if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
             self.m_panelRootWindow.setVisible(True)
-            # Theme (background + control colors) is applied in _apply_sidebar_theme from panel_wiring
         # Constrain panel only when parent already has size (layout may be 0x0 here).
         parent_rect = self.xParentWindow.getPosSize()
         if parent_rect.Width > 0 and parent_rect.Height > 0:

@@ -8,11 +8,6 @@ from plugin.framework.uno_helpers import (
 from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
 
-def _apply_sidebar_theme(root_window, ctx):
-    """Temporarily disabled: rely on LibreOffice's own theming for the sidebar."""
-    debug_log("[SidebarTheme] skipping custom theming; using LibreOffice defaults", context="Chat")
-
-
 def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     """Main entry point to wire all controls for the panel."""
     debug_log("_wireControls entered", context="Chat")
@@ -43,8 +38,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         "query_label": get_optional("query_label"),
         "backend_indicator": get_optional("backend_indicator"),
     }
-
-    _apply_sidebar_theme(root_window, self.ctx)
 
     # Helper to show errors visibly in the response area
     def _show_init_error(msg):
@@ -96,8 +89,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         active_greeting = get_greeting_for_document(model)
 
     self._render_session_history(self.session, controls["response"], model, active_greeting)
-
-    _apply_sidebar_theme(root_window, self.ctx)
 
     # 4. Buttons
     self._wire_buttons(controls, model, active_greeting, set_control_enabled)
