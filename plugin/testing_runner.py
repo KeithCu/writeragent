@@ -173,6 +173,13 @@ def run_all_tests(ctx: Any) -> str:
     except ImportError:
         pass
 
+    # Chatbot integration tests
+    try:
+        import plugin.tests.test_chatbot_integration as test_chatbot_integration
+        _run_suite(ctx, suites, "chatbot.test_chatbot_integration", test_chatbot_integration)
+    except ImportError:
+        pass
+
     # Writer markdown / format-preserving tests
     try:
         from plugin.framework.document import is_writer  # local import to avoid hard dependency if unused
