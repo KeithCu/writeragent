@@ -370,7 +370,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
 
     for m in modules:
         name = m["name"]
-        if name == "ai" or name == "main" or name in inline_set:
+        if name in ("ai", "main", "core") or name in inline_set:
             continue
         if name in ("tunnel", "launcher"):
             continue

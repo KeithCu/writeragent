@@ -26,6 +26,7 @@ import threading
 _debug_log_path = None
 _agent_log_path = None
 _enable_agent_log = False
+_log_level_numeric = 10  # Default to DEBUG
 _init_lock = threading.Lock()
 _exception_hooks_installed = False
 
@@ -58,6 +59,31 @@ def init_logging(ctx):
                 _debug_log_path = os.path.join(udir, DEBUG_LOG_FILENAME)
                 _agent_log_path = os.path.join(udir, AGENT_LOG_FILENAME)
                 _enable_agent_log = config.as_bool(config.get_config(ctx, "enable_agent_log"))
+        except Exception:
+            pass
+
+        try:
+            from plugin.framework import config
+            import logging
+            level_str = config.get_config(ctx, "log_level", "WARN")
+            
+            # Detect release build (absence of plugin/tests)
+            is_release = not os.path.isdir(os.path.join(os.path.dirname(os.path.dirname(__file__)), "tests"))
+            if is_release:
+                level_str = "WARN"
+                
+            numeric_level = getattr(logging, level_str.upper(), logging.WARNING)
+            global _log_level_numeric
+            _log_level_numeric = numeric_level
+            
+            logger = logging.getLogger("writeragent")
+            logger.setLevel(numeric_level)
+            
+            if not logger.handlers:
+                handler = logging.FileHandler(_debug_log_path, encoding='utf-8')
+                formatter = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
         except Exception:
             pass
 
@@ -121,19 +147,23 @@ def _get_agent_path():
 def log_exception(ex, context="AIHorde"):
     """Log an exception with traceback to the unified debug log. Used by aihordeclient and others."""
     try:
+        import logging
         tb = getattr(ex, "__traceback__", None)
         if tb is not None:
             tb_lines = traceback.format_exception(type(ex), ex, tb)
             msg = "".join(tb_lines).strip()
         else:
             msg = str(ex)
-        debug_log(msg, context=context)
+        debug_log(msg, context=context, level=logging.ERROR)
     except Exception:
-        debug_log(str(ex), context=context)
+        import logging
+        debug_log(str(ex), context=context, level=logging.ERROR)
 
 
-def debug_log(msg, context=None):
-    """Write one line to the unified debug log. Uses global path (set by init_logging). No ctx needed."""
+def debug_log(msg, context=None, level=10):  # 10 is logging.DEBUG
+    """Write one line to the unified debug log if level >= configured level."""
+    if level < _log_level_numeric:
+        return
     try:
         now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         ms = int((time.time() % 1) * 1000)

@@ -3,19 +3,19 @@ title: Core services (config, events, logging)
 provides_services: [document, config, events, format]
 requires: []
 
-# config:
-#   log_level:
-#     type: string
-#     default: WARN
-#     widget: select
-#     label: Log Level
-#     public: true
-#     options:
-#       - value: DEBUG
-#         label: Debug
-#       - value: INFO
-#         label: Info
-#       - value: WARN
-#         label: Warning
-#       - value: ERROR
-#         label: Error
+config:
+  log_level:
+    type: string
+    default: DEBUG
+    widget: select
+    label: Log Level
+    internal: true
+    options:
+      - value: DEBUG
+        label: Debug
+      - value: INFO
+        label: Info
+      - value: WARN
+        label: Warning
+      - value: ERROR
+        label: Error

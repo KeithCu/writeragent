@@ -584,6 +584,22 @@ For the DSPy/OpenRouter prompt evaluation framework under `scripts/prompt_optimi
 
 ---
 
+## 7d. Sidebar resize layout fix — March 2026
+
+- **Issue**: The chat sidebar response area did not always expand to fill available vertical space while keeping the controls visually at the bottom of the panel. The gap between the response box and the bottom button row changed (or disappeared) as the sidebar was resized because `_PanelResizeListener` miscomputed the "gap below response" and treated each bottom control independently instead of as a single cluster.
+- **Root cause**: `_capture_initial()` stored `resp_bottom` as the bottom of the response control and `_relayout()` recomputed `gap = resp_bottom - (ry + rh)`. Since `resp_bottom == ry + rh`, the gap was effectively 0 and the original spacing between the response box and lower controls was lost. We also never recorded the initial top/bottom of the *bottom control group*, so the group could float arbitrarily above the true window bottom.
+- **Fix (geometry)**: `_capture_initial()` in `plugin/modules/chatbot/panel_resize.py` now:
+  - Records `resp_bottom`, `bottom_top` (smallest Y of any control below the response area), and `bottom_bottom` (largest bottom of those controls).
+  - Computes `gap_below_response = max(0, bottom_top - resp_bottom)` (or a small fallback when there are no lower controls).
+  - Logs a single summary line with the captured layout so we can confirm the runtime geometry in `writeragent_debug.log`.
+- **Fix (relayout)**: `_relayout()` now:
+  - Treats all controls below the response as one **cluster** with initial top/bottom and height.
+  - Computes a new `bottom_top_new` for the cluster based on the current window height, keeping a small fixed bottom margin while ensuring `bottom_top_new >= resp_bottom + gap_below_response`.
+  - Moves each bottom control by the same vertical delta (`oy + (bottom_top_new - bottom_top_initial)`), preserving internal spacing while sliding the whole block toward the bottom.
+  - Uses the stored `gap_below_response` when computing the new response height (`new_rh = max(30, top_of_bottom - gap - ry)`), so the response area always fills the remaining vertical space while keeping a stable gap to the bottom controls.
+
+---
+
 ## 7c. Sidebar theming (dark mode) — March 2026 cleanup
 
 - **What we tried**:
