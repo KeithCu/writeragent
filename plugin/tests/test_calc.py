@@ -178,6 +178,8 @@ def test_formulas_error_detector():
     from plugin.framework.tool_context import ToolContext
 
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
+
+    # Test #DIV/0!
     active_sheet.getCellByPosition(8, 0).setFormula("=1/0")
     tctx = ToolContext(_test_doc, None, "calc", {}, "test")
     res = DetectErrors().execute(tctx, range_name="I1")
@@ -188,6 +190,7 @@ def test_formulas_error_detector():
     err0 = errors[0].get("error", {}) if errors else {}
     assert err0.get("code") == "#DIV/0!", f"Expected #DIV/0!, got: {errors}"
 
+    # Test #NAME?
     active_sheet.getCellByPosition(9, 0).setFormula("=UNKNOWN_NAME()")
     res2 = DetectErrors().execute(tctx, range_name="J1")
     assert res2.get("status") == "ok", f"detect_and_explain_errors #NAME? failed: {res2}"
@@ -195,6 +198,16 @@ def test_formulas_error_detector():
     errors = res2.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}
     assert err0.get("code") == "#NAME?", f"Expected #NAME?, got: {errors}"
+
+    # Test #REF!
+    active_sheet.getCellByPosition(10, 0).setFormula("=#REF!")
+    res3 = DetectErrors().execute(tctx, range_name="K1")
+    assert res3.get("status") == "ok", f"detect_and_explain_errors #REF! failed: {res3}"
+    assert res3.get("result", {}).get("error_count", 0) > 0, "No #REF! errors detected"
+    errors = res3.get("result", {}).get("errors", [])
+    err0 = errors[0].get("error", {}) if errors else {}
+    assert err0.get("code") == "#REF!", f"Expected #REF!, got: {errors}"
+    assert "#REF!" in errors[0].get("suggestion", ""), f"Suggestion does not mention #REF!: {errors[0].get('suggestion')}"
 
 
 @native_test
@@ -347,3 +360,64 @@ def test_import_csv_from_string():
     # The cell at F6 (5, 5) should contain the comma text
     desc = active_sheet.getCellByPosition(5, 5).getString()
     assert desc == "Smart, Funny, Tall", f"Quoted comma parsed incorrectly: {desc}"
+def test_calc_integration_tests():
+    pass
+
+@native_test
+def test_charts_creation_and_listing():
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+
+    # 1. Populate sample data
+    data = [
+        "Month", "Sales",
+        "Jan", "100",
+        "Feb", "150",
+        "Mar", "200",
+        "Apr", "250",
+        "May", "300"
+    ]
+    res_write = _execute_calc_tool("write_formula_range", {"range_name": "A1:B6", "formula_or_values": data})
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+
+    # 2. Create chart
+    res_create = _execute_calc_tool("create_chart", {"data_range": "A1:B6", "chart_type": "bar"})
+    assert res_create.get("status") == "ok", f"create_chart failed: {res_create}"
+
+    # 3. List charts
+    res_list = _execute_calc_tool("list_charts", {})
+    assert res_list.get("status") == "ok", f"list_charts failed: {res_list}"
+    charts = res_list.get("charts", [])
+    assert len(charts) == 1, f"Expected 1 chart, found {len(charts)}"
+    chart_name = charts[0].get("name")
+    assert chart_name is not None, "Chart name should not be None"
+
+    # 4. Query DrawPage for OLE2Shape
+    draw_page = active_sheet.getDrawPage()
+    found_chart_shape = False
+    for i in range(draw_page.getCount()):
+        shape = draw_page.getByIndex(i)
+        if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+            found_chart_shape = True
+            break
+    assert found_chart_shape, "com.sun.star.drawing.OLE2Shape not found on DrawPage"
+
+    # 5. Get chart info
+    res_info = _execute_calc_tool("get_chart_info", {"chart_name": chart_name})
+    assert res_info.get("status") == "ok", f"get_chart_info failed: {res_info}"
+    assert res_info.get("name") == chart_name, "Chart info name mismatch"
+
+    # 6. Edit chart
+    res_edit = _execute_calc_tool("edit_chart", {"chart_name": chart_name, "title": "Monthly Sales"})
+    assert res_edit.get("status") == "ok", f"edit_chart failed: {res_edit}"
+
+    # Verify title change
+    res_info_after_edit = _execute_calc_tool("get_chart_info", {"chart_name": chart_name})
+    assert res_info_after_edit.get("title") == "Monthly Sales", f"Chart title not updated: {res_info_after_edit}"
+
+    # 7. Delete chart
+    res_delete = _execute_calc_tool("delete_chart", {"chart_name": chart_name})
+    assert res_delete.get("status") == "ok", f"delete_chart failed: {res_delete}"
+
+    # Verify deletion
+    res_list_after_delete = _execute_calc_tool("list_charts", {})
+    assert len(res_list_after_delete.get("charts", [])) == 0, "Chart not deleted"
