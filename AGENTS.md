@@ -149,6 +149,12 @@ See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for impleme
   - **Streaming edge cases (LiteLLM-inspired):** `finish_reason=error` → raise; repeated identical content chunks → raise (infinite-loop guard); `finish_reason=stop` with tool_calls → remap to `tool_calls`; delta normalization for Mistral/Azure (`role`/`tool.type`/`function.arguments`). See [LITELLM_INTEGRATION.md](LITELLM_INTEGRATION.md).
 - **OpenRouter STT Cleanup**: Cleaned up the STT model list for OpenRouter by removing redundant "audio" capabilities from text/image models and removing OpenRouter from the Whisper entry (as it's not supported there). Added `google/gemini-3.1-flash-lite-preview` to the default catalog as the primary STT model.
 
+### Audio recording (chat sidebar)
+
+- Audio recording in the chat sidebar uses a bundled `sounddevice` + PortAudio stack (see `plugin/modules/chatbot/audio_recorder.py` and `contrib/audio/`).
+- On systems where the PortAudio backend is missing or incompatible, attempts to start recording can fail with low-level errors (including `AssertionError` from `sounddevice`). These are now caught and surfaced as a user-friendly `"[Audio error: ...]"` message in the sidebar instead of crashing.
+- Typical causes: no microphone devices, misconfigured audio stack, or an older PortAudio library (`libportaudio2`) that does not match the bundled bindings. The error message hints at installing/upgrading PortAudio on Linux when appropriate.
+
 ---
 
 ## 3e. Calc plugin refactor and tool framework migration
