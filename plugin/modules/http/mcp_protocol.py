@@ -25,7 +25,6 @@ import logging
 import threading
 import time
 import uuid
-import queue
 
 from plugin.framework.main_thread import execute_on_main_thread
 

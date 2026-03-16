@@ -11,7 +11,7 @@ Based on VLLM's Llama3JsonToolParser.extract_tool_calls()
 import json
 import re
 import uuid
-from typing import List, Optional
+from typing import List
 
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 

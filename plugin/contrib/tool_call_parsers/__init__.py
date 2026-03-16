@@ -23,7 +23,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple, Type
 
 from plugin.contrib.tool_call_parsers.openai_compat import (
-    ChatCompletionMessageToolCall,
+    ChatCompletionMessageToolCall as ChatCompletionMessageToolCall,
 )
 
 logger = logging.getLogger(__name__)

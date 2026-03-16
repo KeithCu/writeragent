@@ -447,7 +447,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
 
         # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
         try:
-            from plugin.framework.config import get_config, as_bool
+            from plugin.framework.config import get_config
             agent_backend_id = str(get_config(self.ctx, "agent_backend.backend_id") or "builtin").strip().lower()
             if agent_backend_id and agent_backend_id != "builtin":
                 debug_log("_do_send: using agent backend %s" % agent_backend_id, context="Chat")

@@ -1,7 +1,6 @@
 """Registry/XCU generation: Addons.xcu, Accelerators.xcu, SettingsDialog tabs, manifest.xml, description.xml."""
 
 import os
-import re
 import xml.etree.ElementTree as ET
 
 from manifest_xdl import _dlg, _oor, _pretty_name, _DLG_NS, _XS_NS
@@ -518,7 +517,6 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
         pages.append(f"  <!-- === Page {page_num}: {name.title()} Settings === -->\n{page_str}")
         page_num += 1
 
-    import re
     # Replace markers
     # For tabs, we keep everything before tab_marker, and everything starting with "<!-- === Page 1:"
     # For pages, we keep everything up to page_marker, and everything starting with "\n  <!-- OK Button" or "</dlg:bulletinboard>"

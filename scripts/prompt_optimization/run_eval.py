@@ -19,7 +19,6 @@ import argparse
 import json
 import os
 import sys
-import uuid
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -33,8 +32,7 @@ import dspy
 
 from dataset import ALL_EXAMPLES, to_dspy_examples
 from program import build_program
-from metric import TOKEN_PENALTY_LAMBDA
-from eval_core import ExampleEval, run_eval_on_examples, summarize_results
+from eval_core import run_eval_on_examples, summarize_results
 import tools_lo
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"

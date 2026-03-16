@@ -1,5 +1,3 @@
-import json
-import pytest
 from plugin.contrib.tool_call_parsers import (
     get_parser,
     get_parser_for_model,

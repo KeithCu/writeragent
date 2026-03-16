@@ -12,8 +12,7 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 import dspy
-from tools_lo import set_document, get_content_as_html, get_document_content, apply_document_content, find_text, get_tools_subset
-from dataset import ALL_EXAMPLES
+from tools_lo import set_document, get_content_as_html, get_tools_subset
 
 # Default instruction (Writer system prompt). MIPROv2 will propose alternatives.
 try:

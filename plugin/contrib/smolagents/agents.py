@@ -91,7 +91,6 @@ from .models import (
     parse_json_if_needed,
 )
 from .monitoring import (
-    YELLOW_HEX,
     AgentLogger,
     LogLevel,
     Monitor,

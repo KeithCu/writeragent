@@ -16,7 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """In-process UNO bridge for LibreOffice Draw."""
 
-import uno
 import logging
 
 logger = logging.getLogger(__name__)

@@ -2,8 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.modules.http.client import LlmClient, _normalize_message_content
-from plugin.framework.streaming_deltas import accumulate_delta
+from plugin.modules.http.client import LlmClient
 
 def _make_sse_lines(*chunks, done=True):
     """Build SSE byte lines from chunk dicts. Used to mock response stream."""
@@ -176,7 +175,6 @@ class TestStreamingFuzz(unittest.TestCase):
         """Simulate an error in the worker thread to ensure run_stream_drain_loop correctly drains it without breaking processEventsToIdle() loop."""
         from plugin.framework.async_stream import run_stream_drain_loop
         import queue
-        import time
 
         class DummyToolkit:
             def processEventsToIdle(self):

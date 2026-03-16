@@ -32,7 +32,6 @@ Hermes docs: https://github.com/NousResearch/hermes-agent
 import json
 import os
 import shutil
-import subprocess
 import threading
 import time
 

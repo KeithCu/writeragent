@@ -1,5 +1,3 @@
-import pytest
-import queue
 import threading
 
 from plugin.framework.main_thread import (

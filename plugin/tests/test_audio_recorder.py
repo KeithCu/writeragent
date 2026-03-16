@@ -1,6 +1,5 @@
 import os
 import wave
-import pytest
 from unittest.mock import MagicMock, patch
 from plugin.modules.chatbot.audio_recorder import AudioRecorder
 

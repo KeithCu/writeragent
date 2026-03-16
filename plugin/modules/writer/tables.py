@@ -18,7 +18,6 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
 
 log = logging.getLogger("writeragent.writer")
 

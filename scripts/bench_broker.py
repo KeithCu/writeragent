@@ -23,7 +23,6 @@ sys.path.insert(0, ROOT)
 def collect_tools():
     """Instantiate all ToolBase subclasses from the codebase."""
     from plugin.framework.tool_base import ToolBase
-    from plugin.framework.schema_convert import to_openai_schema
     import importlib
     import inspect
     import pkgutil

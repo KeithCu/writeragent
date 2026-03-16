@@ -5,7 +5,6 @@ import subprocess
 import threading
 import queue
 import time
-import uuid
 import json
 
 _lo_queue = queue.Queue()

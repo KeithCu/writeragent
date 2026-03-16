@@ -23,9 +23,9 @@
 
 
 from datetime import date, datetime
-from pathlib import Path
+
 from time import sleep
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Union
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 from plugin.framework.translation_tool import opustm_hf_translate, OPUSTM_SOURCE_LANGUAGES  # noqa F401
@@ -39,10 +39,8 @@ import gettext
 import json
 import locale
 import math
-import os
 import socket
 import tempfile
-import time
 
 _ = gettext.gettext
 

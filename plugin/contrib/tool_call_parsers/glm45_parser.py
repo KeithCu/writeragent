@@ -16,7 +16,7 @@ import ast
 import json
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 

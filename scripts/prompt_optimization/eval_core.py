@@ -12,7 +12,6 @@ from typing import Any, Iterable, List, Tuple
 
 import dspy
 
-from dataset import to_dspy_examples
 from metric import TOKEN_PENALTY_LAMBDA
 from program import build_program
 
