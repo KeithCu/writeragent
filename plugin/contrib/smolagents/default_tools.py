@@ -22,7 +22,7 @@ from .local_python_executor import (
     MAX_EXECUTION_TIME_SECONDS,
     evaluate_python_code,
 )
-from .tools import PipelineTool, Tool
+from .tools import Tool
 
 USE_MARKDOWN = False
 

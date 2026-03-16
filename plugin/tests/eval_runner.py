@@ -16,11 +16,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import json
 import time
-import ast
 import traceback
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import get_api_config
-from plugin.framework.logging import debug_log, agent_log
+from plugin.framework.logging import debug_log
 from plugin.framework.document import get_document_context_for_chat
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.pricing import fetch_openrouter_pricing, calculate_cost

@@ -22,7 +22,6 @@ to keep the LibreOffice UI responsive (processEventsToIdle).
 """
 import queue
 import threading
-import json
 
 from plugin.framework.logging import debug_log
 

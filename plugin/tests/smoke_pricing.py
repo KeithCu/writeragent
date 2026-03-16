@@ -1,6 +1,4 @@
 import sys
-import os
-import json
 
 # Mocking ctx for a standalone test
 class MockCtx:
@@ -14,7 +12,7 @@ class MockCtx:
 
 def test_pricing():
     sys.path.append("/home/keithcu/Desktop/Python/writeragent")
-    from plugin.framework.pricing import calculate_cost, fetch_openrouter_pricing, get_model_pricing
+    from plugin.framework.pricing import calculate_cost, fetch_openrouter_pricing
     
     ctx = MockCtx()
     print("Testing pricing fetch...")

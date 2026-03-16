@@ -1,15 +1,12 @@
 """Tests for plugin.framework.config (ConfigService + ModuleConfigProxy)."""
 
 import json
-import os
-import tempfile
 
 import pytest
 
 from plugin.framework.config import (
     ConfigService,
     ConfigAccessError,
-    ModuleConfigProxy,
 )
 from plugin.framework.event_bus import EventBus
 

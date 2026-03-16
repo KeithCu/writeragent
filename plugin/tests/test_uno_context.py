@@ -1,6 +1,5 @@
 import sys
 from unittest.mock import MagicMock
-import pytest
 
 from plugin.framework.uno_context import set_fallback_ctx, get_ctx
 

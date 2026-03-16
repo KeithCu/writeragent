@@ -1,5 +1,4 @@
 import subprocess
-import time
 
 print("Testing arecord...")
 try:

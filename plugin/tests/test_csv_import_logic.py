@@ -1,6 +1,5 @@
 import unittest
 from unittest.mock import MagicMock, patch
-import io
 import csv
 
 # Mock the parts of core that we don't want to load or that depend on UNO

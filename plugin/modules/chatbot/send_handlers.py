@@ -10,7 +10,6 @@ alternate send flows that would otherwise bloat that class:
 """
 
 import queue
-import threading
 
 
 class SendHandlersMixin:

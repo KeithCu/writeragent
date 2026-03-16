@@ -27,7 +27,7 @@ from typing import Any, Iterable, Sequence
 import dspy
 
 from dataset import ALL_EXAMPLES, to_dspy_examples
-from eval_core import ExampleEval, run_eval_on_examples, summarize_results
+from eval_core import ExampleEval
 from model_configs import MODEL_BY_ID, ModelConfig, get_default_models
 from program import build_program
 import tools_lo as _tools_lo

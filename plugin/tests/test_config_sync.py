@@ -13,7 +13,7 @@ sys.modules['unohelper'] = mock_unohelper
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from plugin.framework.config import get_image_model, set_image_model, get_config, set_config
+from plugin.framework.config import get_image_model, set_image_model
 
 class TestConfigSync(unittest.TestCase):
     def setUp(self):

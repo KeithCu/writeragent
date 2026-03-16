@@ -19,12 +19,10 @@ import os
 import shutil
 import logging
 import uno
-import unohelper
 from pathlib import Path
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from com.sun.star.awt import Size, Point
 from com.sun.star.beans import PropertyValue
-from com.sun.star.beans.PropertyAttribute import TRANSIENT
 
 logger = logging.getLogger(__name__)
 

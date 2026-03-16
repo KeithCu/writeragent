@@ -25,7 +25,6 @@
 # https://github.com/ikks/aihorde-client/blob/main/LICENSE
 
 import json
-from urllib.request import Request
 from plugin.modules.http.client import sync_request
 
 API_TRANSLATE_GRADIO = "https://igortamara-opus-translate.hf.space/call/translate"

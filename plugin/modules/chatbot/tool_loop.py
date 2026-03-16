@@ -7,7 +7,6 @@ multi-round tool-calling loop plus simple streaming fallback.
 import inspect
 import json
 import queue
-import threading
 
 from plugin.framework.async_stream import (
     run_stream_completion_async,
