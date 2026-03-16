@@ -75,29 +75,11 @@ writeragent/
 
 ---
 
-## 3. What Was Done (Dialog Refactor)
+## 3. Dialogs (current design)
 
-### Before
-- Settings and Edit Input dialogs were built **programmatically** with `UnoControlDialog`, `UnoControlEditModel`, etc.
-- Layout issues: wrong sizing, truncation, poor HiDPI behavior, no scrollbar
-
-### After
-- Both dialogs use **XDL files** (XML) loaded via `DialogProvider`
- - `WriterAgentDialogs.SettingsDialog` — multi-page dialog (**General**, **Image Settings**, and auto-generated tabs such as **Http**, **Chatbot**) using the `dlg:page` multi-page approach with tab-switching buttons. **Page 1 (General)** uses a compact layout: endpoint, models, API key, Temperature, Max Tokens, Context Len, Additional Instructions. The **Image Settings** tab has shared options (base size, aspect, gallery, translate), **Seed** for reproducibility, and an **AI Horde** section (toggled by "Use AI Horde for Image Generation"). **MCP Server** (Enable checkbox, Port) is on the **Http** tab. **Show Web Search Thinking** is on the **Chatbot** tab (from `plugin/modules/chatbot/module.yaml`; config key `chatbot.show_search_thinking`). The **Writer** tab is omitted (Writer module has no config). The **Tunnel** tab is disabled in the Settings UI (skipped in `scripts/manifest_registry.py` and `plugin/framework/legacy_ui.py`); re-enable by removing those skips.
- - `WriterAgentDialogs.EditInputDialog` — label + multiline text area + OK
-
-### Key implementation details
-- **DialogProvider with direct package URL**: Dialogs are loaded by their XDL file URL, not the Basic library script URL. This avoids a deadlock that occurs when the sidebar panel is also registered as a UNO component.
-  ```python
-  pip = self.ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
-  base_url = pip.getPackageLocation("org.extension.writeragent")
-  dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-  dlg = dp.createDialog(base_url + "/WriterAgentDialogs/SettingsDialog.xdl")
-  ```
-- **Use `self.ctx`**, not `uno.getComponentContext()` — the extension's component context is required for `PackageInformationProvider` singleton lookup.
-- **Populate**: `dlg.getControl("endpoint").getModel().Text = value`
-- **Read**: `dlg.getControl("endpoint").getModel().Text` after `dlg.execute()`
-- **Manifest** must register the Basic library: `WriterAgentDialogs/` with `application/vnd.sun.star.basic-library`
+- Settings and Edit Selection dialogs are defined as **XDL files** under `WriterAgentDialogs/` and loaded via `DialogProvider.createDialog(base_url + "/WriterAgentDialogs/SettingsDialog.xdl")`.
+- Dialogs use `dlg:page` for multi-page layouts; tabs are wired with `XActionListener` classes that set `dlg.getModel().Step`.
+- Always use the extension component context (`self.ctx`) with `PackageInformationProvider` to resolve `base_url`; do **not** call `uno.getComponentContext()` here.
 
 ---
 
@@ -141,16 +123,9 @@ The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextLis
 
 ### HTML tool-calling (current)
 
-- **get_document_content**: Returns the document (or selection/range) as HTML. Parameters: optional `max_chars`, optional `scope` (`"full"` | `"selection"` | `"range"`); when `scope="range"`, required `start` and `end` (character offsets). Result JSON includes **`document_length`** so the AI can replace the whole doc with `apply_document_content(target="range", start=0, end=document_length)` or use `target="full"`. When `scope="range"`, result also includes `start` and `end` echoed back. Implementation: for full scope tries `XStorable.storeToURL` with FilterName `"HTML (StarWriter)"` to a temp file; on failure or for selection/range uses structural fallback (paragraph enumeration + `ParaStyleName` → headings, lists, blockquote). See `plugin/modules/writer/format_support.py`.
-- **apply_document_content**: Inserts or replaces content using HTML **with native formatting**, or plain text **with format preservation**. **Preferred for section replacement**: provide **`old_content`** (existing document text to find) and **`content`** (replacement); the system finds the text and replaces it (no character positions needed). If `old_content` contains HTML (e.g. pasted from `get_document_content`), it is converted to plain text via LibreOffice's HTML filter before searching. When not using `old_content`, use **`target`**: `"beginning"` | `"end"` | `"selection"` | `"search"` (with `search`) | **`"full"`** | **`"range"`** (with `start`/`end`). **`target="full"`** replaces the entire document. **`target="range"`** replaces the character span `[start, end)`. Implementation: for `old_content` uses `format_support.html_to_plain_text()` when markup is present, then `findFirst` + `replace_preserving_format` or `replace_single_range_with_content`; otherwise writes HTML to a temp file and **`cursor.insertDocumentFromURL(file_url, {FilterName: "HTML (StarWriter)"})`** at the chosen position. See `plugin/modules/writer/content.py` and `format_support.py`. The **`replace_in_document`** tool was removed; use `apply_document_content(old_content=..., content=...)` instead.
-- **Temperature**: Controls randomness (0.0=deterministic, 1.0=creative). Set to `-1` (default) to let the model use its own default setting.
-**Note**: Both Markdown and HTML injection are implemented; further testing will determine the default path for rich formatting and layout control.
-  - **Format-preserving replacement (auto-detected)**: When `target="search"` and the replacement content is **plain text** (no Markdown/HTML markup detected by `_content_has_markup()`), the system automatically uses `_replace_text_preserving_format()` instead of `insertDocumentFromURL`. This replaces text **character-by-character**, so every per-character property (CharBackColor, CharColor, CharWeight, CharHeight, CharPosture, CharUnderline, etc.) is preserved — including exotic formatting the AI has no knowledge of. If the new text is longer, extra characters inherit formatting from the last original character; if shorter, leftover characters are deleted.
-    - **Auto-detect logic** (`_content_has_markup()`): Scans content for common HTML tags (`<b>`, `<table>`, `</`, etc.) and legacy Markdown patterns (`**`, `# `, `` ` ` ``, `|---`). If markup is found → import path (existing behavior). If plain text → format-preserving path. We explicitly favor HTML for richness and backward compatibility (Markdown was added in LO 26.2, and we aim to support older versions).
-    - **Why auto-detect works**: The operation type and content type are naturally correlated. Small text edits like "change Joe Blow to Jane Doe" are sent as `target="search"` with plain text content like `"Jane Doe"` — auto-detect sees no markup → preserves all formatting (bold, italic, background colors, everything). Structural rewrites like "make this look pretty" or "convert to a table" naturally use `target="full"` or `target="range"` with markdown/HTML content — the auto-detect sees markup → uses the import path to apply the new formatting. No system prompt guidance is needed because the AI's natural behavior already routes correctly.
-    - **Important subtlety**: The format-preserving path preserves ALL character properties, not just background colors. Bold (`CharWeight`), italic (`CharPosture`), underline, font size, font color — these are all per-character UNO properties that survive the single-character `setString()` call. So if the AI replaces `"Joe"` (bold+red-bg) with `"Jan"` (plain text), the result is `"Jan"` still bold with the same red background. The AI does NOT need to re-specify formatting it read from the document.
-    - **Edge case**: If the AI unnecessarily wraps a simple replacement in markdown (e.g., sends `"**Jane** Doe"` instead of `"Jane Doe"`), the `**` triggers markup detection and the import path is used, losing background colors. This is a model behavior quirk, not a code issue — the import path is what we had before this feature, so it's no worse than previous behavior. Future hybrid approach: strip markup to plain text, do format-preserving replacement, then apply the markup as character properties on top.
-    - **Implementation**: `_replace_text_preserving_format()` and `_apply_preserving_format_at_search()` in `format_support.py`. Tests in `plugin/tests/format_tests.py` verify `CharBackColor` preservation for same-length, longer, and shorter replacements.
+- **get_document_content**: Returns the document (or a selection/range) as HTML; used to give the model structure-aware context. See `plugin/modules/writer/format_support.py`.
+- **apply_document_content**: Preferred Writer tool for edits. Use `old_content` + `content` for section replacement, or `target` (`"full"`, `"range"`, `"search"`, etc.) for positional edits. Plain-text replacements auto-use a **format-preserving** path so existing character formatting (colors, bold, etc.) is kept.
+- **Temperature**: Controls randomness (0.0=deterministic, 1.0=creative). Set to `-1` (default) to let the model use its own default.
 
 ### System prompt and reasoning (latest)
 
@@ -173,23 +148,6 @@ See [CHAT_SIDEBAR_IMPLEMENTATION.md](CHAT_SIDEBAR_IMPLEMENTATION.md) for impleme
   - **Connection Keep-Alive**: `LlmClient` uses `http.client.HTTPConnection` (or `HTTPSConnection`) for persistent connections. The client instance is cached in `plugin/modules/chatbot/panel_factory.py` (sidebar), `plugin/main.py` (MainJob), and `plugin/prompt_function.py` (Calc =PROMPT()) to reuse connections across multiple requests, significantly improving performance for multi-turn chat and cell recalculations.
   - **Streaming edge cases (LiteLLM-inspired):** `finish_reason=error` → raise; repeated identical content chunks → raise (infinite-loop guard); `finish_reason=stop` with tool_calls → remap to `tool_calls`; delta normalization for Mistral/Azure (`role`/`tool.type`/`function.arguments`). See [LITELLM_INTEGRATION.md](LITELLM_INTEGRATION.md).
 - **OpenRouter STT Cleanup**: Cleaned up the STT model list for OpenRouter by removing redundant "audio" capabilities from text/image models and removing OpenRouter from the Whisper entry (as it's not supported there). Added `google/gemini-3.1-flash-lite-preview` to the default catalog as the primary STT model.
-
----
-
-## 3d. Multi-Document Scoping Fix
-
-**Issue**: When multiple Calc (or Writer) documents were open, the AI agent in one sidebar would edit the wrong document because tool executions and context building used global `desktop.getCurrentComponent()` instead of the document associated with the sidebar's frame.
-
-**Root Cause**: Sidebar panels were not properly scoped to their respective documents. The `CalcBridge` and document context functions relied on the global active document, which changes with user focus.
-
-**Fix**:
-- Modified `CalcBridge.__init__()` and `DrawBridge.__init__()` to take a specific document (`doc`) instead of global context (`ctx`).
-- Updated `execute_calc_tool()`, `execute_draw_tool()`, and `execute_tool()` to take `doc` directly.
-- Changed `get_document_context_for_chat()` and `get_calc_context_for_chat()` to take `doc` instead of `ctx`.
-- In `panel_factory.py`, each panel uses `self.doc = self.xFrame.getController().getModel()` and passes it to all operations.
-- Menu chat continues to use the active document as expected.
-
-**Result**: Each sidebar panel now operates independently on its associated document, preventing cross-contamination when multiple documents are open.
 
 ---
 
@@ -272,21 +230,7 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 
 ---
 
----
- 
- ## 3f. Sidebar Theme Fix
- 
- **Issue**: The sidebar chat panel background remained white (or default light gray) even when LibreOffice was switched to a Dark Mode theme, creating a jarring visual contrast.
- 
- **Fix**:
- - Added `get_dialog_background_color(ctx)` to `plugin/framework/uno_helpers.py`. This helper queries the `/org.openoffice.Office.UI/ColorScheme` configuration node to find the `DialogColor` of the active schema.
- - Updated `plugin/modules/chatbot/panel_factory.py` to apply this background color to the panel's root window during creation (`_getOrCreatePanelRootWindow`).
- 
- **Result**: The sidebar now seamlessly matches the user's chosen LibreOffice theme, including Dark Mode.
- 
- ---
- 
- ## 3g. Threading and Process Management Consolidation
+## 3g. Threading and Process Management Consolidation
  
  **Issue**: The codebase had scattered, ad-hoc usages of `threading.Thread` and `subprocess.Popen` for background tasks, leading to redundancy, potential resource leaks, and inconsistent error handling.
  
@@ -378,42 +322,9 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 
 ## 4b. Critical Learnings: Format Preservation
 
-### The Challenge
-When replacing text (e.g., correcting a name), we must preserve character-level formatting (fonts, colors, bold/italic) even if the replacement text length differs. By default, LibreOffice replacements inherit the formatting of the *insertion point* (usually the character *before*), which wipes out specific formatting on the replaced text itself.
-
-### The Solution: `_replace_text_preserving_format`
-We implemented a custom engine in `plugin/modules/writer/format_support.py` that iterates character-by-character.
-- **Same length**: 1:1 replacement, keeping each character's properties.
-- **Longer**: 1:1 for the overlap, then insert extra chars inheriting from the last original char.
-- **Shorter**: 1:1 for the overlap, then delete the leftover original chars.
-
-### Critical Implementation Details (Gotchas)
-1.  **"Insert After + Delete" Strategy (Robustness)**:
-    - **Problem**: `setString()` on a selection is flaky at paragraph boundaries (often inherits formatting from the *next* char instead of the replaced one), and "insert and replace" can wipe attributes.
-    - **Solution**: Do not replace in-place. Instead, **insert** the new character immediately *after* the old one (inheriting its exact attributes), then **delete** the old character.
-    - **Optimization**: If `new_char == old_char`, skip the operation entirely.
-
-2.  **Performance (O(N) Traversal)**:
-    - **Don't** create a new cursor from the document start for every character (`O(N^2)`). This hangs for >500 chars (30s+).
-    - **Do** use a single **persistent cursor** for traversal. Move it relative to its current position (`goRight(1)`).
-    - **Note**: When using "Insert After + Delete", careful cursor management is needed to advance past the newly inserted character without losing sync. Use local `text.createTextCursorByRange(main_cursor)` clones for the insert/delete ops so the main traversal cursor stays stable.
-
-3.  **ProcessEvents Reliability**:
-    - **Warning**: `toolkit.processEvents()` can sometimes raise exceptions (especially in test environments or headless contexts). Always wrap it in a `try/except` block and disable if it fails.
-
-2.  **Raw Content vs. HTML Wrapping**:
-
-    - **The Bug**: AI often sends plain text. If `DOCUMENT_FORMAT="html"`, `_ensure_html_linebreaks` wraps this in `<html><body><p>...</p></body></html>`.
-    - **The Injection**: If you pass this wrapped string to the format-preserving function, it will replace your document text with literal HTML source code (e.g., replacing "K" with "<", "e" with "h", "i" with "t", etc.), effectively destroying the document.
-    - **The Fix**: Always modify `tool_apply_document_content` to capture `raw_content` *before* any HTML processing. Use `raw_content` for the format-preserving path. Use `content` (wrapped) only for the standard `insertDocumentFromURL` path.
-
-3.  **Markup Detection Order**:
-    - **Don't** run `_content_has_markup(content)` *after* HTML wrapping. It will always return True (because of the added tags), forcing the non-preserving path.
-    - **Do** run it on the **raw input string** immediately.
-
-4.  **Auto-Detection is Key**:
-    - The AI doesn't know about `target="search"` vs `target="range"` for formatting. It just calls tools.
-    - We must auto-detect plain text in **all** paths (`search`, `range`, `full`). If `content` is plain text, divert to `_replace_text_preserving_format`. This allows "Make this whole paragraph blue" (Markdown path) and "Correct spelling of 'Burtis'" (Preserving path) to work seamlessly with the same tool.
+- **Goal**: When making text edits, preserve character-level formatting (fonts, colors, bold/italic) even if the replacement length changes.
+- **How to use it**: Prefer the Writer tool `apply_document_content` with **plain-text** `content` where possible; the implementation in `plugin/modules/writer/format_support.py` automatically chooses a format-preserving path for simple text replacements.
+- **Gotcha**: Avoid feeding HTML-wrapped strings into the format-preserving path; keep raw text for preservation, and let HTML/Markdown content go through the normal import path.
 
 
 ## 5. Config File
@@ -480,62 +391,7 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 ## 7. What to Do Next
 
-### High priority (from IMPROVEMENT_PLAN.md) — DONE
-- ~~Extract shared API helper; add request timeout~~ (implemented: `stream_completion`, `_get_request_timeout`, config `request_timeout`)
-- ~~Improve error handling (message box instead of writing errors into selection)~~ (implemented: `show_error()` with MessageBox, `format_error_message()`)
-- ~~Refactor duplicate logic~~ (see Section 3c Shared Helpers)
-
-### Dialog-related
-- ~~**Config presets**: Add "Load from file" or preset dropdown in Settings so users can switch config files.~~ (decided against; single-config-file setup is intentionally simple)
-- ~~**EditInputDialog**: Consider multiline for long instructions; current layout is single-line.~~ (implemented: Edit Selection dialog now uses a multiline text area for long, multi-sentence instructions)
-
-### Image generation / Settings dialog
-- ~~**Reorganize Settings Image tab**~~: Done. The tab is titled **Image Settings** and split into a shared section (width, height, auto gallery, insert frame, translate prompt) and an **AI Horde only** section (API key, CFG scale, steps, max wait, NSFW) with a visual separator so users can ignore Horde-specific options when using the same endpoint as chat.
-
-### Format-preserving replacement
-
-### General
-- API key and auth for the configured endpoint are already implemented; optional: endpoint preset dropdown in Settings.
-- Impress support; Calc range-aware behavior.
-- DSPy prompt optimization and evaluation live in `scripts/prompt_optimization/`. `run_eval.py` runs a fixed Writer dataset against the current `DEFAULT_CHAT_SYSTEM_PROMPT` (using mock tools) and reports correctness + token usage; `run_optimize.py` runs DSPy MIPROv2 to search for better system prompts; `run_eval_multi.py` sweeps **multiple models** (from `model_configs.py`) and ranks them by **intelligence per dollar** (average correctness divided by estimated USD cost from list prices). The default multi-model suite now includes `nvidia/llama-3.3-nemotron-super-49b-v1.5` (Llama 3.3 Nemotron Super 49B V1.5 from OpenRouter).
-
-### In-process test runner (debug-only)
-
-- **All tests live under** `plugin/tests/`. Pytest uses `testpaths = ["plugin/tests"]` in pyproject.toml.
-- **Mini test harness (no pytest inside LO)**: `plugin/testing_runner.py` defines `run_all_tests(ctx)` which aggregates in-LibreOffice suites by importing from `plugin.tests.*`:
-  - Framework: `plugin/tests/core_tests.py` (`run_framework_tests`).
-  - Writer markdown/format: `plugin/tests/format_tests.py` (`run_format_tests`).
-  - Writer core/navigation: `plugin/tests/test_writer.py` (`run_writer_tests`).
-  - Calc: `plugin/tests/test_calc.py` (`run_calc_tests`).
-  - Draw: `plugin/tests/test_draw.py` (`run_draw_tests`).
-- **JSON summary**: `run_all_tests(ctx)` returns a JSON string:
-
-  ```json
-  {
-    "total_passed": 10,
-    "total_failed": 1,
-    "suites": [
-      {"name": "writer.format_tests", "passed": 7, "failed": 1, "log": ["OK: ...", "FAIL: ..."]},
-      {"name": "calc.tests", "passed": 3, "failed": 0, "log": ["OK: ..."]}
-    ]
-  }
-  ```
-
-- **Command-line entrypoint (uses LibreOffice Python)**: `plugin/testing_runner.py` is also executable as a module and uses `officehelper.bootstrap()` to start a headless LibreOffice and run tests:
-
-  - Basic usage (from an environment where `officehelper` is available, typically LibreOffice’s Python):
-
-    ```bash
-    python -m plugin.testing_runner
-    ```
-
-  - This prints the JSON summary to stdout and exits with code `0` if `total_failed == 0`, otherwise non-zero. It does **not** depend on MCP/HTTP and does not require any UI interaction (no menus or dialogs).
-
-- **Pytest vs native runner**: LO-dependent suites (`test_calc.py`, `test_chat_model_logic.py`, `test_draw.py`, `test_writer.py`) are not collected by pytest when `uno` is not importable (`plugin/tests/conftest.py`). Native-runner tests use the `@native_test` decorator (from `plugin.testing_runner`); tests that need a live document skip with `pytest.skip(...)` when `_test_doc is None` so they only run when the native runner has executed setup. **ConfigService**: `get()` treats empty string from `get_config()` as missing and falls back to manifest/defaults so unknown keys return `None` and manifest defaults (e.g. `mcp.port`) are used in tests.
-
 ### Optional refactoring (future work)
-- **panel_factory.py**: Split `SendButtonListener._do_send` into smaller methods (e.g. `_do_send_direct_image`, `_do_send_with_tools`, `_do_send_simple_stream`) with a short `_do_send` that validates and dispatches.
-- **plugin/main.py**: Split `trigger()` into handlers (e.g. `_handle_mcp`, `_handle_writer`, `_handle_calc`, `_handle_draw`) so `trigger` only delegates; optionally extract settings populate/read into helpers driven by `field_specs`.
 - **plugin/framework/config.py**: Introduce internal helpers for "read full config" / "write full config" (e.g. build on `get_config_dict`) so `set_config`/`remove_config` share one write path and future caching or storage changes touch one place.
 - **panel_factory.py**: Consider a small doc-type registry (Writer/Calc/Draw → tools + execute function) so choosing tools and executor in `_do_send` is data-driven and adding a new doc type doesn't require editing a long if/elif chain.
 
@@ -559,15 +415,6 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 
 - **Performance (DONE)**: Frequently used regular expressions (e.g., cell reference parsing in `error_detector.py`) are pre-compiled as module-level constants to avoid redundant compilation and cache lookups. Batch operations and efficient set comprehensions are preferred for large-scale document or spreadsheet analysis.
 
-### Agent backends (Aider, Hermes) — Phase 2 DONE
-- **`plugin/modules/agent_backend/`**: Backend abstraction and registry; adapters for **Built-in**, **Aider**, **Hermes** (ACP), **OpenCode**, and **OpenHands**.
-- **Hermes ACP adapter** (`hermes_proxy.py`): Communicates with Hermes via the **Agent Communication Protocol (ACP)** — **stdio JSON-RPC** transport. Spawns `hermes acp` (or `hermes-acp`) as a subprocess; exchanges newline-delimited JSON-RPC messages over stdin/stdout. Protocol flow: `initialize` → `session/new` (with optional MCP server passthrough) → `prompt` (blocking, with streaming `SessionNotification` updates for text chunks, tool calls, and plans). `is_available()` checks for the `hermes`/`hermes-acp` binary in PATH. Supports multi-turn sessions via persistent session_id, cancel via `notifications/cancel`, and HITL approval via `permission/respond`.
-- **MCP Integration**: All external agent backends now use the **WriterAgent MCP server** for tool discovery and document interaction. Instead of receiving a full list of tool definitions in their system prompt, they are informed of the local MCP URL (e.g., `http://localhost:8765`) and the active `X-Document-URL`. This significantly reduces prompt overhead and allows agents to autonomously discover and use all WriterAgent tools (Writer, Calc, Draw).
-- **Sidebar**: When backend is Aider, Hermes, etc. (selected in Settings), `_do_send` branches to `_do_send_via_agent_backend`.
-- **HITL**: `plugin/framework/dialogs.show_approval_dialog(ctx, description, tool_name)` returns True/False. Drain loop in `async_stream.run_stream_drain_loop` handles `approval_required` event and calls optional `on_approval_required(item)`; panel passes callback that shows dialog and calls `adapter.submit_approval(request_id, approved)`.
-
----
-
 ## 7b. Future Roadmap
 
 - **Richer Context**: Metadata awareness (word counts, styles, formula dependencies).
@@ -581,22 +428,6 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 Image generation and AI Horde integration are **complete** (generate_image, edit_image, AI Horde + endpoint providers, Image Settings tab with shared vs Horde-only sections).
 
 For the DSPy/OpenRouter prompt evaluation framework under `scripts/prompt_optimization/`, the multi-model suite in `model_configs.py` now also includes **`nvidia/nemotron-3-super-120b-a12b:free`**, so you can run `run_eval_multi.py` against this free Nemotron 3 Super 120B variant and see it ranked in the intelligence-per-dollar leaderboard.
-
----
-
-## 7d. Sidebar resize layout fix — March 2026
-
-- **Issue**: The chat sidebar response area did not always expand to fill available vertical space while keeping the controls visually at the bottom of the panel. The gap between the response box and the bottom button row changed (or disappeared) as the sidebar was resized because `_PanelResizeListener` miscomputed the "gap below response" and treated each bottom control independently instead of as a single cluster.
-- **Root cause**: `_capture_initial()` stored `resp_bottom` as the bottom of the response control and `_relayout()` recomputed `gap = resp_bottom - (ry + rh)`. Since `resp_bottom == ry + rh`, the gap was effectively 0 and the original spacing between the response box and lower controls was lost. We also never recorded the initial top/bottom of the *bottom control group*, so the group could float arbitrarily above the true window bottom.
-- **Fix (geometry)**: `_capture_initial()` in `plugin/modules/chatbot/panel_resize.py` now:
-  - Records `resp_bottom`, `bottom_top` (smallest Y of any control below the response area), and `bottom_bottom` (largest bottom of those controls).
-  - Computes `gap_below_response = max(0, bottom_top - resp_bottom)` (or a small fallback when there are no lower controls).
-  - Logs a single summary line with the captured layout so we can confirm the runtime geometry in `writeragent_debug.log`.
-- **Fix (relayout)**: `_relayout()` now:
-  - Treats all controls below the response as one **cluster** with initial top/bottom and height.
-  - Computes a new `bottom_top_new` for the cluster based on the current window height, keeping a small fixed bottom margin while ensuring `bottom_top_new >= resp_bottom + gap_below_response`.
-  - Moves each bottom control by the same vertical delta (`oy + (bottom_top_new - bottom_top_initial)`), preserving internal spacing while sliding the whole block toward the bottom.
-  - Uses the stored `gap_below_response` when computing the new response height (`new_rh = max(30, top_of_bottom - gap - ry)`), so the response area always fills the remaining vertical space while keeping a stable gap to the bottom controls.
 
 ---
 
