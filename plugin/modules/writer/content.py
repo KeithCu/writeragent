@@ -142,7 +142,40 @@ _OLD_CONTENT_END = "_END_"
 _OLD_CONTENT_SELECTION = "_SELECTION_"
 
 class ApplyDocumentContent(ToolBase):
-    """Insert or replace content in the document."""
+    """Insert or replace content in the document.
+
+    Design notes (important for callers and future maintainers):
+
+    - **Two edit paths**:
+      - *Import path* (HTML/markup): for structural rewrites (tables, headings,
+        layout changes) we prepare HTML in `format_support` and import it via
+        ``insertDocumentFromURL``. This is what all of the `insert_*` helpers
+        use.
+      - *Format‑preserving path* (plain text): for small textual corrections
+        we avoid HTML entirely and call `format_support.replace_preserving_format`,
+        which mutates characters in place so existing character‑level styling
+        (bold, colors, background fills, etc.) is preserved even when the
+        replacement text length differs.
+
+    - **Decision rule**: we treat content as *plain text* (and thus eligible
+      for format‑preserving replacement) only when `content_has_markup` is
+      false. Any obvious HTML/Markdown markers force the import path. This
+      keeps the heuristic simple and robust: small literal edits naturally
+      stay plain text; rich formatting naturally uses HTML.
+
+    - **Raw vs wrapped content**: `raw_content` is captured *before* any HTML
+      wrapping or newline normalization and is passed to the preserving path;
+      the (possibly HTML‑wrapped) `content` value is passed to the import path.
+      Mixing these up will overwrite document text with serialized HTML rather
+      than the intended human‑readable string.
+
+    - **Search limitations**: LibreOffice search descriptors do not match
+      across paragraphs. When a `target='search'` match is not found via the
+      native search API, we fall back to `_find_range_by_offset`, which builds
+      a temporary full‑text string and locates the range by Python indexing.
+      This keeps behavior intuitive for the model (it can paste multi‑paragraph
+      `old_content`) at the cost of a slightly slower path for those cases.
+    """
 
     name = "apply_document_content"
     description = (

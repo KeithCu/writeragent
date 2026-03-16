@@ -162,6 +162,10 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
                 # Fixed size, anchored left
                 new_x = ox
                 new_w = ow
+                #FIXME, IS THIS NEEDED?
+                if name == "web_research_check":
+                    # Slightly narrow the Web Research checkbox so it doesn't span as wide.
+                    new_w = max(10, int(ow * 0.75))
 
             if oy >= resp_bottom:
                 # Part of the bottom control group: keep relative spacing but move group toward bottom.

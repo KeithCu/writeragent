@@ -16,9 +16,53 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Format conversion helpers for Writer tools.
 
-Handles exporting documents as HTML, importing formatted content via
-``insertDocumentFromURL``, format-preserving text replacement, and
-text search utilities.
+High-level behavior
+-------------------
+
+- **Document → HTML**: `document_to_content` and `_range_to_content_via_temp_doc`
+  export full documents, selections, or character ranges as HTML using the
+  Writer HTML filter. `_strip_html_boilerplate` removes `<body>` wrappers so
+  callers see just the content.
+
+- **HTML / text → document (import path)**: `insert_content_at_position`,
+  `replace_full_document`, `apply_content_at_range`, `apply_content_at_search`,
+  and `replace_single_range_with_content` all flow through
+  ``insertDocumentFromURL``. `_ensure_html_linebreaks` converts plain text
+  (with newlines) into minimal HTML (`<p>`, `<br>`) and `_wrap_html_fragment`
+  ensures a full HTML document when needed so the filter behaves consistently.
+
+- **Format-preserving replacement (plain text path)**: For small textual edits,
+  callers can keep the content as plain text and use
+  `replace_preserving_format` or `_preserving_search_replace`. These walk the
+  document character‑by‑character and change only glyphs, not character
+  properties, so bold/italic, font, color, background, etc. are preserved even
+  when the replacement length differs.
+
+Key gotchas this module protects against
+----------------------------------------
+
+- **Raw content vs. HTML wrapping**: The format‑preserving path must receive
+  the **raw text** the user sees in the document, *not* an HTML‑wrapped
+  version. If you pass the wrapped HTML from `_ensure_html_linebreaks`
+  directly into `replace_preserving_format`, you will overwrite the document
+  with literal markup characters. Callers (e.g. `ApplyDocumentContent`) should
+  therefore capture `raw_content` before any HTML processing and use that
+  solely for preserving‑format replacements.
+
+- **Markup detection order**: `content_has_markup` must be run on the original
+  input string. Running it after `_ensure_html_linebreaks` or `_wrap_html_fragment`
+  will always see `<html>`/`<body>` and force the import path, disabling
+  format‑preserving behavior accidentally.
+
+- **LO search vs. paragraphs**: LibreOffice search descriptors do not match
+  across paragraph boundaries. `_preserving_search_replace` stays within
+  the standard search API, but higher‑level tools (see `content.ApplyDocumentContent`)
+  sometimes need a full‑text fallback (`_find_range_by_offset`) when a match
+  can span multiple paragraphs.
+
+This file intentionally keeps the *mechanics* of HTML import/export and
+format‑preserving replacement here, while higher‑level tool behavior and
+prompt guidance live in `content.py` and system prompts.
 """
 
 import contextlib
