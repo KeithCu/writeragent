@@ -158,3 +158,38 @@ def test_get_draw_context_for_chat():
     has_doc_type = "Draw Document" in ctx_str or "Impress Presentation" in ctx_str
     has_total = "Total" in ctx_str and ("Pages" in ctx_str or "Slides" in ctx_str)
     assert has_doc_type and has_total, "get_draw_context_for_chat missing expected headers"
+
+@native_test
+def test_master_slides():
+    try:
+        import pytest
+        if _test_doc is None:
+            pytest.skip("Requires LibreOffice document from native runner")
+    except ImportError:
+        pass
+
+    # 1. List master slides
+    result = _exec_tool("list_master_slides", {})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"list_master_slides failed: {result}"
+    master_slides = data.get("master_slides", [])
+    assert len(master_slides) > 0, "No master slides found"
+
+    first_master_name = master_slides[0].get("name")
+    assert first_master_name is not None, "Master slide name is missing"
+
+    # 2. Get slide master for page 0
+    result = _exec_tool("get_slide_master", {"page_index": 0})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"get_slide_master failed: {result}"
+
+    # 3. Set slide master for page 0 to the first master we found
+    result = _exec_tool("set_slide_master", {"page_index": 0, "master_name": first_master_name})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"set_slide_master failed: {result}"
+
+    # 4. Verify it was set
+    result = _exec_tool("get_slide_master", {"page_index": 0})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"get_slide_master verify failed: {result}"
+    assert data.get("master_name") == first_master_name, f"Master name mismatch: {data.get('master_name')}"

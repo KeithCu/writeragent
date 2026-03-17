@@ -916,10 +916,11 @@ class CellManipulator:
         except Exception:
             pass
         try:
-            sn = entry.getPropertyValue("StyleName")
+            sn = entry.getStyleName()
             if sn: result["style_name"] = sn
         except Exception:
             pass
+
         return result
 
     # ── Structure operations ───────────────────────────────────────────
