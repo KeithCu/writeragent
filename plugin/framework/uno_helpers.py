@@ -189,16 +189,55 @@ def set_document_property(model, name, value):
     try:
         if hasattr(model, "getDocumentProperties"):
             props = model.getDocumentProperties().UserDefinedProperties
-            if props is not None and hasattr(props, "hasByName") and not props.hasByName(name):
-                # Using a fixed type (string) for session IDs
+            if props is not None:
+                # Some LibreOffice builds expose hasByName; others don't.
+                # Prefer hasByName+addProperty when available, otherwise fall
+                # back to setPropertyValue and, on UnknownPropertyException,
+                # retry with addProperty.
+                exists = False
+                if hasattr(props, "hasByName"):
+                    try:
+                        exists = props.hasByName(name)
+                    except Exception:
+                        exists = False
+
                 from com.sun.star.beans.PropertyAttribute import REMOVABLE
-                props.addProperty(name, REMOVABLE, str(value))
-            elif props is not None and hasattr(props, "setPropertyValue"):
-                props.setPropertyValue(name, str(value))
+                if not exists and hasattr(props, "addProperty"):
+                    # Using a fixed type (string) for session IDs
+                    props.addProperty(name, REMOVABLE, str(value))
+                elif hasattr(props, "setPropertyValue"):
+                    try:
+                        props.setPropertyValue(name, str(value))
+                    except Exception:
+                        # Some implementations raise UnknownPropertyException
+                        # when the property does not yet exist; try addProperty.
+                        try:
+                            if hasattr(props, "addProperty"):
+                                props.addProperty(name, REMOVABLE, str(value))
+                        except Exception:
+                            raise
     except Exception as e:
-        # Fallback to debug log if available, but avoid circular imports
+        # Fallback to debug log if available, but avoid circular imports.
+        # We log richer context here to help diagnose benign startup errors
+        # like the commonly-seen "-1" when setting UserDefinedProperties.
         try:
             from plugin.framework.logging import debug_log
-            debug_log("set_document_property error: %s" % e, context="Chat")
+            doc_url = ""
+            readonly = ""
+            try:
+                if hasattr(model, "getURL"):
+                    doc_url = model.getURL() or ""
+            except Exception:
+                pass
+            try:
+                if hasattr(model, "isReadonly"):
+                    readonly = str(model.isReadonly())
+            except Exception:
+                pass
+            debug_log(
+                "set_document_property error: %r (type=%s, url=%s, readonly=%s)"
+                % (e, type(e).__name__, doc_url, readonly),
+                context="Chat",
+            )
         except Exception:
             pass
