@@ -25,6 +25,7 @@ import urllib.request
 import urllib.parse
 import http.client
 import socket
+import ipaddress
 import datetime
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
@@ -43,6 +44,8 @@ def format_error_message(e):
     import urllib.error
 
     msg = str(e)
+    if isinstance(e, ssl.SSLError):
+        return "TLS/SSL Error: %s" % msg
     if isinstance(e, (urllib.error.HTTPError, http.client.HTTPResponse)):
         code = e.code if hasattr(e, "code") else e.status
         reason = e.reason if hasattr(e, "reason") else ""
@@ -125,6 +128,50 @@ def get_unverified_ssl_context():
     return ssl_context
 
 
+def get_verified_ssl_context():
+    """Create a default verifying SSL context."""
+    return ssl.create_default_context()
+
+
+def _is_certificate_verify_error(e):
+    """Return True when an exception points to certificate validation failure."""
+    if isinstance(e, ssl.SSLCertVerificationError):
+        return True
+    reason = getattr(e, "reason", None)
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return True
+    msg = ("%s %s" % (e, reason or "")).lower()
+    for marker in (
+        "certificate_verify_failed",
+        "certificate verify failed",
+        "self-signed certificate",
+        "self signed certificate",
+        "unable to get local issuer certificate",
+        "hostname mismatch",
+    ):
+        if marker in msg:
+            return True
+    return False
+
+
+def _is_local_host(host):
+    """Heuristic for localhost / LAN hosts where self-signed TLS is common."""
+    host = (host or "").strip().lower()
+    if not host:
+        return False
+    if host in ("localhost", "ip6-localhost", "host.docker.internal"):
+        return True
+    if host.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private or ip.is_link_local
+    except ValueError:
+        pass
+    # Single-label hostnames are usually local network names.
+    return "." not in host
+
+
 def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     """
     Blocking HTTP GET or POST. Shared by aihordeclient and other code.
@@ -161,16 +208,23 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     except Exception:
         pass
 
-    ctx = get_unverified_ssl_context()
-    try:
+    full_url = getattr(req, "full_url", url)
+    parsed = urllib.parse.urlparse(str(full_url))
+    host = parsed.hostname or ""
+    is_local_https = parsed.scheme.lower() == "https" and _is_local_host(host)
+    def _read_with_context(context):
         debug_log(f"About to open URL: {getattr(req, 'full_url', url)}", context="API")
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
             debug_log(f"URL opened, status={resp.getcode()}. Heading to read...", context="API")
             raw = resp.read()
             debug_log(f"Read {len(raw)} bytes", context="API")
             if parse_json:
                 return json.loads(raw.decode("utf-8"))
             return raw
+
+    ctx = get_verified_ssl_context() if is_local_https else get_unverified_ssl_context()
+    try:
+        return _read_with_context(ctx)
     except urllib.error.HTTPError as e:
         status = e.code
         reason = e.reason
@@ -183,6 +237,26 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         debug_log(f"HTTP Error: {msg}", context="API")
         raise Exception(msg) from e
     except Exception as e:
+        if is_local_https and _is_certificate_verify_error(e):
+            debug_log(
+                "Local HTTPS certificate verification failed for %s; retrying unverified." % host,
+                context="API",
+            )
+            try:
+                return _read_with_context(get_unverified_ssl_context())
+            except urllib.error.HTTPError as retry_http_e:
+                status = retry_http_e.code
+                reason = retry_http_e.reason
+                try:
+                    err_body = retry_http_e.read().decode("utf-8", errors="replace")
+                except Exception:
+                    err_body = ""
+                msg = _format_http_error_response(status, reason, err_body)
+                debug_log(f"HTTP Error: {msg}", context="API")
+                raise Exception(msg) from retry_http_e
+            except Exception as retry_e:
+                debug_log(f"Request failed: {format_error_message(retry_e)}", context="API")
+                raise
         debug_log(f"Request failed: {format_error_message(e)}", context="API")
         raise
 
@@ -285,6 +359,7 @@ class LlmClient:
         self.ctx = ctx
         self._persistent_conn = None
         self._conn_key = None  # (scheme, host, port)
+        self._ssl_fallback_hosts = set()
 
     def _get_connection(self):
         """Get or create a persistent http.client connection."""
@@ -298,7 +373,12 @@ class LlmClient:
         if not port:
             port = 443 if scheme == "https" else 80
             
-        new_key = (scheme, host, port)
+        ssl_mode = "plain"
+        if scheme == "https":
+            ssl_mode = "unverified"
+            if _is_local_host(host) and host not in self._ssl_fallback_hosts:
+                ssl_mode = "verified"
+        new_key = (scheme, host, port, ssl_mode)
         
         if self._persistent_conn:
             if self._conn_key != new_key:
@@ -313,7 +393,7 @@ class LlmClient:
         timeout = self._timeout()
         
         if scheme == "https":
-            ssl_context = get_unverified_ssl_context()
+            ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
             self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=timeout)
         else:
             self._persistent_conn = http.client.HTTPConnection(host, port, timeout=timeout)
@@ -386,6 +466,26 @@ class LlmClient:
 
     def _timeout(self):
         return self.config.get("request_timeout", 120)
+
+    def _current_host(self):
+        endpoint = self._endpoint()
+        parsed = urllib.parse.urlparse(endpoint)
+        return parsed.hostname or ""
+
+    def _enable_local_ssl_fallback(self, err):
+        """Switch a local HTTPS host to unverified mode after cert validation fails."""
+        host = self._current_host()
+        if not host or not _is_local_host(host) or not _is_certificate_verify_error(err):
+            return False
+        if host in self._ssl_fallback_hosts:
+            return False
+        self._ssl_fallback_hosts.add(host)
+        debug_log(
+            "Local HTTPS certificate verification failed for %s; retrying unverified." % host,
+            context="API",
+        )
+        self._close_connection()
+        return True
 
     def make_api_request(self, prompt, system_prompt="", max_tokens=70):
         """Build a streaming chat completions request (always chat, no completions path)."""
@@ -764,6 +864,15 @@ class LlmClient:
             if stop_checker and stop_checker():
                 debug_log("Connection error during stop; exiting streaming loop", context="API")
                 return "stop"
+            if self._enable_local_ssl_fallback(e):
+                return self._run_streaming_loop(
+                    method, path, body, headers,
+                    on_content=on_content,
+                    on_thinking=on_thinking,
+                    on_delta=on_delta,
+                    stop_checker=stop_checker,
+                    _retry=False,
+                )
             
             err_msg = format_error_message(e)
             if _retry:
@@ -850,6 +959,8 @@ class LlmClient:
             except (http.client.HTTPException, socket.error, OSError) as e:
                 debug_log("Connection error, closing: %s" % e, context="API")
                 self._close_connection()
+                if self._enable_local_ssl_fallback(e):
+                    continue
                 if attempt == 0:
                     debug_log("Retrying request_with_tools once on fresh connection", context="API")
                     continue

@@ -17,10 +17,10 @@
 """Structural tools: list_sections, goto_page, get_page_objects, refresh_indexes,
 read_section, resolve_bookmark, update_fields."""
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 
-class ListSections(ToolBase):
+class ListSections(ToolBaseDummy):
     name = "list_sections"
     intent = "navigate"
     description = "List all named sections in the document."
@@ -47,7 +47,7 @@ class ListSections(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class GotoPage(ToolBase):
+class GotoPage(ToolBaseDummy):
     name = "goto_page"
     intent = "navigate"
     description = "Navigate the view cursor to a specific page."
@@ -70,7 +70,7 @@ class GotoPage(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class GetPageObjects(ToolBase):
+class GetPageObjects(ToolBaseDummy):
     name = "get_page_objects"
     intent = "navigate"
     description = (
@@ -176,7 +176,7 @@ class GetPageObjects(ToolBase):
         return {"images": images, "tables": tables, "frames": frames}
 
 
-class RefreshIndexes(ToolBase):
+class RefreshIndexes(ToolBaseDummy):
     name = "refresh_indexes"
     intent = "navigate"
     description = "Refresh all document indexes (TOC, bibliography, etc.)."
@@ -202,7 +202,7 @@ class RefreshIndexes(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class ReadSection(ToolBase):
+class ReadSection(ToolBaseDummy):
     """Read the content of a named text section."""
 
     name = "read_section"
@@ -267,7 +267,7 @@ class ReadSection(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class ResolveBookmark(ToolBase):
+class ResolveBookmark(ToolBaseDummy):
     """Resolve a bookmark to its paragraph index and heading text."""
 
     name = "resolve_bookmark"
@@ -351,7 +351,7 @@ class ResolveBookmark(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class UpdateFields(ToolBase):
+class UpdateFields(ToolBaseDummy):
     """Refresh all text fields in the document."""
 
     name = "update_fields"
@@ -386,7 +386,7 @@ class UpdateFields(ToolBase):
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
-class ListBookmarks(ToolBase):
+class ListBookmarks(ToolBaseDummy):
     name = "list_bookmarks"
     intent = "navigate"
     description = (
@@ -416,7 +416,7 @@ class ListBookmarks(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class CleanupBookmarks(ToolBase):
+class CleanupBookmarks(ToolBaseDummy):
     name = "cleanup_bookmarks"
     intent = "navigate"
     description = (

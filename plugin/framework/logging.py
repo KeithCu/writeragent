@@ -47,8 +47,7 @@ def init_logging(ctx):
     """Set global log paths and enable_agent_log from ctx. Idempotent; safe to call from any entry point."""
     global _debug_log_path, _agent_log_path, _enable_agent_log
     with _init_lock:
-        if _debug_log_path is not None:
-            return
+        first_init = _debug_log_path is None
         _debug_log_path = FALLBACK_DEBUG
         _agent_log_path = FALLBACK_AGENT
         _enable_agent_log = False
@@ -79,7 +78,20 @@ def init_logging(ctx):
             logger = logging.getLogger("writeragent")
             logger.setLevel(numeric_level)
             
-            if not logger.handlers:
+            has_matching_handler = False
+            for handler in list(logger.handlers):
+                if not isinstance(handler, logging.FileHandler):
+                    continue
+                if getattr(handler, "baseFilename", "") == _debug_log_path:
+                    has_matching_handler = True
+                    continue
+                try:
+                    logger.removeHandler(handler)
+                    handler.close()
+                except Exception:
+                    pass
+
+            if not has_matching_handler:
                 handler = logging.FileHandler(_debug_log_path, encoding='utf-8')
                 formatter = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
                 handler.setFormatter(formatter)
@@ -87,7 +99,8 @@ def init_logging(ctx):
         except Exception:
             pass
 
-        _install_global_exception_hooks()
+        if first_init:
+            _install_global_exception_hooks()
 
 
 def _get_debug_path():

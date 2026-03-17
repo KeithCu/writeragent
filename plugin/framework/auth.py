@@ -151,7 +151,11 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
     provider_id = _resolve_provider_id(endpoint, provider_hint)
     provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
 
-    if not api_key and provider_cfg.header_style != "none":
+    # For well-known hosted providers (OpenRouter, OpenAI, etc.), an API key
+    # is required and missing keys are treated as configuration errors.
+    # For "custom" endpoints (typically local/self-hosted), an empty key is
+    # allowed and we simply omit auth headers.
+    if not api_key and provider_id != "custom" and provider_cfg.header_style != "none":
         raise AuthError(
             f"No API key configured for endpoint '{endpoint}'.",
             provider=provider_id,

@@ -18,13 +18,13 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 from plugin.modules.writer.ops import find_paragraph_for_range
 
 log = logging.getLogger("writeragent.writer")
 
 
-class ListComments(ToolBase):
+class ListComments(ToolBaseDummy):
     """List all comments (annotations) in the document."""
 
     name = "list_comments"
@@ -82,7 +82,7 @@ class ListComments(ToolBase):
         return result
 
 
-class AddComment(ToolBase):
+class AddComment(ToolBaseDummy):
     """Add a comment anchored to a paragraph."""
 
     name = "add_comment"
@@ -176,7 +176,7 @@ class AddComment(ToolBase):
         return {"status": "ok", "message": "Comment added.", "author": author}
 
 
-class DeleteComment(ToolBase):
+class DeleteComment(ToolBaseDummy):
     """Delete comments by name or author."""
 
     name = "delete_comment"
@@ -249,7 +249,7 @@ class DeleteComment(ToolBase):
         }
 
 
-class ResolveComment(ToolBase):
+class ResolveComment(ToolBaseDummy):
     """Resolve a comment with an optional reason."""
 
     name = "resolve_comment"
@@ -333,7 +333,7 @@ class ResolveComment(ToolBase):
 _WORKFLOW_TASK_PREFIXES = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
 
 
-class Workflow(ToolBase):
+class Workflow(ToolBaseDummy):
     """Single tool for workflow/task operations: scan tasks, get/set status, check stop conditions."""
 
     name = "workflow"
@@ -555,7 +555,7 @@ def _read_annotation(field, para_ranges, text_obj):
 
     return entry
 
-class AddAiSummary(ToolBase):
+class AddAiSummary(ToolBaseDummy):
     name = "add_ai_summary"
     intent = "review"
     description = (
@@ -603,7 +603,7 @@ class AddAiSummary(ToolBase):
             return {"status": "error", "error": str(e)}
 
 
-class GetAiSummaries(ToolBase):
+class GetAiSummaries(ToolBaseDummy):
     name = "get_ai_summaries"
     intent = "review"
     description = "List all MCP-AI summary annotations in the document."
@@ -616,7 +616,7 @@ class GetAiSummaries(ToolBase):
         return {"status": "ok", "summaries": summaries, "count": len(summaries)}
 
 
-class RemoveAiSummary(ToolBase):
+class RemoveAiSummary(ToolBaseDummy):
     name = "remove_ai_summary"
     intent = "review"
     description = "Remove an MCP-AI summary annotation at a paragraph."

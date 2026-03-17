@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 log = logging.getLogger("writeragent.writer")
 
@@ -186,7 +186,7 @@ def _build_match(text, para_idx, ctx_paras, para_count, para_texts):
     }
 
 
-class AdvancedSearch(ToolBase):
+class AdvancedSearch(ToolBaseDummy):
     name = "advanced_search"
     intent = "navigate"
     description = (

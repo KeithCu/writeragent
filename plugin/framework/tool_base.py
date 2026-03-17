@@ -132,3 +132,33 @@ class ToolBase(ABC):
             }
 
         return collection.getByName(item_name)
+
+
+class ToolBaseDummy:
+    """Marker base for temporarily disabled tools.
+
+    Classes deriving from this base are intentionally **not** treated as
+    tools by the registry. To re-enable a tool, change its base class
+    back to ``ToolBase``.
+    """
+
+    name: str | None = None
+
+    def get_collection(self, doc, getter_name, missing_msg=None):
+        """Helper to safely fetch a named collection from a document."""
+        if not hasattr(doc, getter_name):
+            msg = missing_msg or f"Document does not support {getter_name}."
+            return {"status": "error", "message": msg}
+        return getattr(doc, getter_name)()
+
+    def get_item(self, doc, getter_name, item_name, missing_msg=None, not_found_msg=None):
+        """Helper to fetch a specific item from a document's collection."""
+        collection = self.get_collection(doc, getter_name, missing_msg)
+        if isinstance(collection, dict):
+            return collection
+        if not collection.hasByName(item_name):
+            available = list(collection.getElementNames())
+            msg = not_found_msg or f"Item '{item_name}' not found."
+            return {"status": "error", "message": msg, "available": available}
+        return collection.getByName(item_name)
+

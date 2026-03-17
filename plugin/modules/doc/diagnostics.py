@@ -7,12 +7,12 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 log = logging.getLogger("nelson.common")
 
 
-class DocumentHealthCheck(ToolBase):
+class DocumentHealthCheck(ToolBaseDummy):
     """Run structural health checks on a Writer document."""
 
     name = "document_health_check"
@@ -222,7 +222,7 @@ class DocumentHealthCheck(ToolBase):
         }
 
 
-class SetDocumentProtection(ToolBase):
+class SetDocumentProtection(ToolBaseDummy):
     """Set or remove document section protection."""
 
     name = "set_document_protection"

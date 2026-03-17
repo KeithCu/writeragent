@@ -23,7 +23,7 @@ with content_strategy=\"heading_only\". For content under a heading by path
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 log = logging.getLogger("writeragent.writer")
 
@@ -68,7 +68,7 @@ class GetDocumentTree(ToolBase):
         return {"status": "ok", **result}
 
 
-class GetHeadingChildren(ToolBase):
+class GetHeadingChildren(ToolBaseDummy):
     name = "get_heading_children"
     intent = "navigate"
     description = (

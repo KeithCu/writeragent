@@ -7,7 +7,7 @@ except ImportError:
 try:
     from plugin.testing_runner import setup, teardown, native_test
     from plugin.framework.uno_helpers import get_desktop
-    from plugin.modules.writer.search import SearchInDocument, AdvancedSearch, GetIndexStats
+    from plugin.modules.writer.search import SearchInDocument, GetIndexStats
 except ImportError:
     setup, teardown, native_test = (lambda f: f), (lambda f: f), (lambda f: f)
 
@@ -136,20 +136,8 @@ def test_search_in_document_regex():
 
 @native_test
 def test_advanced_search_tool():
-    try:
-        import pytest
-        if _test_doc is None:
-            pytest.skip("Requires LibreOffice document from native runner")
-    except ImportError:
-        pass
-
-    tool = AdvancedSearch()
-    ctx = MockContext(_test_doc, _test_ctx)
-
-    res = tool.execute(ctx, query="test AND data")
-    assert res["status"] == "ok"
-    assert res["count"] == 1
-    assert res["matches"][0]["paragraph_index"] == 1
+    import pytest
+    pytest.skip("advanced_search tool currently not exposed to LLM/MCP API")
 
 @native_test
 def test_get_index_stats():

@@ -18,12 +18,12 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 log = logging.getLogger("writeragent.writer")
 
 
-class SetTrackChanges(ToolBase):
+class SetTrackChanges(ToolBaseDummy):
     """Enable or disable change tracking."""
 
     name = "set_track_changes"
@@ -114,7 +114,7 @@ class GetTrackedChanges(ToolBase):
         }
 
 
-class ManageTrackedChanges(ToolBase):
+class ManageTrackedChanges(ToolBaseDummy):
     """Accept or reject all tracked changes in the document."""
 
     name = "manage_tracked_changes"

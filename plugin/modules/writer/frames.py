@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBaseDummy
 
 log = logging.getLogger("writeragent.writer")
 
@@ -27,7 +27,7 @@ log = logging.getLogger("writeragent.writer")
 # ListTextFrames
 # ------------------------------------------------------------------
 
-class ListTextFrames(ToolBase):
+class ListTextFrames(ToolBaseDummy):
     """List all text frames in the document."""
 
     name = "list_text_frames"
@@ -85,7 +85,7 @@ class ListTextFrames(ToolBase):
 # GetTextFrameInfo
 # ------------------------------------------------------------------
 
-class GetTextFrameInfo(ToolBase):
+class GetTextFrameInfo(ToolBaseDummy):
     """Get detailed info about a text frame."""
 
     name = "get_text_frame_info"
@@ -183,7 +183,7 @@ class GetTextFrameInfo(ToolBase):
 # SetTextFrameProperties
 # ------------------------------------------------------------------
 
-class SetTextFrameProperties(ToolBase):
+class SetTextFrameProperties(ToolBaseDummy):
     """Resize or reposition a text frame."""
 
     name = "set_text_frame_properties"
