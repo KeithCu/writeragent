@@ -94,9 +94,9 @@ class EndpointImageProvider(ImageProvider):
                 if "data:image" in url:
                     match = re.search(r'base64,([A-Za-z0-9+/=]+)', url)
                     if match:
-                        return self._save_b64(match.group(1))
+                        return self._save_b64(match.group(1)), ""
                 elif url.startswith("http"):
-                    return self._save_url(url)
+                    return self._save_url(url), ""
         else:
             # Use standard /images/generations endpoint (Together, OpenAI, etc.). Optional source_image for img2img.
             valid_steps = steps if (steps is not None and steps > 0) else None
@@ -121,13 +121,13 @@ class EndpointImageProvider(ImageProvider):
                 # Standard OpenAI format: {"data": [{"url": "...", "b64_json": "..."}]}
                 for img in (result.get("data") or []):
                     if b64 := img.get("b64_json"):
-                        return self._save_b64(b64)
+                        return self._save_b64(b64), ""
                     if url := img.get("url"):
                         if "data:image" in url:
                             match = re.search(r'base64,([A-Za-z0-9+/=]+)', url)
                             if match:
-                                return self._save_b64(match.group(1))
-                        return self._save_url(url)
+                                return self._save_b64(match.group(1)), ""
+                        return self._save_url(url), ""
             except Exception:
                 logger.exception("Image generation failed")
                 raise
@@ -136,11 +136,11 @@ class EndpointImageProvider(ImageProvider):
         if "data:image" in fallback_content:
             match = re.search(r'base64,([A-Za-z0-9+/=]+)', fallback_content)
             if match:
-                return self._save_b64(match.group(1))
+                return self._save_b64(match.group(1)), ""
         if fallback_content.strip().startswith("http"):
-            return self._save_url(fallback_content.strip())
+            return self._save_url(fallback_content.strip()), ""
 
-        return []
+        return [], ""
 
 class AIHordeImageProvider(ImageProvider):
     def __init__(self, config, ctx):
