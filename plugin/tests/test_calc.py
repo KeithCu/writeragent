@@ -364,6 +364,101 @@ def test_calc_integration_tests():
     pass
 
 @native_test
+def test_calc_comments():
+    # 1. Add a comment
+    res_add = _execute_calc_tool("add_cell_comment", {"cell": "A10", "text": "This is a test comment"})
+    assert res_add.get("status") == "ok", f"add_cell_comment failed: {res_add}"
+
+    # 2. List comments to verify
+    res_list = _execute_calc_tool("list_cell_comments", {})
+    assert res_list.get("status") == "ok", f"list_cell_comments failed: {res_list}"
+    comments = res_list.get("comments", [])
+
+    found = False
+    for c in comments:
+        if c.get("cell") == "A10" and c.get("text") == "This is a test comment":
+            found = True
+            break
+    assert found, f"Comment not found in list: {comments}"
+
+    # 3. Delete the comment
+    res_delete = _execute_calc_tool("delete_cell_comment", {"cell": "A10"})
+    assert res_delete.get("status") == "ok", f"delete_cell_comment failed: {res_delete}"
+
+    # 4. Verify deletion
+    res_list_after = _execute_calc_tool("list_cell_comments", {})
+    comments_after = res_list_after.get("comments", [])
+    found_after = any(c.get("cell") == "A10" for c in comments_after)
+    assert not found_after, "Comment was not deleted"
+
+
+@native_test
+def test_calc_search_and_replace():
+    # Write some data
+    _execute_calc_tool("write_formula_range", {"range_name": "A20:B21", "formula_or_values": [
+        ["Apple", "Banana"],
+        ["Cherry", "Date"]
+    ]})
+
+    # 1. Search for "Banana"
+    res_search = _execute_calc_tool("search_in_spreadsheet", {"pattern": "Banana"})
+    assert res_search.get("status") == "ok", f"search_in_spreadsheet failed: {res_search}"
+    matches = res_search.get("matches", [])
+    assert len(matches) == 1, f"Expected 1 match, found {len(matches)}"
+    assert matches[0].get("cell") == "B20", f"Expected B20, got {matches[0].get('cell')}"
+
+    # 2. Replace "Banana" with "Blueberry"
+    res_replace = _execute_calc_tool("replace_in_spreadsheet", {"search": "Banana", "replace": "Blueberry"})
+    assert res_replace.get("status") == "ok", f"replace_in_spreadsheet failed: {res_replace}"
+    assert res_replace.get("replacements") == 1, f"Expected 1 replacement, got {res_replace.get('replacements')}"
+
+    # 3. Verify replacement
+    res_search_after = _execute_calc_tool("search_in_spreadsheet", {"pattern": "Blueberry"})
+    matches_after = res_search_after.get("matches", [])
+    assert len(matches_after) == 1, f"Expected 1 match for Blueberry, found {len(matches_after)}"
+    assert matches_after[0].get("cell") == "B20", f"Expected Blueberry at B20, got {matches_after[0].get('cell')}"
+
+
+@native_test
+def test_calc_conditional_formatting():
+    # Write some numbers
+    _execute_calc_tool("write_formula_range", {"range_name": "C20:C22", "formula_or_values": [
+        [10],
+        [20],
+        [30]
+    ]})
+
+    # 1. Add conditional formatting rule: highlight cells greater than 15
+    res_add = _execute_calc_tool("add_conditional_format", {
+        "range_name": "C20:C22",
+        "operator": "GREATER",
+        "formula1": "15",
+        "style_name": "Result"
+    })
+    assert res_add.get("status") == "ok", f"add_conditional_format failed: {res_add}"
+
+    # 2. List formats to verify
+    res_list = _execute_calc_tool("list_conditional_formats", {"range_name": "C20:C22"})
+    assert res_list.get("status") == "ok", f"list_conditional_formats failed: {res_list}"
+    rules = res_list.get("rules", [])
+    assert len(rules) == 1, f"Expected 1 conditional formatting rule, found {len(rules)}"
+
+    rule = rules[0]
+    assert rule.get("operator") == "GREATER", f"Expected GREATER, got {rule.get('operator')}"
+    assert rule.get("formula1") == "15", f"Expected 15, got {rule.get('formula1')}"
+    assert rule.get("style_name") == "Result", f"Expected Result, got {rule.get('style_name')}"
+
+    # 3. Clear formats
+    res_clear = _execute_calc_tool("clear_conditional_formats", {"range_name": "C20:C22"})
+    assert res_clear.get("status") == "ok", f"clear_conditional_formats failed: {res_clear}"
+
+    # 4. Verify cleared
+    res_list_after = _execute_calc_tool("list_conditional_formats", {"range_name": "C20:C22"})
+    rules_after = res_list_after.get("rules", [])
+    assert len(rules_after) == 0, f"Expected rules to be cleared, but found {len(rules_after)}"
+
+
+@native_test
 def test_charts_creation_and_listing():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
 
