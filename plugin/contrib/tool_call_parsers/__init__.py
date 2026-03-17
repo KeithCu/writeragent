@@ -139,7 +139,11 @@ def get_parser_for_model(model_name: str) -> Optional[ToolCallParser]:
         return None
     model_name = model_name.lower()
     # Map model names to registered parser names
-    if "hermes" in model_name or "qwen" in model_name:
+    if "hermes" in model_name:
+        name = "hermes"
+    elif "qwen3" in model_name:
+        name = "qwen3_coder"
+    elif "qwen" in model_name:
         name = "hermes"
     elif "deepseek" in model_name:
         name = "deepseek_v3"

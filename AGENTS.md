@@ -19,7 +19,7 @@
 - **Calc** `=PROMPT()`: Cell formula that calls the model
 - **MCP Server** (opt-in): HTTP server on localhost that exposes Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop proxy, scripts). Document targeting via `X-Document-URL` header; opt-in via Settings.
 
-**Connection Management & Identification**: WriterAgent includes built-in connection management in `plugin/modules/ai/service.py` that maintains persistent HTTP/HTTPS connections. All requests use unified `USER_AGENT`, `APP_REFERER`, and `APP_TITLE` headers from `core.constants` for consistent identification across providers (OpenRouter, Together AI, etc.).
+**Connection Management & Identification**: WriterAgent includes built-in connection management in `plugin/modules/ai/service.py` that maintains persistent HTTP/HTTPS connections. All requests use unified `USER_AGENT`, `APP_REFERER`, and `APP_TITLE` headers from `core.constants` for consistent identification across providers (OpenRouter, Together AI, etc.). API-key based authentication is centralized in `plugin/framework/auth.py`, which maps endpoints (OpenRouter, Together, DeepSeek, local Ollama, custom) to provider profiles and builds the correct auth headers for `LlmClient` based on the per-endpoint key stored in config.
 
 Config is stored in `writeragent.json` in LibreOffice's user config directory. See `CONFIG_EXAMPLES.md` for examples (Ollama, OpenWebUI, OpenRouter, etc.).
 

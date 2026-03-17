@@ -35,6 +35,7 @@ from plugin.framework.streaming_deltas import accumulate_delta
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
 from plugin.framework.logging import debug_log, init_logging
+from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
 
 
 def format_error_message(e):
@@ -349,11 +350,28 @@ class LlmClient:
         return "/api" if self.config.get("is_openwebui") else "/v1"
 
     def _headers(self):
+        """
+        Build HTTP headers for API requests, including provider-aware auth.
+
+        Auth resolution is delegated to plugin.framework.auth so different
+        endpoints (OpenRouter, Together, local, etc.) can attach API keys
+        correctly based on the configured endpoint. On any auth resolution
+        error we fall back to the legacy Bearer logic so misconfiguration
+        degrades gracefully.
+        """
         h = {"Content-Type": "application/json"}
-        api_key = self.config.get("api_key", "")
-        if api_key:
-            h["Authorization"] = "Bearer %s" % api_key
-        
+
+        try:
+            auth_info = resolve_auth_for_config(self.config)
+            auth_headers = build_auth_headers(auth_info)
+            h.update(auth_headers)
+        except AuthError as e:
+            # Fall back to the previous behavior: simple Bearer header from config.
+            debug_log(f"Auth resolution error ({e.provider or 'unknown'}): {e}", context="API")
+            api_key = self.config.get("api_key", "")
+            if api_key:
+                h["Authorization"] = "Bearer %s" % api_key
+
         h["HTTP-Referer"] = APP_REFERER
         h["X-Title"] = APP_TITLE
 
