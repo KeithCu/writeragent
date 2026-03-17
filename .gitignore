@@ -44,3 +44,4 @@ writeragent.egg*/
 extension/META-INF/manifest.xml
 uv.lock
 
+.coverage
