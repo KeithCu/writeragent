@@ -5,10 +5,10 @@
 
 """Print tool for all document types via XPrintable."""
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBaseDummy
 
 
-class PrintDocument(ToolBase):
+class PrintDocument(ToolBaseDummy):
     """Print the current document."""
 
     name = "print_document"
