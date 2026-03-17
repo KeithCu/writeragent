@@ -349,7 +349,7 @@ class ToolCallingMixin:
         q = queue.Queue()
         round_num = 0
         pending_tools = []
-        ASYNC_TOOLS = {"web_research", "generate_image", "edit_image"}
+        ASYNC_TOOLS = {"web_research", "generate_image"}
 
         # Read config once for web research thinking display
         try:
@@ -528,10 +528,7 @@ class ToolCallingMixin:
                     if self.image_model_selector
                     else None
                 )
-                if image_model_override and func_name in (
-                    "generate_image",
-                    "edit_image",
-                ):
+                if image_model_override and func_name == "generate_image":
                     func_args["image_model"] = image_model_override
 
                 def tool_status_callback(msg):

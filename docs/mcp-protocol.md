@@ -292,7 +292,7 @@ to its own embedded AI:
 **Writer**: `get_document_content`, `apply_document_content`, `find_text`,
 `list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`,
 `set_track_changes`, `get_tracked_changes`, `accept_all_changes`, `reject_all_changes`,
-`list_tables`, `read_table`, `write_table_cells`, `generate_image`, `edit_image`.
+`list_tables`, `read_table`, `write_table_cells`, `generate_image` (create or edit with `source_image='selection'`).
 
 **Calc**: All `CALC_TOOLS` from `core/calc_tools.py`.
 

@@ -23,7 +23,7 @@ Combine `list_comments`, `add_comment`, `delete_comment`, `resolve_comment`, `ad
 Combine `list_images`, `get_image_info`, `set_image_properties`, `download_image`, `insert_image`, `delete_image`, and `replace_image` into a single tool:
 **`manage_images`**
 - `action` enum: `["list", "get_info", "set_properties", "download", "insert", "delete", "replace"]`
-- *Note:* `generate_image` and `edit_image` should probably remain separate because they invoke AI modals and have vastly different prompt/parameter signatures.
+- *Note:* `generate_image` is now unified: omit `source_image` to create new, or pass `source_image='selection'` to edit the selected image (Img2Img).
 - Reduces 7 tools down to 1.
 
 ### 4. Styles Management ([styles.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/styles.py))

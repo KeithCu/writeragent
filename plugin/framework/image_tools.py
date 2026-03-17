@@ -152,8 +152,9 @@ def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", 
     obj, inside = _get_selected_graphic_object(model)
     if obj is None:
         return False
-    width_units = int(width_px * 25.4)
-    height_units = int(height_px * 25.4)
+    # Match insert_image: 1 px at 96 DPI ≈ 26.46 units (1/100 mm)
+    width_units = int(width_px * 26.46)
+    height_units = int(height_px * 26.46)
     try:
         if inside in ["writer", "web"]:
             # Writer: insert new image at anchor of old, then remove old
@@ -189,6 +190,27 @@ def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", 
     except Exception as e:
         logger.error(f"Replace image in place failed: {e}")
         return False
+
+
+def get_selected_image_dimensions_px(model):
+    """
+    Returns (width_px, height_px) of the currently selected graphic, or (None, None) if none.
+    Uses 96 DPI: 1/100 mm -> px conversion (size * 96 / 2540).
+    """
+    obj, _ = _get_selected_graphic_object(model)
+    if obj is None:
+        return None, None
+    try:
+        if hasattr(obj, "getSize"):
+            size = obj.getSize()
+        else:
+            size = obj.getPropertyValue("Size")
+        # Size is in 1/100 mm. At 96 DPI: 1 mm = 96/25.4 px, so px = size * 96 / 2540
+        w_px = int(size.Width * 96 / 2540)
+        h_px = int(size.Height * 96 / 2540)
+        return max(64, w_px), max(64, h_px)  # clamp to provider minimum
+    except Exception:
+        return None, None
 
 
 def get_selected_image_base64(model, ctx=None):

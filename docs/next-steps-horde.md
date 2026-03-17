@@ -19,8 +19,7 @@ This document outlines future improvements for the AI Horde integration in Local
 ## Logic / Correctness
 
 ### 4. Smart Image Dimensions for Editing
-**Problem**: The [edit_image](file:///home/keithcu/Desktop/Python/localwriter/core/document_tools.py#239-274) tool currently hardcodes the replacement image size to `512x512`. This distorts the aspect ratio if the original image was different.
-**Task**: Update [tool_edit_image](file:///home/keithcu/Desktop/Python/localwriter/core/document_tools.py#239-274) to read the dimensions of the selected image from LibreOffice and pass them to the generation request, ensuring the edited image matches the original's size and aspect ratio.
+**Problem**: ~~The edit_image tool hardcoded 512x512~~ **Fixed (March 2026)**: The unified `generate_image` tool (with `source_image='selection'`) now reads dimensions from the selected graphic via `get_selected_image_dimensions_px()` and preserves aspect ratio when replacing.
 
 ### 5. Configurable Batch Size (`n`)
 **Problem**: The UI and tool schemas only support generating 1 image at a time, but AI Horde supports batch generation.

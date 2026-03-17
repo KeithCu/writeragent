@@ -81,6 +81,7 @@ TOOLS:
 - get_document_content: Read document (full/selection/range) as HTML.
 - search_in_document: Find text (use return_offsets for character positions if needed for inspection).
 - list_styles / get_style_info: Discover paragraph/character styles before applying them.
+- generate_image: Create a new image from a prompt, or edit the selected image (pass source_image='selection').
 
 {TRANSLATION_RULES}
 

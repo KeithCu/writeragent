@@ -17,8 +17,7 @@ This document provides a comprehensive brain dump of the work performed to integ
 
 ### 2. Multi-modal Tools
 Integrated into [core/document_tools.py](core/document_tools.py) and available to the LLM:
-- **generate_image**: Generates an image from a prompt and inserts it. When provider is `endpoint`, the model used is updated in `image_model_lru` after success.
-- **edit_image**: Img2Img on the selected image; replaces in place when possible. Same LRU update when using the endpoint provider.
+- **generate_image**: Creates a new image from a prompt, or edits the selected image (pass `source_image='selection'`). Replaces in place when editing. When provider is `endpoint`, the model used is updated in `image_model_lru` after success.
 
 ### 3. UI and Configuration
 
@@ -43,7 +42,7 @@ Integrated into [core/document_tools.py](core/document_tools.py) and available t
 
 ### Critical Fixes
 1. **Settings Dialog Tabs**: If the tabbed XDL fails to load in some LibreOffice builds, research correct XML for tabs (e.g. `Step` property or different instantiation). The dialog has Chat/Text and Image tabs with `text_model` and `image_model` comboboxes in the Chat tab.
-2. **Img2Img Verification**: Test the **edit_image** flow with real images (base64 extraction, provider Img2Img params such as `init_strength` for Horde).
+2. **Img2Img Verification**: Test the **generate_image** edit flow (`source_image='selection'`) with real images (base64 extraction, provider Img2Img params such as `init_strength` for Horde).
 
 ### Enhancements
 1. **Anchoring & Layout**: Improve **insert_image** to support anchoring modes and text wrapping.
@@ -64,15 +63,15 @@ Tool handlers in `core/document_tools.py` read config via `get_config_dict(ctx)`
 | `image_insert_frame` | `insert_image(..., add_frame=...)` |
 | `image_provider`, `image_width`, `image_height`, etc. | ImageService defaults and tool args |
 
-`tool_generate_image` and `tool_edit_image` pass `add_to_gallery` and `add_frame` from config into `insert_image`. After a successful image generation via the chat endpoint, the model used is pushed into `image_model_lru`.
+`generate_image` passes `add_to_gallery` and `add_frame` from config into `insert_image`. After a successful image generation via the chat endpoint, the model used is pushed into `image_model_lru`.
 
 When `image_translate_prompt` is True and `image_translate_from` is set (e.g. `es` or `Spanish`), the prompt is translated to English via `opustm_hf_translate` before generation; on failure the original prompt is used.
 
 ## Image editing (img2img) and provider support
 
-### Unified create/edit design (for future work)
+### Unified create/edit design (implemented)
 
-The backend already exposes a single `generate_image(prompt, **kwargs)`; when `source_image` (and optionally `strength`) is passed, the provider performs img2img (edit). The tool layer is currently split into two tools (`generate_image` and `edit_image`). A possible future change is to unify them into one tool with an optional “existing image” parameter (e.g. `edit_selection: bool` or `source_image` base64): when provided → edit path; otherwise → create. This aligns with:
+The backend exposes a single `generate_image(prompt, **kwargs)`; when `source_image` (and optionally `strength`) is passed, the provider performs img2img (edit). The tool layer uses one tool `generate_image` with optional `source_image='selection'` to edit the selected image; when omitted, it creates a new image. This aligns with:
 
 - **OpenAI Responses API**: single `image_generation` tool with `action`: `auto` | `generate` | `edit`
 - **Stability / Replicate**: same endpoint with optional `image` parameter (no image → text-to-image; with image → img2img)
