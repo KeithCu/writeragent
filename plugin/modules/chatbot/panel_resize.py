@@ -5,6 +5,30 @@ from com.sun.star.awt import XWindowListener
 from plugin.framework.logging import debug_log
 
 
+# Minimum sane widths (in dialog Map AppFont / pixel units) for key controls.
+# This protects against GTK/layout glitches where controls end up ~10px wide
+# and would otherwise stay that way across resizes.
+_MIN_WIDTHS = {
+    "response": 80,
+    "status": 80,
+    "query": 80,
+    "query_label": 60,
+    "response_label": 60,
+    "backend_indicator": 40,
+    "send": 40,
+    "stop": 40,
+    "clear": 40,
+    "direct_image_check": 70,
+    "web_research_check": 70,
+    "model_label": 60,
+    "model_selector": 100,
+    "image_model_selector": 100,
+    "base_size_label": 20,
+    "base_size_input": 40,
+    "aspect_ratio_selector": 80,
+}
+
+
 class _PanelResizeListener(unohelper.Base, XWindowListener):
     """Adjusts panel layout on resize. Reads control sizes/gaps from the XDL;
     only the response area height changes to fill available space."""
@@ -63,7 +87,14 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
         for name, ctrl in self._c.items():
             if ctrl:
                 cr = ctrl.getPosSize()
-                info["ctrls"][name] = (cr.X, cr.Y, cr.Width, cr.Height)
+                # Guard against layout glitches where GTK hands us ultra‑narrow
+                # widths on first snapshot: clamp to a small but sane minimum
+                # so future relayouts have reasonable baselines.
+                min_w = _MIN_WIDTHS.get(name)
+                cw = cr.Width
+                if min_w is not None and cw < min_w:
+                    cw = min_w
+                info["ctrls"][name] = (cr.X, cr.Y, cw, cr.Height)
                 if "resp_bottom" in info and cr.Y >= info["resp_bottom"]:
                     if bottom_top is None or cr.Y < bottom_top:
                         bottom_top = cr.Y
@@ -93,6 +124,21 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             ),
             context="Chat",
         )
+        # Lightweight per-control width summary for debugging GTK issues.
+        try:
+            summary_names = ("response", "query", "send", "clear", "model_selector")
+            width_summary = {
+                n: info["ctrls"][n][2]
+                for n in summary_names
+                if n in info["ctrls"]
+            }
+            debug_log(
+                "_capture_initial ctrl_widths=%s" % width_summary,
+                context="Chat",
+            )
+        except Exception:
+            # Logging must never break layout; ignore any issues here.
+            pass
         self._initial = info
 
     def _relayout(self, win):
@@ -133,8 +179,9 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             bottom_top_new = max(min_from_gap, candidate)
 
         # Use anchoring/filling instead of scaling ratios to prevent feedback loops.
-        # Controls in fluid_controls will stretch to fill width.
-        # Buttons and labels stay fixed size and anchored left.
+        # Controls in fluid_controls will stretch to fill available width with a
+        # small fixed right margin; buttons and labels stay fixed size and
+        # anchored left.
         fluid_controls = (
             "response",
             "query",
@@ -154,10 +201,11 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             ox, oy, ow, oh = orig
 
             if name in fluid_controls:
-                # Fill space to right margin
+                # Fill space to a fixed right margin so GTK layout quirks or
+                # a bad initial snapshot cannot permanently shrink widths.
                 new_x = ox
-                margin_right = iw - (ox + ow)
-                new_w = max(10, w - ox - margin_right)
+                fixed_margin = 6
+                new_w = max(10, w - ox - fixed_margin)
             else:
                 # Fixed size, anchored left
                 new_x = ox
@@ -166,6 +214,12 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
                 if name == "web_research_check":
                     # Slightly narrow the Web Research checkbox so it doesn't span as wide.
                     new_w = max(10, int(ow * 0.75))
+
+            # Never let controls collapse below a reasonable minimum width;
+            # this counteracts GTK cases where they become ~10px wide.
+            min_w = _MIN_WIDTHS.get(name)
+            if min_w is not None and new_w < min_w:
+                new_w = min_w
 
             if oy >= resp_bottom:
                 # Part of the bottom control group: keep relative spacing but move group toward bottom.
@@ -206,8 +260,8 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             new_rh = max(30, top_of_bottom - gap - ry)
 
             # Fill width to right margin
-            margin_right = iw - (rx + rw)
-            new_rw = max(10, w - rx - margin_right)
+            fixed_margin = 6
+            new_rw = max(10, w - rx - fixed_margin)
 
             cur = resp_ctrl.getPosSize()
             if (
