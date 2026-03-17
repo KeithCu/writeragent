@@ -175,6 +175,7 @@ class SendHandlersMixin:
             return True
 
         def on_stopped():
+            # Simple stream (no tools) does not add to ChatSession; just update status.
             self._terminal_status = "Stopped"
             self._set_status("Stopped")
 
@@ -325,6 +326,9 @@ class SendHandlersMixin:
             return True
 
         def on_stopped():
+            # Ensure conversation roles alternate user/assistant when stopping an
+            # external agent backend mid-response.
+            self.session.add_assistant_message(content="No response.")
             job_done[0] = True
             self._terminal_status = "Stopped"
             self._set_status("Stopped")

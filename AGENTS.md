@@ -522,3 +522,6 @@ Net effect: the code for a Hermes-compatible planning todo tool is present and d
 
 ### Multi-process Logging
 - LibreOffice/Python logs can be buffered. If you don't see your changes, check `/tmp/` logs first or use `flush=True` (or `f.flush()`) when writing diagnostic files.
+
+### Stop button behavior and conversation history
+- When the user clicks **Stop** during an in-progress AI response in the main chat/tool-calling path (`tool_loop.py`) or external agent backend path (`send_handlers.py`), the chat sidebar now appends an assistant message with content `"No response."` to the in-memory `ChatSession` for that turn. This ensures the role sequence in `session.messages` always alternates `user` / `assistant` (with optional `tool` messages in between), avoiding jinja/template errors from engines that require strict alternation (e.g., Mistral: “After the optional system message, conversation roles must alternate user and assistant roles except for tool calls and results”). The simple web-research-only path leaves history unchanged on Stop and simply restarts fresh on the next user query. The visible UI continues to show `"[Stopped by user]"` in the response area; `"No response."` is mainly for the LLM's conversation context.

@@ -689,6 +689,9 @@ class ToolCallingMixin:
             return False
 
         def on_stopped():
+            # Ensure conversation roles continue to alternate user/assistant even
+            # when the user stops a response mid-stream.
+            self.session.add_assistant_message(content="No response.")
             self._terminal_status = "Stopped"
             self._set_status("Stopped")
             self._append_response("\n[Stopped by user]\n")
