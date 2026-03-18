@@ -585,15 +585,21 @@ class LlmClient:
                 break
 
         if system_msg:
-            old_content = system_msg.get("content") or ""
-            if not (
-                old_content.startswith(date_msg)
-                or old_content.startswith("Today's date is ")
-            ):
-                if old_content:
-                    system_msg["content"] = f"{date_msg}\n\n{old_content}"
-                else:
-                    system_msg["content"] = date_msg
+            old_content = system_msg.get("content")
+            # Some models/tools can provide structured (non-string) system content
+            # (e.g. multimodal content parts). In that case, skip date injection
+            # to avoid calling string methods on non-strings.
+            if not isinstance(old_content, str):
+                old_content = None
+            if old_content is not None:
+                if not (
+                    old_content.startswith(date_msg)
+                    or old_content.startswith("Today's date is ")
+                ):
+                    if old_content:
+                        system_msg["content"] = f"{date_msg}\n\n{old_content}"
+                    else:
+                        system_msg["content"] = date_msg
         else:
             messages.insert(0, {"role": "system", "content": date_msg})
 
