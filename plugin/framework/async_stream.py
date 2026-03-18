@@ -106,6 +106,14 @@ def run_stream_drain_loop(
                     current_content.clear()
 
             for item in items:
+                if stop_checker and stop_checker():
+                    debug_log("run_stream_drain_loop: Stop requested via checker.", context="API")
+                    flush_buffers()
+                    close_thinking()
+                    on_stopped()
+                    job_done[0] = True
+                    break
+
                 kind = item[0] if isinstance(item, (tuple, list)) else item
                 data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
 
@@ -125,7 +133,7 @@ def run_stream_drain_loop(
                     close_thinking()
                     if on_stream_done(item): # Pass whole item for consistency
                         job_done[0] = True
-                    break
+                        break
                 elif kind == "tool_done":
                     # For unified tool loop handling, we relay back to on_stream_done
                     # with a special structure or just let the caller handle it if they passed
@@ -134,7 +142,7 @@ def run_stream_drain_loop(
                     close_thinking()
                     if on_stream_done(item): # Pass whole item for tool_done
                         job_done[0] = True
-                    break
+                        break
                 elif kind == "tool_thinking":
                     if show_search_thinking:
                         apply_chunk_fn(data, is_thinking=True)
@@ -151,7 +159,7 @@ def run_stream_drain_loop(
                     close_thinking()
                     if on_stream_done(item): # Same as tool_done
                         job_done[0] = True
-                    break
+                        break
                 elif kind == "next_tool":
                     # Caller usually puts this back in to trigger next iteration
                     # if it's a multi-tool-round loop.
@@ -159,7 +167,7 @@ def run_stream_drain_loop(
                     close_thinking()
                     if on_stream_done(item):
                         job_done[0] = True
-                    break
+                        break
                 elif kind == "stopped":
                     flush_buffers()
                     close_thinking()

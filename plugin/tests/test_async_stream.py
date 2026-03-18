@@ -76,6 +76,109 @@ def test_run_stream_drain_loop_error():
     assert isinstance(errors[0], ValueError)
 
 
+def test_run_stream_drain_loop_stop_checker_mid_batch():
+    q = queue.Queue()
+    q.put(("chunk", "first "))
+    q.put(("chunk", "second "))
+    q.put(("chunk", "third "))
+
+    toolkit = DummyToolkit()
+    job_done = [False]
+    stopped_called = [False]
+    applied = []
+
+    def apply_chunk(t, is_thinking):
+        applied.append(t)
+
+    items_seen = [0]
+    def stop_checker():
+        # Stop on the second call (first item in the for loop)
+        items_seen[0] += 1
+        return items_seen[0] > 2
+
+    def on_stopped():
+        stopped_called[0] = True
+
+    # To prevent the while loop in run_stream_drain_loop from hanging, we need to return True for stop_checker on the first run after setting `stop_flag` to True.
+    # But since there is no `stream_done` at the end of the batch, the loop would just block on `q.get()`.
+    # Actually `q.put(("stream_done", None))` might not be executed when `stop_checker` flips mid stream.
+    # We should add a `stream_done` to break the loop normally if `stop_checker` somehow didn't stop the loop.
+    q.put(("stream_done", None))
+
+    run_stream_drain_loop(
+        q, toolkit, job_done, apply_chunk,
+        on_stream_done=lambda i: True, on_stopped=on_stopped, on_error=lambda e: None, stop_checker=stop_checker
+    )
+
+    assert stopped_called[0] is True
+    assert job_done[0] is True
+    # The first chunk should be processed, which sets stop_flag to True.
+    # The stop_checker check happens at the start of the next iteration of the `for item in items:` loop.
+    # So the remaining chunks in the batch shouldn't be processed.
+    assert len(applied) == 1
+    assert applied[0] == "first "
+
+
+def test_run_stream_drain_loop_callback_raises():
+    q = queue.Queue()
+    q.put(("chunk", "hello"))
+
+    toolkit = DummyToolkit()
+    job_done = [False]
+
+    def apply_chunk(t, is_thinking):
+        raise RuntimeError("apply_chunk error")
+
+    def on_error(e):
+        raise RuntimeError("on_error error")
+
+    # It should not hang, but gracefully mark job_done as True
+    # and swallow the exception in the catch-all.
+    run_stream_drain_loop(
+        q, toolkit, job_done, apply_chunk,
+        on_stream_done=lambda i: True, on_stopped=lambda: None, on_error=on_error
+    )
+
+    assert job_done[0] is True
+
+
+def test_run_stream_drain_loop_tool_done_continue():
+    q = queue.Queue()
+    q.put(("tool_done", "call_123", "web_search", '{"q": "answer"}', '{"status": "ok"}'))
+    q.put(("chunk", "next chunk"))
+
+    toolkit = None
+    job_done = [False]
+    applied = []
+    tools_done = []
+
+    def apply_chunk(t, is_thinking):
+        applied.append((t, is_thinking))
+
+    def on_stream_done(item):
+        if item[0] == "tool_done":
+            tools_done.append(item)
+            return False # Continue the loop!
+        elif item[0] == "stream_done":
+            return True
+        return False
+
+    def noop(*args, **kwargs):
+        pass
+
+    q.put(("stream_done", None))
+
+    run_stream_drain_loop(
+        q, toolkit, job_done, apply_chunk,
+        on_stream_done=on_stream_done, on_stopped=noop, on_error=noop
+    )
+
+    assert job_done[0] is True
+    assert len(tools_done) == 1
+    assert tools_done[0][1] == "call_123"
+    assert ("next chunk", False) in applied
+
+
 def test_run_stream_drain_loop_stopped():
     q = queue.Queue()
     q.put(("stopped",))
