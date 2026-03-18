@@ -9,11 +9,10 @@
 # It aggregates existing in-LO tests (Writer/Calc, etc.) and returns
 # a JSON summary that external tools or agents can consume.
 
+import sys
 import json
 import traceback
 from typing import Any, Dict, List
-
-from plugin.framework.uno_helpers import get_active_document
 
 
 def native_test(func):
@@ -164,73 +163,59 @@ def run_all_tests(ctx: Any) -> str:
 
     # Try to reuse an existing active document when it matches the suite type;
     # otherwise the underlying helpers will create their own temporary docs.
-    model = get_active_document(ctx)
-
-    # Framework tests
     try:
-        import plugin.tests.core_tests as core_tests
-        _run_suite(ctx, suites, "framework.core_tests", core_tests)
+        from plugin.framework.uno_helpers import get_active_document
+        model = get_active_document(ctx)
     except ImportError:
-        pass
+        model = None
 
-    # Chatbot integration tests
     try:
-        import plugin.tests.test_chatbot_integration as test_chatbot_integration
-        _run_suite(ctx, suites, "chatbot.test_chatbot_integration", test_chatbot_integration)
+        from plugin.framework.document import is_writer, is_calc, is_draw
     except ImportError:
-        pass
+        def is_writer(m): return False
+        def is_calc(m): return False
+        def is_draw(m): return False
 
-    # Writer markdown / format-preserving tests
-    try:
-        from plugin.framework.document import is_writer  # local import to avoid hard dependency if unused
-        import plugin.tests.format_tests as format_tests
+    writer_doc = model if (model is not None and is_writer(model)) else None
+    calc_doc = model if (model is not None and is_calc(model)) else None
+    draw_doc = model if (model is not None and is_draw(model)) else None
 
-        writer_doc = model if (model is not None and is_writer(model)) else None
-        _run_suite(ctx, suites, "writer.format_tests", format_tests, writer_doc)
-    except ImportError:
-        # Suite not available in this build; skip silently.
-        pass
+    import os
+    import importlib.util
 
-    # Writer core / navigation tests
-    try:
-        from plugin.framework.document import is_writer  # local import
-        import plugin.tests.test_writer as test_writer
+    tests_dir = os.path.join(os.path.dirname(__file__), "tests", "uno")
 
-        # Writer core tests mutate the document and assume an empty starting state,
-        # so we pass None to force it to create its own hidden temporary document.
-        _run_suite(ctx, suites, "writer.core_tests", test_writer)
-    except ImportError:
-        pass
+    if os.path.isdir(tests_dir):
+        # Discover and run all test modules in the tests/uno directory
+        for filename in sorted(os.listdir(tests_dir)):
+            if (filename.startswith("test_") or filename.endswith("_tests.py")) and filename.endswith(".py"):
+                module_name = filename[:-3]
+                module_path = os.path.join(tests_dir, filename)
 
-    # Calc API / tool tests
-    try:
-        from plugin.framework.document import is_calc  # local import
-        import plugin.tests.test_calc as test_calc
+                try:
+                    spec = importlib.util.spec_from_file_location(f"plugin.tests.uno.{module_name}", module_path)
+                    if spec is None or spec.loader is None:
+                        continue
+                    test_module = importlib.util.module_from_spec(spec)
+                    sys.modules[f"plugin.tests.uno.{module_name}"] = test_module
+                    spec.loader.exec_module(test_module)
 
-        calc_doc = model if (model is not None and is_calc(model)) else None
-        _run_suite(ctx, suites, "calc.tests", test_calc, calc_doc)
-    except ImportError:
-        pass
+                    doc_to_pass = None
+                    if "writer" in module_name or "format" in module_name:
+                        # Writer core tests mutate the document and assume an empty starting state,
+                        # so we pass None to force it to create its own hidden temporary document.
+                        if "test_writer" not in module_name:
+                            doc_to_pass = writer_doc
+                    elif "calc" in module_name:
+                        doc_to_pass = calc_doc
+                    elif "draw" in module_name or "impress" in module_name:
+                        doc_to_pass = draw_doc
 
-    # History DB tests (native-only, UNO-based)
-    try:
-        import plugin.tests.test_history_db as test_history_db
-        _run_suite(ctx, suites, "history.test_history_db", test_history_db)
-    except ImportError:
-        pass
-
-    # Draw / Impress tests
-    try:
-        from plugin.framework.document import is_draw  # local import
-        import plugin.tests.test_draw as test_draw
-        import plugin.tests.test_impress as test_impress
-
-        draw_doc = model if (model is not None and is_draw(model)) else None
-        _run_suite(ctx, suites, "draw.tests", test_draw, draw_doc)
-        _run_suite(ctx, suites, "impress.tests", test_impress, draw_doc)
-    except ImportError:
-        pass
-
+                    _run_suite(ctx, suites, f"uno.{module_name}", test_module, doc_to_pass)
+                except ImportError as e:
+                    print(f"Skipping {filename} due to ImportError: {e}")
+                except Exception as e:
+                    print(f"Error loading {filename}: {e}")
 
     for suite in suites:
         total_passed += int(suite.get("passed", 0) or 0)

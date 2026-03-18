@@ -25,6 +25,15 @@ def test_get_ctx_fallback():
     # Make sure 'uno' is not in sys.modules to simulate ImportError
     original_uno = sys.modules.pop('uno', None)
 
+    # Some test runners (like our uno directory) might create a stub uno module
+    # without getComponentContext. We should test how get_ctx behaves when
+    # uno is completely removed.
+    try:
+        import uno
+        del sys.modules['uno']
+    except ImportError:
+        pass
+
     try:
         mock_fallback = MagicMock()
         set_fallback_ctx(mock_fallback)

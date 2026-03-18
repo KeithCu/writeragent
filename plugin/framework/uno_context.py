@@ -47,9 +47,10 @@ def get_ctx():
     """
     try:
         import uno
-        ctx = uno.getComponentContext()
-        if ctx is not None:
-            return ctx
+        if hasattr(uno, "getComponentContext"):
+            ctx = uno.getComponentContext()
+            if ctx is not None:
+                return ctx
     except ImportError:
         pass
     return _fallback_ctx

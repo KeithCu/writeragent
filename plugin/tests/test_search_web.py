@@ -24,6 +24,8 @@ import sys
 import time
 from typing import Any
 
+import pytest
+pytest.importorskip("requests")
 import requests
 
 
