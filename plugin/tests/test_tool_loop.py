@@ -245,3 +245,208 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     assert queued_item[1] == "call_abc"
     assert queued_item[2] == "apply_document_content"
     assert queued_item[4] == '{"success": true}'
+
+
+@patch('plugin.modules.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.modules.chatbot.tool_loop.get_config')
+@patch('plugin.modules.chatbot.tool_loop.update_activity_state')
+def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_config, mock_drain_loop):
+    panel, session = setup_mock_panel()
+
+    captured_q = None
+    captured_callback = {}
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        nonlocal captured_q
+        captured_q = q
+        captured_callback['on_stream_done'] = on_stream_done
+
+    mock_drain_loop.side_effect = mock_drain_impl
+
+    # Track execution order
+    execution_order = []
+    def mock_execute_tool(name, args, doc, ctx, **kwargs):
+        execution_order.append(name)
+        return '{"result": "ok", "tool": "%s"}' % name
+
+    execute_tool_mock = Mock(side_effect=mock_execute_tool)
+
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    on_stream_done = captured_callback.get('on_stream_done')
+
+    tool_calls = [
+        {"id": "call_1", "type": "function", "function": {"name": "tool_one", "arguments": '{"arg": 1}'}},
+        {"id": "call_2", "type": "function", "function": {"name": "tool_two", "arguments": '{"arg": 2}'}}
+    ]
+
+    # 1. Provide the stream_done with multiple tool calls
+    on_stream_done(('stream_done', {"content": "Calling tools", "tool_calls": tool_calls}))
+
+    # Check session
+    assert len(session.messages) == 1
+    assert session.messages[0]["tool_calls"] == tool_calls
+
+    # Check queue has 'next_tool'
+    item = captured_q.get()
+    assert item == ("next_tool",)
+
+    # 2. Process first tool
+    result = on_stream_done(('next_tool',))
+    assert result is False
+
+    # Verify first tool execution
+    assert len(execution_order) == 1
+    assert execution_order[0] == "tool_one"
+
+    # Pop tool_done for the first tool
+    tool_done_item1 = captured_q.get()
+    assert tool_done_item1[0] == "tool_done"
+    assert tool_done_item1[1] == "call_1"
+
+    # 3. Process tool_done for the first tool
+    result = on_stream_done(tool_done_item1)
+    assert result is False
+
+    # Verify it added tool result to session
+    assert len(session.messages) == 2
+    assert session.messages[1]["role"] == "tool"
+    assert session.messages[1]["tool_call_id"] == "call_1"
+
+    # Check queue has the next 'next_tool' trigger
+    item = captured_q.get()
+    assert item == ("next_tool",)
+
+    # 4. Process second tool
+    result = on_stream_done(('next_tool',))
+    assert result is False
+
+    # Verify second tool execution
+    assert len(execution_order) == 2
+    assert execution_order[1] == "tool_two"
+
+    # Pop tool_done for the second tool
+    tool_done_item2 = captured_q.get()
+    assert tool_done_item2[0] == "tool_done"
+    assert tool_done_item2[1] == "call_2"
+
+    # 5. Process tool_done for the second tool
+    result = on_stream_done(tool_done_item2)
+    assert result is False
+
+    # Verify it added tool result to session
+    assert len(session.messages) == 3
+    assert session.messages[2]["role"] == "tool"
+    assert session.messages[2]["tool_call_id"] == "call_2"
+
+@patch('plugin.modules.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.modules.chatbot.tool_loop.get_config')
+@patch('plugin.modules.chatbot.tool_loop.update_activity_state')
+def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_drain_loop):
+    panel, session = setup_mock_panel()
+
+    captured_q = None
+    captured_callback = {}
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        nonlocal captured_q
+        captured_q = q
+        captured_callback['on_stream_done'] = on_stream_done
+
+    mock_drain_loop.side_effect = mock_drain_impl
+
+    execute_tool_mock = Mock()
+
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    on_stream_done = captured_callback.get('on_stream_done')
+
+    tool_calls = [
+        {"id": "call_1", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
+    ]
+
+    # 1. Provide the stream_done with a tool call
+    on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+
+    # Consume the enqueued 'next_tool' signal that the stream_done just put in
+    item = captured_q.get()
+    assert item == ("next_tool",)
+
+    # 2. Simulate user pressing stop button
+    panel.stop_requested = True
+
+    # 3. Process the pending next_tool
+    result = on_stream_done(('next_tool',))
+
+    # Keep looping because the logic just advances the round and spawns worker
+    assert result is False
+
+    # Verify execute tool was NOT called
+    execute_tool_mock.assert_not_called()
+
+    # Verify that it spawned worker (or final stream), which would then emit the stopped sentinel
+    panel._spawn_llm_worker.assert_called()
+
+
+@patch('plugin.modules.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.modules.chatbot.tool_loop.get_config')
+@patch('plugin.modules.chatbot.tool_loop.update_activity_state')
+def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mock_drain_loop):
+    panel, session = setup_mock_panel()
+
+    captured_q = None
+    captured_callback = {}
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        nonlocal captured_q
+        captured_q = q
+        captured_callback['on_stream_done'] = on_stream_done
+
+    mock_drain_loop.side_effect = mock_drain_impl
+
+    # Track arguments sent to the mock tool
+    executed_args = {}
+    def mock_execute_tool(name, args, doc, ctx, **kwargs):
+        executed_args['name'] = name
+        executed_args['args'] = args
+        return '{"result": "ok"}'
+
+    execute_tool_mock = Mock(side_effect=mock_execute_tool)
+
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
+    on_stream_done = captured_callback.get('on_stream_done')
+
+    # Provide malformed tool call: missing id, missing function name, and invalid json for arguments
+    tool_calls = [
+        {
+            # "id" missing
+            "type": "function",
+            "function": {
+                # "name" missing
+                "arguments": 'not-valid-json'
+            }
+        }
+    ]
+
+    # 1. Provide the stream_done with malformed tool call
+    on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+
+    # Consume the enqueued 'next_tool' signal that the stream_done just put in
+    item = captured_q.get()
+    assert item == ("next_tool",)
+
+    # 2. Process the pending next_tool
+    result = on_stream_done(('next_tool',))
+
+    # Keep looping
+    assert result is False
+
+    # Verify execute tool was called with fallbacks
+    assert executed_args['name'] == 'unknown'
+    assert executed_args['args'] == {}
+
+    # Check the queue for tool_done and verify fallback values
+    tool_done_item = captured_q.get()
+    assert tool_done_item[0] == "tool_done"
+    assert tool_done_item[1] == ""  # Missing ID fallback
+    assert tool_done_item[2] == "unknown" # Missing name fallback
+    assert tool_done_item[3] == "not-valid-json" # Should be the original string
+    assert tool_done_item[4] == '{"result": "ok"}'
