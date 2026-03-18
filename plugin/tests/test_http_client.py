@@ -1,4 +1,5 @@
 import socket
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -210,3 +211,29 @@ def test_stream_request_with_tools_fallback_parser(client):
         assert len(result["tool_calls"]) == 1
         assert result["tool_calls"][0]["function"]["name"] == "get_weather"
         assert result["finish_reason"] == "tool_calls"
+
+
+def test_make_chat_request_system_content_can_be_list():
+    """
+    Regression test for: AttributeError: 'list' object has no attribute 'startswith'
+    triggered when date-injection logic assumes system message content is a string.
+    """
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
+
+    structured_system_content = [
+        {"type": "text", "text": "Existing structured system content"}
+    ]
+    messages = [
+        {"role": "system", "content": structured_system_content},
+        {"role": "user", "content": "Hi"},
+    ]
+
+    method, path, body, headers = client.make_chat_request(messages, max_tokens=50)
+
+    assert method == "POST"
+    assert path.endswith("/chat/completions")
+    assert headers["Content-Type"] == "application/json"
+
+    decoded = json.loads(body.decode("utf-8"))
+    assert decoded["messages"][0]["content"] == structured_system_content
