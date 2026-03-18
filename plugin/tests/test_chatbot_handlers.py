@@ -50,7 +50,14 @@ def test_do_send_direct_image():
     mock_registry._services = MagicMock()
     mock_main.get_tools.return_value = mock_registry
 
-    with patch.dict('sys.modules', {'plugin.main': mock_main}):
+    mock_uno = MagicMock()
+    class DummyBase1(object): pass
+    class DummyBase2(object): pass
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt}):
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run_bg:
             # Synchronous execution of background worker
             def fake_run_bg(func):
@@ -89,6 +96,60 @@ def test_do_send_direct_image():
                 assert kwargs["aspect_ratio"] == "landscape_16_9"
                 assert kwargs["base_size"] == 1024
                 assert kwargs["image_model"] == "dall-e-3"
+
+def test_do_send_direct_image_error():
+    panel = DummyChatbotPanel()
+    model = MockDocument()
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    # Tool execute returns an error payload
+    mock_registry.execute.return_value = {"status": "error", "message": "Failed to generate image"}
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    mock_uno = MagicMock()
+    class DummyBase1(object): pass
+    class DummyBase2(object): pass
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt}):
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run_bg:
+            # Synchronous execution of background worker
+            def fake_run_bg(func):
+                func()
+            mock_run_bg.side_effect = fake_run_bg
+
+            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
+                # Trigger stream done immediately
+                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                    while not q.empty():
+                        item = q.get()
+                        if item[0] == "chunk":
+                            apply_chunk(item[1])
+                        elif item[0] == "stream_done":
+                            on_stream_done(item[1])
+                        elif item[0] == "status":
+                            on_status_fn(item[1])
+                        elif item[0] == "error":
+                            on_error(item[1])
+                mock_run_stream.side_effect = fake_drain_loop
+
+                panel.ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
+
+                panel._do_send_direct_image("A cute dog", model)
+
+                # Verify responses
+                assert "\nYou: A cute dog\n" in panel.responses
+                assert "AI: Creating image...\n" in panel.responses
+
+                # Verify error message is surfaced to user
+                assert "[generate_image: Failed to generate image]\n" in panel.responses
+
+                # Verify stream completed normally (terminal status is Ready)
+                assert panel._terminal_status == "Ready"
 
 def test_web_research_tool():
     # Setup mock context
@@ -180,3 +241,75 @@ def test_web_research_tool():
                 ctx.status_callback.assert_any_call("Search: Latest Python release...")
                 ctx.status_callback.assert_any_call("Read: python.org...")
                 assert ctx.append_thinking_callback.called
+
+def test_web_research_tool_stop():
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.stop_checker = lambda: True  # Stop immediately
+
+    with patch("plugin.framework.smol_model.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
+        with patch("urllib.request.urlopen"):
+            with patch("requests.get"):
+                tool = WebResearchTool()
+                result = tool.execute(ctx, "What is the latest Python release?", "")
+
+                assert result["status"] == "error"
+                assert result["message"] == "Web search stopped by user."
+
+
+def test_run_web_research_invalid_json():
+    panel = DummyChatbotPanel()
+    model = MockDocument()
+
+    # Need a mock session so add_assistant_message doesn't blow up
+    panel.session = MagicMock()
+    panel.response_control = MagicMock()
+
+    mock_main = MagicMock()
+    mock_registry = MagicMock()
+    # Tool execute returns a non-JSON string
+    mock_registry.execute.return_value = "This is not valid JSON."
+    mock_registry._services = MagicMock()
+    mock_main.get_tools.return_value = mock_registry
+
+    mock_uno = MagicMock()
+    class DummyBase1(object): pass
+    class DummyBase2(object): pass
+    mock_unohelper = MagicMock()
+    mock_unohelper.Base = DummyBase1
+    mock_awt = MagicMock()
+    mock_awt.XActionListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt}):
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run_bg:
+            # Synchronous execution of background worker
+            def fake_run_bg(func):
+                func()
+            mock_run_bg.side_effect = fake_run_bg
+
+            with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
+                # Trigger stream done immediately
+                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
+                    while not q.empty():
+                        item = q.get()
+                        if item[0] == "chunk":
+                            apply_chunk(item[1])
+                        elif item[0] == "stream_done":
+                            on_stream_done(item[1])
+                        elif item[0] == "status":
+                            on_status_fn(item[1])
+                        elif item[0] == "error":
+                            on_error(item[1])
+                mock_run_stream.side_effect = fake_drain_loop
+
+                panel.ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
+
+                panel._run_web_research("What is the speed of light?", model)
+
+                # Verify responses
+                assert "\nYou: What is the speed of light?\n" in panel.responses
+
+                # Verify fallback error message is surfaced
+                assert "[Research error: Invalid JSON from web search tool.]\n" in panel.responses
+
+                # Verify stream completed normally (terminal status is Ready)
+                assert panel._terminal_status == "Ready"
