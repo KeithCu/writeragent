@@ -1,5 +1,9 @@
 import sys
 import os
+import pytest
+
+pytest.importorskip("sounddevice")
+
 sys.path.insert(0, os.path.abspath("contrib"))
 try:
     import sounddevice as sd

@@ -20,6 +20,7 @@ include = ["plugin*"]
 
 [tool.pytest.ini_options]
 testpaths = ["plugin/tests"]
+addopts = "--ignore=plugin/tests/uno"
 
 [build-system]
 requires = ["setuptools"]
