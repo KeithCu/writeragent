@@ -2,10 +2,12 @@ import pytest
 import json
 import socket
 from unittest.mock import patch, MagicMock, mock_open
+import ssl
 from plugin.modules.http.client import (
     LlmClient,
     is_audio_unsupported_error,
-    format_error_message
+    format_error_message,
+    _format_http_error_response
 )
 
 def test_is_audio_unsupported_error():
@@ -74,7 +76,15 @@ def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
 
         # Assert headers content type was set to multipart
         headers = kwargs.get("headers", {})
-        assert "multipart/form-data" in headers.get("Content-Type", "")
+        content_type = headers.get("Content-Type", "")
+        assert "multipart/form-data" in content_type
+
+        # Assert body format
+        boundary = content_type.split("boundary=")[1]
+        body = kwargs.get("data", b"")
+        assert boundary.encode("utf-8") in body
+        assert b'name="file"; filename="dummy.wav"' in body
+        assert b'name="model"' in body
 
 @patch("plugin.modules.http.client.LlmClient.chat_completion_sync")
 def test_transcribe_audio_uses_native_audio(mock_sync_chat):
@@ -126,3 +136,56 @@ def test_llm_client_chat_with_tools_normalizes():
         assert result["content"] == "Sure, calling tool."
         assert len(result["tool_calls"]) == 1
         assert result["tool_calls"][0]["function"]["name"] == "hello"
+
+def test_llm_client_chat_with_tools_normalizes_done_reason():
+    """
+    Test that request_with_tools extracts finish_reason from the top-level
+    done_reason when finish_reason is missing from choices (e.g. some local models).
+    """
+    ctx = MagicMock()
+    client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.read.return_value = json.dumps({
+        "done_reason": "stop",
+        "message": {
+            "role": "assistant",
+            "content": "Done reasoning."
+        }
+    }).encode("utf-8")
+
+    mock_conn = MagicMock()
+    mock_conn.getresponse.return_value = mock_response
+
+    with patch.object(client, "_get_connection", return_value=mock_conn):
+        result = client.request_with_tools([{"role": "user", "content": "Hi"}])
+
+        assert result["finish_reason"] == "stop"
+        assert result["content"] == "Done reasoning."
+
+def test_format_error_message_edge_cases():
+    """
+    Test error mapping edge cases for TLS and custom JSON error bodies.
+    """
+    # SSLError is mapped to a friendly message
+    err = ssl.SSLError("cert error")
+    assert "TLS/SSL Error:" in format_error_message(err)
+    assert "cert error" in format_error_message(err)
+
+    # test JSON decoding in _format_http_error_response
+    # Valid JSON with error message object
+    json_err_1 = '{"error": {"message": "Custom auth error"}}'
+    msg_1 = _format_http_error_response(401, "Unauthorized", json_err_1)
+    assert "Custom auth error" in msg_1
+    assert "HTTP Error 401" in msg_1
+
+    # Valid JSON but missing standard error field (fallback to snippet)
+    json_err_2 = '{"foo": "bar"}'
+    msg_2 = _format_http_error_response(401, "Unauthorized", json_err_2)
+    assert '{"foo": "bar"}' in msg_2
+
+    # Broken JSON fallback to snippet
+    broken_json = '{ "broken json'
+    msg_3 = _format_http_error_response(400, "Bad Request", broken_json)
+    assert '{ "broken json' in msg_3
