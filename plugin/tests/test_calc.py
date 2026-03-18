@@ -364,6 +364,72 @@ def test_import_csv_from_string():
 def test_calc_integration_tests():
     pass
 
+
+@native_test
+def test_tool_argument_normalization():
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+
+    # Test with string param
+    res1 = _execute_calc_tool("write_formula_range", {"range_name": "A10", "formula_or_values": "Norm"})
+    assert res1.get("status") == "ok", f"String param failed: {res1}"
+
+    # Test with list[str] param
+    res2 = _execute_calc_tool("write_formula_range", {"range_name": ["A11"], "formula_or_values": "Norm"})
+    assert res2.get("status") == "ok", f"List param failed: {res2}"
+
+    assert active_sheet.getCellByPosition(0, 9).getString() == "Norm", "Value mismatch for string param"
+    assert active_sheet.getCellByPosition(0, 10).getString() == "Norm", "Value mismatch for list param"
+
+
+@native_test
+def test_consistent_error_payloads():
+    # 1. Invalid range address
+    res_range = _execute_calc_tool("read_cell_range", {"range_name": "Invalid!!Range"})
+    assert res_range.get("status") == "error", f"Expected error for invalid range, got {res_range.get('status')}"
+    assert "error" in res_range, f"Expected 'error' key in payload: {res_range}"
+    assert isinstance(res_range["error"], str), "Error message should be a string"
+    assert len(res_range["error"]) > 0, "Error message should not be empty"
+
+    # 2. Invalid color string
+    res_color = _execute_calc_tool("set_cell_style", {"range_name": "A1", "bg_color": "not_a_real_color"})
+    assert res_color.get("status") == "error", f"Expected error for invalid color, got {res_color.get('status')}"
+    assert "error" in res_color, f"Expected 'error' key in payload: {res_color}"
+    assert isinstance(res_color["error"], str), "Error message should be a string"
+    assert len(res_color["error"]) > 0, "Error message should not be empty"
+
+
+@native_test
+def test_read_after_write_stability():
+    # 1. Write data
+    res_write = _execute_calc_tool("write_formula_range", {"range_name": "Z1:Z2", "formula_or_values": [["Apple"], ["Banana"]]})
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+
+    # 2. Read back
+    res_read = _execute_calc_tool("read_cell_range", {"range_name": "Z1:Z2"})
+    assert res_read.get("status") == "ok", f"read_cell_range failed: {res_read}"
+    grid = res_read.get("result", [])[0]
+    assert grid[0][0]["value"] == "Apple", f"Expected Apple, got {grid[0][0]['value']}"
+    assert grid[1][0]["value"] == "Banana", f"Expected Banana, got {grid[1][0]['value']}"
+
+    # 3. Merge and read back
+    res_merge = _execute_calc_tool("merge_cells", {"range_name": "Z1:Z2"})
+    assert res_merge.get("status") == "ok", f"merge_cells failed: {res_merge}"
+    res_read_merged = _execute_calc_tool("read_cell_range", {"range_name": "Z1:Z2"})
+    assert res_read_merged.get("status") == "ok", f"read_cell_range after merge failed: {res_read_merged}"
+    grid_merged = res_read_merged.get("result", [])[0]
+    # In LibreOffice, the top-left cell of a merged range keeps the value
+    assert grid_merged[0][0]["value"] == "Apple", f"Expected Apple in merged range, got {grid_merged[0][0]['value']}"
+
+    # 4. Clear range and search
+    res_clear = _execute_calc_tool("clear_range", {"range_name": "Z1:Z2"})
+    assert res_clear.get("status") == "ok", f"clear_range failed: {res_clear}"
+    res_search = _execute_calc_tool("search_in_spreadsheet", {"pattern": "Apple"})
+    assert res_search.get("status") == "ok", f"search_in_spreadsheet failed: {res_search}"
+    # Filter matches to only check Z column to avoid false positives from other tests
+    z_matches = [m for m in res_search.get("matches", []) if m.get("cell", "").startswith("Z")]
+    assert len(z_matches) == 0, f"Expected 0 matches for Apple in Z column, found {len(z_matches)}"
+
+
 @native_test
 def test_calc_comments():
     # 1. Add a comment
