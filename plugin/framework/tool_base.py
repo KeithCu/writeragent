@@ -60,6 +60,26 @@ class ToolBase(ABC):
             return not self.name.startswith(_READ_PREFIXES)
         return True
 
+    def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
+        """Standardized JSON payload for tool errors.
+
+        Args:
+            message: User-friendly error message.
+            code: Internal error code.
+            **details: Optional context like tool_name, doc_type, etc.
+
+        Returns:
+            dict matching the standardized error format.
+        """
+        payload = {
+            "status": "error",
+            "code": code,
+            "message": message,
+        }
+        if details:
+            payload["details"] = details
+        return payload
+
     def validate(self, **kwargs):
         """Validate arguments against ``parameters`` schema.
 
@@ -102,12 +122,7 @@ class ToolBase(ABC):
         """
         if not hasattr(doc, getter_name):
             msg = missing_msg or f"Document does not support {getter_name}."
-            return {
-                "status": "error",
-                "code": "UNO_OBJECT_ERROR",
-                "message": msg,
-                "details": {"getter_name": getter_name},
-            }
+            return self._tool_error(msg, code="UNO_OBJECT_ERROR", getter_name=getter_name)
         return getattr(doc, getter_name)()
 
     def get_item(self, doc, getter_name, item_name, missing_msg=None, not_found_msg=None):
@@ -130,13 +145,13 @@ class ToolBase(ABC):
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
             msg = not_found_msg or f"Item '{item_name}' not found."
-            return {
-                "status": "error",
-                "code": "UNO_OBJECT_ERROR",
-                "message": msg,
-                "available": available,
-                "details": {"item_name": item_name, "getter_name": getter_name},
-            }
+            return self._tool_error(
+                msg,
+                code="UNO_OBJECT_ERROR",
+                item_name=item_name,
+                getter_name=getter_name,
+                available=available
+            )
 
         return collection.getByName(item_name)
 
@@ -151,16 +166,22 @@ class ToolBaseDummy:
 
     name: str | None = None
 
+    def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
+        """Standardized JSON payload for tool errors."""
+        payload = {
+            "status": "error",
+            "code": code,
+            "message": message,
+        }
+        if details:
+            payload["details"] = details
+        return payload
+
     def get_collection(self, doc, getter_name, missing_msg=None):
         """Helper to safely fetch a named collection from a document."""
         if not hasattr(doc, getter_name):
             msg = missing_msg or f"Document does not support {getter_name}."
-            return {
-                "status": "error",
-                "code": "UNO_OBJECT_ERROR",
-                "message": msg,
-                "details": {"getter_name": getter_name},
-            }
+            return self._tool_error(msg, code="UNO_OBJECT_ERROR", getter_name=getter_name)
         return getattr(doc, getter_name)()
 
     def get_item(self, doc, getter_name, item_name, missing_msg=None, not_found_msg=None):
@@ -171,12 +192,12 @@ class ToolBaseDummy:
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
             msg = not_found_msg or f"Item '{item_name}' not found."
-            return {
-                "status": "error",
-                "code": "UNO_OBJECT_ERROR",
-                "message": msg,
-                "available": available,
-                "details": {"item_name": item_name, "getter_name": getter_name},
-            }
+            return self._tool_error(
+                msg,
+                code="UNO_OBJECT_ERROR",
+                item_name=item_name,
+                getter_name=getter_name,
+                available=available
+            )
         return collection.getByName(item_name)
 

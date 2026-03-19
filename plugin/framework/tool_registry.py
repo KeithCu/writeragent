@@ -185,6 +185,13 @@ class ToolRegistry:
 
         from plugin.framework.errors import format_error_payload, WriterAgentException
 
+        # Common context for all error details
+        common_details = {"tool_name": tool_name}
+        if ctx.caller:
+            common_details["caller"] = ctx.caller
+        if ctx.doc_type:
+            common_details["doc_type"] = ctx.doc_type
+
         # Validate parameters
         ok, err = tool.validate(**kwargs)
         if not ok:
@@ -192,7 +199,7 @@ class ToolRegistry:
                 "status": "error",
                 "code": "VALIDATION_ERROR",
                 "message": err,
-                "details": {"tool_name": tool_name}
+                "details": common_details
             }
 
         # Emit executing event
@@ -208,16 +215,36 @@ class ToolRegistry:
 
         try:
             result = tool.execute(ctx, **kwargs)
+            # Ensure any returned dict with status='error' includes full context details
+            if isinstance(result, dict) and result.get("status") == "error":
+                result_details = result.get("details", {})
+                if isinstance(result_details, dict):
+                    # merge common_details into result_details without overwriting existing keys
+                    for k, v in common_details.items():
+                        if k not in result_details:
+                            result_details[k] = v
+                    result["details"] = result_details
         except ToolExecutionError as exc:
             log.exception("Tool execution failed (ToolExecutionError): %s", tool_name)
             if bus:
                 bus.emit("tool:failed", name=tool_name, error=str(exc), caller=ctx.caller)
-            return {"status": "error", "code": exc.code, "message": exc.message, "details": exc.details}
+
+            error_details = exc.details or {}
+            for k, v in common_details.items():
+                if k not in error_details:
+                    error_details[k] = v
+            return {"status": "error", "code": exc.code, "message": exc.message, "details": error_details}
         except Exception as exc:
             log.exception("Tool execution failed: %s", tool_name)
             if bus:
                 bus.emit("tool:failed", name=tool_name, error=str(exc), caller=ctx.caller)
-            return format_error_payload(exc)
+            payload = format_error_payload(exc)
+            error_details = payload.get("details", {})
+            for k, v in common_details.items():
+                if k not in error_details:
+                    error_details[k] = v
+            payload["details"] = error_details
+            return payload
 
         if bus:
             bus.emit("tool:completed", name=tool_name, caller=ctx.caller)
