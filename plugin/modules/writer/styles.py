@@ -143,10 +143,7 @@ class GetStyleInfo(ToolBase):
             return style_family
 
         if not style_family.hasByName(style_name):
-            return {
-                "status": "error",
-                "message": "Style '%s' not found in %s." % (style_name, family),
-            }
+            return self._tool_error("Style '%s' not found in %s." % (style_name, family))
 
         style = style_family.getByName(style_name)
         info = {
