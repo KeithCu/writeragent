@@ -20,6 +20,7 @@ Reads/writes writeragent.json in LibreOffice's user config directory.
 """
 import os
 import json
+import logging
 try:
     import uno
     import unohelper
@@ -265,7 +266,7 @@ def set_config(ctx, key, value):
             json.dump(config_data, f, indent=4)
     except IOError as e:
         from plugin.framework.logging import debug_log
-        debug_log("Error writing to %s: %s" % (config_file_path, e), context="Config")
+        debug_log("Error writing to %s: %s" % (config_file_path, e), context="Config", level=logging.ERROR)
 
 
 def remove_config(ctx, key):
@@ -284,7 +285,7 @@ def remove_config(ctx, key):
             json.dump(config_data, f, indent=4)
     except IOError as e:
         from plugin.framework.logging import debug_log
-        debug_log("Error writing to %s: %s" % (config_file_path, e), context="Config")
+        debug_log("Error writing to %s: %s" % (config_file_path, e), context="Config", level=logging.ERROR)
 
 
 # Listeners are called when config is changed (e.g. after Settings dialog).
@@ -431,7 +432,7 @@ def fetch_available_models(endpoint):
             return models
     except Exception as e:
         from plugin.framework.logging import debug_log
-        debug_log(f"fetch_available_models failed for {url}: {e}", context="Config")
+        debug_log(f"fetch_available_models failed for {url}: {e}", context="Config", level=logging.WARNING)
     _model_fetch_cache[url] = None
     return None
 

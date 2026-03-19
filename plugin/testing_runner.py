@@ -9,6 +9,7 @@
 # It aggregates existing in-LO tests (Writer/Calc, etc.) and returns
 # a JSON summary that external tools or agents can consume.
 
+import logging
 import sys
 import json
 import traceback
@@ -61,7 +62,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
     Returns (passed, failed, log).
     """
     from plugin.framework.logging import debug_log
-    debug_log(f"run_module_suite start: {name}", context="Tests")
+    debug_log(f"run_module_suite start: {name}", context="Tests", level=logging.INFO)
     total_passed = 0
     total_failed = 0
     log = []

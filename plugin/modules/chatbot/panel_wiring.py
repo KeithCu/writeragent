@@ -11,9 +11,9 @@ from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
 def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     """Main entry point to wire all controls for the panel."""
-    debug_log("_wireControls entered", context="Chat")
+    debug_log("_wireControls entered", context="Chat", level=logging.DEBUG)
     if not hasattr(root_window, "getControl"):
-        debug_log("_wireControls: root_window has no getControl, aborting", context="Chat")
+        debug_log("_wireControls: root_window has no getControl, aborting", context="Chat", level=logging.ERROR)
         return
 
     def get_optional(name):
@@ -115,13 +115,14 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         from main import try_ensure_mcp_timer
         try_ensure_mcp_timer(self.ctx)
     except Exception as e:
-        debug_log("try_ensure_mcp_timer: %s" % e, context="Chat")
+        debug_log("try_ensure_mcp_timer: %s" % e, context="Chat", level=logging.ERROR)
 
     try:
         debug_log(
             "Attaching _PanelResizeListener to root_window; controls=%s"
             % (sorted(k for k, v in controls.items() if v)),
             context="Chat",
+            level=logging.DEBUG,
         )
         _resize = _PanelResizeListener(controls)
         root_window.addWindowListener(_resize)

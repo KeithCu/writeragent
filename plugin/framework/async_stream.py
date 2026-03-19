@@ -20,6 +20,7 @@ Handles both simple streaming and complex tool-calling loops with thinking/statu
 Runs blocking API calls on worker threads and drains logic via a main-thread loop
 to keep the LibreOffice UI responsive (processEventsToIdle).
 """
+import logging
 import queue
 import threading
 
@@ -66,7 +67,7 @@ def run_stream_drain_loop(
 
     while not job_done[0]:
         if stop_checker and stop_checker():
-            debug_log("run_stream_drain_loop: Stop requested via checker.", context="API")
+            debug_log("run_stream_drain_loop: Stop requested via checker.", context="API", level=logging.INFO)
             on_stopped()
             job_done[0] = True
             break
@@ -107,7 +108,7 @@ def run_stream_drain_loop(
 
             for item in items:
                 if stop_checker and stop_checker():
-                    debug_log("run_stream_drain_loop: Stop requested via checker.", context="API")
+                    debug_log("run_stream_drain_loop: Stop requested via checker.", context="API", level=logging.INFO)
                     flush_buffers()
                     close_thinking()
                     on_stopped()
@@ -155,7 +156,7 @@ def run_stream_drain_loop(
                         try:
                             on_approval_required(item)
                         except Exception as e:
-                            debug_log("approval_required handler: %s" % e, context="API")
+                            debug_log("approval_required handler: %s" % e, context="API", level=logging.ERROR)
                 elif kind == "final_done":
                     flush_buffers()
                     close_thinking()
@@ -186,7 +187,7 @@ def run_stream_drain_loop(
             flush_buffers()
 
         except Exception as e:
-            debug_log("run_stream_drain_loop EXCEPTION: %s" % e, context="API")
+            debug_log("run_stream_drain_loop EXCEPTION: %s" % e, context="API", level=logging.ERROR)
             job_done[0] = True
             try:
                 on_error(e)

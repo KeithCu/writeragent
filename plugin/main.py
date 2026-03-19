@@ -37,7 +37,6 @@ import officehelper
 
 from plugin.framework.logging import init_logging
 import uno
-import logging
 
 from com.sun.star.task import XJobExecutor, XJob
 from com.sun.star.frame import XDispatch, XDispatchProvider
@@ -238,7 +237,7 @@ def _run_test_suite(test_func, doc_checker, test_name):
         from plugin.testing_runner import run_module_suite
         model = get_active_document(ctx)
         doc_model = model if (model and doc_checker(model)) else None
-        debug_log(f"Calling run_blocking_in_thread for {test_name}", context="Tests")
+        debug_log(f"Calling run_blocking_in_thread for {test_name}", context="Tests", level=logging.DEBUG)
         p, f, log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
         debug_log(f"_run_test_suite finished: {test_name}, p={p}, f={f}", context="Tests", level=logging.INFO)
         msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(log))

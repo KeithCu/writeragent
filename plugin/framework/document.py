@@ -15,6 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import logging
 import uno
 import time
 from plugin.modules.calc.bridge import CalcBridge
@@ -113,6 +114,7 @@ def set_document_property(model, name, value):
                 "set_document_property error: %r (type=%s, url=%s, readonly=%s)"
                 % (e, type(e).__name__, doc_url, readonly),
                 context="Chat",
+                level=logging.WARNING,
             )
         except Exception:
             pass

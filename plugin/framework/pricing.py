@@ -14,8 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-import os
 import json
+import logging
+import os
 import time
 from plugin.modules.http.client import sync_request
 from plugin.framework.config import user_config_dir
@@ -37,19 +38,19 @@ def fetch_openrouter_pricing(ctx, force=False):
     if not force and cache_path and os.path.exists(cache_path):
         mtime = os.path.getmtime(cache_path)
         if time.time() - mtime < CACHE_TTL:
-            debug_log("Using cached OpenRouter pricing.", context="Pricing")
+            debug_log("Using cached OpenRouter pricing.", context="Pricing", level=logging.DEBUG)
             return
             
-    debug_log("Fetching fresh OpenRouter pricing...", context="Pricing")
+    debug_log("Fetching fresh OpenRouter pricing...", context="Pricing", level=logging.INFO)
     url = "https://openrouter.ai/api/v1/models"
     try:
         data = sync_request(url, parse_json=True)
         if data and "data" in data:
             with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(data["data"], f, indent=2)
-            debug_log(f"Cached {len(data['data'])} models.", context="Pricing")
+            debug_log(f"Cached {len(data['data'])} models.", context="Pricing", level=logging.INFO)
     except Exception as e:
-        debug_log(f"Failed to fetch OpenRouter pricing: {e}", context="Pricing")
+        debug_log(f"Failed to fetch OpenRouter pricing: {e}", context="Pricing", level=logging.ERROR)
 
 def get_model_pricing(ctx, model_id):
     """Return (prompt_rate, completion_rate) per token in USD."""

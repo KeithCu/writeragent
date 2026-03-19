@@ -41,9 +41,9 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
 
     def windowResized(self, evt):
         r = evt.Source.getPosSize()
-        debug_log("windowResized: W=%d H=%d" % (r.Width, r.Height), context="Chat")
+        debug_log("windowResized: W=%d H=%d" % (r.Width, r.Height), context="Chat", level=logging.DEBUG)
         if self._in_relayout:
-            debug_log("windowResized: skipped (in_relayout)", context="Chat")
+            debug_log("windowResized: skipped (in_relayout)", context="Chat", level=logging.DEBUG)
             return
         try:
             self._in_relayout = True
@@ -77,6 +77,7 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
         debug_log(
             "_capture_initial: starting snapshot for win W=%d H=%d" % (r.Width, r.Height),
             context="Chat",
+            level=logging.DEBUG,
         )
         info = {"win_w": r.Width, "win_h": r.Height, "ctrls": {}}
         resp = self._c.get("response")
@@ -124,6 +125,7 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
                 str(info.get("gap_below_response")),
             ),
             context="Chat",
+            level=logging.DEBUG,
         )
         # Lightweight per-control width summary for debugging GTK issues.
         try:
@@ -136,6 +138,7 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             debug_log(
                 "_capture_initial ctrl_widths=%s" % width_summary,
                 context="Chat",
+                level=logging.DEBUG,
             )
         except Exception:
             # Logging must never break layout; ignore any issues here.
@@ -152,13 +155,14 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             "_relayout: win W=%d H=%d (have_initial=%s)"
             % (w, h, bool(self._initial)),
             context="Chat",
+            level=logging.DEBUG,
         )
 
         if self._initial is None:
             self._capture_initial(win)
 
         if self._initial is None:
-            debug_log("_relayout: no initial state, skip", context="Chat")
+            debug_log("_relayout: no initial state, skip", context="Chat", level=logging.WARNING)
             return
 
         iw = self._initial["win_w"]
