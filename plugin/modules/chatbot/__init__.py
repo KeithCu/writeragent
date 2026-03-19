@@ -59,7 +59,7 @@ class ChatbotModule(ModuleBase):
             self._routes_registered = True
             log.info("Chat API routes registered")
         except Exception as exc:  # ImportError, AttributeError, or route add failure
-            log.warning(
+            log.info(
                 "Chat API handler not available; skipping /api/chat routes: %s",
                 exc,
             )

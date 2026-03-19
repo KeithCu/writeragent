@@ -190,6 +190,10 @@ _CONFIG_DEFAULTS = {
 
 def _resolve_default(key):
     """Resolve default for key: schema first, then central dict. Safe fallbacks for None."""
+    if key == "log_level":
+        tests_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tests")
+        return "DEBUG" if os.path.isdir(tests_dir) else "WARN"
+
     val = _get_schema_default(key)
     if val is not None:
         return val
