@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
+from plugin.framework.errors import format_error_payload
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
 from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
@@ -309,7 +310,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
         from plugin.framework.dialogs import msgbox
         import traceback
         msgbox(ctx, "Error", f"Failed to open Settings: {e}\n\n{traceback.format_exc()}")
-        return {}
+        return format_error_payload(e)
     finally:
         dlg.dispose()
 

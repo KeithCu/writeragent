@@ -28,6 +28,8 @@ import subprocess
 import threading
 import time
 
+from plugin.framework.errors import format_error_payload
+
 try:
     import pty
     _PTY_AVAILABLE = True
@@ -235,15 +237,15 @@ class CLIProcessBackend(AgentBackend):
                         f"{self.display_name} subprocess ended unexpectedly (I/O error). "
                         "Check backend configuration."
                     )
-                    self._current_queue.put(("error", RuntimeError(msg)))
+                    self._current_queue.put(("error", format_error_payload(RuntimeError(msg))))
             else:
                 log.error(f"reader_loop: exception {e}")
                 if self._current_queue is not None:
-                    self._current_queue.put(("error", e))
+                    self._current_queue.put(("error", format_error_payload(e)))
         except Exception as e:
             log.error(f"reader_loop: exception {e}")
             if self._current_queue is not None:
-                self._current_queue.put(("error", e))
+                self._current_queue.put(("error", format_error_payload(e)))
         finally:
             log.debug(f"reader_loop: exiting (total lines read={line_count[0]}, level=logging.DEBUG), setting _response_done")
             self._response_done.set()
@@ -475,7 +477,7 @@ class CLIProcessBackend(AgentBackend):
                     ),
                 ))
             else:
-                queue.put(("error", RuntimeError(f"{self.display_name} did not start correctly within 30s.")))
+                queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} did not start correctly within 30s."))))
             return
 
         queue.put(("status", f"Waiting for {self.display_name}..."))
@@ -488,7 +490,7 @@ class CLIProcessBackend(AgentBackend):
                 log.debug(f"send(, level=logging.DEBUG): {self.display_name} died during wait, code={proc.returncode}")
                 # Fall through to the error handler logic at the end of send() or handle here
                 self._current_queue = None
-                queue.put(("error", RuntimeError(f"{self.display_name} exited with code {proc.returncode} before turn started.")))
+                queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} exited with code {proc.returncode} before turn started."))))
                 return
             # We'll try to proceed anyway, but it might fail
         else:
@@ -508,7 +510,7 @@ class CLIProcessBackend(AgentBackend):
         except Exception as e:
             self._current_queue = None
             log.debug(f"send(, level=logging.DEBUG): write failed {e}")
-            queue.put(("error", e))
+            queue.put(("error", format_error_payload(e)))
             return
 
         timeout_seconds = 300
@@ -541,7 +543,7 @@ class CLIProcessBackend(AgentBackend):
             if not err:
                 err = f"{self.display_name} exited with code {proc.returncode}."
             log.debug(f"send(, level=logging.DEBUG): process exited, returncode={proc.returncode}, stderr: {err[:300]}")
-            queue.put(("error", RuntimeError(err)))
+            queue.put(("error", format_error_payload(RuntimeError(err))))
         elif self._stop_requested or (stop_checker and stop_checker()):
             queue.put(("stopped",))
         else:

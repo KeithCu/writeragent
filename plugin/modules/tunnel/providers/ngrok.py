@@ -19,6 +19,8 @@
 import json
 import logging
 
+from plugin.modules.tunnel import TunnelAuthError
+
 log = logging.getLogger("writeragent.tunnel.ngrok")
 
 
@@ -61,7 +63,6 @@ class NgrokProvider:
             # This appears in 'err' or as a log message
             err = data.get("err") or data.get("error")
             if err and "ERR_NGROK_105" in str(err):
-                from .. import TunnelAuthError
                 raise TunnelAuthError("ngrok authtoken required")
 
         except Exception:

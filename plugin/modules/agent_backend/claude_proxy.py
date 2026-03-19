@@ -27,6 +27,7 @@ import shutil
 import threading
 import time
 
+from plugin.framework.errors import format_error_payload
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.modules.agent_backend.acp_connection import ACPConnection
 log = logging.getLogger(__name__)
@@ -205,7 +206,7 @@ class ClaudeBackend(AgentBackend):
         try:
             self._ensure_session(mcp_url=mcp_url, document_url=document_url)
         except Exception as e:
-            queue.put(("error", RuntimeError(f"Session creation failed: {e}")))
+            queue.put(("error", format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
             return
 
         queue.put(("status", f"Sending to {self.display_name}..."))
@@ -247,13 +248,13 @@ class ClaudeBackend(AgentBackend):
             queue.put(("stream_done", None))
 
         except TimeoutError:
-            queue.put(("error", RuntimeError(f"{self.display_name} prompt timed out")))
+            queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} prompt timed out"))))
         except Exception as e:
             if self._stop_requested:
                 queue.put(("stopped",))
             else:
                 log.error(f"Claude prompt error: {e}")
-                queue.put(("error", e))
+                queue.put(("error", format_error_payload(e)))
         finally:
             self._conn.set_notification_callback(None)
             self._prompt_done.set()

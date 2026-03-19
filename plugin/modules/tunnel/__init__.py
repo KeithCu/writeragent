@@ -36,14 +36,14 @@ _CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 class TunnelError(WriterAgentException):
     """General tunnel error."""
-    def __init__(self, message, code="TUNNEL_ERROR", context=None):
-        super().__init__(message, code=code, context=context)
+    def __init__(self, message, code="TUNNEL_ERROR", details=None):
+        super().__init__(message, code=code, details=details)
 
 
 class TunnelAuthError(TunnelError):
     """Provider requires authentication credentials."""
-    def __init__(self, message, context=None):
-        super().__init__(message, code="TUNNEL_AUTH_ERROR", context=context)
+    def __init__(self, message, details=None):
+        super().__init__(message, code="TUNNEL_AUTH_ERROR", details=details)
 
 
 def get_provider_options(services):

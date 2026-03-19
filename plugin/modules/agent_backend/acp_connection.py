@@ -26,6 +26,8 @@ import os
 import subprocess
 import threading
 
+from plugin.framework.errors import ToolExecutionError
+
 log = logging.getLogger(__name__)
 
 _LOG = "ABP"
@@ -102,7 +104,7 @@ class ACPConnection:
     def send_request(self, method, params=None, timeout=120):
         """Send a JSON-RPC request and wait for the response."""
         if not self.is_alive:
-            raise RuntimeError("ACP process is not running")
+            raise ToolExecutionError("ACP process is not running")
 
         req_id = self._next_id()
         msg = {
@@ -125,7 +127,7 @@ class ACPConnection:
         except (BrokenPipeError, OSError) as e:
             with self._lock:
                 self._pending.pop(req_id, None)
-            raise RuntimeError(f"Failed to write to ACP: {e}") from e
+            raise ToolExecutionError(f"Failed to write to ACP: {e}") from e
 
         if not event.wait(timeout=timeout):
             with self._lock:
@@ -139,7 +141,7 @@ class ACPConnection:
         if resp and "error" in resp:
             err = resp["error"]
             msg_str = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-            raise RuntimeError(f"ACP error: {msg_str}")
+            raise ToolExecutionError(f"ACP error: {msg_str}")
 
         return resp.get("result") if resp else None
 
