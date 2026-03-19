@@ -18,8 +18,8 @@
 LLM API client for WriterAgent.
 Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
 """
-import collections
 import logging
+import collections
 import json
 import ssl
 import urllib.request
@@ -205,7 +205,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         if not header_keys and hasattr(req, "get_full_url"):
             # If it's a urllib Request object, headers might be in .headers
             pass 
-        debug_log(f"Request to {getattr(req, 'full_url', url)} with header keys: {header_keys}", context="API")
+        debug_log(f"Request to {getattr(req, 'full_url', url)} with header keys: {header_keys}", context="API", level=logging.DEBUG)
     except Exception:
         pass
 
@@ -214,11 +214,11 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     host = parsed.hostname or ""
     is_local_https = parsed.scheme.lower() == "https" and _is_local_host(host)
     def _read_with_context(context):
-        debug_log(f"About to open URL: {getattr(req, 'full_url', url)}", context="API")
+        debug_log(f"About to open URL: {getattr(req, 'full_url', url)}", context="API", level=logging.DEBUG)
         with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
-            debug_log(f"URL opened, status={resp.getcode()}. Heading to read...", context="API")
+            debug_log(f"URL opened, status={resp.getcode()}. Heading to read...", context="API", level=logging.DEBUG)
             raw = resp.read()
-            debug_log(f"Read {len(raw)} bytes", context="API")
+            debug_log(f"Read {len(raw)} bytes", context="API", level=logging.DEBUG)
             if parse_json:
                 return json.loads(raw.decode("utf-8"))
             return raw
@@ -242,7 +242,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
             debug_log(
                 "Local HTTPS certificate verification failed for %s; retrying unverified." % host,
                 context="API",
-            )
+                level=logging.ERROR)
             try:
                 return _read_with_context(get_unverified_ssl_context())
             except urllib.error.HTTPError as retry_http_e:
@@ -256,9 +256,9 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
                 debug_log(f"HTTP Error: {msg}", context="API", level=logging.ERROR)
                 raise Exception(msg) from retry_http_e
             except Exception as retry_e:
-                debug_log(f"Request failed: {format_error_message(retry_e)}", context="API", level=logging.ERROR)
+                debug_log(f"Request failed: {format_error_message(retry_e, level=logging.ERROR)}", context="API", level=logging.ERROR)
                 raise
-        debug_log(f"Request failed: {format_error_message(e)}", context="API", level=logging.ERROR)
+        debug_log(f"Request failed: {format_error_message(e, level=logging.ERROR)}", context="API", level=logging.ERROR)
         raise
 
 
@@ -383,13 +383,13 @@ class LlmClient:
         
         if self._persistent_conn:
             if self._conn_key != new_key:
-                debug_log("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key), context="API")
+                debug_log("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key), context="API", level=logging.DEBUG)
                 self._persistent_conn.close()
                 self._persistent_conn = None
             else:
                 return self._persistent_conn
 
-        debug_log("Opening new connection to %s://%s:%s" % (scheme, host, port), context="API")
+        debug_log("Opening new connection to %s://%s:%s" % (scheme, host, port), context="API", level=logging.DEBUG)
         self._conn_key = new_key
         timeout = self._timeout()
         
@@ -404,7 +404,7 @@ class LlmClient:
     def _close_connection(self):
         if self._persistent_conn:
             try:
-                debug_log("Closing persistent connection to %s" % (self._conn_key,), context="API")
+                debug_log("Closing persistent connection to %s" % (self._conn_key,), context="API", level=logging.DEBUG)
                 # Try to shut down the actual socket to break blocking reads in other threads
                 try:
                     sock = getattr(self._persistent_conn, "sock", None)
@@ -421,7 +421,7 @@ class LlmClient:
 
     def stop(self):
         """Immediately stop any active request by closing the connection."""
-        debug_log("LlmClient.stop() called", context="API")
+        debug_log("LlmClient.stop(, level=logging.DEBUG) called", context="API")
         self._close_connection()
 
     def _endpoint(self):
@@ -448,7 +448,7 @@ class LlmClient:
             h.update(auth_headers)
         except AuthError as e:
             # Fall back to the previous behavior: simple Bearer header from config.
-            debug_log(f"Auth resolution error ({e.provider or 'unknown'}): {e}", context="API", level=logging.ERROR)
+            debug_log(f"Auth resolution error ({e.provider or 'unknown'}, level=logging.ERROR): {e}", context="API", level=logging.ERROR)
             api_key = self.config.get("api_key", "")
             if api_key:
                 h["Authorization"] = "Bearer %s" % api_key
@@ -484,7 +484,7 @@ class LlmClient:
         debug_log(
             "Local HTTPS certificate verification failed for %s; retrying unverified." % host,
             context="API",
-        )
+            level=logging.ERROR)
         self._close_connection()
         return True
 
@@ -502,10 +502,10 @@ class LlmClient:
         temperature = self.config.get("temperature", 0.5)
 
         init_logging(self.ctx)
-        debug_log("=== API Request Debug ===", context="API")
-        debug_log("Endpoint: %s" % endpoint, context="API")
-        debug_log("Model: %s" % model, context="API")
-        debug_log("Max Tokens: %s" % max_tokens, context="API")
+        debug_log("=== API Request Debug ===", context="API", level=logging.DEBUG)
+        debug_log("Endpoint: %s" % endpoint, context="API", level=logging.DEBUG)
+        debug_log("Model: %s" % model, context="API", level=logging.DEBUG)
+        debug_log("Max Tokens: %s" % max_tokens, context="API", level=logging.DEBUG)
 
         messages = []
         if system_prompt:
@@ -529,7 +529,7 @@ class LlmClient:
         if parsed.query:
             path += "?" + parsed.query
 
-        debug_log("Request data: %s" % json.dumps(data, indent=2), context="API")
+        debug_log("Request data: %s" % json.dumps(data, indent=2, level=logging.DEBUG), context="API")
         return "POST", path, json_data, self._headers()
 
     def extract_content_from_response(self, chunk):
@@ -614,11 +614,11 @@ class LlmClient:
         json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)
         debug_log(
-            "=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream),
+            "=== Chat Request (tools=%s, stream=%s, level=logging.DEBUG) ===" % (bool(tools), stream),
             context="API",
         )
-        debug_log("URL: %s" % url, context="API")
-        debug_log("Messages: %s" % json.dumps(messages, indent=2), context="API")
+        debug_log("URL: %s" % url, context="API", level=logging.DEBUG)
+        debug_log("Messages: %s" % json.dumps(messages, indent=2, level=logging.DEBUG), context="API")
         
         parsed = urllib.parse.urlparse(url)
         path = parsed.path
@@ -652,9 +652,9 @@ class LlmClient:
 
         json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)
-        debug_log("=== Image Request ===", context="API")
-        debug_log("URL: %s" % url, context="API")
-        debug_log("Data: %s" % json.dumps(data, indent=2), context="API")
+        debug_log("=== Image Request ===", context="API", level=logging.DEBUG)
+        debug_log("URL: %s" % url, context="API", level=logging.DEBUG)
+        debug_log("Data: %s" % json.dumps(data, indent=2, level=logging.DEBUG), context="API")
         
         parsed = urllib.parse.urlparse(url)
         path = parsed.path
@@ -677,7 +677,7 @@ class LlmClient:
 
         # 1. Check if the STT model itself supports native audio
         if has_native_audio(self.ctx, model_name, self._endpoint()):
-            debug_log("Using multimodal chat for transcription fallback (model: %s)" % model_name, context="API")
+            debug_log("Using multimodal chat for transcription fallback (model: %s, level=logging.WARNING)" % model_name, context="API")
             try:
                 with open(wav_path, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -729,9 +729,9 @@ class LlmClient:
         
         body_bytes = b"\r\n".join(parts)
         
-        debug_log("=== STT Request ===", context="API")
-        debug_log("URL: %s" % url, context="API")
-        debug_log("STT Model: %s" % model_name, context="API")
+        debug_log("=== STT Request ===", context="API", level=logging.DEBUG)
+        debug_log("URL: %s" % url, context="API", level=logging.DEBUG)
+        debug_log("STT Model: %s" % model_name, context="API", level=logging.DEBUG)
         
         # use sync_request (blocking helper already in this file)
         res = sync_request(url, data=body_bytes, headers=headers)
@@ -772,8 +772,8 @@ class LlmClient:
     ):
         """Common low-level streaming engine."""
         init_logging(self.ctx)
-        debug_log("=== Starting streaming loop (persistent) ===", context="API")
-        debug_log("Request Path: %s" % path, context="API")
+        debug_log("=== Starting streaming loop (persistent, level=logging.INFO) ===", context="API")
+        debug_log("Request Path: %s" % path, context="API", level=logging.DEBUG)
 
         last_finish_reason = None
         conn = self._get_connection()
@@ -797,7 +797,7 @@ class LlmClient:
                 for payload in iterate_sse(response):
                     
                     if payload == "[DONE]":
-                        debug_log("streaming_loop: [DONE] received", context="API")
+                        debug_log("streaming_loop: [DONE] received", context="API", level=logging.INFO)
                         content_finished = True
                         continue
                     
@@ -812,13 +812,13 @@ class LlmClient:
                     # Log all chunks for debugging, even after content_finished
                     # (this might contain 'usage' data)
                     if "usage" in chunk:
-                        debug_log("streaming_loop: received usage: %s" % chunk["usage"], context="API")
+                        debug_log("streaming_loop: received usage: %s" % chunk["usage"], context="API", level=logging.DEBUG)
 
                     if content_finished:
                         continue
 
                     if stop_checker and stop_checker():
-                        debug_log("streaming_loop: Stop requested.", context="API")
+                        debug_log("streaming_loop: Stop requested.", context="API", level=logging.DEBUG)
                         last_finish_reason = "stop"
                         content_finished = True
                         # On user stop, we usually want to kill the connection 
@@ -857,14 +857,14 @@ class LlmClient:
                         on_delta(delta)
 
                     if finish_reason:
-                        debug_log("streaming_loop: logical finish_reason=%s" % finish_reason, context="API")
+                        debug_log("streaming_loop: logical finish_reason=%s" % finish_reason, context="API", level=logging.DEBUG)
                         last_finish_reason = finish_reason
             finally:
                 # Ensure the entire response body is read so the connection is reusable.
                 try:
                     remaining = response.read()
                     if remaining:
-                        debug_log("Consumed extra %d bytes after loop" % len(remaining), context="API")
+                        debug_log("Consumed extra %d bytes after loop" % len(remaining, level=logging.DEBUG), context="API")
                 except:
                     pass
                 # Honor Connection: close so we don't try to reuse when the server closed.
@@ -892,7 +892,7 @@ class LlmClient:
             
             err_msg = format_error_message(e)
             if _retry:
-                debug_log("Retrying streaming request once on fresh connection", context="API")
+                debug_log("Retrying streaming request once on fresh connection", context="API", level=logging.WARNING)
                 return self._run_streaming_loop(
                     method, path, body, headers,
                     on_content=on_content,
@@ -978,16 +978,16 @@ class LlmClient:
                 if self._enable_local_ssl_fallback(e):
                     continue
                 if attempt == 0:
-                    debug_log("Retrying request_with_tools once on fresh connection", context="API")
+                    debug_log("Retrying request_with_tools once on fresh connection", context="API", level=logging.WARNING)
                     continue
-                debug_log("Connection retry failed: %s" % format_error_message(e), context="API", level=logging.ERROR)
+                debug_log("Connection retry failed: %s" % format_error_message(e, level=logging.ERROR), context="API", level=logging.ERROR)
                 raise Exception(format_error_message(e))
             except Exception as e:
                 err_msg = format_error_message(e)
                 debug_log("request_with_tools ERROR: %s -> %s" % (e, err_msg), context="API", level=logging.ERROR)
                 raise Exception(err_msg)
 
-        debug_log("=== Tool response: %s" % json.dumps(result, indent=2), context="API")
+        debug_log("=== Tool response: %s" % json.dumps(result, indent=2), context="API", level=logging.DEBUG)
 
         choice = result.get("choices", [{}])[0] if result.get("choices") else {}
         message = choice.get("message") or result.get("message") or {}
@@ -1029,7 +1029,7 @@ class LlmClient:
     ):
         """Streaming chat request with tools. Returns same shape as request_with_tools."""
         init_logging(self.ctx)
-        debug_log("stream_request_with_tools: building request (%d messages)..." % len(messages), context="API")
+        debug_log("stream_request_with_tools: building request (%d messages, level=logging.DEBUG)..." % len(messages), context="API")
         method, path, body, headers = self.make_chat_request(
             messages, max_tokens, tools=tools, stream=True
         )

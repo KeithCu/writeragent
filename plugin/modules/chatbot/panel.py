@@ -22,9 +22,9 @@ are wired by panel_factory. UNO UI element factory and XDL wiring
 remain in panel_factory.py.
 """
 
+import logging
 import uno
 import unohelper
-import logging
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.dialogs import get_checkbox_state
 from com.sun.star.awt import XActionListener
@@ -156,10 +156,10 @@ class QueryTextListener(unohelper.Base, XTextListener):
                 new_label = "Record" if HAS_RECORDING else "Send"
 
             if btn_model.Label != new_label:
-                debug_log("QueryTextListener: toggle label '%s' -> '%s'" % (btn_model.Label, new_label), context="Chat")
+                debug_log("QueryTextListener: toggle label '%s' -> '%s'" % (btn_model.Label, new_label), context="Chat", level=logging.DEBUG)
                 btn_model.Label = new_label
             else:
-                debug_log("QueryTextListener: label already '%s'" % new_label, context="Chat")
+                debug_log("QueryTextListener: label already '%s'" % new_label, context="Chat", level=logging.DEBUG)
         except Exception as e:
             debug_log("QueryTextListener error: %s" % e, context="Chat", level=logging.ERROR)
 
@@ -204,7 +204,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
                 event_bus.subscribe("mcp:request", self._on_mcp_request)
                 event_bus.subscribe("mcp:result", self._on_mcp_result)
                 from plugin.framework.logging import debug_log
-                debug_log(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***", context="Chat")
+                debug_log(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***", context="Chat", level=logging.DEBUG)
         except Exception as e:
             from plugin.framework.logging import debug_log
             debug_log("MCP subscribe error: %s" % e, context="Chat", level=logging.ERROR)
@@ -222,9 +222,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             if self.status_control:
                 self.status_control.setText(text)
             else:
-                debug_log("_set_status: NO CONTROL for '%s'" % text, context="Chat")
+                debug_log("_set_status: NO CONTROL for '%s'" % text, context="Chat", level=logging.DEBUG)
         except Exception as e:
-            debug_log("_set_status('%s') EXCEPTION: %s" % (text, e), context="Chat")
+            debug_log("_set_status('%s', level=logging.DEBUG) EXCEPTION: %s" % (text, e), context="Chat")
 
     def _scroll_response_to_bottom(self):
         """Scroll the response area to show the bottom (newest content).
@@ -255,7 +255,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
         try:
             from plugin.framework.logging import format_tool_call_for_display, debug_log
             fmt_str = format_tool_call_for_display(tool, args, method)
-            debug_log(f"MCP Request (hidden from UI): {fmt_str}", context="Chat")
+            debug_log(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}", context="Chat")
         except Exception as e:
             from plugin.framework.logging import debug_log
             debug_log("_on_mcp_request error: %s" % e, context="Chat", level=logging.ERROR)
@@ -333,7 +333,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             debug_log("SendButton error: %s\n%s" % (e, tb), context="Chat", level=logging.ERROR)
         finally:
             self._send_busy = False
-            debug_log("actionPerformed finally: resetting UI", context="Chat")
+            debug_log("actionPerformed finally: resetting UI", context="Chat", level=logging.DEBUG)
             self._set_status(self._terminal_status)
             if self.send_control and self.send_control.getModel().Label not in ("Record", "Stop Rec"):
                 # if empty, set to Record (when recording available) else Send
@@ -342,7 +342,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
                 else:
                     self.send_control.getModel().Label = "Record" if HAS_RECORDING else "Send"
             self._set_button_states(send_enabled=True, stop_enabled=False)
-            debug_log("control returned to LibreOffice", context="Chat")
+            debug_log("control returned to LibreOffice", context="Chat", level=logging.DEBUG)
             update_activity_state("")  # clear phase so watchdog does not report after we return
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
@@ -354,7 +354,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
     def _do_send(self):
         self._set_status("Starting...")
         update_activity_state("do_send")
-        debug_log("=== _do_send START ===", context="Chat")
+        debug_log("=== _do_send START ===", context="Chat", level=logging.INFO)
 
         # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
         if self.ensure_path_fn:
@@ -362,18 +362,18 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
 
         # 1. Get document model
         self._set_status("Getting document...")
-        debug_log("_do_send: getting document model...", context="Chat")
+        debug_log("_do_send: getting document model...", context="Chat", level=logging.DEBUG)
         model = self._get_document_model()
         if not model:
-            debug_log("_do_send: no document found", context="Chat")
+            debug_log("_do_send: no document found", context="Chat", level=logging.INFO)
             self._append_response("\n[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n")
             self._terminal_status = "Error"
             return
-        debug_log("_do_send: got document model OK", context="Chat")
+        debug_log("_do_send: got document model OK", context="Chat", level=logging.DEBUG)
 
         from plugin.framework.document import is_writer, is_calc, is_draw
         doc_type_str = "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
-        debug_log("_do_send: detected document type: %s" % doc_type_str, context="Chat")
+        debug_log("_do_send: detected document type: %s" % doc_type_str, context="Chat", level=logging.DEBUG)
         
         if self.initial_doc_type and doc_type_str != self.initial_doc_type:
             err_msg = "[Internal Error: Document type changed from %s to %s! Please file an error.]" % (self.initial_doc_type, doc_type_str)
@@ -411,7 +411,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             if has_native_audio(self.ctx, current_model, current_endpoint) is False:
                 stt_model = get_stt_model(self.ctx)
                 if stt_model:
-                    debug_log("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model), context="Chat")
+                    debug_log("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model), context="Chat", level=logging.WARNING)
                     self._transcribe_audio_async(self.audio_wav_path, stt_model, model, query_text=query_text)
                     return
                 else:
@@ -421,7 +421,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
                     self._set_status("Error")
                     return
             else:
-                debug_log("_do_send: model %s supports native audio, proceeding" % current_model, context="Chat")
+                debug_log("_do_send: model %s supports native audio, proceeding" % current_model, context="Chat", level=logging.DEBUG)
 
         # Optional web-research path
         web_research_checked = False
@@ -431,7 +431,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             except Exception:
                 pass
         if web_research_checked:
-            debug_log("_do_send: using web research sub-agent — skip chat model and direct image", context="Chat")
+            debug_log("_do_send: using web research sub-agent — skip chat model and direct image", context="Chat", level=logging.INFO)
             self._run_web_research(query_text, model)
             return
 
@@ -443,7 +443,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             except Exception as e:
                 debug_log("_do_send: Use Image model checkbox read error: %s" % e, context="Chat", level=logging.ERROR)
         if direct_image_checked:
-            debug_log("_do_send: using image model (direct) — skip chat model", context="Chat")
+            debug_log("_do_send: using image model (direct, level=logging.INFO) — skip chat model", context="Chat")
             self._do_send_direct_image(query_text, model)
             return
 
@@ -452,7 +452,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             from plugin.framework.config import get_config
             agent_backend_id = str(get_config(self.ctx, "agent_backend.backend_id") or "builtin").strip().lower()
             if agent_backend_id and agent_backend_id != "builtin":
-                debug_log("_do_send: using agent backend %s" % agent_backend_id, context="Chat")
+                debug_log("_do_send: using agent backend %s" % agent_backend_id, context="Chat", level=logging.INFO)
                 self._do_send_via_agent_backend(query_text, model, doc_type_str.lower())
                 return
         except Exception as e:

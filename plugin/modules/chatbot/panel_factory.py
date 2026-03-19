@@ -18,13 +18,13 @@
 # Follows the working pattern from LibreOffice's Python ToolPanel example:
 # XUIElement wrapper creates panel in getRealInterface() via ContainerWindowProvider + XDL.
 
+import logging
 import os
 import sys
 import hashlib
 import uuid
 import uno
 import unohelper
-import logging
 
 # Ensure the extension's install directory is on sys.path
 # so that "plugin.xxx" imports work correctly. This file lives at
@@ -95,10 +95,10 @@ def _ensure_extension_on_path(ctx):
         if ext_path and ext_path not in sys.path:
             sys.path.insert(0, ext_path)
             init_logging(ctx)
-            debug_log("Added extension path to sys.path: %s" % ext_path, context="Chat")
+            debug_log("Added extension path to sys.path: %s" % ext_path, context="Chat", level=logging.INFO)
         else:
             init_logging(ctx)
-            debug_log("Extension path already on sys.path: %s" % ext_path, context="Chat")
+            debug_log("Extension path already on sys.path: %s" % ext_path, context="Chat", level=logging.DEBUG)
     except Exception as e:
         init_logging(ctx)
         debug_log("_ensure_extension_on_path ERROR: %s" % e, context="Chat", level=logging.ERROR)
@@ -126,13 +126,13 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return self.PanelWindow
 
     def getHeightForWidth(self, width):
-        debug_log("getHeightForWidth(width=%s)" % width, context="Chat")
+        debug_log("getHeightForWidth(width=%s, level=logging.DEBUG)" % width, context="Chat")
         # Constrain panel to sidebar width (and parent height when available).
         if self.parent_window and self.PanelWindow and width > 0:
             parent_rect = self.parent_window.getPosSize()
             h = parent_rect.Height if parent_rect.Height > 0 else 400
             self.PanelWindow.setPosSize(0, 0, width, h, 15)
-            debug_log("panel constrained to W=%s H=%s" % (width, h), context="Chat")
+            debug_log("panel constrained to W=%s H=%s" % (width, h), context="Chat", level=logging.DEBUG)
         # LayoutSize(Minimum, Maximum, Preferred) — IDL field order.
         # Maximum=-1 means unbounded; the sidebar gives all remaining height
         # to panels with unbounded max (see DeckLayouter.cxx DistributeHeights).
@@ -157,16 +157,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.session = None  # Created in _wireControls
 
     def getRealInterface(self):
-        debug_log("=== getRealInterface called ===", context="Chat")
+        debug_log("=== getRealInterface called ===", context="Chat", level=logging.DEBUG)
         if not self.toolpanel:
             try:
                 # Ensure extension on path early so _wireControls imports work
                 _ensure_extension_on_path(self.ctx)
                 root_window = self._getOrCreatePanelRootWindow()
-                debug_log("root_window created: %s" % (root_window is not None), context="Chat")
+                debug_log("root_window created: %s" % (root_window is not None), context="Chat", level=logging.DEBUG)
                 self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
                 wire_chatpanel_controls(self, root_window, HAS_RECORDING, _ensure_extension_on_path)
-                debug_log("getRealInterface completed successfully", context="Chat")
+                debug_log("getRealInterface completed successfully", context="Chat", level=logging.INFO)
             except Exception as e:
                 debug_log("getRealInterface ERROR: %s" % e, context="Chat", level=logging.ERROR)
                 import traceback
@@ -175,16 +175,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         return self.toolpanel
 
     def _getOrCreatePanelRootWindow(self):
-        debug_log("_getOrCreatePanelRootWindow entered", context="Chat")
+        debug_log("_getOrCreatePanelRootWindow entered", context="Chat", level=logging.DEBUG)
         base_url = get_extension_url()
         dialog_url = base_url + "/" + XDL_PATH
-        debug_log("dialog_url: %s" % dialog_url, context="Chat")
+        debug_log("dialog_url: %s" % dialog_url, context="Chat", level=logging.DEBUG)
         provider = self.ctx.getServiceManager().createInstanceWithContext(
             "com.sun.star.awt.ContainerWindowProvider", self.ctx)
-        debug_log("calling createContainerWindow...", context="Chat")
+        debug_log("calling createContainerWindow...", context="Chat", level=logging.DEBUG)
         self.m_panelRootWindow = provider.createContainerWindow(
             dialog_url, "", self.xParentWindow, None)
-        debug_log("createContainerWindow returned", context="Chat")
+        debug_log("createContainerWindow returned", context="Chat", level=logging.DEBUG)
         # Sidebar does not show the panel content without this (framework does not make it visible).
         if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
             self.m_panelRootWindow.setVisible(True)
@@ -194,7 +194,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             self.m_panelRootWindow.setPosSize(
                 0, 0, parent_rect.Width, parent_rect.Height, 15)
             debug_log("panel constrained to W=%s H=%s" % (
-                parent_rect.Width, parent_rect.Height), context="Chat")
+                parent_rect.Width, parent_rect.Height), context="Chat", level=logging.DEBUG)
         return self.m_panelRootWindow
 
     def _render_session_history(self, session, response_ctrl, model, greeting=""):
@@ -556,14 +556,14 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         self.ctx = ctx
 
     def createUIElement(self, resource_url, args):
-        debug_log("createUIElement: %s" % resource_url, context="Chat")
+        debug_log("createUIElement: %s" % resource_url, context="Chat", level=logging.DEBUG)
         if "ChatPanel" not in resource_url:
             from com.sun.star.container import NoSuchElementException
             raise NoSuchElementException("Unknown resource: " + resource_url)
 
         frame = _get_arg(args, "Frame")
         parent_window = _get_arg(args, "ParentWindow")
-        debug_log("ParentWindow: %s" % (parent_window is not None), context="Chat")
+        debug_log("ParentWindow: %s" % (parent_window is not None), context="Chat", level=logging.DEBUG)
         if not parent_window:
             from com.sun.star.lang import IllegalArgumentException
             raise IllegalArgumentException("ParentWindow is required")

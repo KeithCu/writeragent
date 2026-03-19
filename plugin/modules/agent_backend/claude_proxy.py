@@ -20,6 +20,7 @@ Communicates with Claude Code (or compatible adapters) via standard stdio JSON-R
 Requires an ACP adapter like `claude-code-acp` or `claude-code-acp-rs` installed.
 """
 
+import logging
 import json
 import os
 import shutil
@@ -88,14 +89,14 @@ class ClaudeBackend(AgentBackend):
         """Check if claude-code-acp is installed."""
         self._load_config()
         if self._claude_cmd and os.path.isfile(self._claude_cmd):
-            debug_log(f"Claude acp binary found: {self._claude_cmd}", context=_LOG)
+            debug_log(f"Claude acp binary found: {self._claude_cmd}", context=_LOG, level=logging.INFO)
             return True
         cmd = _find_claude_binary()
         if cmd:
             self._claude_cmd = cmd
-            debug_log(f"Claude acp found via PATH: {cmd}", context=_LOG)
+            debug_log(f"Claude acp found via PATH: {cmd}", context=_LOG, level=logging.INFO)
             return True
-        debug_log("Claude acp binary not found", context=_LOG)
+        debug_log("Claude acp binary not found", context=_LOG, level=logging.INFO)
         return False
 
     def _ensure_connection(self):
@@ -116,7 +117,7 @@ class ClaudeBackend(AgentBackend):
                 key = get_api_key_for_endpoint(self._ctx, endpoint)
                 if key:
                     env["ANTHROPIC_API_KEY"] = key
-                    debug_log("Using fallback ANTHROPIC_API_KEY from general settings", context=_LOG)
+                    debug_log("Using fallback ANTHROPIC_API_KEY from general settings", context=_LOG, level=logging.WARNING)
             except Exception:
                 pass
 
@@ -138,9 +139,9 @@ class ClaudeBackend(AgentBackend):
                 },
                 "clientInfo": {"name": "WriterAgent", "version": "1.0"},
             }, timeout=15)
-            debug_log(f"Claude ACP initialized: {result}", context=_LOG)
+            debug_log(f"Claude ACP initialized: {result}", context=_LOG, level=logging.INFO)
         except Exception as e:
-            debug_log(f"Claude ACP initialize failed: {e}", context=_LOG)
+            debug_log(f"Claude ACP initialize failed: {e}", context=_LOG, level=logging.ERROR)
             self._conn.stop()
             self._conn = None
             raise
@@ -168,9 +169,9 @@ class ClaudeBackend(AgentBackend):
         try:
             result = self._conn.send_request("session/new", params, timeout=30)
             self._session_id = result.get("sessionId", "") if result else ""
-            debug_log(f"Claude ACP session created: {self._session_id}", context=_LOG)
+            debug_log(f"Claude ACP session created: {self._session_id}", context=_LOG, level=logging.DEBUG)
         except Exception as e:
-            debug_log(f"Claude ACP session creation failed: {e}", context=_LOG)
+            debug_log(f"Claude ACP session creation failed: {e}", context=_LOG, level=logging.ERROR)
             raise
 
     def send(
@@ -241,7 +242,7 @@ class ClaudeBackend(AgentBackend):
 
             if result:
                 stop_reason = result.get("stopReason", result.get("stop_reason", ""))
-                debug_log(f"Claude prompt completed: stop_reason={stop_reason}", context=_LOG)
+                debug_log(f"Claude prompt completed: stop_reason={stop_reason}", context=_LOG, level=logging.INFO)
 
             queue.put(("stream_done", None))
 
@@ -251,7 +252,7 @@ class ClaudeBackend(AgentBackend):
             if self._stop_requested:
                 queue.put(("stopped",))
             else:
-                debug_log(f"Claude prompt error: {e}", context=_LOG)
+                debug_log(f"Claude prompt error: {e}", context=_LOG, level=logging.ERROR)
                 queue.put(("error", e))
         finally:
             self._conn.set_notification_callback(None)
@@ -267,7 +268,7 @@ class ClaudeBackend(AgentBackend):
             update = params.get("update", params)
             self._handle_agent_update(update, queue)
         else:
-            debug_log(f"Unhandled notification: {method}", context=_LOG)
+            debug_log(f"Unhandled notification: {method}", context=_LOG, level=logging.DEBUG)
 
     def _handle_session_update(self, update, queue):
         session_update = update.get("session_update", update.get("sessionUpdate", ""))
@@ -312,9 +313,9 @@ class ClaudeBackend(AgentBackend):
         if self._conn and self._conn.is_alive and self._session_id:
             try:
                 self._conn.send_notification("session/cancel", {"sessionId": self._session_id})
-                debug_log("Cancel notification sent", context=_LOG)
+                debug_log("Cancel notification sent", context=_LOG, level=logging.DEBUG)
             except Exception as e:
-                debug_log(f"Cancel failed: {e}", context=_LOG)
+                debug_log(f"Cancel failed: {e}", context=_LOG, level=logging.ERROR)
 
     def submit_approval(self, request_id, approved):
         if not self._conn or not self._conn.is_alive or not request_id:

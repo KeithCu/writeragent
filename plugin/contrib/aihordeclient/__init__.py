@@ -22,6 +22,7 @@
 #   the upstream abstract interface.
 
 
+import logging
 from datetime import date, datetime
 
 from time import sleep
@@ -268,7 +269,7 @@ class AiHordeClient:
         dt = self.headers.copy()
         del dt["apikey"]
         # Beware, not logging the api_key
-        debug_log(str(dt), context="AIHorde")
+        debug_log(str(dt), context="AIHorde", level=logging.DEBUG)
 
         self._should_stop = False
         self.process_interrupted = False
@@ -299,7 +300,7 @@ class AiHordeClient:
             # If it's a Request object, headers are already inside
             pass
 
-        debug_log(f"Requesting URL: {getattr(url, 'full_url', url)}", context="AIHorde")
+        debug_log(f"Requesting URL: {getattr(url, 'full_url', url)}", context="AIHorde", level=logging.DEBUG)
         try:
             if only_read:
                 self.response_data = sync_request(
@@ -358,10 +359,10 @@ class AiHordeClient:
             days_updated = 999 
 
         if days_updated < 7 and "requirements" in self.settings["local_settings"]:
-            debug_log(f"No need to update requirements {previous_update}", context="AIHorde")
+            debug_log(f"No need to update requirements {previous_update}", context="AIHorde", level=logging.DEBUG)
             return
 
-        debug_log("Getting requirements for models", context="AIHorde")
+        debug_log("Getting requirements for models", context="AIHorde", level=logging.DEBUG)
         url = self.MODEL_REQUIREMENTS_URL
         self.progress_text = _("Updating model requirements...")
         self.__url_open__(url)
@@ -397,13 +398,13 @@ class AiHordeClient:
                 else:
                     req_info[model][name] = range_vals
 
-        debug_log(f"We have requirements for {len(req_info)} models", context="AIHorde")
+        debug_log(f"We have requirements for {len(req_info)} models", context="AIHorde", level=logging.DEBUG)
 
         if "requirements" not in self.settings["local_settings"]:
-            debug_log("Creating requirements in local_settings", context="AIHorde")
+            debug_log("Creating requirements in local_settings", context="AIHorde", level=logging.DEBUG)
             self.settings["local_settings"]["requirements"] = req_info
         else:
-            debug_log("Updating requirements in local_settings", context="AIHorde")
+            debug_log("Updating requirements in local_settings", context="AIHorde", level=logging.DEBUG)
             self.settings["local_settings"]["requirements"].update(req_info)
         
         self.settings["local_settings"]["date_requirements_updated"] = today.strftime("%Y-%m-%d")
@@ -429,7 +430,7 @@ class AiHordeClient:
         """
         reqs = {}
         if not self.settings or "local_settings" not in self.settings:
-            debug_log("Too brand new... ", context="AIHorde")
+            debug_log("Too brand new... ", context="AIHorde", level=logging.DEBUG)
             self.settings["local_settings"] = {}
         if "requirements" not in self.settings["local_settings"]:
             text_doing = self.progress_text
@@ -439,7 +440,7 @@ class AiHordeClient:
         settings = self.settings["local_settings"]["requirements"].get(model, {})
 
         if not settings:
-            debug_log(f"No requirements for {model}", context="AIHorde")
+            debug_log(f"No requirements for {model}", context="AIHorde", level=logging.DEBUG)
             return reqs
 
         for key, val in settings.items():
@@ -456,7 +457,7 @@ class AiHordeClient:
             else:
                 reqs[key] = val
 
-        debug_log(f"Requirements for {model} are {reqs}", context="AIHorde")
+        debug_log(f"Requirements for {model} are {reqs}", context="AIHorde", level=logging.DEBUG)
         return reqs
 
     def __get_model_restrictions__(self, model: str) -> json:
@@ -500,10 +501,10 @@ class AiHordeClient:
             today - date(*[int(i) for i in previous_update.split("-")])
         ).days
         if days_updated < AiHordeClient.MAX_DAYS_MODEL_UPDATE:
-            debug_log(f"No need to update models {previous_update}", context="AIHorde")
+            debug_log(f"No need to update models {previous_update}", context="AIHorde", level=logging.DEBUG)
             return
 
-        debug_log("time to update models", context="AIHorde")
+        debug_log("time to update models", context="AIHorde", level=logging.DEBUG)
         locals = self.settings.get("local_settings", {"models": MODELS})
         locals["date_refreshed_models"] = today.strftime("%Y-%m-%d")
 
@@ -516,10 +517,10 @@ class AiHordeClient:
             self.__url_open__(url)
             del self.headers["X-Fields"]
         except (socket.timeout, TimeoutError) as ex:
-            debug_log(format_error_message(ex), context="AIHorde")
+            debug_log(format_error_message(ex, level=logging.ERROR), context="AIHorde")
             return
         except (HTTPError, URLError) as ex:
-            debug_log(format_error_message(ex), context="AIHorde")
+            debug_log(format_error_message(ex, level=logging.ERROR), context="AIHorde")
             return
 
         # Select the most popular models
@@ -528,7 +529,7 @@ class AiHordeClient:
             key=lambda c: c[1],
             reverse=True,
         )
-        debug_log(f"Downloaded {len(popular_models)}", context="AIHorde")
+        debug_log(f"Downloaded {len(popular_models)}", context="AIHorde", level=logging.DEBUG)
         if self.settings.get("mode", "") == "MODE_INPAINTING":
             popular_models = [
                 (key, val)
@@ -551,7 +552,7 @@ class AiHordeClient:
             compare = set(fetched_models)
             new_models = compare.difference(locals.get("models", default_models))
             if new_models:
-                debug_log(f"New models {len(new_models)}", context="AIHorde")
+                debug_log(f"New models {len(new_models)}", context="AIHorde", level=logging.DEBUG)
                 locals["models"] = sorted(fetched_models, key=lambda c: c.upper())
 
         self.settings["local_settings"] = locals
@@ -560,7 +561,7 @@ class AiHordeClient:
         if "model" in self.settings:
             if self.settings["model"] not in locals["models"]:
                 self.settings["model"] = locals["models"][0]
-        debug_log(str(self.settings["local_settings"]), context="AIHorde")
+        debug_log(str(self.settings["local_settings"]), context="AIHorde", level=logging.DEBUG)
 
     def check_update(self) -> str:
         """
@@ -574,9 +575,9 @@ class AiHordeClient:
             debug_log(
                 "We already checked for a new version during this session",
                 context="AIHorde",
-            )
+                level=logging.DEBUG)
             return ""
-        debug_log("Checking for update", context="AIHorde")
+        debug_log("Checking for update", context="AIHorde", level=logging.DEBUG)
 
         try:
             # Check for updates by fetching version information from a URL
@@ -612,11 +613,11 @@ class AiHordeClient:
         try:
             self.__url_open__(request, 15)
             data = self.response_data
-            debug_log(str(data), context="AIHorde")
+            debug_log(str(data), context="AIHorde", level=logging.DEBUG)
             return _("You have {} kudos").format(data["kudos"])
         except KeyError as ex:
-            debug_log(f"find_user endpoint is having problems {ex}", context="AIHorde")
-            debug_log(f"response was {data}", context="AIHorde")
+            debug_log(f"find_user endpoint is having problems {ex}", context="AIHorde", level=logging.DEBUG)
+            debug_log(f"response was {data}", context="AIHorde", level=logging.DEBUG)
         except HTTPError as ex:
             if ex.code == 404:
                 raise IdentifiedError(
@@ -632,7 +633,7 @@ class AiHordeClient:
                     ),
                     DISCORD_HELP,
                 )
-            debug_log("Not able to fetch kudos", context="AIHorde")
+            debug_log("Not able to fetch kudos", context="AIHorde", level=logging.DEBUG)
             raise (ex)
         return _("Problem requesting kudos")
 
@@ -783,7 +784,7 @@ class AiHordeClient:
             if "source_image" in dt:
                 del dt["source_image"]
                 dt["source_image_size"] = len(data_to_send["source_image"])
-            debug_log(str(dt), context="AIHorde")
+            debug_log(str(dt), context="AIHorde", level=logging.DEBUG)
 
             post_data = json.dumps(data_to_send).encode("utf-8")
 
@@ -794,15 +795,15 @@ class AiHordeClient:
                 self.stage = "Contacting..."
                 self.__inform_progress__()
                 self.__url_open__(request, 15)
-                debug_log("Initial request completed, processing response...", context="AIHorde")
+                debug_log("Initial request completed, processing response...", context="AIHorde", level=logging.INFO)
                 data = self.response_data
-                debug_log(str(data), context="AIHorde")
+                debug_log(str(data), context="AIHorde", level=logging.DEBUG)
                 if "warnings" in data:
                     self.warnings = data["warnings"]
                 text = _("Horde Contacted")
                 self.kudos_cost = data["kudos"]
                 self.settings["kudos_cost"] = self.kudos_cost
-                debug_log(text + f" {self.check_counter} {self.progress}", context="AIHorde")
+                debug_log(text + f" {self.check_counter} {self.progress}", context="AIHorde", level=logging.DEBUG)
                 self.progress_text = text
                 self.__inform_progress__()
                 self.id = data["id"]
@@ -811,7 +812,7 @@ class AiHordeClient:
                 try:
                     status_info = self.informer.get_generated_image_url_status()
                     if status_info and len(status_info) > 2:
-                        debug_log(status_info[2], context="AIHorde")
+                        debug_log(status_info[2], context="AIHorde", level=logging.DEBUG)
                 except Exception:
                     pass
                 self.wait_time = data.get("wait_time", self.wait_time)
@@ -845,7 +846,7 @@ class AiHordeClient:
                 except Exception as ex2:
                     log_exception(ex2, context="AIHorde")
                     message = format_error_message(ex)
-                debug_log("%s %s" % (message, data), context="AIHorde")
+                debug_log("%s %s" % (message, data), context="AIHorde", level=logging.DEBUG)
                 if self.api_key == ANONYMOUS_KEY and REGISTER_AI_HORDE_URL in message:
                     self.informer.show_error(f"{message}", url=REGISTER_AI_HORDE_URL)
                 else:
@@ -898,7 +899,7 @@ class AiHordeClient:
         debug_log(
             f"[{progress:.2f}/{self.settings['max_wait_minutes'] * 60}] {self.progress_text}",
             context="AIHorde",
-        )
+            level=logging.DEBUG)
 
         if self.informer and (progress != self.progress or self.progress_text != getattr(self, '_last_progress_text', None)):
             self.informer.update_status(self.progress_text, progress)
@@ -923,13 +924,13 @@ class AiHordeClient:
 
         Raises and propagates exceptions
         """
-        debug_log(f"Checking status for job ID: {self.id}", context="AIHorde")
+        debug_log(f"Checking status for job ID: {self.id}", context="AIHorde", level=logging.DEBUG)
         url = f"{API_ROOT}generate/check/{self.id}"
 
         self.__url_open__(url)
         data = self.response_data
 
-        debug_log(str(data), context="AIHorde")
+        debug_log(str(data), context="AIHorde", level=logging.DEBUG)
 
         self.check_counter = self.check_counter + 1
 
@@ -943,10 +944,10 @@ class AiHordeClient:
                 text = _("You are first in the queue")
             else:
                 text = _("Queue position: ") + str(data["queue_position"])
-            debug_log(f"{text} (wait_time: {data.get('wait_time')})", context="AIHorde")
+            debug_log(f"{text} (wait_time: {data.get('wait_time')})", context="AIHorde", level=logging.DEBUG)
         elif data["processing"] > 0:
             text = _("Generating...")
-            debug_log(f"{text} (counter: {self.check_counter}, progress: {self.progress})", context="AIHorde")
+            debug_log(f"{text} (counter: {self.check_counter}, progress: {self.progress}, level=logging.DEBUG)", context="AIHorde")
         self.progress_text = text
 
         if self.check_counter < self.check_max:
@@ -955,11 +956,11 @@ class AiHordeClient:
                 and data["wait_time"] + datetime.now().timestamp() > self.max_time
             ):
                 # If we are in queue, we will not be served in time
-                debug_log(str(data), context="AIHorde")
+                debug_log(str(data), context="AIHorde", level=logging.DEBUG)
                 self.informer.set_generated_image_url_status(
                     self.status_url, data["wait_time"]
                 )
-                debug_log(self.informer.get_generated_image_url_status()[2], context="AIHorde")
+                debug_log(self.informer.get_generated_image_url_status()[2], context="AIHorde", level=logging.DEBUG)
                 if self.api_key == ANONYMOUS_KEY:
                     message = (
                         _("Get a free API Key at ")
@@ -991,7 +992,7 @@ class AiHordeClient:
                     self.__inform_progress__()
                 return self.__check_if_ready__()
             else:
-                debug_log(str(data), context="AIHorde")
+                debug_log(str(data), context="AIHorde", level=logging.DEBUG)
                 raise IdentifiedError(
                     _(
                         "There are no workers available with these settings. Please try again later."
@@ -1009,7 +1010,7 @@ class AiHordeClient:
                 raise IdentifiedError(message, url=REGISTER_AI_HORDE_URL)
             else:
                 minutes = (self.check_max * AiHordeClient.CHECK_WAIT) / 60
-                debug_log(str(data), context="AIHorde")
+                debug_log(str(data), context="AIHorde", level=logging.DEBUG)
                 if minutes == 1:
                     raise IdentifiedError(
                         _("Probably your image will take one additional minute.")
@@ -1037,7 +1038,7 @@ class AiHordeClient:
         self.__inform_progress__()
         self.__url_open__(url)
         data = self.response_data
-        debug_log(str(data), context="AIHorde")
+        debug_log(str(data), context="AIHorde", level=logging.DEBUG)
         if len(data["generations"]) == 0:
             return []
         if data["generations"][0]["censored"]:
@@ -1045,8 +1046,8 @@ class AiHordeClient:
             message = f"«{self.settings['prompt']}»" + _(
                 " is censored, try changing the prompt wording"
             )
-            debug_log(message, context="AIHorde")
-            debug_log(str(image["gen_metadata"]), context="AIHorde")
+            debug_log(message, context="AIHorde", level=logging.DEBUG)
+            debug_log(str(image["gen_metadata"], level=logging.DEBUG), context="AIHorde")
             self.informer.show_error(message, title="warning")
             self.censored = True
 
@@ -1058,7 +1059,7 @@ class AiHordeClient:
         downloaded images.
         """
         self.stage = "Downloading images"
-        debug_log("Start to download generated images", context="AIHorde")
+        debug_log("Start to download generated images", context="AIHorde", level=logging.INFO)
         generated_filenames = []
         cont = 1
         nimages = len(images)
@@ -1069,7 +1070,7 @@ class AiHordeClient:
                 if self.settings.get("seed", "") == "":
                     self.settings["seed"] = image["seed"]
                 if image["img"].startswith("https"):
-                    debug_log(f"Downloading {image['img']}", context="AIHorde")
+                    debug_log(f"Downloading {image['img']}", context="AIHorde", level=logging.DEBUG)
                     if nimages == 1:
                         self.progress_text = _("Downloading result...")
                     else:
@@ -1080,10 +1081,10 @@ class AiHordeClient:
                     self.__url_open__(image["img"], only_read=True)
                     bytes = self.response_data
                 else:
-                    debug_log(f"Storing embebed image {cont}", context="AIHorde")
+                    debug_log(f"Storing embebed image {cont}", context="AIHorde", level=logging.DEBUG)
                     bytes = base64.b64decode(image["img"])
 
-                debug_log(f"Dumping to {generated_file.name}", context="AIHorde")
+                debug_log(f"Dumping to {generated_file.name}", context="AIHorde", level=logging.DEBUG)
                 generated_file.write(bytes)
                 generated_filenames.append(generated_file.name)
                 cont += 1
@@ -1095,7 +1096,7 @@ class AiHordeClient:
                 + ":\n * "
                 + "\n * ".join([i["message"] for i in self.warnings])
             )
-            debug_log(str(self.warnings), context="AIHorde")
+            debug_log(str(self.warnings, level=logging.WARNING), context="AIHorde")
             self.informer.show_error(message, title="warning")
             self.warnings = []
         self.refresh_models()

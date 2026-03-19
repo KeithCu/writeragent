@@ -4,10 +4,10 @@ This mixin is used by SendButtonListener in panel.py and contains the
 multi-round tool-calling loop plus simple streaming fallback.
 """
 
+import logging
 import inspect
 import json
 import queue
-import logging
 
 from plugin.framework.async_stream import (
     run_stream_completion_async,
@@ -41,10 +41,10 @@ DEFAULT_MAX_TOOL_ROUNDS = 5
 class ToolCallingMixin:
     def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
         try:
-            debug_log("_do_send: importing core modules...", context="Chat")
+            debug_log("_do_send: importing core modules...", context="Chat", level=logging.DEBUG)
             from plugin.main import get_tools
 
-            debug_log("_do_send: core modules imported OK", context="Chat")
+            debug_log("_do_send: core modules imported OK", context="Chat", level=logging.DEBUG)
         except Exception as e:
             debug_log("_do_send: core import FAILED: %s" % e, context="Chat", level=logging.ERROR)
             self._append_response("\n[Import error - core: %s]\n" % e)
@@ -54,7 +54,7 @@ class ToolCallingMixin:
         try:
             debug_log(
                 "_do_send: loading %s schema..." % doc_type_str, context="Chat"
-            )
+            , level=logging.DEBUG)
             active_tools = get_tools().get_openai_schemas(doc_type=doc_type_str)
 
             def execute_fn(
@@ -123,7 +123,7 @@ class ToolCallingMixin:
                 debug_log(
                     "_do_send: text model updated to %s" % selected_model,
                     context="Chat",
-                )
+                    level=logging.DEBUG)
         if self.image_model_selector:
             selected_image_model = self.image_model_selector.getText()
             if selected_image_model:
@@ -131,7 +131,7 @@ class ToolCallingMixin:
                 debug_log(
                     "_do_send: image model updated to %s" % selected_image_model,
                     context="Chat",
-                )
+                    level=logging.DEBUG)
 
         max_context = int(get_config(self.ctx, "chat_context_length"))
         max_tokens = int(get_config(self.ctx, "chat_max_tokens"))
@@ -139,6 +139,7 @@ class ToolCallingMixin:
             "_do_send: config loaded: max_tokens=%d, max_context=%d"
             % (max_tokens, max_context),
             context="Chat",
+            level=logging.DEBUG
         )
 
         use_tools = True
@@ -167,7 +168,7 @@ class ToolCallingMixin:
                 ctx=self.ctx,
             )
             debug_log(
-                "_do_send: document context length=%d" % len(doc_text),
+                "_do_send: document context length=%d" % len(doc_text, level=logging.DEBUG),
                 context="Chat",
             )
             agent_log(
@@ -227,12 +228,12 @@ class ToolCallingMixin:
             self._append_response("\nYou: %s\n" % query_text)
 
         self._append_response("\n[Using chat model.]\n")
-        debug_log("_do_send: using chat model", context="Chat")
+        debug_log("_do_send: using chat model", context="Chat", level=logging.INFO)
 
         self._set_status("Connecting to AI (tools=%s)..." % use_tools)
         debug_log(
             "_do_send: calling AI, use_tools=%s, messages=%d"
-            % (use_tools, len(self.session.messages)),
+            % (use_tools, len(self.session.messages, level=logging.DEBUG)),
             context="Chat",
         )
 
@@ -249,14 +250,14 @@ class ToolCallingMixin:
             query_text=query_text,
         )
 
-        debug_log("=== _do_send END (async started) ===", context="Chat")
+        debug_log("=== _do_send END (async started, level=logging.INFO) ===", context="Chat")
 
     def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num, query_text=None):
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
         debug_log(
             "Tool loop round %d: sending %d messages to API..."
-            % (round_num, len(self.session.messages)),
+            % (round_num, len(self.session.messages, level=logging.DEBUG)),
             context="Chat",
         )
         self._set_status(
@@ -342,7 +343,7 @@ class ToolCallingMixin:
         if max_tool_rounds is None:
             max_tool_rounds = DEFAULT_MAX_TOOL_ROUNDS
         debug_log(
-            "=== Tool-calling loop START (max %d rounds) ==="
+            "=== Tool-calling loop START (max %d rounds, level=logging.INFO) ==="
             % max_tool_rounds,
             context="Chat",
         )
@@ -442,7 +443,7 @@ class ToolCallingMixin:
                         debug_log(
                             "Tool loop: Adding assistant message to session",
                             context="Chat",
-                        )
+                            level=logging.DEBUG)
                         self.session.add_assistant_message(content=content)
                         self._append_response("\n")
                     elif finish_reason == "length":
@@ -522,7 +523,7 @@ class ToolCallingMixin:
                     hypothesis_id="C,D,E",
                 )
                 debug_log(
-                    "Tool call: %s(%s)" % (func_name, func_args_str), context="Chat"
+                    "Tool call: %s(%s, level=logging.DEBUG)" % (func_name, func_args_str), context="Chat"
                 )
 
                 image_model_override = (
@@ -632,7 +633,7 @@ class ToolCallingMixin:
                     item[4],
                 )
 
-                debug_log("Tool result: %s" % result, context="Chat")
+                debug_log("Tool result: %s" % result, context="Chat", level=logging.DEBUG)
                 try:
                     result_data = json.loads(result)
                     note = result_data.get("message", result_data.get("status", "done"))
@@ -770,7 +771,7 @@ class ToolCallingMixin:
 
     def _start_simple_stream_async(self, client, max_tokens):
         """Start simple streaming (no tools) via async helper; returns immediately."""
-        debug_log("=== Simple stream START ===", context="Chat")
+        debug_log("=== Simple stream START ===", context="Chat", level=logging.INFO)
         self._set_status("Thinking...")
         self._append_response("\nAI: ")
 
