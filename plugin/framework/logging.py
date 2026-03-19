@@ -142,6 +142,12 @@ def _install_global_exception_hooks():
         try:
             tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
             msg = "Unhandled exception:\n" + "".join(tb_lines)
+            from plugin.framework.errors import format_error_payload
+            try:
+                payload = format_error_payload(exc_value)
+                msg += f"\nPayload context: {payload.get('details', {})}"
+            except Exception:
+                pass
             log.error(f"[Excepthook] {msg.strip()}")
         except Exception:
             pass
@@ -163,6 +169,12 @@ def _install_global_exception_hooks():
                     "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
                     if getattr(args, "exc_type", None) else "",
                 )
+                from plugin.framework.errors import format_error_payload
+                try:
+                    payload = format_error_payload(args.exc_value)
+                    msg += f"\nPayload context: {payload.get('details', {})}"
+                except Exception:
+                    pass
                 log.error(f"[Excepthook] {msg.strip()}")
             except Exception:
                 pass

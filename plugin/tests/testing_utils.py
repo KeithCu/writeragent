@@ -13,7 +13,8 @@ class ElementStub:
     def getPropertyValue(self, name):
         if name == "OutlineLevel":
             return self.outline_level
-        raise Exception("Property not found")
+        from plugin.framework.errors import WriterAgentException
+        raise WriterAgentException("Property not found")
 
     def supportsService(self, service):
         return service in self.services

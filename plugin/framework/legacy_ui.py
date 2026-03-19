@@ -106,7 +106,8 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     except Exception as e:
         error_msg = getattr(e, "Message", str(e))
         agent_log("legacy_ui:settings_box", "createDialog failed", data={"url": dialog_url, "error": error_msg}, hypothesis_id="H5")
-        raise Exception(f"Could not create dialog from {dialog_url}: {error_msg}")
+        from plugin.framework.errors import UnoObjectError
+        raise UnoObjectError(f"Could not create dialog from {dialog_url}: {error_msg}")
 
     dlg.getControl("btn_tab_chat").addActionListener(TabListener(dlg, 1))
     dlg.getControl("btn_tab_image").addActionListener(TabListener(dlg, 2))

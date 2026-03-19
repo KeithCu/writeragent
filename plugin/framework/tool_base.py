@@ -18,6 +18,8 @@
 
 from abc import ABC, abstractmethod
 
+from plugin.framework.errors import ToolExecutionError, format_error_payload
+
 
 _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
 
@@ -71,14 +73,7 @@ class ToolBase(ABC):
         Returns:
             dict matching the standardized error format.
         """
-        payload = {
-            "status": "error",
-            "code": code,
-            "message": message,
-        }
-        if details:
-            payload["details"] = details
-        return payload
+        return format_error_payload(ToolExecutionError(message, code=code, details=details))
 
     def validate(self, **kwargs):
         """Validate arguments against ``parameters`` schema.
@@ -168,14 +163,7 @@ class ToolBaseDummy:
 
     def _tool_error(self, message, code="TOOL_EXECUTION_ERROR", **details):
         """Standardized JSON payload for tool errors."""
-        payload = {
-            "status": "error",
-            "code": code,
-            "message": message,
-        }
-        if details:
-            payload["details"] = details
-        return payload
+        return format_error_payload(ToolExecutionError(message, code=code, details=details))
 
     def get_collection(self, doc, getter_name, missing_msg=None):
         """Helper to safely fetch a named collection from a document."""

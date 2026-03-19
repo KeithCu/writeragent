@@ -154,14 +154,16 @@ class MockPropertySet:
     def getPropertyValue(self, name):
         if name in self.properties:
             return self.properties[name]
-        raise Exception("UnknownPropertyException")
+        from plugin.framework.errors import WriterAgentException
+        raise WriterAgentException("UnknownPropertyException")
 
     def addProperty(self, name, attributes, default_value):
         self.properties[name] = default_value
 
     def setPropertyValue(self, name, value):
         if name not in self.properties:
-            raise Exception("UnknownPropertyException")
+            from plugin.framework.errors import WriterAgentException
+            raise WriterAgentException("UnknownPropertyException")
         self.properties[name] = value
 
     def removeProperty(self, name):

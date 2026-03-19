@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.web_research import WebResearchTool
 from plugin.tests.testing_utils import MockContext, MockDocument
+import pytest
+pytest.importorskip("requests")
 from plugin.contrib.smolagents.models import ChatMessage, ChatMessageToolCall, ChatMessageToolCallFunction, MessageRole
 
 class DummyChatbotPanel(SendHandlersMixin):
