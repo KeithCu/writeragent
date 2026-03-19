@@ -31,8 +31,8 @@ class ChatbotModule(ModuleBase):
         self._routes_registered = False
         self._api_handler = None
 
-        from .web_research import WebResearchTool
-        services.tools.register_many([WebResearchTool()])
+        from . import web_research
+        services.tools.auto_discover(web_research)
 
         # Chat tool routing is now handled natively by main.py's get_tools() instead of ChatToolAdapter
         self._adapter = None

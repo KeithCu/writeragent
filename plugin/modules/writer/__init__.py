@@ -45,42 +45,7 @@ class WriterModule(ModuleBase):
         services.register("writer_index", idx)
 
         # Register tools
-        from .outline import GetDocumentTree
-        from .styles import ListStyles, GetStyleInfo
-        from .images import GenerateImage
-        from .content import GetDocumentContent, ApplyDocumentContent, ReadParagraphs, InsertAtParagraph, ModifyParagraph, DeleteParagraph, DuplicateParagraph, CloneHeadingBlock, InsertParagraphsBatch, GetDocumentStats
-        from .search import SearchInDocument, GetIndexStats
-        from .comments import ListComments, AddComment, DeleteComment
-        from .tracking import SetTrackChanges, GetTrackedChanges, ManageTrackedChanges
-        from .frames import ListTextFrames, GetTextFrameInfo, SetTextFrameProperties
+        from . import outline, styles, images, content, search, comments, tracking, frames
 
-        tools = [
-            GetDocumentTree(),
-            ListStyles(),
-            GetStyleInfo(),
-            GenerateImage(),
-            GetDocumentContent(),
-            ApplyDocumentContent(),
-            ReadParagraphs(),
-            InsertAtParagraph(),
-            ModifyParagraph(),
-            DeleteParagraph(),
-            DuplicateParagraph(),
-            CloneHeadingBlock(),
-            InsertParagraphsBatch(),
-            GetDocumentStats(),
-            SearchInDocument(),
-            GetIndexStats(),
-            ListComments(),
-            AddComment(),
-            DeleteComment(),
-            # Table tools: uncomment classes in tables.py, then import/register here.
-            # ReplaceSection / FindParagraphForRange / FindTableForRange: add to structural.py when needed.
-            SetTrackChanges(),
-            GetTrackedChanges(),
-            ManageTrackedChanges(),
-            ListTextFrames(),
-            GetTextFrameInfo(),
-            SetTextFrameProperties(),
-        ]
-        services.tools.register_many(tools)
+        for module in (outline, styles, images, content, search, comments, tracking, frames):
+            services.tools.auto_discover(module)

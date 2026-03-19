@@ -52,6 +52,28 @@ class ToolRegistry:
         for t in tools:
             self.register(t)
 
+    def auto_discover(self, module):
+        """Automatically discover and register ToolBase subclasses in a module."""
+        import inspect
+        from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+
+        for name, obj in inspect.getmembers(module, inspect.isclass):
+            # Must inherit from ToolBase, but not be ToolBase itself or ToolBaseDummy
+            # Must be defined in this module to avoid double registration from imports
+            # Also exclude abstract classes or classes without a defined 'name'
+            if (issubclass(obj, ToolBase) and
+                obj is not ToolBase and
+                not issubclass(obj, ToolBaseDummy) and
+                obj.__module__ == module.__name__ and
+                not inspect.isabstract(obj) and
+                getattr(obj, "name", None)):
+
+                try:
+                    tool_instance = obj()
+                    self.register(tool_instance)
+                except Exception as e:
+                    log.error("Failed to instantiate tool %s: %s", obj.__name__, e)
+
     # ── Lookup & Schema Generation ────────────────────────────────────
 
     def get_tools(self, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True):
