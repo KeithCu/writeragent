@@ -52,7 +52,7 @@ try:
 except ImportError:
     HAS_RECORDING = False
 
-from plugin.framework.logging import debug_log, start_watchdog_thread, init_logging
+from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path

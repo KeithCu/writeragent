@@ -36,7 +36,7 @@ REPEATED_STREAMING_CHUNK_LIMIT = 20
 from plugin.framework.streaming_deltas import accumulate_delta
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
-from plugin.framework.logging import debug_log, init_logging
+from plugin.framework.logging import init_logging
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
 
 log = logging.getLogger(__name__)
@@ -609,9 +609,8 @@ class LlmClient:
 
         json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)
-        debug_log(
-            "=== Chat Request (tools=%s, stream=%s, level=logging.DEBUG) ===" % (bool(tools), stream),
-            context="API",
+        log.debug(
+            "=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream)
         )
         log.debug("URL: %s" % url)
         log.debug("Messages: %s" % json.dumps(messages, indent=2))

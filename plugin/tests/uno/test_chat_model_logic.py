@@ -123,9 +123,8 @@ class TestChatModelLogic(unittest.TestCase):
             mock_set_config.assert_any_call(self.ctx, "image_model", "new-image-model-xyz")
             mock_update_lru.assert_any_call(self.ctx, "new-image-model-xyz", "image_model_lru", "http://x")
 
-    @patch('plugin.framework.logging.debug_log')
     @patch('plugin.framework.logging.update_activity_state')
-    def test_doc_type_leakage(self, mock_update_activity, mock_debug_log):
+    def test_doc_type_leakage(self, mock_update_activity):
         self.listener.initial_doc_type = "Writer"
 
         # Mock _get_document_model to return a Calc document (getSheets instead of getText)
@@ -141,9 +140,8 @@ class TestChatModelLogic(unittest.TestCase):
             # Verify the response control text was updated with the error
             self.assertTrue("[Internal Error: Document type changed from Writer to Calc! Please file an error.]" in self.listener.response_control.getModel().Text)
 
-    @patch('plugin.framework.logging.debug_log')
     @patch('plugin.framework.logging.update_activity_state')
-    def test_button_lifecycle(self, mock_update_activity, mock_debug_log):
+    def test_button_lifecycle(self, mock_update_activity):
         # We need to test the actionPerformed method where _set_button_states is called.
         # Let's mock _do_send to raise an Exception to test the exception path.
 

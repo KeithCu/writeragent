@@ -97,7 +97,6 @@ def set_document_property(model, name, value):
         # We log richer context here to help diagnose benign startup errors
         # like the commonly-seen "-1" when setting UserDefinedProperties.
         try:
-            from plugin.framework.logging import debug_log
             doc_url = ""
             readonly = ""
             try:

@@ -13,7 +13,7 @@ from plugin.framework.async_stream import (
     run_stream_completion_async,
     run_stream_drain_loop,
 )
-from plugin.framework.logging import agent_log, debug_log, update_activity_state
+from plugin.framework.logging import agent_log, update_activity_state
 from plugin.modules.http.client import (
     format_error_message,
     is_audio_unsupported_error,
@@ -687,11 +687,9 @@ class ToolCallingMixin:
             if self.audio_wav_path and (
                 is_audio_unsupported_error(e) or _is_400_input_validation(e)
             ):
-                debug_log(
+                log.warning(
                     "Model %s failed native audio, caching and falling back to STT"
-                    % current_model,
-                    context="Chat",
-                    level=logging.WARNING
+                    % current_model
                 )
                 set_native_audio_support(
                     self.ctx, current_model, current_endpoint, supported=False

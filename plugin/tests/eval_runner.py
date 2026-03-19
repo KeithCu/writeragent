@@ -19,7 +19,7 @@ import time
 import traceback
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import get_api_config
-from plugin.framework.logging import debug_log
+from plugin.framework.logging import log
 from plugin.framework.document import get_document_context_for_chat
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.pricing import fetch_openrouter_pricing, calculate_cost
@@ -47,7 +47,7 @@ class EvalRunner:
 
     def run_test(self, name, task, category="Writer", verify_fn=None):
         """Run a single benchmark test with optional verification function."""
-        debug_log(f"Eval: Running {name}...", context="Eval")
+        log.info(f"[Eval] Running {name}...")
         
         # 0. Capture state before
         pre_state = self._get_document_state(category)
@@ -96,7 +96,7 @@ class EvalRunner:
                     tctx = ToolContext(self.doc, self.ctx, doc_type, {}, "eval")
                     registry.execute(t_name, tctx, **t_args)
                 except Exception as e:
-                    debug_log(f"Tool {t_name} failed: {e}", context="Eval")
+                    log.error(f"[Eval] Tool {t_name} failed: {e}")
             
             # 4. Success Verification
             passed = False
@@ -116,11 +116,11 @@ class EvalRunner:
         except Exception as e:
             self.failed += 1
             self.results.append({"name": name, "status": f"ERROR: {str(e)}", "cost": 0, "latency": time.time() - start_time})
-            debug_log(f"Eval Error in {name}: {traceback.format_exc()}", context="Eval")
+            log.error(f"[Eval] Error in {name}: {traceback.format_exc()}")
 
     def _verify_with_judge(self, name, task, category):
         """Use a cheaper/different model to judge if the task was successful."""
-        debug_log(f"Eval: Judging {name}...", context="Eval")
+        log.info(f"[Eval] Judging {name}...")
         # Snapshot current state
         doc_context = get_document_context_for_chat(self.doc, 8000, ctx=self.ctx)
         
@@ -147,7 +147,7 @@ Respond with only 'YES' or 'NO' and a short reason on the next line.
             content = (response.get("content") or "").upper()
             return "YES" in content
         except Exception as e:
-            debug_log(f"Judge failed: {e}", context="Eval")
+            log.error(f"[Eval] Judge failed: {e}")
             return False
 
     def _get_document_state(self, category):

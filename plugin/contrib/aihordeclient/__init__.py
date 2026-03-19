@@ -32,7 +32,7 @@ from urllib.request import Request
 from plugin.framework.translation_tool import opustm_hf_translate, OPUSTM_SOURCE_LANGUAGES  # noqa F401
 
 from plugin.modules.http.client import sync_request, format_error_message
-from plugin.framework.logging import debug_log, log_exception
+from plugin.framework.logging import log_exception
 from plugin.framework.constants import USER_AGENT
 
 import base64

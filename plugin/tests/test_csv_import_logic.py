@@ -11,10 +11,7 @@ m = ModuleType("core.calc_address_utils")
 m.parse_address = lambda x: (0, 0)
 sys.modules["core.calc_address_utils"] = m
 
-# Mock core.logging
-m = ModuleType("core.logging")
-m.debug_log = MagicMock()
-sys.modules["core.logging"] = m
+
 
 from plugin.modules.calc.manipulator import CellManipulator
 

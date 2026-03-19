@@ -21,6 +21,7 @@ import json
 import time
 import traceback
 import threading
+import logging
 
 # Globals set by init_logging(ctx); used by debug_log and agent_log so ctx is not passed at write time.
 _debug_log_path = None
@@ -29,6 +30,8 @@ _enable_agent_log = False
 _log_level_numeric = 10  # Default to DEBUG
 _init_lock = threading.Lock()
 _exception_hooks_installed = False
+
+log = logging.getLogger("writeragent")
 
 # Watchdog: shared state (main thread updates, watchdog reads)
 _activity_state = {"phase": "", "round_num": -1, "tool_name": None, "last_activity": 0.0}
@@ -75,7 +78,7 @@ def init_logging(ctx):
             global _log_level_numeric
             _log_level_numeric = numeric_level
             
-            logger = logging.getLogger("writeragent")
+            logger = log
             logger.setLevel(numeric_level)
             
             has_matching_handler = False
@@ -103,8 +106,7 @@ def init_logging(ctx):
             _install_global_exception_hooks()
 
 
-def _get_debug_path():
-    return _debug_log_path if _debug_log_path else FALLBACK_DEBUG
+
 
 
 def _install_global_exception_hooks():
@@ -120,7 +122,7 @@ def _install_global_exception_hooks():
         try:
             tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
             msg = "Unhandled exception:\n" + "".join(tb_lines)
-            debug_log(msg.strip(), context="Excepthook")
+            log.error(f"[Excepthook] {msg.strip()}")
         except Exception:
             pass
         try:
@@ -141,7 +143,7 @@ def _install_global_exception_hooks():
                     "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
                     if getattr(args, "exc_type", None) else "",
                 )
-                debug_log(msg.strip(), context="Excepthook")
+                log.error(f"[Excepthook] {msg.strip()}")
             except Exception:
                 pass
             try:
@@ -160,36 +162,13 @@ def _get_agent_path():
 def log_exception(ex, context="AIHorde"):
     """Log an exception with traceback to the unified debug log. Used by aihordeclient and others."""
     try:
-        import logging
-        tb = getattr(ex, "__traceback__", None)
-        if tb is not None:
-            tb_lines = traceback.format_exception(type(ex), ex, tb)
-            msg = "".join(tb_lines).strip()
-        else:
-            msg = str(ex)
-        debug_log(msg, context=context, level=logging.ERROR)
-    except Exception:
-        import logging
-        debug_log(str(ex), context=context, level=logging.ERROR)
-
-
-def debug_log(msg, context=None, level=10):  # 10 is logging.DEBUG
-    """Write one line to the unified debug log if level >= configured level."""
-    if level < _log_level_numeric:
-        return
-    try:
-        now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        ms = int((time.time() % 1) * 1000)
-        prefix = "[%s] " % context if context else ""
-        line = "%s.%03d | %s%s\n" % (now, ms, prefix, msg)
-    except Exception:
-        line = msg + "\n"
-    path = _get_debug_path()
-    try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+        logger = log
+        logger.error(f"[{context}] Exception", exc_info=ex)
     except Exception:
         pass
+
+
+
 
 
 def format_tool_call_for_display(tool, args, method=None):
@@ -314,7 +293,7 @@ def _watchdog_loop(status_control):
             continue
         msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (
             int(elapsed), phase, round_num, tool_name if tool_name else "")
-        debug_log(msg, context="Chat")
+        log.debug(f"[Chat] {msg}")
         if status_control:
             try:
                 hung_text = "Hung: %s round %s" % (phase, round_num)

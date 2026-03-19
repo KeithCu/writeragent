@@ -31,7 +31,7 @@ from com.sun.star.awt import XActionListener
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
 
-from plugin.framework.logging import debug_log, update_activity_state
+from plugin.framework.logging import update_activity_state
 from plugin.framework.history_db import get_chat_history
 
 # Recording available only if audio_recorder (and contrib/audio) is present
@@ -253,7 +253,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
     def _on_mcp_request(self, tool="", args=None, method=None, **kwargs):
         """Handle MCP request events from the bus (background thread)."""
         try:
-            from plugin.framework.logging import format_tool_call_for_display, debug_log
+            from plugin.framework.logging import format_tool_call_for_display
             fmt_str = format_tool_call_for_display(tool, args, method)
             log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
         except Exception as e:

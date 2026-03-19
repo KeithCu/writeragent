@@ -60,9 +60,8 @@ class TestStreamingBasic(unittest.TestCase):
             "request_timeout": 60,
         }
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_basic_streaming(self, mock_init_logging, mock_debug_log):
+    def test_basic_streaming(self, mock_init_logging):
         """Happy path: two content chunks then [DONE]."""
         chunks = [
             _make_chat_chunk(content="Hello"),
@@ -80,9 +79,8 @@ class TestStreamingBasic(unittest.TestCase):
         )
         self.assertEqual(content_parts, ["Hello", " world"])
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_sse_no_space_after_colon(self, mock_init_logging, mock_debug_log):
+    def test_sse_no_space_after_colon(self, mock_init_logging):
         """SSE line 'data:{...}' without space after colon is still parsed.
         LiteLLM: streaming_handler.py ~L1280 _strip_sse_data_from_chunk (Sagemaker format).
         """
@@ -99,9 +97,8 @@ class TestStreamingBasic(unittest.TestCase):
         )
         self.assertEqual(content_parts, ["ok"])
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_sse_comment_lines_skipped(self, mock_init_logging, mock_debug_log):
+    def test_sse_comment_lines_skipped(self, mock_init_logging):
         """Lines starting with ':' are skipped (OpenRouter heartbeats)."""
         chunks = [
             _make_chat_chunk(content="x"),
@@ -118,9 +115,8 @@ class TestStreamingBasic(unittest.TestCase):
         )
         self.assertEqual(content_parts, ["x"])
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_malformed_json_skipped(self, mock_init_logging, mock_debug_log):
+    def test_malformed_json_skipped(self, mock_init_logging):
         """Garbled payload is skipped; subsequent chunks are processed."""
         lines = [
             b"data: not valid json\n",
@@ -144,9 +140,8 @@ class TestStreamingFinishReasonError(unittest.TestCase):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_finish_reason_error_raises(self, mock_init_logging, mock_debug_log):
+    def test_finish_reason_error_raises(self, mock_init_logging):
         """Chunk with finish_reason='error' raises Exception."""
         chunk = _make_chat_chunk(content="", finish_reason="error")
         lines = _make_sse_lines(chunk)
@@ -169,9 +164,8 @@ class TestStreamingRepeatedChunks(unittest.TestCase):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_repeated_chunks_raises(self, mock_init_logging, mock_debug_log):
+    def test_repeated_chunks_raises(self, mock_init_logging):
         """Many identical content chunks raise Exception."""
         # Default REPEATED_STREAMING_CHUNK_LIMIT in api.py is 20
         chunks = [_make_chat_chunk(content="repeat") for _ in range(21)]
@@ -196,9 +190,8 @@ class TestNormalizeDelta(unittest.TestCase):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_tool_none_arguments_normalized(self, mock_init_logging, mock_debug_log):
+    def test_tool_none_arguments_normalized(self, mock_init_logging):
         """Streamed tool_call with function.arguments=None becomes '' after accumulate_delta + normalize."""
         # One chunk with tool_calls and arguments None (Azure); after normalize, accumulate_delta gets ""
         chunks = [
@@ -230,9 +223,8 @@ class TestNormalizeDelta(unittest.TestCase):
         self.assertIn("arguments", fn)
         self.assertEqual(fn["arguments"], "")
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_tool_none_type_normalized(self, mock_init_logging, mock_debug_log):
+    def test_tool_none_type_normalized(self, mock_init_logging):
         """Streamed tool_call with type=None becomes 'function' (Mistral)."""
         chunks = [
             {
@@ -260,9 +252,8 @@ class TestNormalizeDelta(unittest.TestCase):
         self.assertEqual(len(result["tool_calls"]), 1)
         self.assertEqual(result["tool_calls"][0].get("type"), "function")
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_role_none_normalized(self, mock_init_logging, mock_debug_log):
+    def test_role_none_normalized(self, mock_init_logging):
         """Delta with role=None is normalized to 'assistant' (Mistral)."""
         chunks = [
             {
@@ -291,9 +282,8 @@ class TestFinishReasonRemap(unittest.TestCase):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_finish_reason_stop_with_tool_calls_remapped(self, mock_init_logging, mock_debug_log):
+    def test_finish_reason_stop_with_tool_calls_remapped(self, mock_init_logging):
         """When finish_reason is 'stop' but tool_calls exist, result has finish_reason='tool_calls'."""
         chunks = [
             {
@@ -328,9 +318,8 @@ class TestStreamingComplexDeltas(unittest.TestCase):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_mixed_content_and_tool_calls_ordering(self, mock_init_logging, mock_debug_log):
+    def test_mixed_content_and_tool_calls_ordering(self, mock_init_logging):
         """Provider emits partial content before tool_calls; ensure both are accumulated correctly."""
         chunks = [
             {
@@ -380,9 +369,8 @@ class TestStreamingComplexDeltas(unittest.TestCase):
         self.assertEqual(result["tool_calls"][0]["function"]["name"], "foo")
         self.assertEqual(result["tool_calls"][0]["function"]["arguments"], '{"arg": "val"}')
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_tool_call_arguments_split_across_chunks(self, mock_init_logging, mock_debug_log):
+    def test_tool_call_arguments_split_across_chunks(self, mock_init_logging):
         """Tool-call argument strings split mid-JSON across multiple SSE chunks concatenate correctly."""
         chunks = [
             {
@@ -442,9 +430,8 @@ class TestStreamingHttpErrors(unittest.TestCase):
         self.ctx = MagicMock()
         self.config = {"endpoint": "http://127.0.0.1:5000", "model": "test", "request_timeout": 60}
 
-    @patch("plugin.modules.http.client.debug_log")
     @patch("plugin.modules.http.client.init_logging")
-    def test_http_error_envelope_parsing(self, mock_init_logging, mock_debug_log):
+    def test_http_error_envelope_parsing(self, mock_init_logging):
         """Confirm HTTP error bodies are converted into friendly UI exception messages."""
         client = LlmClient(self.config, self.ctx)
 

@@ -645,7 +645,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
     def dispatch(self, url, args):
         command = url.Path
         from plugin.framework.dialogs import msgbox
-        from plugin.framework.logging import debug_log, init_logging, log_exception
+        from plugin.framework.logging import init_logging, log_exception
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")

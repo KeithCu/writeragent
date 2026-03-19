@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import json
-from plugin.framework.logging import debug_log
+from plugin.framework.logging import log
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import setup, teardown, native_test
 
@@ -39,7 +39,7 @@ def setup_impress_tests(ctx):
     assert _test_doc is not None, "Could not create Impress document"
     assert hasattr(_test_doc, "getDrawPages"), "Not a valid Impress document"
 
-    debug_log("impress_tests: starting tests", context="ImpressTests")
+    log.info("[ImpressTests] impress_tests: starting tests")
 
 
 @teardown

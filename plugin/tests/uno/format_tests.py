@@ -22,7 +22,7 @@ from plugin.modules.writer.format_support import (
     find_text_ranges,
     _normalize,
 )
-from plugin.framework.logging import debug_log
+from plugin.framework.logging import log
 from plugin.framework.uno_context import get_desktop
 
 def _move_cursor_by_offset(cursor, offset, expand=False):
@@ -107,7 +107,7 @@ def setup_format_tests(ctx):
     assert _test_doc is not None, "Could not create Writer document"
     assert hasattr(_test_doc, "getText"), "Not a valid Writer document"
 
-    debug_log("format_tests: run start", context="Tests")
+    log.info("[Tests] format_tests: run start")
 
 
 @teardown

@@ -253,8 +253,7 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.assertEqual(kwargs.get("source_image"), b64)
 
     @patch('plugin.modules.http.client.init_logging')
-    @patch('plugin.modules.http.client.debug_log')
-    def test_make_image_request_body_includes_image_url_when_source_image(self, mock_debug, mock_init):
+    def test_make_image_request_body_includes_image_url_when_source_image(self, mock_init):
         """LlmClient.make_image_request adds image_url (data URL) to body when source_image is provided."""
         config = {"endpoint": "https://api.example.com", "model": "test-model"}
         client = LlmClient(config, MockContext())
