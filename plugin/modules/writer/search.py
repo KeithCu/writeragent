@@ -75,7 +75,7 @@ class SearchInDocument(ToolBase):
 
         pattern = kwargs.get("pattern", "")
         if not pattern:
-            return {"status": "error", "message": "pattern is required."}
+            return self._tool_error("pattern is required.")
 
         use_regex = kwargs.get("regex", False)
         case_sensitive = kwargs.get("case_sensitive", False)
@@ -168,7 +168,7 @@ class SearchInDocument(ToolBase):
                 "count": total_count,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 def _build_match(text, para_idx, ctx_paras, para_count, para_texts):
@@ -259,7 +259,7 @@ class AdvancedSearch(ToolBaseDummy):
                 context_paragraphs=kwargs.get("context_paragraphs", 1),
             )
         except ValueError as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
         # Post-process: add page numbers and filter by page proximity
         if include_pages and result.get("matches"):

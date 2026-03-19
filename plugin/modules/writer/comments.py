@@ -159,11 +159,9 @@ class AddComment(ToolBaseDummy):
                 if 0 <= para_index < len(para_ranges):
                     anchor_range = para_ranges[para_index].getStart()
                 else:
-                    return {"status": "error",
-                            "message": "Paragraph %d out of range." % para_index}
+                    return self._tool_error("Paragraph %d out of range." % para_index)
         else:
-            return {"status": "error",
-                    "message": "Provide search_text, locator, or paragraph_index."}
+            return self._tool_error("Provide search_text, locator, or paragraph_index.")
 
         annotation = doc.createInstance(
             "com.sun.star.text.textfield.Annotation"
@@ -212,8 +210,7 @@ class DeleteComment(ToolBaseDummy):
         author = kwargs.get("author")
 
         if not comment_name and not author:
-            return {"status": "error",
-                    "message": "Provide comment_name or author."}
+            return self._tool_error("Provide comment_name or author.")
 
         doc = ctx.doc
         text_obj = doc.getText()
@@ -373,7 +370,7 @@ class Workflow(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         action = kwargs.get("action")
         if action not in ("scan_tasks", "get_status", "set_status", "check_stop"):
-            return {"status": "error", "message": "Invalid action: %s" % action}
+            return self._tool_error("Invalid action: %s" % action)
 
         if action == "scan_tasks":
             return self._scan_tasks(ctx, kwargs)
@@ -593,14 +590,14 @@ class AddAiSummary(ToolBaseDummy):
                 resolved = ctx.services.document.resolve_locator(ctx.doc, locator)
                 para_index = resolved.get("para_index")
             except ValueError as e:
-                return {"status": "error", "error": str(e)}
+                return self._tool_error(str(e))
         if para_index is None:
-            return {"status": "error", "error": "Provide locator or para_index"}
+            return self._tool_error("Provide locator or para_index")
         try:
             result = tree_svc.add_ai_summary(ctx.doc, para_index, kwargs["summary"])
             return {"status": "ok", **result}
         except ValueError as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetAiSummaries(ToolBaseDummy):
@@ -646,8 +643,8 @@ class RemoveAiSummary(ToolBaseDummy):
                 resolved = ctx.services.document.resolve_locator(ctx.doc, locator)
                 para_index = resolved.get("para_index")
             except ValueError as e:
-                return {"status": "error", "error": str(e)}
+                return self._tool_error(str(e))
         if para_index is None:
-            return {"status": "error", "error": "Provide locator or para_index"}
+            return self._tool_error("Provide locator or para_index")
         removed = tree_svc.remove_ai_summary(ctx.doc, para_index)
         return {"status": "ok", "removed": removed, "para_index": para_index}

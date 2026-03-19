@@ -137,7 +137,7 @@ class ManageTrackedChanges(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         action = kwargs.get("action")
         if action not in ("accept_all", "reject_all"):
-            return {"status": "error", "message": "Invalid action: %s" % action}
+            return self._tool_error("Invalid action: %s" % action)
 
         smgr = ctx.ctx.ServiceManager
         dispatcher = smgr.createInstanceWithContext(

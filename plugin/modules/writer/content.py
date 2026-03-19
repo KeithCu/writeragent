@@ -112,7 +112,7 @@ class GetDocumentContent(ToolBase):
         range_end = kwargs.get("end") if scope == "range" else None
 
         if scope == "range" and (range_start is None or range_end is None):
-            return {"status": "error", "message": "scope 'range' requires start and end."}
+            return self._tool_error("scope 'range' requires start and end.")
 
         content = format_support.document_to_content(
             ctx.doc, ctx.ctx, ctx.services,
@@ -226,10 +226,10 @@ class ApplyDocumentContent(ToolBase):
         if not target and old_content is not None:
             target = "search"
         if not target:
-            return {"status": "error", "message": "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace."}
+            return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace.")
         
         if target == "search" and old_content is None:
-            return {"status": "error", "message": "target='search' requires old_content."}
+            return self._tool_error("target='search' requires old_content.")
 
         # Normalize content:
         # - If the model (or caller) serialized a list as a JSON string,
@@ -304,7 +304,7 @@ class ApplyDocumentContent(ToolBase):
         # Normalize for literal find: single \n (e.g. from HTML wraps) -> space; \n\n -> \n. LO regex does not work across paragraphs.
         search_string = _normalize_search_string_for_find(search_string)
         if not search_string:
-            return {"status": "error", "message": "old_content is empty after normalization."}
+            return self._tool_error("old_content is empty after normalization.")
         doc = ctx.doc
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
@@ -477,7 +477,7 @@ class InsertAtParagraph(ToolBase):
         position = kwargs.get("position", "before")
 
         if para_index is None:
-            return {"status": "error", "message": "Provide locator or paragraph_index."}
+            return self._tool_error("Provide locator or paragraph_index.")
 
         doc_svc = ctx.services.document
         para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
@@ -563,19 +563,16 @@ class ModifyParagraph(ToolBase):
         text = kwargs.get("text")
         style = kwargs.get("style")
         if text is None and style is None:
-            return {"status": "error",
-                    "message": "Provide at least one of text or style."}
+            return self._tool_error("Provide at least one of text or style.")
 
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:
-            return {"status": "error",
-                    "message": "Provide locator or paragraph_index."}
+            return self._tool_error("Provide locator or paragraph_index.")
 
         doc_svc = ctx.services.document
         target, _ = doc_svc.find_paragraph_element(ctx.doc, para_index)
         if target is None:
-            return {"status": "error",
-                    "message": "Paragraph %d not found." % para_index}
+            return self._tool_error("Paragraph %d not found." % para_index)
 
         result = {"status": "ok", "paragraph_index": para_index}
 
@@ -633,8 +630,7 @@ class DeleteParagraph(ToolBase):
     def execute(self, ctx, **kwargs):
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:
-            return {"status": "error",
-                    "message": "Provide locator or paragraph_index."}
+            return self._tool_error("Provide locator or paragraph_index.")
 
         doc_text = ctx.doc.getText()
         enum = doc_text.createEnumeration()
@@ -648,8 +644,7 @@ class DeleteParagraph(ToolBase):
             idx += 1
 
         if target is None:
-            return {"status": "error",
-                    "message": "Paragraph %d not found." % para_index}
+            return self._tool_error("Paragraph %d not found." % para_index)
 
         cursor = doc_text.createTextCursorByRange(target)
         cursor.gotoStartOfParagraph(False)
@@ -709,12 +704,11 @@ class DuplicateParagraph(ToolBase):
 
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:
-            return {"status": "error",
-                    "message": "Provide locator or paragraph_index."}
+            return self._tool_error("Provide locator or paragraph_index.")
 
         count = kwargs.get("count", 1)
         if count < 1:
-            return {"status": "error", "message": "count must be >= 1."}
+            return self._tool_error("count must be >= 1.")
 
         doc_text = ctx.doc.getText()
         enum = doc_text.createEnumeration()
@@ -729,8 +723,7 @@ class DuplicateParagraph(ToolBase):
             idx += 1
 
         if not elements:
-            return {"status": "error",
-                    "message": "Paragraph %d not found." % para_index}
+            return self._tool_error("Paragraph %d not found." % para_index)
 
         last = elements[-1]
         cursor = doc_text.createTextCursorByRange(last)
@@ -792,22 +785,19 @@ class CloneHeadingBlock(ToolBase):
 
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:
-            return {"status": "error",
-                    "message": "Provide locator or paragraph_index."}
+            return self._tool_error("Provide locator or paragraph_index.")
 
         # Use writer_tree service to find the heading node and block size
         tree_svc = ctx.services.get("writer_tree")
         if tree_svc is None:
-            return {"status": "error",
-                    "message": "writer_nav module not loaded; "
-                               "cannot resolve heading block."}
+            return self._tool_error("writer_nav module not loaded; "
+                               "cannot resolve heading block.")
 
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc._find_node_by_para_index(tree, para_index)
         if node is None:
-            return {"status": "error",
-                    "message": "No heading found at paragraph %d."
-                               % para_index}
+            return self._tool_error("No heading found at paragraph %d."
+                               % para_index)
 
         # Total paragraphs in the block: heading + body + all children
         total = 1 + tree_svc._count_all_children(node)
@@ -826,8 +816,7 @@ class CloneHeadingBlock(ToolBase):
             idx += 1
 
         if not elements:
-            return {"status": "error",
-                    "message": "Could not collect heading block paragraphs."}
+            return self._tool_error("Could not collect heading block paragraphs.")
 
         # Insert duplicates after the last element of the block
         last = elements[-1]
@@ -909,19 +898,17 @@ class InsertParagraphsBatch(ToolBase):
 
         paragraphs = kwargs.get("paragraphs")
         if not paragraphs:
-            return {"status": "error", "message": "Empty paragraphs list."}
+            return self._tool_error("Empty paragraphs list.")
 
         position = kwargs.get("position", "after")
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:
-            return {"status": "error",
-                    "message": "Provide locator or paragraph_index."}
+            return self._tool_error("Provide locator or paragraph_index.")
 
         doc_svc = ctx.services.document
         target, _ = doc_svc.find_paragraph_element(ctx.doc, para_index)
         if target is None:
-            return {"status": "error",
-                    "message": "Paragraph %d not found." % para_index}
+            return self._tool_error("Paragraph %d not found." % para_index)
 
         doc_text = ctx.doc.getText()
         cursor = doc_text.createTextCursorByRange(target)
@@ -958,8 +945,7 @@ class InsertParagraphsBatch(ToolBase):
                     cursor.setPropertyValue("ParaStyleName", sty)
                     cursor.gotoEndOfParagraph(False)
         else:
-            return {"status": "error",
-                    "message": "Invalid position: %s" % position}
+            return self._tool_error("Invalid position: %s" % position)
 
         n = len(paragraphs)
         return {

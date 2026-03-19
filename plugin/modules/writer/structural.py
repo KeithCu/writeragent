@@ -44,7 +44,7 @@ class ListSections(ToolBaseDummy):
                 })
             return {"status": "ok", "sections": sections, "count": len(sections)}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GotoPage(ToolBaseDummy):
@@ -67,7 +67,7 @@ class GotoPage(ToolBaseDummy):
             vc.jumpToPage(kwargs["page"])
             return {"status": "ok", "page": vc.getPage()}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetPageObjects(ToolBaseDummy):
@@ -101,7 +101,7 @@ class GetPageObjects(ToolBaseDummy):
                     resolved = doc_svc.resolve_locator(doc, locator)
                     para_idx = resolved.get("para_index", 0)
                 except ValueError as e:
-                    return {"status": "error", "error": str(e)}
+                    return self._tool_error(str(e))
             if para_idx is not None:
                 page = doc_svc.get_page_for_paragraph(doc, para_idx)
             else:
@@ -122,7 +122,7 @@ class GetPageObjects(ToolBaseDummy):
                 doc.unlockControllers()
             return {"status": "ok", "page": page, **objects}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
     def _scan_page(self, doc, vc, page):
         images = []
@@ -187,7 +187,7 @@ class RefreshIndexes(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
         if not hasattr(doc, "getDocumentIndexes"):
-            return {"status": "error", "error": "Document does not support indexes"}
+            return self._tool_error("Document does not support indexes")
         try:
             indexes = doc.getDocumentIndexes()
             count = indexes.getCount()
@@ -199,7 +199,7 @@ class RefreshIndexes(ToolBaseDummy):
                 refreshed.append(name)
             return {"status": "ok", "refreshed": refreshed, "count": count}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class ReadSection(ToolBaseDummy):
@@ -226,21 +226,18 @@ class ReadSection(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         section_name = kwargs.get("section_name", "")
         if not section_name:
-            return {"status": "error", "message": "section_name is required."}
+            return self._tool_error("section_name is required.")
 
         doc = ctx.doc
         if not hasattr(doc, "getTextSections"):
-            return {"status": "error", "message": "Document does not support sections."}
+            return self._tool_error("Document does not support sections.")
 
         try:
             sections = doc.getTextSections()
             if not sections.hasByName(section_name):
                 available = list(sections.getElementNames())
-                return {
-                    "status": "error",
-                    "message": "Section '%s' not found." % section_name,
-                    "available": available,
-                }
+                return self._tool_error("Section '%s' not found." % section_name,
+                    available=available)
 
             section = sections.getByName(section_name)
             anchor = section.getAnchor()
@@ -264,7 +261,7 @@ class ReadSection(ToolBaseDummy):
                 "length": len(content),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class ResolveBookmark(ToolBaseDummy):
@@ -292,11 +289,11 @@ class ResolveBookmark(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         bookmark_name = kwargs.get("bookmark_name", "")
         if not bookmark_name:
-            return {"status": "error", "message": "bookmark_name is required."}
+            return self._tool_error("bookmark_name is required.")
 
         doc = ctx.doc
         if not hasattr(doc, "getBookmarks"):
-            return {"status": "error", "message": "Document does not support bookmarks."}
+            return self._tool_error("Document does not support bookmarks.")
 
         try:
             bookmarks = doc.getBookmarks()
@@ -315,7 +312,7 @@ class ResolveBookmark(ToolBaseDummy):
                     ]
                     if existing:
                         hint += " Existing bookmarks: %s" % ", ".join(existing[:10])
-                return {"status": "error", "message": hint}
+                return self._tool_error(hint)
 
             bm = bookmarks.getByName(bookmark_name)
             anchor = bm.getAnchor()
@@ -348,7 +345,7 @@ class ResolveBookmark(ToolBaseDummy):
 
             return result
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class UpdateFields(ToolBaseDummy):
@@ -367,10 +364,7 @@ class UpdateFields(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
-            return {
-                "status": "error",
-                "message": "Document does not support text fields.",
-            }
+            return self._tool_error("Document does not support text fields.")
         try:
             fields = doc.getTextFields()
             fields.refresh()
@@ -384,7 +378,7 @@ class UpdateFields(ToolBaseDummy):
 
             return {"status": "ok", "fields_refreshed": count}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 class ListBookmarks(ToolBaseDummy):
     name = "list_bookmarks"
@@ -413,7 +407,7 @@ class ListBookmarks(ToolBaseDummy):
                 })
             return {"status": "ok", "bookmarks": result, "count": len(result)}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class CleanupBookmarks(ToolBaseDummy):

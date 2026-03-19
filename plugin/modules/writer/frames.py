@@ -106,7 +106,7 @@ class GetTextFrameInfo(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         frame_name = kwargs.get("frame_name", "")
         if not frame_name:
-            return {"status": "error", "message": "frame_name is required."}
+            return self._tool_error("frame_name is required.")
 
         frame = self.get_item(
             ctx.doc, "getTextFrames", frame_name,
@@ -228,7 +228,7 @@ class SetTextFrameProperties(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         frame_name = kwargs.get("frame_name", "")
         if not frame_name:
-            return {"status": "error", "message": "frame_name is required."}
+            return self._tool_error("frame_name is required.")
 
         frame = self.get_item(
             ctx.doc, "getTextFrames", frame_name,

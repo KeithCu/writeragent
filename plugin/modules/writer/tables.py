@@ -163,13 +163,13 @@ log = logging.getLogger("writeragent.writer")
 #         start_cell = (kwargs.get("start_cell") or "A1").strip().upper()
 
 #         if not data or not isinstance(data, list):
-#             return {"status": "error", "message": "data must be a non-empty array of rows."}
+#             return self._tool_error("data must be a non-empty array of rows.")
 #         if not any(isinstance(row, list) and len(row) > 0 for row in data):
-#             return {"status": "error", "message": "data must contain at least one row with at least one value."}
+#             return self._tool_error("data must contain at least one row with at least one value.")
 
 #         parsed = _parse_cell(start_cell)
 #         if parsed is None:
-#             return {"status": "error", "message": "Invalid start_cell: %s (use Excel-style e.g. A1, B3)." % start_cell}
+#             return self._tool_error("Invalid start_cell: %s (use Excel-style e.g. A1, B3)." % start_cell)
 #         start_row, start_col = parsed
 
 #         table = self.get_item(
@@ -277,7 +277,7 @@ log = logging.getLogger("writeragent.writer")
 #         rows = kwargs.get("rows")
 #         cols = kwargs.get("cols")
 #         if rows < 1 or cols < 1:
-#             return {"status": "error", "message": "rows and cols must be >= 1."}
+#             return self._tool_error("rows and cols must be >= 1.")
 
 #         paragraph_index = kwargs.get("paragraph_index")
 #         locator = kwargs.get("locator")
@@ -389,7 +389,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         try:
@@ -398,7 +398,7 @@ def _col_letter(c):
 #             text.removeTextContent(table)
 #             return {"status": "ok", "deleted": table_name}
 #         except Exception as e:
-#             return {"status": "error", "error": str(e)}
+#             return self._tool_error(str(e))
 
 
 # # ------------------------------------------------------------------
@@ -466,7 +466,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         updated = []
@@ -584,7 +584,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         rows = table.getRows()
@@ -603,7 +603,7 @@ def _col_letter(c):
 #                 "total_rows": rows.getCount(),
 #             }
 #         except Exception as e:
-#             return {"status": "error", "error": str(e)}
+#             return self._tool_error(str(e))
 
 
 # class AddTableColumns(ToolBase):
@@ -638,7 +638,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         cols = table.getColumns()
@@ -657,7 +657,7 @@ def _col_letter(c):
 #                 "total_columns": cols.getCount(),
 #             }
 #         except Exception as e:
-#             return {"status": "error", "error": str(e)}
+#             return self._tool_error(str(e))
 
 
 # # ------------------------------------------------------------------
@@ -696,7 +696,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         rows = table.getRows()
@@ -712,7 +712,7 @@ def _col_letter(c):
 #                 "total_rows": rows.getCount(),
 #             }
 #         except Exception as e:
-#             return {"status": "error", "error": str(e)}
+#             return self._tool_error(str(e))
 
 
 # class DeleteTableColumns(ToolBase):
@@ -747,7 +747,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         cols = table.getColumns()
@@ -763,7 +763,7 @@ def _col_letter(c):
 #                 "total_columns": cols.getCount(),
 #             }
 #         except Exception as e:
-#             return {"status": "error", "error": str(e)}
+#             return self._tool_error(str(e))
 
 
 # # ------------------------------------------------------------------
@@ -809,7 +809,7 @@ def _col_letter(c):
 #         doc = ctx.doc
 #         tables_sup = doc.getTextTables()
 #         if not tables_sup.hasByName(table_name):
-#             return {"status": "error", "message": "Table '%s' not found." % table_name}
+#             return self._tool_error("Table '%s' not found." % table_name)
 
 #         table = tables_sup.getByName(table_name)
 #         cols = table.getColumns().getCount()
