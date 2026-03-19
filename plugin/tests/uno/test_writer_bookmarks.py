@@ -8,7 +8,7 @@ try:
     from plugin.testing_runner import setup, teardown, native_test
     from plugin.framework.uno_helpers import get_desktop
     from plugin.framework.document import DocumentService
-    from plugin.framework.events import EventBus
+    from plugin.framework.event_bus import EventBus
     from plugin.modules.writer.bookmarks import BookmarkService
 except ImportError:
     setup, teardown, native_test = (lambda f: f), (lambda f: f), (lambda f: f)

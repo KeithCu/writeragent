@@ -169,7 +169,7 @@ class MockContext:
 class MockServices:
     def __init__(self, doc):
         from plugin.framework.document import DocumentService
-        from plugin.framework.events import EventBus
+        from plugin.framework.event_bus import EventBus
         from plugin.modules.writer.proximity import ProximityService
         from plugin.modules.writer.bookmarks import BookmarkService
         from plugin.modules.writer.tree import TreeService

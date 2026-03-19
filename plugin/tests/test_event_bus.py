@@ -1,6 +1,6 @@
 import gc
 from plugin.framework.event_bus import EventBus, get_event_bus
-from plugin.framework.events import EventBusService
+from plugin.framework.event_bus import EventBusService
 
 def test_subscribe_emit():
     bus = EventBus()

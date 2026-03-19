@@ -84,7 +84,7 @@ def test_proximity_service():
     from plugin.modules.writer.proximity import ProximityService
     from plugin.modules.writer.bookmarks import BookmarkService
     from plugin.modules.writer.tree import TreeService
-    from plugin.framework.events import EventBus
+    from plugin.framework.event_bus import EventBus
     from plugin.modules.writer.ops import find_paragraph_for_range as ops_find_paragraph_for_range
 
     events = EventBus()
@@ -200,7 +200,7 @@ def test_writer_structural_and_tree_service():
 
     from plugin.modules.writer.tree import TreeService
     from plugin.modules.writer.bookmarks import BookmarkService
-    from plugin.framework.events import EventBus
+    from plugin.framework.event_bus import EventBus
     from plugin.framework.document import DocumentService
     from plugin.modules.writer.structural import ListBookmarks, ListSections
 
