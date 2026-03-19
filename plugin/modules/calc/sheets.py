@@ -53,7 +53,7 @@ class ListSheets(ToolBase):
             return {"status": "ok", "result": result}
         except Exception as e:
             logger.exception("list_sheets failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SwitchSheet(ToolBase):
@@ -85,7 +85,7 @@ class SwitchSheet(ToolBase):
             return {"status": "ok", "message": result}
         except Exception as e:
             logger.exception("switch_sheet failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class CreateSheet(ToolBase):
@@ -125,7 +125,7 @@ class CreateSheet(ToolBase):
             return {"status": "ok", "message": result}
         except Exception as e:
             logger.exception("create_sheet failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetSheetSummary(ToolBase):
@@ -160,4 +160,4 @@ class GetSheetSummary(ToolBase):
             return {"status": "ok", "result": result}
         except Exception as e:
             logger.exception("get_sheet_summary failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

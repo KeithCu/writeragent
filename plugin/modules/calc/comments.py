@@ -83,7 +83,7 @@ class ListCellComments(ToolBase):
                 "sheet": sheet.getName(),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class AddCellComment(ToolBase):
@@ -119,7 +119,7 @@ class AddCellComment(ToolBase):
         cell_ref = kwargs.get("cell", "")
         text = kwargs.get("text", "")
         if not cell_ref or not text:
-            return {"status": "error", "message": "cell and text are required."}
+            return self._tool_error("cell and text are required.")
 
         doc = ctx.doc
         try:
@@ -149,7 +149,7 @@ class AddCellComment(ToolBase):
                 "sheet": sheet.getName(),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class DeleteCellComment(ToolBase):
@@ -178,7 +178,7 @@ class DeleteCellComment(ToolBase):
     def execute(self, ctx, **kwargs):
         cell_ref = kwargs.get("cell", "")
         if not cell_ref:
-            return {"status": "error", "message": "cell is required."}
+            return self._tool_error("cell is required.")
 
         doc = ctx.doc
         try:
@@ -198,9 +198,6 @@ class DeleteCellComment(ToolBase):
                         "message": "Comment deleted.",
                     }
 
-            return {
-                "status": "error",
-                "message": "No comment found at %s." % cell_ref,
-            }
+            return self._tool_error("No comment found at %s." % cell_ref)
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

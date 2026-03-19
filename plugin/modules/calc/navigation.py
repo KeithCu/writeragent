@@ -61,7 +61,7 @@ class ListNamedRanges(ToolBase):
                 "count": len(result),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetSheetOverview(ToolBase):
@@ -92,8 +92,7 @@ class GetSheetOverview(ToolBase):
             if sheet_name:
                 sheets = doc.getSheets()
                 if not sheets.hasByName(sheet_name):
-                    return {"status": "error",
-                            "message": "Sheet not found: %s" % sheet_name}
+                    return self._tool_error("Sheet not found: %s" % sheet_name)
                 sheet = sheets.getByName(sheet_name)
             else:
                 controller = doc.getCurrentController()
@@ -150,4 +149,4 @@ class GetSheetOverview(ToolBase):
 
             return result
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

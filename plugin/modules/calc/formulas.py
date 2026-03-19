@@ -86,4 +86,4 @@ class DetectErrors(ToolBase):
                 return {"status": "ok", "result": result}
         except Exception as e:
             logger.exception("detect_and_explain_errors failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

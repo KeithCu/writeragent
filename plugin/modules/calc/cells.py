@@ -97,7 +97,7 @@ class ReadCellRange(ToolBase):
 
         try:
             if len(rn) == 0:
-                return {"status": "error", "error": "range_name is required"}
+                return self._tool_error("range_name is required")
             if len(rn) == 1:
                 result = inspector.read_range(rn[0])
                 return {"status": "ok", "result": [result]}
@@ -105,7 +105,7 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": results}
         except Exception as e:
             logger.exception("read_cell_range failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class WriteCellRange(ToolBase):
@@ -157,7 +157,7 @@ class WriteCellRange(ToolBase):
 
         try:
             if len(rn) == 0:
-                return {"status": "error", "error": "range_name is required"}
+                return self._tool_error("range_name is required")
             if len(rn) == 1:
                 result = manipulator.write_formula_range(rn[0], fov)
                 return {"status": "ok", "message": result}
@@ -166,7 +166,7 @@ class WriteCellRange(ToolBase):
             return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
         except Exception as e:
             logger.exception("write_formula_range failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SetCellStyle(ToolBase):
@@ -252,15 +252,15 @@ class SetCellStyle(ToolBase):
 
         bg_color = _parse_or_error("bg_color")
         if isinstance(bg_color, dict) and "__error__" in bg_color:
-            return {"status": "error", "error": bg_color["__error__"]}
+            return self._tool_error(bg_color["__error__"])
 
         font_color = _parse_or_error("font_color")
         if isinstance(font_color, dict) and "__error__" in font_color:
-            return {"status": "error", "error": font_color["__error__"]}
+            return self._tool_error(font_color["__error__"])
 
         border_color = _parse_or_error("border_color")
         if isinstance(border_color, dict) and "__error__" in border_color:
-            return {"status": "error", "error": border_color["__error__"]}
+            return self._tool_error(border_color["__error__"])
 
         style_kwargs = {
             "bold": kwargs.get("bold"),
@@ -277,7 +277,7 @@ class SetCellStyle(ToolBase):
 
         try:
             if len(rn) == 0:
-                return {"status": "error", "error": "range_name is required"}
+                return self._tool_error("range_name is required")
             if len(rn) == 1:
                 manipulator.set_cell_style(rn[0], **style_kwargs)
                 return {"status": "ok", "message": f"Style applied to {rn[0]}"}
@@ -289,7 +289,7 @@ class SetCellStyle(ToolBase):
             }
         except Exception as e:
             logger.exception("set_cell_style failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class MergeCells(ToolBase):
@@ -332,7 +332,7 @@ class MergeCells(ToolBase):
 
         try:
             if len(rn) == 0:
-                return {"status": "error", "error": "range_name is required"}
+                return self._tool_error("range_name is required")
             if len(rn) == 1:
                 manipulator.merge_cells(rn[0], center=center)
                 return {"status": "ok", "message": f"Merged cells {rn[0]}"}
@@ -344,7 +344,7 @@ class MergeCells(ToolBase):
             }
         except Exception as e:
             logger.exception("merge_cells failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class ClearRange(ToolBase):
@@ -380,7 +380,7 @@ class ClearRange(ToolBase):
 
         try:
             if len(rn) == 0:
-                return {"status": "error", "error": "range_name is required"}
+                return self._tool_error("range_name is required")
             if len(rn) == 1:
                 manipulator.clear_range(rn[0])
                 return {"status": "ok", "message": f"Cleared range {rn[0]}"}
@@ -392,7 +392,7 @@ class ClearRange(ToolBase):
             }
         except Exception as e:
             logger.exception("clear_range failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SortRange(ToolBase):
@@ -452,7 +452,7 @@ class SortRange(ToolBase):
 
         try:
             if len(rn) == 0:
-                return {"status": "error", "error": "range_name is required"}
+                return self._tool_error("range_name is required")
             if len(rn) == 1:
                 result = manipulator.sort_range(
                     rn[0], sort_column=sort_column,
@@ -470,7 +470,7 @@ class SortRange(ToolBase):
             }
         except Exception as e:
             logger.exception("sort_range failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class ImportCsv(ToolBase):
@@ -510,7 +510,7 @@ class ImportCsv(ToolBase):
             return {"status": "ok", "message": result}
         except Exception as e:
             logger.exception("import_csv_from_string failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class DeleteStructure(ToolBase):
@@ -561,4 +561,4 @@ class DeleteStructure(ToolBase):
             return {"status": "ok", "message": result}
         except Exception as e:
             logger.exception("delete_structure failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

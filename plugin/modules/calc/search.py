@@ -77,7 +77,7 @@ class SearchInSpreadsheet(ToolBase):
     def execute(self, ctx, **kwargs):
         pattern = kwargs.get("pattern", "")
         if not pattern:
-            return {"status": "error", "message": "pattern is required."}
+            return self._tool_error("pattern is required.")
 
         use_regex = kwargs.get("regex", False)
         case_sensitive = kwargs.get("case_sensitive", False)
@@ -126,7 +126,7 @@ class SearchInSpreadsheet(ToolBase):
                 "count": len(matches),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class ReplaceInSpreadsheet(ToolBase):
@@ -175,7 +175,7 @@ class ReplaceInSpreadsheet(ToolBase):
         search = kwargs.get("search", "")
         replace = kwargs.get("replace", "")
         if not search:
-            return {"status": "error", "message": "search is required."}
+            return self._tool_error("search is required.")
 
         use_regex = kwargs.get("regex", False)
         case_sensitive = kwargs.get("case_sensitive", False)
@@ -213,4 +213,4 @@ class ReplaceInSpreadsheet(ToolBase):
                 "replace": replace,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

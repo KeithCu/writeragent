@@ -53,7 +53,7 @@ class ListCharts(ToolBase):
             }
         except Exception as e:
             logger.exception("list_charts failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetChartInfo(ToolBase):
@@ -84,12 +84,12 @@ class GetChartInfo(ToolBase):
         try:
             info = manipulator.get_chart_info(chart_name)
             if info is None:
-                return {"status": "error", "message": f"Chart '{chart_name}' not found."}
+                return self._tool_error(f"Chart '{chart_name}' not found.")
             info["status"] = "ok"
             return info
         except Exception as e:
             logger.exception("get_chart_info failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class CreateChart(ToolBase):
@@ -144,7 +144,7 @@ class CreateChart(ToolBase):
             return {"status": "ok", "message": result}
         except Exception as e:
             logger.exception("create_chart failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class EditChart(ToolBase):
@@ -194,7 +194,7 @@ class EditChart(ToolBase):
             return {"status": "ok", "chart_name": chart_name, "updated": updated}
         except Exception as e:
             logger.exception("edit_chart failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class DeleteChart(ToolBase):
@@ -224,7 +224,7 @@ class DeleteChart(ToolBase):
             if manipulator.delete_chart(chart_name):
                 return {"status": "ok", "deleted": chart_name}
             else:
-                return {"status": "error", "message": f"Chart '{chart_name}' not found."}
+                return self._tool_error(f"Chart '{chart_name}' not found.")
         except Exception as e:
             logger.exception("delete_chart failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

@@ -61,7 +61,7 @@ class ListConditionalFormats(ToolBase):
             }
         except Exception as e:
             logger.exception("list_conditional_formats failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class AddConditionalFormat(ToolBase):
@@ -133,7 +133,7 @@ class AddConditionalFormat(ToolBase):
             }
         except Exception as e:
             logger.exception("add_conditional_format failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class RemoveConditionalFormat(ToolBase):
@@ -169,10 +169,10 @@ class RemoveConditionalFormat(ToolBase):
             if manipulator.remove_conditional_format(kwargs["range_name"], kwargs["rule_index"]):
                 return {"status": "ok", "range_name": kwargs["range_name"], "removed_index": kwargs["rule_index"]}
             else:
-                return {"status": "error", "message": f"Rule index {kwargs['rule_index']} not found on {kwargs['range_name']}."}
+                return self._tool_error(f"Rule index {kwargs['rule_index']} not found on {kwargs['range_name']}.")
         except Exception as e:
             logger.exception("remove_conditional_format failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class ClearConditionalFormats(ToolBase):
@@ -202,4 +202,4 @@ class ClearConditionalFormats(ToolBase):
             return {"status": "ok", "range_name": kwargs["range_name"], "cleared": True}
         except Exception as e:
             logger.exception("clear_conditional_formats failed")
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
