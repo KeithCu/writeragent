@@ -50,12 +50,12 @@ def _run_suite(
     Collects functions marked with @setup, @teardown, and @native_test.
     Executes setup(ctx), then all tests(ctx), then teardown(ctx).
     """
-    passed, failed, log = run_module_suite(ctx, module, name, *args)
+    passed, failed, suite_log = run_module_suite(ctx, module, name, *args)
     suites.append({
         "name": name,
         "passed": passed,
         "failed": failed,
-        "log": log,
+        "log": suite_log,
     })
 
 
@@ -66,7 +66,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
     log.info(f"run_module_suite start: {name}")
     total_passed = 0
     total_failed = 0
-    log = []
+    suite_log = []
 
     setup_func = None
     teardown_func = None
@@ -103,7 +103,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
     try:
         if setup_func:
             setup_name = getattr(setup_func, "__name__", repr(setup_func))
-            log.append(f"Running setup: {setup_name}")
+            suite_log.append(f"Running setup: {setup_name}")
             import inspect
             try:
                 sig = inspect.signature(setup_func)
@@ -120,39 +120,40 @@ def run_module_suite(ctx, module, name, doc_model=None):
 
         for test_func in test_funcs:
             try:
-                log.append(f"Running test: {test_func.__name__}")
+                suite_log.append(f"Running test: {test_func.__name__}")
                 # Pass doc_model if test_func accepts arguments, otherwise call normally
                 # (Existing tests assume global _test_doc from setup)
                 test_func()
                 total_passed += 1
-                log.append(f"OK: {test_func.__name__}")
+                suite_log.append(f"OK: {test_func.__name__}")
             except ModuleNotFoundError as e:
                 # Some "native" tests attempt to use pytest.skip, but LibreOffice's
                 # Python may not have pytest installed.
                 if getattr(e, "name", None) == "pytest":
-                    log.append(f"SKIP: {test_func.__name__} (pytest not available)")
+                    suite_log.append(f"SKIP: {test_func.__name__} (pytest not available)")
                     continue
                 total_failed += 1
-                log.append(f"FAIL: {test_func.__name__} (ModuleNotFoundError: {e})")
-                log.append(traceback.format_exc())
+                suite_log.append(f"FAIL: {test_func.__name__} (ModuleNotFoundError: {e})")
+                suite_log.append(traceback.format_exc())
             except AssertionError as e:
                 total_failed += 1
-                log.append(f"FAIL: {test_func.__name__} (AssertionError: {e})")
-                log.append(traceback.format_exc())
+                suite_log.append(f"FAIL: {test_func.__name__} (AssertionError: {e})")
+                suite_log.append(traceback.format_exc())
             except Exception as e:
                 total_failed += 1
-                log.append(f"FAIL: {test_func.__name__} (Exception: {e})")
-                log.append(traceback.format_exc())
+                suite_log.append(f"FAIL: {test_func.__name__} (Exception: {e})")
+                suite_log.append(traceback.format_exc())
+            suite_log.append(traceback.format_exc())
 
     except Exception as e:
         total_failed += 1
-        log.append(f"SUITE ABORTED EXCEPTION: {e}")
-        log.append(traceback.format_exc())
+        suite_log.append(f"SUITE ABORTED EXCEPTION: {e}")
+        suite_log.append(traceback.format_exc())
     finally:
         if teardown_func:
             try:
                 teardown_name = getattr(teardown_func, "__name__", repr(teardown_func))
-                log.append(f"Running teardown: {teardown_name}")
+                suite_log.append(f"Running teardown: {teardown_name}")
                 import inspect
                 try:
                     sig = inspect.signature(teardown_func)
@@ -170,10 +171,10 @@ def run_module_suite(ctx, module, name, doc_model=None):
                     teardown_func()
             except Exception as e:
                 total_failed += 1
-                log.append(f"TEARDOWN EXCEPTION: {e}")
-                log.append(traceback.format_exc())
+                suite_log.append(f"TEARDOWN EXCEPTION: {e}")
+                suite_log.append(traceback.format_exc())
 
-    return total_passed, total_failed, log
+    return total_passed, total_failed, suite_log
 
 
 def run_all_tests(ctx: Any) -> str:

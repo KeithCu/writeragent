@@ -119,11 +119,9 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         log.error("try_ensure_mcp_timer: %s" % e)
 
     try:
-        debug_log(
+        log.debug(
             "Attaching _PanelResizeListener to root_window; controls=%s"
-            % (sorted(k for k, v in controls.items() if v)),
-            context="Chat",
-            level=logging.DEBUG,
+            % (sorted(k for k, v in controls.items() if v))
         )
         _resize = _PanelResizeListener(controls)
         root_window.addWindowListener(_resize)

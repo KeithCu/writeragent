@@ -110,11 +110,9 @@ def set_document_property(model, name, value):
                     readonly = str(model.isReadonly())
             except Exception:
                 pass
-            debug_log(
+            logging.getLogger(__name__).warning(
                 "set_document_property error: %r (type=%s, url=%s, readonly=%s)"
-                % (e, type(e).__name__, doc_url, readonly),
-                context="Chat",
-                level=logging.WARNING,
+                % (e, type(e).__name__, doc_url, readonly)
             )
         except Exception:
             pass

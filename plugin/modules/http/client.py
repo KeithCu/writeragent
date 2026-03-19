@@ -241,10 +241,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         raise Exception(msg) from e
     except Exception as e:
         if is_local_https and _is_certificate_verify_error(e):
-            debug_log(
-                "Local HTTPS certificate verification failed for %s; retrying unverified." % host,
-                context="API",
-                level=logging.ERROR)
+            log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
             try:
                 return _read_with_context(get_unverified_ssl_context())
             except urllib.error.HTTPError as retry_http_e:
@@ -258,9 +255,9 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
                 log.error(f"HTTP Error: {msg}")
                 raise Exception(msg) from retry_http_e
             except Exception as retry_e:
-                log.error(f"Request failed: {format_error_message(retry_e, level=logging.ERROR)}")
+                log.error(f"Request failed: {format_error_message(retry_e)}")
                 raise
-        log.error(f"Request failed: {format_error_message(e, level=logging.ERROR)}")
+        log.error(f"Request failed: {format_error_message(e)}")
         raise
 
 
@@ -483,10 +480,7 @@ class LlmClient:
         if host in self._ssl_fallback_hosts:
             return False
         self._ssl_fallback_hosts.add(host)
-        debug_log(
-            "Local HTTPS certificate verification failed for %s; retrying unverified." % host,
-            context="API",
-            level=logging.ERROR)
+        log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
         self._close_connection()
         return True
 
@@ -866,7 +860,7 @@ class LlmClient:
                 try:
                     remaining = response.read()
                     if remaining:
-                        log.debug("Consumed extra %d bytes after loop" % len(remaining, level=logging.DEBUG))
+                        log.debug("Consumed extra %d bytes after loop" % len(remaining))
                 except:
                     pass
                 # Honor Connection: close so we don't try to reuse when the server closed.
@@ -982,7 +976,7 @@ class LlmClient:
                 if attempt == 0:
                     log.warning("Retrying request_with_tools once on fresh connection")
                     continue
-                log.error("Connection retry failed: %s" % format_error_message(e, level=logging.ERROR))
+                log.error("Connection retry failed: %s" % format_error_message(e))
                 raise Exception(format_error_message(e))
             except Exception as e:
                 err_msg = format_error_message(e)

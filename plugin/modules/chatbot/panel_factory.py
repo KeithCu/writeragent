@@ -195,8 +195,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if parent_rect.Width > 0 and parent_rect.Height > 0:
             self.m_panelRootWindow.setPosSize(
                 0, 0, parent_rect.Width, parent_rect.Height, 15)
-            debug_log("panel constrained to W=%s H=%s" % (
-                parent_rect.Width, parent_rect.Height), context="Chat", level=logging.DEBUG)
+            log.debug("panel constrained to W=%s H=%s" % (parent_rect.Width, parent_rect.Height))
         return self.m_panelRootWindow
 
     def _render_session_history(self, session, response_ctrl, model, greeting=""):

@@ -205,9 +205,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             if event_bus:
                 event_bus.subscribe("mcp:request", self._on_mcp_request)
                 event_bus.subscribe("mcp:result", self._on_mcp_result)
-                                log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
+                log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
         except Exception as e:
-                        log.error("MCP subscribe error: %s" % e)
+            log.error("MCP subscribe error: %s" % e)
 
     def set_session(self, session):
         """Update the active session (e.g. when switching between Document and Research chat)."""

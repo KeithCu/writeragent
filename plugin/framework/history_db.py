@@ -109,7 +109,7 @@ class SQLite3History:
                 (self.session_id,)
             )
             msgs = [json.loads(row[0]) for row in cursor.fetchall()]
-            log.debug(f"SQLite3: Retreived {len(msgs, level=logging.DEBUG)} messages for session {self.session_id}")
+            log.debug(f"SQLite3: Retreived {len(msgs)} messages for session {self.session_id}")
             return msgs
 
     def clear(self):
@@ -151,7 +151,7 @@ class JSONHistory:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 msgs = json.load(f)
-            log.debug(f"JSONHistory: Retreived {len(msgs, level=logging.DEBUG)} messages for session {self.session_id}")
+            log.debug(f"JSONHistory: Retreived {len(msgs)} messages for session {self.session_id}")
             return msgs
         except Exception as e:
             log.error(f"JSONHistory: Error reading messages: {e}")

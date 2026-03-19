@@ -233,15 +233,15 @@ def _run_test_suite(test_func, doc_checker, test_name):
     from plugin.framework.dialogs import msgbox
     ctx = get_ctx()
     try:
-                log.info(f"_run_test_suite start: {test_name}")
+        log.info(f"_run_test_suite start: {test_name}")
         from plugin.framework.async_stream import run_blocking_in_thread
         from plugin.testing_runner import run_module_suite
         model = get_active_document(ctx)
         doc_model = model if (model and doc_checker(model)) else None
         log.debug(f"Calling run_blocking_in_thread for {test_name}")
-        p, f, log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
+        p, f, suite_log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
         log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
-        msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(log))
+        msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(suite_log))
     except Exception as e:
         msgbox(ctx, test_name, f"Tests failed to run: {e}")
 

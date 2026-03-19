@@ -519,10 +519,10 @@ class AiHordeClient:
             self.__url_open__(url)
             del self.headers["X-Fields"]
         except (socket.timeout, TimeoutError) as ex:
-            log.debug(format_error_message(ex, level=logging.ERROR))
+            log.debug(format_error_message(ex))
             return
         except (HTTPError, URLError) as ex:
-            log.debug(format_error_message(ex, level=logging.ERROR))
+            log.debug(format_error_message(ex))
             return
 
         # Select the most popular models
@@ -574,10 +574,7 @@ class AiHordeClient:
         message = ""
 
         if getattr(self.informer, "has_asked_for_update", lambda: False)():
-            debug_log(
-                "We already checked for a new version during this session",
-                context="AIHorde",
-                level=logging.DEBUG)
+            log.debug("We already checked for a new version during this session")
             return ""
         log.debug("Checking for update")
 
@@ -898,10 +895,7 @@ class AiHordeClient:
         """
         progress = 100 - (int(self.max_time - datetime.now().timestamp()) * self.factor)
 
-        debug_log(
-            f"[{progress:.2f}/{self.settings['max_wait_minutes'] * 60}] {self.progress_text}",
-            context="AIHorde",
-            level=logging.DEBUG)
+        log.debug(f"[{progress:.2f}/{self.settings['max_wait_minutes'] * 60}] {self.progress_text}")
 
         if self.informer and (progress != self.progress or self.progress_text != getattr(self, '_last_progress_text', None)):
             self.informer.update_status(self.progress_text, progress)
@@ -1049,7 +1043,7 @@ class AiHordeClient:
                 " is censored, try changing the prompt wording"
             )
             log.debug(message)
-            log.debug(str(image["gen_metadata"], level=logging.DEBUG))
+            log.debug(str(image["gen_metadata"]))
             self.informer.show_error(message, title="warning")
             self.censored = True
 
@@ -1098,7 +1092,7 @@ class AiHordeClient:
                 + ":\n * "
                 + "\n * ".join([i["message"] for i in self.warnings])
             )
-            log.debug(str(self.warnings, level=logging.WARNING))
+            log.debug(str(self.warnings))
             self.informer.show_error(message, title="warning")
             self.warnings = []
         self.refresh_models()

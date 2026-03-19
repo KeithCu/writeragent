@@ -54,9 +54,7 @@ class ToolCallingMixin:
             return
 
         try:
-            debug_log(
-                "_do_send: loading %s schema..." % doc_type_str, context="Chat"
-            , level=logging.DEBUG)
+            log.debug("_do_send: loading %s schema..." % doc_type_str)
             active_tools = get_tools().get_openai_schemas(doc_type=doc_type_str)
 
             def execute_fn(
@@ -122,26 +120,18 @@ class ToolCallingMixin:
                 update_lru_history(
                     self.ctx, selected_model, "model_lru", current_endpoint
                 )
-                debug_log(
-                    "_do_send: text model updated to %s" % selected_model,
-                    context="Chat",
-                    level=logging.DEBUG)
+                log.debug("_do_send: text model updated to %s" % selected_model)
         if self.image_model_selector:
             selected_image_model = self.image_model_selector.getText()
             if selected_image_model:
                 set_image_model(self.ctx, selected_image_model)
-                debug_log(
-                    "_do_send: image model updated to %s" % selected_image_model,
-                    context="Chat",
-                    level=logging.DEBUG)
+                log.debug("_do_send: image model updated to %s" % selected_image_model)
 
         max_context = int(get_config(self.ctx, "chat_context_length"))
         max_tokens = int(get_config(self.ctx, "chat_max_tokens"))
-        debug_log(
+        log.debug(
             "_do_send: config loaded: max_tokens=%d, max_context=%d"
-            % (max_tokens, max_context),
-            context="Chat",
-            level=logging.DEBUG
+            % (max_tokens, max_context)
         )
 
         use_tools = True
@@ -169,10 +159,7 @@ class ToolCallingMixin:
                 include_selection=True,
                 ctx=self.ctx,
             )
-            debug_log(
-                "_do_send: document context length=%d" % len(doc_text, level=logging.DEBUG),
-                context="Chat",
-            )
+            log.debug("_do_send: document context length=%d" % len(doc_text))
             agent_log(
                 "chat_panel.py:doc_context",
                 "Document context for AI",
@@ -185,9 +172,7 @@ class ToolCallingMixin:
             )
             self.session.update_document_context(doc_text)
         except Exception as e:
-            debug_log(
-                "_do_send: document context FAILED: %s" % e, context="Chat", level=logging.ERROR
-            )
+            log.error("_do_send: document context FAILED: %s" % e)
             self._append_response("\n[Document unavailable or closed.]\n")
             self._terminal_status = "Error"
             self._set_status("Error")
@@ -233,10 +218,9 @@ class ToolCallingMixin:
         log.info("_do_send: using chat model")
 
         self._set_status("Connecting to AI (tools=%s)..." % use_tools)
-        debug_log(
+        log.debug(
             "_do_send: calling AI, use_tools=%s, messages=%d"
-            % (use_tools, len(self.session.messages, level=logging.DEBUG)),
-            context="Chat",
+            % (use_tools, len(self.session.messages))
         )
 
         max_tool_rounds = api_config.get(
@@ -257,10 +241,9 @@ class ToolCallingMixin:
     def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num, query_text=None):
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
-        debug_log(
+        log.debug(
             "Tool loop round %d: sending %d messages to API..."
-            % (round_num, len(self.session.messages, level=logging.DEBUG)),
-            context="Chat",
+            % (round_num, len(self.session.messages))
         )
         self._set_status(
             "Thinking..." if round_num == 0 else "Thinking (round %d)..."
@@ -283,11 +266,7 @@ class ToolCallingMixin:
                     update_activity_state("tool_loop", round_num=round_num)
                     q.put(("stream_done", response))
             except Exception as e:
-                debug_log(
-                    "Tool loop round %d: API ERROR: %s" % (round_num, e),
-                    context="Chat",
-                    level=logging.ERROR
-                )
+                log.error("Tool loop round %d: API ERROR: %s" % (round_num, e))
                 q.put(("error", e))
 
         from plugin.framework.worker_pool import run_in_background
@@ -344,10 +323,9 @@ class ToolCallingMixin:
         """
         if max_tool_rounds is None:
             max_tool_rounds = DEFAULT_MAX_TOOL_ROUNDS
-        debug_log(
-            "=== Tool-calling loop START (max %d rounds, level=logging.INFO) ==="
-            % max_tool_rounds,
-            context="Chat",
+        log.info(
+            "=== Tool-calling loop START (max %d rounds) ==="
+            % max_tool_rounds
         )
         self._append_response("\nAI: ")
 
@@ -442,10 +420,7 @@ class ToolCallingMixin:
                         hypothesis_id="A",
                     )
                     if content:
-                        debug_log(
-                            "Tool loop: Adding assistant message to session",
-                            context="Chat",
-                            level=logging.DEBUG)
+                        log.debug("Tool loop: Adding assistant message to session")
                         self.session.add_assistant_message(content=content)
                         self._append_response("\n")
                     elif finish_reason == "length":
@@ -524,9 +499,7 @@ class ToolCallingMixin:
                     data={"tool": func_name, "round": round_num},
                     hypothesis_id="C,D,E",
                 )
-                debug_log(
-                    "Tool call: %s(%s, level=logging.DEBUG)" % (func_name, func_args_str), context="Chat"
-                )
+                log.debug("Tool call: %s(%s)" % (func_name, func_args_str))
 
                 image_model_override = (
                     self.image_model_selector.getText()
