@@ -142,10 +142,7 @@ class CreateShape(ToolBase):
         }
         uno_type = type_map.get(kwargs["shape_type"])
         if not uno_type:
-            return {
-                "status": "error",
-                "message": f"Unsupported shape type: {kwargs['shape_type']}",
-            }
+            return self._tool_error(f"Unsupported shape type: {kwargs['shape_type']}")
         shape = bridge.create_shape(
             uno_type, kwargs["x"], kwargs["y"], kwargs["width"], kwargs["height"]
         )

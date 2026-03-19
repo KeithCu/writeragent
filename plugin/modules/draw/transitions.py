@@ -164,7 +164,7 @@ class GetSlideTransition(ToolBase):
                 "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click"),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SetSlideTransition(ToolBase):
@@ -272,13 +272,12 @@ class SetSlideTransition(ToolBase):
                         page.setPropertyValue("Effect", effects_map[uno_name])
                         updated.append("effect")
                     else:
-                        return {
-                            "status": "error",
-                            "message": "Unknown effect: %s" % effect_name,
-                            "available": sorted(_FADE_EFFECTS.keys()),
-                        }
+                        return self._tool_error(
+                            "Unknown effect: %s" % effect_name,
+                            available=sorted(_FADE_EFFECTS.keys()),
+                        )
                 except ImportError:
-                    return {"status": "error", "message": "FadeEffect enum not available."}
+                    return self._tool_error("FadeEffect enum not available.")
 
             # Speed
             speed = kwargs.get("speed")
@@ -319,7 +318,7 @@ class SetSlideTransition(ToolBase):
                 "updated": updated,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetSlideLayout(ToolBase):
@@ -356,7 +355,7 @@ class GetSlideLayout(ToolBase):
                 "available_layouts": sorted(_LAYOUTS.keys()),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SetSlideLayout(ToolBase):
@@ -392,11 +391,10 @@ class SetSlideLayout(ToolBase):
     def execute(self, ctx, **kwargs):
         layout_name = kwargs.get("layout", "").strip().lower()
         if layout_name not in _LAYOUTS:
-            return {
-                "status": "error",
-                "message": "Unknown layout: %s" % layout_name,
-                "available": sorted(_LAYOUTS.keys()),
-            }
+            return self._tool_error(
+                "Unknown layout: %s" % layout_name,
+                available=sorted(_LAYOUTS.keys()),
+            )
         try:
             page = _get_slide(ctx.doc, kwargs.get("page_index"))
             page.Layout = _LAYOUTS[layout_name]
@@ -406,4 +404,4 @@ class SetSlideLayout(ToolBase):
                 "layout": layout_name,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

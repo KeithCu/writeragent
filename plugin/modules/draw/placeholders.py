@@ -172,7 +172,7 @@ class ListPlaceholders(ToolBase):
                 "count": len(placeholders),
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetPlaceholderText(ToolBase):
@@ -213,21 +213,20 @@ class GetPlaceholderText(ToolBase):
 
             if shape_index is not None:
                 if shape_index < 0 or shape_index >= page.getCount():
-                    return {"status": "error", "message": "Shape index out of range."}
+                    return self._tool_error("Shape index out of range.")
                 shape = page.getByIndex(shape_index)
             elif role:
                 shape, _ = _find_placeholder(page, role)
                 if shape is None:
-                    return {
-                        "status": "error",
-                        "message": "Placeholder '%s' not found." % role,
-                        "available": _list_placeholders(page),
-                    }
+                    return self._tool_error(
+                        "Placeholder '%s' not found." % role,
+                        available=_list_placeholders(page),
+                    )
             else:
-                return {"status": "error", "message": "Specify role or shape_index."}
+                return self._tool_error("Specify role or shape_index.")
 
             if not hasattr(shape, "getString"):
-                return {"status": "error", "message": "Shape has no text."}
+                return self._tool_error("Shape has no text.")
 
             return {
                 "status": "ok",
@@ -236,7 +235,7 @@ class GetPlaceholderText(ToolBase):
                 "shape_index": shape_index,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SetPlaceholderText(ToolBase):
@@ -283,21 +282,20 @@ class SetPlaceholderText(ToolBase):
 
             if shape_index is not None:
                 if shape_index < 0 or shape_index >= page.getCount():
-                    return {"status": "error", "message": "Shape index out of range."}
+                    return self._tool_error("Shape index out of range.")
                 shape = page.getByIndex(shape_index)
             elif role:
                 shape, shape_index = _find_placeholder(page, role)
                 if shape is None:
-                    return {
-                        "status": "error",
-                        "message": "Placeholder '%s' not found." % role,
-                        "available": _list_placeholders(page),
-                    }
+                    return self._tool_error(
+                        "Placeholder '%s' not found." % role,
+                        available=_list_placeholders(page),
+                    )
             else:
-                return {"status": "error", "message": "Specify role or shape_index."}
+                return self._tool_error("Specify role or shape_index.")
 
             if not hasattr(shape, "setString"):
-                return {"status": "error", "message": "Shape does not support text."}
+                return self._tool_error("Shape does not support text.")
 
             shape.setString(text)
             return {
@@ -307,4 +305,4 @@ class SetPlaceholderText(ToolBase):
                 "shape_index": shape_index,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

@@ -52,7 +52,7 @@ class ListMasterSlides(ToolBase):
                 result.append(entry)
             return {"status": "ok", "master_slides": result, "count": len(result)}
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class GetSlideMaster(ToolBase):
@@ -86,7 +86,7 @@ class GetSlideMaster(ToolBase):
                 "master_name": master.Name if hasattr(master, "Name") else "",
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SetSlideMaster(ToolBase):
@@ -134,11 +134,10 @@ class SetSlideMaster(ToolBase):
                 for i in range(masters.getCount()):
                     m = masters.getByIndex(i)
                     available.append(m.Name if hasattr(m, "Name") else "")
-                return {
-                    "status": "error",
-                    "message": "Master '%s' not found." % master_name,
-                    "available": available,
-                }
+                return self._tool_error(
+                    "Master '%s' not found." % master_name,
+                    available=available,
+                )
 
             page.MasterPage = target
             return {
@@ -147,4 +146,4 @@ class SetSlideMaster(ToolBase):
                 "master_name": master_name,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

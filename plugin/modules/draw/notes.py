@@ -56,7 +56,7 @@ class GetSpeakerNotes(ToolBase):
                 "notes": notes_text,
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))
 
 
 class SetSpeakerNotes(ToolBase):
@@ -96,7 +96,7 @@ class SetSpeakerNotes(ToolBase):
             page = _get_slide(ctx.doc, kwargs.get("page_index"))
             notes_page = page.getNotesPage()
             if notes_page is None or notes_page.getCount() < 2:
-                return {"status": "error", "message": "No notes page available."}
+                return self._tool_error("No notes page available.")
 
             notes_shape = notes_page.getByIndex(1)
             if append:
@@ -111,4 +111,4 @@ class SetSpeakerNotes(ToolBase):
                 "message": "Speaker notes updated.",
             }
         except Exception as e:
-            return {"status": "error", "error": str(e)}
+            return self._tool_error(str(e))

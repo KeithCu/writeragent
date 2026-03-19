@@ -96,13 +96,12 @@ class ReadSlideText(ToolBase):
         if page_index is not None:
             pages = bridge.get_pages()
             if page_index < 0 or page_index >= pages.getCount():
-                return {"status": "error",
-                        "message": "Page index %d out of range." % page_index}
+                return self._tool_error("Page index %d out of range." % page_index)
             page = pages.getByIndex(page_index)
         else:
             page = bridge.get_active_page()
             if page is None:
-                return {"status": "error", "message": "No active page."}
+                return self._tool_error("No active page.")
 
         texts = []
         for i in range(page.getCount()):
