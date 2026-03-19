@@ -232,7 +232,8 @@ def run_stream_completion_async(
             else:
                 q.put(("stream_done", None))
         except Exception as e:
-            q.put(("error", e))
+            from plugin.framework.errors import format_error_payload
+            q.put(("error", format_error_payload(e)))
 
     try:
         toolkit = ctx.getServiceManager().createInstanceWithContext(
@@ -300,7 +301,8 @@ def run_stream_async(
             else:
                 q.put(("stream_done", None))
         except Exception as e:
-            q.put(("error", e))
+            from plugin.framework.errors import format_error_payload
+            q.put(("error", format_error_payload(e)))
 
     try:
         toolkit = ctx.getServiceManager().createInstanceWithContext(

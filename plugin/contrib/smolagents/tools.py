@@ -169,7 +169,7 @@ class Tool(BaseTool):
 
         # - Validate name
         if not is_valid_name(self.name):
-            raise Exception(
+            raise ValueError(
                 f"Invalid Tool name '{self.name}': must be a valid Python identifier and not a reserved keyword"
             )
         # Validate inputs
@@ -208,7 +208,7 @@ class Tool(BaseTool):
             actual_keys = set(key for key in signature.parameters.keys() if key != "self")
             expected_keys = set(self.inputs.keys())
             if actual_keys != expected_keys:
-                raise Exception(
+                raise ValueError(
                     f"In tool '{self.name}', 'forward' method parameters were {actual_keys}, but expected {expected_keys}. "
                     f"It should take 'self' as its first argument, then its next arguments should match the keys of tool attribute 'inputs'."
                 )

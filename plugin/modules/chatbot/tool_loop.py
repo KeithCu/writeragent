@@ -268,7 +268,7 @@ class ToolCallingMixin:
                     q.put(("stream_done", response))
             except Exception as e:
                 log.error("Tool loop round %d: API ERROR: %s" % (round_num, e))
-                q.put(("error", e))
+                q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run, name=f"llm-worker-{round_num}")
@@ -302,7 +302,7 @@ class ToolCallingMixin:
                 else:
                     q.put(("final_done", "".join(last_streamed)))
             except Exception as e:
-                q.put(("error", e))
+                q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run_final, name="llm-worker-final")

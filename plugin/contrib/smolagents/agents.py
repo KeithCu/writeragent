@@ -1689,7 +1689,7 @@ class CodeAgent(MultiStepAgent):
             )
         else:
             if self.managed_agents:
-                raise Exception("Managed agents are not yet supported with remote code execution.")
+                raise ValueError("Managed agents are not yet supported with remote code execution.")
             remote_executors = {
                 "blaxel": BlaxelExecutor,
                 "e2b": E2BExecutor,

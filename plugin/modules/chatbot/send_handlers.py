@@ -159,7 +159,8 @@ class SendHandlersMixin:
                 doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
                 log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s",
                           doc_type, e)
-                q.put(("error", e))
+                from plugin.framework.errors import format_error_payload
+                q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run_direct_image)
@@ -306,7 +307,8 @@ class SendHandlersMixin:
             except Exception as e:
                 log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s",
                           backend_id, doc_type_str, e)
-                q.put(("error", e))
+                from plugin.framework.errors import format_error_payload
+                q.put(("error", format_error_payload(e)))
             finally:
                 self._current_agent_backend = None
 
@@ -472,7 +474,8 @@ class SendHandlersMixin:
                 q.put(("stream_done", {}))
             except Exception as e:
                 log.error("Web research path ERROR in _run_web_research [doc: %s]: %s", doc_type, e)
-                q.put(("error", e))
+                from plugin.framework.errors import format_error_payload
+                q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run_search)

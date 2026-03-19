@@ -197,10 +197,10 @@ class ClaudeBackend(AgentBackend):
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put(("error", RuntimeError(
+            queue.put(("error", format_error_payload(RuntimeError(
                 f"Cannot start {self.display_name} ACP. "
                 f"Is adapter installed? Error: {e}"
-            )))
+            ))))
             return
 
         try:
