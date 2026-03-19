@@ -25,34 +25,7 @@ class DrawModule(ModuleBase):
     def initialize(self, services):
         self.services = services
 
-        from .pages import AddSlide, DeleteSlide, ReadSlideText, GetPresentationInfo
-        from .transitions import GetSlideTransition, SetSlideTransition, GetSlideLayout, SetSlideLayout
-        from .masters import ListMasterSlides, GetSlideMaster, SetSlideMaster
-        from .notes import GetSpeakerNotes, SetSpeakerNotes
-        from .shapes import ListPages, GetDrawSummary, CreateShape, EditShape, DeleteShape
-        from .placeholders import ListPlaceholders, GetPlaceholderText, SetPlaceholderText
+        from . import pages, transitions, masters, notes, shapes, placeholders
 
-        tools = [
-            AddSlide(),
-            DeleteSlide(),
-            ReadSlideText(),
-            GetPresentationInfo(),
-            GetSlideTransition(),
-            SetSlideTransition(),
-            GetSlideLayout(),
-            SetSlideLayout(),
-            ListMasterSlides(),
-            GetSlideMaster(),
-            SetSlideMaster(),
-            GetSpeakerNotes(),
-            SetSpeakerNotes(),
-            ListPages(),
-            GetDrawSummary(),
-            CreateShape(),
-            EditShape(),
-            DeleteShape(),
-            ListPlaceholders(),
-            GetPlaceholderText(),
-            SetPlaceholderText(),
-        ]
-        services.tools.register_many(tools)
+        for module in (pages, transitions, masters, notes, shapes, placeholders):
+            services.tools.auto_discover(module)
