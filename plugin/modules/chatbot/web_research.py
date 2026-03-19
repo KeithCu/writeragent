@@ -39,14 +39,19 @@ class WebResearchTool(ToolBase):
     long_running = True
 
     def execute(self, ctx, query, history_text=None):
+        from plugin.framework.errors import format_error_payload, ToolExecutionError
         import os
         from urllib.parse import urlparse
-        from plugin.framework.config import get_api_config, get_config_int, user_config_dir
-        from plugin.modules.http.client import LlmClient
-        from plugin.framework.smol_model import WriterAgentSmolModel
-        from plugin.contrib.smolagents.agents import ToolCallingAgent
-        from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
-        from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+
+        try:
+            from plugin.framework.config import get_api_config, get_config_int, user_config_dir
+            from plugin.modules.http.client import LlmClient
+            from plugin.framework.smol_model import WriterAgentSmolModel
+            from plugin.contrib.smolagents.agents import ToolCallingAgent
+            from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
+            from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+        except Exception as e:
+            return format_error_payload(ToolExecutionError(f"Failed to load required dependencies: {e}"))
 
         status_callback = getattr(ctx, "status_callback", None)
         append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
@@ -92,7 +97,7 @@ class WebResearchTool(ToolBase):
             final_ans = None
             for step in agent.run(task, stream=True):
                 if stop_checker and stop_checker():
-                    return {"status": "error", "message": "Web search stopped by user."}
+                    return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
                 if isinstance(step, ToolCall):
                     status_msg = ""
                     if step.name == "web_search":
@@ -133,4 +138,5 @@ class WebResearchTool(ToolBase):
 
             return {"status": "ok", "message": f'searched for "{query}"', "result": str(final_ans)}
         except Exception as e:
-            return {"status": "error", "message": f"Web search failed: {str(e)}"}
+            err = ToolExecutionError(f"Web search failed: {str(e)}", details={"query": query})
+            return format_error_payload(err)

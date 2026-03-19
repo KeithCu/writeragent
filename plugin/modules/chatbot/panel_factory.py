@@ -170,10 +170,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 wire_chatpanel_controls(self, root_window, HAS_RECORDING, _ensure_extension_on_path)
                 log.info("getRealInterface completed successfully")
             except Exception as e:
-                log.error("getRealInterface ERROR: %s" % e)
+                from plugin.framework.errors import UnoObjectError
+                log.error("getRealInterface ERROR [resource_url=%s]: %s", self.ResourceURL, e)
                 import traceback
                 log.error(traceback.format_exc())
-                raise
+                raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         return self.toolpanel
 
     def _getOrCreatePanelRootWindow(self):
@@ -224,7 +225,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     import uno
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception as e:
-            log.error("_render_session_history error: %s" % e)
+            log.error("_render_session_history error [greeting=%s]: %s", greeting, e)
 
     def _refresh_controls_from_config(self):
         """Reload model and prompt selectors from config (e.g. after user changes Settings)."""
@@ -266,8 +267,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
             except Exception:
                 pass
-        # Backend indicator: show "Aider" / "Hermes" when external agent backend is enabled
-        self._update_backend_indicator(root)
+        try:
+            # Backend indicator: show "Aider" / "Hermes" when external agent backend is enabled
+            self._update_backend_indicator(root)
+        except Exception as e:
+            log.error("_refresh_controls_from_config backend indicator error: %s", e)
 
     def _update_backend_indicator(self, root_window=None):
         """Set backend indicator label from config (visible when external backend enabled) and gray out controls."""
@@ -448,7 +452,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 if get_checkbox_state(web_research_check) == 1:
                     set_control_enabled(direct_image_check, False)
             except Exception as e:
-                log.error("web_research_check initial wire error: %s" % e)
+                log.error("web_research_check initial wire error: %s", e)
                 
         return set_control_enabled
 
@@ -504,7 +508,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 controls["stop"].addActionListener(StopButtonListener(send_listener))
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
         except Exception as e:
-            log.error("Send/Stop button error: %s" % e)
+            log.error("Send/Stop button wiring error: %s", e)
 
         clear_listener = None
         if controls["clear"]:

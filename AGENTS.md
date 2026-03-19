@@ -511,6 +511,10 @@ To maintain a predictable and reliable codebase, follow these rules when handlin
 
 ### 4. Recovery Patterns for Common Failures
 - **Graceful Degradation**: Where external systems are involved (HTTP requests, LLM parsing, UNO COM calls), anticipate transient failures.
+
+### 5. Standardized Chat Execution Path Errors
+- **Consistent Payloads**: The web research sub-agent and tool-calling execution paths are updated to catch specific parsing and execution errors, converting them into standard error payload dictionaries using `format_error_payload`.
+- **Richer Logging Contexts**: In `send_handlers.py`, `panel.py`, and `panel_factory.py`, generic exceptions are enriched with contextual identifiers (like the active document type or the backend ID) before logging. For UI generation errors, standard exceptions like `UnoObjectError` are used to bubble up informative stack traces.
 - **LLM Parse Failures**: If the AI returns malformed JSON, catch the specific parsing error and inject a recovery prompt (e.g., "The previous tool call had malformed JSON. Please fix the syntax and try again.") before failing the session.
 - **UNO Stale References**: When interacting with LibreOffice documents, elements (like shapes or text cursors) can be deleted by the user mid-operation. Catch `DisposedException` or `RuntimeException`, invalidate the document cache, and abort gracefully without crashing the extension.
 - **Network Retries**: For HTTP 502/503/504, implement limited backoff/retry loops instead of immediately failing the generation request.
