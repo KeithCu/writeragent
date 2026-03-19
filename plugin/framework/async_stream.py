@@ -145,7 +145,9 @@ def run_stream_drain_loop(
                         break
                 elif kind == "tool_thinking":
                     if show_search_thinking:
-                        apply_chunk_fn(data, is_thinking=True)
+                        if current_content:
+                            flush_buffers()
+                        current_thinking.append(data)
                 elif kind == "approval_required":
                     flush_buffers()
                     close_thinking()
