@@ -89,7 +89,8 @@ def test_handle_mcp_post_invalid_json():
         assert 400 in handler.sent_responses
 
         response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
-        assert "error" in response_data
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
 
 def test_send_cors_headers_allowed():
     """Test _send_cors_headers allows safe origins."""
@@ -176,8 +177,8 @@ def test_handle_mcp_post_truncated_json():
         assert 400 in handler.sent_responses
 
         response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
-        assert "error" in response_data
-        assert response_data["error"] == "Invalid JSON"
+        assert response_data.get("status") == "error"
+        assert response_data.get("code") == "PARSE_ERROR"
 
 def test_handle_mcp_invalid_json_rpc():
     """Test when JSON-RPC method format is unknown or invalid.

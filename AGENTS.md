@@ -492,6 +492,7 @@ To maintain a predictable and reliable codebase, follow these rules when handlin
 ### 1. Unified Error Classes
 - **Avoid raising base `Exception`**: Do not use `raise Exception("...")` or catch raw `except Exception:` unless absolutely necessary at the highest level boundary (like a thread run loop).
 - **Use Custom Exceptions**: Prefer creating and using specific exceptions that inherit from a central `WriterAgentException` (to be created in `plugin/framework/errors.py`), such as `NetworkError`, `ConfigError`, `UnoObjectError`, or `ToolExecutionError`. This allows callers to distinguish between user-correctable issues (like bad config) and systemic failures.
+- **Log Typed Exceptions**: Avoid logging raw `Exception` instances (e.g. `log.error("Failed: %s", e)`) directly because LibreOffice UNO objects can cause crashes when stringified. Use `type(e).__name__` or specific context strings instead.
 
 ### 2. Standardized Error Payload Formats
 - **Consistent JSON Structure**: When an API endpoint, MCP route, or AI tool execution fails, serialize the error as a standardized dictionary/JSON object:
@@ -504,9 +505,10 @@ To maintain a predictable and reliable codebase, follow these rules when handlin
   }
   ```
 - **Never return raw strings** for tool errors; wrap them in the standard `{"status": "error", ...}` format so the LLM and UI can parse them predictably.
+- **Unified Format Helper**: Rely on `format_error_payload(e)` in `plugin/framework/errors.py` to standardize error formatting across the application, especially for JSON-RPC MCP responses and HTTP handlers.
 
 ### 3. Improve Error Context Logging
-- **Rich Context**: When raising a custom exception, attach context (e.g., `endpoint`, `document_url`, `tool_name`) so the top-level logger can print *what* failed, not just *that* it failed.
+- **Rich Context**: When raising a custom exception, attach context (e.g., `endpoint`, `document_url`, `tool_name`, `operation`) using the `details` keyword argument so the top-level logger can print *what* failed, not just *that* it failed.
 - **Use `log_exception`**: When catching unexpected errors, use `logging.log_exception(e, context="ModuleContext")` (or `traceback.format_exc()` into `debug_log`) rather than silently swallowing the traceback or just printing the message.
 
 ### 4. Recovery Patterns for Common Failures

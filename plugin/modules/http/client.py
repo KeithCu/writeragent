@@ -703,7 +703,7 @@ class LlmClient:
                 # Using synchronous chat completion with model override
                 return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
             except Exception as e:
-                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint." % e)
+                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint." % type(e).__name__)
 
         # 2. Standard multipart fallback (Whisper, etc.)
         boundary = "Boundary-%s" % uuid.uuid4().hex
@@ -924,7 +924,7 @@ class LlmClient:
         except Exception as e:
             self._close_connection() # Reset on any other error too
             err_msg = format_error_message(e)
-            log.error("ERROR in _run_streaming_loop: %s -> %s" % (e, err_msg))
+            log.error("ERROR in _run_streaming_loop: %s -> %s" % (type(e).__name__, err_msg))
             raise NetworkError(err_msg, context={"url": path}) from e
 
         return last_finish_reason
@@ -1008,7 +1008,7 @@ class LlmClient:
                 raise
             except Exception as e:
                 err_msg = format_error_message(e)
-                log.error("request_with_tools ERROR: %s -> %s" % (e, err_msg))
+                log.error("request_with_tools ERROR: %s -> %s" % (type(e).__name__, err_msg))
                 raise NetworkError(err_msg, context={"url": path}) from e
 
         log.debug("=== Tool response: %s" % json.dumps(result, indent=2))
@@ -1079,7 +1079,7 @@ class LlmClient:
             raise
         except Exception as e:
             err_msg = format_error_message(e)
-            log.error("stream_request_with_tools ERROR: %s -> %s" % (e, err_msg))
+            log.error("stream_request_with_tools ERROR: %s -> %s" % (type(e).__name__, err_msg))
             raise NetworkError(err_msg, context={"url": path}) from e
 
         # LiteLLM: streaming_handler.py ~L970 finish_reason_handler() "## if tool use"
