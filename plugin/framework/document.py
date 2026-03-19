@@ -56,8 +56,24 @@ def get_document_property(model, name, default=None):
     try:
         if hasattr(model, "getDocumentProperties"):
             props = model.getDocumentProperties().UserDefinedProperties
-            if props.hasByName(name):
-                return props.getPropertyValue(name)
+            if props is None:
+                return default
+
+            # Some LibreOffice builds expose hasByName; others don't.
+            if hasattr(props, "hasByName"):
+                try:
+                    if props.hasByName(name):
+                        return props.getPropertyValue(name)
+                    return default
+                except Exception:
+                    # Fall back to getPropertyValue attempt below.
+                    pass
+
+            if hasattr(props, "getPropertyValue"):
+                try:
+                    return props.getPropertyValue(name)
+                except Exception:
+                    return default
     except Exception as e:
         logging.getLogger(__name__).warning("get_document_property error: %s", e)
     return default

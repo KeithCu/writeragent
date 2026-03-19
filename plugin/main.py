@@ -405,12 +405,13 @@ def _collect_icon_commands():
     return result
 
 
-def _load_icon_graphic(module_name, icon_filename):
+def _load_icon_graphic(module_name, icon_filename, ctx=None):
     """Load a PNG icon from a module's icons/ directory as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
         import uno
-        ctx = uno.getComponentContext()
+        if ctx is None:
+            ctx = uno.getComponentContext()
         smgr = ctx.ServiceManager
         gp = smgr.createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx)
@@ -432,6 +433,10 @@ def _update_menu_icons():
     """Push current-state icons into every module's ImageManager."""
     try:
         import uno
+        ctx = _services.get("uno") if _services else None
+        if ctx is None:
+            ctx = uno.getComponentContext()
+
         icon_cmds = _collect_icon_commands()
         if not icon_cmds:
             return
@@ -446,14 +451,13 @@ def _update_menu_icons():
         for key in key_cmds:
             mod_name, prefix = key
             filename = "%s_16.png" % prefix
-            graphic = _load_icon_graphic(mod_name, filename)
+            graphic = _load_icon_graphic(mod_name, filename, ctx)
             if graphic:
                 key_graphics[key] = graphic
 
         if not key_graphics:
             return
 
-        ctx = uno.getComponentContext()
         smgr = ctx.ServiceManager
 
         supplier = smgr.createInstanceWithContext(

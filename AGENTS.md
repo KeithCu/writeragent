@@ -271,6 +271,7 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 - **`MainJob._apply_settings_result(self, result)`** (`plugin/main.py`): Applies settings dialog result to config. Used by both Writer and Calc settings branches.
 - **`plugin/framework/logging.py`**:
   - Call `init_logging(ctx)` once from an entry point (e.g. start of `trigger`, or when the chat panel wires controls). Sets global log paths and optional `enable_agent_log` from config.
+  - `init_logging()` attaches the debug file handler to the root logger too, so `logging.getLogger(__name__)` debug lines from UNO panels/tools (including tool-call logs) land in `writeragent_debug.log`.
   - `debug_log(msg, context=None)` — single debug file. Writes to `writeragent_debug.log` in user config dir (or `~/writeragent_debug.log`). Use `context="API"`, `"Chat"`, or `"Markdown"` for prefixed lines. No ctx passed at write time.
   - `agent_log(location, message, ...)` — NDJSON to `writeragent_agent.log` (user config or `~/`), only if config `enable_agent_log` is true.
   - Watchdog: `update_activity_state(phase, ...)`, `start_watchdog_thread(ctx, status_control)` for hang detection (logs and status "Hung: ..." if no activity for threshold).
