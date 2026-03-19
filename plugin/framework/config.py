@@ -89,7 +89,8 @@ def _config_path(ctx):
         if user_config_path and str(user_config_path).startswith("file://"):
             user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
         return os.path.join(user_config_path, CONFIG_FILENAME)
-    except Exception:
+    except Exception as e:
+        log.debug("_config_path exception: %s", e)
         return None
 
 
@@ -100,7 +101,8 @@ def user_config_dir(ctx):
     try:
         p = _config_path(ctx)
         return os.path.dirname(p) if p else None
-    except Exception:
+    except Exception as e:
+        log.debug("user_config_dir exception: %s", e)
         return None
 
 
@@ -310,8 +312,8 @@ def notify_config_changed(ctx):
     for cb in list(_config_listeners):
         try:
             cb(ctx)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("notify_config_changed: listener %s failed: %s", cb, e)
 
 
 def as_bool(value):
@@ -846,8 +848,8 @@ class ConfigService(ServiceBase):
                      data = json.load(f)
                      if key in data:
                          return data[key]
-             except Exception:
-                 pass
+             except Exception as e:
+                 log.debug("ConfigService.get config file read error for key %s: %s", key, e)
 
         ctx = get_ctx()
         val = get_config(ctx, key)
@@ -922,8 +924,8 @@ class ConfigService(ServiceBase):
                 try:
                     with open(self._config_path, "r") as f:
                         data = json.load(f)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("ConfigService.set config file load error: %s", e)
             data[key] = value
             with open(self._config_path, "w") as f:
                 json.dump(data, f)
@@ -959,8 +961,8 @@ class ConfigService(ServiceBase):
                      del data[key]
                      with open(self._config_path, "w") as f:
                          json.dump(data, f)
-             except Exception:
-                 pass
+             except Exception as e:
+                 log.warning("ConfigService.remove config file modify error for key %s: %s", key, e)
         else:
             remove_config(get_ctx(), key)
 
@@ -972,8 +974,8 @@ class ConfigService(ServiceBase):
              try:
                  with open(self._config_path, "r") as f:
                      return json.load(f)
-             except Exception:
-                 pass
+             except Exception as e:
+                 log.debug("ConfigService.get_dict config file read error: %s", e)
         return get_config_dict(ctx)
 
     def _check_read_access(self, key, caller_module):

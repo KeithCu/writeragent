@@ -68,7 +68,8 @@ def get_active_document(ctx=None):
     try:
         desktop = get_desktop(ctx)
         return desktop.getCurrentComponent()
-    except Exception:
+    except Exception as e:
+        log.debug("get_active_document exception: %s", e)
         return None
 
 

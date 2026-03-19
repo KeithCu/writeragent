@@ -27,7 +27,8 @@ def is_writer(model):
     """Return True if model is a Writer document."""
     try:
         return model.supportsService("com.sun.star.text.TextDocument")
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("is_writer exception: %s", e)
         return False
 
 
@@ -35,7 +36,8 @@ def is_calc(model):
     """Return True if model is a Calc document."""
     try:
         return model.supportsService("com.sun.star.sheet.SpreadsheetDocument")
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("is_calc exception: %s", e)
         return False
 
 
@@ -44,7 +46,8 @@ def is_draw(model):
     try:
         return (model.supportsService("com.sun.star.drawing.DrawingDocument") or
                 model.supportsService("com.sun.star.presentation.PresentationDocument"))
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("is_draw exception: %s", e)
         return False
 
 
@@ -55,8 +58,8 @@ def get_document_property(model, name, default=None):
             props = model.getDocumentProperties().UserDefinedProperties
             if props.hasByName(name):
                 return props.getPropertyValue(name)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_document_property error: %s", e)
     return default
 
 
@@ -195,10 +198,11 @@ def resolve_document_by_url(ctx, url):
                         elif is_draw(model):
                             doc_type = "draw"
                         return (model, doc_type)
-            except Exception:
+            except Exception as e:
+                logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", e)
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger(__name__).warning("resolve_document_by_url enumeration error: %s", e)
     return (None, None)
 
 
@@ -209,7 +213,8 @@ def get_document_path(model):
         if not url or not str(url).startswith("file://"):
             return None
         return str(uno.fileUrlToSystemPath(url))
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug("get_document_path exception: %s", e)
         return None
 
 
@@ -235,7 +240,8 @@ def get_full_document_text(model, max_chars=8000):
         if len(full) > max_chars:
             full = full[:max_chars] + "\n\n[... document truncated ...]"
         return full
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_full_document_text exception: %s", e)
         return ""
 
 
@@ -250,7 +256,8 @@ def get_document_end(model, max_chars=4000):
         if len(full) <= max_chars:
             return full
         return full[-max_chars:]
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_document_end exception: %s", e)
         return ""
 
 
@@ -271,7 +278,8 @@ def get_document_length(model):
         length = len(normalize_linebreaks(cursor.getString()))
         cache.length = length
         return length
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_document_length exception: %s", e)
         return 0
 
 
@@ -302,7 +310,8 @@ def get_text_cursor_at_range(model, start_offset, end_offset):
             cursor.goRight(n, True)
             remaining -= n
         return cursor
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_text_cursor_at_range exception: %s", e)
         return None
 
 
@@ -328,7 +337,8 @@ def get_selection_range(model):
         cursor.gotoRange(rng.getEnd(), True)
         end_offset = len(normalize_linebreaks(cursor.getString()))
         return (start_offset, end_offset)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_selection_range exception: %s", e)
         return (0, 0)
 
 
@@ -350,7 +360,8 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
         cursor.gotoEnd(True)
         full = normalize_linebreaks(cursor.getString())
         doc_len = len(full)
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("get_document_context_for_chat Writer exception: %s", e)
         return "Document length: 0.\n\n[DOCUMENT START]\n(empty)\n[END DOCUMENT]"
 
     # Selection/cursor range; cap selection span for very long selections (e.g. 100k chars)
@@ -548,10 +559,11 @@ def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
                 cmp_end = text_obj.compareRegionStarts(match_start, para.getEnd())
                 if cmp_start <= 0 and cmp_end >= 0:
                     return i
-            except Exception:
+            except Exception as e:
+                logging.getLogger(__name__).debug("find_paragraph_for_range comparison error at index %d: %s", i, e)
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger(__name__).warning("find_paragraph_for_range exception: %s", e)
     return 0
 
 
@@ -569,8 +581,8 @@ def build_heading_tree(model):
             outline_level = 0
             try:
                 outline_level = element.getPropertyValue("OutlineLevel")
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).debug("build_heading_tree could not get OutlineLevel: %s", e)
             
             if outline_level > 0:
                 while len(stack) > 1 and stack[-1]["level"] >= outline_level:
@@ -624,8 +636,8 @@ def ensure_heading_bookmarks(model):
                         bookmark_map[para_index] = existing_map[para_index]
                     else:
                         needs_bookmark.append((para_index, element.getStart()))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).debug("ensure_heading_bookmarks could not get OutlineLevel: %s", e)
         para_index += 1
         
     # 3. Add missing bookmarks
@@ -653,7 +665,9 @@ def resolve_locator(model, locator: str):
         parts = []
         try:
             parts = [int(p) for p in loc_value.split(".")]
-        except: return {"para_index": 0}
+        except Exception as e:
+            logging.getLogger(__name__).warning("resolve_locator heading parse error: %s", e)
+            return {"para_index": 0}
         
         tree = build_heading_tree(model)
         node = tree
@@ -731,7 +745,8 @@ class DocumentService(ServiceBase):
                 vc.gotoRange(saved, False)
                 model.unlockControllers()
             return page
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).warning("get_page_for_paragraph exception: %s", e)
             return 1
 
     def get_page_count(self, model):
@@ -749,7 +764,8 @@ class DocumentService(ServiceBase):
                 vc.gotoRange(saved, False)
                 model.unlockControllers()
             return count
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).warning("get_page_count exception: %s", e)
             return 0
 
     def doc_key(self, doc):

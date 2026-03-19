@@ -47,13 +47,13 @@ class ListNamedRanges(ToolBase):
                 entry = {"name": name}
                 try:
                     entry["content"] = nr.getContent()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("list_named_ranges getContent error for %s: %s", entry["name"], e)
                 try:
                     ra = nr.getReferredCells().getRangeAddress()
                     entry["range"] = _range_address_str(ra)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("list_named_ranges getRangeAddress error for %s: %s", entry["name"], e)
                 result.append(entry)
             return {
                 "status": "ok",
@@ -110,7 +110,8 @@ class GetSheetOverview(ToolBase):
                 result["used_area"] = _range_address_str(ra)
                 result["used_rows"] = ra.EndRow - ra.StartRow + 1
                 result["used_cols"] = ra.EndColumn - ra.StartColumn + 1
-            except Exception:
+            except Exception as e:
+                logger.debug("get_sheet_info used_area error: %s", e)
                 result["used_area"] = None
 
             # Charts
@@ -118,13 +119,15 @@ class GetSheetOverview(ToolBase):
                 charts = sheet.getCharts()
                 result["chart_count"] = charts.getCount()
                 result["charts"] = list(charts.getElementNames())
-            except Exception:
+            except Exception as e:
+                logger.debug("get_sheet_info charts error: %s", e)
                 result["chart_count"] = 0
 
             # Annotations
             try:
                 result["annotation_count"] = sheet.getAnnotations().getCount()
-            except Exception:
+            except Exception as e:
+                logger.debug("get_sheet_info annotations error: %s", e)
                 result["annotation_count"] = 0
 
             # Merged cells - count via querying
@@ -134,14 +137,15 @@ class GetSheetOverview(ToolBase):
                     # Iterate used area to find merges
                     pass  # expensive, skip for overview
                 result["has_merges"] = sheet.getPropertyValue("HasMergedCells") if hasattr(sheet, "getPropertyValue") else None
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("get_sheet_info merged cells error: %s", e)
 
             # Draw page (shapes on sheet)
             try:
                 dp = sheet.DrawPage
                 result["shape_count"] = dp.getCount()
-            except Exception:
+            except Exception as e:
+                logger.debug("get_sheet_info shape_count error: %s", e)
                 result["shape_count"] = 0
 
             return result

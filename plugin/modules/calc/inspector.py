@@ -65,7 +65,8 @@ class CellInspector:
     def _safe_prop(cell, name, default=None):
         try:
             return cell.getPropertyValue(name)
-        except Exception:
+        except Exception as e:
+            logger.debug("_safe_prop exception for %s: %s", name, e)
             return default
 
     def _get_cell(self, address: str):

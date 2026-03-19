@@ -84,8 +84,9 @@ def _insert_image_to_writer(model, img_path, width, height, title, description, 
         try:
             text_cursor = to_text_cursor(view_cursor)
             doc_text.insertTextContent(text_cursor, image, False)
-        except Exception:
+        except Exception as e:
             # Fallback if cursor position is invalid (e.g. inside a field)
+            logger.debug("_insert_inline_image insertTextContent fallback: %s", e)
             view_cursor.jumpToStartOfPage()
             text_cursor = to_text_cursor(view_cursor)
             doc_text.insertTextContent(text_cursor, image, False)
@@ -103,7 +104,8 @@ def _insert_frame(model, cursor, image, width, height, title):
         # `cursor` comes from the view layer; convert to a TextCursor.
         text_cursor = doc_text.createTextCursorByRange(cursor.getStart())
         doc_text.insertTextContent(text_cursor, text_frame, False)
-    except Exception:
+    except Exception as e:
+        logger.debug("_insert_frame insertTextContent fallback: %s", e)
         cursor.jumpToStartOfPage()
         text_cursor = doc_text.createTextCursorByRange(cursor.getStart())
         doc_text.insertTextContent(text_cursor, text_frame, False)
@@ -152,7 +154,8 @@ def _get_selected_graphic_object(model):
             return None, None
         inside = get_type_doc(model)
         return obj, inside
-    except Exception:
+    except Exception as e:
+        logger.debug("_get_selected_graphic_object error: %s", e)
         return None, None
 
 
@@ -249,7 +252,8 @@ def get_selected_image_base64(model, ctx=None):
         elif hasattr(obj, "getPropertyValue"):
             try:
                 graphic = obj.getPropertyValue("Graphic")
-            except:
+            except Exception as e:
+                logger.warning("get_selected_image_base64 missing Graphic property: %s", e)
                 return None
         else:
             return None
