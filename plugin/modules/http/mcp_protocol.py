@@ -333,7 +333,7 @@ class MCPProtocolHandler:
         else:
             doc_type = self._detect_active_doc_type()
         doc_type = doc_type or "writer"
-        schemas = self.tool_registry.get_mcp_schemas(doc_type)
+        schemas = self.tool_registry.get_schemas("mcp", doc_type=doc_type)
         return {"tools": schemas}
 
     def _mcp_resources_list(self, params):

@@ -74,20 +74,20 @@ class TestRegister:
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.tools_for_doc_type("writer")]
+        names = [t.name for t in reg.get_tools(doc_type="writer")]
         assert "fake_tool" in names
         assert "universal_tool" in names
 
     def test_tools_for_calc_excludes_writer_only(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.tools_for_doc_type("calc")]
+        names = [t.name for t in reg.get_tools(doc_type="calc")]
         assert "fake_tool" not in names
         assert "universal_tool" in names
 
     def test_tools_for_none_returns_universal_only(self):
         """When doc_type is None (unknown), only universal tools are returned."""
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.tools_for_doc_type(None)]
+        names = [t.name for t in reg.get_tools(doc_type=None)]
         assert names == ["universal_tool"]
 
 
@@ -147,7 +147,7 @@ class TestExecute:
 class TestSchemas:
     def test_openai_schemas(self):
         reg = _make_registry(FakeTool())
-        schemas = reg.get_openai_schemas("writer")
+        schemas = reg.get_schemas("openai", doc_type="writer")
         assert len(schemas) == 1
         s = schemas[0]
         assert s["type"] == "function"
@@ -155,7 +155,7 @@ class TestSchemas:
 
     def test_mcp_schemas(self):
         reg = _make_registry(FakeTool())
-        schemas = reg.get_mcp_schemas("writer")
+        schemas = reg.get_schemas("mcp", doc_type="writer")
         assert len(schemas) == 1
         s = schemas[0]
         assert s["name"] == "fake_tool"
@@ -192,8 +192,8 @@ class TestExecuteEventsAndInvalidation:
         services = ServiceRegistry()
         events = MockEventBus()
         doc_svc = MockDocumentService()
-        services.register_instance("events", events)
-        services.register_instance("document", doc_svc)
+        services.register("events", events)
+        services.register("document", doc_svc)
 
         reg = ToolRegistry(services)
         reg.register(ToolWithParams())
@@ -235,8 +235,8 @@ class TestExecuteEventsAndInvalidation:
         services = ServiceRegistry()
         events = MockEventBus()
         doc_svc = MockDocumentService()
-        services.register_instance("events", events)
-        services.register_instance("document", doc_svc)
+        services.register("events", events)
+        services.register("document", doc_svc)
 
         reg = ToolRegistry(services)
         reg.register(FailingToolWithParams())
@@ -255,77 +255,3 @@ class TestExecuteEventsAndInvalidation:
         assert len(doc_svc.invalidated) == 1
         assert doc_svc.invalidated[0] is ctx.doc
 
-
-def test_tool_registry_discover(tmpdir):
-    """Discovery from a directory (from test_registry)."""
-    import sys
-
-    services = ServiceRegistry()
-    registry = ToolRegistry(services)
-
-    pkg_dir = tmpdir.mkdir("fake_tools")
-    pkg_dir.join("__init__.py").write("")
-    pkg_dir.join("my_tool.py").write("""
-from plugin.framework.tool_base import ToolBase
-class MyFakeTool(ToolBase):
-    name = "my_fake"
-    def execute(self, ctx, **kwargs): pass
-""")
-
-    sys.path.insert(0, str(tmpdir))
-    try:
-        registry.discover(str(pkg_dir), "fake_tools")
-        assert "my_fake" in registry.tool_names
-    finally:
-        sys.path.pop(0)
-
-def test_tool_registry_discovery_hygiene(tmpdir):
-    """Discovery hygiene: ensures duplicate names resolve deterministically and non-ToolBase classes are ignored."""
-    import sys
-
-    services = ServiceRegistry()
-    registry = ToolRegistry(services)
-
-    pkg_dir = tmpdir.mkdir("fake_tools_hygiene")
-    pkg_dir.join("__init__.py").write("")
-
-    # Tool 1 defines 'my_fake' tool
-    pkg_dir.join("my_tool_1.py").write("""
-from plugin.framework.tool_base import ToolBase
-class MyFakeTool(ToolBase):
-    name = "my_fake"
-    description = "First version"
-    def execute(self, ctx, **kwargs): pass
-""")
-
-    # Tool 2 defines same 'my_fake' tool (should overwrite Tool 1 based on alphabetical import or discovery order)
-    # Plus defines a NonToolClass that should be ignored
-    pkg_dir.join("my_tool_2.py").write("""
-from plugin.framework.tool_base import ToolBase
-
-class MyFakeToolOverwrite(ToolBase):
-    name = "my_fake"
-    description = "Second version"
-    def execute(self, ctx, **kwargs): pass
-
-class NonToolClass:
-    name = "not_a_tool"
-    description = "This should be ignored"
-    def execute(self, ctx, **kwargs): pass
-""")
-
-    sys.path.insert(0, str(tmpdir))
-    try:
-        registry.discover(str(pkg_dir), "fake_tools_hygiene")
-        assert "my_fake" in registry.tool_names
-
-        # Verify non-ToolBase class is ignored
-        assert "not_a_tool" not in registry.tool_names
-
-        # Verify deterministic replacement: my_tool_2.py should be processed after my_tool_1.py
-        # because iter_modules iterates over module names alphabetically.
-        tool = registry.get("my_fake")
-        assert tool is not None
-        assert tool.description == "Second version"
-    finally:
-        sys.path.pop(0)

@@ -37,7 +37,7 @@ class HttpModule(ModuleBase):
         from plugin.modules.http.routes import HttpRouteRegistry
 
         self._registry = HttpRouteRegistry()
-        services.register_instance("http_routes", self._registry)
+        services.register("http_routes", self._registry)
         self._server = None
         self._services = services
         self._mcp_protocol = None

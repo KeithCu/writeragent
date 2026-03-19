@@ -25,3 +25,45 @@ class CalcModule(ModuleBase):
 
     def initialize(self, services):
         self.services = services
+
+        from .conditional import ListConditionalFormats, AddConditionalFormat, RemoveConditionalFormat, ClearConditionalFormats
+        from .charts import ListCharts, GetChartInfo, CreateChart, EditChart, DeleteChart
+        from .navigation import ListNamedRanges, GetSheetOverview
+        from .cells import ReadCellRange, WriteCellRange, SetCellStyle, MergeCells, ClearRange, SortRange, ImportCsv, DeleteStructure
+        from .formulas import DetectErrors
+        from .sheets import ListSheets, SwitchSheet, CreateSheet, GetSheetSummary
+        from .search import SearchInSpreadsheet, ReplaceInSpreadsheet
+        from .comments import ListCellComments, AddCellComment, DeleteCellComment
+
+        tools = [
+            ListConditionalFormats(),
+            AddConditionalFormat(),
+            RemoveConditionalFormat(),
+            ClearConditionalFormats(),
+            ListCharts(),
+            GetChartInfo(),
+            CreateChart(),
+            EditChart(),
+            DeleteChart(),
+            ListNamedRanges(),
+            GetSheetOverview(),
+            ReadCellRange(),
+            WriteCellRange(),
+            SetCellStyle(),
+            MergeCells(),
+            ClearRange(),
+            SortRange(),
+            ImportCsv(),
+            DeleteStructure(),
+            DetectErrors(),
+            ListSheets(),
+            SwitchSheet(),
+            CreateSheet(),
+            GetSheetSummary(),
+            SearchInSpreadsheet(),
+            ReplaceInSpreadsheet(),
+            ListCellComments(),
+            AddCellComment(),
+            DeleteCellComment(),
+        ]
+        services.tools.register_many(tools)

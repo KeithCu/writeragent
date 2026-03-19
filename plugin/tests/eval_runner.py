@@ -65,9 +65,9 @@ class EvalRunner:
         registry = get_tools()
         doc_type = category.lower()
         if doc_type == "multimodal":
-            tools = registry.get_openai_schemas()
+            tools = registry.get_schemas("openai")
         else:
-            tools = registry.get_openai_schemas(doc_type=doc_type)
+            tools = registry.get_schemas("openai", doc_type=doc_type)
             
         start_time = time.time()
         try:

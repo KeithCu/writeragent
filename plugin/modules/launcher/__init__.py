@@ -384,7 +384,7 @@ class LauncherModule(ModuleBase):
             p = cls(services)
             self._manager.register_provider(p.name, p)
             
-        services.register_instance("launcher_manager", self._manager)
+        services.register("launcher_manager", self._manager)
 
     def shutdown(self):
         self._stop_process()

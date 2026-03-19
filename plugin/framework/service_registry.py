@@ -38,15 +38,7 @@ class ServiceRegistry:
     def __init__(self):
         self._services = {}
 
-    def register(self, service):
-        """Register a ServiceBase instance by its ``name`` attribute."""
-        if service.name is None:
-            raise ValueError(f"Service {type(service).__name__} has no name")
-        if service.name in self._services:
-            raise ValueError(f"Service already registered: {service.name}")
-        self._services[service.name] = service
-
-    def register_instance(self, name, instance):
+    def register(self, name, instance):
         """Register an arbitrary object as a named service."""
         if name in self._services:
             raise ValueError(f"Service already registered: {name}")

@@ -18,39 +18,26 @@ class TestRegister:
     def test_register_and_get(self):
         reg = ServiceRegistry()
         svc = DummyService()
-        reg.register(svc)
+        reg.register("dummy", svc)
         assert reg.get("dummy") is svc
 
     def test_register_duplicate_raises(self):
         reg = ServiceRegistry()
-        reg.register(DummyService())
+        reg.register("dummy", DummyService())
         with pytest.raises(ValueError, match="already registered"):
-            reg.register(DummyService())
+            reg.register("dummy", DummyService())
 
-    def test_register_no_name_raises(self):
-        reg = ServiceRegistry()
-        svc = ServiceBase()
-        with pytest.raises(ValueError, match="has no name"):
-            reg.register(svc)
-
-    def test_register_instance(self):
+    def test_register(self):
         reg = ServiceRegistry()
         obj = {"hello": "world"}
-        reg.register_instance("myobj", obj)
+        reg.register("myobj", obj)
         assert reg.get("myobj") is obj
-
-    def test_register_instance_duplicate_raises(self):
-        reg = ServiceRegistry()
-        reg.register_instance("x", 1)
-        with pytest.raises(ValueError, match="already registered"):
-            reg.register_instance("x", 2)
-
 
 class TestAccess:
     def test_getattr(self):
         reg = ServiceRegistry()
         svc = DummyService()
-        reg.register(svc)
+        reg.register("dummy", svc)
         assert reg.dummy is svc
 
     def test_getattr_missing_raises(self):
@@ -60,7 +47,7 @@ class TestAccess:
 
     def test_contains(self):
         reg = ServiceRegistry()
-        reg.register(DummyService())
+        reg.register("dummy", DummyService())
         assert "dummy" in reg
         assert "missing" not in reg
 
@@ -70,8 +57,8 @@ class TestAccess:
 
     def test_service_names(self):
         reg = ServiceRegistry()
-        reg.register(DummyService())
-        reg.register(AnotherService())
+        reg.register("dummy", DummyService())
+        reg.register("another", AnotherService())
         assert set(reg.service_names) == {"dummy", "another"}
 
 
@@ -85,7 +72,7 @@ class TestLifecycle:
             def initialize(self, ctx):
                 initialized.append(ctx)
 
-        reg.register(InitService())
+        reg.register("init_svc", InitService())
         reg.initialize_all("fake_ctx")
         assert initialized == ["fake_ctx"]
 
@@ -97,5 +84,5 @@ class TestLifecycle:
             def shutdown(self):
                 raise RuntimeError("boom")
 
-        reg.register(BadShutdown())
+        reg.register("bad", BadShutdown())
         reg.shutdown_all()  # should not raise

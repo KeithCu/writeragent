@@ -15,13 +15,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Central tool registry with auto-discovery and unified execution."""
+"""Central tool registry with unified execution."""
 
-import importlib
-import inspect
 import logging
-import os
-import pkgutil
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
@@ -31,11 +27,9 @@ log = logging.getLogger("writeragent.tools")
 
 
 class ToolRegistry:
-    """Discovers, registers, and dispatches tools.
+    """Registers and dispatches tools.
 
-    Tools are auto-discovered from each module's ``tools/`` subpackage
-    and registered here. Both the chatbot and MCP server use this single
-    registry.
+    Both the chatbot and MCP server use this single registry.
     """
 
     def __init__(self, services):
@@ -58,97 +52,56 @@ class ToolRegistry:
         for t in tools:
             self.register(t)
 
-    def discover(self, package_path, package_name):
-        """Auto-discover ToolBase subclasses in a package directory.
+    # ── Lookup & Schema Generation ────────────────────────────────────
 
-        Scans *package_path* for Python modules, imports them, and
-        registers any concrete ToolBase subclass found.
+    def get_tools(self, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True):
+        """Return a list of ToolBase instances matching the given criteria.
 
         Args:
-            package_path: Filesystem path to the package directory.
-            package_name: Dotted Python package name (e.g. "plugin.modules.writer.tools").
+            doc_type: Optional string indicating compatibility. If None, only universal tools are returned (unless filter_doc_type=False).
+            tier: Optional string (e.g. "core", "extended").
+            intent: Optional string filtering by tool intent.
+            names: Optional list of specific tool names to include.
+            filter_doc_type: If True, filters by doc_type. Defaults to True.
         """
-        if not os.path.isdir(package_path):
-            return
+        tools = self._tools.values()
+        if filter_doc_type:
+            tools = [t for t in tools if t.doc_types is None or (doc_type is not None and doc_type in t.doc_types)]
+        if tier:
+            tools = [t for t in tools if t.tier == tier]
+        if intent:
+            tools = [t for t in tools if t.intent == intent]
+        if names:
+            tools = [t for t in tools if t.name in names]
+        return list(tools)
 
-        count = 0
-        for importer, modname, ispkg in pkgutil.iter_modules([package_path]):
-            if modname.startswith("_"):
-                continue
-            fqn = f"{package_name}.{modname}"
-            try:
-                mod = importlib.import_module(fqn)
-            except Exception:
-                log.exception("Failed to import tool module: %s", fqn)
-                continue
+    def get_schemas(self, protocol="openai", **kwargs):
+        """Return schemas for tools matching the given kwargs criteria.
 
-            for _attr_name, obj in inspect.getmembers(mod, inspect.isclass):
-                if (
-                    issubclass(obj, ToolBase)
-                    and obj is not ToolBase
-                    and getattr(obj, "name", None)
-                ):
-                    try:
-                        instance = obj()
-                        self.register(instance)
-                        count += 1
-                    except Exception:
-                        log.exception("Failed to instantiate tool: %s", obj)
-
-        if count:
-            log.info("Discovered %d tools from %s", count, package_name)
-
-    # ── Lookup ────────────────────────────────────────────────────────
-
-    def get(self, name):
-        """Get a tool by name, or None."""
-        return self._tools.get(name)
-
-    def tools_for_doc_type(self, doc_type):
-        """Return tools compatible with *doc_type* (or all if doc_type is None)."""
-        for tool in self._tools.values():
-            if tool.doc_types is None or doc_type in tool.doc_types:
-                yield tool
-
-    # ── Schema generation ─────────────────────────────────────────────
-
-    def get_openai_schemas(self, doc_type=None, tier=None):
-        """Return list of OpenAI function-calling schemas.
-
-        When *tier* is set (e.g. ``"core"``), only tools with that tier
-        are included.
+        Args:
+            protocol: Either "openai" or "mcp".
+            **kwargs: Filters passed to get_tools().
         """
-        tools = self.tools_for_doc_type(doc_type)
-        if tier:
-            tools = (t for t in tools if t.tier == tier)
+        tools = self.get_tools(**kwargs)
+        if protocol == "openai":
+            return [to_openai_schema(t) for t in tools]
+        elif protocol == "mcp":
+            return [to_mcp_schema(t) for t in tools]
+        else:
+            raise ValueError(f"Unknown protocol: {protocol}")
 
-        return [to_openai_schema(t) for t in tools]
-
-
-    def get_openai_schemas_by_names(self, names):
-        """Return OpenAI schemas for specific tool *names*."""
-        return [to_openai_schema(self._tools[n])
-                for n in names if n in self._tools]
-
-    def get_tool_summaries(self, doc_type=None, tier=None):
-        """Lightweight catalogue: ``[{"name", "description", "tier"}]``."""
-        tools = self.tools_for_doc_type(doc_type)
-        if tier:
-            tools = (t for t in tools if t.tier == tier)
+    def get_tool_summaries(self, **kwargs):
+        """Lightweight catalogue: ``[{"name", "description", "tier", "intent"}]``."""
+        tools = self.get_tools(**kwargs)
         return [{"name": t.name,
                  "description": (t.description or "")[:120],
                  "tier": t.tier,
                  "intent": t.intent}
                 for t in tools]
 
-    def get_tool_names_by_intent(self, doc_type=None, intent=None):
-        """Return names of extended tools matching *intent*."""
-        return [t.name for t in self.tools_for_doc_type(doc_type)
-                if t.tier == "extended" and t.intent == intent]
-
-    def get_mcp_schemas(self, doc_type=None):
-        """Return list of MCP tools/list schemas."""
-        return [to_mcp_schema(t) for t in self.tools_for_doc_type(doc_type)]
+    def get(self, name):
+        """Get a tool by name, or None."""
+        return self._tools.get(name)
 
     # ── Execution ─────────────────────────────────────────────────────
 

@@ -287,7 +287,7 @@ class TunnelModule(ModuleBase):
     def initialize(self, services):
         self._services = services
         self._manager = TunnelManager(services.config, services.events)
-        services.register_instance("tunnel_manager", self._manager)
+        services.register("tunnel_manager", self._manager)
 
         # Register built-in providers (consolidated from tunnel_* modules)
         from .providers.bore import BoreProvider

@@ -360,9 +360,6 @@ class ApplyDocumentContent(ToolBase):
         return {"status": "ok", "message": "Replaced 1 occurrence (by old_content)."}
 
 
-
-
-'''
 # ------------------------------------------------------------------
 # ReadParagraphs
 # ------------------------------------------------------------------
@@ -971,7 +968,6 @@ class InsertParagraphsBatch(ToolBase):
                        % (n, position, para_index),
             "count": n,
         }
-'''
 
 
 # ------------------------------------------------------------------

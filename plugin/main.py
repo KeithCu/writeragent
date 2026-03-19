@@ -127,7 +127,7 @@ def bootstrap(ctx=None):
         # 2. Service Container
         from plugin.framework.service_registry import ServiceRegistry
         _services = ServiceRegistry()
-        _services.register_instance("uno", ctx)
+        _services.register("uno", ctx)
 
         # 3. Core Services (Framework)
         from plugin.framework.config import ConfigService
@@ -135,15 +135,15 @@ def bootstrap(ctx=None):
         from plugin.framework.format import FormatService
         from plugin.framework.event_bus import get_event_bus
 
-        _services.register(ConfigService())
-        _services.register(DocumentService())
-        _services.register(FormatService())
-        _services.register_instance("events", get_event_bus())
+        _services.register("config", ConfigService())
+        _services.register("document", DocumentService())
+        _services.register("format", FormatService())
+        _services.register("events", get_event_bus())
 
         # 4. Tool Registry
         from plugin.framework.tool_registry import ToolRegistry
         _tools = ToolRegistry(_services)
-        _services.register_instance("tools", _tools)
+        _services.register("tools", _tools)
 
         # Set initialized early to prevent recursive calls from re-running bootstrap
         # but after _services and _tools are created.
@@ -157,7 +157,6 @@ def bootstrap(ctx=None):
             if name == "core":
                 continue
             
-            # Auto-discover tools from tools/ subpackage
             # Try nested path first (e.g. "launcher/providers/claude")
             rel_path = name.replace(".", os.sep)
             module_dir = os.path.join(os.path.dirname(__file__), "modules", rel_path)
@@ -170,14 +169,6 @@ def bootstrap(ctx=None):
                 import_path = "plugin.modules." + dir_name
                 if not os.path.isdir(module_dir):
                     continue
-                
-            # Tools may be in module root (like localwriter2 draw/calc)
-            _tools.discover(module_dir, import_path)
-            
-            # Structure approach (like the writer tools we generated)
-            tools_dir = os.path.join(module_dir, "tools")
-            if os.path.isdir(tools_dir):
-                _tools.discover(tools_dir, import_path + ".tools")
 
             # Dynamic ModuleBase initialization
             try:

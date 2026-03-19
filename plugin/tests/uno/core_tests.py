@@ -76,6 +76,6 @@ def test_service_registry():
         pass
 
     svc = DummyService()
-    registry.register_instance("dummy", svc)
+    registry.register("dummy", svc)
 
     assert registry.get("dummy") is svc, "ServiceRegistry failed"

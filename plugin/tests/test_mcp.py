@@ -25,7 +25,7 @@ def mcp_server():
 
     # Mock tool registry
     tool_registry = MagicMock()
-    tool_registry.get_mcp_schemas.return_value = [
+    tool_registry.get_schemas.return_value = [
         {"name": "test_tool", "description": "A test tool", "inputSchema": {"type": "object", "properties": {}}}
     ]
     tool_registry.tool_names = ["test_tool"]

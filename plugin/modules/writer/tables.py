@@ -14,7 +14,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer table tools."""
+"""Writer table tools.
+
+Tool classes below are fully commented out. To re-enable: uncomment them, add
+``from plugin.framework.tool_base import ToolBase``, register instances in
+``plugin/modules/writer/__init__.py``, and set
+``WRITER_TABLE_TOOLS_DISABLED = False`` in ``plugin/tests/smoke_writer_tools.py``.
+"""
 
 import logging
 
