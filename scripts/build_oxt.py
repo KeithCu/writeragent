@@ -25,7 +25,6 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALWAYS_INCLUDE_EXTENSION = [
     "extension/description.xml",
     "extension/META-INF/",
-    "extension/Jobs.xcu",
     "extension/ProtocolHandler.xcu",
     "extension/Addons.xcu",
     "extension/Accelerators.xcu",
