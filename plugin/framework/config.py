@@ -21,6 +21,8 @@ Reads/writes writeragent.json in LibreOffice's user config directory.
 import os
 import json
 import logging
+import dataclasses
+from typing import Dict, Any, Optional
 try:
     import uno
     import unohelper
@@ -31,6 +33,7 @@ from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
 from plugin.framework.errors import ConfigError
+
 
 log = logging.getLogger(__name__)
 
@@ -148,47 +151,101 @@ def _dotted_fallback_keys(key):
                 break
 
 
-# Central fallback for keys not in any module.yaml. Single source of defaults in code.
-_CONFIG_DEFAULTS = {
-    "log_level": "DEBUG",
-    "endpoint": "http://127.0.0.1:5000",
-    "text_model": "",
-    "model": "",
-    "temperature": -1,
-    "additional_instructions": "",
-    "chat_context_length": 8000,
-    "chat_max_tokens": 16384,
-    "request_timeout": 120,
-    "chat_max_tool_rounds": 5,
-    "stt_model": "",
-    "api_keys_by_endpoint": {},
-    "aihorde_api_key": "",
-    "image_base_size": 512,
-    "image_default_aspect": "Square",
-    "image_cfg_scale": 7.5,
-    "image_steps": -1,
-    "image_nsfw": False,
-    "image_censor_nsfw": True,
-    "image_max_wait": 5,
-    "image_auto_gallery": True,
-    "image_insert_frame": False,
-    "image_translate_prompt": True,
-    "image_translate_from": "",
-    "image_model": "",
-    "image_provider": "aihorde",
-    "aihorde_model": "stable_diffusion",
-    "seed": "",
-    "chatbot.show_search_thinking": False,
-    "enable_agent_log": False,
-    "web_cache_max_mb": 50,
-    "web_cache_validity_days": 7,
-    "is_openwebui": False,
-    "extend_selection_system_prompt": "",
-    "edit_selection_system_prompt": "",
-    "audio_support_map": {},
-    "chat_direct_image": False,
-    "calc_prompt_max_tokens": 70,
-}
+
+
+
+@dataclasses.dataclass
+class WriterAgentConfig:
+    """Dataclass schema for WriterAgent configuration."""
+    log_level: str = "DEBUG"
+    endpoint: str = "http://127.0.0.1:5000"
+    text_model: str = ""
+    model: str = ""
+    temperature: float = -1.0
+    additional_instructions: str = ""
+    chat_context_length: int = 8000
+    chat_max_tokens: int = 16384
+    request_timeout: int = 120
+    chat_max_tool_rounds: int = 5
+    stt_model: str = ""
+    api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
+    aihorde_api_key: str = ""
+    image_base_size: int = 512
+    image_default_aspect: str = "Square"
+    image_cfg_scale: float = 7.5
+    image_steps: int = -1
+    image_nsfw: bool = False
+    image_censor_nsfw: bool = True
+    image_max_wait: int = 5
+    image_auto_gallery: bool = True
+    image_insert_frame: bool = False
+    image_translate_prompt: bool = True
+    image_translate_from: str = ""
+    image_model: str = ""
+    image_provider: str = "aihorde"
+    aihorde_model: str = "stable_diffusion"
+    seed: str = ""
+    chatbot_show_search_thinking: bool = False
+    enable_agent_log: bool = False
+    web_cache_max_mb: int = 50
+    web_cache_validity_days: int = 7
+    is_openwebui: bool = False
+    extend_selection_system_prompt: str = ""
+    edit_selection_system_prompt: str = ""
+    audio_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
+    chat_direct_image: bool = False
+    calc_prompt_max_tokens: int = 70
+
+    # Store arbitrary module.yaml config entries
+    _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
+
+    def validate(self):
+        """Perform validation of config keys and emit warnings or fix values."""
+        if not isinstance(self.chat_max_tokens, int) or self.chat_max_tokens < 0:
+            log.warning("Invalid chat_max_tokens %s, falling back to 16384", self.chat_max_tokens)
+            self.chat_max_tokens = 16384
+
+        if not isinstance(self.request_timeout, int) or self.request_timeout <= 0:
+            log.warning("Invalid request_timeout %s, falling back to 120", self.request_timeout)
+            self.request_timeout = 120
+
+        if not isinstance(self.temperature, (int, float)):
+            log.warning("Invalid temperature %s, falling back to -1.0", self.temperature)
+            self.temperature = -1.0
+
+        if not isinstance(self.image_cfg_scale, (int, float)) or self.image_cfg_scale < 0:
+            log.warning("Invalid image_cfg_scale %s, falling back to 7.5", self.image_cfg_scale)
+            self.image_cfg_scale = 7.5
+
+        return self
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WriterAgentConfig":
+        """Load from a dictionary, mapping known fields and pushing others to _extra_config."""
+        field_names = {f.name for f in dataclasses.fields(cls) if f.name != "_extra_config"}
+        known_kwargs = {}
+        extra_kwargs = {}
+
+        for key, value in data.items():
+            safe_key = key.replace('.', '_')
+            if safe_key in field_names:
+                known_kwargs[safe_key] = value
+            else:
+                extra_kwargs[key] = value
+
+        config = cls(**known_kwargs)
+        config._extra_config = extra_kwargs
+        return config
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert back to dictionary, expanding _extra_config."""
+        out = {}
+        for f in dataclasses.fields(self):
+            if f.name == "_extra_config":
+                continue
+            out[f.name] = getattr(self, f.name)
+        out.update(self._extra_config)
+        return out
 
 
 def _resolve_default(key):
@@ -200,9 +257,18 @@ def _resolve_default(key):
     val = _get_schema_default(key)
     if val is not None:
         return val
-    val = _CONFIG_DEFAULTS.get(key)
-    if val is not None:
-        return val
+
+    # Get from default config object
+    default_config = WriterAgentConfig()
+
+    # Map dotted keys to flat keys if they match (e.g. chatbot.show_search_thinking)
+    safe_key = key.replace('.', '_')
+    field_names = {f.name for f in dataclasses.fields(default_config)}
+    if safe_key in field_names:
+        val = getattr(default_config, safe_key)
+        if val is not None:
+            return val
+
     if "@" in key or key.endswith("_lru"):
         return []
     if "by_endpoint" in key or "_map" in key:
@@ -210,25 +276,66 @@ def _resolve_default(key):
     return ""
 
 
+# In-memory configuration cache so we don't open/parse/validate writeragent.json
+# on every single get_config access.
+_cached_config_dict = None
+_cached_config_mtime = 0
+
+def _get_validated_config_dict(ctx):
+    """Return the full validated config as a dict, using an in-memory cache
+    keyed off the file modification time."""
+    global _cached_config_dict, _cached_config_mtime
+
+    config_file_path = _config_path(ctx)
+    if not config_file_path or not os.path.exists(config_file_path):
+        return {}
+
+    try:
+        current_mtime = os.path.getmtime(config_file_path)
+    except OSError:
+        current_mtime = 0
+
+    if _cached_config_dict is not None and current_mtime == _cached_config_mtime and current_mtime != 0:
+        return _cached_config_dict
+
+    try:
+        with open(config_file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Perform validation when config is loaded
+        config = WriterAgentConfig.from_dict(data)
+        config.validate()
+
+        # Serialize back to dict, preserving original keys for _extra_config
+        out = {}
+        field_names = {f.name for f in dataclasses.fields(config)}
+        for k, v in data.items():
+            safe_key = k.replace('.', '_')
+            if safe_key in field_names:
+                out[k] = getattr(config, safe_key)
+            else:
+                out[k] = v
+
+        _cached_config_dict = out
+        _cached_config_mtime = current_mtime
+        return out
+    except (IOError, json.JSONDecodeError):
+        return {}
+
 def get_config(ctx, key):
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
-    config_file_path = _config_path(ctx)
-    config_data = {}
-    if config_file_path and os.path.exists(config_file_path):
-        try:
-            with open(config_file_path, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-        except (IOError, json.JSONDecodeError):
-            pass
+    config_data = _get_validated_config_dict(ctx)
     if not isinstance(config_data, dict):
         config_data = {}
+
     if key in config_data:
         return config_data[key]
+
     for dotted in _dotted_fallback_keys(key):
         if dotted in config_data:
             return config_data[dotted]
-    return _resolve_default(key)
 
+    return _resolve_default(key)
 
 def get_config_int(ctx, key, default=0):
     """Get a config value as int. Accepts float or string (e.g. 50.0 or \"50.00\") from JSON/UI; returns int. Use for int settings like web_cache_max_mb, extend_selection_max_tokens."""
@@ -241,14 +348,7 @@ def get_config_int(ctx, key, default=0):
 
 def get_config_dict(ctx):
     """Return the full config as a dict. Returns {} if missing or on error."""
-    config_file_path = _config_path(ctx)
-    if not config_file_path or not os.path.exists(config_file_path):
-        return {}
-    try:
-        with open(config_file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (IOError, json.JSONDecodeError):
-        return {}
+    return _get_validated_config_dict(ctx)
 
 
 def get_current_endpoint(ctx):
@@ -273,6 +373,11 @@ def set_config(ctx, key, value):
     try:
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
+
+        global _cached_config_dict, _cached_config_mtime
+        _cached_config_dict = None
+        _cached_config_mtime = 0
+
     except IOError as e:
                 log.error("Error writing to %s: %s" % (config_file_path, e))
 
@@ -291,6 +396,11 @@ def remove_config(ctx, key):
     try:
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
+
+        global _cached_config_dict, _cached_config_mtime
+        _cached_config_dict = None
+        _cached_config_mtime = 0
+
     except IOError as e:
                 log.error("Error writing to %s: %s" % (config_file_path, e))
 
