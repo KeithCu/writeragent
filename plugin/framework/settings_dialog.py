@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 def get_settings_field_specs(ctx):
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
-        log.debug("get_settings_field_specs entry")
+    log.debug("get_settings_field_specs entry")
     current_endpoint_for_specs = get_current_endpoint(ctx)
     field_specs = [
         {"name": "endpoint", "value": str(get_config(ctx, "endpoint") or "")},
@@ -184,7 +184,7 @@ def _call_options_provider(ctx, provider_path):
     provider_path format: "plugin.framework.ai:get_text_instance_options"
     The function receives the ServiceRegistry as its argument.
     """
-        log.debug(f"_call_options_provider: {provider_path}")
+    log.debug(f"_call_options_provider: {provider_path}")
     try:
         module_path, func_name = provider_path.rsplit(":", 1)
         import importlib

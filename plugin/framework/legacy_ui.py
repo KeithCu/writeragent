@@ -88,7 +88,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
     from plugin.framework.config import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool
 
-        log.debug("settings_box entry")
+    log.debug("settings_box entry")
     import unohelper
     from com.sun.star.awt import XItemListener, XTextListener
 
@@ -157,7 +157,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     current_endpoint = get_current_endpoint(ctx)
 
     try:
-                for field in field_specs:
+        for field in field_specs:
             log.info(f"Processing setting field: {field['name']} (options: {'yes' if 'options' in field else 'no'})")
             ctrl = dlg.getControl(field["name"])
             if ctrl:
