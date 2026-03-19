@@ -120,11 +120,12 @@ def _poke_vcl():
         import uno
         _async_callback_service.addCallback(
             _callback_instance, uno.Any("void", None))
-    except Exception:
+    except Exception as e:
+        log.debug("_poke_vcl with Any failed, retrying without: %s", e)
         try:
             _async_callback_service.addCallback(_callback_instance, None)
-        except Exception:
-            pass
+        except Exception as e2:
+            log.warning("_poke_vcl failed: %s", e2)
 
 
 def execute_on_main_thread(fn, *args, timeout=30.0, **kwargs):

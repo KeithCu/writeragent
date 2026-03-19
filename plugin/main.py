@@ -340,8 +340,8 @@ def notify_menu_update():
             try:
                 _fire_status_event(listener, url, text)
                 alive.append((listener, url))
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("notify_menu_update: failed to fire status event for %s: %s", command, e)
         _status_listeners[:] = alive
     # Update icons in a background thread (avoids blocking UI)
     from plugin.framework.worker_pool import run_in_background
@@ -409,6 +409,9 @@ def _load_icon_graphic(module_name, icon_filename):
     """Load a PNG icon from a module's icons/ directory as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
+        import uno
+        ctx = uno.getComponentContext()
+        smgr = ctx.ServiceManager
         gp = smgr.createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx)
         ext_url = get_extension_url(ctx)
@@ -420,7 +423,8 @@ def _load_icon_graphic(module_name, icon_filename):
         pv.Value = "%s/plugin/modules/%s/icons/%s" % (
             ext_url, mod_dir, icon_filename)
         return gp.queryGraphic((pv,))
-    except Exception:
+    except Exception as e:
+        log.warning("_load_icon_graphic failed for %s/%s: %s", module_name, icon_filename, e)
         return None
 
 
@@ -468,12 +472,12 @@ def _update_menu_icons():
                                 img_mgr.replaceImages(0, (cmd,), (graphic,))
                             else:
                                 img_mgr.insertImages(0, (cmd,), (graphic,))
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-    except Exception:
-        pass
+                        except Exception as e:
+                            log.warning("_update_menu_icons: failed to insert/replace image for %s: %s", cmd, e)
+            except Exception as e:
+                log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
+    except Exception as e:
+        log.warning("_update_menu_icons: outer exception: %s", e)
 
 def _get_http_module(ctx=None):
     if ctx:
@@ -527,8 +531,8 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         """Called by the Jobs framework on OnStartApp."""
         try:
             bootstrap(self.ctx)
-        except Exception:
-            pass
+        except Exception as e:
+            log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         return ()
 
     def trigger(self, args):
@@ -668,8 +672,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         if text is not None:
             try:
                 _fire_status_event(listener, url, text)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
 
     def removeStatusListener(self, listener, url):
         with _status_lock:

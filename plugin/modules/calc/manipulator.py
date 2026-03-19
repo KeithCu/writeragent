@@ -97,8 +97,8 @@ def _parse_formula_or_values_string(s: str):
             rows = list(reader)
             if rows:
                 return [val.strip() for val in rows[0]]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to read sample csv: %s", e)
 
     return None
 
@@ -652,14 +652,16 @@ class CellManipulator:
                     if chart_doc:
                         try:
                             entry["has_legend"] = chart_doc.HasLegend
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("list_charts HasLegend error: %s", e)
                             entry["has_legend"] = False
                         try:
                             entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("list_charts getTitle error: %s", e)
                             entry["title"] = ""
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("list_charts getEmbeddedObject error: %s", e)
                 result.append(entry)
             return result
         except Exception as e:
@@ -680,27 +682,32 @@ class CellManipulator:
             try:
                 ranges = chart_obj.getRanges()
                 info["data_ranges"] = [self.bridge._range_to_str(r) for r in ranges]
-            except Exception:
+            except Exception as e:
+                logger.debug("get_chart_info getRanges error: %s", e)
                 info["data_ranges"] = []
 
             chart_doc = chart_obj.getEmbeddedObject()
             if chart_doc:
                 try:
                     info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                except Exception:
+                except Exception as e:
+                    logger.debug("get_chart_info getTitle error: %s", e)
                     info["title"] = ""
                 try:
                     info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
-                except Exception:
+                except Exception as e:
+                    logger.debug("get_chart_info getSubTitle error: %s", e)
                     info["subtitle"] = ""
                 try:
                     info["has_legend"] = chart_doc.HasLegend
-                except Exception:
+                except Exception as e:
+                    logger.debug("get_chart_info HasLegend error: %s", e)
                     info["has_legend"] = None
                 try:
                     diagram = chart_doc.getDiagram()
                     info["diagram_type"] = diagram.getDiagramType()
-                except Exception:
+                except Exception as e:
+                    logger.debug("get_chart_info getDiagramType error: %s", e)
                     info["diagram_type"] = ""
 
             return info

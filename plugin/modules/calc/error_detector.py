@@ -166,7 +166,8 @@ class ErrorDetector:
                 "name": "Unknown error",
                 "description": f"Unknown error code: {error_code}",
             }
-        except Exception:
+        except Exception as e:
+            logger.debug("Explain error getError exception: %s", e)
             try:
                 text = cell.getString()
                 for pattern in ERROR_PATTERNS:
@@ -176,8 +177,8 @@ class ErrorDetector:
                             "name": "Formula error",
                             "description": f"'{pattern}' error detected in the cell.",
                         }
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.debug("Explain error getString exception: %s", e2)
             return {}
 
     def detect_errors(self, range_str: str = None) -> list:
@@ -314,7 +315,8 @@ class ErrorDetector:
                 continue
             try:
                 detailed.append(self.explain_error(address))
-            except Exception:
+            except Exception as e:
+                logger.warning("Explain errors failed for %s: %s", address, e)
                 detailed.append({
                     "address": address,
                     "formula": item.get("formula", ""),

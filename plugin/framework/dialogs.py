@@ -244,8 +244,8 @@ def msgbox_with_copy(ctx, title, message, copy_text):
                     try:
                         self._dlg.getModel().getByName("CopyBtn").Label = \
                             "Copied!"
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.debug("Failed to set CopyBtn Label: %s", e)
 
             def disposing(self, ev):
                 pass
@@ -322,8 +322,8 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                         try:
                             self._dlg.getModel().getByName("CopyBtn").Label = \
                                 "Copied!"
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.debug("Failed to set CopyBtn Label: %s", e)
 
                 def disposing(self, ev):
                     pass
@@ -448,7 +448,8 @@ def get_optional(root_window, name):
     """
     try:
         return root_window.getControl(name)
-    except Exception:
+    except Exception as e:
+        log.debug("get_optional %s error: %s", name, e)
         return None
 
 
@@ -466,8 +467,8 @@ def is_checkbox_control(ctrl):
             return True
         if hasattr(ctrl.getModel(), "State"):
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("is_checkbox_control exception: %s", e)
     return False
 
 
@@ -483,8 +484,8 @@ def get_checkbox_state(ctrl):
             return ctrl.getState()
         if hasattr(ctrl.getModel(), "State"):
             return ctrl.getModel().State
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("get_checkbox_state exception: %s", e)
     return 0
 
 
@@ -500,8 +501,8 @@ def set_checkbox_state(ctrl, value):
             ctrl.setState(value)
         elif hasattr(ctrl.getModel(), "State"):
             ctrl.getModel().State = value
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("set_checkbox_state error: %s", e)
 
 
 class TabListener(unohelper.Base, XActionListener):
