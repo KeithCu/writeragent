@@ -81,7 +81,8 @@ def _resolve_doc_type_for_url(services, document_url):
         doc_svc = services.document
         _doc, doc_type = doc_svc.resolve_document_by_url(document_url)
         return doc_type
-    except Exception:
+    except Exception as e:
+        log.warning("Error resolving doc type: %s", type(e).__name__)
         return None
 
 
@@ -239,9 +240,9 @@ class MCPProtocolHandler:
                 result = {"error": "Unknown action: %s" % action}
             self._send_json(handler, 200, {"ok": True, "result": result})
         except Exception as e:
+            from plugin.framework.errors import format_error_payload
             log.exception("Debug %s error", action)
-            self._send_json(handler, 500, {"ok": False, "error": str(e),
-                                           "type": type(e).__name__})
+            self._send_json(handler, 500, format_error_payload(e))
 
     # ── MCP protocol handler ─────────────────────────────────────────
 
@@ -534,7 +535,8 @@ class MCPProtocolHandler:
                 doc = doc_svc.get_active_document()
                 if doc:
                     doc_type = doc_svc.detect_doc_type(doc)
-        except Exception:
+        except Exception as e:
+            log.warning("Error resolving context in execution: %s", type(e).__name__)
             pass
 
         if doc is None:
@@ -549,7 +551,8 @@ class MCPProtocolHandler:
         try:
             import uno
             ctx = uno.getComponentContext()
-        except Exception:
+        except Exception as e:
+            log.warning("Error getting UNO context in execution: %s", type(e).__name__)
             pass
 
         from plugin.framework.tool_context import ToolContext
@@ -617,7 +620,8 @@ class MCPProtocolHandler:
             doc = doc_svc.get_active_document()
             if doc:
                 return doc_svc.detect_doc_type(doc)
-        except Exception:
+        except Exception as e:
+            log.warning("Error detecting doc type: %s", type(e).__name__)
             pass
         return None
 
@@ -629,9 +633,11 @@ class MCPProtocolHandler:
         raw = handler.rfile.read(content_length).decode("utf-8")
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             log.warning("Invalid JSON body: %s", raw[:200])
-            self._send_json(handler, 400, {"error": "Invalid JSON"})
+            from plugin.framework.errors import AgentParsingError, format_error_payload
+            err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
+            self._send_json(handler, 400, format_error_payload(err))
             return None
 
     def _send_json(self, handler, status, data):

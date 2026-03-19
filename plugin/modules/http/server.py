@@ -60,7 +60,9 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         route = self.route_registry.match(method, path) if self.route_registry else None
 
         if route is None:
-            self._send_json(404, {"error": "Not found"})
+            from plugin.framework.errors import WriterAgentException, format_error_payload
+            err = WriterAgentException("Not found", code="NOT_FOUND", details={"path": path})
+            self._send_json(404, format_error_payload(err))
             return
 
         try:
@@ -94,9 +96,11 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(content_length).decode("utf-8")
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            from plugin.framework.errors import AgentParsingError, format_error_payload
             log.warning("Invalid JSON body: %s", raw[:200])
-            self._send_json(400, {"error": "Invalid JSON"})
+            err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
+            self._send_json(400, format_error_payload(err))
             return None
 
     def _send_json(self, status, data):
@@ -185,7 +189,7 @@ class HttpServer:
             self._server.serve_forever()
         except Exception as e:
             if self._running:
-                log.error("HTTP server error: %s", e)
+                log.error("HTTP server error: %s", type(e).__name__)
         finally:
             self._running = False
 
