@@ -53,7 +53,9 @@ except ImportError:
 
 from plugin.framework.logging import debug_log, start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
-from plugin.framework.uno_helpers import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, get_active_document, get_extension_url, get_extension_path, is_writer, is_calc, is_draw
+from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state
+from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
+from plugin.framework.document import is_writer, is_calc, is_draw
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
@@ -451,7 +453,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _setup_sessions(self, model, extra_instructions):
         """Creates the document and web research chat sessions."""
         from plugin.framework.constants import get_chat_system_prompt_for_document, DEFAULT_CHAT_SYSTEM_PROMPT
-        from plugin.framework.uno_helpers import get_document_property, set_document_property
+        from plugin.framework.document import get_document_property, set_document_property
         
         if model and (is_writer(model) or is_calc(model) or is_draw(model)):
             system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")

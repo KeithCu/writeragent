@@ -14,7 +14,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from plugin.framework.uno_helpers import get_desktop, get_active_document, get_extension_url, TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional
+from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
+from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
 from plugin.framework.logging import init_logging, debug_log, agent_log
 from plugin.framework.history_db import HAS_SQLITE

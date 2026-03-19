@@ -19,7 +19,103 @@ import uno
 import time
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
-from plugin.framework.uno_helpers import is_writer, is_calc, is_draw, get_active_document as get_active_doc
+from plugin.framework.uno_context import get_active_document as get_active_doc
+
+
+def is_writer(model):
+    """Return True if model is a Writer document."""
+    try:
+        return model.supportsService("com.sun.star.text.TextDocument")
+    except Exception:
+        return False
+
+
+def is_calc(model):
+    """Return True if model is a Calc document."""
+    try:
+        return model.supportsService("com.sun.star.sheet.SpreadsheetDocument")
+    except Exception:
+        return False
+
+
+def is_draw(model):
+    """Return True if model is a Draw/Impress document."""
+    try:
+        return (model.supportsService("com.sun.star.drawing.DrawingDocument") or
+                model.supportsService("com.sun.star.presentation.PresentationDocument"))
+    except Exception:
+        return False
+
+
+def get_document_property(model, name, default=None):
+    """Get a custom document property from the model."""
+    try:
+        if hasattr(model, "getDocumentProperties"):
+            props = model.getDocumentProperties().UserDefinedProperties
+            if props.hasByName(name):
+                return props.getPropertyValue(name)
+    except Exception:
+        pass
+    return default
+
+
+def set_document_property(model, name, value):
+    """Set a custom document property in the model."""
+    try:
+        if hasattr(model, "getDocumentProperties"):
+            props = model.getDocumentProperties().UserDefinedProperties
+            if props is not None:
+                # Some LibreOffice builds expose hasByName; others don't.
+                # Prefer hasByName+addProperty when available, otherwise fall
+                # back to setPropertyValue and, on UnknownPropertyException,
+                # retry with addProperty.
+                exists = False
+                if hasattr(props, "hasByName"):
+                    try:
+                        exists = props.hasByName(name)
+                    except Exception:
+                        exists = False
+
+                from com.sun.star.beans.PropertyAttribute import REMOVABLE
+                if not exists and hasattr(props, "addProperty"):
+                    # Using a fixed type (string) for session IDs
+                    props.addProperty(name, REMOVABLE, str(value))
+                elif hasattr(props, "setPropertyValue"):
+                    try:
+                        props.setPropertyValue(name, str(value))
+                    except Exception:
+                        # Some implementations raise UnknownPropertyException
+                        # when the property does not yet exist; try addProperty.
+                        try:
+                            if hasattr(props, "addProperty"):
+                                props.addProperty(name, REMOVABLE, str(value))
+                        except Exception:
+                            raise
+    except Exception as e:
+        # Fallback to debug log if available, but avoid circular imports.
+        # We log richer context here to help diagnose benign startup errors
+        # like the commonly-seen "-1" when setting UserDefinedProperties.
+        try:
+            from plugin.framework.logging import debug_log
+            doc_url = ""
+            readonly = ""
+            try:
+                if hasattr(model, "getURL"):
+                    doc_url = model.getURL() or ""
+            except Exception:
+                pass
+            try:
+                if hasattr(model, "isReadonly"):
+                    readonly = str(model.isReadonly())
+            except Exception:
+                pass
+            debug_log(
+                "set_document_property error: %r (type=%s, url=%s, readonly=%s)"
+                % (e, type(e).__name__, doc_url, readonly),
+                context="Chat",
+            )
+        except Exception:
+            pass
 
 
 def normalize_linebreaks(text: str) -> str:
@@ -73,7 +169,7 @@ def resolve_document_by_url(ctx, url):
     """
     if not url or not str(url).strip():
         return (None, None)
-    from plugin.framework.uno_helpers import get_desktop
+    from plugin.framework.uno_context import get_desktop
     target = _normalize_doc_url(url)
     try:
         desktop = get_desktop(ctx)

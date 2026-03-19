@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import json
 from plugin.framework.logging import debug_log
-from plugin.framework.uno_helpers import get_desktop
+from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import setup, teardown, native_test
 
 

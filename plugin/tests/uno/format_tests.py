@@ -23,7 +23,7 @@ from plugin.modules.writer.format_support import (
     _normalize,
 )
 from plugin.framework.logging import debug_log
-from plugin.framework.uno_helpers import get_desktop
+from plugin.framework.uno_context import get_desktop
 
 def _move_cursor_by_offset(cursor, offset, expand=False):
     """Move cursor by offset in chunks to handle UNO's short (16-bit) limitation."""

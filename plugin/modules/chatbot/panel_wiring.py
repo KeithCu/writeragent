@@ -1,7 +1,7 @@
 import weakref
 
 from plugin.framework.logging import debug_log
-from plugin.framework.uno_helpers import (
+from plugin.framework.dialogs import (
     get_optional as get_optional_control,
     get_checkbox_state,
 )
