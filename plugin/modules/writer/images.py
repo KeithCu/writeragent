@@ -107,7 +107,11 @@ class GenerateImage(ToolBase):
         if is_edit:
             source_b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
             if not source_b64:
-                return {"status": "error", "message": "No image selected. Please select an image in the document first."}
+                return self._tool_error(
+                    "No image selected. Please select an image in the document first.",
+                    code="NO_SELECTION",
+                    action="edit_image"
+                )
             edit_width, edit_height = get_selected_image_dimensions_px(ctx.doc)
             if edit_width is None:
                 edit_width, edit_height = 512, 512
@@ -157,7 +161,11 @@ class GenerateImage(ToolBase):
         )
 
         if not paths:
-            return {"status": "error", "message": error_msg or "No image returned."}
+            return self._tool_error(
+                error_msg or "No image returned.",
+                code="PROVIDER_ERROR",
+                provider=provider
+            )
 
         if is_edit:
             replaced = replace_image_in_place(
@@ -446,7 +454,7 @@ class SetImageProperties(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         image_name = kwargs.get("image_name", "")
         if not image_name:
-            return {"status": "error", "message": "image_name is required."}
+            return self._tool_error("image_name is required.", code="MISSING_PARAMETER", parameter="image_name")
 
         graphic = self.get_item(
             ctx.doc, "getGraphicObjects", image_name,
@@ -628,14 +636,19 @@ class InsertImage(ToolBaseDummy):
             try:
                 image_path = _download_image_to_cache(image_path)
             except Exception as e:
-                return {"status": "error", "message": "Download failed: %s" % e}
+                return self._tool_error(
+                    f"Download failed: {e}",
+                    code="DOWNLOAD_FAILED",
+                    url=image_path
+                )
 
         # Verify local file exists
         if not os.path.isfile(image_path):
-            return {
-                "status": "error",
-                "message": "File not found: %s" % image_path,
-            }
+            return self._tool_error(
+                f"File not found: {image_path}",
+                code="FILE_NOT_FOUND",
+                path=image_path
+            )
 
         # Convert to file:// URL
         file_url = uno.systemPathToFileUrl(os.path.abspath(image_path))
@@ -662,10 +675,11 @@ class InsertImage(ToolBaseDummy):
         if paragraph_index is not None:
             target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
             if target is None:
-                return {
-                    "status": "error",
-                    "message": "Paragraph %d not found." % paragraph_index,
-                }
+                return self._tool_error(
+                    f"Paragraph {paragraph_index} not found.",
+                    code="PARAGRAPH_NOT_FOUND",
+                    paragraph_index=paragraph_index
+                )
             cursor = doc_text.createTextCursorByRange(target.getEnd())
         else:
             # Insert at current cursor position (end of document)
@@ -783,13 +797,18 @@ class ReplaceImage(ToolBaseDummy):
             try:
                 new_image_path = _download_image_to_cache(new_image_path)
             except Exception as e:
-                return {"status": "error", "message": "Download failed: %s" % e}
+                return self._tool_error(
+                    f"Download failed: {e}",
+                    code="DOWNLOAD_FAILED",
+                    url=new_image_path
+                )
 
         if not os.path.isfile(new_image_path):
-            return {
-                "status": "error",
-                "message": "File not found: %s" % new_image_path,
-            }
+            return self._tool_error(
+                f"File not found: {new_image_path}",
+                code="FILE_NOT_FOUND",
+                path=new_image_path
+            )
 
         file_url = uno.systemPathToFileUrl(os.path.abspath(new_image_path))
 

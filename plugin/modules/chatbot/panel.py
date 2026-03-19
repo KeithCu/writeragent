@@ -326,8 +326,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, unohelper.Base, XA
             self._terminal_status = "Error"
             import traceback
             tb = traceback.format_exc()
-            self._append_response("\n\n[Error: %s]\n%s\n" % (str(e), tb))
-            log.error("SendButton error: %s\n%s" % (e, tb))
+
+            # Use richer logging context before appending
+            doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
+            log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
+
+            self._append_response("\n\n[Error: %s]\n" % str(e))
         finally:
             self._send_busy = False
             log.debug("actionPerformed finally: resetting UI")
@@ -500,26 +504,29 @@ class StopButtonListener(unohelper.Base, XActionListener):
         self.send_listener = send_listener
 
     def actionPerformed(self, evt):
-        if self.send_listener:
-            self.send_listener.stop_requested = True
-            
-            # 1. Stop the HTTP client immediately (breaks hanging reads)
-            client = getattr(self.send_listener, "client", None)
-            if client and hasattr(client, "stop"):
-                try:
-                    client.stop()
-                except Exception:
-                    pass
+        try:
+            if self.send_listener:
+                self.send_listener.stop_requested = True
 
-            # 2. If an external agent backend is running, tell it to stop
-            adapter = getattr(self.send_listener, "_current_agent_backend", None)
-            if adapter and hasattr(adapter, "stop"):
-                try:
-                    adapter.stop()
-                except Exception:
-                    pass
-            # Update status immediately
-            self.send_listener._set_status("Stopping...")
+                # 1. Stop the HTTP client immediately (breaks hanging reads)
+                client = getattr(self.send_listener, "client", None)
+                if client and hasattr(client, "stop"):
+                    try:
+                        client.stop()
+                    except Exception as e:
+                        log.error("StopButton error stopping client: %s", e)
+
+                # 2. If an external agent backend is running, tell it to stop
+                adapter = getattr(self.send_listener, "_current_agent_backend", None)
+                if adapter and hasattr(adapter, "stop"):
+                    try:
+                        adapter.stop()
+                    except Exception as e:
+                        log.error("StopButton error stopping agent backend: %s", e)
+                # Update status immediately
+                self.send_listener._set_status("Stopping...")
+        except Exception as e:
+            log.error("StopButton unhandled exception: %s", e)
 
     def disposing(self, evt):
         pass
@@ -551,12 +558,15 @@ class ClearButtonListener(unohelper.Base, XActionListener):
             self.greeting = greeting
 
     def actionPerformed(self, evt):
-        self.session.clear()
-        if self.response_control and self.response_control.getModel():
-            text = self.greeting + "\n" if self.greeting else ""
-            self.response_control.getModel().Text = text
-        if self.status_control:
-            self.status_control.setText("")
+        try:
+            self.session.clear()
+            if self.response_control and self.response_control.getModel():
+                text = self.greeting + "\n" if self.greeting else ""
+                self.response_control.getModel().Text = text
+            if self.status_control:
+                self.status_control.setText("")
+        except Exception as e:
+            log.error("ClearButton error: %s", e)
 
     def disposing(self, evt):
         pass

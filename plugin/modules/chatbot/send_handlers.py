@@ -63,6 +63,8 @@ class SendHandlersMixin:
                 self._set_status("Ready")
 
         except Exception as e:
+            doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
+            log.error("Transcription error in _transcribe_audio_async [doc: %s]: %s", doc_type, e)
             self._append_response(
                 "\n[Transcription error: %s]\n" % format_error_message(e)
             )
@@ -148,12 +150,15 @@ class SendHandlersMixin:
                 try:
                     data = json.loads(result)
                     note = data.get("message", data.get("status", "done"))
-                except Exception:
+                except Exception as parse_e:
+                    log.error("Failed to parse generate_image result in _do_send_direct_image: %s", parse_e)
                     note = "done"
                 q.put(("chunk", "[generate_image: %s]\n" % note))
                 q.put(("stream_done", {}))
             except Exception as e:
-                log.error("Direct image path ERROR: %s" % e)
+                doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
+                log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s",
+                          doc_type, e)
                 q.put(("error", e))
 
         from plugin.framework.worker_pool import run_in_background
@@ -299,6 +304,8 @@ class SendHandlersMixin:
                     stop_checker=lambda: self.stop_requested,
                 )
             except Exception as e:
+                log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s",
+                          backend_id, doc_type_str, e)
                 q.put(("error", e))
             finally:
                 self._current_agent_backend = None
@@ -402,6 +409,13 @@ class SendHandlersMixin:
             history_text = self.response_control.getModel().Text or ""
 
         def run_search():
+            doc_type = (
+                "calc"
+                if is_calc(model)
+                else "draw"
+                if is_draw(model)
+                else "writer"
+            )
             try:
 
                 def status_cb(msg):
@@ -415,13 +429,6 @@ class SendHandlersMixin:
 
                 from plugin.framework.tool_context import ToolContext
 
-                doc_type = (
-                    "calc"
-                    if is_calc(model)
-                    else "draw"
-                    if is_draw(model)
-                    else "writer"
-                )
                 tctx = ToolContext(
                     doc=model,
                     ctx=self.ctx,
@@ -444,11 +451,11 @@ class SendHandlersMixin:
 
                 try:
                     data = json.loads(result)
-                except Exception:
-                    data = {
-                        "status": "error",
-                        "message": "Invalid JSON from web search tool.",
-                    }
+                except Exception as parse_e:
+                    from plugin.framework.errors import AgentParsingError, format_error_payload
+                    log.error("Failed to parse web_research result in _run_web_research [doc: %s]: %s", doc_type, parse_e)
+                    parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
+                    data = format_error_payload(parsed_err)
 
                 if data.get("status") == "ok":
                     answer = data.get("result", "")
@@ -464,6 +471,7 @@ class SendHandlersMixin:
 
                 q.put(("stream_done", {}))
             except Exception as e:
+                log.error("Web research path ERROR in _run_web_research [doc: %s]: %s", doc_type, e)
                 q.put(("error", e))
 
         from plugin.framework.worker_pool import run_in_background

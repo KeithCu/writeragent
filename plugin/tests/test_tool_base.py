@@ -105,7 +105,8 @@ def test_get_item():
     assert isinstance(res, dict)
     assert res["status"] == "error"
     assert "missing" in res["message"]
-    assert "item1" in res["available"]
+    assert "available" in res["details"]
+    assert "item1" in res["details"]["available"]
 
     # Item found
     res = tool.get_item(doc, "getMyItems", "item1")
