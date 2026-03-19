@@ -27,6 +27,7 @@ import time
 import uuid
 
 from plugin.framework.main_thread import execute_on_main_thread
+from plugin.framework.errors import WriterAgentException
 log = logging.getLogger(__name__)
 
 log = logging.getLogger("writeragent.mcp.protocol")
@@ -41,8 +42,10 @@ _WAIT_TIMEOUT = 5.0
 _PROCESS_TIMEOUT = 60.0
 
 
-class BusyError(Exception):
+class BusyError(WriterAgentException):
     """The VCL main thread is already processing another tool call."""
+    def __init__(self, message, context=None):
+        super().__init__(message, code="SERVER_BUSY", context=context)
 
 
 # JSON-RPC helpers

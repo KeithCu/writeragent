@@ -30,6 +30,7 @@ except ImportError:
 from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
+from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
 
@@ -765,9 +766,10 @@ def populate_image_model_selector(ctx, ctrl, override_endpoint=None):
     return populate_combobox_with_lru(ctx, ctrl, current_image_model, "image_model_lru", endpoint)
 
 
-class ConfigAccessError(Exception):
+class ConfigAccessError(ConfigError):
     """Raised when a module tries to access a private config key."""
-    pass
+    def __init__(self, message, code="CONFIG_ACCESS_ERROR", context=None):
+        super().__init__(message, code=code, context=context)
 
 
 def _dummy_impl(name, services=()):

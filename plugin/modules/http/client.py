@@ -38,6 +38,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
 from plugin.framework.logging import init_logging
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
+from plugin.framework.errors import NetworkError, AgentParsingError
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +63,9 @@ def format_error_message(e):
             return "Server error (%d). The AI provider is having issues." % code
         return "HTTP Error %d: %s" % (code, reason)
 
+    if isinstance(e, socket.timeout) or "timed out" in msg.lower():
+        return "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+
     if isinstance(e, (urllib.error.URLError, socket.error)):
         reason = str(e.reason) if hasattr(e, "reason") else str(e)
         if "Connection refused" in reason or "111" in reason:
@@ -69,9 +73,6 @@ def format_error_message(e):
         if "getaddrinfo failed" in reason:
             return "DNS Error. Could not resolve the endpoint URL."
         return "Connection Error: %s" % reason
-
-    if isinstance(e, socket.timeout) or "timed out" in msg.lower():
-        return "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 
     if "finish_reason=error" in msg:
         return "The AI provider reported an error. Try again."
@@ -238,7 +239,9 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         
         msg = _format_http_error_response(status, reason, err_body)
         log.error(f"HTTP Error: {msg}")
-        raise Exception(msg) from e
+        raise NetworkError(msg, code="HTTP_ERROR", context={"url": url, "status": status}) from e
+    except NetworkError:
+        raise
     except Exception as e:
         if is_local_https and _is_certificate_verify_error(e):
             log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
@@ -253,12 +256,12 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
                     err_body = ""
                 msg = _format_http_error_response(status, reason, err_body)
                 log.error(f"HTTP Error: {msg}")
-                raise Exception(msg) from retry_http_e
+                raise NetworkError(msg, code="HTTP_ERROR", context={"url": url, "status": status}) from retry_http_e
             except Exception as retry_e:
                 log.error(f"Request failed: {format_error_message(retry_e)}")
-                raise
+                raise NetworkError(format_error_message(retry_e), context={"url": url}) from retry_e
         log.error(f"Request failed: {format_error_message(e)}")
-        raise
+        raise NetworkError(format_error_message(e), context={"url": url}) from e
 
 
 def iterate_sse(stream):
@@ -782,7 +785,11 @@ class LlmClient:
                 log.error("API Error %d: %s" % (response.status, err_body))
                 # Close on error to be safe
                 self._close_connection()
-                raise Exception(_format_http_error_response(response.status, response.reason, err_body))
+                raise NetworkError(
+                    _format_http_error_response(response.status, response.reason, err_body),
+                    code="HTTP_ERROR",
+                    context={"url": path, "status": response.status}
+                )
 
             try:
                 # Use a flag to stop logical processing but keep reading to exhaust the stream
@@ -832,7 +839,7 @@ class LlmClient:
 
                     # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
                     if finish_reason == "error":
-                        raise Exception("Stream ended with finish_reason=error")
+                        raise NetworkError("Stream ended with finish_reason=error", code="STREAM_ERROR")
 
                     if thinking and on_thinking:
                         on_thinking(thinking)
@@ -843,9 +850,10 @@ class LlmClient:
                         if (len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
                                 and len(content) > 2
                                 and all(c == last_contents[0] for c in last_contents)):
-                            raise Exception(
+                            raise NetworkError(
                                 "The model is repeating the same chunk (infinite loop). "
-                                "Try again or use a different model."
+                                "Try again or use a different model.",
+                                code="INFINITE_LOOP"
                             )
                     if delta and on_delta:
                         _normalize_delta(delta)
@@ -897,12 +905,15 @@ class LlmClient:
                     _retry=False,
                 )
             log.error("Connection retry failed: %s" % err_msg)
-            raise Exception(err_msg)
+            raise NetworkError(err_msg, code="CONNECTION_ERROR", context={"url": path}) from e
+        except NetworkError:
+            self._close_connection()
+            raise
         except Exception as e:
             self._close_connection() # Reset on any other error too
             err_msg = format_error_message(e)
             log.error("ERROR in _run_streaming_loop: %s -> %s" % (e, err_msg))
-            raise Exception(err_msg)
+            raise NetworkError(err_msg, context={"url": path}) from e
 
         return last_finish_reason
 
@@ -964,7 +975,11 @@ class LlmClient:
                     err_body = response.read().decode("utf-8", errors="replace")
                     log.error("API Error %d: %s" % (response.status, err_body))
                     self._close_connection()
-                    raise Exception(_format_http_error_response(response.status, response.reason, err_body))
+                    raise NetworkError(
+                        _format_http_error_response(response.status, response.reason, err_body),
+                        code="HTTP_ERROR",
+                        context={"url": path, "status": response.status}
+                    )
                 result = json.loads(response.read().decode("utf-8"))
                 break
             except (http.client.HTTPException, socket.error, OSError) as e:
@@ -976,11 +991,13 @@ class LlmClient:
                     log.warning("Retrying request_with_tools once on fresh connection")
                     continue
                 log.error("Connection retry failed: %s" % format_error_message(e))
-                raise Exception(format_error_message(e))
+                raise NetworkError(format_error_message(e), code="CONNECTION_ERROR", context={"url": path}) from e
+            except NetworkError:
+                raise
             except Exception as e:
                 err_msg = format_error_message(e)
                 log.error("request_with_tools ERROR: %s -> %s" % (e, err_msg))
-                raise Exception(err_msg)
+                raise NetworkError(err_msg, context={"url": path}) from e
 
         log.debug("=== Tool response: %s" % json.dumps(result, indent=2))
 
@@ -1046,10 +1063,12 @@ class LlmClient:
                 on_delta=lambda d: accumulate_delta(message_snapshot, d),
                 stop_checker=stop_checker,
             )
+        except NetworkError:
+            raise
         except Exception as e:
             err_msg = format_error_message(e)
             log.error("stream_request_with_tools ERROR: %s -> %s" % (e, err_msg))
-            raise Exception(err_msg)
+            raise NetworkError(err_msg, context={"url": path}) from e
 
         # LiteLLM: streaming_handler.py ~L970 finish_reason_handler() "## if tool use"
         if last_finish_reason == "stop" and message_snapshot.get("tool_calls"):

@@ -21,6 +21,7 @@ import time
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 from plugin.framework.uno_context import get_active_document as get_active_doc
+from plugin.framework.errors import UnoObjectError
 
 
 def is_writer(model):
@@ -109,8 +110,8 @@ def set_document_property(model, name, value):
                         try:
                             if hasattr(props, "addProperty"):
                                 props.addProperty(name, REMOVABLE, str(value))
-                        except Exception:
-                            raise
+                        except Exception as inner_e:
+                            raise UnoObjectError(f"Failed to set document property: {inner_e}", context={"property": name}) from inner_e
     except Exception as e:
         # Fallback to debug log if available, but avoid circular imports.
         # We log richer context here to help diagnose benign startup errors
@@ -134,6 +135,7 @@ def set_document_property(model, name, value):
             )
         except Exception:
             pass
+        raise UnoObjectError(f"Error setting document property: {e}", context={"property": name}) from e
 
 
 def normalize_linebreaks(text: str) -> str:

@@ -25,6 +25,7 @@ import pkgutil
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
+from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger("writeragent.tools")
 
@@ -185,7 +186,7 @@ class ToolRegistry:
         # Validate parameters
         ok, err = tool.validate(**kwargs)
         if not ok:
-            return {"status": "error", "message": err}
+            return {"status": "error", "code": "VALIDATION_ERROR", "message": err}
 
         # Emit executing event
         bus = self._services.get("events")
@@ -200,11 +201,16 @@ class ToolRegistry:
 
         try:
             result = tool.execute(ctx, **kwargs)
+        except ToolExecutionError as exc:
+            log.exception("Tool execution failed (ToolExecutionError): %s", tool_name)
+            if bus:
+                bus.emit("tool:failed", name=tool_name, error=str(exc), caller=ctx.caller)
+            return {"status": "error", "code": exc.code, "message": str(exc), "details": exc.context}
         except Exception as exc:
             log.exception("Tool execution failed: %s", tool_name)
             if bus:
                 bus.emit("tool:failed", name=tool_name, error=str(exc), caller=ctx.caller)
-            return {"status": "error", "message": str(exc)}
+            return {"status": "error", "code": "TOOL_ERROR", "message": str(exc)}
 
         if bus:
             bus.emit("tool:completed", name=tool_name, caller=ctx.caller)

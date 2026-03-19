@@ -26,6 +26,7 @@ import subprocess
 import threading
 
 from plugin.framework.module_base import ModuleBase
+from plugin.framework.errors import WriterAgentException
 
 log = logging.getLogger("writeragent.tunnel")
 
@@ -33,12 +34,16 @@ log = logging.getLogger("writeragent.tunnel")
 _CREATION_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-class TunnelError(Exception):
+class TunnelError(WriterAgentException):
     """General tunnel error."""
+    def __init__(self, message, code="TUNNEL_ERROR", context=None):
+        super().__init__(message, code=code, context=context)
 
 
 class TunnelAuthError(TunnelError):
     """Provider requires authentication credentials."""
+    def __init__(self, message, context=None):
+        super().__init__(message, code="TUNNEL_AUTH_ERROR", context=context)
 
 
 def get_provider_options(services):

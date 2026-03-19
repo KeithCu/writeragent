@@ -15,15 +15,16 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 from plugin.framework.config import get_provider_from_endpoint, _normalize_endpoint_url
+from plugin.framework.errors import ConfigError
 
-
-class AuthError(RuntimeError):
+class AuthError(ConfigError):
     """Structured auth error for provider/endpoint configuration problems."""
 
     def __init__(self, message: str, *, provider: str = "", code: Optional[str] = None) -> None:
-        super().__init__(message)
+        if code is None:
+            code = "AUTH_ERROR"
+        super().__init__(message, code=code, context={"provider": provider})
         self.provider = provider
-        self.code = code
 
 
 @dataclass(frozen=True)

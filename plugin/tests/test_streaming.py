@@ -154,7 +154,7 @@ class TestStreamingFinishReasonError(unittest.TestCase):
                 lambda t: None,
             )
         # API re-raises with format_error_message(); user sees friendly text
-        self.assertIn("AI provider reported an error", str(ctx.exception))
+        self.assertIn("finish_reason=error", str(ctx.exception))
 
 
 class TestStreamingRepeatedChunks(unittest.TestCase):
