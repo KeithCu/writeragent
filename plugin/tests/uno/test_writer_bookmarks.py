@@ -6,7 +6,7 @@ except ImportError:
 
 try:
     from plugin.testing_runner import setup, teardown, native_test
-    from plugin.framework.uno_helpers import get_desktop
+    from plugin.framework.uno_context import get_desktop
     from plugin.framework.document import DocumentService
     from plugin.framework.events import EventBus
     from plugin.modules.writer.bookmarks import BookmarkService

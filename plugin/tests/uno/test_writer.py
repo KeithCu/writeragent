@@ -5,7 +5,7 @@ from plugin.framework.document import (
     get_paragraph_ranges,
     get_document_length,
 )
-from plugin.framework.uno_helpers import get_desktop
+from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import setup, teardown, native_test
 
 

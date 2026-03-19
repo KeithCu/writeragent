@@ -24,7 +24,8 @@ remain in panel_factory.py.
 
 import uno
 import unohelper
-from plugin.framework.uno_helpers import get_active_document, get_checkbox_state
+from plugin.framework.uno_context import get_active_document
+from plugin.framework.dialogs import get_checkbox_state
 from com.sun.star.awt import XActionListener
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin

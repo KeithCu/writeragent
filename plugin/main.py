@@ -42,7 +42,7 @@ from com.sun.star.task import XJobExecutor, XJob
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from plugin.framework.uno_helpers import get_active_document, get_extension_url
+from plugin.framework.uno_context import get_active_document, get_extension_url
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)

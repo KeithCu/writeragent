@@ -203,7 +203,7 @@ def run_all_tests(ctx: Any) -> str:
     # Try to reuse an existing active document when it matches the suite type;
     # otherwise the underlying helpers will create their own temporary docs.
     try:
-        from plugin.framework.uno_helpers import get_active_document
+        from plugin.framework.uno_context import get_active_document
         model = get_active_document(ctx)
     except ImportError:
         model = None

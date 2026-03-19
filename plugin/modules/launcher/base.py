@@ -18,7 +18,7 @@
 
 import os
 from abc import ABC
-from plugin.framework.uno_helpers import get_active_document
+from plugin.framework.uno_context import get_active_document
 from plugin.framework.document import get_document_path
 
 

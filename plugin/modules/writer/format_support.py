@@ -68,7 +68,7 @@ prompt guidance live in `content.py` and system prompts.
 import contextlib
 import logging
 import uno
-from plugin.framework.uno_helpers import get_desktop
+from plugin.framework.uno_context import get_desktop
 import os
 import re
 import tempfile

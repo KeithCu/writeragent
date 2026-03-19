@@ -416,6 +416,12 @@ Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings*
 - **plugin/framework/config.py**: Introduce internal helpers for "read full config" / "write full config" (e.g. build on `get_config_dict`) so `set_config`/`remove_config` share one write path and future caching or storage changes touch one place.
 - **panel_factory.py**: Consider a small doc-type registry (Writer/Calc/Draw → tools + execute function) so choosing tools and executor in `_do_send` is data-driven and adding a new doc type doesn't require editing a long if/elif chain.
 
+### UNO Helpers Refactor — DONE
+- ~~**UNO Helper Complexity**~~: The catch-all `plugin/framework/uno_helpers.py` module was removed and its contents split into highly cohesive, existing modules:
+  - Context & Environment (`get_desktop`, `get_active_document`, `get_package_info`, `get_extension_url`, `get_extension_path`) moved to `plugin/framework/uno_context.py`.
+  - Document & State (`is_writer`, `is_calc`, `is_draw`, `get_document_property`, `set_document_property`) moved to `plugin/framework/document.py`.
+  - Dialog Controls (`get_optional`, `is_checkbox_control`, `get_checkbox_state`, `set_checkbox_state`, `TabListener`) moved to `plugin/framework/dialogs.py`.
+
 ### Chat settings in UI — DONE
 - ~~Expose `chat_context_length`, `chat_max_tokens`, `additional_instructions` in the Settings dialog~~ (implemented in SettingsDialog.xdl).
   - *Fix:* Added missing fields into `_get_settings_field_specs()` in `settings_dialog.py` so that they are explicitly saved and applied.

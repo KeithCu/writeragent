@@ -54,3 +54,44 @@ def get_ctx():
     except ImportError:
         pass
     return _fallback_ctx
+
+
+def get_desktop(ctx=None):
+    """Return the UNO Desktop instance."""
+    ctx = ctx or get_ctx()
+    smgr = ctx.getServiceManager()
+    return smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+
+
+def get_active_document(ctx=None):
+    """Return the currently active document model."""
+    try:
+        desktop = get_desktop(ctx)
+        return desktop.getCurrentComponent()
+    except Exception:
+        return None
+
+
+def get_package_info(ctx=None):
+    """Return the PackageInformationProvider singleton."""
+    ctx = ctx or get_ctx()
+    return ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
+
+
+def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):
+    """Return the base URL of the extension package."""
+    pip = get_package_info(ctx)
+    if not pip:
+        return ""
+    return pip.getPackageLocation(extension_id)
+
+
+def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):
+    """Return the local filesystem path of the extension package."""
+    url = get_extension_url(ctx, extension_id)
+    if not url:
+        return ""
+    if url.startswith("file://"):
+        import uno
+        return str(uno.fileUrlToSystemPath(url))
+    return url
