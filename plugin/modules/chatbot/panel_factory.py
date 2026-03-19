@@ -63,6 +63,8 @@ from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarP
 from com.sun.star.ui.UIElementType import TOOLPANEL
 from com.sun.star.awt import XItemListener
 
+log = logging.getLogger(__name__)
+
 # Extension ID from description.xml; XDL path inside the .oxt
 EXTENSION_ID = "org.extension.writeragent"
 XDL_PATH = "WriterAgentDialogs/ChatPanelDialog.xdl"
@@ -95,13 +97,13 @@ def _ensure_extension_on_path(ctx):
         if ext_path and ext_path not in sys.path:
             sys.path.insert(0, ext_path)
             init_logging(ctx)
-            debug_log("Added extension path to sys.path: %s" % ext_path, context="Chat", level=logging.INFO)
+            log.info("Added extension path to sys.path: %s" % ext_path)
         else:
             init_logging(ctx)
-            debug_log("Extension path already on sys.path: %s" % ext_path, context="Chat", level=logging.DEBUG)
+            log.debug("Extension path already on sys.path: %s" % ext_path)
     except Exception as e:
         init_logging(ctx)
-        debug_log("_ensure_extension_on_path ERROR: %s" % e, context="Chat", level=logging.ERROR)
+        log.error("_ensure_extension_on_path ERROR: %s" % e)
 
 
 
@@ -126,13 +128,13 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return self.PanelWindow
 
     def getHeightForWidth(self, width):
-        debug_log("getHeightForWidth(width=%s, level=logging.DEBUG)" % width, context="Chat")
+        log.debug("getHeightForWidth(width=%s, level=logging.DEBUG)" % width)
         # Constrain panel to sidebar width (and parent height when available).
         if self.parent_window and self.PanelWindow and width > 0:
             parent_rect = self.parent_window.getPosSize()
             h = parent_rect.Height if parent_rect.Height > 0 else 400
             self.PanelWindow.setPosSize(0, 0, width, h, 15)
-            debug_log("panel constrained to W=%s H=%s" % (width, h), context="Chat", level=logging.DEBUG)
+            log.debug("panel constrained to W=%s H=%s" % (width, h))
         # LayoutSize(Minimum, Maximum, Preferred) — IDL field order.
         # Maximum=-1 means unbounded; the sidebar gives all remaining height
         # to panels with unbounded max (see DeckLayouter.cxx DistributeHeights).
@@ -157,34 +159,34 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.session = None  # Created in _wireControls
 
     def getRealInterface(self):
-        debug_log("=== getRealInterface called ===", context="Chat", level=logging.DEBUG)
+        log.debug("=== getRealInterface called ===")
         if not self.toolpanel:
             try:
                 # Ensure extension on path early so _wireControls imports work
                 _ensure_extension_on_path(self.ctx)
                 root_window = self._getOrCreatePanelRootWindow()
-                debug_log("root_window created: %s" % (root_window is not None), context="Chat", level=logging.DEBUG)
+                log.debug("root_window created: %s" % (root_window is not None))
                 self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
                 wire_chatpanel_controls(self, root_window, HAS_RECORDING, _ensure_extension_on_path)
-                debug_log("getRealInterface completed successfully", context="Chat", level=logging.INFO)
+                log.info("getRealInterface completed successfully")
             except Exception as e:
-                debug_log("getRealInterface ERROR: %s" % e, context="Chat", level=logging.ERROR)
+                log.error("getRealInterface ERROR: %s" % e)
                 import traceback
-                debug_log(traceback.format_exc(), context="Chat", level=logging.ERROR)
+                log.error(traceback.format_exc())
                 raise
         return self.toolpanel
 
     def _getOrCreatePanelRootWindow(self):
-        debug_log("_getOrCreatePanelRootWindow entered", context="Chat", level=logging.DEBUG)
+        log.debug("_getOrCreatePanelRootWindow entered")
         base_url = get_extension_url()
         dialog_url = base_url + "/" + XDL_PATH
-        debug_log("dialog_url: %s" % dialog_url, context="Chat", level=logging.DEBUG)
+        log.debug("dialog_url: %s" % dialog_url)
         provider = self.ctx.getServiceManager().createInstanceWithContext(
             "com.sun.star.awt.ContainerWindowProvider", self.ctx)
-        debug_log("calling createContainerWindow...", context="Chat", level=logging.DEBUG)
+        log.debug("calling createContainerWindow...")
         self.m_panelRootWindow = provider.createContainerWindow(
             dialog_url, "", self.xParentWindow, None)
-        debug_log("createContainerWindow returned", context="Chat", level=logging.DEBUG)
+        log.debug("createContainerWindow returned")
         # Sidebar does not show the panel content without this (framework does not make it visible).
         if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
             self.m_panelRootWindow.setVisible(True)
@@ -223,7 +225,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     import uno
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception as e:
-            debug_log("_render_session_history error: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("_render_session_history error: %s" % e)
 
     def _refresh_controls_from_config(self):
         """Reload model and prompt selectors from config (e.g. after user changes Settings)."""
@@ -311,7 +313,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 web_research_check.getModel().Enabled = not is_external
                 
         except Exception as e:
-            debug_log("_update_backend_indicator error: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("_update_backend_indicator error: %s" % e)
 
     def _get_document_model(self):
         """Helper to get the current document model."""
@@ -436,18 +438,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                                 self.toggle_cb(is_checked)
                                 set_control_enabled(self.web_check, not is_checked)
                             except Exception as e:
-                                debug_log("Image checkbox listener error: %s" % e, context="Chat", level=logging.ERROR)
+                                log.error("Image checkbox listener error: %s" % e)
                         def disposing(self, ev): pass
                     direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_research_check))
             except Exception as e:
-                debug_log("direct_image_check wire error: %s" % e, context="Chat", level=logging.ERROR)
+                log.error("direct_image_check wire error: %s" % e)
 
         if web_research_check:
             try:
                 if get_checkbox_state(web_research_check) == 1:
                     set_control_enabled(direct_image_check, False)
             except Exception as e:
-                debug_log("web_research_check initial wire error: %s" % e, context="Chat", level=logging.ERROR)
+                log.error("web_research_check initial wire error: %s" % e)
                 
         return set_control_enabled
 
@@ -503,7 +505,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 controls["stop"].addActionListener(StopButtonListener(send_listener))
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
         except Exception as e:
-            debug_log("Send/Stop button error: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("Send/Stop button error: %s" % e)
 
         clear_listener = None
         if controls["clear"]:
@@ -542,7 +544,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             self.clear_listener.set_session(self.panel.session, greeting=greeting)
                         self.panel._render_session_history(self.panel.session, self.response_ctrl, self.model, greeting)
                     except Exception as e:
-                        debug_log("Research Chat listener error: %s" % e, context="Chat", level=logging.ERROR)
+                        log.error("Research Chat listener error: %s" % e)
                 def disposing(self, ev): pass
             controls["web_research_check"].addItemListener(ResearchChatToggledListener(
                 self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"], set_control_enabled))
@@ -556,14 +558,14 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         self.ctx = ctx
 
     def createUIElement(self, resource_url, args):
-        debug_log("createUIElement: %s" % resource_url, context="Chat", level=logging.DEBUG)
+        log.debug("createUIElement: %s" % resource_url)
         if "ChatPanel" not in resource_url:
             from com.sun.star.container import NoSuchElementException
             raise NoSuchElementException("Unknown resource: " + resource_url)
 
         frame = _get_arg(args, "Frame")
         parent_window = _get_arg(args, "ParentWindow")
-        debug_log("ParentWindow: %s" % (parent_window is not None), context="Chat", level=logging.DEBUG)
+        log.debug("ParentWindow: %s" % (parent_window is not None))
         if not parent_window:
             from com.sun.star.lang import IllegalArgumentException
             raise IllegalArgumentException("ParentWindow is required")

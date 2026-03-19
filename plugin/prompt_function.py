@@ -37,22 +37,22 @@ from plugin.framework.config import get_config, get_api_config
 from plugin.modules.http.client import LlmClient
 
 import logging
-from plugin.framework.logging import debug_log
+log = logging.getLogger(__name__)
 
 class PromptFunction(unohelper.Base, XPromptFunction):
     def __init__(self, ctx):
-        debug_log("=== PromptFunction.__init__ called ===", context="PROMPT", level=logging.DEBUG)
+        log.debug("=== PromptFunction.__init__ called ===")
         self.ctx = ctx
         self.client = None
 
     def getProgrammaticFunctionName(self, aDisplayName):
-        debug_log(f"=== getProgrammaticFunctionName called with: '{aDisplayName}' ===", context="PROMPT", level=logging.DEBUG)
+        log.debug(f"=== getProgrammaticFunctionName called with: '{aDisplayName}' ===")
         if aDisplayName == "PROMPT":
             return "prompt"
         return ""
 
     def getDisplayFunctionName(self, aProgrammaticName):
-        debug_log(f"=== getDisplayFunctionName called with: '{aProgrammaticName}' ===", context="PROMPT", level=logging.DEBUG)
+        log.debug(f"=== getDisplayFunctionName called with: '{aProgrammaticName}' ===")
         if aProgrammaticName == "prompt":
             return "PROMPT"
         return ""
@@ -118,7 +118,7 @@ class PromptFunction(unohelper.Base, XPromptFunction):
         pass
 
     def prompt(self, message, systemPrompt, model, maxTokens):
-        debug_log(f"=== PromptFunction.PROMPT({message}) called ===", context="PROMPT", level=logging.DEBUG)
+        log.debug(f"=== PromptFunction.PROMPT({message}) called ===")
         aProgrammaticName = "PROMPT"
         if aProgrammaticName == "PROMPT":
             try:
@@ -148,7 +148,7 @@ class PromptFunction(unohelper.Base, XPromptFunction):
                 return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
             except Exception as e:
                 from plugin.modules.http.client import format_error_for_display
-                debug_log("PROMPT error: %s" % str(e), context="PROMPT", level=logging.ERROR)
+                log.error("PROMPT error: %s" % str(e))
                 return format_error_for_display(e)
         return ""
 
@@ -172,12 +172,12 @@ g_ImplementationHelper.addImplementation(
 # Test function registration
 def test_registration():
     """Test if the function is properly registered"""
-    debug_log("=== Testing function registration ===", context="PROMPT", level=logging.DEBUG)
+    log.debug("=== Testing function registration ===")
     try:
         # This will be called when LibreOffice loads the extension
-        debug_log("Function registration test completed", context="PROMPT", level=logging.INFO)
+        log.info("Function registration test completed")
     except Exception as e:
-        debug_log(f"Registration test failed: {e}", context="PROMPT", level=logging.ERROR)
+        log.error(f"Registration test failed: {e}")
 
 # Call test on module load
 test_registration()

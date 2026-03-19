@@ -3,7 +3,7 @@ import logging
 
 from com.sun.star.awt import XWindowListener
 
-from plugin.framework.logging import debug_log
+log = logging.getLogger(__name__)
 
 
 # Minimum sane widths (in dialog Map AppFont / pixel units) for key controls.
@@ -41,15 +41,15 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
 
     def windowResized(self, evt):
         r = evt.Source.getPosSize()
-        debug_log("windowResized: W=%d H=%d" % (r.Width, r.Height), context="Chat", level=logging.DEBUG)
+        log.debug("windowResized: W=%d H=%d" % (r.Width, r.Height))
         if self._in_relayout:
-            debug_log("windowResized: skipped (in_relayout)", context="Chat", level=logging.DEBUG)
+            log.debug("windowResized: skipped (in_relayout)")
             return
         try:
             self._in_relayout = True
             self._relayout(evt.Source)
         except Exception as e:
-            debug_log("windowResized error: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("windowResized error: %s" % e)
         finally:
             self._in_relayout = False
 
@@ -162,7 +162,7 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
             self._capture_initial(win)
 
         if self._initial is None:
-            debug_log("_relayout: no initial state, skip", context="Chat", level=logging.WARNING)
+            log.warning("_relayout: no initial state, skip")
             return
 
         iw = self._initial["win_w"]
@@ -276,4 +276,3 @@ class _PanelResizeListener(unohelper.Base, XWindowListener):
                 or cur.Height != new_rh
             ):
                 resp_ctrl.setPosSize(rx, ry, new_rw, new_rh, 15)
-

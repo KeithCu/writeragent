@@ -21,8 +21,9 @@ import tempfile
 import re
 import base64
 from plugin.modules.http.client import sync_request, LlmClient, _format_http_error_response
-from plugin.framework.logging import debug_log
 from plugin.contrib.aihordeclient import AiHordeClient
+
+log = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ class EndpointImageProvider(ImageProvider):
 
                 result = json.loads(http_resp.read().decode("utf-8"))
                 log_result = _trim_images(result) if TRIM_IMAGES_IN_LOG else result
-                debug_log("=== Image Response: %s" % json.dumps(log_result, indent=2), context="API", level=logging.DEBUG)
+                log.debug("=== Image Response: %s" % json.dumps(log_result, indent=2))
 
                 # Standard OpenAI format: {"data": [{"url": "...", "b64_json": "..."}]}
                 paths = []

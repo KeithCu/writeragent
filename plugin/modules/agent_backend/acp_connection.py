@@ -26,7 +26,7 @@ import os
 import subprocess
 import threading
 
-from plugin.framework.logging import debug_log
+log = logging.getLogger(__name__)
 
 _LOG = "ABP"
 
@@ -52,7 +52,7 @@ class ACPConnection:
 
     def start(self):
         """Spawn the ACP subprocess."""
-        debug_log(f"Spawning: {' '.join(self._cmd_line)}", context=_LOG, level=logging.INFO)
+        log.info(f"Spawning: {' '.join(self._cmd_line)}")
 
         env = dict(os.environ)
         if self._env:
@@ -117,7 +117,7 @@ class ACPConnection:
             self._pending[req_id] = {"event": event, "response": None}
 
         line = json.dumps(msg) + "\n"
-        debug_log(f"→ {method} (id={req_id})", context=_LOG, level=logging.DEBUG)
+        log.debug(f"→ {method} (id={req_id})")
 
         try:
             self._proc.stdin.write(line.encode("utf-8"))
@@ -165,7 +165,7 @@ class ACPConnection:
 
     def _reader_loop(self):
         """Read JSON-RPC messages from stdout and dispatch them."""
-        debug_log("Reader loop started", context=_LOG, level=logging.INFO)
+        log.info("Reader loop started")
         while self._running and self._proc and self._proc.poll() is None:
             try:
                 line = self._proc.stdout.readline()
@@ -182,7 +182,7 @@ class ACPConnection:
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
-                    debug_log(f"Non-JSON output: {line[:200]}", context=_LOG, level=logging.DEBUG)
+                    log.debug(f"Non-JSON output: {line[:200]}")
                     continue
 
                 if "id" in msg and msg["id"] is not None and "method" not in msg:
@@ -194,7 +194,7 @@ class ACPConnection:
                         entry["response"] = msg
                         entry["event"].set()
                     else:
-                        debug_log(f"Response for unknown id={req_id}", context=_LOG, level=logging.WARNING)
+                        log.warning(f"Response for unknown id={req_id}")
                 else:
                     # Notification or Request from the agent
                     method = msg.get("method", "")
@@ -204,11 +204,11 @@ class ACPConnection:
                         try:
                             self._notify_callback(method, params, msg_id)
                         except Exception as e:
-                            debug_log(f"Notification callback error: {e}", context=_LOG, level=logging.ERROR)
+                            log.error(f"Notification callback error: {e}")
 
             except Exception as e:
                 if self._running:
-                    debug_log(f"Reader error: {e}", context=_LOG, level=logging.ERROR)
+                    log.error(f"Reader error: {e}")
                 break
 
         # Read stderr for debugging
@@ -217,8 +217,8 @@ class ACPConnection:
                 stderr = self._proc.stderr.read()
                 if stderr:
                     stderr_text = stderr.decode("utf-8", errors="replace")[:500]
-                    debug_log(f"ACP stderr: {stderr_text}", context=_LOG, level=logging.WARNING)
+                    log.warning(f"ACP stderr: {stderr_text}")
             except Exception:
                 pass
 
-        debug_log("Reader loop ended", context=_LOG, level=logging.INFO)
+        log.info("Reader loop ended")

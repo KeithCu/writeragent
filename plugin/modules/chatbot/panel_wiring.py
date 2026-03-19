@@ -1,19 +1,20 @@
 import weakref
 import logging
 
-from plugin.framework.logging import debug_log
 from plugin.framework.dialogs import (
     get_optional as get_optional_control,
     get_checkbox_state,
 )
 from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
+log = logging.getLogger(__name__)
+
 
 def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     """Main entry point to wire all controls for the panel."""
-    debug_log("_wireControls entered", context="Chat", level=logging.DEBUG)
+    log.debug("_wireControls entered")
     if not hasattr(root_window, "getControl"):
-        debug_log("_wireControls: root_window has no getControl, aborting", context="Chat", level=logging.ERROR)
+        log.error("_wireControls: root_window has no getControl, aborting")
         return
 
     def get_optional(name):
@@ -42,7 +43,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     # Helper to show errors visibly in the response area
     def _show_init_error(msg):
-        debug_log("_wireControls ERROR: %s" % msg, context="Chat", level=logging.ERROR)
+        log.error("_wireControls ERROR: %s" % msg)
         try:
             if controls["response"] and controls["response"].getModel():
                 current = controls["response"].getModel().Text or ""
@@ -67,7 +68,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     except Exception as e:
         import traceback
         _show_init_error("Config: %s" % e)
-        debug_log(traceback.format_exc(), context="Chat", level=logging.ERROR)
+        log.error(traceback.format_exc())
         extra_instructions = ""
         set_control_enabled = lambda ctrl, en: None
 
@@ -104,7 +105,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             else:
                 controls["send"].getModel().Label = "Record" if has_recording else "Send"
         except Exception as e:
-            debug_log("QueryTextListener setup error: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("QueryTextListener setup error: %s" % e)
 
     if controls["status"] and hasattr(controls["status"], "setText"):
         try: controls["status"].setText("Ready")
@@ -115,7 +116,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         from main import try_ensure_mcp_timer
         try_ensure_mcp_timer(self.ctx)
     except Exception as e:
-        debug_log("try_ensure_mcp_timer: %s" % e, context="Chat", level=logging.ERROR)
+        log.error("try_ensure_mcp_timer: %s" % e)
 
     try:
         debug_log(
@@ -128,7 +129,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         root_window.addWindowListener(_resize)
         _resize._relayout(root_window)
     except Exception as e:
-        debug_log("Resize listener error: %s" % e, context="Chat", level=logging.ERROR)
+        log.error("Resize listener error: %s" % e)
 
     # Backend indicator (Aider / Hermes when external agent enabled)
     self._update_backend_indicator(root_window)

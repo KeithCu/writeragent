@@ -34,6 +34,8 @@ from plugin.framework.document import get_document_context_for_chat
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import as_bool
 
+log = logging.getLogger(__name__)
+
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
@@ -41,12 +43,12 @@ DEFAULT_MAX_TOOL_ROUNDS = 5
 class ToolCallingMixin:
     def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
         try:
-            debug_log("_do_send: importing core modules...", context="Chat", level=logging.DEBUG)
+            log.debug("_do_send: importing core modules...")
             from plugin.main import get_tools
 
-            debug_log("_do_send: core modules imported OK", context="Chat", level=logging.DEBUG)
+            log.debug("_do_send: core modules imported OK")
         except Exception as e:
-            debug_log("_do_send: core import FAILED: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("_do_send: core import FAILED: %s" % e)
             self._append_response("\n[Import error - core: %s]\n" % e)
             self._terminal_status = "Error"
             return
@@ -100,7 +102,7 @@ class ToolCallingMixin:
                     return json.dumps({"status": "error", "message": str(e)})
 
         except Exception as e:
-            debug_log("_do_send: tool import FAILED: %s" % e, context="Chat", level=logging.ERROR)
+            log.error("_do_send: tool import FAILED: %s" % e)
             self._append_response("\n[Import error - tools: %s]\n" % e)
             self._terminal_status = "Error"
             return
@@ -219,7 +221,7 @@ class ToolCallingMixin:
                 self._append_response("\nYou: %s\n" % display_text)
                 # Note: We do NOT delete the audio file yet, in case native call fails and we need STT fallback
             except Exception as e:
-                debug_log("_do_send: Error reading audio: %s" % e, context="Chat", level=logging.ERROR)
+                log.error("_do_send: Error reading audio: %s" % e)
                 self.session.add_user_message(query_text)
                 self._append_response("\nYou: %s\n" % query_text)
                 self.audio_wav_path = None
@@ -228,7 +230,7 @@ class ToolCallingMixin:
             self._append_response("\nYou: %s\n" % query_text)
 
         self._append_response("\n[Using chat model.]\n")
-        debug_log("_do_send: using chat model", context="Chat", level=logging.INFO)
+        log.info("_do_send: using chat model")
 
         self._set_status("Connecting to AI (tools=%s)..." % use_tools)
         debug_log(
@@ -250,7 +252,7 @@ class ToolCallingMixin:
             query_text=query_text,
         )
 
-        debug_log("=== _do_send END (async started, level=logging.INFO) ===", context="Chat")
+        log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
     def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num, query_text=None):
         """Spawn a background thread that streams the LLM response into q."""
@@ -633,7 +635,7 @@ class ToolCallingMixin:
                     item[4],
                 )
 
-                debug_log("Tool result: %s" % result, context="Chat", level=logging.DEBUG)
+                log.debug("Tool result: %s" % result)
                 try:
                     result_data = json.loads(result)
                     note = result_data.get("message", result_data.get("status", "done"))
@@ -771,7 +773,7 @@ class ToolCallingMixin:
 
     def _start_simple_stream_async(self, client, max_tokens):
         """Start simple streaming (no tools) via async helper; returns immediately."""
-        debug_log("=== Simple stream START ===", context="Chat", level=logging.INFO)
+        log.info("=== Simple stream START ===")
         self._set_status("Thinking...")
         self._append_response("\nAI: ")
 
@@ -831,4 +833,3 @@ class ToolCallingMixin:
             on_status_fn=self._set_status,
             stop_checker=lambda: self.stop_requested,
         )
-

@@ -15,6 +15,8 @@ import json
 import traceback
 from typing import Any, Dict, List
 
+log = logging.getLogger(__name__)
+
 
 def native_test(func):
     """Decorator to mark a function as a test in the native test runner."""
@@ -61,8 +63,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
     """Monolithic entry point for running a test module (legacy/menu support).
     Returns (passed, failed, log).
     """
-    from plugin.framework.logging import debug_log
-    debug_log(f"run_module_suite start: {name}", context="Tests", level=logging.INFO)
+    log.info(f"run_module_suite start: {name}")
     total_passed = 0
     total_failed = 0
     log = []
@@ -370,4 +371,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

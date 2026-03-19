@@ -54,6 +54,8 @@ from plugin.framework.uno_context import get_active_document, get_extension_url
 
 import threading
 _services = None
+log = logging.getLogger(__name__)
+
 _tools = None
 _modules = []
 _init_lock = threading.Lock()
@@ -231,15 +233,14 @@ def _run_test_suite(test_func, doc_checker, test_name):
     from plugin.framework.dialogs import msgbox
     ctx = get_ctx()
     try:
-        from plugin.framework.logging import debug_log
-        debug_log(f"_run_test_suite start: {test_name}", context="Tests", level=logging.INFO)
+                log.info(f"_run_test_suite start: {test_name}")
         from plugin.framework.async_stream import run_blocking_in_thread
         from plugin.testing_runner import run_module_suite
         model = get_active_document(ctx)
         doc_model = model if (model and doc_checker(model)) else None
-        debug_log(f"Calling run_blocking_in_thread for {test_name}", context="Tests", level=logging.DEBUG)
+        log.debug(f"Calling run_blocking_in_thread for {test_name}")
         p, f, log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
-        debug_log(f"_run_test_suite finished: {test_name}, p={p}, f={f}", context="Tests", level=logging.INFO)
+        log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
         msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(log))
     except Exception as e:
         msgbox(ctx, test_name, f"Tests failed to run: {e}")
@@ -647,7 +648,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         from plugin.framework.logging import debug_log, init_logging, log_exception
         try:
             init_logging(self.ctx)
-            debug_log(f"Dispatch entered: {command}", context="Dispatch", level=logging.INFO)
+            log.info(f"Dispatch entered: {command}")
             # msgbox(self.ctx, "Dispatch", f"Command: {command}") # Temporary probe
             bootstrap(self.ctx)
             _dispatch_command(command)

@@ -12,6 +12,8 @@ alternate send flows that would otherwise bloat that class:
 import queue
 import logging
 
+log = logging.getLogger(__name__)
+
 class SendHandlersMixin:
     def _transcribe_audio_async(self, wav_path, stt_model, model, query_text=""):
         """Transcribe audio asynchronously and then proceed to chat."""
@@ -76,8 +78,6 @@ class SendHandlersMixin:
         job_done = [False]
 
         def run_direct_image():
-            from plugin.framework.logging import debug_log
-
             try:
                 aspect_ratio_str = "Square"
                 if self.aspect_ratio_selector and hasattr(
@@ -130,7 +130,7 @@ class SendHandlersMixin:
                         self.ctx, base_size_val, "image_base_size_lru", ""
                     )
                 except Exception as elru:
-                    debug_log("LRU update error: %s" % elru, context="Chat", level=logging.ERROR)
+                    log.error("LRU update error: %s" % elru)
 
                 import json
 
@@ -153,7 +153,7 @@ class SendHandlersMixin:
                 q.put(("chunk", "[generate_image: %s]\n" % note))
                 q.put(("stream_done", {}))
             except Exception as e:
-                debug_log("Direct image path ERROR: %s" % e, context="Chat", level=logging.ERROR)
+                log.error("Direct image path ERROR: %s" % e)
                 q.put(("error", e))
 
         from plugin.framework.worker_pool import run_in_background
@@ -531,4 +531,3 @@ class SendHandlersMixin:
             return f"{scheme}://{host}:{port}"
         except Exception:
             return None
-

@@ -9,8 +9,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from plugin.framework.constants import BROWSER_USER_AGENT, USER_AGENT
-from plugin.framework.logging import debug_log
-
 try:
     from plugin.framework.history_db import HAS_SQLITE, sqlite3
 except Exception:
@@ -24,6 +22,8 @@ from .local_python_executor import (
     evaluate_python_code,
 )
 from .tools import Tool
+
+log = logging.getLogger(__name__)
 
 USE_MARKDOWN = False
 
@@ -249,9 +249,9 @@ class DuckDuckGoSearchTool(Tool):
         if self._cache_path and self._cache_max_mb > 0 and key:
             cached = _web_cache_get(self._cache_path, "search", key, max_age_days=self._cache_max_age_days)
             if cached is not None:
-                debug_log("web_cache: search hit: %s" % (key[:60] + "..." if len(key) > 60 else key), context="Chat", level=logging.DEBUG)
+                log.debug("web_cache: search hit: %s" % (key[:60] + "..." if len(key) > 60 else key))
                 return cached
-            debug_log("web_cache: search miss: %s" % (key[:60] + "..." if len(key) > 60 else key), context="Chat", level=logging.DEBUG)
+            log.debug("web_cache: search miss: %s" % (key[:60] + "..." if len(key) > 60 else key))
 
         import urllib.request
         import urllib.parse
@@ -368,9 +368,9 @@ class VisitWebpageTool(Tool):
         if self._cache_path and self._cache_max_mb > 0 and key:
             cached = _web_cache_get(self._cache_path, "page", key, max_age_days=self._cache_max_age_days)
             if cached is not None:
-                debug_log("web_cache: page hit: %s" % (key[:60] + "..." if len(key) > 60 else key), context="Chat", level=logging.DEBUG)
+                log.debug("web_cache: page hit: %s" % (key[:60] + "..." if len(key) > 60 else key))
                 return cached
-            debug_log("web_cache: page miss: %s" % (key[:60] + "..." if len(key) > 60 else key), context="Chat", level=logging.DEBUG)
+            log.debug("web_cache: page miss: %s" % (key[:60] + "..." if len(key) > 60 else key))
 
         # Fail fast: URL path ends with .pdf
         parsed = urlparse(url)

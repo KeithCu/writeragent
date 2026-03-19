@@ -24,7 +24,7 @@ import logging
 import queue
 import threading
 
-from plugin.framework.logging import debug_log
+log = logging.getLogger(__name__)
 
 
 def run_stream_drain_loop(
@@ -67,7 +67,7 @@ def run_stream_drain_loop(
 
     while not job_done[0]:
         if stop_checker and stop_checker():
-            debug_log("run_stream_drain_loop: Stop requested via checker.", context="API", level=logging.INFO)
+            log.info("run_stream_drain_loop: Stop requested via checker.")
             on_stopped()
             job_done[0] = True
             break
@@ -108,7 +108,7 @@ def run_stream_drain_loop(
 
             for item in items:
                 if stop_checker and stop_checker():
-                    debug_log("run_stream_drain_loop: Stop requested via checker.", context="API", level=logging.INFO)
+                    log.info("run_stream_drain_loop: Stop requested via checker.")
                     flush_buffers()
                     close_thinking()
                     on_stopped()
@@ -156,7 +156,7 @@ def run_stream_drain_loop(
                         try:
                             on_approval_required(item)
                         except Exception as e:
-                            debug_log("approval_required handler: %s" % e, context="API", level=logging.ERROR)
+                            log.error("approval_required handler: %s" % e)
                 elif kind == "final_done":
                     flush_buffers()
                     close_thinking()
@@ -187,7 +187,7 @@ def run_stream_drain_loop(
             flush_buffers()
 
         except Exception as e:
-            debug_log("run_stream_drain_loop EXCEPTION: %s" % e, context="API", level=logging.ERROR)
+            log.error("run_stream_drain_loop EXCEPTION: %s" % e)
             job_done[0] = True
             try:
                 on_error(e)

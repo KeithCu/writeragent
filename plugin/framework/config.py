@@ -31,6 +31,8 @@ from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
 
+log = logging.getLogger(__name__)
+
 
 CONFIG_FILENAME = "writeragent.json"
 
@@ -265,8 +267,7 @@ def set_config(ctx, key, value):
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
     except IOError as e:
-        from plugin.framework.logging import debug_log
-        debug_log("Error writing to %s: %s" % (config_file_path, e), context="Config", level=logging.ERROR)
+                log.error("Error writing to %s: %s" % (config_file_path, e))
 
 
 def remove_config(ctx, key):
@@ -284,8 +285,7 @@ def remove_config(ctx, key):
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
     except IOError as e:
-        from plugin.framework.logging import debug_log
-        debug_log("Error writing to %s: %s" % (config_file_path, e), context="Config", level=logging.ERROR)
+                log.error("Error writing to %s: %s" % (config_file_path, e))
 
 
 # Listeners are called when config is changed (e.g. after Settings dialog).
@@ -431,8 +431,7 @@ def fetch_available_models(endpoint):
             _model_fetch_cache[url] = models
             return models
     except Exception as e:
-        from plugin.framework.logging import debug_log
-        debug_log(f"fetch_available_models failed for {url}: {e}", context="Config", level=logging.WARNING)
+                log.warning(f"fetch_available_models failed for {url}: {e}")
     _model_fetch_cache[url] = None
     return None
 
@@ -1013,4 +1012,3 @@ class ModuleConfigProxy:
         if "." not in key:
             key = f"{self._module}.{key}"
         self._config.remove(key, caller_module=self._module)
-

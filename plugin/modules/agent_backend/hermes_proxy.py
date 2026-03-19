@@ -38,7 +38,7 @@ import time
 
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.modules.agent_backend.acp_connection import ACPConnection
-from plugin.framework.logging import debug_log
+log = logging.getLogger(__name__)
 
 _LOG = "HermesACP"
 
@@ -108,15 +108,15 @@ class HermesBackend(AgentBackend):
         """Check if hermes is installed (binary found in PATH)."""
         self._load_config()
         if self._hermes_cmd and os.path.isfile(self._hermes_cmd):
-            debug_log(f"Hermes binary found: {self._hermes_cmd}", context=_LOG, level=logging.INFO)
+            log.info(f"Hermes binary found: {self._hermes_cmd}")
             return True
         # Fallback: search PATH
         cmd, name = _find_hermes_binary()
         if cmd:
             self._hermes_cmd = cmd
-            debug_log(f"Hermes found via PATH: {cmd}", context=_LOG, level=logging.INFO)
+            log.info(f"Hermes found via PATH: {cmd}")
             return True
-        debug_log("Hermes binary not found", context=_LOG, level=logging.INFO)
+        log.info("Hermes binary not found")
         return False
 
     def _ensure_connection(self):
@@ -147,7 +147,7 @@ class HermesBackend(AgentBackend):
                 if key:
                     env["OPENROUTER_API_KEY"] = key
                     env["OPENAI_API_KEY"] = key
-                    debug_log("Using fallback OPENROUTER_API_KEY from general settings", context=_LOG, level=logging.WARNING)
+                    log.warning("Using fallback OPENROUTER_API_KEY from general settings")
             except Exception:
                 pass
 
@@ -169,9 +169,9 @@ class HermesBackend(AgentBackend):
                 },
                 "clientInfo": {"name": "WriterAgent", "version": "1.0"},
             }, timeout=15)
-            debug_log(f"ACP initialized: {result}", context=_LOG, level=logging.INFO)
+            log.info(f"ACP initialized: {result}")
         except Exception as e:
-            debug_log(f"ACP initialize failed: {e}", context=_LOG, level=logging.ERROR)
+            log.error(f"ACP initialize failed: {e}")
             self._conn.stop()
             self._conn = None
             raise
@@ -199,9 +199,9 @@ class HermesBackend(AgentBackend):
         try:
             result = self._conn.send_request("session/new", params, timeout=30)
             self._session_id = result.get("sessionId", "") if result else ""
-            debug_log(f"ACP session created: {self._session_id}", context=_LOG, level=logging.DEBUG)
+            log.debug(f"ACP session created: {self._session_id}")
         except Exception as e:
-            debug_log(f"ACP session creation failed: {e}", context=_LOG, level=logging.ERROR)
+            log.error(f"ACP session creation failed: {e}")
             raise
 
     def send(
@@ -301,7 +301,7 @@ class HermesBackend(AgentBackend):
             # Process the final response
             if result:
                 stop_reason = result.get("stopReason", result.get("stop_reason", ""))
-                debug_log(f"Prompt completed: stop_reason={stop_reason}", context=_LOG, level=logging.INFO)
+                log.info(f"Prompt completed: stop_reason={stop_reason}")
 
             queue.put(("stream_done", None))
 
@@ -311,7 +311,7 @@ class HermesBackend(AgentBackend):
             if self._stop_requested:
                 queue.put(("stopped",))
             else:
-                debug_log(f"Prompt error: {e}", context=_LOG, level=logging.ERROR)
+                log.error(f"Prompt error: {e}")
                 queue.put(("error", e))
         finally:
             self._conn.set_notification_callback(None)
@@ -327,12 +327,12 @@ class HermesBackend(AgentBackend):
             update = params.get("update", params)
             self._handle_agent_update(update, queue)
         else:
-            debug_log(f"Unhandled notification: {method}", context=_LOG, level=logging.DEBUG)
+            log.debug(f"Unhandled notification: {method}")
 
     def _handle_session_update(self, update, queue):
         """Handle a session update notification."""
         session_update = update.get("session_update", update.get("sessionUpdate", ""))
-        debug_log(f"session_update: {session_update}, payload: {update}", context=_LOG, level=logging.DEBUG)
+        log.debug(f"session_update: {session_update}, payload: {update}")
 
         if session_update in ("text", "agent_thought_chunk", "agent_message_chunk"):
             # Streaming text or thought from the agent
@@ -375,15 +375,15 @@ class HermesBackend(AgentBackend):
         elif session_update == "usage":
             cost = update.get("cost")
             if cost:
-                debug_log(f"Usage: cost={cost}", context=_LOG, level=logging.DEBUG)
+                log.debug(f"Usage: cost={cost}")
 
         elif session_update == "info":
             title = update.get("title", "")
             if title:
-                debug_log(f"Session info: {title}", context=_LOG, level=logging.DEBUG)
+                log.debug(f"Session info: {title}")
 
         else:
-            debug_log(f"Unhandled session_update type: {session_update}", context=_LOG, level=logging.DEBUG)
+            log.debug(f"Unhandled session_update type: {session_update}")
 
     def _handle_agent_update(self, update, queue):
         """Handle an agent-level update."""
@@ -400,9 +400,9 @@ class HermesBackend(AgentBackend):
                 self._conn.send_notification("session/cancel", {
                     "sessionId": self._session_id,
                 })
-                debug_log("Cancel notification sent", context=_LOG, level=logging.DEBUG)
+                log.debug("Cancel notification sent")
             except Exception as e:
-                debug_log(f"Cancel failed: {e}", context=_LOG, level=logging.ERROR)
+                log.error(f"Cancel failed: {e}")
 
     def submit_approval(self, request_id, approved):
         """Submit approval for a permission request."""
@@ -419,9 +419,9 @@ class HermesBackend(AgentBackend):
         try:
             self._conn._proc.stdin.write(line.encode("utf-8"))
             self._conn._proc.stdin.flush()
-            debug_log(f"Approval responded (id={request_id}, level=logging.DEBUG): approved={approved}", context=_LOG)
+            log.debug(f"Approval responded (id={request_id}, level=logging.DEBUG): approved={approved}")
         except Exception as e:
-            debug_log(f"Approval response failed: {e}", context=_LOG, level=logging.ERROR)
+            log.error(f"Approval response failed: {e}")
 
     def cleanup(self):
         """Shutdown the ACP subprocess."""
