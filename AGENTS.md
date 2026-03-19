@@ -484,7 +484,39 @@ Net effect: the code for a Hermes-compatible planning todo tool is present and d
 
 **Takeaway for future work**: Before adding ColorScheme-based theming, confirm that the configuration API actually returns usable RGB values on the target LibreOffice versions. If not, prefer letting LibreOffice handle dark/light mode by default and only layer on minimal, well-tested overrides.
 
-## 8. Gotchas
+## 8. Error Handling Style Guide
+
+To maintain a predictable and reliable codebase, follow these rules when handling errors:
+
+### 1. Unified Error Classes
+- **Avoid raising base `Exception`**: Do not use `raise Exception("...")` or catch raw `except Exception:` unless absolutely necessary at the highest level boundary (like a thread run loop).
+- **Use Custom Exceptions**: Prefer creating and using specific exceptions that inherit from a central `WriterAgentException` (to be created in `plugin/framework/errors.py`), such as `NetworkError`, `ConfigError`, `UnoObjectError`, or `ToolExecutionError`. This allows callers to distinguish between user-correctable issues (like bad config) and systemic failures.
+
+### 2. Standardized Error Payload Formats
+- **Consistent JSON Structure**: When an API endpoint, MCP route, or AI tool execution fails, serialize the error as a standardized dictionary/JSON object:
+  ```json
+  {
+    "status": "error",
+    "code": "SPECIFIC_ERROR_CODE",
+    "message": "Human readable summary of the failure.",
+    "details": { "key": "value" }
+  }
+  ```
+- **Never return raw strings** for tool errors; wrap them in the standard `{"status": "error", ...}` format so the LLM and UI can parse them predictably.
+
+### 3. Improve Error Context Logging
+- **Rich Context**: When raising a custom exception, attach context (e.g., `endpoint`, `document_url`, `tool_name`) so the top-level logger can print *what* failed, not just *that* it failed.
+- **Use `log_exception`**: When catching unexpected errors, use `logging.log_exception(e, context="ModuleContext")` (or `traceback.format_exc()` into `debug_log`) rather than silently swallowing the traceback or just printing the message.
+
+### 4. Recovery Patterns for Common Failures
+- **Graceful Degradation**: Where external systems are involved (HTTP requests, LLM parsing, UNO COM calls), anticipate transient failures.
+- **LLM Parse Failures**: If the AI returns malformed JSON, catch the specific parsing error and inject a recovery prompt (e.g., "The previous tool call had malformed JSON. Please fix the syntax and try again.") before failing the session.
+- **UNO Stale References**: When interacting with LibreOffice documents, elements (like shapes or text cursors) can be deleted by the user mid-operation. Catch `DisposedException` or `RuntimeException`, invalidate the document cache, and abort gracefully without crashing the extension.
+- **Network Retries**: For HTTP 502/503/504, implement limited backoff/retry loops instead of immediately failing the generation request.
+
+---
+
+## 9. Gotchas
 
 - **Settings dialog fields**: The list of settings is defined in **`MainJob._get_settings_field_specs()`** (single source); `_apply_settings_result` derives apply keys from it. Settings dialog field list in XDL must match the names in that method.
 - **Library name**: `WriterAgentDialogs` (folder name) must match `library:name` in `dialog.xlb`.
@@ -505,7 +537,7 @@ Net effect: the code for a Hermes-compatible planning todo tool is present and d
 
 ---
 
-## 9. References
+## 10. References
 
 - LibreOffice xmlscript: `~/Desktop/libreoffice/xmlscript/` (if you have a local clone)
 - DTD: `xmlscript/dtd/dialog.dtd`
@@ -514,7 +546,7 @@ Net effect: the code for a Hermes-compatible planning todo tool is present and d
 
 ---
 
-## 10. Debugging Tips (Agent Hard-won Lessons)
+## 11. Debugging Tips (Agent Hard-won Lessons)
 
 ### UNO UI Controls
 - **Populating ListBox/ComboBox**: Setting `.Text` or `.String` is often not enough for selection lists. Use the **`StringItemList`** property (a tuple of strings) to populate a `ListBox` or `ComboBox` model. The UI will not show items otherwise.
