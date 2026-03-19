@@ -144,6 +144,7 @@ def _dotted_fallback_keys(key):
 
 # Central fallback for keys not in any module.yaml. Single source of defaults in code.
 _CONFIG_DEFAULTS = {
+    "log_level": "WARN",
     "endpoint": "http://127.0.0.1:5000",
     "text_model": "",
     "model": "",

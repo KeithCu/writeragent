@@ -64,7 +64,7 @@ def init_logging(ctx):
         try:
             from plugin.framework import config
             import logging
-            level_str = config.get_config(ctx, "log_level", "WARN")
+            level_str = config.get_config(ctx, "log_level")
             
             # Detect release build (absence of plugin/tests)
             is_release = not os.path.isdir(os.path.join(os.path.dirname(os.path.dirname(__file__)), "tests"))
