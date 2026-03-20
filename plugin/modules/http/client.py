@@ -1014,6 +1014,10 @@ class LlmClient:
         images = message.get("images") or []
         tool_calls = message.get("tool_calls")
 
+        # LiteLLM: streaming_handler.py ~L970 finish_reason_handler() "## if tool use"
+        if finish_reason == "stop" and tool_calls:
+            finish_reason = "tool_calls"
+
         if not tool_calls and content:
             from plugin.contrib.tool_call_parsers import get_parser_for_model
             parser = get_parser_for_model(model or self.config.get("model", ""))
@@ -1022,6 +1026,8 @@ class LlmClient:
                 if p_tool_calls:
                     tool_calls = p_tool_calls
                     content = p_content
+                    if finish_reason != "tool_calls":
+                        finish_reason = "tool_calls"
 
         return {
             "role": "assistant",
@@ -1040,12 +1046,13 @@ class LlmClient:
         append_callback=None,
         append_thinking_callback=None,
         stop_checker=None,
+        model=None,
     ):
         """Streaming chat request with tools. Returns same shape as request_with_tools."""
         init_logging(self.ctx)
         log.debug("stream_request_with_tools: building request (%d messages, level=logging.DEBUG)..." % len(messages))
         method, path, body, headers = self.make_chat_request(
-            messages, max_tokens, tools=tools, stream=True
+            messages, max_tokens, tools=tools, stream=True, model=model
         )
 
         message_snapshot = {}
@@ -1082,7 +1089,7 @@ class LlmClient:
 
         if not tool_calls and content:
             from plugin.contrib.tool_call_parsers import get_parser_for_model
-            parser = get_parser_for_model(self.config.get("model", ""))
+            parser = get_parser_for_model(model or self.config.get("model", ""))
             if parser:
                 p_content, p_tool_calls = parser.parse(content)
                 if p_tool_calls:
