@@ -570,3 +570,32 @@ To maintain a predictable and reliable codebase, follow these rules when handlin
 
 ### Stop button behavior and conversation history
 - When the user clicks **Stop** during an in-progress AI response in the main chat/tool-calling path (`tool_loop.py`) or external agent backend path (`send_handlers.py`), the chat sidebar now appends an assistant message with content `"No response."` to the in-memory `ChatSession` for that turn. This ensures the role sequence in `session.messages` always alternates `user` / `assistant` (with optional `tool` messages in between), avoiding jinja/template errors from engines that require strict alternation (e.g., Mistral: “After the optional system message, conversation roles must alternate user and assistant roles except for tool calls and results”). The simple web-research-only path leaves history unchanged on Stop and simply restarts fresh on the next user query. The visible UI continues to show `"[Stopped by user]"` in the response area; `"No response."` is mainly for the LLM's conversation context.
+
+
+## 12. Recent Cleanup Changes (March 2026)
+
+### Error Handling Refactoring
+- **Standardized Exception Hierarchy**: Implemented `WriterAgentException` base class with specific subclasses (`ConfigError`, `NetworkError`, `UnoObjectError`, `ToolExecutionError`, `AgentParsingError`) in `plugin/framework/errors.py`.
+- **Unified Error Payloads**: Introduced `format_error_payload(e)` function that converts any exception into a standardized JSON structure with `status`, `code`, `message`, and `details` fields.
+- **Consistent Error Handling**: Updated all modules to use custom exceptions and `format_error_payload` instead of raw strings or generic exceptions.
+- **Rich Context Logging**: Enhanced error logging to include contextual information (endpoint, document URL, tool name, operation) for better debugging.
+
+### Tool Registry Simplification
+- **Automatic Discovery**: Implemented automatic discovery of `ToolBase` subclasses in `plugin/framework/tool_registry.py`, eliminating manual registration boilerplate.
+- **Simplified Module Initialization**: Removed redundant tool registration code from `plugin/modules/writer/__init__.py`, `plugin/modules/calc/__init__.py`, and `plugin/modules/draw/__init__.py`.
+
+### Configuration Management
+- **WriterAgentConfig Dataclass**: Introduced a centralized `WriterAgentConfig` dataclass in `plugin/framework/config.py` to encapsulate configuration settings with validation and fallback values.
+- **Cleaned Up Manifest**: Removed obsolete modules (`ai`, `batch`) and deprecated configuration options (`tool_broker`, `api_enabled`, `enter_sends`) from `plugin/_manifest.py`.
+- **Version Bump**: Updated extension version to `0.6.0-beta`.
+
+### Code Quality Improvements
+- **Safe JSON Parsing**: Introduced `safe_json_loads()` utility in `plugin/framework/errors.py` to replace scattered `json.loads` fallbacks with try/except blocks.
+- **Document Cache Removal**: Commented out `DocumentCache` usage and removed cache invalidation calls to simplify document handling logic.
+- **Logging Enhancements**: Improved logging consistency across modules, ensuring all caught exceptions are properly logged with context.
+
+### Testing Infrastructure
+- **Error Handling Tests**: Added comprehensive test suite in `plugin/tests/test_error_handling.py` to validate error formatting and payload generation.
+- **Tool Registry Tests**: Enhanced `plugin/tests/test_tool_registry.py` with additional test cases for automatic tool discovery.
+
+These cleanup changes improve code maintainability, error handling consistency, and overall reliability while reducing technical debt.
