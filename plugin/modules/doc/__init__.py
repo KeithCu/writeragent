@@ -10,4 +10,11 @@ from plugin.framework.module_base import ModuleBase
 
 class CommonModule(ModuleBase):
     """Provides generic document tools (info, save, export)."""
-    pass
+
+    def initialize(self, services):
+        self.services = services
+
+        from . import diagnostics, print_doc, undo
+
+        for module in (diagnostics, print_doc, undo):
+            services.tools.auto_discover(module)

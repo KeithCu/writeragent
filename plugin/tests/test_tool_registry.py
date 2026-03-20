@@ -57,6 +57,55 @@ def _make_ctx(doc_type="writer"):
 
 
 class TestRegister:
+    def test_auto_discover(self):
+        # Create a fake module to test auto_discover
+        from plugin.framework.tool_base import ToolBaseDummy
+        import types
+
+        mock_module = types.ModuleType("mock_module")
+
+        class GoodTool(ToolBase):
+            name = "good_tool"
+            def execute(self, ctx, **kwargs): pass
+        GoodTool.__module__ = "mock_module"
+
+        class AnotherTool(ToolBase):
+            name = "another_tool"
+            def execute(self, ctx, **kwargs): pass
+        AnotherTool.__module__ = "mock_module"
+
+        class AbstractTool(ToolBase):
+            pass # No name defined
+        AbstractTool.__module__ = "mock_module"
+
+        class DummyTool(ToolBaseDummy):
+            name = "dummy_tool"
+            def execute(self, ctx, **kwargs): pass
+        DummyTool.__module__ = "mock_module"
+
+        class ImportedTool(ToolBase):
+            name = "imported_tool"
+            def execute(self, ctx, **kwargs): pass
+        ImportedTool.__module__ = "other_module" # Simulate an imported class
+
+        # Add classes to module
+        mock_module.GoodTool = GoodTool
+        mock_module.AnotherTool = AnotherTool
+        mock_module.AbstractTool = AbstractTool
+        mock_module.DummyTool = DummyTool
+        mock_module.ImportedTool = ImportedTool
+        mock_module.NotATool = object()
+
+        reg = _make_registry()
+        reg.auto_discover(mock_module)
+
+        # Should only register GoodTool and AnotherTool
+        assert reg.get("good_tool") is not None
+        assert reg.get("another_tool") is not None
+        assert reg.get("dummy_tool") is None
+        assert reg.get("imported_tool") is None
+        assert len(reg) == 2
+
     def test_register_and_get(self):
         reg = _make_registry(FakeTool())
         assert reg.get("fake_tool") is not None
