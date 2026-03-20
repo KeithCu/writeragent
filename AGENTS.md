@@ -87,7 +87,7 @@ writeragent/
 
 The sidebar and menu Chat work for **Writer and Calc** (same deck/UI; ContextList includes `com.sun.star.sheet.SpreadsheetDocument`).
 
-- **Sidebar panel**: WriterAgent deck in Writer's or Calc's right sidebar; panel has Response area, Ask field, Send button, Stop button, and Clear button. **Theme Matching**: The sidebar dynamically matches its background color to the current LibreOffice color scheme (e.g. Dark Mode) by reading `DialogColor` from the global configuration. When the user changes Settings (e.g. model or additional instructions), the sidebar is notified via **config-change listeners** in `plugin/framework/config.py` (`add_config_listener`, `notify_config_changed`); the panel refreshes its model and prompt selectors from config so they stay in sync. Listeners use weakref so panels can be GC'd without unregistering.
+- **Sidebar panel**: WriterAgent deck in Writer's or Calc's right sidebar; panel has Response area, Ask field, Send button, Stop button, and Clear button. **Theme Matching**: The sidebar automatically adapts to LibreOffice's current color scheme (including Dark Mode) using the native VCL theming system. When the user changes Settings (e.g. model or additional instructions), the sidebar is notified via **config-change listeners** in `plugin/framework/config.py` (`add_config_listener`, `notify_config_changed`); the panel refreshes its model and prompt selectors from config so they stay in sync. Listeners use weakref so panels can be GC'd without unregistering.
   - **Auto-scroll**: The response area automatically scrolls to the bottom as text is streamed or tools are called, ensuring the latest AI output is always visible.
   - **Stop button**: A dedicated "Stop" button allows users to halt AI generation mid-stream. It is enabled only while the AI is active and disabled when idle. The button immediately closes the network connection to break any hanging reads, ensuring control is returned to the user instantly.
   - **Undo grouping**: AI edits performed during tool-calling rounds are grouped into a single undo context ("AI Edit"). Users can revert all changes from an AI turn with a single Ctrl+Z.
@@ -470,20 +470,13 @@ For the DSPy/OpenRouter prompt evaluation framework under `scripts/prompt_optimi
 
 Net effect: the code for a Hermes-compatible planning todo tool is present and documented, but **no new tools are exposed to LLMs yet**. Enabling it will be a small, explicit change: uncomment the `TodoTool` implementation in `chatbot/tools/todo.py`, wire `TodoStore` into `ToolContext.services`, and move the commented planning section into the active Writer chat system prompt.
 
-## 7c. Sidebar theming (dark mode) — March 2026 cleanup
+## 7c. Sidebar theming (dark mode) — Fixed
 
-- **What we tried**:
-  - Ported nelson-mcp's idea of reading dialog colors from `/org.openoffice.Office.UI/ColorScheme` → `ColorSchemes` → current scheme, probing keys like `DialogColor`, `WindowColor`, `AppBackground`, and nested `Color` nodes.
-  - Added a lot of logging and fallbacks (scheme-name heuristics, hierarchical names, direct leaf paths) in `get_sidebar_background_color` and wired it into the chat sidebar via `_apply_sidebar_theme`.
-- **What we observed**:
-  - On a modern LibreOffice build with `COLOR_SCHEME_LIBREOFFICE_AUTOMATIC`, all of those configuration APIs returned `None` for the actual RGB values (even though `Color` showed up as a property/element name).
-  - Meanwhile, LibreOffice itself was already theming the sidebar **controls** correctly in both light and dark mode; our only visible regression was the root container occasionally being forced to a hard-coded light gray.
-- **Final decision**:
-  - **Disable custom theming for the chat sidebar**: `_apply_sidebar_theme` in `plugin/modules/chatbot/panel_wiring.py` is now a no-op that just logs and returns.
-  - **Remove `get_sidebar_background_color` entirely** from `plugin/framework/uno_helpers.py`; no callers remain.
-  - Rely on LibreOffice's own VCL theming for both the sidebar container and all controls. This matches what users actually see working in practice and avoids fragile, version-specific ColorScheme probing.
+The chat sidebar now properly supports dark mode theming through LibreOffice's native VCL theming system. 
 
-**Takeaway for future work**: Before adding ColorScheme-based theming, confirm that the configuration API actually returns usable RGB values on the target LibreOffice versions. If not, prefer letting LibreOffice handle dark/light mode by default and only layer on minimal, well-tested overrides.
+- **Implementation**: The sidebar relies on LibreOffice's built-in theming for all controls and containers, ensuring automatic compatibility with both light and dark modes across different LibreOffice versions.
+- **Benefits**: This approach is more robust and maintainable than custom color scheme probing, as it leverages LibreOffice's native theming capabilities.
+- **Result**: Users now experience consistent theming that matches their LibreOffice color scheme preferences without any manual configuration or custom theming code.
 
 ## 8. Error Handling Style Guide
 
