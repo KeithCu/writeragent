@@ -103,7 +103,7 @@ def test_proximity_service():
             pass
 
     doc_svc = DocSvcAdapter()
-    bm = BookmarkService(doc_svc, events)
+    bm = BookmarkService(doc_svc)
     tree_svc = TreeService(doc_svc, bm, events)
     prox = ProximityService(doc_svc, tree_svc, bm, events)
 
@@ -204,7 +204,7 @@ def test_writer_structural_and_tree_service():
 
     events = EventBus()
     doc_svc = DocumentService()
-    bm_svc = BookmarkService(doc_svc, events)
+    bm_svc = BookmarkService(doc_svc)
     tree_svc = TreeService(doc_svc, bm_svc, events)
 
     # 1. Test build_heading_tree from TreeService natively

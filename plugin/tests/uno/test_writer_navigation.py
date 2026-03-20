@@ -153,7 +153,7 @@ class MockServices:
         # DocumentService does not take constructor arguments; it uses the
         # active UNO context when needed.
         self.document = DocumentService()
-        self.writer_bookmarks = BookmarkService(self.document, self.events)
+        self.writer_bookmarks = BookmarkService(self.document)
         self.writer_tree = TreeService(self.document, self.writer_bookmarks, self.events)
         self.writer_structural = ListSections() # Simplified mock structural logic
         self.writer_proximity = ProximityService(self.document, self.writer_tree, self.writer_bookmarks)
