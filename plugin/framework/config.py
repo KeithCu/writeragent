@@ -22,6 +22,7 @@ import os
 import json
 import logging
 import dataclasses
+import time
 from typing import Dict, Any, Optional
 try:
     import uno
@@ -280,20 +281,29 @@ def _resolve_default(key):
 # on every single get_config access.
 _cached_config_dict = None
 _cached_config_mtime = 0
+_cached_config_mtime_last_checked = 0.0
 
 def _get_validated_config_dict(ctx):
     """Return the full validated config as a dict, using an in-memory cache
     keyed off the file modification time."""
-    global _cached_config_dict, _cached_config_mtime
+    global _cached_config_dict, _cached_config_mtime, _cached_config_mtime_last_checked
 
     config_file_path = _config_path(ctx)
     if not config_file_path or not os.path.exists(config_file_path):
         return {}
 
+    current_time = time.time()
+
+    # 2-second cache for the mtime check
+    if _cached_config_dict is not None and (current_time - _cached_config_mtime_last_checked) < 2.0:
+        return _cached_config_dict
+
     try:
         current_mtime = os.path.getmtime(config_file_path)
     except OSError:
         current_mtime = 0
+
+    _cached_config_mtime_last_checked = current_time
 
     if _cached_config_dict is not None and current_mtime == _cached_config_mtime and current_mtime != 0:
         return _cached_config_dict
@@ -374,9 +384,10 @@ def set_config(ctx, key, value):
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
 
-        global _cached_config_dict, _cached_config_mtime
+        global _cached_config_dict, _cached_config_mtime, _cached_config_mtime_last_checked
         _cached_config_dict = None
         _cached_config_mtime = 0
+        _cached_config_mtime_last_checked = 0.0
 
     except IOError as e:
                 log.error("Error writing to %s: %s" % (config_file_path, e))
@@ -397,9 +408,10 @@ def remove_config(ctx, key):
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
 
-        global _cached_config_dict, _cached_config_mtime
+        global _cached_config_dict, _cached_config_mtime, _cached_config_mtime_last_checked
         _cached_config_dict = None
         _cached_config_mtime = 0
+        _cached_config_mtime_last_checked = 0.0
 
     except IOError as e:
                 log.error("Error writing to %s: %s" % (config_file_path, e))
