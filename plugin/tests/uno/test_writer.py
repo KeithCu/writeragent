@@ -1,5 +1,4 @@
 from plugin.framework.document import (
-    DocumentCache,
     build_heading_tree,
     resolve_locator,
     get_paragraph_ranges,
@@ -88,13 +87,12 @@ def test_proximity_service():
     from plugin.modules.writer.ops import find_paragraph_for_range as ops_find_paragraph_for_range
 
     events = EventBus()
-    cache3 = DocumentCache.get(_test_doc)
 
     class DocSvcAdapter:
         def doc_key(self, doc):
             return id(doc)
         def get_document_length(self, model):
-            return cache3.length
+            return get_document_length(model)
         def resolve_locator(self, doc, locator):
             return resolve_locator(doc, locator)
         def get_paragraph_ranges(self, doc):
