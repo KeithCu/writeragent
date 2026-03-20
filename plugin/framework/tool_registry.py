@@ -58,7 +58,9 @@ class ToolRegistry:
         from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
         for name, obj in inspect.getmembers(module, inspect.isclass):
-            # Must inherit from ToolBase, but not be ToolBase itself or ToolBaseDummy
+            # Must inherit from ToolBase, but not be ToolBase itself or ToolBaseDummy.
+            # ToolBaseDummy is our way of easily disabling a tool if we don't think it's
+            # worth having exposed to the AI, so we explicitly skip registering them.
             # Must be defined in this module to avoid double registration from imports
             # Also exclude abstract classes or classes without a defined 'name'
             if (issubclass(obj, ToolBase) and
