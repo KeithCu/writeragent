@@ -492,8 +492,8 @@ To maintain a predictable and reliable codebase, follow these rules when handlin
 ### 1. Unified Error Classes
 - **Avoid raising base `Exception`**: Do not use `raise Exception("...")` or catch raw `except Exception:` unless absolutely necessary at the highest level boundary (like a thread run loop).
 - **Use Custom Exceptions**: Prefer creating and using specific exceptions that inherit from a central `WriterAgentException` (in `plugin/framework/errors.py`), such as `NetworkError`, `ConfigError`, `UnoObjectError`, or `ToolExecutionError`. This allows callers to distinguish between user-correctable issues (like bad config) and systemic failures.
-- **Log Typed Exceptions**: Avoid logging raw `Exception` instances (e.g. `log.error("Failed: %s", e)`) directly because LibreOffice UNO objects can cause crashes when stringified. Use `type(e).__name__` or specific context strings instead.
-- **Unified `_tool_error` format**: The internal `_tool_error` helper in `ToolBase` and `ToolBaseDummy` is implemented as a wrapper around `format_error_payload(ToolExecutionError(message, code, **details))` rather than manually constructing dictionary objects. This ensures tools naturally adhere to the system-wide JSON payload format.
+- **Avoid stringifying raw UNO Exceptions**: Avoid logging raw `Exception` instances directly if they wrap LibreOffice UNO objects, as stringifying them can cause crashes in some environments. Use `type(e).__name__` or specific context strings instead.
+- **Use Standard Helpers**: For tools, use the internal `_tool_error` helper in `ToolBase` (which wraps `format_error_payload`) rather than manually constructing dictionary objects.
 
 ### 2. Standardized Error Payload Formats
 - **Consistent JSON Structure**: When an API endpoint, MCP route, or AI tool execution fails, serialize the error as a standardized dictionary/JSON object:
@@ -506,22 +506,18 @@ To maintain a predictable and reliable codebase, follow these rules when handlin
   }
   ```
 - **Never return raw strings** for tool errors; wrap them in the standard `{"status": "error", ...}` format so the LLM and UI can parse them predictably.
-- **Unified Format Helper**: Rely on `format_error_payload(e)` in `plugin/framework/errors.py` to standardize error formatting across the application, especially for JSON-RPC MCP responses and HTTP handlers.
+- **Use Format Helpers**: Rely on `format_error_payload(e)` in `plugin/framework/errors.py` to standardize error formatting across the application, especially for JSON-RPC MCP responses and HTTP handlers.
 
 ### 3. Improve Error Context Logging
 - **Rich Context**: When raising a custom exception, attach context (e.g., `endpoint`, `document_url`, `tool_name`, `operation`) using the `details` keyword argument so the top-level logger can print *what* failed, not just *that* it failed.
-- **Context-Aware Logging Hooks**: The global unhandled exception hooks in `plugin/framework/logging.py` attempt to format standard errors via `format_error_payload()` and append any `details` context directly to the debug log.
 - **Use `log_exception`**: When catching unexpected errors, use `logging.log_exception(e, context="ModuleContext")` (or `traceback.format_exc()` into `debug_log`) rather than silently swallowing the traceback or just printing the message.
 
 ### 4. Recovery Patterns for Common Failures
-- **Graceful Degradation**: Where external systems are involved (HTTP requests, LLM parsing, UNO COM calls), anticipate transient failures.
-
-### 5. Standardized Chat Execution Path Errors
-- **Consistent Payloads**: The web research sub-agent and tool-calling execution paths are updated to catch specific parsing and execution errors, converting them into standard error payload dictionaries using `format_error_payload`.
-- **Richer Logging Contexts**: In `send_handlers.py`, `panel.py`, and `panel_factory.py`, generic exceptions are enriched with contextual identifiers (like the active document type or the backend ID) before logging. For UI generation errors, standard exceptions like `UnoObjectError` are used to bubble up informative stack traces.
+- **Graceful Degradation**: Where external systems are involved (HTTP requests, LLM parsing, UNO COM calls), anticipate transient failures and handle them safely.
 - **LLM Parse Failures**: If the AI returns malformed JSON, catch the specific parsing error and inject a recovery prompt (e.g., "The previous tool call had malformed JSON. Please fix the syntax and try again.") before failing the session.
-- **UNO Stale References**: When interacting with LibreOffice documents, elements (like shapes or text cursors) can be deleted by the user mid-operation. Catch `DisposedException` or `RuntimeException`, invalidate the document cache, and abort gracefully without crashing the extension.
+- **UNO Stale References**: When interacting with LibreOffice documents, elements (like shapes or text cursors) can be deleted by the user mid-operation. Catch `DisposedException` or `RuntimeException`, invalidate the document cache (e.g. `DocumentCache`), and abort gracefully without crashing the extension.
 - **Network Retries**: For HTTP 502/503/504, implement limited backoff/retry loops instead of immediately failing the generation request.
+- **Consistent Execution Paths**: Ensure all execution paths (e.g., web research sub-agents, tool-calling loops) wrap exceptions into the standard `format_error_payload` shape to avoid bubbling raw text errors to the user or model.
 
 ---
 

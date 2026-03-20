@@ -307,6 +307,363 @@ class ToolCallingMixin:
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run_final, name="llm-worker-final")
 
+    def _handle_stream_completion(self, item):
+        # item can be ('stream_done', response) or ('tool_done', ...) or ('final_done', ...) or ('next_tool',)
+        kind = item[0] if isinstance(item, (tuple, list)) else item
+        data = (
+            item[1]
+            if isinstance(item, (tuple, list)) and len(item) > 1
+            else None
+        )
+
+        if kind == "stream_done":
+            response = data
+            tool_calls = response.get("tool_calls")
+            if isinstance(tool_calls, list) and len(tool_calls) == 0:
+                tool_calls = None
+            content = response.get("content")
+            finish_reason = response.get("finish_reason")
+
+            agent_log(
+                "chat_panel.py:tool_round",
+                "Tool loop round response",
+                data={
+                    "round": self._active_round_num,
+                    "has_tool_calls": bool(tool_calls),
+                    "num_tool_calls": len(tool_calls) if tool_calls else 0,
+                },
+                hypothesis_id="A",
+            )
+
+            # If we were using audio and it reached here, cache success
+            if self.audio_wav_path:
+                current_model = get_text_model(self.ctx)
+                current_endpoint = get_current_endpoint(self.ctx)
+                set_native_audio_support(
+                    self.ctx, current_model, current_endpoint, supported=True
+                )
+                # Successful native call -> we can now delete the audio file
+                import os
+
+                try:
+                    os.remove(self.audio_wav_path)
+                except Exception:
+                    pass
+                self.audio_wav_path = None
+
+            # --- No tool calls: conversation is done ---
+            if not tool_calls:
+                agent_log(
+                    "chat_panel.py:exit_no_tools",
+                    "Exiting loop: no tool_calls",
+                    data={"round": self._active_round_num},
+                    hypothesis_id="A",
+                )
+                if content:
+                    log.debug("Tool loop: Adding assistant message to session")
+                    self.session.add_assistant_message(content=content)
+                    self._append_response("\n")
+                elif finish_reason == "length":
+                    self._append_response(
+                        "\n[Response truncated -- the model ran out of tokens...]\n"
+                    )
+                elif finish_reason == "content_filter":
+                    self._append_response(
+                        "\n[Content filter: response was truncated.]\n"
+                    )
+                else:
+                    self._append_response(
+                        "\n[No text from model; any tool changes were still applied.]\n"
+                    )
+                self._terminal_status = "Ready"
+                self._set_status("Ready")
+                return True  # EXIT the drain loop
+
+            # --- Has tool calls: queue them up ---
+            self.session.add_assistant_message(
+                content=content, tool_calls=tool_calls
+            )
+            if content:
+                self._append_response("\n")
+
+            self._active_pending_tools.extend(tool_calls)
+            self._active_q.put(("next_tool",))
+            return False
+
+        elif kind == "next_tool":
+            if not self._active_pending_tools or self.stop_requested:
+                # --- Advance to next round ---
+                if not self.stop_requested:
+                    self._set_status("Sending results to AI...")
+                self._active_round_num += 1
+                if self._active_round_num >= self._active_max_tool_rounds:
+                    agent_log(
+                        "chat_panel.py:exit_exhausted",
+                        "Exiting loop: exhausted max_tool_rounds",
+                        data={"rounds": self._active_max_tool_rounds},
+                        hypothesis_id="A",
+                    )
+                    self._spawn_final_stream(self._active_q, self._active_client, self._active_max_tokens)
+                else:
+                    self._spawn_llm_worker(
+                        self._active_q,
+                        self._active_client,
+                        self._active_max_tokens,
+                        self._active_tools,
+                        self._active_round_num,
+                        query_text=self._active_query_text,
+                    )
+                return False
+
+            tc = self._active_pending_tools.pop(0)
+            func_name = tc.get("function", {}).get("name", "unknown")
+            func_args_str = tc.get("function", {}).get("arguments", "{}")
+            call_id = tc.get("id", "")
+
+            self._set_status("Running: %s" % func_name)
+            self._append_response("[Running tool: %s...]\n" % func_name)
+            update_activity_state(
+                "tool_execute", round_num=self._active_round_num, tool_name=func_name
+            )
+
+            try:
+                func_args = json.loads(func_args_str)
+                if not isinstance(func_args, dict):
+                    func_args = {}
+            except (json.JSONDecodeError, TypeError):
+                func_args = {}
+
+            agent_log(
+                "chat_panel.py:tool_execute",
+                "Executing tool",
+                data={"tool": func_name, "round": self._active_round_num},
+                hypothesis_id="C,D,E",
+            )
+            log.debug("Tool call: %s(%s)" % (func_name, func_args_str))
+
+            image_model_override = (
+                self.image_model_selector.getText()
+                if self.image_model_selector
+                else None
+            )
+            if image_model_override and func_name == "generate_image":
+                func_args["image_model"] = image_model_override
+
+            def tool_status_callback(msg):
+                self._active_q.put(("status", msg))
+
+            if func_name in self._active_async_tools:
+                # --- ASYNC EXECUTION ---
+                def run_async():
+                    try:
+
+                        def tool_thinking_callback(msg):
+                            self._active_q.put(("tool_thinking", msg))
+
+                        if self._active_supports_status:
+                            res = self._active_execute_tool_fn(
+                                func_name,
+                                func_args,
+                                self._active_model,
+                                self.ctx,
+                                status_callback=tool_status_callback,
+                                append_thinking_callback=tool_thinking_callback,
+                                stop_checker=lambda: self.stop_requested,
+                            )
+                        else:
+                            res = self._active_execute_tool_fn(
+                                func_name,
+                                func_args,
+                                self._active_model,
+                                self.ctx,
+                                stop_checker=lambda: self.stop_requested,
+                            )
+                        self._active_q.put(
+                            (
+                                "tool_done",
+                                call_id,
+                                func_name,
+                                func_args_str,
+                                res,
+                            )
+                        )
+                    except Exception as e:
+                        self._active_q.put(
+                            (
+                                "tool_done",
+                                call_id,
+                                func_name,
+                                func_args_str,
+                                json.dumps(format_error_payload(e)),
+                            )
+                        )
+
+                from plugin.framework.worker_pool import run_in_background
+                run_in_background(run_async, name=f"tool-async-{func_name}")
+            else:
+                # --- SYNC EXECUTION (UNO tools) ---
+                try:
+                    if self._active_supports_status:
+                        res = self._active_execute_tool_fn(
+                            func_name,
+                            func_args,
+                            self._active_model,
+                            self.ctx,
+                            status_callback=tool_status_callback,
+                        )
+                    else:
+                        res = self._active_execute_tool_fn(
+                            func_name, func_args, self._active_model, self.ctx
+                        )
+                    self._active_q.put(
+                        (
+                            "tool_done",
+                            call_id,
+                            func_name,
+                            func_args_str,
+                            res,
+                        )
+                    )
+                except Exception as e:
+                    self._active_q.put(
+                        (
+                            "tool_done",
+                            call_id,
+                            func_name,
+                            func_args_str,
+                            json.dumps(format_error_payload(e)),
+                        )
+                    )
+            return False
+
+        elif kind == "tool_done":
+            call_id, func_name, func_args_str, result = (
+                item[1],
+                item[2],
+                item[3],
+                item[4],
+            )
+
+            log.debug("Tool result: %s" % result)
+            try:
+                result_data = json.loads(result)
+                note = result_data.get("message", result_data.get("status", "done"))
+            except Exception:
+                result_data = {}
+                note = "done"
+            self._append_response("[%s: %s]\n" % (func_name, note))
+            if func_name == "apply_document_content" and (
+                (note or "").strip().startswith("Replaced 0 occurrence")
+            ):
+                params_display = (
+                    func_args_str
+                    if len(func_args_str) <= 800
+                    else func_args_str[:800] + "..."
+                )
+                self._append_response("[Debug: params %s]\n" % params_display)
+            self.session.add_tool_result(call_id, result)
+
+            # After a successful document-mutating tool, refresh document context
+            # so the next round sees the updated doc and does not repeat the edit.
+            try:
+                is_success = (
+                    result_data.get("success") is True
+                    or result_data.get("status") == "ok"
+                )
+                doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
+                if is_success and doc:
+                    from plugin.main import get_tools as _get_tools_registry
+                    tool = _get_tools_registry().get(func_name)
+                    if tool and tool.detects_mutation():
+                        max_ctx = get_config(self.ctx, "chat_context_length") or 8000
+                        doc_text = get_document_context_for_chat(
+                            doc,
+                            max_ctx,
+                            include_end=True,
+                            include_selection=True,
+                            ctx=self.ctx,
+                        )
+                        self.session.update_document_context(doc_text)
+            except Exception:
+                pass
+
+            # Trigger next tool
+            self._active_q.put(("next_tool",))
+            return False
+
+        elif kind == "final_done":
+            final_content = data
+            if final_content:
+                self.session.add_assistant_message(content=final_content)
+                self._append_response("\n")
+            self._terminal_status = "Ready"
+            self._set_status("Ready")
+            return True
+
+        return False
+
+    def _handle_stream_stopped(self):
+        # Ensure conversation roles continue to alternate user/assistant even
+        # when the user stops a response mid-stream.
+        self.session.add_assistant_message(content="No response.")
+        self._terminal_status = "Stopped"
+        self._set_status("Stopped")
+        self._append_response("\n[Stopped by user]\n")
+
+    def _is_400_input_validation(self, err):
+        """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
+        msg = str(err).lower()
+        return "400" in msg and ("input validation" in msg or "bad request" in msg)
+
+    def _handle_stream_error(self, e):
+        current_model = get_text_model(self.ctx)
+        current_endpoint = get_current_endpoint(self.ctx)
+
+        # If native audio failed, cache it and try STT fallback
+        if self.audio_wav_path and (
+            is_audio_unsupported_error(e) or self._is_400_input_validation(e)
+        ):
+            log.warning(
+                "Model %s failed native audio, caching and falling back to STT"
+                % current_model
+            )
+            set_native_audio_support(
+                self.ctx, current_model, current_endpoint, supported=False
+            )
+
+            stt_model = get_stt_model(self.ctx)
+            if stt_model:
+                # Remove the failed message from session so we can retry with text
+                if (
+                    self.session.messages
+                    and self.session.messages[-1]["role"] == "user"
+                ):
+                    # If it was a list (audio+text), just pop it
+                    self.session.messages.pop()
+
+                self._append_response(
+                    "\n[Model does not support audio. Falling back to STT...]\n"
+                )
+                self._transcribe_audio_async(
+                    self.audio_wav_path, stt_model, self._active_model, query_text=self._active_query_text
+                )
+                return
+
+        # If we reached here, it's either not a modality error or STT is not configured
+        err_msg = format_error_message(e)
+        self._append_response("\n[API error: %s]\n" % err_msg)
+        self._terminal_status = "Error"
+        self._set_status("Error")
+        # Cleanup audio if we aren't falling back
+        if self.audio_wav_path:
+            import os
+
+            try:
+                os.remove(self.audio_wav_path)
+            except Exception:
+                pass
+            self.audio_wav_path = None
+
     def _start_tool_calling_async(
         self,
         client,
@@ -330,10 +687,18 @@ class ToolCallingMixin:
         )
         self._append_response("\nAI: ")
 
-        q = queue.Queue()
-        round_num = 0
-        pending_tools = []
-        ASYNC_TOOLS = {"web_research", "generate_image"}
+        self._active_q = queue.Queue()
+        self._active_round_num = 0
+        self._active_pending_tools = []
+        self._active_async_tools = {"web_research", "generate_image"}
+
+        self._active_client = client
+        self._active_model = model
+        self._active_max_tokens = max_tokens
+        self._active_tools = tools
+        self._active_execute_tool_fn = execute_tool_fn
+        self._active_max_tool_rounds = max_tool_rounds
+        self._active_query_text = query_text
 
         # Read config once for web research thinking display
         try:
@@ -355,7 +720,7 @@ class ToolCallingMixin:
 
         # Check once whether execute_tool_fn accepts status_callback
         sig = inspect.signature(execute_tool_fn)
-        supports_status = (
+        self._active_supports_status = (
             "status_callback" in sig.parameters or "kwargs" in sig.parameters
         )
 
@@ -364,375 +729,17 @@ class ToolCallingMixin:
 
         # --- Kick off the first LLM stream ---
         self._spawn_llm_worker(
-            q, client, max_tokens, tools, round_num, query_text=query_text
+            self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text
         )
 
-        def on_stream_done(item):
-            nonlocal round_num, pending_tools
-            # item can be ('stream_done', response) or ('tool_done', ...) or ('final_done', ...) or ('next_tool',)
-            kind = item[0] if isinstance(item, (tuple, list)) else item
-            data = (
-                item[1]
-                if isinstance(item, (tuple, list)) and len(item) > 1
-                else None
-            )
-
-            if kind == "stream_done":
-                response = data
-                tool_calls = response.get("tool_calls")
-                if isinstance(tool_calls, list) and len(tool_calls) == 0:
-                    tool_calls = None
-                content = response.get("content")
-                finish_reason = response.get("finish_reason")
-
-                agent_log(
-                    "chat_panel.py:tool_round",
-                    "Tool loop round response",
-                    data={
-                        "round": round_num,
-                        "has_tool_calls": bool(tool_calls),
-                        "num_tool_calls": len(tool_calls) if tool_calls else 0,
-                    },
-                    hypothesis_id="A",
-                )
-
-                # If we were using audio and it reached here, cache success
-                if self.audio_wav_path:
-                    current_model = get_text_model(self.ctx)
-                    current_endpoint = get_current_endpoint(self.ctx)
-                    set_native_audio_support(
-                        self.ctx, current_model, current_endpoint, supported=True
-                    )
-                    # Successful native call -> we can now delete the audio file
-                    import os
-
-                    try:
-                        os.remove(self.audio_wav_path)
-                    except Exception:
-                        pass
-                    self.audio_wav_path = None
-
-                # --- No tool calls: conversation is done ---
-                if not tool_calls:
-                    agent_log(
-                        "chat_panel.py:exit_no_tools",
-                        "Exiting loop: no tool_calls",
-                        data={"round": round_num},
-                        hypothesis_id="A",
-                    )
-                    if content:
-                        log.debug("Tool loop: Adding assistant message to session")
-                        self.session.add_assistant_message(content=content)
-                        self._append_response("\n")
-                    elif finish_reason == "length":
-                        self._append_response(
-                            "\n[Response truncated -- the model ran out of tokens...]\n"
-                        )
-                    elif finish_reason == "content_filter":
-                        self._append_response(
-                            "\n[Content filter: response was truncated.]\n"
-                        )
-                    else:
-                        self._append_response(
-                            "\n[No text from model; any tool changes were still applied.]\n"
-                        )
-                    self._terminal_status = "Ready"
-                    self._set_status("Ready")
-                    return True  # EXIT the drain loop
-
-                # --- Has tool calls: queue them up ---
-                self.session.add_assistant_message(
-                    content=content, tool_calls=tool_calls
-                )
-                if content:
-                    self._append_response("\n")
-
-                pending_tools.extend(tool_calls)
-                q.put(("next_tool",))
-                return False
-
-            elif kind == "next_tool":
-                if not pending_tools or self.stop_requested:
-                    # --- Advance to next round ---
-                    if not self.stop_requested:
-                        self._set_status("Sending results to AI...")
-                    round_num += 1
-                    if round_num >= max_tool_rounds:
-                        agent_log(
-                            "chat_panel.py:exit_exhausted",
-                            "Exiting loop: exhausted max_tool_rounds",
-                            data={"rounds": max_tool_rounds},
-                            hypothesis_id="A",
-                        )
-                        self._spawn_final_stream(q, client, max_tokens)
-                    else:
-                        self._spawn_llm_worker(
-                            q,
-                            client,
-                            max_tokens,
-                            tools,
-                            round_num,
-                            query_text=query_text,
-                        )
-                    return False
-
-                tc = pending_tools.pop(0)
-                func_name = tc.get("function", {}).get("name", "unknown")
-                func_args_str = tc.get("function", {}).get("arguments", "{}")
-                call_id = tc.get("id", "")
-
-                self._set_status("Running: %s" % func_name)
-                self._append_response("[Running tool: %s...]\n" % func_name)
-                update_activity_state(
-                    "tool_execute", round_num=round_num, tool_name=func_name
-                )
-
-                try:
-                    func_args = json.loads(func_args_str)
-                    if not isinstance(func_args, dict):
-                        func_args = {}
-                except (json.JSONDecodeError, TypeError):
-                    func_args = {}
-
-                agent_log(
-                    "chat_panel.py:tool_execute",
-                    "Executing tool",
-                    data={"tool": func_name, "round": round_num},
-                    hypothesis_id="C,D,E",
-                )
-                log.debug("Tool call: %s(%s)" % (func_name, func_args_str))
-
-                image_model_override = (
-                    self.image_model_selector.getText()
-                    if self.image_model_selector
-                    else None
-                )
-                if image_model_override and func_name == "generate_image":
-                    func_args["image_model"] = image_model_override
-
-                def tool_status_callback(msg):
-                    q.put(("status", msg))
-
-                if func_name in ASYNC_TOOLS:
-                    # --- ASYNC EXECUTION ---
-                    def run_async():
-                        try:
-
-                            def tool_thinking_callback(msg):
-                                q.put(("tool_thinking", msg))
-
-                            if supports_status:
-                                res = execute_tool_fn(
-                                    func_name,
-                                    func_args,
-                                    model,
-                                    self.ctx,
-                                    status_callback=tool_status_callback,
-                                    append_thinking_callback=tool_thinking_callback,
-                                    stop_checker=lambda: self.stop_requested,
-                                )
-                            else:
-                                res = execute_tool_fn(
-                                    func_name,
-                                    func_args,
-                                    model,
-                                    self.ctx,
-                                    stop_checker=lambda: self.stop_requested,
-                                )
-                            q.put(
-                                (
-                                    "tool_done",
-                                    call_id,
-                                    func_name,
-                                    func_args_str,
-                                    res,
-                                )
-                            )
-                        except Exception as e:
-                            q.put(
-                                (
-                                    "tool_done",
-                                    call_id,
-                                    func_name,
-                                    func_args_str,
-                                    json.dumps(format_error_payload(e)),
-                                )
-                            )
-
-                    from plugin.framework.worker_pool import run_in_background
-                    run_in_background(run_async, name=f"tool-async-{func_name}")
-                else:
-                    # --- SYNC EXECUTION (UNO tools) ---
-                    try:
-                        if supports_status:
-                            res = execute_tool_fn(
-                                func_name,
-                                func_args,
-                                model,
-                                self.ctx,
-                                status_callback=tool_status_callback,
-                            )
-                        else: 
-                            res = execute_tool_fn(
-                                func_name, func_args, model, self.ctx
-                            )
-                        q.put(
-                            (
-                                "tool_done",
-                                call_id,
-                                func_name,
-                                func_args_str,
-                                res,
-                            )
-                        )
-                    except Exception as e:
-                        q.put(
-                            (
-                                "tool_done",
-                                call_id,
-                                func_name,
-                                func_args_str,
-                                json.dumps(format_error_payload(e)),
-                            )
-                        )
-                return False
-
-            elif kind == "tool_done":
-                call_id, func_name, func_args_str, result = (
-                    item[1],
-                    item[2],
-                    item[3],
-                    item[4],
-                )
-
-                log.debug("Tool result: %s" % result)
-                try:
-                    result_data = json.loads(result)
-                    note = result_data.get("message", result_data.get("status", "done"))
-                except Exception:
-                    result_data = {}
-                    note = "done"
-                self._append_response("[%s: %s]\n" % (func_name, note))
-                if func_name == "apply_document_content" and (
-                    (note or "").strip().startswith("Replaced 0 occurrence")
-                ):
-                    params_display = (
-                        func_args_str
-                        if len(func_args_str) <= 800
-                        else func_args_str[:800] + "..."
-                    )
-                    self._append_response("[Debug: params %s]\n" % params_display)
-                self.session.add_tool_result(call_id, result)
-
-                # After a successful document-mutating tool, refresh document context
-                # so the next round sees the updated doc and does not repeat the edit.
-                try:
-                    is_success = (
-                        result_data.get("success") is True
-                        or result_data.get("status") == "ok"
-                    )
-                    doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
-                    if is_success and doc:
-                        from plugin.main import get_tools as _get_tools_registry
-                        tool = _get_tools_registry().get(func_name)
-                        if tool and tool.detects_mutation():
-                            max_ctx = get_config(self.ctx, "chat_context_length") or 8000
-                            doc_text = get_document_context_for_chat(
-                                doc,
-                                max_ctx,
-                                include_end=True,
-                                include_selection=True,
-                                ctx=self.ctx,
-                            )
-                            self.session.update_document_context(doc_text)
-                except Exception:
-                    pass
-
-                # Trigger next tool
-                q.put(("next_tool",))
-                return False
-
-            elif kind == "final_done":
-                final_content = data
-                if final_content:
-                    self.session.add_assistant_message(content=final_content)
-                    self._append_response("\n")
-                self._terminal_status = "Ready"
-                self._set_status("Ready")
-                return True
-
-            return False
-
-        def on_stopped():
-            # Ensure conversation roles continue to alternate user/assistant even
-            # when the user stops a response mid-stream.
-            self.session.add_assistant_message(content="No response.")
-            self._terminal_status = "Stopped"
-            self._set_status("Stopped")
-            self._append_response("\n[Stopped by user]\n")
-
-        def _is_400_input_validation(err):
-            """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
-            msg = str(err).lower()
-            return "400" in msg and ("input validation" in msg or "bad request" in msg)
-
-        def on_error(e):
-            current_model = get_text_model(self.ctx)
-            current_endpoint = get_current_endpoint(self.ctx)
-
-            # If native audio failed, cache it and try STT fallback
-            if self.audio_wav_path and (
-                is_audio_unsupported_error(e) or _is_400_input_validation(e)
-            ):
-                log.warning(
-                    "Model %s failed native audio, caching and falling back to STT"
-                    % current_model
-                )
-                set_native_audio_support(
-                    self.ctx, current_model, current_endpoint, supported=False
-                )
-
-                stt_model = get_stt_model(self.ctx)
-                if stt_model:
-                    # Remove the failed message from session so we can retry with text
-                    if (
-                        self.session.messages
-                        and self.session.messages[-1]["role"] == "user"
-                    ):
-                        # If it was a list (audio+text), just pop it
-                        self.session.messages.pop()
-
-                    self._append_response(
-                        "\n[Model does not support audio. Falling back to STT...]\n"
-                    )
-                    self._transcribe_audio_async(
-                        self.audio_wav_path, stt_model, model, query_text=query_text
-                    )
-                    return
-
-            # If we reached here, it's either not a modality error or STT is not configured
-            err_msg = format_error_message(e)
-            self._append_response("\n[API error: %s]\n" % err_msg)
-            self._terminal_status = "Error"
-            self._set_status("Error")
-            # Cleanup audio if we aren't falling back
-            if self.audio_wav_path:
-                import os
-
-                try:
-                    os.remove(self.audio_wav_path)
-                except Exception:
-                    pass
-                self.audio_wav_path = None
-
         run_stream_drain_loop(
-            q,
+            self._active_q,
             toolkit,
             [False],
             self._append_response,
-            on_stream_done=on_stream_done,
-            on_stopped=on_stopped,
-            on_error=on_error,
+            on_stream_done=self._handle_stream_completion,
+            on_stopped=self._handle_stream_stopped,
+            on_error=self._handle_stream_error,
             on_status_fn=self._set_status,
             ctx=self.ctx,
             stop_checker=lambda: self.stop_requested,
