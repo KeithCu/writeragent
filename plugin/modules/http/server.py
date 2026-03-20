@@ -28,6 +28,8 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+from plugin.framework.errors import safe_json_loads
+
 log = logging.getLogger("writeragent.framework.http_server")
 
 
@@ -94,14 +96,14 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         if content_length == 0:
             return {}
         raw = self.rfile.read(content_length).decode("utf-8")
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
+        data = safe_json_loads(raw, default=None)
+        if data is None and raw.strip():
             from plugin.framework.errors import AgentParsingError, format_error_payload
             log.warning("Invalid JSON body: %s", raw[:200])
             err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
             self._send_json(400, format_error_payload(err))
             return None
+        return data if data is not None else {}
 
     def _send_json(self, status, data):
         self.send_response(status)

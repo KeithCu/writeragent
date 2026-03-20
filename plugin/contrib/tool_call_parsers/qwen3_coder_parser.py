@@ -21,6 +21,7 @@ import re
 import uuid
 from typing import Any, Dict, List, Optional
 
+from plugin.framework.errors import safe_json_loads
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 
 from plugin.contrib.tool_call_parsers import ParseResult, ToolCallParser, register_parser
@@ -38,10 +39,9 @@ def _try_convert_value(value: str) -> Any:
         return None
 
     # Try JSON first (handles objects, arrays, strings, numbers, booleans)
-    try:
-        return json.loads(stripped)
-    except (json.JSONDecodeError, TypeError):
-        pass
+    data = safe_json_loads(stripped, default=None)
+    if data is not None:
+        return data
 
     # Try Python literal eval (handles tuples, etc.)
     try:

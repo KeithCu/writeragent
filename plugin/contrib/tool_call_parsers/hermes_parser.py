@@ -10,6 +10,7 @@ import re
 import uuid
 from typing import List
 
+from plugin.framework.errors import safe_json_loads
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 
 from plugin.contrib.tool_call_parsers import ParseResult, ToolCallParser, register_parser
@@ -45,19 +46,20 @@ class HermesToolCallParser(ToolCallParser):
                 if not raw_json.strip():
                     continue
 
-                tc_data = json.loads(raw_json)
-                tool_calls.append(
-                    ChatCompletionMessageToolCall(
-                        id=f"call_{uuid.uuid4().hex[:8]}",
-                        type="function",
-                        function=Function(
-                            name=tc_data["name"],
-                            arguments=json.dumps(
-                                tc_data.get("arguments", {}), ensure_ascii=False
+                tc_data = safe_json_loads(raw_json, default=None)
+                if tc_data is not None and isinstance(tc_data, dict) and "name" in tc_data:
+                    tool_calls.append(
+                        ChatCompletionMessageToolCall(
+                            id=f"call_{uuid.uuid4().hex[:8]}",
+                            type="function",
+                            function=Function(
+                                name=tc_data["name"],
+                                arguments=json.dumps(
+                                    tc_data.get("arguments", {}), ensure_ascii=False
+                                ),
                             ),
-                        ),
+                        )
                     )
-                )
 
             if not tool_calls:
                 return text, None

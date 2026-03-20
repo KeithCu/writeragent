@@ -5,6 +5,9 @@ All custom exceptions should inherit from WriterAgentException.
 """
 
 
+import json
+
+
 class WriterAgentException(Exception):
     """Base exception for all WriterAgent errors.
 
@@ -74,3 +77,22 @@ def format_error_payload(e: Exception) -> dict:
         "message": str(e),
         "details": {"type": type(e).__name__},
     }
+
+
+def safe_json_loads(text, default=None):
+    """Safely parse a JSON string into a Python object.
+
+    Args:
+        text: The string to parse.
+        default: The value to return if parsing fails. Defaults to None.
+
+    Returns:
+        The parsed Python object or the default value if an error occurs.
+    """
+    if not isinstance(text, (str, bytes, bytearray)):
+        return default
+    try:
+        parsed = json.loads(text)
+        return parsed if parsed is not None else default
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return default

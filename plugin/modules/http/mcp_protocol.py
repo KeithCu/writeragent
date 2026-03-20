@@ -27,7 +27,7 @@ import time
 import uuid
 
 from plugin.framework.main_thread import execute_on_main_thread
-from plugin.framework.errors import WriterAgentException
+from plugin.framework.errors import WriterAgentException, safe_json_loads
 log = logging.getLogger(__name__)
 
 log = logging.getLogger("writeragent.mcp.protocol")
@@ -631,14 +631,14 @@ class MCPProtocolHandler:
         if content_length == 0:
             return {}
         raw = handler.rfile.read(content_length).decode("utf-8")
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as e:
+        data = safe_json_loads(raw, default=None)
+        if data is None and raw.strip():
             log.warning("Invalid JSON body: %s", raw[:200])
             from plugin.framework.errors import AgentParsingError, format_error_payload
             err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
             self._send_json(handler, 400, format_error_payload(err))
             return None
+        return data if data is not None else {}
 
     def _send_json(self, handler, status, data):
         """Send a JSON response via an HTTP handler."""

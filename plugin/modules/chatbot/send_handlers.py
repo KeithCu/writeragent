@@ -11,6 +11,9 @@ alternate send flows that would otherwise bloat that class:
 
 import queue
 import logging
+import json
+
+from plugin.framework.errors import safe_json_loads
 
 log = logging.getLogger(__name__)
 
@@ -147,11 +150,11 @@ class SendHandlersMixin:
                     }
                 )
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
-                try:
-                    data = json.loads(result)
+                data = safe_json_loads(result, default={})
+                if isinstance(data, dict):
                     note = data.get("message", data.get("status", "done"))
-                except Exception as parse_e:
-                    log.error("Failed to parse generate_image result in _do_send_direct_image: %s", parse_e)
+                else:
+                    log.error("Failed to parse generate_image result in _do_send_direct_image")
                     note = "done"
                 q.put(("chunk", "[generate_image: %s]\n" % note))
                 q.put(("stream_done", {}))
@@ -451,11 +454,10 @@ class SendHandlersMixin:
                 )
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
 
-                try:
-                    data = json.loads(result)
-                except Exception as parse_e:
+                data = safe_json_loads(result)
+                if not isinstance(data, dict):
                     from plugin.framework.errors import AgentParsingError, format_error_payload
-                    log.error("Failed to parse web_research result in _run_web_research [doc: %s]: %s", doc_type, parse_e)
+                    log.error("Failed to parse web_research result in _run_web_research [doc: %s]", doc_type)
                     parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
                     data = format_error_payload(parsed_err)
 

@@ -26,6 +26,7 @@ import io
 import json
 import logging
 
+from plugin.framework.errors import safe_json_loads
 from plugin.modules.calc.address_utils import parse_address
 
 logger = logging.getLogger("writeragent.calc")
@@ -75,16 +76,17 @@ def _parse_formula_or_values_string(s: str):
                     escaped = False
 
             normalized = "".join(normalized_list)
-            data = json.loads(normalized)
-            if isinstance(data, list):
-                flat = []
-                for item in data:
-                    if isinstance(item, list):
-                        flat.extend(item)
-                    else:
-                        flat.append(item)
-                return flat
-        except (json.JSONDecodeError, TypeError):
+            data = safe_json_loads(normalized)
+            if data is not None:
+                if isinstance(data, list):
+                    flat = []
+                    for item in data:
+                        if isinstance(item, list):
+                            flat.extend(item)
+                        else:
+                            flat.append(item)
+                    return flat
+        except TypeError:
             pass
 
     # Case 2: Raw semicolon-separated string e.g. "Name;Age;Country"

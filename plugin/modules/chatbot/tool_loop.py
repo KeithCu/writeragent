@@ -31,7 +31,7 @@ from plugin.framework.config import (
 )
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.document import get_document_context_for_chat
-from plugin.framework.errors import format_error_payload
+from plugin.framework.errors import format_error_payload, safe_json_loads
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import as_bool
 
@@ -426,11 +426,8 @@ class ToolCallingMixin:
                 "tool_execute", round_num=self._active_round_num, tool_name=func_name
             )
 
-            try:
-                func_args = json.loads(func_args_str)
-                if not isinstance(func_args, dict):
-                    func_args = {}
-            except (json.JSONDecodeError, TypeError):
+            func_args = safe_json_loads(func_args_str, default={})
+            if not isinstance(func_args, dict):
                 func_args = {}
 
             agent_log(
@@ -545,10 +542,10 @@ class ToolCallingMixin:
             )
 
             log.debug("Tool result: %s" % result)
-            try:
-                result_data = json.loads(result)
+            result_data = safe_json_loads(result, default={})
+            if isinstance(result_data, dict):
                 note = result_data.get("message", result_data.get("status", "done"))
-            except Exception:
+            else:
                 result_data = {}
                 note = "done"
             self._append_response("[%s: %s]\n" % (func_name, note))

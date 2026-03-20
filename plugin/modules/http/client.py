@@ -38,7 +38,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 
 from plugin.framework.logging import init_logging
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
-from plugin.framework.errors import NetworkError, AgentParsingError
+from plugin.framework.errors import NetworkError, AgentParsingError, safe_json_loads
 
 log = logging.getLogger(__name__)
 
@@ -85,8 +85,9 @@ def _format_http_error_response(status, reason, err_body):
     base = "HTTP Error %d: %s" % (status, reason)
     if not err_body or not err_body.strip():
         return base
-    try:
-        data = json.loads(err_body)
+
+    data = safe_json_loads(err_body)
+    if data and isinstance(data, dict):
         err = data.get("error")
         if isinstance(err, dict):
             detail = err.get("message") or err.get("msg") or err.get("error") or ""
@@ -94,8 +95,7 @@ def _format_http_error_response(status, reason, err_body):
             detail = str(err) if err else ""
         if detail:
             return base + ". " + detail
-    except (json.JSONDecodeError, TypeError):
-        pass
+
     snippet = err_body.strip().replace("\n", " ")[:400]
     return base + ". " + snippet
 
@@ -805,12 +805,10 @@ class LlmClient:
                         content_finished = True
                         continue
                     
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        log.error("streaming_loop: JSON decode error in payload: %s" % payload)
-                        continue
+                    chunk = safe_json_loads(payload, default=None)
                     if chunk is None:
+                        if payload and payload != "{}":
+                            log.error("streaming_loop: JSON decode error in payload: %s" % payload)
                         continue
 
                     # Log all chunks for debugging, even after content_finished

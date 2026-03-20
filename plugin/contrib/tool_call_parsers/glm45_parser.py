@@ -18,6 +18,7 @@ import re
 import uuid
 from typing import Any, Dict, List
 
+from plugin.framework.errors import safe_json_loads
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 
 from plugin.contrib.tool_call_parsers import ParseResult, ToolCallParser, register_parser
@@ -28,10 +29,9 @@ def _deserialize_value(value: str) -> Any:
     Try to deserialize a string value to its native Python type.
     Attempts json.loads, then ast.literal_eval, then returns raw string.
     """
-    try:
-        return json.loads(value)
-    except (json.JSONDecodeError, TypeError):
-        pass
+    data = safe_json_loads(value, default=None)
+    if data is not None:
+        return data
 
     try:
         return ast.literal_eval(value)

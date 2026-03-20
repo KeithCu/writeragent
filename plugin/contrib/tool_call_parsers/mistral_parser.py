@@ -13,6 +13,7 @@ import json
 import re
 from typing import List
 
+from plugin.framework.errors import safe_json_loads
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 
 from plugin.contrib.tool_call_parsers import ParseResult, ToolCallParser, register_parser
@@ -76,8 +77,8 @@ class MistralToolCallParser(ToolCallParser):
                     )
             else:
                 # Pre-v11 format: [TOOL_CALLS] [{"name": ..., "arguments": {...}}]
-                try:
-                    parsed = json.loads(first_raw)
+                parsed = safe_json_loads(first_raw, default=None)
+                if parsed is not None:
                     if isinstance(parsed, dict):
                         parsed = [parsed]
 
@@ -95,13 +96,13 @@ class MistralToolCallParser(ToolCallParser):
                                 ),
                             )
                         )
-                except json.JSONDecodeError:
+                else:
                     # Fallback regex extraction
                     match = self.TOOL_CALL_REGEX.findall(first_raw)
                     if match:
                         for raw_json in match:
-                            try:
-                                tc = json.loads(raw_json)
+                            tc = safe_json_loads(raw_json, default=None)
+                            if tc and isinstance(tc, dict):
                                 args = tc.get("arguments", {})
                                 if isinstance(args, dict):
                                     args = json.dumps(args, ensure_ascii=False)
@@ -114,8 +115,6 @@ class MistralToolCallParser(ToolCallParser):
                                         ),
                                     )
                                 )
-                            except (json.JSONDecodeError, KeyError):
-                                continue
 
             if not tool_calls:
                 return text, None
