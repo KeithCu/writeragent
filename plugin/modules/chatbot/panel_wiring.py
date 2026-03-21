@@ -4,6 +4,9 @@ import logging
 from plugin.framework.dialogs import (
     get_optional as get_optional_control,
     get_checkbox_state,
+    set_control_enabled,
+    get_control_text,
+    set_control_text
 )
 from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
@@ -64,8 +67,8 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         log.error("_wireControls ERROR: %s" % msg)
         try:
             if controls["response"] and controls["response"].getModel():
-                current = controls["response"].getModel().Text or ""
-                controls["response"].getModel().Text = current + "[Init error: %s]\n" % msg
+                current = get_control_text(controls["response"]) or ""
+                set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
         except Exception:
             pass
 
@@ -78,7 +81,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
         
-        set_control_enabled = self._wire_image_ui(
+        self._wire_image_ui(
             controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"],
             controls["direct_image_check"], controls["web_research_check"], controls["model_label"], 
             controls["model_selector"], controls["image_model_selector"]
@@ -88,7 +91,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         _show_init_error("Config: %s" % e)
         log.error(traceback.format_exc())
         extra_instructions = ""
-        set_control_enabled = lambda ctrl, en: None
 
     # 2. Setup Sessions
     model = self._get_document_model()
@@ -120,7 +122,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             from plugin.modules.chatbot.panel import QueryTextListener
             query_text_listener = QueryTextListener(controls["send"])
             controls["query"].addTextListener(query_text_listener)
-            if controls["query"].getModel().Text.strip():
+            if get_control_text(controls["query"]).strip():
                 controls["send"].getModel().Label = "Send"
             else:
                 controls["send"].getModel().Label = "Record" if has_recording else "Send"

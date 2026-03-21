@@ -59,7 +59,12 @@ def test_do_send_direct_image():
     mock_unohelper.Base = DummyBase1
     mock_awt = MagicMock()
     mock_awt.XActionListener = DummyBase2
-    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt}):
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run_bg:
             # Synchronous execution of background worker
             def fake_run_bg(func):
@@ -117,7 +122,12 @@ def test_do_send_direct_image_error():
     mock_unohelper.Base = DummyBase1
     mock_awt = MagicMock()
     mock_awt.XActionListener = DummyBase2
-    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt}):
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run_bg:
             # Synchronous execution of background worker
             def fake_run_bg(func):
@@ -281,7 +291,12 @@ def test_run_web_research_invalid_json():
     mock_unohelper.Base = DummyBase1
     mock_awt = MagicMock()
     mock_awt.XActionListener = DummyBase2
-    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt}):
+    mock_awt.XItemListener = DummyBase2
+    mock_awt.XTextListener = DummyBase2
+    mock_awt.XWindowListener = DummyBase2
+    mock_lang = MagicMock()
+    mock_lang.XEventListener = DummyBase2
+    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run_bg:
             # Synchronous execution of background worker
             def fake_run_bg(func):

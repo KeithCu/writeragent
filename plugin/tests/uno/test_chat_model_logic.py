@@ -57,6 +57,7 @@ sys.modules['core.constants'] = MagicMock()
 sys.path.insert(0, get_plugin_dir())
 
 from plugin.modules.chatbot.panel_factory import SendButtonListener
+from plugin.framework.dialogs import set_control_text, get_control_text
 
 class TestChatModelLogic(unittest.TestCase):
     def setUp(self):
@@ -86,7 +87,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.modules.chatbot.tool_loop.get_current_endpoint')
     @patch('plugin.modules.http.client.LlmClient')
     def test_do_send_updates_model(self, mock_llm_client, mock_get_current_endpoint, mock_update_lru, mock_set_config, mock_get_config, mock_ensure_path, *args, **kwargs):
-        self.query_control.getModel().Text = "Hello AI"
+        set_control_text(self.query_control, "Hello AI")
         self.model_selector.getText.return_value = "new-model-xyz"
         mock_get_config.side_effect = lambda ctx, key, default=None: default
         mock_get_current_endpoint.return_value = "http://x"
@@ -108,7 +109,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.framework.config.get_current_endpoint')
     @patch('plugin.modules.http.client.LlmClient')
     def test_image_model_updates(self, mock_llm_client, mock_get_current_endpoint, mock_update_lru, mock_set_config, mock_get_config, mock_ensure_path, *args, **kwargs):
-        self.query_control.getModel().Text = "Hello AI"
+        set_control_text(self.query_control, "Hello AI")
         self.model_selector.getText.return_value = "new-model-xyz"
         self.image_model_selector.getText.return_value = "new-image-model-xyz"
         mock_get_config.side_effect = lambda ctx, key, default=None: default
@@ -130,7 +131,7 @@ class TestChatModelLogic(unittest.TestCase):
 
         # Mock _get_document_model to return a Calc document (getSheets instead of getText)
         doc_mock = MagicMock()
-        self.listener.response_control.getModel().Text = ""
+        self.set_control_text(listener.response_control, "")
 
         # We need to correctly patch the checks used in _do_send to identify the document
         with patch.object(self.listener, '_get_document_model', return_value=doc_mock),              patch('plugin.framework.document.is_calc', return_value=True),              patch('plugin.framework.document.is_writer', return_value=False),              patch('plugin.framework.document.is_draw', return_value=False):
@@ -139,7 +140,7 @@ class TestChatModelLogic(unittest.TestCase):
             # Since document changed from Writer to Calc, it should abort and show an error.
             self.assertEqual(self.listener._terminal_status, "Error")
             # Verify the response control text was updated with the error
-            self.assertTrue("[Internal Error: Document type changed from Writer to Calc! Please file an error.]" in self.listener.response_control.getModel().Text)
+            self.assertTrue("[Internal Error: Document type changed from Writer to Calc! Please file an error.]" in self.get_control_text(listener.response_control))
 
     @patch('plugin.framework.logging.update_activity_state')
     def test_button_lifecycle(self, mock_update_activity):

@@ -17,7 +17,7 @@
 import logging
 from plugin.framework.errors import format_error_payload
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
-from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional
+from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
 from plugin.framework.logging import init_logging, agent_log
 from plugin.framework.history_db import HAS_SQLITE
@@ -44,7 +44,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         raise
     try:
         dlg.getControl("label").getModel().Label = str(message)
-        dlg.getControl("edit").getModel().Text = str(default)
+        set_control_text(dlg.getControl("edit"), str(default))
         if title:
             dlg.getModel().Title = title
         
@@ -63,7 +63,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         
         log.debug("input_box: showing dialog (execute, level=logging.DEBUG)")
         if dlg.execute():
-            ret_text = dlg.getControl("edit").getModel().Text
+            ret_text = get_control_text(dlg.getControl("edit"))
             ret_prompt = prompt_ctrl.getText()
             if model_selector:
                 chosen = model_selector.getText()
@@ -198,7 +198,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                         populate_combobox_with_lru(self._ctx, stt_ctrl, "", "audio_model_lru", resolved)
                                     api_key_ctrl = self._dlg.getControl("api_key")
                                     if api_key_ctrl:
-                                        api_key_ctrl.getModel().Text = get_api_key_for_endpoint(self._ctx, resolved)
+                                        set_control_text(api_key_ctrl, get_api_key_for_endpoint(self._ctx, resolved))
                                 except Exception as e:
                                     log.error("EndpointCombinedListener error updating dropdowns: %s", e, exc_info=True)
 
@@ -254,7 +254,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                         ctrl.setText(field["value"])
                     else:
                         try:
-                            ctrl.getModel().Text = field["value"]
+                            set_control_text(ctrl, field["value"])
                         except Exception:
                             pass
         if not HAS_SQLITE:
@@ -262,7 +262,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                 ctrl = get_optional(dlg, name)
                 if ctrl:
                     try:
-                        ctrl.getModel().Enabled = False
+                        set_control_enabled(ctrl, False)
                     except Exception:
                         pass
         dlg.getControl("endpoint").setFocus()
@@ -277,7 +277,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                             control_text = ctrl.getText()
                         else:
                             try:
-                                control_text = ctrl.getModel().Text
+                                control_text = get_control_text(ctrl)
                             except Exception:
                                 control_text = ""
                         
@@ -326,7 +326,7 @@ def show_eval_dashboard(ctx):
 
     try:
         endpoint_ctrl = dlg.getControl("endpoint")
-        endpoint_ctrl.getModel().Text = str(get_config(ctx, "endpoint") or "")
+        set_control_text(endpoint_ctrl, str(get_config(ctx, "endpoint") or ""))
         
         model_ctrl = dlg.getControl("models")
         current_model = str(get_config(ctx, "text_model") or get_config(ctx, "model") or "")

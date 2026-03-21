@@ -467,6 +467,63 @@ def is_checkbox_control(ctrl):
     return False
 
 
+def set_control_enabled(ctrl, enabled):
+    """Safely set the enabled state of a control or its model.
+    Logs instead of crashing if the capability is missing."""
+    if not ctrl:
+        return
+    try:
+        if hasattr(ctrl, "setEnable"):
+            ctrl.setEnable(enabled)
+        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Enabled"):
+            ctrl.getModel().Enabled = enabled
+    except Exception as e:
+        log.debug("set_control_enabled exception: %s", e)
+
+
+def set_control_visible(ctrl, visible):
+    """Safely set the visibility state of a control or its model.
+    Logs instead of crashing if the capability is missing."""
+    if not ctrl:
+        return
+    try:
+        if hasattr(ctrl, "setVisible"):
+            ctrl.setVisible(visible)
+        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Visible"):
+            ctrl.getModel().Visible = visible
+    except Exception as e:
+        log.debug("set_control_visible exception: %s", e)
+
+
+def get_control_text(ctrl, default=""):
+    """Safely get the text of a control.
+    Returns default if missing or on error."""
+    if not ctrl:
+        return default
+    try:
+        if hasattr(ctrl, "getText"):
+            return ctrl.getText()
+        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Text"):
+            return ctrl.getModel().Text
+    except Exception as e:
+        log.debug("get_control_text exception: %s", e)
+    return default
+
+
+def set_control_text(ctrl, text):
+    """Safely set the text of a control.
+    Logs instead of crashing if the capability is missing."""
+    if not ctrl:
+        return
+    try:
+        if hasattr(ctrl, "setText"):
+            ctrl.setText(text)
+        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Text"):
+            ctrl.getModel().Text = text
+    except Exception as e:
+        log.debug("set_control_text exception: %s", e)
+
+
 def get_checkbox_state(ctrl):
     """Return checkbox state 0 or 1. Prefer control getState(), else model.State.
 

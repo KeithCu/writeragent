@@ -251,8 +251,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Append text to the response area."""
         try:
             if self.response_control and self.response_control.getModel():
-                current = self.response_control.getModel().Text or ""
-                self.response_control.getModel().Text = current + text
+                current = get_control_text(self.response_control) or ""
+                set_control_text(self.response_control, current + text)
                 self._scroll_response_to_bottom()
         except Exception:
             pass
@@ -319,7 +319,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 # Stop recording and proceed to send
                 from plugin.modules.chatbot.audio_recorder import stop_recording
                 self.audio_wav_path = stop_recording()
-                if self.query_control and self.query_control.getModel().Text.strip():
+                if self.query_control and get_control_text(self.query_control).strip():
                     btn_model.Label = "Send"
                 else:
                     btn_model.Label = "Record"
@@ -346,7 +346,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._set_status(self._terminal_status)
             if self.send_control and self.send_control.getModel().Label not in ("Record", "Stop Rec"):
                 # if empty, set to Record (when recording available) else Send
-                if self.query_control and (self.query_control.getModel().Text.strip() or self.audio_wav_path):
+                if self.query_control and (get_control_text(self.query_control).strip() or self.audio_wav_path):
                     self.send_control.getModel().Label = "Send"
                 else:
                     self.send_control.getModel().Label = "Record" if HAS_RECORDING else "Send"
@@ -401,7 +401,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Get user query and clear field (before loading tools, so direct-image path can return early)
         query_text = ""
         if self.query_control and self.query_control.getModel():
-            query_text = (self.query_control.getModel().Text or "").strip()
+            query_text = (get_control_text(self.query_control) or "").strip()
 
         # Audio implies we have input even if text is empty
         if not query_text and not self.audio_wav_path:
@@ -409,7 +409,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         if self.query_control and self.query_control.getModel():
-            self.query_control.getModel().Text = ""
+            set_control_text(self.query_control, "")
 
         # Transcription Fallback check
         if self.audio_wav_path:
@@ -563,6 +563,6 @@ class ClearButtonListener(BaseActionListener):
         self.session.clear()
         if self.response_control and self.response_control.getModel():
             text = self.greeting + "\n" if self.greeting else ""
-            self.response_control.getModel().Text = text
+            set_control_text(self.response_control, text)
         if self.status_control:
             self.status_control.setText("")

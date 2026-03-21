@@ -269,7 +269,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             text += "\nAssistant: [Thinking...]"
                         text += "\n"
                 
-                response_ctrl.getModel().Text = text
+                set_control_text(response_ctrl, text)
                 # Scroll to bottom
                 if hasattr(response_ctrl, "setSelection"):
                     length = len(text)
@@ -356,15 +356,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Enable/disable the LLM model selector based on the agent backend
             model_selector = get_optional_control(root, "model_selector")
             if model_selector and hasattr(model_selector, "getModel"):
-                model_selector.getModel().Enabled = not is_external
+                set_control_enabled(model_selector, not is_external)
                 
             direct_image_check = get_optional_control(root, "direct_image_check")
             if direct_image_check and hasattr(direct_image_check, "getModel"):
-                direct_image_check.getModel().Enabled = not is_external
+                set_control_enabled(direct_image_check, not is_external)
                 
             web_research_check = get_optional_control(root, "web_research_check")
             if web_research_check and hasattr(web_research_check, "getModel"):
-                web_research_check.getModel().Enabled = not is_external
+                set_control_enabled(web_research_check, not is_external)
                 
         except Exception as e:
             log.error("_update_backend_indicator error: %s" % e)
@@ -448,18 +448,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             update_base_size_label(aspect_ratio_selector.getItem(idx))
                 aspect_ratio_selector.addItemListener(AspectListener())
 
-        def set_control_enabled(ctrl, enabled):
-            if ctrl:
-                if hasattr(ctrl, "setEnable"): ctrl.setEnable(enabled)
-                elif hasattr(ctrl.getModel(), "Enabled"): ctrl.getModel().Enabled = enabled
+        # We now use the global set_control_enabled and set_control_visible from plugin.framework.dialogs
 
         def toggle_image_ui(is_image_mode):
-            if model_label and hasattr(model_label, "setVisible"): model_label.setVisible(not is_image_mode)
-            if model_selector and hasattr(model_selector, "setVisible"): model_selector.setVisible(not is_image_mode)
-            if image_model_selector and hasattr(image_model_selector, "setVisible"): image_model_selector.setVisible(is_image_mode)
-            if aspect_ratio_selector and hasattr(aspect_ratio_selector, "setVisible"): aspect_ratio_selector.setVisible(is_image_mode)
-            if base_size_input and hasattr(base_size_input, "setVisible"): base_size_input.setVisible(is_image_mode)
-            if base_size_label and hasattr(base_size_label, "setVisible"): base_size_label.setVisible(is_image_mode)
+            set_control_visible(model_label, not is_image_mode)
+            set_control_visible(model_selector, not is_image_mode)
+            set_control_visible(image_model_selector, is_image_mode)
+            set_control_visible(aspect_ratio_selector, is_image_mode)
+            set_control_visible(base_size_input, is_image_mode)
+            set_control_visible(base_size_label, is_image_mode)
             # Visibility swap changes vertical cluster; reflow so combos keep correct width.
             tp = getattr(self, "toolpanel", None)
             root = getattr(self, "m_panelRootWindow", None)
@@ -500,8 +497,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     set_control_enabled(direct_image_check, False)
             except Exception as e:
                 log.error("web_research_check initial wire error: %s", e)
-                
-        return set_control_enabled
 
     def _setup_sessions(self, model, extra_instructions):
         """Creates the document and web research chat sessions."""
@@ -527,7 +522,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls, model, active_greeting, set_control_enabled):
+    def _wire_buttons(self, controls, model, active_greeting):
         """Wires up the Send, Stop, Clear, and Research toggle buttons."""
         send_listener = None
         try:
@@ -568,18 +563,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if controls["web_research_check"] and hasattr(controls["web_research_check"], "addItemListener"):
             from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
             class ResearchChatToggledListener(BaseItemListener):
-                def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check, set_control_enabled):
+                def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check):
                     self.panel = panel
                     self.response_ctrl = response_ctrl
                     self.model = model
                     self.send_listener = send_listener
                     self.clear_listener = clear_listener
                     self.img_check = img_check
-                    self.set_control_enabled = set_control_enabled
 
                 def on_item_state_changed(self, ev):
                     is_research = (getattr(ev, "Selected", 0) == 1)
-                    self.set_control_enabled(self.img_check, not is_research)
+                    set_control_enabled(self.img_check, not is_research)
 
                     if is_research:
                         self.panel.session = self.panel.web_session
@@ -595,7 +589,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self.panel._render_session_history(self.panel.session, self.response_ctrl, self.model, greeting)
 
             controls["web_research_check"].addItemListener(ResearchChatToggledListener(
-                self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"], set_control_enabled))
+                self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"]))
 
 
 

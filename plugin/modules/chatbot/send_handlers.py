@@ -110,7 +110,7 @@ class SendHandlersMixin:
                     if hasattr(self.base_size_input, "getText"):
                         base_size_val = self.base_size_input.getText()
                     elif hasattr(self.base_size_input.getModel(), "Text"):
-                        base_size_val = self.base_size_input.getModel().Text
+                        base_size_val = get_control_text(self.base_size_input)
                 try:
                     base_size_val = int(base_size_val)
                 except (ValueError, TypeError):
@@ -409,9 +409,10 @@ class SendHandlersMixin:
         except Exception:
             show_thinking = False
 
+        from plugin.framework.dialogs import get_control_text
         history_text = ""
         if self.response_control and self.response_control.getModel():
-            history_text = self.response_control.getModel().Text or ""
+            history_text = get_control_text(self.response_control) or ""
 
         def run_search():
             doc_type = (
