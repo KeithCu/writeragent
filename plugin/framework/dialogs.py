@@ -41,6 +41,7 @@ import logging
 import threading
 import unohelper
 from plugin.framework.listeners import BaseActionListener
+from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
 from plugin.framework.uno_context import get_desktop, get_extension_url
 
@@ -340,7 +341,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
             except Exception:
                 pass  # dialog already closed
 
-        threading.Thread(target=_probe_update, daemon=True).start()
+        run_in_background(_probe_update, daemon=True, name="status-dialog-probe")
 
         dlg.execute()
         dlg.dispose()

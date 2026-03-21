@@ -29,6 +29,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 
 from plugin.framework.errors import safe_json_loads
+from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger("writeragent.framework.http_server")
 
@@ -168,9 +169,8 @@ class HttpServer:
                 self._server.socket, server_side=True)
 
         self._running = True
-        self._thread = threading.Thread(
-            target=self._run, daemon=True, name="http-server")
-        self._thread.start()
+        self._thread = run_in_background(
+            self._run, daemon=True, name="http-server")
 
         scheme = "https" if self.use_ssl else "http"
         url = "%s://%s:%s" % (scheme, self.host, self.port)

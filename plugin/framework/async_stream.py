@@ -24,6 +24,8 @@ import logging
 import queue
 import threading
 
+from plugin.framework.worker_pool import run_in_background
+
 log = logging.getLogger(__name__)
 
 
@@ -242,8 +244,7 @@ def run_stream_completion_async(
         on_error_fn(e)
         return
 
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
+    run_in_background(worker, daemon=True, name="stream-completion")
 
     def on_stream_done_wrapper(_response):
         on_done_fn()
@@ -312,8 +313,7 @@ def run_stream_async(
             on_error_fn(e)
         return
 
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
+    run_in_background(worker, daemon=True, name="stream-async")
 
     def on_stream_done_wrapper(_response):
         if on_done_fn:
@@ -353,8 +353,7 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
         # Fallback if toolkit isn't available (unlikely in UI context)
         return func(*args, **kwargs)
 
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
+    run_in_background(worker, daemon=True, name="blocking-thread")
 
     while True:
         try:

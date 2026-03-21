@@ -13,6 +13,8 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.worker_pool import run_in_background
+
 from plugin.modules.agent_backend.acp_connection import ACPConnection
 from plugin.modules.agent_backend.hermes_proxy import (
     HermesBackend,
@@ -97,8 +99,7 @@ class TestACPConnection(unittest.TestCase):
         conn._proc = mock_proc
 
         # Run reader in a thread briefly
-        reader = threading.Thread(target=conn._reader_loop, daemon=True)
-        reader.start()
+        reader = run_in_background(conn._reader_loop, daemon=True)
         event.wait(timeout=2)
         conn._running = False
         reader.join(timeout=2)
@@ -131,8 +132,7 @@ class TestACPConnection(unittest.TestCase):
         mock_proc.stderr.read.return_value = b""
         conn._proc = mock_proc
 
-        reader = threading.Thread(target=conn._reader_loop, daemon=True)
-        reader.start()
+        reader = run_in_background(conn._reader_loop, daemon=True)
         reader.join(timeout=2)
         conn._running = False
 

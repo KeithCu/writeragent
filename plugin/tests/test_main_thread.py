@@ -3,6 +3,8 @@ import queue
 import pytest
 from unittest.mock import patch, MagicMock
 
+from plugin.framework.worker_pool import run_in_background
+
 from plugin.framework.main_thread import (
     _WorkItem,
     execute_on_main_thread,
@@ -77,11 +79,8 @@ def test_execute_on_main_thread_background(mock_poke, mock_get_async):
         except Exception as e:
             exceptions[val] = e
 
-    t1 = threading.Thread(target=bg_thread, args=(5,))
-    t2 = threading.Thread(target=bg_thread, args=(0,))
-
-    t1.start()
-    t2.start()
+    t1 = run_in_background(bg_thread, 5, daemon=False)
+    t2 = run_in_background(bg_thread, 0, daemon=False)
 
     t1.join(timeout=2.0)
     t2.join(timeout=2.0)
@@ -112,8 +111,7 @@ def test_execute_on_main_thread_timeout(mock_poke, mock_get_async):
         except Exception as e:
             exc_caught = e
 
-    t = threading.Thread(target=bg_thread)
-    t.start()
+    t = run_in_background(bg_thread, daemon=False)
     t.join(timeout=1.0)
 
     assert isinstance(exc_caught, TimeoutError)

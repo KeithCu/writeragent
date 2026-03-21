@@ -23,6 +23,8 @@ import traceback
 import threading
 import logging
 
+from plugin.framework.worker_pool import run_in_background
+
 # Globals set by init_logging(ctx); used by debug_log and agent_log so ctx is not passed at write time.
 _debug_log_path = None
 _agent_log_path = None
@@ -343,5 +345,4 @@ def start_watchdog_thread(ctx, status_control=None):
         if _watchdog_started:
             return
         _watchdog_started = True
-    t = threading.Thread(target=_watchdog_loop, args=(status_control,), daemon=True)
-    t.start()
+    run_in_background(_watchdog_loop, status_control, name="watchdog", daemon=True)

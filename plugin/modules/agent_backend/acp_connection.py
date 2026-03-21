@@ -27,6 +27,7 @@ import subprocess
 import threading
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
 
@@ -69,10 +70,9 @@ class ACPConnection:
             cwd=self._cwd,
         )
         self._running = True
-        self._reader_thread = threading.Thread(
-            target=self._reader_loop, daemon=True, name="acp-reader"
+        self._reader_thread = run_in_background(
+            self._reader_loop, daemon=True, name="acp-reader"
         )
-        self._reader_thread.start()
 
     def stop(self):
         """Terminate the subprocess."""

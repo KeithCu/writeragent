@@ -2,6 +2,7 @@ import pytest
 import queue
 import time
 from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.worker_pool import run_in_background
 
 class DummyToolkit:
     def processEventsToIdle(self):
@@ -410,8 +411,6 @@ def test_run_stream_drain_loop_next_tool_and_approval():
 
 
 def test_run_stream_drain_loop_connection_drop():
-    import threading
-
     q = queue.Queue()
     job_done = [False]
     toolkit = DummyToolkit()
@@ -447,8 +446,7 @@ def test_run_stream_drain_loop_connection_drop():
         except Exception as e:
             q.put(("error", e))
 
-    t = threading.Thread(target=worker)
-    t.start()
+    t = run_in_background(worker, daemon=False)
 
     # Run the drain loop in the main thread (simulated)
     # The loop should terminate when job_done[0] becomes True, which happens on error
