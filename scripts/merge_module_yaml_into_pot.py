@@ -45,7 +45,7 @@ def _collect_strings_from_module_yaml(path: str) -> list[tuple[str, str]]:
     title = data.get("title")
     if isinstance(title, str) and title.strip():
         t = title.strip()
-        results.append((t, f"settings-module/{module_name}/title"))
+        results.append((t, None))
 
     config = data.get("config")
     if not isinstance(config, dict):
@@ -56,18 +56,17 @@ def _collect_strings_from_module_yaml(path: str) -> list[tuple[str, str]]:
             continue
         if schema.get("internal"):
             continue
-        base = f"settings-field/{module_name}.{field_name}"
         for key in ("label", "helper"):
             val = schema.get(key)
             if isinstance(val, str) and val.strip():
-                results.append((val.strip(), f"{base}/{key}"))
+                results.append((val.strip(), None))
         opts = schema.get("options")
         if isinstance(opts, list):
             for i, opt in enumerate(opts):
                 if isinstance(opt, dict):
                     lab = opt.get("label")
                     if isinstance(lab, str) and lab.strip():
-                        results.append((lab.strip(), f"settings-option/{module_name}.{field_name}/{i}"))
+                        results.append((lab.strip(), None))
 
     return results
 

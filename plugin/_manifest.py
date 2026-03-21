@@ -1,6 +1,6 @@
 """Auto-generated module manifest. DO NOT EDIT."""
 
-VERSION = '0.4.0-beta'
+VERSION = '0.6.0-beta'
 
 MODULES = [
     {
@@ -9,6 +9,7 @@ MODULES = [
         "requires": [],
         "provides_services": [],
         "config": {},
+        "config_inline": None,
         "actions": [
                 "about"
         ],
@@ -24,7 +25,54 @@ MODULES = [
                 "events",
                 "format"
         ],
+        "config": {
+                "log_level": {
+                        "type": "string",
+                        "default": "DEBUG",
+                        "widget": "select",
+                        "label": "Log Level",
+                        "internal": True,
+                        "options": [
+                                {
+                                        "value": "DEBUG",
+                                        "label": "Debug"
+                                },
+                                {
+                                        "value": "INFO",
+                                        "label": "Info"
+                                },
+                                {
+                                        "value": "WARN",
+                                        "label": "Warning"
+                                },
+                                {
+                                        "value": "ERROR",
+                                        "label": "Error"
+                                }
+                        ]
+                }
+        },
+        "config_inline": None,
+        "actions": [],
+        "action_icons": {}
+},
+    {
+        "name": "writer",
+        "title": "Writer document tools (including navigation and search)",
+        "requires": [
+                "document",
+                "config",
+                "format",
+                "events"
+        ],
+        "provides_services": [
+                "writer_bookmarks",
+                "writer_tree",
+                "writer_proximity",
+                "writer_index"
+        ],
         "config": {},
+        "config_inline": None,
         "actions": [],
         "action_icons": {}
 },
@@ -57,6 +105,256 @@ MODULES = [
                         "public": True
                 }
         },
+        "config_inline": None,
+        "actions": [],
+        "action_icons": {}
+},
+    {
+        "name": "chatbot",
+        "title": "AI chat sidebar and REST API",
+        "requires": [
+                "document",
+                "config",
+                "events",
+                "http_routes"
+        ],
+        "provides_services": [],
+        "config": {
+                "max_tool_rounds": {
+                        "type": "int",
+                        "default": 15,
+                        "min": 1,
+                        "max": 50,
+                        "widget": "number",
+                        "label": "Max Tool Rounds"
+                },
+                "context_strategy": {
+                        "type": "string",
+                        "default": "auto",
+                        "widget": "select",
+                        "label": "Document Context Strategy",
+                        "helper": "How much document content to include in LLM context",
+                        "options": [
+                                {
+                                        "value": "auto",
+                                        "label": "Auto (by document size)"
+                                },
+                                {
+                                        "value": "full",
+                                        "label": "Full document text"
+                                },
+                                {
+                                        "value": "page",
+                                        "label": "Pages around cursor"
+                                },
+                                {
+                                        "value": "tree",
+                                        "label": "Outline + excerpt"
+                                },
+                                {
+                                        "value": "stats",
+                                        "label": "Stats + outline only"
+                                }
+                        ]
+                },
+                "extend_selection_max_tokens": {
+                        "type": "int",
+                        "default": 1000,
+                        "min": 10,
+                        "max": 4096,
+                        "widget": "number",
+                        "label": "Extend Selection Max Tokens"
+                },
+                "edit_selection_max_new_tokens": {
+                        "type": "int",
+                        "default": 1000,
+                        "min": 0,
+                        "max": 4096,
+                        "widget": "number",
+                        "label": "Edit Selection Extra Tokens",
+                        "helper": "Extra tokens beyond original text length. 0 = same length as original."
+                },
+                "show_search_thinking": {
+                        "type": "boolean",
+                        "default": False,
+                        "widget": "checkbox",
+                        "label": "Show Web Search Thinking"
+                },
+                "web_cache_max_mb": {
+                        "type": "int",
+                        "default": 50,
+                        "min": 0,
+                        "max": 500,
+                        "widget": "number",
+                        "label": "Web Cache Max Size (MB)",
+                        "helper": "Max disk size for web search cache (0 to disable)"
+                },
+                "web_cache_validity_days": {
+                        "type": "int",
+                        "default": 7,
+                        "min": 1,
+                        "max": 30,
+                        "widget": "number",
+                        "label": "Web Cache Validity (Days)",
+                        "helper": "How many days cache entries should be considered valid."
+                },
+                "query_history": {
+                        "type": "string",
+                        "default": "[]",
+                        "internal": True
+                }
+        },
+        "config_inline": None,
+        "actions": [
+                "extend_selection",
+                "edit_selection"
+        ],
+        "action_icons": {}
+},
+    {
+        "name": "tunnel",
+        "title": "Tunnel providers for external MCP access",
+        "requires": [
+                "config",
+                "events",
+                "http_routes"
+        ],
+        "provides_services": [
+                "tunnel_manager"
+        ],
+        "config": {
+                "auto_start": {
+                        "type": "boolean",
+                        "default": False,
+                        "widget": "checkbox",
+                        "label": "Auto Start Tunnel",
+                        "public": True
+                },
+                "provider": {
+                        "type": "string",
+                        "default": "",
+                        "widget": "select",
+                        "label": "Tunnel Provider",
+                        "options_provider": "plugin.modules.tunnel:get_provider_options"
+                },
+                "server": {
+                        "type": "string",
+                        "default": "bore.pub",
+                        "label": "Bore Server",
+                        "helper": "Relay server (default: bore.pub)"
+                },
+                "tunnel_name": {
+                        "type": "string",
+                        "default": "",
+                        "label": "Cloudflare Tunnel Name",
+                        "helper": "Optional: use a named tunnel instead of a quick tunnel"
+                },
+                "public_url": {
+                        "type": "string",
+                        "default": "",
+                        "label": "Cloudflare Public URL",
+                        "helper": "Required for named tunnels"
+                },
+                "authtoken": {
+                        "type": "string",
+                        "default": "",
+                        "widget": "password",
+                        "label": "Ngrok Authtoken"
+                }
+        },
+        "config_inline": None,
+        "actions": [],
+        "action_icons": {}
+},
+    {
+        "name": "doc",
+        "title": "Common tools for all document types",
+        "requires": [
+                "document",
+                "config",
+                "events"
+        ],
+        "provides_services": [],
+        "config": {},
+        "config_inline": None,
+        "actions": [],
+        "action_icons": {}
+},
+    {
+        "name": "calc",
+        "title": "Calc spreadsheet tools",
+        "requires": [
+                "document",
+                "config"
+        ],
+        "provides_services": [],
+        "config": {
+                "max_rows_display": {
+                        "type": "int",
+                        "default": 1000,
+                        "min": 100,
+                        "max": 100000,
+                        "widget": "number",
+                        "label": "Max Rows Display",
+                        "public": True
+                }
+        },
+        "config_inline": "doc",
+        "actions": [],
+        "action_icons": {}
+},
+    {
+        "name": "agent_backend",
+        "title": "Agent backends (Aider, Hermes)",
+        "requires": [
+                "config",
+                "document"
+        ],
+        "provides_services": [],
+        "config": {
+                "backend_id": {
+                        "type": "string",
+                        "default": "builtin",
+                        "widget": "select",
+                        "label": "Backend",
+                        "options": [
+                                {
+                                        "value": "builtin",
+                                        "label": "Built-in"
+                                },
+                                {
+                                        "value": "hermes",
+                                        "label": "Hermes"
+                                },
+                                {
+                                        "value": "claude",
+                                        "label": "Claude Code (ACP)"
+                                }
+                        ]
+                },
+                "path": {
+                        "type": "string",
+                        "default": "",
+                        "widget": "text",
+                        "label": "Path / URL",
+                        "helper": "Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default."
+                },
+                "args": {
+                        "type": "string",
+                        "default": "",
+                        "widget": "text",
+                        "label": "Extra arguments",
+                        "helper": "Optional arguments for the selected backend (space-separated)."
+                },
+                "acp_agent_name": {
+                        "type": "string",
+                        "default": "",
+                        "widget": "text",
+                        "label": "ACP agent name",
+                        "helper": "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent."
+                }
+        },
+        "config_inline": None,
         "actions": [],
         "action_icons": {}
 },
@@ -135,6 +433,7 @@ MODULES = [
                         "public": True
                 }
         },
+        "config_inline": None,
         "actions": [
                 "launch_cli"
         ],
@@ -143,332 +442,15 @@ MODULES = [
         }
 },
     {
-        "name": "ai",
-        "title": "AI provider registry and model catalog",
-        "requires": [
-                "config",
-                "events"
-        ],
-        "provides_services": [
-                "ai"
-        ],
-        "config": {},
-        "actions": [],
-        "action_icons": {}
-},
-    {
         "name": "draw",
         "title": "Draw and Impress tools",
-        "requires": [
-                "document",
-                "config",
-                "ai"
-        ],
-        "provides_services": [],
-        "config": {},
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "calc",
-        "title": "Calc spreadsheet tools",
         "requires": [
                 "document",
                 "config"
         ],
         "provides_services": [],
-        "config": {
-                "max_rows_display": {
-                        "type": "int",
-                        "default": 1000,
-                        "min": 100,
-                        "max": 100000,
-                        "widget": "number",
-                        "label": "Max Rows Display",
-                        "public": True
-                }
-        },
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "batch",
-        "title": "Batch tool execution with variable chaining",
-        "requires": [
-                "document",
-                "config",
-                "events"
-        ],
-        "provides_services": [],
         "config": {},
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "writer",
-        "title": "Writer document tools (including navigation and search)",
-        "requires": [
-                "document",
-                "config",
-                "format",
-                "ai",
-                "events"
-        ],
-        "provides_services": [
-                "writer_bookmarks",
-                "writer_tree",
-                "writer_proximity",
-                "writer_index"
-        ],
-        "config": {
-                "max_content_chars": {
-                        "type": "int",
-                        "default": 50000,
-                        "min": 1000,
-                        "max": 500000,
-                        "widget": "number",
-                        "label": "Max Content Size",
-                        "public": True
-                }
-        },
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "chatbot",
-        "title": "AI chat sidebar and REST API",
-        "requires": [
-                "document",
-                "config",
-                "events",
-                "ai",
-                "http_routes"
-        ],
-        "provides_services": [],
-        "config": {
-                "max_tool_rounds": {
-                        "type": "int",
-                        "default": 15,
-                        "min": 1,
-                        "max": 50,
-                        "widget": "number",
-                        "label": "Max Tool Rounds"
-                },
-                "context_strategy": {
-                        "type": "string",
-                        "default": "auto",
-                        "widget": "select",
-                        "label": "Document Context Strategy",
-                        "helper": "How much document content to include in LLM context",
-                        "options": [
-                                {
-                                        "value": "auto",
-                                        "label": "Auto (by document size)"
-                                },
-                                {
-                                        "value": "full",
-                                        "label": "Full document text"
-                                },
-                                {
-                                        "value": "page",
-                                        "label": "Pages around cursor"
-                                },
-                                {
-                                        "value": "tree",
-                                        "label": "Outline + excerpt"
-                                },
-                                {
-                                        "value": "stats",
-                                        "label": "Stats + outline only"
-                                }
-                        ]
-                },
-                "system_prompt": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "textarea",
-                        "label": "System Prompt"
-                },
-                "image_provider": {
-                        "type": "string",
-                        "default": "endpoint",
-                        "widget": "select",
-                        "label": "Image Provider",
-                        "options": [
-                                {
-                                        "value": "endpoint",
-                                        "label": "LLM Endpoint"
-                                },
-                                {
-                                        "value": "ai_horde",
-                                        "label": "AI Horde (free)"
-                                }
-                        ]
-                },
-                "extend_selection_max_tokens": {
-                        "type": "int",
-                        "default": 1000,
-                        "min": 10,
-                        "max": 4096,
-                        "widget": "number",
-                        "label": "Extend Selection Max Tokens"
-                },
-                "edit_selection_max_new_tokens": {
-                        "type": "int",
-                        "default": 1000,
-                        "min": 0,
-                        "max": 4096,
-                        "widget": "number",
-                        "label": "Edit Selection Extra Tokens",
-                        "helper": "Extra tokens beyond original text length. 0 = same length as original."
-                },
-                "tool_broker": {
-                        "type": "boolean",
-                        "default": True,
-                        "widget": "checkbox",
-                        "label": "Tool Broker",
-                        "helper": "Two-tier tool delivery: LLM gets core tools first, activates others by intent"
-                },
-                "enter_sends": {
-                        "type": "boolean",
-                        "default": True,
-                        "widget": "checkbox",
-                        "label": "Enter Sends Message",
-                        "helper": "Press Enter to send, Shift+Enter for newline"
-                },
-                "api_enabled": {
-                        "type": "boolean",
-                        "default": False,
-                        "widget": "checkbox",
-                        "label": "Enable Chat API",
-                        "helper": "Expose /api/chat endpoints on the HTTP server",
-                        "public": True
-                },
-                "api_auth_token": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "API Auth Token",
-                        "helper": "Optional Bearer token for researchers/external apps. Empty = no auth."
-                },
-                "query_history": {
-                        "type": "string",
-                        "default": "[]",
-                        "internal": True
-                }
-        },
-        "actions": [
-                "extend_selection",
-                "edit_selection"
-        ],
-        "action_icons": {}
-},
-    {
-        "name": "tunnel",
-        "title": "Tunnel providers for external MCP access",
-        "requires": [
-                "config",
-                "events",
-                "http_routes"
-        ],
-        "provides_services": [
-                "tunnel_manager"
-        ],
-        "config": {
-                "auto_start": {
-                        "type": "boolean",
-                        "default": False,
-                        "widget": "checkbox",
-                        "label": "Auto Start Tunnel",
-                        "public": True
-                },
-                "provider": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "select",
-                        "label": "Tunnel Provider",
-                        "options_provider": "plugin.modules.tunnel:get_provider_options"
-                },
-                "server": {
-                        "type": "string",
-                        "default": "bore.pub",
-                        "label": "Bore Server",
-                        "helper": "Relay server (default: bore.pub)"
-                },
-                "tunnel_name": {
-                        "type": "string",
-                        "default": "",
-                        "label": "Cloudflare Tunnel Name",
-                        "helper": "Optional: use a named tunnel instead of a quick tunnel"
-                },
-                "public_url": {
-                        "type": "string",
-                        "default": "",
-                        "label": "Cloudflare Public URL",
-                        "helper": "Required for named tunnels"
-                },
-                "authtoken": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "password",
-                        "label": "Ngrok Authtoken"
-                }
-        },
-        "actions": [],
-        "action_icons": {}
-},
-    {
-        "name": "agent_backend",
-        "title": "Agent backends (Aider, Hermes)",
-        "requires": [
-                "config",
-                "document"
-        ],
-        "provides_services": [],
-        "config": {
-                "backend_id": {
-                        "type": "string",
-                        "default": "builtin",
-                        "widget": "select",
-                        "label": "Backend",
-                        "options": [
-                                {
-                                        "value": "builtin",
-                                        "label": "Built-in"
-                                },
-                                {
-                                        "value": "aider",
-                                        "label": "Aider"
-                                },
-                                {
-                                        "value": "hermes",
-                                        "label": "Hermes"
-                                },
-                                {
-                                        "value": "openhands",
-                                        "label": "OpenHands"
-                                },
-                                {
-                                        "value": "opencode",
-                                        "label": "OpenCode"
-                                }
-                        ]
-                },
-                "path": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Path",
-                        "helper": "Path to backend CLI or Python module (e.g. aider, hermes). Empty = try default."
-                },
-                "args": {
-                        "type": "string",
-                        "default": "",
-                        "widget": "text",
-                        "label": "Extra arguments",
-                        "helper": "Optional arguments for the selected backend (space-separated)."
-                }
-        },
+        "config_inline": None,
         "actions": [],
         "action_icons": {}
 },

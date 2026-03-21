@@ -29,4 +29,6 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 dev = [
     "polib>=1.2.0",
+    "pytest>=9.0.2",
+    "pyyaml>=6.0.3",
 ]
