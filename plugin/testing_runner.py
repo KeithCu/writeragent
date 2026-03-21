@@ -223,7 +223,7 @@ def run_all_tests(ctx: Any) -> str:
     draw_doc = model if (model is not None and is_draw(model)) else None
 
     import os
-    from plugin.framework.path_utils import get_plugin_dir
+    from plugin.framework.utils import get_plugin_dir
     import importlib.util
 
     tests_dir = os.path.join(get_plugin_dir(), "tests", "uno")

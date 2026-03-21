@@ -23,7 +23,7 @@ Language detected from UNO CharLocale. Stemming via bundled snowballstemmer.
 import logging
 import re
 import sys
-from plugin.framework.path_utils import get_plugin_dir
+from plugin.framework.utils import get_plugin_dir
 import os
 import time
 import unicodedata

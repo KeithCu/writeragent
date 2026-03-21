@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import sys
 import os
-from plugin.framework.path_utils import get_plugin_dir
+from plugin.framework.utils import get_plugin_dir
 import logging
 
 # Ensure the extension's install directory is on sys.path

@@ -1,4 +1,4 @@
-from plugin.framework.url_utils import normalize_endpoint_url
+from plugin.framework.utils import normalize_endpoint_url
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
@@ -20,7 +20,7 @@ Configuration logic for WriterAgent.
 Reads/writes writeragent.json in LibreOffice's user config directory.
 """
 import os
-from plugin.framework.path_utils import get_plugin_dir
+from plugin.framework.utils import get_plugin_dir
 import json
 import logging
 import dataclasses

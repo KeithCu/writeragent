@@ -4,7 +4,7 @@ import urllib.request
 import urllib.parse
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 from plugin.framework.errors import NetworkError
-from plugin.framework.url_utils import get_url_hostname
+from plugin.framework.utils import get_url_hostname
 from plugin.modules.http.ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context, _is_local_host, _is_certificate_verify_error
 from plugin.modules.http.errors import _format_http_error_response, format_error_message
 

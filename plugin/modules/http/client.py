@@ -36,7 +36,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.logging import init_logging
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError, safe_json_loads
-from plugin.framework.url_utils import get_url_hostname, get_url_path_and_query
+from plugin.framework.utils import get_url_hostname, get_url_path_and_query
 
 from plugin.modules.http.errors import format_error_message, _format_http_error_response
 from plugin.modules.http.ssl_helpers import (

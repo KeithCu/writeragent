@@ -9,7 +9,7 @@ from typing import Any
 
 
 from plugin.framework.constants import BROWSER_USER_AGENT, USER_AGENT
-from plugin.framework.url_utils import get_url_hostname, is_pdf_url
+from plugin.framework.utils import get_url_hostname, is_pdf_url
 try:
     from plugin.modules.chatbot.history_db import HAS_SQLITE, sqlite3
 except Exception:

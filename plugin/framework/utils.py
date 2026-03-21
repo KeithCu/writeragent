@@ -1,4 +1,9 @@
+import os
 import urllib.parse
+
+def get_plugin_dir():
+    """Returns the absolute path to the plugin/ directory."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def normalize_endpoint_url(url):
     """Strip and rstrip slash for consistent storage."""

@@ -41,7 +41,7 @@ class WebResearchTool(ToolBase):
     def execute(self, ctx, query, history_text=None):
         from plugin.framework.errors import format_error_payload, ToolExecutionError
         import os
-        from plugin.framework.url_utils import get_url_domain
+        from plugin.framework.utils import get_url_domain
 
         try:
             from plugin.framework.config import get_api_config, get_config_int, user_config_dir

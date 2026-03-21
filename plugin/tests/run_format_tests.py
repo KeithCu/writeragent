@@ -5,7 +5,7 @@ it for local/source runs (e.g. python -m plugin.tests.run_format_tests).
 """
 
 import sys
-from plugin.framework.path_utils import get_plugin_dir
+from plugin.framework.utils import get_plugin_dir
 import os
 
 if __name__ == "__main__":

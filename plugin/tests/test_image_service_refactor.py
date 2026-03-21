@@ -1,5 +1,5 @@
 import sys
-from plugin.framework.path_utils import get_plugin_dir
+from plugin.framework.utils import get_plugin_dir
 import os
 import unittest
 import json

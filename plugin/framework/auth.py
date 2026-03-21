@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 from plugin.framework.config import get_provider_from_endpoint
-from plugin.framework.url_utils import normalize_endpoint_url
+from plugin.framework.utils import normalize_endpoint_url
 from plugin.framework.errors import ConfigError
 
 class AuthError(ConfigError):

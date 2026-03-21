@@ -3,7 +3,7 @@
 # see inline comments and core/api.py LiteLLM references for source locations.
 import json
 import os
-from plugin.framework.path_utils import get_plugin_dir
+from plugin.framework.utils import get_plugin_dir
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
