@@ -368,6 +368,7 @@ To improve UI responsiveness and AI navigation in complex documents, we ported p
 - **Agent log** (NDJSON, optional): `writeragent_agent.log` in the same directory. Written by `agent_log(...)` only when config key `enable_agent_log` is true (default false). Used for hypothesis/debug tracking.
 - **Runtime refresh**: `init_logging(ctx)` re-reads `enable_agent_log` and `log_level` on subsequent calls, so turning agent logging on in Settings takes effect without requiring a LibreOffice restart.
 - **Watchdog**: If no activity for the threshold (e.g. 30s), a line is written to the debug log and the status control shows "Hung: ...".
+- **i18n / `translate_dialog()`**: Runtime gettext loads `plugin/locales/.../writeragent.mo` per LibreOffice locale. `translate_dialog()` in `plugin/framework/dialogs.py` walks `XControlContainer` via `ctrl.queryInterface(XControlContainer)` (not `uno.queryInterface`). ContainerWindow roots are often `UnoDialogControl` without a usable container at the root, so it **falls back** to `dialog.getModel().ElementNames` and `getControl(name)`. VCL implementation names use the form `UnoButtonControl` / `UnoFixedTextControl`; `_uno_impl_to_control_type()` maps those to the keys used for `Text`/`Label`/`StringItemList`. Per-control failures log at DEBUG (`Failed to translate`, `ElementNames id=...`).
 
 ### Finding log files (and image generation debugging)
 
@@ -400,6 +401,8 @@ make deploy   # or remove first: unopkg remove org.extension.writeragent
 ```
 
 Restart LibreOffice after install/update. Test: menu **WriterAgent → Settings** and **WriterAgent → Edit Selection**.
+
+**Gettext / UI languages**: `make build` compiles `plugin/locales/*/LC_MESSAGES/writeragent.mo` and the OXT bundles **`plugin/locales/`** so runtime `gettext` can load translations for LibreOffice’s `ooLocale`. `translate_dialog()` walks the **full** `XControlContainer` tree (not only top-level controls), so labels inside bulletinboards (e.g. Settings) are translated. Menus/sidebar titles in `.xcu` files remain English until given `xml:lang` entries separately.
 
 **Build without voice recording:** Run `make build-no-recording` (or `make build NO_RECORDING=1`) to produce an .oxt that excludes voice/audio recording: the bundle omits `contrib/audio/` and `plugin/modules/chatbot/audio_recorder.py`; the Chat sidebar stays and the Record button is simply not shown. This reduces extension size when recording is not needed.
 

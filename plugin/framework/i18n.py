@@ -72,8 +72,21 @@ def init_i18n(ctx=None):
     try:
         locale = get_lo_locale(ctx)
         locales_dir = os.path.join(get_plugin_dir(), "locales")
+        mofiles = gettext.find(
+            "writeragent", localedir=locales_dir, languages=[locale], all=True
+        )
+        if not mofiles:
+            mofiles = []
 
-        log.debug("Initializing i18n for locale: %s, locales_dir: %s", locale, locales_dir)
+        log.debug(
+            "i18n init: ctx_is_none=%s locale=%s locales_dir=%s (exists=%s) "
+            "mofiles=%s",
+            ctx is None,
+            locale,
+            locales_dir,
+            os.path.isdir(locales_dir),
+            mofiles if mofiles else "none",
+        )
 
         _translation = gettext.translation(
             domain="writeragent",
@@ -81,9 +94,14 @@ def init_i18n(ctx=None):
             languages=[locale],
             fallback=True
         )
+        log.debug(
+            "i18n init: translation_type=%s",
+            type(_translation).__name__,
+        )
     except Exception as e:
         log.debug("Failed to initialize i18n: %s. Falling back to default gettext.", e)
         _translation = gettext.NullTranslations()
+        log.debug("i18n init: translation_type=%s", type(_translation).__name__)
 
 
 def _(message):

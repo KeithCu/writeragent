@@ -411,6 +411,50 @@ def about_dialog(ctx):
 # ── XDL dialog loading ──────────────────────────────────────────────
 
 
+def _xcc(ctrl):
+    """Return ``XControlContainer`` for ``ctrl``, or None.
+
+    LibreOffice pyuno expects ``obj.queryInterface(iface)``. The ``uno`` module
+    does not provide ``queryInterface`` (unlike some Java examples), which
+    previously broke recursion in ``translate_dialog``.
+    """
+    if ctrl is None:
+        return None
+    from com.sun.star.awt import XControlContainer
+    try:
+        return ctrl.queryInterface(XControlContainer)
+    except Exception:
+        return None
+
+
+def _uno_impl_to_control_type(impl_name):
+    """Map ``stardiv.Toolkit.UnoButtonControl``-style names to ``control_types`` keys.
+
+    VCL uses ``Uno`` + ``FixedText``/``Button``/… + ``Control``, not ``UnoControl``
+    + ``Button``; the old strip only matched names starting with ``UnoControl``.
+    """
+    seg = impl_name.split(".")[-1]
+    if seg.startswith("Uno") and seg.endswith("Control") and len(seg) > 10:
+        return seg[3:-7]
+    if seg.startswith("UnoControl"):
+        return seg[10:]
+    return seg
+
+
+def _dialog_model_element_names(dlg):
+    """Return control name strings from the dialog model (``ElementNames``), or ``()``."""
+    try:
+        dm = dlg.getModel()
+        if dm is None:
+            return ()
+        en = getattr(dm, "ElementNames", None)
+        if en is not None:
+            return tuple(en)
+    except Exception:
+        pass
+    return ()
+
+
 def translate_dialog(dlg):
     """Translate all controls in a dialog at runtime.
 
@@ -418,9 +462,7 @@ def translate_dialog(dlg):
     bulletinboard child; only iterating top-level ``getControls()`` misses
     every label inside the container.
     """
-    import uno
     from plugin.framework.i18n import _
-    from com.sun.star.awt import XControlContainer
 
     # Map control types to their translatable properties
     control_types = {
@@ -434,12 +476,19 @@ def translate_dialog(dlg):
         'FixedLine': ('Label',),
     }
 
+    _xcc_root = None
+    root_child_count = 0
+    try:
+        _xcc_root = _xcc(dlg)
+        if _xcc_root is not None:
+            root_child_count = len(_xcc_root.getControls())
+    except Exception:
+        root_child_count = 0
+
     def translate_one(ctrl):
         try:
             impl_name = ctrl.getImplementationName()
-            short_type = impl_name.split('.')[-1]
-            if short_type.startswith("UnoControl"):
-                short_type = short_type[10:]
+            short_type = _uno_impl_to_control_type(impl_name)
 
             name = ctrl.getModel().Name if ctrl.getModel() else "?"
 
@@ -459,7 +508,7 @@ def translate_dialog(dlg):
                 except Exception as e:
                     log.debug("Failed to translate %s.%s: %s", name, prop, e)
 
-            xcc = uno.queryInterface(XControlContainer, ctrl)
+            xcc = _xcc(ctrl)
             if xcc:
                 for child in xcc.getControls():
                     translate_one(child)
@@ -470,6 +519,23 @@ def translate_dialog(dlg):
         translate_one(dlg)
     except Exception as e:
         log.debug("Failed to translate dialog: %s", e)
+
+    # ContainerWindow + XDL: root is often ``UnoDialogControl``, which does not
+    # implement ``XControlContainer``, so ``getControls()`` is never reached.
+    # Fall back to dialog model ``ElementNames`` + ``getControl(name)``.
+    if (
+        _xcc_root is None or root_child_count == 0
+    ) and hasattr(dlg, "getControl") and hasattr(dlg, "getModel"):
+        names = _dialog_model_element_names(dlg)
+        if names:
+            for nm in names:
+                try:
+                    c = dlg.getControl(nm)
+                    if c:
+                        translate_one(c)
+                except Exception as e:
+                    log.debug("translate_dialog ElementNames id=%s: %s", nm, e)
+
 
 def load_module_dialog(module_name, dialog_name):
     """Load an XDL dialog from a module's directory.
