@@ -32,7 +32,7 @@ from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
 
 from plugin.framework.logging import update_activity_state
-from plugin.framework.history_db import get_chat_history
+from plugin.modules.chatbot.history_db import get_chat_history
 
 # Recording available only if audio_recorder (and contrib/audio) is present
 try:

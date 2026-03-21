@@ -3,7 +3,7 @@ import os
 import sys
 from importlib import reload
 
-from plugin.framework.history_db import message_to_dict, SQLite3History, JSONHistory
+from plugin.modules.chatbot.history_db import message_to_dict, SQLite3History, JSONHistory
 
 # This test module is intended to run under the native runner (LibreOffice UNO).
 # Under pytest we skip it because it requires UNO interfaces that are not fully
@@ -43,7 +43,7 @@ def _setup_history_db_redirect(ctx):
     if _HISTORY_DB_TMPDIR:
         return
 
-    import plugin.framework.history_db as hdb
+    import plugin.modules.chatbot.history_db as hdb
 
     _ORIGINAL_USER_CONFIG_DIR = getattr(hdb, "user_config_dir", None)
     _HISTORY_DB_TMPDIR = tempfile.mkdtemp(prefix="writeragent_history_test_")
@@ -57,7 +57,7 @@ def _teardown_history_db_redirect(ctx):
     import shutil
 
     try:
-        import plugin.framework.history_db as hdb
+        import plugin.modules.chatbot.history_db as hdb
 
         if _ORIGINAL_USER_CONFIG_DIR is not None:
             hdb.user_config_dir = _ORIGINAL_USER_CONFIG_DIR
@@ -68,7 +68,7 @@ def _teardown_history_db_redirect(ctx):
         _ORIGINAL_USER_CONFIG_DIR = None
 
 def test_history_roundtrip_sqlite(tmp_path):
-    import plugin.framework.history_db as hdb
+    import plugin.modules.chatbot.history_db as hdb
     if not hdb.HAS_SQLITE:
         return
 
@@ -254,7 +254,7 @@ from importlib import reload
 
 def test_sqlite_available():
     # Typically sqlite3 is available in python env
-    import plugin.framework.history_db as hdb
+    import plugin.modules.chatbot.history_db as hdb
     reload(hdb)
 
     assert hdb.HAS_SQLITE is True
@@ -276,7 +276,7 @@ def test_sqlite_unavailable():
     original_sqlite3 = sys.modules.pop('sqlite3', None)
 
     try:
-        import plugin.framework.history_db as hdb
+        import plugin.modules.chatbot.history_db as hdb
         reload(hdb)
 
         assert hdb.HAS_SQLITE is False
