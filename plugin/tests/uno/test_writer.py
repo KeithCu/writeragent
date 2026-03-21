@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from plugin.framework.document import (
     build_heading_tree,
     resolve_locator,
@@ -102,12 +104,14 @@ def test_proximity_service():
         def yield_to_gui(self):
             pass
 
-    doc_svc = DocSvcAdapter()
-    bm = BookmarkService(doc_svc)
-    tree_svc = TreeService(doc_svc, bm, events)
-    prox = ProximityService(doc_svc, tree_svc, bm, events)
+    services = SimpleNamespace()
+    services.document = DocSvcAdapter()
+    services.events = events
+    services.writer_bookmarks = BookmarkService(services)
+    services.writer_tree = TreeService(services)
+    services.writer_proximity = ProximityService(services)
 
-    res = prox.get_surroundings(_test_doc, "paragraph:0", radius=0)
+    res = services.writer_proximity.get_surroundings(_test_doc, "paragraph:0", radius=0)
     assert res is not None and res.get("center_para_index") == 0, f"ProximityService get_surroundings failed: {res}"
 
 
@@ -204,8 +208,13 @@ def test_writer_structural_and_tree_service():
 
     events = EventBus()
     doc_svc = DocumentService()
-    bm_svc = BookmarkService(doc_svc)
-    tree_svc = TreeService(doc_svc, bm_svc, events)
+    services = SimpleNamespace()
+    services.document = doc_svc
+    services.events = events
+    services.writer_bookmarks = BookmarkService(services)
+    services.writer_tree = TreeService(services)
+    bm_svc = services.writer_bookmarks
+    tree_svc = services.writer_tree
 
     # 1. Test build_heading_tree from TreeService natively
     tree = tree_svc.build_heading_tree(_test_doc)

@@ -21,7 +21,6 @@ Pure utility functions with no UNO dependency. Ported from
 core/calc_address_utils.py for the plugin framework.
 """
 
-from plugin.framework.errors import UnoObjectError
 import re
 
 
@@ -72,7 +71,7 @@ def parse_address(address: str) -> tuple[int, int]:
     address = address.strip().upper()
     match = re.match(r'^([A-Z]+)(\d+)$', address)
     if not match:
-        raise UnoObjectError(f"Invalid cell address: '{address}'")
+        raise ValueError(f"Invalid cell address: '{address}'")
 
     col_str = match.group(1)
     row_num = int(match.group(2))
@@ -101,7 +100,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     pattern = r'^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$'
     match = re.match(pattern, range_str)
     if not match:
-        raise UnoObjectError(f"Invalid cell range format: '{range_str}'")
+        raise ValueError(f"Invalid cell range format: '{range_str}'")
 
     start_col = column_to_index(match.group(1))
     start_row = int(match.group(2)) - 1

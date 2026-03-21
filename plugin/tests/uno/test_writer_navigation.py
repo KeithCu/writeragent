@@ -142,6 +142,8 @@ class MockContext:
 
 class MockServices:
     def __init__(self, doc):
+        from types import SimpleNamespace
+
         from plugin.framework.document import DocumentService
         from plugin.framework.event_bus import EventBus
         from plugin.modules.writer.proximity import ProximityService
@@ -153,10 +155,16 @@ class MockServices:
         # DocumentService does not take constructor arguments; it uses the
         # active UNO context when needed.
         self.document = DocumentService()
-        self.writer_bookmarks = BookmarkService(self.document)
-        self.writer_tree = TreeService(self.document, self.writer_bookmarks, self.events)
-        self.writer_structural = ListSections() # Simplified mock structural logic
-        self.writer_proximity = ProximityService(self.document, self.writer_tree, self.writer_bookmarks)
+        s = SimpleNamespace()
+        s.document = self.document
+        s.events = self.events
+        s.writer_bookmarks = BookmarkService(s)
+        s.writer_tree = TreeService(s)
+        s.writer_proximity = ProximityService(s)
+        self.writer_bookmarks = s.writer_bookmarks
+        self.writer_tree = s.writer_tree
+        self.writer_proximity = s.writer_proximity
+        self.writer_structural = ListSections()  # Simplified mock structural logic
 
 @native_test
 def test_navigate_heading():

@@ -5,6 +5,8 @@ except ImportError:
     pass
 
 try:
+    from types import SimpleNamespace
+
     from plugin.testing_runner import setup, teardown, native_test
     from plugin.framework.uno_context import get_desktop
     from plugin.framework.document import DocumentService
@@ -61,7 +63,7 @@ def test_ensure_heading_bookmarks_and_map():
         pass
 
     doc_svc = DocumentService()
-    bookmark_svc = BookmarkService(doc_svc)
+    bookmark_svc = BookmarkService(SimpleNamespace(document=doc_svc))
 
     # Initially no bookmarks
     bms = _test_doc.getBookmarks().getElementNames()
@@ -94,7 +96,7 @@ def test_find_nearest_heading_bookmark():
         pass
 
     doc_svc = DocumentService()
-    bookmark_svc = BookmarkService(doc_svc)
+    bookmark_svc = BookmarkService(SimpleNamespace(document=doc_svc))
 
     bookmark_map = bookmark_svc.ensure_heading_bookmarks(_test_doc)
 
@@ -120,7 +122,7 @@ def test_cleanup_mcp_bookmarks():
         pass
 
     doc_svc = DocumentService()
-    bookmark_svc = BookmarkService(doc_svc)
+    bookmark_svc = BookmarkService(SimpleNamespace(document=doc_svc))
 
     # Ensure we have some bookmarks
     bookmark_svc.ensure_heading_bookmarks(_test_doc)
