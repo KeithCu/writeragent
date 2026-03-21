@@ -45,6 +45,7 @@ ALWAYS_INCLUDE_PLUGIN = [
     "plugin/_manifest.py",
     "plugin/plugin.yaml",
     "plugin/framework/",
+    "plugin/locales/",
     "plugin/lib/",
     "plugin/contrib/",
 ]

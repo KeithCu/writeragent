@@ -412,8 +412,15 @@ def about_dialog(ctx):
 
 
 def translate_dialog(dlg):
-    """Translate all controls in a dialog at runtime."""
+    """Translate all controls in a dialog at runtime.
+
+    Walks the full control tree. XDL dialogs typically wrap fields in a
+    bulletinboard child; only iterating top-level ``getControls()`` misses
+    every label inside the container.
+    """
+    import uno
     from plugin.framework.i18n import _
+    from com.sun.star.awt import XControlContainer
 
     # Map control types to their translatable properties
     control_types = {
@@ -422,39 +429,47 @@ def translate_dialog(dlg):
         'CheckBox': ('Label',),
         'RadioButton': ('Label',),
         'ListBox': ('StringItemList',),
-        'ComboBox': ('StringItemList',)
+        'ComboBox': ('StringItemList',),
+        'GroupBox': ('Label',),
+        'FixedLine': ('Label',),
     }
 
-    try:
-        for ctrl in dlg.getControls():
-            try:
-                name = ctrl.getModel().Name
-                impl_name = ctrl.getImplementationName()
-                # LibreOffice prepends "com.sun.star.comp.toolkit.UnoControl" or similar.
-                # We extract the short name for our map:
-                short_type = impl_name.split('.')[-1]
-                if short_type.startswith("UnoControl"):
-                    short_type = short_type[10:]
+    def translate_one(ctrl):
+        try:
+            impl_name = ctrl.getImplementationName()
+            short_type = impl_name.split('.')[-1]
+            if short_type.startswith("UnoControl"):
+                short_type = short_type[10:]
 
-                for prop in control_types.get(short_type, ()):
-                    try:
-                        if prop == 'StringItemList':
-                            items = ctrl.getStringItemList()
-                            if items:
-                                translated = tuple(_(item) for item in items)
-                                ctrl.setStringItemList(translated)
-                        else:
-                            model = ctrl.getModel()
-                            if hasattr(model, prop):
-                                current = getattr(model, prop)
-                                if current:
-                                    setattr(model, prop, _(current))
-                    except Exception as e:
-                        log.debug(f"Failed to translate {name}.{prop}: {e}")
-            except Exception as e:
-                log.debug(f"Failed to inspect control for translation: {e}")
+            name = ctrl.getModel().Name if ctrl.getModel() else "?"
+
+            for prop in control_types.get(short_type, ()):
+                try:
+                    if prop == 'StringItemList':
+                        items = ctrl.getStringItemList()
+                        if items:
+                            translated = tuple(_(item) for item in items)
+                            ctrl.setStringItemList(translated)
+                    else:
+                        model = ctrl.getModel()
+                        if hasattr(model, prop):
+                            current = getattr(model, prop)
+                            if current:
+                                setattr(model, prop, _(current))
+                except Exception as e:
+                    log.debug("Failed to translate %s.%s: %s", name, prop, e)
+
+            xcc = uno.queryInterface(XControlContainer, ctrl)
+            if xcc:
+                for child in xcc.getControls():
+                    translate_one(child)
+        except Exception as e:
+            log.debug("Failed to inspect control for translation: %s", e)
+
+    try:
+        translate_one(dlg)
     except Exception as e:
-        log.debug(f"Failed to get controls for translation: {e}")
+        log.debug("Failed to translate dialog: %s", e)
 
 def load_module_dialog(module_name, dialog_name):
     """Load an XDL dialog from a module's directory.

@@ -20,7 +20,6 @@ Uses standard Python gettext to localize strings dynamically.
 """
 
 import os
-import sys
 import gettext
 import logging
 
@@ -31,22 +30,21 @@ log = logging.getLogger("writeragent.i18n")
 _translation = None
 
 
-def get_lo_locale(ctx=None):
-    """Attempt to determine the LibreOffice UI locale."""
-    try:
-        from plugin.framework.config import get_config
-        configured_lang = get_config(ctx, "main.ui_language")
-        if configured_lang and configured_lang != "system":
-            return configured_lang
-    except Exception as e:
-        log.debug("Failed to read configured language: %s", e)
+# When UNO cannot supply ooLocale (tests, early init), use English catalogs.
+_DEFAULT_LOCALE = "en_US"
 
+
+def get_lo_locale(ctx=None):
+    """Return the LibreOffice UI locale from configuration only (no OS LANG).
+
+    Reads ``/org.openoffice.Setup/L10N`` → ``ooLocale``. On failure or empty
+    value, returns ``en_US`` so gettext still loads a predictable catalog.
+    """
     try:
         import uno
         if ctx is None:
             ctx = uno.getComponentContext()
         smgr = ctx.getServiceManager()
-        # Fallback to a simple locale lookup if no advanced config is found
         config_provider = smgr.createInstanceWithContext(
             "com.sun.star.configuration.ConfigurationProvider", ctx)
         ca = config_provider.createInstanceWithArguments(
@@ -61,8 +59,7 @@ def get_lo_locale(ctx=None):
     except Exception as e:
         log.debug("Failed to determine LibreOffice locale: %s", e)
 
-    # Fallback to system environment variable
-    return os.environ.get("LANG", "en_US").split(".")[0]
+    return _DEFAULT_LOCALE
 
 
 def init_i18n(ctx=None):
