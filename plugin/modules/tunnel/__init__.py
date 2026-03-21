@@ -161,7 +161,7 @@ class TunnelManager:
                 self._emit_stopped("process_exited")
 
         try:
-            from plugin.framework.process_manager import AsyncProcess
+            from plugin.framework.worker_pool import AsyncProcess
             self._process = AsyncProcess(
                 cmd,
                 stdout_cb=_on_stdout,

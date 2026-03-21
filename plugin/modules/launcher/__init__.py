@@ -576,7 +576,7 @@ class LauncherModule(ModuleBase):
                 if hasattr(self._services, "events"):
                     self._services.events.emit("menu:update")
 
-            from plugin.framework.process_manager import AsyncProcess
+            from plugin.framework.worker_pool import AsyncProcess
             self._process = AsyncProcess(
                 full_cmd,
                 env=env,
