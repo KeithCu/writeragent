@@ -18,6 +18,7 @@ import logging
 from plugin.framework.errors import format_error_payload
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
 from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text
+from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history
 from plugin.framework.logging import init_logging, agent_log
 from plugin.modules.chatbot.history_db import HAS_SQLITE
@@ -310,7 +311,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     except Exception as e:
         from plugin.framework.dialogs import msgbox
         import traceback
-        msgbox(ctx, "Error", f"Failed to open Settings: {e}\n\n{traceback.format_exc()}")
+        msgbox(ctx, _("Error"), _("Failed to open Settings: {0}\n\n{1}").format(e, traceback.format_exc()))
         return format_error_payload(e)
     finally:
         dlg.dispose()

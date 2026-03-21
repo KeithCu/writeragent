@@ -17,6 +17,7 @@
 from plugin.framework.config import get_config, set_config, get_current_endpoint, as_bool, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, notify_config_changed
 
 import logging
+from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ def apply_settings_result(ctx, result):
                     f_val = float(val)
                     if f_val > 1.0:
                         from plugin.framework.dialogs import msgbox
-                        msgbox(ctx, "Invalid Setting", "Temperature must be <= 1.0")
+                        msgbox(ctx, _("Invalid Setting"), _("Temperature must be <= 1.0"))
                         continue
                     if f_val < 0:
                         val = -1.0

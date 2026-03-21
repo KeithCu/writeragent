@@ -1,6 +1,7 @@
 """Action handlers for extending and editing document selections."""
 
 import logging
+from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.chatbot.selection")
 
@@ -65,7 +66,7 @@ def _extend_writer(services, ctx, doc):
 
     def on_error(e):
         log.error("Extend selection failed: %s", e)
-        msgbox(ctx, "WriterAgent: Extend Selection", str(e))
+        msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
 
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)
@@ -141,7 +142,7 @@ def _extend_calc(services, ctx, doc):
 
         def on_error(e):
             log.error("Extend selection (calc) failed: %s", e)
-            msgbox(ctx, "WriterAgent: Extend Selection", str(e))
+            msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
 
         run_stream_async(
             ctx, client, msgs, tools=None,
@@ -252,7 +253,7 @@ def _edit_writer(services, ctx, doc):
         except Exception:
             pass
         log.error("Edit selection failed: %s", e)
-        msgbox(ctx, "WriterAgent: Edit Selection", str(e))
+        msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)
@@ -354,7 +355,7 @@ def _edit_calc(services, ctx, doc):
             except Exception:
                 pass
             log.error("Edit selection (calc) failed: %s", e)
-            msgbox(ctx, "WriterAgent: Edit Selection", str(e))
+            msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 
         run_stream_async(
             ctx, client, msgs, tools=None,

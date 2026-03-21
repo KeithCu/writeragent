@@ -31,6 +31,7 @@ import sys
 import threading
 
 from plugin.framework.module_base import ModuleBase
+from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.launcher")
 
@@ -498,10 +499,10 @@ class LauncherModule(ModuleBase):
         # Check command exists
         if not shutil.which(provider.binary_name):
             msgbox(ctx, "WriterAgent",
-                   "Command '%s' not found.\n"
-                   "Make sure it is installed and in your PATH.\n\n"
-                   "Use 'Install AI CLI' from the menu to get install instructions."
-                   % provider.binary_name)
+                   _("Command '{0}' not found.\n"
+                     "Make sure it is installed and in your PATH.\n\n"
+                     "Use 'Install AI CLI' from the menu to get install instructions.")
+                   .format(provider.binary_name))
             return
 
         # Build CLI command
