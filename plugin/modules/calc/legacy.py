@@ -21,6 +21,7 @@ from plugin.modules.http.errors import format_error_message
 from plugin.modules.http.client import LlmClient
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
+from plugin.framework.i18n import _
 
 def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     sheet = model.CurrentController.ActiveSheet
@@ -69,7 +70,8 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     api_config = get_api_config(ctx)
     ok, err_msg = validate_api_config(api_config)
     if not ok:
-        msgbox(ctx, "WriterAgent: Edit Selection (Calc)" if is_edit else "WriterAgent: Extend Selection (Calc)", err_msg)
+        title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
+        msgbox(ctx, title, err_msg)
         return
 
     client = LlmClient(api_config)
@@ -93,7 +95,8 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
         def on_error(e):
             if original is not None:
                 cell.setString(original)
-            msgbox(ctx, "WriterAgent: Edit Selection (Calc)" if is_edit else "WriterAgent: Extend Selection (Calc)", format_error_message(e))
+            title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
+            msgbox(ctx, title, format_error_message(e))
 
         run_stream_completion_async(
             ctx, client, prompt, system_prompt, max_tokens,

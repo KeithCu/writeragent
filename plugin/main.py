@@ -148,6 +148,10 @@ def bootstrap(ctx=None):
         _tools = ToolRegistry(_services)
         _services.register("tools", _tools)
 
+        # Initialize i18n
+        from plugin.framework.i18n import init_i18n
+        init_i18n(ctx)
+
         # Set initialized early to prevent recursive calls from re-running bootstrap
         # but after _services and _tools are created.
         _initialized = True
@@ -235,9 +239,11 @@ def _run_test_suite(test_func, doc_checker, test_name):
         log.debug(f"Calling run_blocking_in_thread for {test_name}")
         p, f, suite_log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
         log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
-        msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(suite_log))
+        from plugin.framework.i18n import _
+        msgbox(ctx, test_name, _("{0}: {1} passed, {2} failed.\n\n{3}").format(test_name, p, f, "\n".join(suite_log)))
     except Exception as e:
-        msgbox(ctx, test_name, f"Tests failed to run: {e}")
+        from plugin.framework.i18n import _
+        msgbox(ctx, test_name, _("Tests failed to run: {0}").format(str(e)))
 
 
 def _dispatch_command(command):
@@ -315,9 +321,55 @@ def get_menu_text(command):
         return None
     mod_name = command[:dot]
     action = command[dot + 1:]
+
+    from plugin.framework.i18n import _
+
+    # Check if the module provides a dynamic text
     for mod in _modules:
         if mod.name == mod_name:
-            return mod.get_menu_text(action)
+            text = mod.get_menu_text(action)
+            if text is not None:
+                return _(text)
+
+    # Fallback to the title from the manifest
+    try:
+        from plugin._manifest import MODULES
+        for m in MODULES:
+            if m["name"] == mod_name:
+                # The manifest doesn't store action titles directly in a map,
+                # but it might have an action list. If we don't have a specific title,
+                # we can translate the action name by capitalizing it as a fallback,
+                # or better, let the module define it. But for static menus,
+                # we can translate the static titles from the manifest if we had them.
+                # Since Addons.xcu has the static names, and notify_menu_update sets them,
+                # if we return None, LO uses the Addons.xcu name.
+                # To override Addons.xcu with translated static names, we need a map.
+                # For now, let's map known static actions directly here if mod didn't provide it.
+                pass
+    except ImportError:
+        pass
+
+    from plugin.framework.i18n import _
+    # Hardcoded fallback for static Addons.xcu items so they get translated
+    # without needing dynamic state in their respective modules.
+    static_titles = {
+        "chatbot.extend_selection": _("Extend Selection"),
+        "chatbot.edit_selection": _("Edit Selection"),
+        "main.settings": _("Settings"),
+        "http.toggle_server": _("Toggle MCP Server"),
+        "http.server_status": _("MCP Server Status"),
+        "main.NoOp": "Debug", # Excluded from translation per user request
+        "main.RunFormatTests": _("Run format tests"),
+        "main.RunCalcTests": _("Run calc tests"),
+        "main.RunCalcIntegrationTests": _("Run Calc API integration tests"),
+        "main.RunDrawTests": _("Run draw tests"),
+        "main.EvaluationDashboard": _("Evaluation Dashboard"),
+        "main.about": _("About WriterAgent")
+    }
+
+    if command in static_titles:
+        return static_titles[command]
+
     return None
 
 
@@ -659,7 +711,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
-            msgbox(self.ctx, "Dispatch Error", str(e))
+            from plugin.framework.i18n import _
+            msgbox(self.ctx, _("Dispatch Error"), str(e))
 
     def addStatusListener(self, listener, url):
         with _status_lock:

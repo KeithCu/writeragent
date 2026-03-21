@@ -173,10 +173,11 @@ class HttpModule(ModuleBase):
             super().on_action(action)
 
     def get_menu_text(self, action):
+        from plugin.framework.i18n import _
         if action == "toggle_server":
             if self._server and self._server.is_running():
-                return "Stop HTTP Server"
-            return "Start HTTP Server"
+                return _("Stop HTTP Server")
+            return _("Start HTTP Server")
         return None
 
     def get_menu_icon(self, action):
@@ -191,48 +192,50 @@ class HttpModule(ModuleBase):
     def _action_toggle_server(self):
         from plugin.framework.dialogs import msgbox
         from plugin.framework.uno_context import get_ctx
+        from plugin.framework.i18n import _
 
         ctx = get_ctx()
         if self._server and self._server.is_running():
             log.info("Stopping HTTP server via toggle")
             self._stop_server()
-            msgbox(ctx, "WriterAgent", "HTTP server stopped")
+            msgbox(ctx, "WriterAgent", _("HTTP server stopped"))
         else:
             log.info("Starting HTTP server via toggle")
             self._start_server(self._services)
             if self._server and self._server.is_running():
                 status = self._server.get_status()
                 msgbox(ctx, "WriterAgent",
-                       "HTTP server started\n%s" % status.get("url", ""))
+                       _("HTTP server started\n{0}").format(status.get("url", "")))
             else:
                 msgbox(ctx, "WriterAgent",
-                       "HTTP server failed to start\nCheck ~/localwriter.log")
+                       _("HTTP server failed to start\nCheck ~/localwriter.log"))
 
     def _action_server_status(self):
         from plugin.framework.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
         from plugin.framework.uno_context import get_ctx
+        from plugin.framework.i18n import _
 
         ctx = get_ctx()
         if not self._server:
-            msgbox(ctx, "WriterAgent", "HTTP server is not running")
+            msgbox(ctx, "WriterAgent", _("HTTP server is not running"))
             return
 
         status = self._server.get_status()
         running = status.get("running", False)
         if not running:
-            msgbox(ctx, "WriterAgent", "HTTP server not running")
+            msgbox(ctx, "WriterAgent", _("HTTP server not running"))
             return
 
         url = status.get("url", "?")
         routes = status.get("routes", 0)
-        msg = "HTTP server running\nRoutes: %d" % routes
+        msg = _("HTTP server running\nRoutes: {0}").format(routes)
 
         try:
             smgr = ctx.ServiceManager
 
             dlg_model = smgr.createInstanceWithContext(
                 "com.sun.star.awt.UnoControlDialogModel", ctx)
-            dlg_model.Title = "Server Status"
+            dlg_model.Title = _("Server Status")
             dlg_model.Width = 230
             dlg_model.Height = 80
 
@@ -241,7 +244,7 @@ class HttpModule(ModuleBase):
             # Read-only textfield for the URL — user can select + Ctrl+C
             add_dialog_edit(dlg_model, "UrlField", url, 10, 34, 210, 14, readonly=True)
 
-            add_dialog_button(dlg_model, "OKBtn", "OK", 170, 58, 50, 14, push_button_type=1)
+            add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 58, 50, 14, push_button_type=1)
 
             dlg = smgr.createInstanceWithContext(
                 "com.sun.star.awt.UnoControlDialog", ctx)
@@ -253,7 +256,7 @@ class HttpModule(ModuleBase):
             dlg.dispose()
         except Exception:
             log.exception("Status dialog error")
-            msgbox(ctx, "WriterAgent", "%s\nURL: %s" % (msg, url))
+            msgbox(ctx, "WriterAgent", _("{0}\nURL: {1}").format(msg, url))
 
     # ---- Built-in route handlers ----
 

@@ -21,8 +21,9 @@ class WriterAgentException(Exception):
         if details is None and context is not None:
             details = context
 
+        from plugin.framework.i18n import _
         super().__init__(message)
-        self.message = message
+        self.message = _(message)
         self.code = code
         self.details = details or {}
         # Keep legacy attribute name too (some callers reference `.context`).

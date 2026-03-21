@@ -398,12 +398,13 @@ class LauncherModule(ModuleBase):
             super().on_action(action)
 
     def get_menu_text(self, action):
+        from plugin.framework.i18n import _
         if action == "launch_cli":
             provider = self._get_provider_silent()
             label = provider.label if provider else "AI CLI"
             if self._is_running():
-                return "%s Running" % label
-            return "Launch %s" % label
+                return _("{0} Running").format(label)
+            return _("Launch {0}").format(label)
         return None
 
     def get_menu_icon(self, action):

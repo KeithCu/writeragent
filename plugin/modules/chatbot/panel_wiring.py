@@ -137,8 +137,11 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             log.error("QueryTextListener setup error: %s" % e)
 
     if controls["status"] and hasattr(controls["status"], "setText"):
-        try: controls["status"].setText("Ready")
-        except Exception as e: log.exception("Error setting status text: %s", e)
+        try:
+            from plugin.framework.i18n import _
+            controls["status"].setText(_("Ready"))
+        except Exception as e:
+            log.exception("Error setting status text: %s", e)
 
     # 5. Timer and Resize
     try:
