@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-21 22:18+0000\n"
+"POT-Creation-Date: 2026-03-21 22:34+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -60,8 +60,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo "
-"has intentado y el servicio no responde durante horas, por favor contacta "
+"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo"
+" has intentado y el servicio no responde durante horas, por favor contacta "
 "vía Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -110,8 +110,8 @@ msgid ""
 "Register at {REGISTER_AI_HORDE_URL} and use your key to improve your rate "
 "success. Detail:"
 msgstr ""
-"Regístrate en {REGISTER_AI_HORDE_URL} y usa tu clave para mejorar tu tasa de "
-"éxito. Detalle:"
+"Regístrate en {REGISTER_AI_HORDE_URL} y usa tu clave para mejorar tu tasa de"
+" éxito. Detalle:"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -167,8 +167,8 @@ msgstr " o inténtalo de nuevo más tarde."
 msgid ""
 "There are no workers available with these settings. Please try again later."
 msgstr ""
-"No hay trabajadores disponibles con esta configuración. Por favor, inténtalo "
-"de nuevo más tarde."
+"No hay trabajadores disponibles con esta configuración. Por favor, inténtalo"
+" de nuevo más tarde."
 
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "Get an Api key for free at "
@@ -294,12 +294,12 @@ msgstr "WriterAgent: Ampliar selección"
 
 #: plugin/modules/writer/legacy.py:70 plugin/modules/calc/legacy.py:32
 msgid "Please enter edit instructions!"
-msgstr ""
+msgstr "¡Por favor ingrese las instrucciones de edición!"
 
 #: plugin/modules/writer/legacy.py:70 plugin/modules/calc/legacy.py:32
 #: plugin/xdl_strings.py:32
 msgid "Input"
-msgstr ""
+msgstr "Entrada"
 
 #: plugin/modules/writer/legacy.py:78 plugin/modules/writer/legacy.py:88
 #: plugin/modules/writer/legacy.py:102 plugin/modules/chatbot/selection.py:256
@@ -309,15 +309,15 @@ msgstr "WriterAgent: Editar selección"
 
 #: plugin/modules/chatbot/panel_factory.py:445
 msgid "Size:"
-msgstr ""
+msgstr "Tamaño:"
 
 #: plugin/modules/chatbot/panel_factory.py:446
 msgid "Height:"
-msgstr ""
+msgstr "Altura:"
 
 #: plugin/modules/chatbot/panel_factory.py:447
 msgid "Width:"
-msgstr ""
+msgstr "Anchura:"
 
 #: plugin/modules/chatbot/panel_wiring.py:145 plugin/xdl_strings.py:41
 msgid "Ready"
@@ -325,11 +325,11 @@ msgstr "Listo"
 
 #: plugin/modules/chatbot/panel.py:394
 msgid "Record"
-msgstr ""
+msgstr "Grabar"
 
 #: plugin/modules/chatbot/panel.py:396
 msgid "Stop Rec"
-msgstr ""
+msgstr "Detener grab."
 
 #: plugin/modules/chatbot/panel.py:398 plugin/xdl_strings.py:44
 msgid "Send"
@@ -342,12 +342,10 @@ msgstr "Obteniendo documento..."
 #: plugin/modules/chatbot/panel.py:423
 msgid ""
 "\n"
-"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
-"active window.]\n"
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n"
 msgstr ""
 "\n"
-"[No se encontró un documento de LibreOffice compatible (Writer, Calc o Draw) "
-"en la ventana activa.]\n"
+"[No se encontró un documento de LibreOffice compatible (Writer, Calc o Draw) en la ventana activa.]\n"
 
 #: plugin/modules/chatbot/panel.py:433
 #, python-brace-format
@@ -421,8 +419,7 @@ msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]\n"
 msgstr ""
 "\n"
-"[Backend del agente '{0}' no está disponible. Revisa la Configuración (ruta, "
-"instalación).]\n"
+"[Backend del agente '{0}' no está disponible. Revisa la Configuración (ruta, instalación).]\n"
 
 #: plugin/modules/chatbot/send_handlers.py:517
 #, python-brace-format
@@ -505,13 +502,15 @@ msgstr ""
 
 #: plugin/modules/http/client.py:534
 msgid "Stream ended with finish_reason=error"
-msgstr ""
+msgstr "El flujo terminó con finish_reason=error"
 
 #: plugin/modules/http/client.py:547
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
+"El modelo está repitiendo el mismo fragmento (bucle infinito). Inténtalo de "
+"nuevo o usa un modelo diferente."
 
 #: plugin/modules/http/errors.py:15
 #, python-brace-format
@@ -548,7 +547,8 @@ msgstr ""
 "solicitud' en la Configuración."
 
 #: plugin/modules/http/errors.py:35
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Conexión Rechazada. ¿Está tu servidor local de IA (Ollama/LM Studio) en "
 "ejecución?"
@@ -597,15 +597,18 @@ msgid ""
 "\n"
 "Use 'Install AI CLI' from the menu to get install instructions."
 msgstr ""
+"Comando '{0}' no encontrado.\n"
+"Asegúrese de que esté instalado y en su PATH.\n"
+"\n"
+"Use 'Instalar AI CLI' en el menú para obtener instrucciones de instalación."
 
 #: plugin/framework/settings_dialog.py:146
-
 msgid "Invalid Setting"
 msgstr "Configuración"
 
 #: plugin/framework/settings_dialog.py:146
 msgid "Temperature must be <= 1.0"
-msgstr ""
+msgstr "La temperatura debe ser <= 1.0"
 
 #: plugin/framework/legacy_ui.py:330
 #, python-brace-format
@@ -614,6 +617,9 @@ msgid ""
 "\n"
 "{1}"
 msgstr ""
+"Error al abrir la Configuración: {0}\n"
+"\n"
+"{1}"
 
 #: plugin/framework/dialogs.py:93
 msgid "Agent requests approval"
@@ -659,6 +665,8 @@ msgid ""
 "WriterAgent {0}\n"
 "https://github.com/quazardous/localwriter"
 msgstr ""
+"WriterAgent {0}\n"
+"https://github.com/quazardous/localwriter"
 
 #: plugin/tests/test_i18n.py:16
 msgid "ThisIsAnUntranslatedString999"
@@ -666,55 +674,55 @@ msgstr "EstaEsUnaCadenaSinTraducir999"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
-msgstr ""
+msgstr "-1"
 
 #: plugin/xdl_strings.py:5
 msgid "7.5"
-msgstr ""
+msgstr "7.5"
 
 #: plugin/xdl_strings.py:6
 msgid "AI Horde API Key:"
-msgstr ""
+msgstr "Clave API de AI Horde:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
-msgstr ""
+msgstr "Modelo de IA:"
 
 #: plugin/xdl_strings.py:8
 msgid "API Key:"
-msgstr ""
+msgstr "Clave API:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr ""
+msgstr "Instrucciones adicionales (Historial):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
-msgstr ""
+msgstr "Instrucciones adicionales:"
 
 #: plugin/xdl_strings.py:11
 msgid "Allow NSFW"
-msgstr ""
+msgstr "Permitir NSFW"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
-msgstr ""
+msgstr "Preguntar / instruir:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
-msgstr ""
+msgstr "Relación de aspecto:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
-msgstr ""
+msgstr "Modelo de audio:"
 
 #: plugin/xdl_strings.py:15
 msgid "Auto Gallery"
-msgstr ""
+msgstr "Galería automática"
 
 #: plugin/xdl_strings.py:16
 msgid "Base Size:"
-msgstr ""
+msgstr "Tamaño base:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
@@ -765,7 +773,6 @@ msgid "Endpoint URL:"
 msgstr "URL del endpoint:"
 
 #: plugin/xdl_strings.py:29
-
 msgid "General"
 msgstr "Generando..."
 
@@ -774,7 +781,6 @@ msgid "Image Model:"
 msgstr "Modelo de Imagen:"
 
 #: plugin/xdl_strings.py:31
-
 msgid "Image Settings"
 msgstr "Configuración de Imagen"
 
@@ -783,7 +789,6 @@ msgid "Insert Frame"
 msgstr "Insertar Marco"
 
 #: plugin/xdl_strings.py:34
-
 msgid "LocalWriter Evaluation Dashboard"
 msgstr "Panel de Evaluación LocalWriter"
 
