@@ -536,6 +536,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 web_research_checkbox=controls["web_research_check"],
                 ensure_path_fn=_ensure_extension_on_path)
 
+            # Save it to the instance so panel_wiring can use it for QueryTextListener
+            self.send_listener = send_listener
+
             if model:
                 if is_calc(model): send_listener.initial_doc_type = "Calc"
                 elif is_draw(model): send_listener.initial_doc_type = "Draw"

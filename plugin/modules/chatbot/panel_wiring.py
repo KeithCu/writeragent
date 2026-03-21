@@ -120,12 +120,19 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     if controls.get("query") and controls.get("send"):
         try:
             from plugin.modules.chatbot.panel import QueryTextListener
-            query_text_listener = QueryTextListener(controls["send"])
-            controls["query"].addTextListener(query_text_listener)
-            if get_control_text(controls["query"]).strip():
-                controls["send"].getModel().Label = "Send"
+            # Pass the send_listener stored on self from _wire_buttons instead of the send control.
+            # _wire_buttons runs before this in _wireControls, so self.send_listener is available.
+            if hasattr(self, "send_listener") and self.send_listener:
+                query_text_listener = QueryTextListener(self.send_listener)
+                controls["query"].addTextListener(query_text_listener)
+
+                # The label update logic is now handled correctly by the state machine
+                # so we can just trigger a fake text update event to sync the state
+                has_text = bool(get_control_text(controls["query"]).strip())
+                from plugin.modules.chatbot.send_state import TextUpdatedEvent
+                self.send_listener.dispatch(TextUpdatedEvent(has_text=has_text))
             else:
-                controls["send"].getModel().Label = "Record" if has_recording else "Send"
+                log.warning("No send_listener available for QueryTextListener setup")
         except Exception as e:
             log.error("QueryTextListener setup error: %s" % e)
 

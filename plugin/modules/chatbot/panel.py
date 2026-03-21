@@ -133,17 +133,18 @@ class ChatSession:
 # ---------------------------------------------------------------------------
 
 from plugin.framework.listeners import BaseTextListener, BaseActionListener
+from plugin.modules.chatbot.send_state import (
+    SendButtonState, next_state, TextUpdatedEvent, RecordClickedEvent, StopRecClickedEvent,
+    SendClickedEvent, StopClickedEvent, SendCompletedEvent, ErrorOccurredEvent,
+    UpdateUIEffect, StartRecordingEffect, StopRecordingEffect, StartSendEffect, StopSendEffect
+)
 
 log = logging.getLogger(__name__)
 
 class QueryTextListener(BaseTextListener):
-    def __init__(self, send_button):
-        self.send_button = send_button
-        # Pixel width measured for Record/Send/Stop Rec; stops sidebar width creep on GTK.
-        self._fixed_send_width = None
-
-    def set_fixed_send_width(self, width_px):
-        self._fixed_send_width = width_px
+    def __init__(self, send_listener):
+        # We now keep a reference to the main SendButtonListener which holds the state
+        self.send_listener = send_listener
 
     def on_text_changed(self, ev):
         model = getattr(ev.Source, "Model", None)
@@ -151,28 +152,8 @@ class QueryTextListener(BaseTextListener):
             model = ev.Source.getModel()
         text = model.Text.strip()
 
-        btn_model = self.send_button.getModel()
-        # If currently recording, do not toggle back to Record
-        if btn_model.Label == "Stop Rec":
-            return
-
-        if text:
-            new_label = "Send"
-        else:
-            new_label = "Record" if HAS_RECORDING else "Send"
-
-        if btn_model.Label != new_label:
-            log.debug("QueryTextListener: toggle label '%s' -> '%s'" % (btn_model.Label, new_label))
-            btn_model.Label = new_label
-        if self._fixed_send_width:
-            try:
-                r = self.send_button.getPosSize()
-                if r.Width != self._fixed_send_width:
-                    self.send_button.setPosSize(
-                        r.X, r.Y, self._fixed_send_width, r.Height, 15
-                    )
-            except Exception:
-                pass
+        # Dispatch event to the state machine
+        self.send_listener.dispatch(TextUpdatedEvent(has_text=bool(text)))
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +186,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
+        self._fixed_send_width = None
+
+        # Initialize pure state machine state
+        self.state = SendButtonState(
+            is_busy=False,
+            is_recording=False,
+            has_text=False,
+            has_audio=False,
+            audio_supported=HAS_RECORDING
+        )
+
         # Subscribe to MCP/tool bus events
         try:
             from plugin.main import get_tools
@@ -251,6 +243,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Append text to the response area."""
         try:
             if self.response_control and self.response_control.getModel():
+                from plugin.framework.dialogs import get_control_text, set_control_text
                 current = get_control_text(self.response_control) or ""
                 set_control_text(self.response_control, current + text)
                 self._scroll_response_to_bottom()
@@ -292,67 +285,118 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return model
         return None
 
-    def _set_button_states(self, send_enabled, stop_enabled):
-        """Set Send/Stop button enabled states. Per-control try/except so one failure cannot leave Send stuck disabled.
-        Prefer model Enabled property (LibreOffice UNO); fallback to control.setEnable if available."""
-        def set_control_enabled(control, enabled):
-            if control and control.getModel():
-                control.getModel().Enabled = bool(enabled)
-        set_control_enabled(self.send_control, send_enabled)
-        set_control_enabled(self.stop_control, stop_enabled)
+    def set_fixed_send_width(self, width_px):
+        self._fixed_send_width = width_px
 
-    def on_action_performed(self, evt):
-        try:
-            btn_model = self.send_control.getModel()
-            if HAS_RECORDING and btn_model.Label == "Record":
-                # Start recording
-                from plugin.modules.chatbot.audio_recorder import start_recording
-                try:
-                    start_recording()
-                except RuntimeError as re:
-                    self._append_response("\n[Audio error: %s]\n" % str(re))
-                    return
-                btn_model.Label = "Stop Rec"
-                self._set_status("Recording audio...")
-                return
-            elif HAS_RECORDING and btn_model.Label == "Stop Rec":
-                # Stop recording and proceed to send
-                from plugin.modules.chatbot.audio_recorder import stop_recording
+    def dispatch(self, event):
+        """Dispatch an event to the state machine, compute new state, and apply effects."""
+        from plugin.modules.chatbot.send_state import next_state
+        log.debug(f"SendButtonListener: dispatching {type(event).__name__}")
+        new_state, effects = next_state(self.state, event)
+        self.state = new_state
+        self._send_busy = self.state.is_busy # Keep public flag synced for external queries
+
+        for effect in effects:
+            self._interpret_effect(effect)
+
+    def _interpret_effect(self, effect):
+        """Interpret a state machine effect and apply side-effects."""
+        if isinstance(effect, UpdateUIEffect):
+            # 1. Update Send/Stop enabled states
+            def set_control_enabled(control, enabled):
+                if control and control.getModel():
+                    control.getModel().Enabled = bool(enabled)
+            set_control_enabled(self.send_control, effect.send_enabled)
+            set_control_enabled(self.stop_control, effect.stop_enabled)
+
+            # 2. Update Send label and ensure GTK width doesn't creep
+            if self.send_control and self.send_control.getModel():
+                btn_model = self.send_control.getModel()
+                if btn_model.Label != effect.send_label:
+                    btn_model.Label = effect.send_label
+                if self._fixed_send_width:
+                    try:
+                        r = self.send_control.getPosSize()
+                        if r.Width != self._fixed_send_width:
+                            self.send_control.setPosSize(
+                                r.X, r.Y, self._fixed_send_width, r.Height, 15
+                            )
+                    except Exception:
+                        pass
+
+            # 3. Update Status text if provided
+            if effect.status_text is not None and effect.status_text != "":
+                self._set_status(effect.status_text)
+
+        elif isinstance(effect, StartRecordingEffect):
+            from plugin.modules.chatbot.audio_recorder import start_recording
+            try:
+                start_recording()
+            except RuntimeError as re:
+                self._append_response("\n[Audio error: %s]\n" % str(re))
+                self.dispatch(ErrorOccurredEvent())
+
+        elif isinstance(effect, StopRecordingEffect):
+            from plugin.modules.chatbot.audio_recorder import stop_recording
+            try:
                 self.audio_wav_path = stop_recording()
-                if self.query_control and get_control_text(self.query_control).strip():
-                    btn_model.Label = "Send"
-                else:
-                    btn_model.Label = "Record"
+            except Exception as e:
+                log.error(f"Error stopping recording: {e}")
 
+        elif isinstance(effect, StartSendEffect):
             self.stop_requested = False
             self._terminal_status = "Ready"
-            self._send_busy = True
-            self._set_button_states(send_enabled=False, stop_enabled=True)
-            self._do_send()
-        except Exception as e:
-            self._terminal_status = "Error"
-            import traceback
-            tb = traceback.format_exc()
-
-            # Use richer logging context before appending
-            doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
-            log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
-
-            self._append_response("\n\n[Error: %s]\n" % str(e))
-            raise
-        finally:
-            self._send_busy = False
-            log.debug("actionPerformed finally: resetting UI")
-            self._set_status(self._terminal_status)
-            if self.send_control and self.send_control.getModel().Label not in ("Record", "Stop Rec"):
-                # if empty, set to Record (when recording available) else Send
-                if self.query_control and (get_control_text(self.query_control).strip() or self.audio_wav_path):
-                    self.send_control.getModel().Label = "Send"
+            # In a real async environment we would spawn the thread from here,
+            # but _do_send blocks and catches its own errors so we call it directly.
+            try:
+                self._do_send()
+            except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
+                doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
+                log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
+                self._append_response("\n\n[Error: %s]\n" % str(e))
+                self.dispatch(ErrorOccurredEvent())
+            finally:
+                # Tell state machine we finished, it will re-enable buttons
+                update_activity_state("")
+                if self._terminal_status == "Error":
+                    self.dispatch(ErrorOccurredEvent())
                 else:
-                    self.send_control.getModel().Label = "Record" if HAS_RECORDING else "Send"
-            self._set_button_states(send_enabled=True, stop_enabled=False)
-            log.debug("control returned to LibreOffice")
-            update_activity_state("")  # clear phase so watchdog does not report after we return
+                    self.dispatch(SendCompletedEvent())
+                    # In some flows _set_status happens via _terminal_status.
+                    # State machine expects "Ready" on completion.
+                    if self._terminal_status:
+                        self._set_status(self._terminal_status)
+
+        elif isinstance(effect, StopSendEffect):
+            # Used when the user clicks the explicit "Stop" button.
+            self.stop_requested = True
+            client = getattr(self, "client", None)
+            if client and hasattr(client, "stop"):
+                try:
+                    client.stop()
+                except Exception as e:
+                    log.error("StopButton error stopping client: %s", e)
+
+            adapter = getattr(self, "_current_agent_backend", None)
+            if adapter and hasattr(adapter, "stop"):
+                try:
+                    adapter.stop()
+                except Exception as e:
+                    log.error("StopButton error stopping agent backend: %s", e)
+
+
+    def on_action_performed(self, evt):
+        btn_model = self.send_control.getModel()
+        label = btn_model.Label
+
+        if label == "Record":
+            self.dispatch(RecordClickedEvent())
+        elif label == "Stop Rec":
+            self.dispatch(StopRecClickedEvent())
+        elif label == "Send":
+            self.dispatch(SendClickedEvent())
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
 
@@ -401,6 +445,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Get user query and clear field (before loading tools, so direct-image path can return early)
         query_text = ""
         if self.query_control and self.query_control.getModel():
+            from plugin.framework.dialogs import get_control_text
             query_text = (get_control_text(self.query_control) or "").strip()
 
         # Audio implies we have input even if text is empty
@@ -409,6 +454,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         if self.query_control and self.query_control.getModel():
+            from plugin.framework.dialogs import set_control_text
             set_control_text(self.query_control, "")
 
         # Transcription Fallback check
@@ -513,25 +559,7 @@ class StopButtonListener(BaseActionListener):
 
     def on_action_performed(self, evt):
         if self.send_listener:
-            self.send_listener.stop_requested = True
-
-            # 1. Stop the HTTP client immediately (breaks hanging reads)
-            client = getattr(self.send_listener, "client", None)
-            if client and hasattr(client, "stop"):
-                try:
-                    client.stop()
-                except Exception as e:
-                    log.error("StopButton error stopping client: %s", e)
-
-            # 2. If an external agent backend is running, tell it to stop
-            adapter = getattr(self.send_listener, "_current_agent_backend", None)
-            if adapter and hasattr(adapter, "stop"):
-                try:
-                    adapter.stop()
-                except Exception as e:
-                    log.error("StopButton error stopping agent backend: %s", e)
-            # Update status immediately
-            self.send_listener._set_status("Stopping...")
+            self.send_listener.dispatch(StopClickedEvent())
 
 
 # ---------------------------------------------------------------------------
@@ -562,6 +590,7 @@ class ClearButtonListener(BaseActionListener):
     def on_action_performed(self, evt):
         self.session.clear()
         if self.response_control and self.response_control.getModel():
+            from plugin.framework.dialogs import set_control_text
             text = self.greeting + "\n" if self.greeting else ""
             set_control_text(self.response_control, text)
         if self.status_control:

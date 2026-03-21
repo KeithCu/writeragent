@@ -4,6 +4,9 @@ dynamic = ["version"]
 description = "LibreOffice AI writing assistant with MCP server"
 requires-python = ">=3.11"
 license = {text = "GPL-3.0-or-later"}
+dependencies = [
+    "deal>=4.24.6",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -27,4 +30,6 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = []
+dev = [
+    "deal>=4.24.6",
+]
