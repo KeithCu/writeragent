@@ -1,6 +1,6 @@
 # Formal Verification Strategy for WriterAgent
 
-This document explores the theoretical foundation and practical application of formal verification (FV) to the WriterAgent Python codebase.
+This document explores the theoretical foundation and practical application of formal verification (FV) to the WriterAgent Python codebase. 
 
 **Critical Architectural Assumption:** WriterAgent relies heavily on LibreOffice's UNO API. For the scope of this document and any FV efforts, **we treat the UNO C++ bridge as an axiomatically sound, 100% reliable external environment.** We have no interest in verifying LibreOffice itself. If a UNO method is called with correct parameters, we assume it succeeds. Our FV scope is strictly constrained to proving the correctness of *our* Python code: our data transformations, parsing logic, state management, and algorithmic safety.
 
@@ -29,7 +29,7 @@ We evaluate the current Python verification ecosystem strictly for its utility o
 ### A. Deal (Design by Contract) & Deal-Solver
 [`deal`](https://deal.readthedocs.io/) implements Design by Contract (DbC), heavily inspired by Hoare logic and the Eiffel language. It uses decorators (`@deal.pre`, `@deal.post`, `@deal.inv`) to define axioms and theorems about functions.
 
-*   **The Verifier (`deal-solver`):** `deal` includes an experimental static verifier that attempts to translate the Python AST and the contracts directly into Z3 theorems.
+*   **The Verifier (`deal-solver`):** `deal` includes an experimental static verifier that attempts to translate the Python AST and the contracts directly into Z3 theorems. 
 *   **The CS Reality:** It is a fascinating academic exercise but practically unworkable for WriterAgent. It requires absolute referential transparency, does not support most of the Python standard library, cannot model sets or complex OOP structures, and fails on unbounded loops.
 
 ### B. CrossHair: The Concolic Testing Engine
@@ -46,15 +46,20 @@ We evaluate the current Python verification ecosystem strictly for its utility o
 
 ## 3. Execution Roadmap: Hardening WriterAgent's Pure Logic
 
-To implement FV, we must isolate our verifiable code from our axiomatic environment (UNO).
+To implement FV at scale across a ~23 KLOC codebase (excluding tests and vendored contrib), we must employ **Assume-Guarantee Reasoning** (a standard composition formal method). We "assume" the correctness of UNO, and we "guarantee" the correctness of our logic under those assumptions. 
 
-### Phase 1: Segregation of Pure Logic (The "Hexagonal" Core)
-Verification requires deterministic boundaries. Our current architecture already has pockets of pure logic (e.g., `plugin/framework/url_utils.py`, `plugin/modules/calc/address_utils.py`, and `plugin/framework/pricing.py`).
+Attempting to verify 23 KLOC simultaneously is intractable. We must apply a tiered, incremental triage framework.
 
-Moving forward, complex transformations (like AST parsing, text delta computation, or HTML sanitization) must be strictly decoupled from UNO calls. We extract data from UNO, pass it into pure, verifiable Python functions, and pass the output back to UNO.
+### Phase 1: Triage and "Hexagonal" Segregation
+The codebase must be categorized by its distance from the UNO boundary.
+1.  **Tier 0 (The Core - Immediate ROI):** Files with zero UNO dependencies. These are pure data-transformation pipelines (`url_utils.py`, `address_utils.py`, `pricing.py`, `streaming_deltas.py`).
+2.  **Tier 1 (The Adapters):** Code that parses complex UNO structures into pure Python data models (e.g., extracting an AST from LibreOffice).
+3.  **Tier 2 (The Orchestrators):** State machines and side-effect-heavy UI controllers (`panel_factory.py`).
 
-### Phase 2: Axiomatic Definition via Contracts
-We begin by establishing the formal properties of our pure functions using type hints and `deal` contracts. This shifts our development model from "writing tests that pass" to "defining invariants that must never fail."
+We begin verification exclusively at Tier 0. Moving forward, complex algorithms must be strictly decoupled from UNO calls. We extract data from UNO (Tier 1), pass it into pure, verifiable Tier 0 functions, and pass the output back via Tier 2 orchestrators.
+
+### Phase 2: Axiomatic Definition via Contracts (Tier 0)
+We begin by establishing the formal properties of our pure functions using strict type hints and `deal` contracts. This shifts our development model from "writing tests that pass" to "defining invariants that must never fail."
 
 **Example: Verifying Calc Address Math**
 Consider `column_to_index` in `address_utils.py`. We know mathematically that:
@@ -77,18 +82,310 @@ def column_to_index(col_str: str) -> int:
 ```
 
 ### Phase 3: Concolic State Exploration with CrossHair
-With contracts in place, we unleash CrossHair.
+With contracts in place, we unleash CrossHair. 
 `crosshair check plugin/modules/calc/address_utils.py`
 
-CrossHair's Z3 engine will not just throw random fuzzing data at the function; it will analytically dissect the bytecode. It will realize that `ord(char)` implies integer boundaries, and it will intentionally synthesize string inputs designed to trigger integer overflows, index out-of-bounds, or violate the `deal.ensure` inverse mapping contract.
+CrossHair's Z3 engine will not just throw random fuzzing data at the function; it will analytically dissect the bytecode. It will realize that `ord(char)` implies integer boundaries, and it will intentionally synthesize string inputs designed to trigger integer overflows, index out-of-bounds, or violate the `deal.ensure` inverse mapping contract. 
 
 When CrossHair finds a counterexample, it provides the exact symbolic input required to break our algorithm. We patch the code, and the state space is secured.
 
 ### Phase 4: SMT-Driven Protocol Verification
-Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (`plugin/modules/http/streaming_deltas.py`).
+Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (`plugin/modules/http/streaming_deltas.py`). 
 
 By defining contracts that assert *"No matter how a JSON delta stream is arbitrarily chunked or fragmented over the network, the final assembled output string will exactly match the output of a synchronous, unfragmented payload,"* we can use CrossHair to mathematically prove our streaming parser's resilience against arbitrary network fragmentation.
 
 ## Conclusion
 
 By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we can elevate the reliability of WriterAgent's pure algorithmic core from "empirically tested" to "mathematically robust." We acknowledge the intractability of verifying the entire application, and instead focus our SMT solvers exclusively on the pure data-transformation pipelines that feed our axiomatic UNO environment.
+
+## Practical Implementation Guide for WriterAgent
+
+### Step 1: Framework-First Verification (Recommended Starting Point)
+
+**Priority Order for Framework Modules:**
+
+1. **`plugin/framework/utils.py`** (Highest Priority)
+   - Combined URL and path utilities
+   - Pure string and filesystem operations
+   - Critical for web operations and file system access
+   - Example contracts:
+     ```python
+     @deal.pre(lambda url: isinstance(url, str))
+     @deal.post(lambda result: result.startswith(('http://', 'https://')) or result == '')
+     @deal.ensure(lambda url, result: not url or result)  # Empty in → empty out
+     def ensure_scheme(url: str) -> str:
+         """✅ VERIFIED: URL scheme enforcement"""
+         # ... implementation ...
+     
+     @deal.post(lambda result: os.path.isabs(result))
+     @deal.ensure(lambda result: os.path.exists(result) or True)  # May not exist yet
+     def get_plugin_dir() -> str:
+         """✅ VERIFIED: Returns absolute plugin directory path"""
+         # ... implementation ...
+     ```
+
+2. **`plugin/framework/format.py`**
+   - Text normalization functions
+   - Used across all document types
+   - Verify format preservation invariants
+
+3. **`plugin/framework/schema_convert.py`**
+   - JSON schema transformations
+   - Tool parameter validation
+   - Prove schema equivalence properties
+
+4. **`plugin/framework/config.py`** (Adapter Layer)
+   - Configuration validation logic
+   - Type safety guarantees
+   - Verify config consistency invariants
+
+### Step 2: Verification Workflow
+
+**For each module:**
+
+```bash
+# 1. Add type hints and deal contracts
+# 2. Run static type checking
+mypy plugin/framework/utils.py --strict
+
+# 3. Run CrossHair verification
+crosshair check plugin/framework/utils.py --contracts
+
+# 4. Add to test suite
+pytest tests/test_url_utils_verification.py
+```
+
+**Sample test file:**
+```python
+# tests/test_url_utils_verification.py
+import subprocess
+import pytest
+
+def test_url_utils_contracts():
+    """Verify all contracts in url_utils module"""
+    result = subprocess.run([
+        "crosshair", "check",
+        "plugin/framework/url_utils.py",
+        "--contracts",
+        "--per_condition_timeout=5"
+    ], capture_output=True, text=True, timeout=60)
+    
+    print(f"CrossHair output:\n{result.stdout}")
+    if result.stderr:
+        print(f"Errors:\n{result.stderr}")
+    
+    assert result.returncode == 0, "CrossHair found contract violations"
+```
+
+### Step 3: Verification Tracking System
+
+**Maintain a `verification_status.json` file:**
+```json
+{
+  "framework": {
+    "utils.py": {
+      "status": "verified",
+      "coverage": "100%",
+      "contracts": 22,
+      "functions_verified": [
+        "normalize_endpoint_url",
+        "get_url_hostname",
+        "get_url_domain",
+        "get_url_path",
+        "get_url_query_dict",
+        "get_url_path_and_query",
+        "is_pdf_url",
+        "get_plugin_dir"
+      ],
+      "last_verified": "2026-03-15",
+      "tool": "crosshair",
+      "ci_integration": true
+    },
+    "format.py": {
+      "status": "partial",
+      "coverage": "65%",
+      "contracts": 12,
+      "pending": ["normalize_paragraphs", "strip_html_tags"],
+      "notes": "HTML parsing requires mocking - needs custom harness"
+    }
+  },
+  "modules": {
+    "calc": {
+      "address_utils.py": {
+        "status": "planned",
+        "priority": "high"
+      }
+    }
+  }
+}
+```
+
+**Update verification status script:**
+```python
+# scripts/update_verification_status.py
+import json
+import subprocess
+from pathlib import Path
+
+def update_status(module_path: str, tool: str = "crosshair"):
+    """Update verification status after successful run"""
+    status_file = Path("verification_status.json")
+    
+    if not status_file.exists():
+        status = {"framework": {}, "modules": {}}
+    else:
+        status = json.loads(status_file.read_text())
+    
+    # Parse module path to determine category
+    parts = module_path.split('/')
+    if parts[1] == 'framework':
+        category = 'framework'
+        module_name = parts[2]
+    else:
+        category = parts[1]
+        module_name = parts[3] if len(parts) > 3 else parts[2]
+    
+    # Update status
+    if category not in status:
+        status[category] = {}
+    
+    status[category][module_name] = {
+        "status": "verified",
+        "last_verified": "2026-03-15",  # Use actual date
+        "tool": tool,
+        "ci_integration": False
+    }
+    
+    status_file.write_text(json.dumps(status, indent=2))
+    print(f"✅ Updated verification status for {module_path}")
+```
+
+### Step 4: CI Integration
+
+**Add to `.github/workflows/verify.yml`:**
+```yaml
+name: Formal Verification
+
+on: [push, pull_request]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [
+          "plugin/framework/utils.py",
+          "plugin/framework/format.py"
+        ]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install deal crosshair
+    
+    - name: Run CrossHair verification
+      run: |
+        crosshair check ${{ matrix.module }} --contracts --per_condition_timeout=10
+    
+    - name: Update verification status
+      if: success()
+      run: |
+        python scripts/update_verification_status.py ${{ matrix.module }}
+    
+    - name: Commit updated status
+      if: success() && github.ref == 'refs/heads/master'
+      run: |
+        git config --global user.name "Verification Bot"
+        git config --global user.email "bot@example.com"
+        git add verification_status.json
+        git commit -m "chore: update verification status for ${{ matrix.module }}"
+        git push
+```
+
+### Step 5: Documentation Standards
+
+**Add verification badges to docstrings:**
+```python
+def ensure_scheme(url: str) -> str:
+    """
+    Ensure URL has proper scheme prefix.
+    
+    ✅ VERIFICATION STATUS:
+    - Type safety: mypy (strict)
+    - Contracts: deal (4/4 verified)
+    - Concolic: CrossHair (100% coverage)
+    - Last verified: 2026-03-15
+    
+    Args:
+        url: Input URL string (may lack scheme)
+        
+    Returns:
+        URL with http:// or https:// prefix
+        
+    Raises:
+        ValueError: If url is empty after normalization
+        
+    Contracts:
+        @deal.pre: Non-empty string input
+        @deal.post: Result starts with http:// or https://
+        @deal.ensure: Preserves path/query/fragment
+    """
+    # ... implementation ...
+```
+
+## Verification Anti-Patterns to Avoid
+
+1. **❌ Don't verify UNO wrapper code**
+   - Stick to the axiomatic boundary
+   - UNO calls should be in unverified adapter layers
+
+2. **❌ Avoid complex contracts on I/O functions**
+   - File operations, network calls are hard to verify
+   - Keep contracts simple for these cases
+
+3. **❌ Don't over-specify**
+   - Contracts should capture essential properties
+   - Too many contracts make verification brittle
+
+4. **❌ Avoid verifying UI/orchestration code**
+   - State machines with complex side effects
+   - Focus on pure computation instead
+
+## Recommended Tool Chain
+
+```
+Pure Python Logic → [mypy] → [deal contracts] → [CrossHair] → ✅ Verified
+                     ↑                                      ↓
+               Type Safety                          Counterexamples
+```
+
+**Installation:**
+```bash
+pip install deal crosshair mypy
+```
+
+**Daily Workflow:**
+```bash
+# Develop with contracts
+vim plugin/framework/url_utils.py  # Add @deal decorators
+
+# Verify locally
+mypy plugin/framework/url_utils.py --strict
+crosshair check plugin/framework/url_utils.py --contracts
+
+# Commit with verification
+git add plugin/framework/url_utils.py
+python scripts/update_verification_status.py plugin/framework/url_utils.py
+git add verification_status.json
+git commit -m "feat: add verified URL utilities"
+```
+
+By following this framework-first approach, we build a solid foundation of verified code that all higher-level modules can rely on. The verification status becomes a living document that grows as we harden more of the codebase.
