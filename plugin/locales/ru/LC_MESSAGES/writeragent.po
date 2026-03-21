@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-21 20:30+0000\n"
+"POT-Creation-Date: 2026-03-21 21:16+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:408
+#: plugin/modules/chatbot/panel.py:409
 msgid "Starting..."
 msgstr "Запуск..."
 
@@ -279,8 +279,8 @@ msgstr "Запустить тесты draw"
 msgid "Evaluation Dashboard"
 msgstr "Панель оценки"
 
-#: plugin/main.py:367 plugin/framework/dialogs.py:375
-#: plugin/framework/dialogs.py:403
+#: plugin/main.py:367 plugin/framework/dialogs.py:378
+#: plugin/framework/dialogs.py:406
 msgid "About WriterAgent"
 msgstr "О WriterAgent"
 
@@ -289,23 +289,58 @@ msgid "Dispatch Error"
 msgstr "Ошибка диспетчеризации"
 
 #: plugin/modules/writer/legacy.py:43 plugin/modules/writer/legacy.py:54
+#: plugin/modules/chatbot/selection.py:69
+#: plugin/modules/chatbot/selection.py:145
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Расширить выделение"
 
+#: plugin/modules/writer/legacy.py:70 plugin/modules/calc/legacy.py:32
+msgid "Please enter edit instructions!"
+msgstr "Пожалуйста, введите инструкции для редактирования!"
+
+#: plugin/modules/writer/legacy.py:70 plugin/modules/calc/legacy.py:32
+msgid "Input"
+msgstr "Ввод"
+
 #: plugin/modules/writer/legacy.py:78 plugin/modules/writer/legacy.py:88
-#: plugin/modules/writer/legacy.py:102
+#: plugin/modules/writer/legacy.py:102 plugin/modules/chatbot/selection.py:256
+#: plugin/modules/chatbot/selection.py:358
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Редактировать выделение"
+
+#: plugin/modules/chatbot/panel_factory.py:445
+msgid "Size:"
+msgstr "Размер:"
+
+#: plugin/modules/chatbot/panel_factory.py:446
+msgid "Height:"
+msgstr "Высота:"
+
+#: plugin/modules/chatbot/panel_factory.py:447
+msgid "Width:"
+msgstr "Ширина:"
 
 #: plugin/modules/chatbot/panel_wiring.py:142
 msgid "Ready"
 msgstr "Готово"
 
-#: plugin/modules/chatbot/panel.py:417
+#: plugin/modules/chatbot/panel.py:394
+msgid "Record"
+msgstr "Запись"
+
+#: plugin/modules/chatbot/panel.py:396
+msgid "Stop Rec"
+msgstr "Остановить"
+
+#: plugin/modules/chatbot/panel.py:398
+msgid "Send"
+msgstr "Отправить"
+
+#: plugin/modules/chatbot/panel.py:418
 msgid "Getting document..."
 msgstr "Получение документа..."
 
-#: plugin/modules/chatbot/panel.py:422
+#: plugin/modules/chatbot/panel.py:423
 msgid ""
 "\n"
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n"
@@ -313,7 +348,7 @@ msgstr ""
 "\n"
 "[В активном окне не найден совместимый документ LibreOffice (Writer, Calc или Draw).]\n"
 
-#: plugin/modules/chatbot/panel.py:432
+#: plugin/modules/chatbot/panel.py:433
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
@@ -322,7 +357,7 @@ msgstr ""
 "[Внутренняя ошибка: Тип документа изменен с {0} на {1}! Пожалуйста, сообщите"
 " об ошибке.]"
 
-#: plugin/modules/chatbot/panel.py:439
+#: plugin/modules/chatbot/panel.py:440
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
@@ -331,7 +366,7 @@ msgstr ""
 "[Внутренняя ошибка: Не удалось определить тип документа для {0}. Пожалуйста,"
 " сообщите об этом!]"
 
-#: plugin/modules/chatbot/panel.py:473
+#: plugin/modules/chatbot/panel.py:474
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -340,11 +375,12 @@ msgstr ""
 "[Модель {0} не поддерживает встроенное аудио. Пожалуйста, выберите модель "
 "STT в настройках.]"
 
-#: plugin/modules/chatbot/panel.py:476
+#: plugin/modules/chatbot/panel.py:477
 #: plugin/modules/chatbot/send_handlers.py:282
 #: plugin/modules/chatbot/send_handlers.py:293
 #: plugin/modules/chatbot/send_handlers.py:302
 #: plugin/modules/chatbot/send_handlers.py:543
+#: plugin/framework/legacy_ui.py:314
 msgid "Error"
 msgstr "Ошибка"
 
@@ -450,8 +486,8 @@ msgstr ""
 msgid "Server Status"
 msgstr "Статус сервера"
 
-#: plugin/modules/http/__init__.py:247 plugin/framework/dialogs.py:232
-#: plugin/framework/dialogs.py:304 plugin/framework/dialogs.py:391
+#: plugin/modules/http/__init__.py:247 plugin/framework/dialogs.py:235
+#: plugin/framework/dialogs.py:307 plugin/framework/dialogs.py:394
 msgid "OK"
 msgstr "ОК"
 
@@ -463,6 +499,18 @@ msgid ""
 msgstr ""
 "{0}\n"
 "URL: {1}"
+
+#: plugin/modules/http/client.py:534
+msgid "Stream ended with finish_reason=error"
+msgstr "Поток завершился с finish_reason=error"
+
+#: plugin/modules/http/client.py:547
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Модель повторяет один и тот же фрагмент (бесконечный цикл). Попробуйте еще "
+"раз или используйте другую модель."
 
 #: plugin/modules/http/errors.py:15
 #, python-brace-format
@@ -532,15 +580,47 @@ msgstr "WriterAgent: Редактировать выделение (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Расширить выделение (Calc)"
 
-#: plugin/modules/launcher/__init__.py:406
+#: plugin/modules/launcher/__init__.py:407
 #, python-brace-format
 msgid "{0} Running"
 msgstr "{0} Запущено"
 
-#: plugin/modules/launcher/__init__.py:407
+#: plugin/modules/launcher/__init__.py:408
 #, python-brace-format
 msgid "Launch {0}"
 msgstr "Запустить {0}"
+
+#: plugin/modules/launcher/__init__.py:502
+#, python-brace-format
+msgid ""
+"Command '{0}' not found.\n"
+"Make sure it is installed and in your PATH.\n"
+"\n"
+"Use 'Install AI CLI' from the menu to get install instructions."
+msgstr ""
+"Команда '{0}' не найдена.\n"
+"Убедитесь, что она установлена и добавлена в PATH.\n"
+"\n"
+"Используйте 'Install AI CLI' в меню для получения инструкций по установке."
+
+#: plugin/framework/settings_dialog.py:146
+msgid "Invalid Setting"
+msgstr "Недействительная настройка"
+
+#: plugin/framework/settings_dialog.py:146
+msgid "Temperature must be <= 1.0"
+msgstr "Температура должна быть <= 1.0"
+
+#: plugin/framework/legacy_ui.py:314
+#, python-brace-format
+msgid ""
+"Failed to open Settings: {0}\n"
+"\n"
+"{1}"
+msgstr ""
+"Не удалось открыть настройки: {0}\n"
+"\n"
+"{1}"
 
 #: plugin/framework/dialogs.py:93
 msgid "Agent requests approval"
@@ -555,30 +635,39 @@ msgstr "Продолжить это действие?"
 msgid "Tool: %s"
 msgstr "Инструмент: %s"
 
-#: plugin/framework/dialogs.py:231
+#: plugin/framework/dialogs.py:234
 msgid "Copy"
 msgstr "Копировать"
 
-#: plugin/framework/dialogs.py:251 plugin/framework/dialogs.py:326
+#: plugin/framework/dialogs.py:254 plugin/framework/dialogs.py:329
 msgid "Copied!"
 msgstr "Скопировано!"
 
-#: plugin/framework/dialogs.py:301
+#: plugin/framework/dialogs.py:304
 msgid "Copy URL"
 msgstr "Копировать URL"
 
-#: plugin/framework/dialogs.py:382
+#: plugin/framework/dialogs.py:385
 #, python-format
 msgid "Version: %s"
 msgstr "Версия: %s"
 
-#: plugin/framework/dialogs.py:383
+#: plugin/framework/dialogs.py:386
 msgid "AI-powered extension for LibreOffice"
 msgstr "Расширение на базе ИИ для LibreOffice"
 
-#: plugin/framework/dialogs.py:388
+#: plugin/framework/dialogs.py:391
 msgid "GitHub: quazardous/localwriter"
 msgstr "GitHub: quazardous/localwriter"
+
+#: plugin/framework/dialogs.py:407
+#, python-brace-format
+msgid ""
+"WriterAgent {0}\n"
+"https://github.com/quazardous/localwriter"
+msgstr ""
+"WriterAgent {0}\n"
+"https://github.com/quazardous/localwriter"
 
 #: plugin/tests/test_i18n.py:15
 msgid "ThisIsAnUntranslatedString999"
