@@ -54,7 +54,14 @@ except ImportError:
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
-from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state
+from plugin.framework.dialogs import (
+    get_optional as get_optional_control,
+    get_checkbox_state,
+    set_checkbox_state,
+    set_control_text,
+    set_control_enabled,
+    set_control_visible
+)
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
 from plugin.framework.document import is_writer, is_calc, is_draw
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls

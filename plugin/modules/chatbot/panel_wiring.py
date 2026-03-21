@@ -113,7 +113,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     self._render_session_history(self.session, controls["response"], model, active_greeting)
 
     # 4. Buttons
-    self._wire_buttons(controls, model, active_greeting, set_control_enabled)
+    self._wire_buttons(controls, model, active_greeting)
 
     # Wire query listener to update Record/Send button label (fixed width applied after relayout)
     query_text_listener = None

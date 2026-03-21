@@ -16,17 +16,19 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import sys
 import os
-from plugin.framework.utils import get_plugin_dir
 import logging
 
 # Ensure the extension's install directory is on sys.path
 # so that "plugin.xxx" imports work correctly.
-_plugin_dir = get_plugin_dir()
+# We must do this before any imports from "plugin.xyz"
+_plugin_dir = os.path.dirname(os.path.abspath(__file__))
 _ext_root = os.path.dirname(_plugin_dir)
 if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 if _plugin_dir not in sys.path:
     sys.path.insert(0, _plugin_dir)
+
+from plugin.framework.utils import get_plugin_dir
 
 # Add the vendor directory so cross-platform audio wheels (sounddevice, cffi) can be found
 _vendor_dir = os.path.join(_plugin_dir, "vendor")
