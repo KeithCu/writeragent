@@ -40,7 +40,7 @@ def do_extend_selection(ctx, model, input_box_fn):
     api_config = get_api_config(ctx)
     ok, err_msg = validate_api_config(api_config)
     if not ok:
-        msgbox(ctx, _("WriterAgent: Extend Selection"), err_msg)
+        msgbox(ctx, _("WriterAgent: Extend Selection"), _(err_msg))
         return
 
     from plugin.modules.http.client import LlmClient
@@ -51,7 +51,7 @@ def do_extend_selection(ctx, model, input_box_fn):
             text_range.setString(text_range.getString() + chunk_text)
 
     def on_error(e):
-        msgbox(ctx, _("WriterAgent: Extend Selection"), format_error_message(e))
+        msgbox(ctx, _("WriterAgent: Extend Selection"), _(format_error_message(e)))
 
     try:
         run_stream_completion_async(
@@ -67,7 +67,7 @@ def do_edit_selection(ctx, model, input_box_fn):
     original_text = text_range.getString()
     
     try:
-        user_input, extra_instructions = input_box_fn(ctx, "Please enter edit instructions!", "Input", "")
+        user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
         if not user_input:
             return
         if extra_instructions:
@@ -75,7 +75,7 @@ def do_edit_selection(ctx, model, input_box_fn):
             set_config(ctx, "additional_instructions", extra_instructions)
             update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
     except Exception as e:
-        msgbox(ctx, _("WriterAgent: Edit Selection"), format_error_message(e))
+        msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
         return
 
     prompt = "ORIGINAL VERSION:\n" + original_text + "\n Below is an edited version according to the following instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
@@ -85,7 +85,7 @@ def do_edit_selection(ctx, model, input_box_fn):
     api_config = get_api_config(ctx)
     ok, err_msg = validate_api_config(api_config)
     if not ok:
-        msgbox(ctx, _("WriterAgent: Edit Selection"), err_msg)
+        msgbox(ctx, _("WriterAgent: Edit Selection"), _(err_msg))
         return
 
     from plugin.modules.http.client import LlmClient
@@ -99,7 +99,7 @@ def do_edit_selection(ctx, model, input_box_fn):
 
     def on_error(e):
         text_range.setString(original_text)
-        msgbox(ctx, _("WriterAgent: Edit Selection"), format_error_message(e))
+        msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
 
     try:
         run_stream_completion_async(

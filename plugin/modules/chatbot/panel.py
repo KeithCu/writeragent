@@ -311,8 +311,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # 2. Update Send label and ensure GTK width doesn't creep
             if self.send_control and self.send_control.getModel():
                 btn_model = self.send_control.getModel()
-                if btn_model.Label != effect.send_label:
-                    btn_model.Label = effect.send_label
+                if btn_model.Label != _(effect.send_label):
+                    btn_model.Label = _(effect.send_label)
                 if self._fixed_send_width:
                     try:
                         r = self.send_control.getPosSize()
@@ -387,14 +387,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
 
     def on_action_performed(self, evt):
+        from plugin.framework.i18n import _
         btn_model = self.send_control.getModel()
         label = btn_model.Label
 
-        if label == "Record":
+        if label == _("Record"):
             self.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
-        elif label == "Stop Rec":
+        elif label == _("Stop Rec"):
             self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
-        elif label == "Send":
+        elif label == _("Send"):
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
     # _transcribe_audio_async is provided by SendHandlersMixin.

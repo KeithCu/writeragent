@@ -530,7 +530,8 @@ class LlmClient:
 
                     # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
                     if finish_reason == "error":
-                        raise NetworkError("Stream ended with finish_reason=error", code="STREAM_ERROR")
+                        from plugin.framework.i18n import _
+                        raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
                     if thinking and on_thinking:
                         on_thinking(thinking)
@@ -541,9 +542,9 @@ class LlmClient:
                         if (len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
                                 and len(content) > 2
                                 and all(c == last_contents[0] for c in last_contents)):
+                            from plugin.framework.i18n import _
                             raise NetworkError(
-                                "The model is repeating the same chunk (infinite loop). "
-                                "Try again or use a different model.",
+                                _("The model is repeating the same chunk (infinite loop). Try again or use a different model."),
                                 code="INFINITE_LOOP"
                             )
                     if delta and on_delta:

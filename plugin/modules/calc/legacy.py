@@ -29,7 +29,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
 
     user_input = ""
     if is_edit:
-        user_input, _ = input_box_fn(ctx, "Please enter edit instructions!", "Input", "")
+        user_input, _extra = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
         if not user_input:
             return
 
@@ -71,7 +71,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     ok, err_msg = validate_api_config(api_config)
     if not ok:
         title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
-        msgbox(ctx, title, err_msg)
+        msgbox(ctx, title, _(err_msg))
         return
 
     client = LlmClient(api_config)

@@ -712,7 +712,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         except Exception as e:
             log_exception(e, context="Dispatch")
             from plugin.framework.i18n import _
-            msgbox(self.ctx, _("Dispatch Error"), str(e))
+            msgbox(self.ctx, _("Dispatch Error"), _(str(e)))
 
     def addStatusListener(self, listener, url):
         with _status_lock:

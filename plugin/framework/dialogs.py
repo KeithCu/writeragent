@@ -71,7 +71,7 @@ def msgbox(ctx, title, message):
         toolkit = smgr.createInstanceWithContext(
             "com.sun.star.awt.Toolkit", ctx)
         box = toolkit.createMessageBox(
-            window, 1, 1, title, message)  # INFOBOX, OK button
+            window, 1, 1, _(title), _(message))  # INFOBOX, OK button
         box.execute()
     except Exception:
         log.exception("MSGBOX fallback - %s: %s", title, message)
@@ -149,13 +149,14 @@ def copy_to_clipboard(ctx, text):
 
 def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_type=None, enabled=True):
     """Add a button to a dialog model."""
+    from plugin.framework.i18n import _
     btn = dlg_model.createInstance("com.sun.star.awt.UnoControlButtonModel")
     btn.Name = name
     btn.PositionX = x
     btn.PositionY = y
     btn.Width = width
     btn.Height = height
-    btn.Label = label
+    btn.Label = _(label)
     btn.Enabled = enabled
     if push_button_type is not None:
         btn.PushButtonType = push_button_type
@@ -165,6 +166,7 @@ def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_t
 
 def add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True):
     """Add a fixed text label to a dialog model."""
+    from plugin.framework.i18n import _
     lbl = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedTextModel")
     lbl.Name = name
     lbl.PositionX = x
@@ -172,7 +174,7 @@ def add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True
     lbl.Width = width
     lbl.Height = height
     lbl.MultiLine = multiline
-    lbl.Label = label
+    lbl.Label = _(label)
     dlg_model.insertByName(name, lbl)
     return lbl
 
@@ -193,13 +195,14 @@ def add_dialog_edit(dlg_model, name, text, x, y, width, height, readonly=False):
 
 def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
     """Add a clickable hyperlink to a dialog model."""
+    from plugin.framework.i18n import _
     link = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedHyperlinkModel")
     link.Name = name
     link.PositionX = x
     link.PositionY = y
     link.Width = width
     link.Height = height
-    link.Label = label
+    link.Label = _(label)
     link.URL = url
     link.TextColor = 0x0563C1  # standard link blue
     dlg_model.insertByName(name, link)
@@ -223,11 +226,11 @@ def msgbox_with_copy(ctx, title, message, copy_text):
 
         dlg_model = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = title
+        dlg_model.Title = _(title)
         dlg_model.Width = 250
         dlg_model.Height = 80
 
-        add_dialog_label(dlg_model, "Msg", message, 10, 6, 230, 42)
+        add_dialog_label(dlg_model, "Msg", _(message), 10, 6, 230, 42)
         add_dialog_button(dlg_model, "CopyBtn", _("Copy"), 10, 56, 50, 14)
         add_dialog_button(dlg_model, "OKBtn", _("OK"), 190, 56, 50, 14, push_button_type=1)
 

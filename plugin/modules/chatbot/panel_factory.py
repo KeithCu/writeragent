@@ -338,6 +338,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Set backend indicator label from config (visible when external backend enabled) and gray out controls."""
         try:
             from plugin.framework.config import get_config
+            from plugin.framework.i18n import _
             root = root_window or (getattr(self, "m_panelRootWindow", None))
             if not root or not hasattr(root, "getControl"):
                 return
@@ -348,7 +349,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             ctrl = get_optional_control(root, "backend_indicator")
             if ctrl:
                 if is_external:
-                    label = backend_id.capitalize()
+                    label = _(backend_id.capitalize())
                     if hasattr(ctrl.getModel(), "Label"):
                         ctrl.getModel().Label = label
                     elif hasattr(ctrl, "setText"):
@@ -439,10 +440,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             populate_combobox_with_lru(self.ctx, base_size_input, str(get_config(self.ctx, "image_base_size")), "image_base_size_lru", "")
 
         def update_base_size_label(aspect_str):
+            from plugin.framework.i18n import _
             if not base_size_label: return
-            txt = "Size:"
-            if "Landscape" in aspect_str: txt = "Height:"
-            elif "Portrait" in aspect_str: txt = "Width:"
+            txt = _("Size:")
+            if "Landscape" in aspect_str: txt = _("Height:")
+            elif "Portrait" in aspect_str: txt = _("Width:")
             if hasattr(base_size_label, "setText"):
                 base_size_label.setText(txt)
             elif hasattr(base_size_label.getModel(), "Label"):
