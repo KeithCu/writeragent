@@ -29,6 +29,7 @@ import time
 import unicodedata
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.service_base import ServiceBase
 
 log = logging.getLogger("writeragent.writer.index")
 
@@ -184,13 +185,16 @@ class _DocIndex:
 
 # ── Service ───────────────────────────────────────────────────────────
 
-class IndexService:
+class IndexService(ServiceBase):
     """Per-document inverted index with Snowball stemming."""
 
-    def __init__(self, doc_svc, tree_svc, bookmark_svc, events):
-        self._doc_svc = doc_svc
-        self._tree_svc = tree_svc
-        self._bm_svc = bookmark_svc
+    name = "writer_index"
+
+    def __init__(self, services):
+        self._doc_svc = services.document
+        self._tree_svc = services.writer_tree
+        self._bm_svc = services.writer_bookmarks
+        events = services.events
         self._cache = {}       # doc_key -> _DocIndex
         self._stemmers = {}    # lang -> StemmerInstance
         events.subscribe("document:cache_invalidated",

@@ -25,24 +25,12 @@ class WriterModule(ModuleBase):
     def initialize(self, services):
         self.services = services
 
-        # Initialize core Writer services (merged from writer_nav and writer_index)
-        from .bookmarks import BookmarkService
-        from .tree import TreeService
-        from .proximity import ProximityService
-        from .index import IndexService
+        # Initialize core Writer services via auto-discovery
+        from . import bookmarks, tree, proximity, index
 
-        doc_svc = services.document
-        events = services.events
-
-        bm = BookmarkService(doc_svc)
-        tree = TreeService(doc_svc, bm, events)
-        prox = ProximityService(doc_svc, tree, bm, events)
-        idx = IndexService(doc_svc, tree, bm, events)
-
-        services.register("writer_bookmarks", bm)
-        services.register("writer_tree", tree)
-        services.register("writer_proximity", prox)
-        services.register("writer_index", idx)
+        # Order matters: tree needs bookmarks, proximity/index need tree
+        for module in (bookmarks, tree, proximity, index):
+            services.auto_discover(module)
 
         # Register tools automatically for the entire package
         services.tools.auto_discover_package(__name__)

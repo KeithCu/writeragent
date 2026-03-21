@@ -24,17 +24,21 @@ import bisect
 import logging
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.service_base import ServiceBase
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
 
-class ProximityService:
+class ProximityService(ServiceBase):
     """Local proximity navigation on Writer documents."""
 
-    def __init__(self, doc_svc, tree_svc, bookmark_svc, events):
-        self._doc_svc = doc_svc
-        self._tree_svc = tree_svc
-        self._bm_svc = bookmark_svc
+    name = "writer_proximity"
+
+    def __init__(self, services):
+        self._doc_svc = services.document
+        self._tree_svc = services.writer_tree
+        self._bm_svc = services.writer_bookmarks
+        events = services.events
         self._flat_cache = {}  # doc_key -> [flat entries]
         events.subscribe("document:cache_invalidated",
                          self._on_cache_invalidated)

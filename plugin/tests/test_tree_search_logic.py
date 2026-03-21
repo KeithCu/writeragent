@@ -31,7 +31,14 @@ class TestTreeServiceSearch(unittest.TestCase):
         }
 
         self.events = MagicMock()
-        self.tree_svc = TreeService(self.doc_svc, self.bm_svc, self.events)
+
+        # We need a mock services object
+        services = MagicMock()
+        services.document = self.doc_svc
+        services.writer_bookmarks = self.bm_svc
+        services.events = self.events
+
+        self.tree_svc = TreeService(services)
 
     def test_exact_match(self):
         # Should match "Introduction" exactly

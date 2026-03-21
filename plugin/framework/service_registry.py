@@ -44,6 +44,28 @@ class ServiceRegistry:
             raise ValueError(f"Service already registered: {name}")
         self._services[name] = instance
 
+    def auto_discover(self, module):
+        """Automatically discover and register ServiceBase subclasses in a module."""
+        import inspect
+        import logging
+        from plugin.framework.service_base import ServiceBase
+
+        log = logging.getLogger("writeragent.services")
+
+        for name, obj in inspect.getmembers(module, inspect.isclass):
+            if (issubclass(obj, ServiceBase) and
+                obj is not ServiceBase and
+                obj.__module__ == module.__name__ and
+                not inspect.isabstract(obj) and
+                getattr(obj, "name", None)):
+
+                try:
+                    # Instantiate by passing the registry itself as 'services'
+                    svc_instance = obj(self)
+                    self.register(obj.name, svc_instance)
+                except Exception as e:
+                    log.error("Failed to instantiate service %s: %s", obj.__name__, e)
+
     def get(self, name):
         """Get a service by name, or None if not registered."""
         return self._services.get(name)

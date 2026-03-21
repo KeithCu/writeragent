@@ -22,14 +22,18 @@ Ported from mcp-libre services/writer/tree.py (bookmark methods).
 import logging
 import uuid
 
+from plugin.framework.service_base import ServiceBase
+
 log = logging.getLogger("writeragent.writer.nav.bookmarks")
 
 
-class BookmarkService:
+class BookmarkService(ServiceBase):
     """Manage _mcp_ bookmarks on headings for stable addressing."""
 
-    def __init__(self, doc_svc):
-        self._doc_svc = doc_svc
+    name = "writer_bookmarks"
+
+    def __init__(self, services):
+        self._doc_svc = services.document
 
     def get_mcp_bookmark_map(self, doc):
         """Return {para_index: bookmark_name} for all _mcp_ bookmarks."""

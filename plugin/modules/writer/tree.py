@@ -22,16 +22,20 @@ Ported from mcp-libre services/writer/tree.py.
 import logging
 
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.service_base import ServiceBase
 
 log = logging.getLogger("writeragent.writer.nav.tree")
 
 
-class TreeService:
+class TreeService(ServiceBase):
     """Heading tree navigation with per-document caching."""
 
-    def __init__(self, doc_svc, bm_svc, events):
-        self._doc_svc = doc_svc
-        self._bm_svc = bm_svc
+    name = "writer_tree"
+
+    def __init__(self, services):
+        self._doc_svc = services.document
+        self._bm_svc = services.writer_bookmarks
+        events = services.events
         self._tree_cache = {}  # doc_key -> root node
         self._ai_summary_cache = {}  # doc_key -> {para_index: summary}
         events.subscribe("document:cache_invalidated",
