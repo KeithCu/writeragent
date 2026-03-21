@@ -3,12 +3,11 @@
 # This file is distributed under the same license as the PACKAGE package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-21 22:34+0000\n"
+"POT-Creation-Date: 2026-03-21 22:18+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -838,3 +837,259 @@ msgstr "Webリサーチ"
 #: plugin/xdl_strings.py:57
 msgid "Writer"
 msgstr "Writer"
+
+msgctxt "settings-module/agent_backend/title"
+msgid "Agent backends (Aider, Hermes)"
+msgstr "エージェント バックエンド (Aider, Hermes)"
+
+msgctxt "settings-field/agent_backend.backend_id/label"
+msgid "Backend"
+msgstr "バックエンド"
+
+msgctxt "settings-option/agent_backend.backend_id/0"
+msgid "Built-in"
+msgstr "ビルトイン"
+
+msgctxt "settings-option/agent_backend.backend_id/1"
+msgid "Hermes"
+msgstr "Hermes"
+
+msgctxt "settings-option/agent_backend.backend_id/2"
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgctxt "settings-field/agent_backend.path/label"
+msgid "Path / URL"
+msgstr "パス / URL"
+
+msgctxt "settings-field/agent_backend.path/helper"
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の場合は "
+"http://localhost:8000)。空の場合はデフォルトを試行します。"
+
+msgctxt "settings-field/agent_backend.args/label"
+msgid "Extra arguments"
+msgstr "追加引数"
+
+msgctxt "settings-field/agent_backend.args/helper"
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr "選択したバックエンドのオプション引数 (スペース区切り)。"
+
+msgctxt "settings-field/agent_backend.acp_agent_name/label"
+msgid "ACP agent name"
+msgstr "ACP エージェント名"
+
+msgctxt "settings-field/agent_backend.acp_agent_name/helper"
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr "ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自動検出します。"
+
+msgctxt "settings-module/calc/title"
+msgid "Calc spreadsheet tools"
+msgstr "Calc 表計算ツール"
+
+msgctxt "settings-field/calc.max_rows_display/label"
+msgid "Max Rows Display"
+msgstr "最大表示行数"
+
+msgctxt "settings-module/chatbot/title"
+msgid "AI chat sidebar and REST API"
+msgstr "AI チャット サイドバーと REST API"
+
+msgctxt "settings-field/chatbot.max_tool_rounds/label"
+msgid "Max Tool Rounds"
+msgstr "最大ツールラウンド数"
+
+msgctxt "settings-field/chatbot.context_strategy/label"
+msgid "Document Context Strategy"
+msgstr "ドキュメント コンテキスト戦略"
+
+msgctxt "settings-field/chatbot.context_strategy/helper"
+msgid "How much document content to include in LLM context"
+msgstr "LLM コンテキストに含めるドキュメントコンテンツの量"
+
+msgctxt "settings-option/chatbot.context_strategy/0"
+msgid "Auto (by document size)"
+msgstr "自動 (ドキュメントサイズによる)"
+
+msgctxt "settings-option/chatbot.context_strategy/1"
+msgid "Full document text"
+msgstr "ドキュメント全文"
+
+msgctxt "settings-option/chatbot.context_strategy/2"
+msgid "Pages around cursor"
+msgstr "カーソル周辺のページ"
+
+msgctxt "settings-option/chatbot.context_strategy/3"
+msgid "Outline + excerpt"
+msgstr "アウトライン + 抜粋"
+
+msgctxt "settings-option/chatbot.context_strategy/4"
+msgid "Stats + outline only"
+msgstr "統計情報 + アウトラインのみ"
+
+msgctxt "settings-field/chatbot.extend_selection_max_tokens/label"
+msgid "Extend Selection Max Tokens"
+msgstr "選択範囲拡張の最大トークン数"
+
+msgctxt "settings-field/chatbot.edit_selection_max_new_tokens/label"
+msgid "Edit Selection Extra Tokens"
+msgstr "選択範囲編集の追加トークン数"
+
+msgctxt "settings-field/chatbot.edit_selection_max_new_tokens/helper"
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr "元のテキスト長に追加するトークン数。0 = 元と同じ長さ。"
+
+msgctxt "settings-field/chatbot.show_search_thinking/label"
+msgid "Show Web Search Thinking"
+msgstr "Web検索の思考プロセスを表示"
+
+msgctxt "settings-field/chatbot.web_cache_max_mb/label"
+msgid "Web Cache Max Size (MB)"
+msgstr "Web キャッシュ最大サイズ (MB)"
+
+msgctxt "settings-field/chatbot.web_cache_max_mb/helper"
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Web 検索キャッシュの最大ディスクサイズ (0 で無効化)"
+
+msgctxt "settings-field/chatbot.web_cache_validity_days/label"
+msgid "Web Cache Validity (Days)"
+msgstr "Web キャッシュの有効期間 (日数)"
+
+msgctxt "settings-field/chatbot.web_cache_validity_days/helper"
+msgid "How many days cache entries should be considered valid."
+msgstr "キャッシュエントリが有効と見なされる日数。"
+
+msgctxt "settings-module/doc/title"
+msgid "Common tools for all document types"
+msgstr "すべてのドキュメントタイプの共通ツール"
+
+msgctxt "settings-module/draw/title"
+msgid "Draw and Impress tools"
+msgstr "Draw と Impress ツール"
+
+msgctxt "settings-module/http/title"
+msgid "HTTP / MCP Services"
+msgstr "HTTP / MCP サービス"
+
+msgctxt "settings-field/http.mcp_enabled/label"
+msgid "Enable MCP Server"
+msgstr "MCP サーバーを有効にする"
+
+msgctxt "settings-field/http.mcp_enabled/helper"
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr "ローカルホストのみ、認証なし。stdio 経由のアクセスは常に有効です。"
+
+msgctxt "settings-field/http.mcp_port/label"
+msgid "MCP Port"
+msgstr "MCP ポート"
+
+msgctxt "settings-module/launcher/title"
+msgid "AI CLI Launcher"
+msgstr "AI CLI ランチャー"
+
+msgctxt "settings-field/launcher.provider/label"
+msgid "AI CLI Provider"
+msgstr "AI CLI プロバイダー"
+
+msgctxt "settings-field/launcher.install_cli/label"
+msgid "Install"
+msgstr "インストール"
+
+msgctxt "settings-field/launcher.cli_status/label"
+msgid "CLI Status"
+msgstr "CLI ステータス"
+
+msgctxt "settings-field/launcher.auto_config/label"
+msgid "Auto-configure MCP"
+msgstr "MCPの自動設定"
+
+msgctxt "settings-field/launcher.auto_config/helper"
+msgid ""
+"Generate a temporary config file pointing the CLI to LocalWriter's MCP "
+"server."
+msgstr "CLI が LocalWriter の MCP サーバーを指すように、一時的な設定ファイルを生成します。"
+
+msgctxt "settings-field/launcher.terminal/label"
+msgid "Terminal Emulator"
+msgstr "ターミナルエミュレーター"
+
+msgctxt "settings-field/launcher.terminal/helper"
+msgid ""
+"Terminal to use (e.g. xterm, gnome-terminal, konsole). Empty = auto-detect."
+msgstr "使用するターミナル (例: xterm, gnome-terminal, konsole)。空の場合は自動検出します。"
+
+msgctxt "settings-field/launcher.cwd/label"
+msgid "Working Directory"
+msgstr "作業ディレクトリ"
+
+msgctxt "settings-field/launcher.cwd/helper"
+msgid "Directory to launch AI CLI in. Clear to restore default."
+msgstr "AI CLI を起動するディレクトリ。クリアするとデフォルトに戻ります。"
+
+msgctxt "settings-field/launcher.args/label"
+msgid "Extra Arguments"
+msgstr "追加引数"
+
+msgctxt "settings-field/launcher.args/helper"
+msgid "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
+msgstr "追加の CLI 引数。プレースホルダー: {mcp_url}, {port}, {host}。"
+
+msgctxt "settings-field/launcher.global_ai_instructions/label"
+msgid "Global AI Instructions"
+msgstr "グローバル AI インストラクション"
+
+msgctxt "settings-field/launcher.global_ai_instructions/helper"
+msgid ""
+"Persona and rules sent to any AI CLI you launch. For Claude this is "
+"CLAUDE.md, for OpenCode this is AGENTS.md."
+msgstr ""
+"起動した AI CLI に送信されるペルソナとルール。Claude の場合は CLAUDE.md、OpenCode の場合は AGENTS.md です。"
+
+msgctxt "settings-module/tunnel/title"
+msgid "Tunnel providers for external MCP access"
+msgstr "外部 MCP アクセス用のトンネルプロバイダー"
+
+msgctxt "settings-field/tunnel.auto_start/label"
+msgid "Auto Start Tunnel"
+msgstr "トンネルの自動開始"
+
+msgctxt "settings-field/tunnel.provider/label"
+msgid "Tunnel Provider"
+msgstr "トンネルプロバイダー"
+
+msgctxt "settings-field/tunnel.server/label"
+msgid "Bore Server"
+msgstr "Bore サーバー"
+
+msgctxt "settings-field/tunnel.server/helper"
+msgid "Relay server (default: bore.pub)"
+msgstr "リレーサーバー (デフォルト: bore.pub)"
+
+msgctxt "settings-field/tunnel.tunnel_name/label"
+msgid "Cloudflare Tunnel Name"
+msgstr "Cloudflare トンネル名"
+
+msgctxt "settings-field/tunnel.tunnel_name/helper"
+msgid "Optional: use a named tunnel instead of a quick tunnel"
+msgstr "オプション: クイックトンネルの代わりに名前付きトンネルを使用する"
+
+msgctxt "settings-field/tunnel.public_url/label"
+msgid "Cloudflare Public URL"
+msgstr "Cloudflare パブリック URL"
+
+msgctxt "settings-field/tunnel.public_url/helper"
+msgid "Required for named tunnels"
+msgstr "名前付きトンネルに必須"
+
+msgctxt "settings-field/tunnel.authtoken/label"
+msgid "Ngrok Authtoken"
+msgstr "Ngrok 認証トークン"
+
+msgctxt "settings-module/writer/title"
+msgid "Writer document tools (including navigation and search)"
+msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-21 22:34+0000\n"
+"POT-Creation-Date: 2026-03-21 22:18+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -867,3 +867,273 @@ msgstr "Investigación Web"
 #: plugin/xdl_strings.py:57
 msgid "Writer"
 msgstr "Writer"
+
+msgctxt "settings-module/agent_backend/title"
+msgid "Agent backends (Aider, Hermes)"
+msgstr "Backends de agente (Aider, Hermes)"
+
+msgctxt "settings-field/agent_backend.backend_id/label"
+msgid "Backend"
+msgstr "Backend"
+
+msgctxt "settings-option/agent_backend.backend_id/0"
+msgid "Built-in"
+msgstr "Integrado"
+
+msgctxt "settings-option/agent_backend.backend_id/1"
+msgid "Hermes"
+msgstr "Hermes"
+
+msgctxt "settings-option/agent_backend.backend_id/2"
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgctxt "settings-field/agent_backend.path/label"
+msgid "Path / URL"
+msgstr "Ruta / URL"
+
+msgctxt "settings-field/agent_backend.path/helper"
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. "
+"http://localhost:8000 para Hermes). Vacío = intentar por defecto."
+
+msgctxt "settings-field/agent_backend.args/label"
+msgid "Extra arguments"
+msgstr "Argumentos adicionales"
+
+msgctxt "settings-field/agent_backend.args/helper"
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr ""
+"Argumentos opcionales para el backend seleccionado (separados por espacios)."
+
+msgctxt "settings-field/agent_backend.acp_agent_name/label"
+msgid "ACP agent name"
+msgstr "Nombre del agente ACP"
+
+msgctxt "settings-field/agent_backend.acp_agent_name/helper"
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr ""
+"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el"
+" primer agente."
+
+msgctxt "settings-module/calc/title"
+msgid "Calc spreadsheet tools"
+msgstr "Herramientas de hoja de cálculo de Calc"
+
+msgctxt "settings-field/calc.max_rows_display/label"
+msgid "Max Rows Display"
+msgstr "Límite de filas a mostrar"
+
+msgctxt "settings-module/chatbot/title"
+msgid "AI chat sidebar and REST API"
+msgstr "Barra lateral de chat IA y API REST"
+
+msgctxt "settings-field/chatbot.max_tool_rounds/label"
+msgid "Max Tool Rounds"
+msgstr "Rondas máximas de herramientas"
+
+msgctxt "settings-field/chatbot.context_strategy/label"
+msgid "Document Context Strategy"
+msgstr "Estrategia de contexto de documento"
+
+msgctxt "settings-field/chatbot.context_strategy/helper"
+msgid "How much document content to include in LLM context"
+msgstr "Cuánto contenido del documento incluir en el contexto del LLM"
+
+msgctxt "settings-option/chatbot.context_strategy/0"
+msgid "Auto (by document size)"
+msgstr "Automático (por tamaño del documento)"
+
+msgctxt "settings-option/chatbot.context_strategy/1"
+msgid "Full document text"
+msgstr "Texto completo del documento"
+
+msgctxt "settings-option/chatbot.context_strategy/2"
+msgid "Pages around cursor"
+msgstr "Páginas alrededor del cursor"
+
+msgctxt "settings-option/chatbot.context_strategy/3"
+msgid "Outline + excerpt"
+msgstr "Esquema + extracto"
+
+msgctxt "settings-option/chatbot.context_strategy/4"
+msgid "Stats + outline only"
+msgstr "Solo estadísticas + esquema"
+
+msgctxt "settings-field/chatbot.extend_selection_max_tokens/label"
+msgid "Extend Selection Max Tokens"
+msgstr "Tokens máximos para extender selección"
+
+msgctxt "settings-field/chatbot.edit_selection_max_new_tokens/label"
+msgid "Edit Selection Extra Tokens"
+msgstr "Tokens extra para editar selección"
+
+msgctxt "settings-field/chatbot.edit_selection_max_new_tokens/helper"
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Tokens adicionales a la longitud original del texto. 0 = misma longitud que "
+"el original."
+
+msgctxt "settings-field/chatbot.show_search_thinking/label"
+msgid "Show Web Search Thinking"
+msgstr "Mostrar razonamiento de búsqueda web"
+
+msgctxt "settings-field/chatbot.web_cache_max_mb/label"
+msgid "Web Cache Max Size (MB)"
+msgstr "Tamaño máx. caché web (MB)"
+
+msgctxt "settings-field/chatbot.web_cache_max_mb/helper"
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Tamaño máximo en disco para caché de búsqueda web (0 para desactivar)"
+
+msgctxt "settings-field/chatbot.web_cache_validity_days/label"
+msgid "Web Cache Validity (Days)"
+msgstr "Validez de caché web (Días)"
+
+msgctxt "settings-field/chatbot.web_cache_validity_days/helper"
+msgid "How many days cache entries should be considered valid."
+msgstr "Cuántos días las entradas de caché se considerarán válidas."
+
+msgctxt "settings-module/doc/title"
+msgid "Common tools for all document types"
+msgstr "Herramientas comunes para todos los tipos de documentos"
+
+msgctxt "settings-module/draw/title"
+msgid "Draw and Impress tools"
+msgstr "Herramientas de Draw e Impress"
+
+msgctxt "settings-module/http/title"
+msgid "HTTP / MCP Services"
+msgstr "Servicios HTTP / MCP"
+
+msgctxt "settings-field/http.mcp_enabled/label"
+msgid "Enable MCP Server"
+msgstr "Habilitar servidor MCP"
+
+msgctxt "settings-field/http.mcp_enabled/helper"
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr ""
+"Solo localhost, sin autenticación. El acceso por stdio siempre está "
+"habilitado."
+
+msgctxt "settings-field/http.mcp_port/label"
+msgid "MCP Port"
+msgstr "Puerto MCP"
+
+msgctxt "settings-module/launcher/title"
+msgid "AI CLI Launcher"
+msgstr "Lanzador CLI IA"
+
+msgctxt "settings-field/launcher.provider/label"
+msgid "AI CLI Provider"
+msgstr "Proveedor CLI IA"
+
+msgctxt "settings-field/launcher.install_cli/label"
+msgid "Install"
+msgstr "Instalar"
+
+msgctxt "settings-field/launcher.cli_status/label"
+msgid "CLI Status"
+msgstr "Estado de CLI"
+
+msgctxt "settings-field/launcher.auto_config/label"
+msgid "Auto-configure MCP"
+msgstr "Autoconfigurar MCP"
+
+msgctxt "settings-field/launcher.auto_config/helper"
+msgid ""
+"Generate a temporary config file pointing the CLI to LocalWriter's MCP "
+"server."
+msgstr ""
+"Generar un archivo de configuración temporal apuntando la CLI al servidor "
+"MCP de LocalWriter."
+
+msgctxt "settings-field/launcher.terminal/label"
+msgid "Terminal Emulator"
+msgstr "Emulador de terminal"
+
+msgctxt "settings-field/launcher.terminal/helper"
+msgid ""
+"Terminal to use (e.g. xterm, gnome-terminal, konsole). Empty = auto-detect."
+msgstr ""
+"Terminal a utilizar (ej. xterm, gnome-terminal, konsole). Vacío = detección "
+"automática."
+
+msgctxt "settings-field/launcher.cwd/label"
+msgid "Working Directory"
+msgstr "Directorio de trabajo"
+
+msgctxt "settings-field/launcher.cwd/helper"
+msgid "Directory to launch AI CLI in. Clear to restore default."
+msgstr ""
+"Directorio para lanzar la CLI de IA. Limpiar para restaurar el "
+"predeterminado."
+
+msgctxt "settings-field/launcher.args/label"
+msgid "Extra Arguments"
+msgstr "Argumentos adicionales"
+
+msgctxt "settings-field/launcher.args/helper"
+msgid "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
+msgstr "Argumentos adicionales de CLI. Marcadores: {mcp_url}, {port}, {host}."
+
+msgctxt "settings-field/launcher.global_ai_instructions/label"
+msgid "Global AI Instructions"
+msgstr "Instrucciones globales para la IA"
+
+msgctxt "settings-field/launcher.global_ai_instructions/helper"
+msgid ""
+"Persona and rules sent to any AI CLI you launch. For Claude this is "
+"CLAUDE.md, for OpenCode this is AGENTS.md."
+msgstr ""
+"Persona y reglas enviadas a cualquier CLI de IA que inicies. Para Claude "
+"esto es CLAUDE.md, para OpenCode es AGENTS.md."
+
+msgctxt "settings-module/tunnel/title"
+msgid "Tunnel providers for external MCP access"
+msgstr "Proveedores de túnel para acceso externo MCP"
+
+msgctxt "settings-field/tunnel.auto_start/label"
+msgid "Auto Start Tunnel"
+msgstr "Iniciar túnel automáticamente"
+
+msgctxt "settings-field/tunnel.provider/label"
+msgid "Tunnel Provider"
+msgstr "Proveedor de túnel"
+
+msgctxt "settings-field/tunnel.server/label"
+msgid "Bore Server"
+msgstr "Servidor Bore"
+
+msgctxt "settings-field/tunnel.server/helper"
+msgid "Relay server (default: bore.pub)"
+msgstr "Servidor de retransmisión (por defecto: bore.pub)"
+
+msgctxt "settings-field/tunnel.tunnel_name/label"
+msgid "Cloudflare Tunnel Name"
+msgstr "Nombre del túnel de Cloudflare"
+
+msgctxt "settings-field/tunnel.tunnel_name/helper"
+msgid "Optional: use a named tunnel instead of a quick tunnel"
+msgstr "Opcional: usar un túnel con nombre en lugar de un túnel rápido"
+
+msgctxt "settings-field/tunnel.public_url/label"
+msgid "Cloudflare Public URL"
+msgstr "URL pública de Cloudflare"
+
+msgctxt "settings-field/tunnel.public_url/helper"
+msgid "Required for named tunnels"
+msgstr "Requerido para túneles con nombre"
+
+msgctxt "settings-field/tunnel.authtoken/label"
+msgid "Ngrok Authtoken"
+msgstr "Authtoken de Ngrok"
+
+msgctxt "settings-module/writer/title"
+msgid "Writer document tools (including navigation and search)"
+msgstr "Herramientas de documento de Writer (incluye navegación y búsqueda)"
