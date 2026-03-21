@@ -16,13 +16,13 @@ def test_audio_recorder_creates_file_mocked():
 
             assert temp_file is not None
             assert os.path.exists(temp_file)
-            assert recorder.recording is True
+            assert recorder.state.status == 'recording'
             assert recorder.wav_file is not None
 
             returned_file = recorder.stop_recording()
 
             assert returned_file == temp_file
-            assert recorder.recording is False
+            assert recorder.state.status == 'idle'
             assert recorder.wav_file is None
             assert recorder.stream is None
 
@@ -95,7 +95,7 @@ def test_audio_recorder_real_hardware():
             assert wf.getframerate() == recorder.fs
     finally:
         # Stop recording if we crashed mid-flight
-        if recorder.recording:
+        if getattr(recorder, 'state', None) and recorder.state.status in ('recording', 'initializing'):
             try:
                 recorder.stop_recording()
             except Exception:

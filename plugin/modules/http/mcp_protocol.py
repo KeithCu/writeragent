@@ -30,7 +30,11 @@ import uuid
 
 from plugin.framework.main_thread import execute_on_main_thread
 from plugin.framework.errors import WriterAgentException, safe_json_loads
-log = logging.getLogger(__name__)
+from plugin.modules.http.mcp_state import (
+    MCPState, MCPStateStr, EventKind, MCPEvent,
+    ParseRequestEffect, ResolveDocumentEffect,
+    ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
+)
 
 log = logging.getLogger("writeragent.mcp.protocol")
 
@@ -371,50 +375,99 @@ class MCPProtocolHandler:
         return {"prompts": []}
 
     def _mcp_tools_call(self, params, document_url=None):
+        state = MCPState(status=MCPStateStr.IDLE)
+
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
-        if not tool_name:
-            raise ValueError("Missing 'name' in tools/call params")
-
-        log.debug(f"*** tools/call: {tool_name}, event_bus={self.event_bus} ***")
-
-        if self.event_bus:
-            pass
-        # Fire event for MCP request
-        if getattr(self, "event_bus", None) is not None:
-            self.event_bus.emit(
-                "mcp:request",
-                tool=params["name"],
-                args=params.get("arguments", {}),
-                method="tools/call"
-            )
-
         tool = self.tool_registry.get(tool_name)
         is_long_running = getattr(tool, "long_running", False) if tool else False
 
-        if is_long_running:
-            result = self._execute_long_running(
-                tool_name, arguments, document_url=document_url)
-        else:
-            result = self._execute_with_backpressure(
-                tool_name, arguments, document_url=document_url)
+        initial_event = MCPEvent(
+            kind=EventKind.REQUEST_RECEIVED,
+            data={
+                "tool_name": tool_name,
+                "arguments": arguments,
+                "document_url": document_url,
+                "is_long_running": is_long_running
+            }
+        )
 
-        if self.event_bus:
-            snippet = str(result)[:100] if result else ""
-            self.event_bus.emit("mcp:result", tool=tool_name, result_snippet=snippet, args=arguments)
+        # State machine runner
+        events_to_process = [initial_event]
+        final_result = None
 
-        is_error = (isinstance(result, dict)
-                    and result.get("status") == "error")
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(result, ensure_ascii=False,
-                                       default=str),
-                }
-            ],
-            "isError": is_error,
-        }
+        while events_to_process:
+            event = events_to_process.pop(0)
+            state, effects = next_state(state, event)
+
+            for effect in effects:
+                if isinstance(effect, ParseRequestEffect):
+                    log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
+                    if getattr(self, "event_bus", None) is not None:
+                        self.event_bus.emit(
+                            "mcp:request",
+                            tool=state.tool_name,
+                            args=state.arguments,
+                            method="tools/call"
+                        )
+
+                elif isinstance(effect, ResolveDocumentEffect):
+                    # We do not use doc_context/uno_ctx from here since the
+                    # execution methods currently handle context resolution
+                    # themselves (on main thread). We emit DOCUMENT_RESOLVED immediately.
+                    events_to_process.append(MCPEvent(
+                        kind=EventKind.DOCUMENT_RESOLVED,
+                        data={
+                            "doc_context": None,
+                            "doc_type": "writer",
+                            "uno_ctx": None
+                        }
+                    ))
+
+                elif isinstance(effect, ExecuteToolEffect):
+                    events_to_process.append(MCPEvent(kind=EventKind.TOOL_EXECUTION_STARTED))
+                    try:
+                        if effect.is_long_running:
+                            res = self._execute_long_running(
+                                effect.tool_name, effect.arguments, document_url=effect.document_url)
+                        else:
+                            res = self._execute_with_backpressure(
+                                effect.tool_name, effect.arguments, document_url=effect.document_url)
+                        events_to_process.append(MCPEvent(
+                            kind=EventKind.TOOL_COMPLETED,
+                            data={"result": res}
+                        ))
+                    except (BusyError, TimeoutError, WriterAgentException) as e:
+                        # Re-raise standard json-rpc errors to be caught in _process_jsonrpc
+                        raise e
+                    except Exception as e:
+                        events_to_process.append(MCPEvent(
+                            kind=EventKind.REQUEST_ERROR,
+                            data={
+                                "message": str(e),
+                                "code": "INTERNAL_ERROR"
+                            }
+                        ))
+
+                elif isinstance(effect, StreamResponseEffect):
+                    if getattr(self, "event_bus", None) is not None:
+                        snippet = str(effect.result)[:100] if effect.result else ""
+                        self.event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
+
+                    final_result = {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(effect.result, ensure_ascii=False, default=str),
+                            }
+                        ],
+                        "isError": effect.is_error,
+                    }
+
+                elif isinstance(effect, SendErrorEffect):
+                    raise ValueError(effect.message)
+
+        return final_result
 
     # ── JSON-RPC processing ──────────────────────────────────────────
 

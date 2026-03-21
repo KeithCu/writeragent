@@ -96,25 +96,120 @@ By defining contracts that assert *"No matter how a JSON delta stream is arbitra
 
 ## Phase 5: Elevating Orchestration to Pure State Machines
 
-The most glaring gap in naive formal verification is orchestration code (e.g., the complex, multi-round chat logic in `tool_loop.py`). Currently, such loops maintain state across several instance variables (like `self._active_round_num`, `self._active_pending_tools`) and trigger side-effects (appending UI responses, spawning threads) directly within the logic flow.
+**COMPLETED ✅**
 
-**The Solution: State Machine Extraction (Redux/Elm Pattern)**
+The state machine extraction has been successfully implemented using a pragmatic, simplified approach that avoids unnecessary complexity:
 
-To verify complex orchestration, we must decouple the *decision* of what to do from the *execution* of the side effect. We redesign the orchestrator as a pure Tier 0 function:
+### Key Design Decisions (Simplified Approach)
 
-`f(CurrentState, Event) -> (NextState, list[Effect])`
+1. **Simple Effect Types**: Used strings for simple effects (`"exit_loop"`, `"trigger_next_tool"`) instead of creating separate dataclass types
+2. **Union Types**: Used Python's native union types (`SendHandlerEffect = Type1 | Type2 | Type3`) for cleaner code
+3. **Minimal Boilerplate**: Kept effect and event definitions concise and focused
+4. **Direct State Updates**: Used `dataclasses.replace()` for state transitions instead of complex builders
 
-For `tool_loop.py`, this transformation involves:
-1.  **Defining the State:** A frozen dataclass capturing `round_num`, `pending_tools`, `max_rounds`, `status`, etc.
-2.  **Defining Events:** E.g., `StreamDoneEvent`, `ToolResultEvent`, `StopRequestedEvent`.
-3.  **Defining Effects (Commands):** E.g., `SpawnLLMWorkerEffect`, `SpawnToolWorkerEffect`, `UpdateUIEffect`.
-4.  **The Pure Transition Function:** `def next_state(state: ToolLoopState, event: ToolLoopEvent) -> tuple[ToolLoopState, list[ToolLoopEffect]]:`
+### Implemented State Machines
 
-**Verification:** Once extracted, the `next_state` function is 100% pure Python without UNO, UI, or threading dependencies. We can use CrossHair to mathematically prove orchestration invariants, such as:
-*   `@deal.ensure(lambda state, event, result: result[0].round_num <= state.max_rounds)`
-*   `@deal.ensure(lambda state, event, result: not (isinstance(event, StopRequestedEvent) and any(isinstance(e, SpawnLLMWorkerEffect) for e in result[1])))`
+1. **Tool Loop State Machine** (`plugin/modules/chatbot/tool_loop_state.py`)
+   - Pure transition function with comprehensive event handling
+   - Simple string effects mixed with structured effect types
+   - Full test coverage in `plugin/tests/test_tool_loop_state.py`
 
-By pushing orchestration into pure state machines, we systematically extend formal verification deep into the application's most complex lifecycle management layers without tangling with external I/O.
+2. **Send Handler State Machine** (`plugin/modules/chatbot/state_machine.py`)
+   - Handles audio, image, agent, and web workflows
+   - Uses union types for events and effects (cleaner than inheritance hierarchies)
+   - Comprehensive test coverage in `plugin/tests/test_state_machine.py`
+
+3. **Send Button State Machine** (`plugin/modules/chatbot/send_state.py`)
+   - Manages UI button state transitions
+   - Simple enum-based events and union effects
+   - Test coverage in `plugin/tests/test_send_state.py`
+
+4. **MCP State Machine** (`plugin/modules/http/mcp_state.py`)
+   - HTTP protocol state management
+   - Document resolution and tool execution workflows
+   - Uses dataclasses for structured effects
+
+5. **Audio Recorder State Machine** (`plugin/modules/chatbot/audio_recorder_state.py`)
+   - Audio recording lifecycle management
+   - Minimal state and effect types
+   - Test coverage in `plugin/modules/chatbot/tests/test_audio_recorder_state.py`
+
+### What We Avoided (Over-Engineering Traps)
+
+❌ **Complex Effect Hierarchies**: Did NOT create deep inheritance trees of effect types
+❌ **Overly Generic State Machines**: Did NOT create abstract base classes or factories
+❌ **Excessive Pattern Matching**: Used simple `match` statements and `isinstance` checks
+❌ **Separate State Update Effects**: Combined related state updates in single effects
+
+### Current Implementation Pattern
+
+```python
+# Simple, pragmatic approach used in production
+
+@dataclass(frozen=True)
+class ToolLoopState:
+    round_num: int
+    pending_tools: List[Dict[str, Any]]
+    # ... other fields ...
+
+# Simple string effects for common operations
+effects.append("exit_loop")  # Simple string effect
+effects.append(UIEffect(kind="status", text="Ready"))  # Structured effect
+
+# Pure transition function
+def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopState, List[Any]]:
+    effects: List[Any] = []
+    
+    match event.kind:
+        case EventKind.STOP_REQUESTED:
+            effects.append("exit_loop")
+            return dataclasses.replace(state, is_stopped=True), effects
+        # ... other cases ...
+```
+
+**Verification:** These pure state machines are now ready for formal verification using CrossHair. The simplified design makes verification easier and more practical.
+
+## Phase 6: Formal Verification of State Machines
+
+Now that the state machine infrastructure is in place, we can apply formal verification:
+
+### Step 1: Add Design by Contract to State Machines
+Add `deal` contracts to the `next_state` functions:
+
+```python
+# Example from tool_loop_state.py
+@deal.pre(lambda state, event: state.round_num <= state.max_rounds)
+@deal.post(lambda result: result[0].round_num <= result[0].max_rounds)
+@deal.ensure(lambda state, event, result:
+    not (event.kind == EventKind.STOP_REQUESTED and
+         "exit_loop" not in result[1]))
+def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopState, List[Any]]:
+    # ... existing implementation ...
+```
+
+### Step 2: Run CrossHair Verification
+```bash
+crosshair check plugin/modules/chatbot/tool_loop_state.py --contracts
+crosshair check plugin/modules/chatbot/state_machine.py --contracts
+crosshair check plugin/modules/chatbot/send_state.py --contracts
+```
+
+### Step 3: Add Verification to CI
+Integrate CrossHair into the CI pipeline to run verification on every commit.
+
+### Step 4: Document Verification Status
+Maintain a `verification_status.json` file tracking which components have been verified.
+
+## Phase 7: Expand Verification to Tier 0 Modules
+
+With state machines verified, expand to utility modules:
+
+1. **`plugin/framework/utils.py`** - URL and path utilities
+2. **`plugin/framework/format.py`** - Text normalization
+3. **`plugin/modules/calc/address_utils.py`** - Calc address math
+4. **`plugin/modules/http/streaming_deltas.py`** - Streaming protocol
+
+Add contracts and run CrossHair verification on each module.
 
 ## Conclusion
 

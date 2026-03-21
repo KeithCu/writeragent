@@ -129,16 +129,19 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 # The label update logic is now handled correctly by the state machine
                 # so we can just trigger a fake text update event to sync the state
                 has_text = bool(get_control_text(controls["query"]).strip())
-                from plugin.modules.chatbot.send_state import TextUpdatedEvent
-                self.send_listener.dispatch(TextUpdatedEvent(has_text=has_text))
+                from plugin.modules.chatbot.send_state import SendEvent, SendEventKind
+                self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": has_text}))
             else:
                 log.warning("No send_listener available for QueryTextListener setup")
         except Exception as e:
             log.error("QueryTextListener setup error: %s" % e)
 
     if controls["status"] and hasattr(controls["status"], "setText"):
-        try: controls["status"].setText("Ready")
-        except Exception as e: log.exception("Error setting status text: %s", e)
+        try:
+            from plugin.framework.i18n import _
+            controls["status"].setText(_("Ready"))
+        except Exception as e:
+            log.exception("Error setting status text: %s", e)
 
     # 5. Timer and Resize
     try:
@@ -171,7 +174,8 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             try:
                 fw = _measure_send_button_max_width(controls["send"], has_recording)
                 if fw:
-                    query_text_listener.set_fixed_send_width(fw)
+                    if hasattr(self, "send_listener"):
+                        self.send_listener.set_fixed_send_width(fw)
                     sr = controls["send"].getPosSize()
                     controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
             except Exception as e:

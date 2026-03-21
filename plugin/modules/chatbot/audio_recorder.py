@@ -19,18 +19,33 @@ import sys
 import wave
 import tempfile
 
+from plugin.modules.chatbot.audio_recorder_state import (
+    AudioRecorderState,
+    StartRequestedEvent,
+    DeviceReadyEvent,
+    StopRequestedEvent,
+    ErrorOccurredEvent,
+    InitializeDeviceEffect,
+    StartRecordingEffect,
+    StopRecordingEffect,
+    ReportErrorEffect,
+    next_state,
+)
+
+
 class AudioRecorder:
     def __init__(self):
         self.fs = 16000  # Sample rate
         self.channels = 1
-        self.recording = False
         self.stream = None
         self.wav_file = None
         self.temp_filename = None
 
+        # Initialize pure state
+        self.state = AudioRecorderState(status='idle')
+
     def _cleanup_failed_start(self):
         """Clean up resources if stream creation/start fails."""
-        self.recording = False
         # Close and remove the temporary WAV file if we created one
         if self.wav_file is not None:
             try:
@@ -56,63 +71,110 @@ class AudioRecorder:
                 pass
             self.stream = None
 
+    def _execute_effect(self, effect):
+        if isinstance(effect, InitializeDeviceEffect):
+            try:
+                import sounddevice as sd
+            except OSError as e:
+                self._apply_event(ErrorOccurredEvent(
+                    "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
+                ))
+                return
+
+            try:
+                fd, self.temp_filename = tempfile.mkstemp(suffix=".wav")
+                os.close(fd)
+                self.wav_file = wave.open(self.temp_filename, 'wb')
+                self.wav_file.setnchannels(self.channels)
+                self.wav_file.setsampwidth(2) # 16-bit
+                self.wav_file.setframerate(self.fs)
+
+                def callback(indata, frames, time_info, status):
+                    if status:
+                        print(status, file=sys.stderr)
+                    # Use state directly to decide if we should write
+                    if self.state.status == 'recording' and self.wav_file:
+                        # sounddevice returns bytes if we pass dtype='int16' when opening as RawInputStream
+                        self.wav_file.writeframes(indata)
+
+                self.stream = sd.RawInputStream(
+                    samplerate=self.fs,
+                    channels=self.channels,
+                    dtype="int16",
+                    callback=callback,
+                )
+
+                # Signal readiness
+                self._apply_event(DeviceReadyEvent())
+
+            except AssertionError as e:
+                # Some PortAudio backends raise AssertionError (e.g. structVersion mismatch)
+                self._apply_event(ErrorOccurredEvent(
+                    "Audio recording is not available on this system (PortAudio backend error)."
+                ))
+            except OSError as e:
+                # Preserve the existing PortAudio missing-library hint
+                self._apply_event(ErrorOccurredEvent(
+                    "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
+                ))
+            except Exception as e:
+                # Generic fallback for other backend errors
+                self._apply_event(ErrorOccurredEvent(
+                    f"Audio recording failed to start: {e}"
+                ))
+
+        elif isinstance(effect, StartRecordingEffect):
+            try:
+                if self.stream:
+                    self.stream.start()
+            except Exception as e:
+                self._apply_event(ErrorOccurredEvent(
+                    f"Audio recording failed to start stream: {e}"
+                ))
+
+        elif isinstance(effect, StopRecordingEffect):
+            if self.stream:
+                try:
+                    self.stream.stop()
+                except Exception:
+                    pass
+                try:
+                    self.stream.close()
+                except Exception:
+                    pass
+                self.stream = None
+
+            if self.wav_file:
+                try:
+                    self.wav_file.close()
+                except Exception:
+                    pass
+                self.wav_file = None
+
+            # If we error'd before creating a file, temp_filename could be empty/removed
+            if self.state.status == 'error':
+                self._cleanup_failed_start()
+
+        elif isinstance(effect, ReportErrorEffect):
+            # Let the exception bubble up to the caller just like the old version
+            raise RuntimeError(effect.error_message)
+
+
+    def _apply_event(self, event):
+        """Advances the state machine and executes effects synchronously."""
+        step = next_state(self.state, event)
+        self.state = step.state
+        for effect in step.effects:
+            self._execute_effect(effect)
+
+
     def start_recording(self):
-        try:
-            import sounddevice as sd
-        except OSError as e:
-            raise RuntimeError("Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2") from e
-
-        self.recording = True
-        fd, self.temp_filename = tempfile.mkstemp(suffix=".wav")
-        os.close(fd)
-        self.wav_file = wave.open(self.temp_filename, 'wb')
-        self.wav_file.setnchannels(self.channels)
-        self.wav_file.setsampwidth(2) # 16-bit
-        self.wav_file.setframerate(self.fs)
-
-        def callback(indata, frames, time_info, status):
-            if status:
-                print(status, file=sys.stderr)
-            if self.recording:
-                # indata is numpy array, but we don't have numpy.
-                # sounddevice returns bytes if we pass dtype='int16' when opening as RawInputStream
-                self.wav_file.writeframes(indata)
-
-        try:
-            self.stream = sd.RawInputStream(
-                samplerate=self.fs,
-                channels=self.channels,
-                dtype="int16",
-                callback=callback,
-            )
-            self.stream.start()
-        except AssertionError as e:
-            # Some PortAudio backends raise AssertionError (e.g. structVersion mismatch)
-            self._cleanup_failed_start()
-            raise RuntimeError(
-                "Audio recording is not available on this system (PortAudio backend error)."
-            ) from e
-        except OSError as e:
-            # Preserve the existing PortAudio missing-library hint
-            self._cleanup_failed_start()
-            raise RuntimeError(
-                "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
-            ) from e
-        except Exception as e:
-            # Generic fallback for other backend errors
-            self._cleanup_failed_start()
-            raise RuntimeError(f"Audio recording failed to start: {e}") from e
+        self._apply_event(StartRequestedEvent())
 
     def stop_recording(self):
-        self.recording = False
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-            self.stream = None
-        if self.wav_file:
-            self.wav_file.close()
-            self.wav_file = None
+        self._apply_event(StopRequestedEvent())
 
+        # After stopping, return the temp filename (which may be None if error occurred)
         return self.temp_filename
 
 _recorder = AudioRecorder()

@@ -180,8 +180,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self.stop_requested = False
-        from plugin.framework.i18n import _
-        self._terminal_status = _("Ready")
+        self._terminal_status = "Ready"
         self._send_busy = False
         self.client = None
         self.audio_wav_path = None
@@ -290,7 +289,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def dispatch(self, event):
         """Dispatch an event to the state machine, compute new state, and apply effects."""
-        from plugin.modules.chatbot.send_state import next_state
         log.debug(f"SendButtonListener: dispatching {type(event).__name__}")
         new_state, effects = next_state(self.state, event)
         self.state = new_state
@@ -301,6 +299,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _interpret_effect(self, effect):
         """Interpret a state machine effect and apply side-effects."""
+        from plugin.framework.i18n import _
         if isinstance(effect, UpdateUIEffect):
             # 1. Update Send/Stop enabled states
             def set_control_enabled(control, enabled):
@@ -326,7 +325,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             # 3. Update Status text if provided
             if effect.status_text is not None and effect.status_text != "":
-                self._set_status(effect.status_text)
+                self._set_status(_(effect.status_text))
 
         elif effect == "start_recording":
             from plugin.modules.chatbot.audio_recorder import start_recording
@@ -345,7 +344,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         elif effect == "start_send":
             self.stop_requested = False
-            self._terminal_status = _("Ready")
+            self._terminal_status = "Ready"
             # In a real async environment we would spawn the thread from here,
             # but _do_send blocks and catches its own errors so we call it directly.
             try:
@@ -356,7 +355,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
                 log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
                 self._append_response("\n\n[Error: %s]\n" % str(e))
-                self.dispatch(ErrorOccurredEvent())
+                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
             finally:
                 # Tell state machine we finished, it will re-enable buttons
                 update_activity_state("")
@@ -367,7 +366,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     # In some flows _set_status happens via _terminal_status.
                     # State machine expects "Ready" on completion.
                     if self._terminal_status:
-                        from plugin.framework.i18n import _
                         self._set_status(_(self._terminal_status))
 
         elif effect == "stop_send":
@@ -422,7 +420,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if not model:
             log.info("_do_send: no document found")
             self._append_response(_("\n[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n"))
-            self._terminal_status = _("Error")
+            self._terminal_status = "Error"
             return
         log.debug("_do_send: got document model OK")
 
@@ -434,14 +432,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             err_msg = _("[Internal Error: Document type changed from {0} to {1}! Please file an error.]").format(self.initial_doc_type, doc_type_str)
             log.error("_do_send ERROR: %s" % err_msg)
             self._append_response("\n%s\n" % err_msg)
-            self._terminal_status = _("Error")
+            self._terminal_status = "Error"
             return
 
         if doc_type_str == "Unknown":
             err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
             log.error("_do_send ERROR: %s" % err_msg)
             self._append_response("\n%s\n" % err_msg)
-            self._terminal_status = _("Error")
+            self._terminal_status = "Error"
             return
 
         # Get user query and clear field (before loading tools, so direct-image path can return early)
@@ -474,7 +472,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
                     self._append_response("\n%s\n" % err_msg)
-                    self._terminal_status = _("Error")
+                    self._terminal_status = "Error"
                     self._set_status(_("Error"))
                     return
             else:
