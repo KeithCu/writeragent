@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-21 19:38+0000\n"
+"POT-Creation-Date: 2026-03-21 21:16+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:410
+#: plugin/modules/chatbot/panel.py:409
 msgid "Starting..."
 msgstr "Uruchamianie..."
 
@@ -47,7 +47,9 @@ msgstr "«{}» nie jest prawidłowym kluczem API, sprawdź go lub utwórz nowy"
 msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
-msgstr "W tym momencie nie możemy przetworzyć Twojego żądania, spróbuj ponownie później. Jeśli dzieje się tak przez dłuższy czas, daj nam znać przez Discord"
+msgstr ""
+"W tym momencie nie możemy przetworzyć Twojego żądania, spróbuj ponownie "
+"później. Jeśli dzieje się tak przez dłuższy czas, daj nam znać przez Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
@@ -57,19 +59,25 @@ msgstr "Problem z żądaniem kudosów"
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
-msgstr "Horda jest w trybie konserwacji, spróbuj ponownie później, jeśli próbowałeś, a usługa nie odpowiada od godzin, skontaktuj się przez Discord"
+msgstr ""
+"Horda jest w trybie konserwacji, spróbuj ponownie później, jeśli próbowałeś,"
+" a usługa nie odpowiada od godzin, skontaktuj się przez Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
-msgstr "Złożyłeś zbyt wiele żądań, poczekaj na ich zakończenie i spróbuj ponownie później"
+msgstr ""
+"Złożyłeś zbyt wiele żądań, poczekaj na ich zakończenie i spróbuj ponownie "
+"później"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
-msgstr "Wygląda na to, że «{}» ma problemy, sprawdź to, utwórz nowy lub dołącz do Discorda, aby poprosić o pomoc"
+msgstr ""
+"Wygląda na to, że «{}» ma problemy, sprawdź to, utwórz nowy lub dołącz do "
+"Discorda, aby poprosić o pomoc"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
@@ -90,14 +98,18 @@ msgstr "Połączono z Hordą"
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr "Podczas próby zażądania obrazu, Horda była zbyt wolna, spróbuj ponownie później"
+msgstr ""
+"Podczas próby zażądania obrazu, Horda była zbyt wolna, spróbuj ponownie "
+"później"
 
 #: plugin/contrib/aihordeclient/__init__.py:836
 #, python-brace-format
 msgid ""
 "Register at {REGISTER_AI_HORDE_URL} and use your key to improve your rate "
 "success. Detail:"
-msgstr "Zarejestruj się na {REGISTER_AI_HORDE_URL} i użyj swojego klucza, aby poprawić wskaźnik sukcesu. Szczegóły:"
+msgstr ""
+"Zarejestruj się na {REGISTER_AI_HORDE_URL} i użyj swojego klucza, aby "
+"poprawić wskaźnik sukcesu. Szczegóły:"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -133,7 +145,9 @@ msgstr "Zdobądź darmowy klucz API na "
 msgid ""
 ".\n"
 " This model takes more time than your current configuration."
-msgstr ".\n Ten model zajmuje więcej czasu niż twoja obecna konfiguracja."
+msgstr ""
+".\n"
+" Ten model zajmuje więcej czasu niż twoja obecna konfiguracja."
 
 #: plugin/contrib/aihordeclient/__init__.py:972
 msgid "Please try another model,"
@@ -150,7 +164,9 @@ msgstr " lub spróbuj ponownie później."
 #: plugin/contrib/aihordeclient/__init__.py:995
 msgid ""
 "There are no workers available with these settings. Please try again later."
-msgstr "Brak dostępnych pracowników przy tych ustawieniach. Spróbuj ponownie później."
+msgstr ""
+"Brak dostępnych pracowników przy tych ustawieniach. Spróbuj ponownie "
+"później."
 
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "Get an Api key for free at "
@@ -189,7 +205,9 @@ msgstr "Pobieranie obrazu"
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
-msgstr "Być może będziesz musiał zmniejszyć ustawienia lub wybrać inny model, albo mogłeś zostać ocenzurowany. Wiadomość Hordy"
+msgstr ""
+"Być może będziesz musiał zmniejszyć ustawienia lub wybrać inny model, albo "
+"mogłeś zostać ocenzurowany. Wiadomość Hordy"
 
 #: plugin/contrib/aihordeclient/__init__.py:1118
 #: plugin/contrib/aihordeclient/__init__.py:1130
@@ -206,7 +224,10 @@ msgid ""
 "{0}: {1} passed, {2} failed.\n"
 "\n"
 "{3}"
-msgstr "{0}: {1} przeszło, {2} nie powiodło się.\n\n{3}"
+msgstr ""
+"{0}: {1} przeszło, {2} nie powiodło się.\n"
+"\n"
+"{3}"
 
 #: plugin/main.py:246
 #, python-brace-format
@@ -253,8 +274,8 @@ msgstr "Uruchom testy draw"
 msgid "Evaluation Dashboard"
 msgstr "Panel ewaluacyjny"
 
-#: plugin/main.py:367 plugin/framework/dialogs.py:375
-#: plugin/framework/dialogs.py:403
+#: plugin/main.py:367 plugin/framework/dialogs.py:378
+#: plugin/framework/dialogs.py:406
 msgid "About WriterAgent"
 msgstr "O WriterAgent"
 
@@ -263,59 +284,98 @@ msgid "Dispatch Error"
 msgstr "Błąd wysyłania"
 
 #: plugin/modules/writer/legacy.py:43 plugin/modules/writer/legacy.py:54
+#: plugin/modules/chatbot/selection.py:69
+#: plugin/modules/chatbot/selection.py:145
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Rozszerz zaznaczenie"
 
+#: plugin/modules/writer/legacy.py:70 plugin/modules/calc/legacy.py:32
+msgid "Please enter edit instructions!"
+msgstr "Proszę wprowadzić instrukcje edycji!"
+
+#: plugin/modules/writer/legacy.py:70 plugin/modules/calc/legacy.py:32
+msgid "Input"
+msgstr "Dane wejściowe"
+
 #: plugin/modules/writer/legacy.py:78 plugin/modules/writer/legacy.py:88
-#: plugin/modules/writer/legacy.py:102
+#: plugin/modules/writer/legacy.py:102 plugin/modules/chatbot/selection.py:256
+#: plugin/modules/chatbot/selection.py:358
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Edytuj zaznaczenie"
 
-#: plugin/modules/chatbot/panel.py:184 plugin/modules/chatbot/panel.py:348
+#: plugin/modules/chatbot/panel_factory.py:445
+msgid "Size:"
+msgstr "Rozmiar:"
+
+#: plugin/modules/chatbot/panel_factory.py:446
+msgid "Height:"
+msgstr "Wysokość:"
+
+#: plugin/modules/chatbot/panel_factory.py:447
+msgid "Width:"
+msgstr "Szerokość:"
+
+#: plugin/modules/chatbot/panel_wiring.py:142
 msgid "Ready"
 msgstr "Gotowy"
 
-#: plugin/modules/chatbot/panel.py:419
+#: plugin/modules/chatbot/panel.py:394
+msgid "Record"
+msgstr "Nagrywaj"
+
+#: plugin/modules/chatbot/panel.py:396
+msgid "Stop Rec"
+msgstr "Zatrzymaj"
+
+#: plugin/modules/chatbot/panel.py:398
+msgid "Send"
+msgstr "Wyślij"
+
+#: plugin/modules/chatbot/panel.py:418
 msgid "Getting document..."
 msgstr "Pobieranie dokumentu..."
 
-#: plugin/modules/chatbot/panel.py:424
+#: plugin/modules/chatbot/panel.py:423
 msgid ""
 "\n"
-"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
-"active window.]\n"
-msgstr "\n[Nie znaleziono kompatybilnego dokumentu LibreOffice (Writer, Calc lub Draw) w aktywnym oknie.]\n"
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n"
+msgstr ""
+"\n"
+"[Nie znaleziono kompatybilnego dokumentu LibreOffice (Writer, Calc lub Draw) w aktywnym oknie.]\n"
 
-#: plugin/modules/chatbot/panel.py:425 plugin/modules/chatbot/panel.py:437
-#: plugin/modules/chatbot/panel.py:444 plugin/modules/chatbot/panel.py:477
-#: plugin/modules/chatbot/panel.py:478
-#: plugin/modules/chatbot/send_handlers.py:282
-#: plugin/modules/chatbot/send_handlers.py:293
-#: plugin/modules/chatbot/send_handlers.py:302
-#: plugin/modules/chatbot/send_handlers.py:543
-msgid "Error"
-msgstr "Błąd"
-
-#: plugin/modules/chatbot/panel.py:434
+#: plugin/modules/chatbot/panel.py:433
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
-msgstr "[Błąd wewnętrzny: Typ dokumentu zmienił się z {0} na {1}! Zgłoś błąd.]"
+msgstr ""
+"[Błąd wewnętrzny: Typ dokumentu zmienił się z {0} na {1}! Zgłoś błąd.]"
 
-#: plugin/modules/chatbot/panel.py:441
+#: plugin/modules/chatbot/panel.py:440
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr "[Błąd wewnętrzny: Nie można zidentyfikować typu dokumentu dla {0}. Zgłoś to!]"
+msgstr ""
+"[Błąd wewnętrzny: Nie można zidentyfikować typu dokumentu dla {0}. Zgłoś "
+"to!]"
 
-#: plugin/modules/chatbot/panel.py:475
+#: plugin/modules/chatbot/panel.py:474
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr "[Model {0} nie obsługuje natywnego audio. Wybierz model STT w Ustawieniach.]"
+msgstr ""
+"[Model {0} nie obsługuje natywnego audio. Wybierz model STT w Ustawieniach.]"
+
+#: plugin/modules/chatbot/panel.py:477
+#: plugin/modules/chatbot/send_handlers.py:282
+#: plugin/modules/chatbot/send_handlers.py:293
+#: plugin/modules/chatbot/send_handlers.py:302
+#: plugin/modules/chatbot/send_handlers.py:543
+#: plugin/framework/legacy_ui.py:314
+msgid "Error"
+msgstr "Błąd"
 
 #: plugin/modules/chatbot/send_handlers.py:197
 #: plugin/modules/chatbot/send_handlers.py:365
@@ -324,28 +384,36 @@ msgstr "[Model {0} nie obsługuje natywnego audio. Wybierz model STT w Ustawieni
 msgid ""
 "\n"
 "[Error: {0}]\n"
-msgstr "\n[Błąd: {0}]\n"
+msgstr ""
+"\n"
+"[Błąd: {0}]\n"
 
 #: plugin/modules/chatbot/send_handlers.py:280
 #, python-brace-format
 msgid ""
 "\n"
 "[Document context error: {0}]\n"
-msgstr "\n[Błąd kontekstu dokumentu: {0}]\n"
+msgstr ""
+"\n"
+"[Błąd kontekstu dokumentu: {0}]\n"
 
 #: plugin/modules/chatbot/send_handlers.py:291
 #, python-brace-format
 msgid ""
 "\n"
 "[Agent backend '{0}' not found.]\n"
-msgstr "\n[Nie znaleziono zaplecza agenta '{0}'.]\n"
+msgstr ""
+"\n"
+"[Nie znaleziono zaplecza agenta '{0}'.]\n"
 
 #: plugin/modules/chatbot/send_handlers.py:298
 #, python-brace-format
 msgid ""
 "\n"
 "[Agent backend '{0}' is not available. Check Settings (path, install).]\n"
-msgstr "\n[Zaplecze agenta '{0}' nie jest dostępne. Sprawdź Ustawienia (ścieżka, instalacja).]\n"
+msgstr ""
+"\n"
+"[Zaplecze agenta '{0}' nie jest dostępne. Sprawdź Ustawienia (ścieżka, instalacja).]\n"
 
 #: plugin/modules/chatbot/send_handlers.py:517
 #, python-brace-format
@@ -378,13 +446,17 @@ msgstr "Serwer HTTP zatrzymany"
 msgid ""
 "HTTP server started\n"
 "{0}"
-msgstr "Serwer HTTP uruchomiony\n{0}"
+msgstr ""
+"Serwer HTTP uruchomiony\n"
+"{0}"
 
 #: plugin/modules/http/__init__.py:211
 msgid ""
 "HTTP server failed to start\n"
 "Check ~/localwriter.log"
-msgstr "Nie udało się uruchomić serwera HTTP\nSprawdź ~/localwriter.log"
+msgstr ""
+"Nie udało się uruchomić serwera HTTP\n"
+"Sprawdź ~/localwriter.log"
 
 #: plugin/modules/http/__init__.py:220
 msgid "HTTP server is not running"
@@ -399,14 +471,16 @@ msgstr "Serwer HTTP nie uruchomiony"
 msgid ""
 "HTTP server running\n"
 "Routes: {0}"
-msgstr "Serwer HTTP uruchomiony\nTrasy: {0}"
+msgstr ""
+"Serwer HTTP uruchomiony\n"
+"Trasy: {0}"
 
 #: plugin/modules/http/__init__.py:238
 msgid "Server Status"
 msgstr "Status serwera"
 
-#: plugin/modules/http/__init__.py:247 plugin/framework/dialogs.py:232
-#: plugin/framework/dialogs.py:304 plugin/framework/dialogs.py:391
+#: plugin/modules/http/__init__.py:247 plugin/framework/dialogs.py:235
+#: plugin/framework/dialogs.py:307 plugin/framework/dialogs.py:394
 msgid "OK"
 msgstr "OK"
 
@@ -415,7 +489,21 @@ msgstr "OK"
 msgid ""
 "{0}\n"
 "URL: {1}"
-msgstr "{0}\nURL: {1}"
+msgstr ""
+"{0}\n"
+"URL: {1}"
+
+#: plugin/modules/http/client.py:534
+msgid "Stream ended with finish_reason=error"
+msgstr "Strumień zakończył się z finish_reason=error"
+
+#: plugin/modules/http/client.py:547
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Model powtarza ten sam fragment (nieskończona pętla). Spróbuj ponownie lub "
+"użyj innego modelu."
 
 #: plugin/modules/http/errors.py:15
 #, python-brace-format
@@ -428,7 +516,8 @@ msgstr "Nieprawidłowy klucz API. Sprawdź swoje ustawienia."
 
 #: plugin/modules/http/errors.py:22
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr "Brak dostępu do API. Twój klucz może nie mieć uprawnień do tego modelu."
+msgstr ""
+"Brak dostępu do API. Twój klucz może nie mieć uprawnień do tego modelu."
 
 #: plugin/modules/http/errors.py:24
 msgid "Endpoint not found (404). Check your URL and Model name."
@@ -446,11 +535,15 @@ msgstr "Błąd HTTP {0}: {1}"
 
 #: plugin/modules/http/errors.py:30
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr "Przekroczono limit czasu żądania. Spróbuj zwiększyć 'Request Timeout' w Ustawieniach."
+msgstr ""
+"Przekroczono limit czasu żądania. Spróbuj zwiększyć 'Request Timeout' w "
+"Ustawieniach."
 
 #: plugin/modules/http/errors.py:35
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr "Odrzucono połączenie. Czy Twój lokalny serwer AI (Ollama/LM Studio) działa?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Odrzucono połączenie. Czy Twój lokalny serwer AI (Ollama/LM Studio) działa?"
 
 #: plugin/modules/http/errors.py:37
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -478,15 +571,47 @@ msgstr "WriterAgent: Edytuj zaznaczenie (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Rozszerz zaznaczenie (Calc)"
 
-#: plugin/modules/launcher/__init__.py:406
+#: plugin/modules/launcher/__init__.py:407
 #, python-brace-format
 msgid "{0} Running"
 msgstr "{0} Uruchomiony"
 
-#: plugin/modules/launcher/__init__.py:407
+#: plugin/modules/launcher/__init__.py:408
 #, python-brace-format
 msgid "Launch {0}"
 msgstr "Uruchom {0}"
+
+#: plugin/modules/launcher/__init__.py:502
+#, python-brace-format
+msgid ""
+"Command '{0}' not found.\n"
+"Make sure it is installed and in your PATH.\n"
+"\n"
+"Use 'Install AI CLI' from the menu to get install instructions."
+msgstr ""
+"Nie znaleziono polecenia '{0}'.\n"
+"Upewnij się, że jest zainstalowane i znajduje się w PATH.\n"
+"\n"
+"Użyj opcji 'Install AI CLI' z menu, aby uzyskać instrukcje instalacji."
+
+#: plugin/framework/settings_dialog.py:146
+msgid "Invalid Setting"
+msgstr "Nieprawidłowe ustawienie"
+
+#: plugin/framework/settings_dialog.py:146
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatura musi być <= 1.0"
+
+#: plugin/framework/legacy_ui.py:314
+#, python-brace-format
+msgid ""
+"Failed to open Settings: {0}\n"
+"\n"
+"{1}"
+msgstr ""
+"Nie udało się otworzyć ustawień: {0}\n"
+"\n"
+"{1}"
 
 #: plugin/framework/dialogs.py:93
 msgid "Agent requests approval"
@@ -501,30 +626,39 @@ msgstr "Kontynuować tę akcję?"
 msgid "Tool: %s"
 msgstr "Narzędzie: %s"
 
-#: plugin/framework/dialogs.py:231
+#: plugin/framework/dialogs.py:234
 msgid "Copy"
 msgstr "Kopiuj"
 
-#: plugin/framework/dialogs.py:251 plugin/framework/dialogs.py:326
+#: plugin/framework/dialogs.py:254 plugin/framework/dialogs.py:329
 msgid "Copied!"
 msgstr "Skopiowano!"
 
-#: plugin/framework/dialogs.py:301
+#: plugin/framework/dialogs.py:304
 msgid "Copy URL"
 msgstr "Skopiuj URL"
 
-#: plugin/framework/dialogs.py:382
+#: plugin/framework/dialogs.py:385
 #, python-format
 msgid "Version: %s"
 msgstr "Wersja: %s"
 
-#: plugin/framework/dialogs.py:383
+#: plugin/framework/dialogs.py:386
 msgid "AI-powered extension for LibreOffice"
 msgstr "Rozszerzenie oparte na AI dla LibreOffice"
 
-#: plugin/framework/dialogs.py:388
+#: plugin/framework/dialogs.py:391
 msgid "GitHub: quazardous/localwriter"
 msgstr "GitHub: quazardous/localwriter"
+
+#: plugin/framework/dialogs.py:407
+#, python-brace-format
+msgid ""
+"WriterAgent {0}\n"
+"https://github.com/quazardous/localwriter"
+msgstr ""
+"WriterAgent {0}\n"
+"https://github.com/quazardous/localwriter"
 
 #: plugin/tests/test_i18n.py:15
 msgid "ThisIsAnUntranslatedString999"
