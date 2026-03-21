@@ -21,7 +21,8 @@ MODULES = [
                                 {"value": "es", "label": "Español (es)"},
                                 {"value": "fr", "label": "Français (fr)"},
                                 {"value": "zh", "label": "中文 (zh)"},
-                                {"value": "ja", "label": "日本語 (ja)"}
+                                {"value": "ja", "label": "日本語 (ja)"},
+                                {"value": "pl", "label": "Polski (pl)"}
                         ],
                         "helper": "Language for the user interface."
                 }
