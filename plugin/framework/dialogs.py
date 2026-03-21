@@ -44,6 +44,7 @@ from plugin.framework.listeners import BaseActionListener
 from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
 from plugin.framework.uno_context import get_desktop, get_extension_url
+from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.dialogs")
 
@@ -88,9 +89,9 @@ def show_approval_dialog(ctx, description, tool_name=""):
         window = frame.getContainerWindow()
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        title = "Agent requests approval"
-        message = (description or "Proceed with this action?") + (
-            "\n\nTool: %s" % tool_name if tool_name else ""
+        title = _("Agent requests approval")
+        message = (description or _("Proceed with this action?")) + (
+            "\n\n" + _("Tool: %s") % tool_name if tool_name else ""
         )
         # 1 = INFO, 3 = BUTTONS_YES_NO. Result 1 = Yes (Approve), 2 = No (Reject)
         box = toolkit.createMessageBox(window, 1, 3, title, message)
@@ -225,8 +226,8 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         dlg_model.Height = 80
 
         add_dialog_label(dlg_model, "Msg", message, 10, 6, 230, 42)
-        add_dialog_button(dlg_model, "CopyBtn", "Copy URL", 10, 56, 75, 14)
-        add_dialog_button(dlg_model, "OKBtn", "OK", 190, 56, 50, 14, push_button_type=1)
+        add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 56, 75, 14)
+        add_dialog_button(dlg_model, "OKBtn", _("OK"), 190, 56, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialog", ctx)
@@ -245,7 +246,7 @@ def msgbox_with_copy(ctx, title, message, copy_text):
                 if copy_to_clipboard(self._ctx, self._text):
                     try:
                         self._dlg.getModel().getByName("CopyBtn").Label = \
-                            "Copied!"
+                                _("Copied!")
                     except Exception as e:
                         log.debug("Failed to set CopyBtn Label: %s", e)
 
@@ -295,10 +296,10 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         # Copy button (disabled until copy_url_fn returns something)
         has_copy = copy_url_fn is not None
         if has_copy:
-            add_dialog_button(dlg_model, "CopyBtn", "Copy URL", 10, 88, 65, 14,
+            add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 88, 65, 14,
                               enabled=bool(copy_url_fn()))
 
-        add_dialog_button(dlg_model, "OKBtn", "OK", 170, 88, 50, 14, push_button_type=1)
+        add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 88, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialog", ctx)
@@ -320,7 +321,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                     if url and copy_to_clipboard(self._ctx, url):
                         try:
                             self._dlg.getModel().getByName("CopyBtn").Label = \
-                                "Copied!"
+                                _("Copied!")
                         except Exception as e:
                             log.debug("Failed to set CopyBtn Label: %s", e)
 
@@ -369,23 +370,23 @@ def about_dialog(ctx):
 
         dlg_model = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = "About WriterAgent"
+        dlg_model.Title = _("About WriterAgent")
         dlg_model.Width = 220
         dlg_model.Height = 90
 
         # Info text
         info_text = (
             "WriterAgent\n"
-            "Version: %s\n"
-            "AI-powered extension for LibreOffice" % EXTENSION_VERSION
+            + _("Version: %s") % EXTENSION_VERSION + "\n"
+            + _("AI-powered extension for LibreOffice")
         )
         add_dialog_label(dlg_model, "Info", info_text, 10, 8, 200, 36)
 
         # Clickable hyperlink
-        add_dialog_hyperlink(dlg_model, "GitHubLink", "GitHub: quazardous/localwriter",
+        add_dialog_hyperlink(dlg_model, "GitHubLink", _("GitHub: quazardous/localwriter"),
                              "https://github.com/quazardous/localwriter", 10, 48, 200, 12)
 
-        add_dialog_button(dlg_model, "OKBtn", "OK", 160, 68, 50, 14, push_button_type=1)
+        add_dialog_button(dlg_model, "OKBtn", _("OK"), 160, 68, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
             "com.sun.star.awt.UnoControlDialog", ctx)
@@ -397,7 +398,7 @@ def about_dialog(ctx):
         dlg.dispose()
     except Exception:
         log.exception("About dialog error")
-        msgbox(ctx, "About WriterAgent",
+        msgbox(ctx, _("About WriterAgent"),
                "WriterAgent %s\nhttps://github.com/quazardous/localwriter"
                % EXTENSION_VERSION)
 
