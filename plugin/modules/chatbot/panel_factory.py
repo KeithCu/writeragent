@@ -295,6 +295,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         def get_optional(name):
             return get_optional_control(root, name)
 
+        from plugin.framework.dialogs import translate_dialog
+        translate_dialog(root)
+
         model_selector = get_optional("model_selector")
         prompt_selector = get_optional("prompt_selector")
         image_model_selector = get_optional("image_model_selector")

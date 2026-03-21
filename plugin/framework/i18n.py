@@ -34,6 +34,14 @@ _translation = None
 def get_lo_locale(ctx=None):
     """Attempt to determine the LibreOffice UI locale."""
     try:
+        from plugin.framework.config import get_config
+        configured_lang = get_config(ctx, "main.ui_language")
+        if configured_lang and configured_lang != "system":
+            return configured_lang
+    except Exception as e:
+        log.debug("Failed to read configured language: %s", e)
+
+    try:
         import uno
         if ctx is None:
             ctx = uno.getComponentContext()

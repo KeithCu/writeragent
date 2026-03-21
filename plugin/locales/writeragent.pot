@@ -1,0 +1,243 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-21 18:23+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/contrib/aihordeclient/__init__.py:262
+msgid "Starting..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:370
+msgid "Updating model requirements..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:517
+msgid "Updating Models..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:610
+msgid "Register at "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:617
+msgid "You have {} kudos"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:625
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:632
+#: plugin/contrib/aihordeclient/__init__.py:675
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:638
+msgid "Problem requesting kudos"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:648
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:656
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:662
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:670
+msgid "We hit an error, still: "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:681
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:724
+msgid "Contacting the Horde..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:803
+msgid "Horde Contacted"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:821
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:836
+#, python-brace-format
+msgid ""
+"Register at {REGISTER_AI_HORDE_URL} and use your key to improve your rate "
+"success. Detail:"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:843
+msgid "to learn to earn kudos. Detail:"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:865
+#: plugin/contrib/aihordeclient/__init__.py:884
+msgid "Service failed: "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:935
+msgid "Downloading generated image..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:941
+msgid "You are first in the queue"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:943
+msgid "Queue position: "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:946
+msgid "Generating..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:963
+msgid "Get a free API Key at "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:966
+#: plugin/contrib/aihordeclient/__init__.py:1004
+msgid ""
+".\n"
+" This model takes more time than your current configuration."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:972
+msgid "Please try another model,"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:973
+msgid "{} would take more time than you configured,"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:976
+msgid " or try again later."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:995
+msgid ""
+"There are no workers available with these settings. Please try again later."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "Get an Api key for free at "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1013
+msgid "Probably your image will take one additional minute."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1015
+#: plugin/contrib/aihordeclient/__init__.py:1022
+msgid "Please try again later."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1020
+msgid "Probably your image will take {} additional minutes."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1034
+msgid "Fetching images..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1044
+msgid " is censored, try changing the prompt wording"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1072
+msgid "Downloading result..."
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1075
+msgid "Downloading image"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1091
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1118
+#: plugin/contrib/aihordeclient/__init__.py:1130
+msgid " generated by "
+msgstr ""
+
+#: plugin/contrib/aihordeclient/__init__.py:1128
+msgid " with "
+msgstr ""
+
+#: plugin/framework/dialogs.py:92
+msgid "Agent requests approval"
+msgstr ""
+
+#: plugin/framework/dialogs.py:93
+msgid "Proceed with this action?"
+msgstr ""
+
+#: plugin/framework/dialogs.py:94
+#, python-format
+msgid "Tool: %s"
+msgstr ""
+
+#: plugin/framework/dialogs.py:229 plugin/framework/dialogs.py:299
+msgid "Copy URL"
+msgstr ""
+
+#: plugin/framework/dialogs.py:230 plugin/framework/dialogs.py:302
+#: plugin/framework/dialogs.py:389
+msgid "OK"
+msgstr ""
+
+#: plugin/framework/dialogs.py:249 plugin/framework/dialogs.py:324
+msgid "Copied!"
+msgstr ""
+
+#: plugin/framework/dialogs.py:373 plugin/framework/dialogs.py:401
+msgid "About WriterAgent"
+msgstr ""
+
+#: plugin/framework/dialogs.py:380
+#, python-format
+msgid "Version: %s"
+msgstr ""
+
+#: plugin/framework/dialogs.py:381
+msgid "AI-powered extension for LibreOffice"
+msgstr ""
+
+#: plugin/framework/dialogs.py:386
+msgid "GitHub: quazardous/localwriter"
+msgstr ""

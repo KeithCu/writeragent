@@ -239,9 +239,11 @@ def _run_test_suite(test_func, doc_checker, test_name):
         log.debug(f"Calling run_blocking_in_thread for {test_name}")
         p, f, suite_log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
         log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
-        msgbox(ctx, test_name, f"{test_name}: {p} passed, {f} failed.\n\n" + "\n".join(suite_log))
+        from plugin.framework.i18n import _
+        msgbox(ctx, test_name, _("%s: %d passed, %d failed.\n\n%s") % (test_name, p, f, "\n".join(suite_log)))
     except Exception as e:
-        msgbox(ctx, test_name, f"Tests failed to run: {e}")
+        from plugin.framework.i18n import _
+        msgbox(ctx, test_name, _("Tests failed to run: %s") % str(e))
 
 
 def _dispatch_command(command):
@@ -708,7 +710,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
-            msgbox(self.ctx, "Dispatch Error", str(e))
+            from plugin.framework.i18n import _
+            msgbox(self.ctx, _("Dispatch Error"), str(e))
 
     def addStatusListener(self, listener, url):
         with _status_lock:

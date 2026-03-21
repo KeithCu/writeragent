@@ -193,7 +193,8 @@ class SendHandlersMixin:
                 "com.sun.star.awt.Toolkit", self.ctx
             )
         except Exception as e:
-            self._append_response("\n[Error: %s]\n" % str(e))
+            from plugin.framework.i18n import _
+            self._append_response(_("\n[Error: %s]\n") % str(e))
             self._terminal_status = "Error"
             return
 
@@ -275,9 +276,10 @@ class SendHandlersMixin:
                 ctx=self.ctx,
             )
         except Exception as e:
-            self._append_response("\n[Document context error: %s]\n" % str(e))
+            from plugin.framework.i18n import _
+            self._append_response(_("\n[Document context error: %s]\n") % str(e))
             self._terminal_status = "Error"
-            self._set_status("Error")
+            self._set_status(_("Error"))
             return
 
         backend_id = str(
@@ -285,17 +287,19 @@ class SendHandlersMixin:
         ).strip().lower()
         adapter = get_backend(backend_id, ctx=self.ctx)
         if not adapter:
-            self._append_response("\n[Agent backend '%s' not found.]\n" % backend_id)
+            from plugin.framework.i18n import _
+            self._append_response(_("\n[Agent backend '%s' not found.]\n") % backend_id)
             self._terminal_status = "Error"
-            self._set_status("Error")
+            self._set_status(_("Error"))
             return
         if not adapter.is_available(self.ctx):
+            from plugin.framework.i18n import _
             self._append_response(
-                "\n[Agent backend '%s' is not available. Check Settings (path, install).]\n"
+                _("\n[Agent backend '%s' is not available. Check Settings (path, install).]\n")
                 % getattr(adapter, "display_name", backend_id)
             )
             self._terminal_status = "Error"
-            self._set_status("Error")
+            self._set_status(_("Error"))
             return
 
         q = queue.Queue()
@@ -357,7 +361,8 @@ class SendHandlersMixin:
                 "com.sun.star.awt.Toolkit", self.ctx
             )
         except Exception as e:
-            self._append_response("\n[Error: %s]\n" % str(e))
+            from plugin.framework.i18n import _
+            self._append_response(_("\n[Error: %s]\n") % str(e))
             self._terminal_status = "Error"
             self._current_agent_backend = None
             return
@@ -505,16 +510,18 @@ class SendHandlersMixin:
                     data = format_error_payload(parsed_err)
 
                 if data.get("status") == "ok":
+                    from plugin.framework.i18n import _
                     answer = data.get("result", "")
                     if not isinstance(answer, str):
                         answer = str(answer)
-                    msg = "AI (research): %s\n" % answer
+                    msg = _("AI (research): %s\n") % answer
                     q.put(("chunk", msg))
                     # Persist assistant result to current session
                     self.session.add_assistant_message(content=msg)
                 else:
-                    msg = data.get("message", "Unknown research error.")
-                    q.put(("chunk", "[Research error: %s]\n" % msg))
+                    from plugin.framework.i18n import _
+                    msg = data.get("message", _("Unknown research error."))
+                    q.put(("chunk", _("[Research error: %s]\n") % msg))
 
                 q.put(("stream_done", {}))
             except Exception as e:
@@ -530,9 +537,10 @@ class SendHandlersMixin:
                 "com.sun.star.awt.Toolkit", self.ctx
             )
         except Exception as e:
-            self._append_response("\n[Error: %s]\n" % str(e))
+            from plugin.framework.i18n import _
+            self._append_response(_("\n[Error: %s]\n") % str(e))
             self._terminal_status = "Error"
-            self._set_status("Error")
+            self._set_status(_("Error"))
             return
 
         # Helper to push events through the state machine

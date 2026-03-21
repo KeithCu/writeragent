@@ -277,6 +277,19 @@ nuke-cache-force:
 	$(RM_RF) "$(LO_CONF)/user/uno_packages/cache"
 	rm -f "$(LO_CONF)/.lock"
 
+# ── Translation ──────────────────────────────────────────────────────────────
+
+extract-strings:
+	xgettext -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py")
+
+add-language:
+	mkdir -p plugin/locales/$(LANG)/LC_MESSAGES
+	cp plugin/locales/writeragent.pot plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
+	msgfmt -o plugin/locales/$(LANG)/LC_MESSAGES/writeragent.mo plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
+
+compile-translations:
+	find plugin/locales -name "*.po" -exec sh -c 'msgfmt -o "$$(dirname $$1)/$$(basename $$1 .po).mo" "$$1"' _ {} \;
+
 # ── Shortcuts ───────────────────────────────────────────────────────────────
 
 lo-restart:

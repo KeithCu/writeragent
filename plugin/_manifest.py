@@ -8,7 +8,24 @@ MODULES = [
         "title": "WriterAgent global settings",
         "requires": [],
         "provides_services": [],
-        "config": {},
+        "config": {
+                "ui_language": {
+                        "type": "string",
+                        "default": "system",
+                        "widget": "select",
+                        "label": "Language",
+                        "options": [
+                                {"value": "system", "label": "System Default"},
+                                {"value": "en", "label": "English (en)"},
+                                {"value": "de", "label": "Deutsch (de)"},
+                                {"value": "es", "label": "Español (es)"},
+                                {"value": "fr", "label": "Français (fr)"},
+                                {"value": "zh", "label": "中文 (zh)"},
+                                {"value": "ja", "label": "日本語 (ja)"}
+                        ],
+                        "helper": "Language for the user interface."
+                }
+        },
         "actions": [
                 "about"
         ],

@@ -56,6 +56,7 @@ EXTENSION_ID = "org.extension.writeragent"
 
 def msgbox(ctx, title, message):
     """Show an info message box."""
+    from plugin.framework.i18n import _
     if not ctx:
         log.info("MSGBOX (no ctx) - %s: %s", title, message)
         return
@@ -210,6 +211,7 @@ def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
 
 def msgbox_with_copy(ctx, title, message, copy_text):
     """Show a dialog with a message and a Copy button."""
+    from plugin.framework.i18n import _
     if not ctx:
         log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
         return
@@ -226,7 +228,7 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         dlg_model.Height = 80
 
         add_dialog_label(dlg_model, "Msg", message, 10, 6, 230, 42)
-        add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 56, 75, 14)
+        add_dialog_button(dlg_model, "CopyBtn", _("Copy"), 10, 56, 50, 14)
         add_dialog_button(dlg_model, "OKBtn", _("OK"), 190, 56, 50, 14, push_button_type=1)
 
         dlg = smgr.createInstanceWithContext(
@@ -406,6 +408,51 @@ def about_dialog(ctx):
 # ── XDL dialog loading ──────────────────────────────────────────────
 
 
+def translate_dialog(dlg):
+    """Translate all controls in a dialog at runtime."""
+    from plugin.framework.i18n import _
+
+    # Map control types to their translatable properties
+    control_types = {
+        'FixedText': ('Text', 'Label'),
+        'Button': ('Label',),
+        'CheckBox': ('Label',),
+        'RadioButton': ('Label',),
+        'ListBox': ('StringItemList',),
+        'ComboBox': ('StringItemList',)
+    }
+
+    try:
+        for ctrl in dlg.getControls():
+            try:
+                name = ctrl.getModel().Name
+                impl_name = ctrl.getImplementationName()
+                # LibreOffice prepends "com.sun.star.comp.toolkit.UnoControl" or similar.
+                # We extract the short name for our map:
+                short_type = impl_name.split('.')[-1]
+                if short_type.startswith("UnoControl"):
+                    short_type = short_type[10:]
+
+                for prop in control_types.get(short_type, ()):
+                    try:
+                        if prop == 'StringItemList':
+                            items = ctrl.getStringItemList()
+                            if items:
+                                translated = tuple(_(item) for item in items)
+                                ctrl.setStringItemList(translated)
+                        else:
+                            model = ctrl.getModel()
+                            if hasattr(model, prop):
+                                current = getattr(model, prop)
+                                if current:
+                                    setattr(model, prop, _(current))
+                    except Exception as e:
+                        log.debug(f"Failed to translate {name}.{prop}: {e}")
+            except Exception as e:
+                log.debug(f"Failed to inspect control for translation: {e}")
+    except Exception as e:
+        log.debug(f"Failed to get controls for translation: {e}")
+
 def load_module_dialog(module_name, dialog_name):
     """Load an XDL dialog from a module's directory.
 
@@ -413,7 +460,10 @@ def load_module_dialog(module_name, dialog_name):
     """
     module_dir = module_name.replace(".", "_")
     xdl_path = "plugin/modules/%s/%s.xdl" % (module_dir, dialog_name)
-    return _load_xdl(xdl_path)
+    dlg = _load_xdl(xdl_path)
+    if dlg:
+        translate_dialog(dlg)
+    return dlg
 
 
 def load_framework_dialog(dialog_name):
@@ -422,7 +472,10 @@ def load_framework_dialog(dialog_name):
     Returns an XDialog ready for execute()/dispose().
     """
     xdl_path = "plugin/framework/%s.xdl" % dialog_name
-    return _load_xdl(xdl_path)
+    dlg = _load_xdl(xdl_path)
+    if dlg:
+        translate_dialog(dlg)
+    return dlg
 
 
 def _load_xdl(relative_path):

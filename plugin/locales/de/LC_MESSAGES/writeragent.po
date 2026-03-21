@@ -1,0 +1,33 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: WriterAgent 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-03-21 12:00+0000\n"
+"PO-Revision-Date: 2024-03-21 12:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: German\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Extend Selection"
+msgstr "Auswahl erweitern"
+
+msgid "Edit Selection"
+msgstr "Auswahl bearbeiten"
+
+msgid "Settings"
+msgstr "Einstellungen"
+
+msgid "Copy"
+msgstr "Kopieren"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "About WriterAgent"
+msgstr "Über WriterAgent"
+
+msgid "Error"
+msgstr "Fehler"
