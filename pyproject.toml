@@ -27,4 +27,6 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = []
+dev = [
+    "polib>=1.2.0",
+]
