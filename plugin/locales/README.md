@@ -7,11 +7,25 @@ WriterAgent uses standard Python `gettext` for localizing its user interface, in
 Translations are stored in the `plugin/locales/` directory.
 
 ### 1. Extract Strings
-To generate a new `.pot` (Portable Object Template) file from the source code, run the standard `xgettext` tool from the repository root:
+
+From the repository root, use **`make extract-strings`**. Order matters:
+
+1. **`scripts/extract_xdl_strings.py`** — writes a temporary `plugin/xdl_strings.py` with `_()` lines extracted from XDL dialogs so `xgettext` can pick them up.
+2. **`xgettext`** — scans all `plugin/**/*.py` (including that stub) and writes `plugin/locales/writeragent.pot`.
+3. **`scripts/merge_module_yaml_into_pot.py`** — merges translatable strings from `plugin/modules/**/module.yaml` (module titles, config labels, helpers, option labels) into the same POT using **polib**, with **`msgctxt`** so duplicate English strings can differ per module/field. Requires `polib` and `PyYAML` (see `pyproject.toml`). Idempotent: re-running does not duplicate entries.
+4. **Removes** the temporary `plugin/xdl_strings.py`.
+
+Do not run only `xgettext` on `*.py` if you need XDL and YAML strings; use `make extract-strings`.
+
+### 1b. Update Existing `.po` Files After a POT Change
+
+After regenerating `writeragent.pot`, merge new or changed template entries into each locale file (preserves existing translations):
 
 ```bash
-xgettext -d writeragent -o plugin/locales/writeragent.pot $(find plugin -name "*.py")
+msgmerge --update plugin/locales/de/LC_MESSAGES/writeragent.po plugin/locales/writeragent.pot
 ```
+
+Repeat for each language directory under `plugin/locales/`, or use Poedit’s “Update from POT file” on each `writeragent.po`.
 
 ### 2. Create a New Language File
 To start translating a new language (e.g., German - `de`), create the directory structure and copy the `.pot` file to a `.po` file:

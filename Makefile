@@ -282,6 +282,7 @@ nuke-cache-force:
 extract-strings:
 	python scripts/extract_xdl_strings.py
 	xgettext -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py")
+	python scripts/merge_module_yaml_into_pot.py plugin/locales/writeragent.pot
 	rm -f plugin/xdl_strings.py
 
 add-language:
