@@ -409,7 +409,6 @@ def _sse_iter(url, data=None, headers=None, timeout=30):
     req = urllib.request.Request(url, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as stream:
         from plugin.modules.http.client import iterate_sse
-
         for payload in iterate_sse(stream):
             if payload == "[DONE]":
                 break
@@ -422,9 +421,7 @@ def opustm_hf_translate(
     """Translate text using the OpusTM model hosted on Hugging Face Spaces.
     Uses core.api.sync_request for consistent headers."""
     # Step 1: POST to get an event_id for the streaming result
-    post_data = json.dumps({"data": [text, src_language, target_language]}).encode(
-        "utf-8"
-    )
+    post_data = json.dumps({"data": [text, src_language, target_language]}).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     resp_data = sync_request(API_TRANSLATE_GRADIO, data=post_data, headers=headers)
     event_id = resp_data["event_id"]

@@ -16,18 +16,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Legacy operations for Calc (Extend/Edit Selection)."""
-
-from plugin.framework.config import (
-    get_config,
-    get_config_int,
-    get_api_config,
-    validate_api_config,
-)
+from plugin.framework.config import get_config, get_config_int, get_api_config, validate_api_config
 from plugin.modules.http.errors import format_error_message
 from plugin.modules.http.client import LlmClient
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
-
 
 def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     sheet = model.CurrentController.ActiveSheet
@@ -35,9 +28,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
 
     user_input = ""
     if is_edit:
-        user_input, _ = input_box_fn(
-            ctx, "Please enter edit instructions!", "Input", ""
-        )
+        user_input, _ = input_box_fn(ctx, "Please enter edit instructions!", "Input", "")
         if not user_input:
             return
 
@@ -51,9 +42,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     edit_max = get_config_int(ctx, "edit_selection_max_new_tokens", 1000)
 
     tasks = []
-    cell_range = sheet.getCellRangeByPosition(
-        area.StartColumn, area.StartRow, area.EndColumn, area.EndRow
-    )
+    cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
     data_array = cell_range.getDataArray()
 
     for row_idx, row in enumerate(row_range):
@@ -69,13 +58,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
                 tasks.append((cell, cell_text, extend_sys, extend_max, None))
             else:
                 cell_original = cell_text
-                prompt = (
-                    "ORIGINAL VERSION:\n"
-                    + cell_original
-                    + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n"
-                    + user_input
-                    + "\nEDITED VERSION:\n"
-                )
+                prompt = "ORIGINAL VERSION:\n" + cell_original + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
                 max_tokens = len(cell_original) + edit_max
                 cell = sheet.getCellByPosition(col, row)
                 tasks.append((cell, prompt, edit_sys, max_tokens, cell_original))
@@ -86,13 +69,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     api_config = get_api_config(ctx)
     ok, err_msg = validate_api_config(api_config)
     if not ok:
-        msgbox(
-            ctx,
-            "WriterAgent: Edit Selection (Calc)"
-            if is_edit
-            else "WriterAgent: Extend Selection (Calc)",
-            err_msg,
-        )
+        msgbox(ctx, "WriterAgent: Edit Selection (Calc)" if is_edit else "WriterAgent: Extend Selection (Calc)", err_msg)
         return
 
     client = LlmClient(api_config)
@@ -116,23 +93,11 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
         def on_error(e):
             if original is not None:
                 cell.setString(original)
-            msgbox(
-                ctx,
-                "WriterAgent: Edit Selection (Calc)"
-                if is_edit
-                else "WriterAgent: Extend Selection (Calc)",
-                format_error_message(e),
-            )
+            msgbox(ctx, "WriterAgent: Edit Selection (Calc)" if is_edit else "WriterAgent: Extend Selection (Calc)", format_error_message(e))
 
         run_stream_completion_async(
-            ctx,
-            client,
-            prompt,
-            system_prompt,
-            max_tokens,
-            apply_chunk,
-            on_done,
-            on_error,
+            ctx, client, prompt, system_prompt, max_tokens,
+            apply_chunk, on_done, on_error
         )
 
     run_next_cell()

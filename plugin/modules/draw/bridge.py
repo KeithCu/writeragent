@@ -20,12 +20,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class DrawBridge:
     def __init__(self, doc):
         self.doc = doc
         if not hasattr(doc, "getDrawPages"):
-            raise RuntimeError("Provided document is not a Draw/Impress document.")
+             raise RuntimeError("Provided document is not a Draw/Impress document.")
 
     def get_pages(self):
         return self.doc.getDrawPages()
@@ -53,7 +52,6 @@ class DrawBridge:
 
         # Set size and position
         from com.sun.star.awt import Size, Point
-
         shape.setSize(Size(width, height))
         shape.setPosition(Point(x, y))
         return shape

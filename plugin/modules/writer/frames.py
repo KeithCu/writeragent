@@ -27,7 +27,6 @@ log = logging.getLogger("writeragent.writer")
 # ListTextFrames
 # ------------------------------------------------------------------
 
-
 class ListTextFrames(ToolBaseDummy):
     """List all text frames in the document."""
 
@@ -43,9 +42,7 @@ class ListTextFrames(ToolBaseDummy):
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
-        text_frames = self.get_collection(
-            doc, "getTextFrames", "Document does not support text frames."
-        )
+        text_frames = self.get_collection(doc, "getTextFrames", "Document does not support text frames.")
         if isinstance(text_frames, dict):
             return text_frames
 
@@ -70,16 +67,14 @@ class ListTextFrames(ToolBaseDummy):
                 except Exception:
                     pass
 
-                frames.append(
-                    {
-                        "name": name,
-                        "width_mm": size.Width / 100.0,
-                        "height_mm": size.Height / 100.0,
-                        "width_100mm": size.Width,
-                        "height_100mm": size.Height,
-                        "content_preview": content_preview,
-                    }
-                )
+                frames.append({
+                    "name": name,
+                    "width_mm": size.Width / 100.0,
+                    "height_mm": size.Height / 100.0,
+                    "width_100mm": size.Width,
+                    "height_100mm": size.Height,
+                    "content_preview": content_preview,
+                })
             except Exception as e:
                 log.debug("list_text_frames: skip '%s': %s", name, e)
 
@@ -89,7 +84,6 @@ class ListTextFrames(ToolBaseDummy):
 # ------------------------------------------------------------------
 # GetTextFrameInfo
 # ------------------------------------------------------------------
-
 
 class GetTextFrameInfo(ToolBaseDummy):
     """Get detailed info about a text frame."""
@@ -115,11 +109,9 @@ class GetTextFrameInfo(ToolBaseDummy):
             return self._tool_error("frame_name is required.")
 
         frame = self.get_item(
-            ctx.doc,
-            "getTextFrames",
-            frame_name,
+            ctx.doc, "getTextFrames", frame_name,
             missing_msg="Document does not support text frames.",
-            not_found_msg="Text frame '%s' not found." % frame_name,
+            not_found_msg="Text frame '%s' not found." % frame_name
         )
         if isinstance(frame, dict):
             return frame
@@ -191,7 +183,6 @@ class GetTextFrameInfo(ToolBaseDummy):
 # SetTextFrameProperties
 # ------------------------------------------------------------------
 
-
 class SetTextFrameProperties(ToolBaseDummy):
     """Resize or reposition a text frame."""
 
@@ -240,11 +231,9 @@ class SetTextFrameProperties(ToolBaseDummy):
             return self._tool_error("frame_name is required.")
 
         frame = self.get_item(
-            ctx.doc,
-            "getTextFrames",
-            frame_name,
+            ctx.doc, "getTextFrames", frame_name,
             missing_msg="Document does not support text frames.",
-            not_found_msg="Text frame '%s' not found." % frame_name,
+            not_found_msg="Text frame '%s' not found." % frame_name
         )
         if isinstance(frame, dict):
             return frame
@@ -256,15 +245,10 @@ class SetTextFrameProperties(ToolBaseDummy):
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
-
             current = frame.getPropertyValue("Size")
             new_size = Size()
-            new_size.Width = (
-                int(width_mm * 100) if width_mm is not None else current.Width
-            )
-            new_size.Height = (
-                int(height_mm * 100) if height_mm is not None else current.Height
-            )
+            new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
+            new_size.Height = int(height_mm * 100) if height_mm is not None else current.Height
             frame.setPropertyValue("Size", new_size)
             updated.append("size")
 
@@ -272,13 +256,8 @@ class SetTextFrameProperties(ToolBaseDummy):
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
             from com.sun.star.text.TextContentAnchorType import (
-                AT_PARAGRAPH,
-                AS_CHARACTER,
-                AT_PAGE,
-                AT_FRAME,
-                AT_CHARACTER,
+                AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER,
             )
-
             anchor_map = {
                 0: AT_PARAGRAPH,
                 1: AS_CHARACTER,

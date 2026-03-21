@@ -161,12 +161,8 @@ class GetSlideTransition(ToolBase):
             "speed": speed,
             "duration": duration,
             "transition_duration": transition_duration,
-            "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(
-                change, "on_click"
-            ),
+            "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click"),
         }
-
-
 class SetSlideTransition(ToolBase):
     """Set the transition effect on a slide."""
 
@@ -231,33 +227,15 @@ class SetSlideTransition(ToolBase):
             uno_name = _FADE_EFFECTS.get(effect_key, effect_key.upper())
             try:
                 from com.sun.star.presentation.FadeEffect import (
-                    NONE,
-                    FADE_FROM_LEFT,
-                    FADE_FROM_TOP,
-                    FADE_FROM_RIGHT,
-                    FADE_FROM_BOTTOM,
-                    FADE_TO_CENTER,
-                    FADE_FROM_CENTER,
-                    MOVE_FROM_LEFT,
-                    MOVE_FROM_TOP,
-                    MOVE_FROM_RIGHT,
-                    MOVE_FROM_BOTTOM,
-                    ROLL_FROM_LEFT,
-                    ROLL_FROM_TOP,
-                    ROLL_FROM_RIGHT,
-                    ROLL_FROM_BOTTOM,
-                    UNCOVER_TO_LEFT,
-                    UNCOVER_TO_TOP,
-                    UNCOVER_TO_RIGHT,
-                    UNCOVER_TO_BOTTOM,
-                    OPEN_VERTICAL,
-                    OPEN_HORIZONTAL,
-                    CLOSE_VERTICAL,
-                    CLOSE_HORIZONTAL,
-                    DISSOLVE,
-                    RANDOM,
+                    NONE, FADE_FROM_LEFT, FADE_FROM_TOP, FADE_FROM_RIGHT,
+                    FADE_FROM_BOTTOM, FADE_TO_CENTER, FADE_FROM_CENTER,
+                    MOVE_FROM_LEFT, MOVE_FROM_TOP, MOVE_FROM_RIGHT,
+                    MOVE_FROM_BOTTOM, ROLL_FROM_LEFT, ROLL_FROM_TOP,
+                    ROLL_FROM_RIGHT, ROLL_FROM_BOTTOM,
+                    UNCOVER_TO_LEFT, UNCOVER_TO_TOP, UNCOVER_TO_RIGHT,
+                    UNCOVER_TO_BOTTOM, OPEN_VERTICAL, OPEN_HORIZONTAL,
+                    CLOSE_VERTICAL, CLOSE_HORIZONTAL, DISSOLVE, RANDOM,
                 )
-
                 effects_map = {
                     "NONE": NONE,
                     "FADE_FROM_LEFT": FADE_FROM_LEFT,
@@ -300,11 +278,8 @@ class SetSlideTransition(ToolBase):
         speed = kwargs.get("speed")
         if speed is not None:
             from com.sun.star.presentation.AnimationSpeed import (
-                SLOW,
-                MEDIUM,
-                FAST,
+                SLOW, MEDIUM, FAST,
             )
-
             speed_map = {"slow": SLOW, "medium": MEDIUM, "fast": FAST}
             if speed.lower() in speed_map:
                 page.setPropertyValue("Speed", speed_map[speed.lower()])
@@ -337,8 +312,6 @@ class SetSlideTransition(ToolBase):
             "page_index": kwargs.get("page_index"),
             "updated": updated,
         }
-
-
 class GetSlideLayout(ToolBase):
     """Get the layout of an Impress slide."""
 
@@ -371,8 +344,6 @@ class GetSlideLayout(ToolBase):
             "layout_name": layout_name,
             "available_layouts": sorted(_LAYOUTS.keys()),
         }
-
-
 class SetSlideLayout(ToolBase):
     """Set the layout of an Impress slide."""
 

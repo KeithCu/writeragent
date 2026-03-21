@@ -94,7 +94,10 @@ class TodoTool(ToolBase):
         todos = kwargs.get("todos")
         merge = bool(kwargs.get("merge", False))
         result_json = todo_tool(todos=todos, merge=merge, store=store)
-        data = json.loads(result_json)
+        try:
+            data = json.loads(result_json)
+        except Exception:
+            return {"status": "error", "message": "Invalid JSON from todo_tool"}
         return {"status": "ok", **data}
 
 """

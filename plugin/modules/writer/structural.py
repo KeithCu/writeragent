@@ -36,16 +36,12 @@ class ListSections(ToolBaseDummy):
         sections = []
         for name in names:
             section = supplier.getByName(name)
-            sections.append(
-                {
-                    "name": name,
-                    "is_visible": getattr(section, "IsVisible", True),
-                    "is_protected": getattr(section, "IsProtected", False),
-                }
-            )
+            sections.append({
+                "name": name,
+                "is_visible": getattr(section, "IsVisible", True),
+                "is_protected": getattr(section, "IsProtected", False),
+            })
         return {"status": "ok", "sections": sections, "count": len(sections)}
-
-
 class GotoPage(ToolBaseDummy):
     name = "goto_page"
     intent = "navigate"
@@ -64,8 +60,6 @@ class GotoPage(ToolBaseDummy):
         vc = controller.getViewCursor()
         vc.jumpToPage(kwargs["page"])
         return {"status": "ok", "page": vc.getPage()}
-
-
 class GetPageObjects(ToolBaseDummy):
     name = "get_page_objects"
     intent = "navigate"
@@ -78,10 +72,7 @@ class GetPageObjects(ToolBaseDummy):
         "properties": {
             "page": {"type": "integer", "description": "Page number"},
             "locator": {"type": "string", "description": "Locator to determine page"},
-            "paragraph_index": {
-                "type": "integer",
-                "description": "Paragraph index to determine page",
-            },
+            "paragraph_index": {"type": "integer", "description": "Paragraph index to determine page"},
         },
         "required": [],
     }
@@ -119,7 +110,6 @@ class GetPageObjects(ToolBaseDummy):
             vc.gotoRange(saved, False)
             doc.unlockControllers()
         return {"status": "ok", "page": page, **objects}
-
     def _scan_page(self, doc, vc, page):
         images = []
         if hasattr(doc, "getGraphicObjects"):
@@ -129,14 +119,12 @@ class GetPageObjects(ToolBaseDummy):
                     vc.gotoRange(g.getAnchor(), False)
                     if vc.getPage() == page:
                         size = g.getPropertyValue("Size")
-                        images.append(
-                            {
-                                "name": name,
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                                "title": g.getPropertyValue("Title"),
-                            }
-                        )
+                        images.append({
+                            "name": name,
+                            "width_mm": size.Width // 100,
+                            "height_mm": size.Height // 100,
+                            "title": g.getPropertyValue("Title"),
+                        })
                 except Exception:
                     pass
 
@@ -147,13 +135,11 @@ class GetPageObjects(ToolBaseDummy):
                     t = doc.getTextTables().getByName(name)
                     vc.gotoRange(t.getAnchor(), False)
                     if vc.getPage() == page:
-                        tables.append(
-                            {
-                                "name": name,
-                                "rows": t.getRows().getCount(),
-                                "cols": t.getColumns().getCount(),
-                            }
-                        )
+                        tables.append({
+                            "name": name,
+                            "rows": t.getRows().getCount(),
+                            "cols": t.getColumns().getCount(),
+                        })
                 except Exception:
                     pass
 
@@ -165,13 +151,11 @@ class GetPageObjects(ToolBaseDummy):
                     vc.gotoRange(fr.getAnchor(), False)
                     if vc.getPage() == page:
                         size = fr.getPropertyValue("Size")
-                        frames.append(
-                            {
-                                "name": fname,
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                            }
-                        )
+                        frames.append({
+                            "name": fname,
+                            "width_mm": size.Width // 100,
+                            "height_mm": size.Height // 100,
+                        })
                 except Exception:
                     pass
 
@@ -199,8 +183,6 @@ class RefreshIndexes(ToolBaseDummy):
             name = idx.getName() if hasattr(idx, "getName") else "index_%d" % i
             refreshed.append(name)
         return {"status": "ok", "refreshed": refreshed, "count": count}
-
-
 class ReadSection(ToolBaseDummy):
     """Read the content of a named text section."""
 
@@ -234,9 +216,8 @@ class ReadSection(ToolBaseDummy):
         sections = doc.getTextSections()
         if not sections.hasByName(section_name):
             available = list(sections.getElementNames())
-            return self._tool_error(
-                "Section '%s' not found." % section_name, available=available
-            )
+            return self._tool_error("Section '%s' not found." % section_name,
+                available=available)
 
         section = sections.getByName(section_name)
         anchor = section.getAnchor()
@@ -259,8 +240,6 @@ class ReadSection(ToolBaseDummy):
             "content": content,
             "length": len(content),
         }
-
-
 class ResolveBookmark(ToolBaseDummy):
     """Resolve a bookmark to its paragraph index and heading text."""
 
@@ -303,7 +282,8 @@ class ResolveBookmark(ToolBaseDummy):
                     "to refresh bookmarks."
                 )
                 existing = [
-                    n for n in bookmarks.getElementNames() if n.startswith("_mcp_")
+                    n for n in bookmarks.getElementNames()
+                    if n.startswith("_mcp_")
                 ]
                 if existing:
                     hint += " Existing bookmarks: %s" % ", ".join(existing[:10])
@@ -316,7 +296,9 @@ class ResolveBookmark(ToolBaseDummy):
         doc_svc = ctx.services.document
         para_ranges = doc_svc.get_paragraph_ranges(doc)
         text_obj = doc.getText()
-        para_idx = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+        para_idx = doc_svc.find_paragraph_for_range(
+            anchor, para_ranges, text_obj
+        )
 
         result = {
             "status": "ok",
@@ -330,13 +312,13 @@ class ResolveBookmark(ToolBaseDummy):
             if element.supportsService("com.sun.star.text.Paragraph"):
                 try:
                     result["text"] = element.getString()
-                    result["outline_level"] = element.getPropertyValue("OutlineLevel")
+                    result["outline_level"] = element.getPropertyValue(
+                        "OutlineLevel"
+                    )
                 except Exception:
                     pass
 
         return result
-
-
 class UpdateFields(ToolBaseDummy):
     """Refresh all text fields in the document."""
 
@@ -365,8 +347,6 @@ class UpdateFields(ToolBaseDummy):
             count += 1
 
         return {"status": "ok", "fields_refreshed": count}
-
-
 class ListBookmarks(ToolBaseDummy):
     name = "list_bookmarks"
     intent = "navigate"
@@ -387,15 +367,11 @@ class ListBookmarks(ToolBaseDummy):
         for name in names:
             bm = bookmarks.getByName(name)
             anchor_text = bm.getAnchor().getString()
-            result.append(
-                {
-                    "name": name,
-                    "preview": anchor_text[:100] if anchor_text else "",
-                }
-            )
+            result.append({
+                "name": name,
+                "preview": anchor_text[:100] if anchor_text else "",
+            })
         return {"status": "ok", "bookmarks": result, "count": len(result)}
-
-
 class CleanupBookmarks(ToolBaseDummy):
     name = "cleanup_bookmarks"
     intent = "navigate"

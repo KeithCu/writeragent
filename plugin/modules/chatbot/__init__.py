@@ -32,7 +32,6 @@ class ChatbotModule(ModuleBase):
         self._api_handler = None
 
         from . import web_research
-
         services.tools.auto_discover(web_research)
 
         # Chat tool routing is now handled natively by main.py's get_tools() instead of ChatToolAdapter
@@ -51,12 +50,15 @@ class ChatbotModule(ModuleBase):
 
         try:
             from plugin.modules.chatbot.handler import ChatApiHandler
-
             self._api_handler = ChatApiHandler(services)
-            routes.add("POST", "/api/chat", self._api_handler.handle_chat, raw=True)
-            routes.add("GET", "/api/chat", self._api_handler.handle_history)
-            routes.add("DELETE", "/api/chat", self._api_handler.handle_reset)
-            routes.add("GET", "/api/providers", self._api_handler.handle_providers)
+            routes.add("POST", "/api/chat",
+                       self._api_handler.handle_chat, raw=True)
+            routes.add("GET", "/api/chat",
+                       self._api_handler.handle_history)
+            routes.add("DELETE", "/api/chat",
+                       self._api_handler.handle_reset)
+            routes.add("GET", "/api/providers",
+                       self._api_handler.handle_providers)
             self._routes_registered = True
             log.info("Chat API routes registered")
         except Exception as exc:  # ImportError, AttributeError, or route add failure
@@ -116,11 +118,8 @@ class ChatbotModule(ModuleBase):
         elif doc_type == "calc":
             self._extend_calc(ctx, doc)
         else:
-            msgbox(
-                ctx,
-                "WriterAgent",
-                "Extend selection not supported for this document type",
-            )
+            msgbox(ctx, "WriterAgent",
+                   "Extend selection not supported for this document type")
 
     def _extend_writer(self, ctx, doc):
         """Extend selection in a Writer document."""
@@ -165,10 +164,7 @@ class ChatbotModule(ModuleBase):
         api_config = get_api_config(ctx)
         client = LlmClient(api_config, ctx)
         run_stream_async(
-            ctx,
-            client,
-            messages,
-            tools=None,
+            ctx, client, messages, tools=None,
             apply_chunk_fn=apply_chunk,
             on_done_fn=lambda: None,
             on_error_fn=on_error,
@@ -197,17 +193,13 @@ class ChatbotModule(ModuleBase):
 
         # Build task list
         tasks = []
-        cell_range = sheet.getCellRangeByPosition(
-            area.StartColumn, area.StartRow, area.EndColumn, area.EndRow
-        )
+        cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
         data_array = cell_range.getDataArray()
 
         for row_idx, row in enumerate(range(area.StartRow, area.EndRow + 1)):
             for col_idx, col in enumerate(range(area.StartColumn, area.EndColumn + 1)):
                 raw_val = data_array[row_idx][col_idx]
-                cell_text = (
-                    str(raw_val) if raw_val != "" and raw_val is not None else ""
-                )
+                cell_text = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
                 if cell_text:
                     cell = sheet.getCellByPosition(col, row)
@@ -246,10 +238,7 @@ class ChatbotModule(ModuleBase):
                 msgbox(ctx, "WriterAgent: Extend Selection", str(e))
 
             run_stream_async(
-                ctx,
-                client,
-                msgs,
-                tools=None,
+                ctx, client, msgs, tools=None,
                 apply_chunk_fn=apply_chunk,
                 on_done_fn=run_next_cell,
                 on_error_fn=on_error,
@@ -278,11 +267,8 @@ class ChatbotModule(ModuleBase):
         elif doc_type == "calc":
             self._edit_calc(ctx, doc)
         else:
-            msgbox(
-                ctx,
-                "WriterAgent",
-                "Edit selection not supported for this document type",
-            )
+            msgbox(ctx, "WriterAgent",
+                   "Edit selection not supported for this document type")
 
     def _show_edit_input(self):
         """Show the edit instructions dialog. Returns (user_input, extra_instructions); empty strings if cancelled.
@@ -290,7 +276,6 @@ class ChatbotModule(ModuleBase):
         """
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.legacy_ui import input_box
-
         ctx = get_ctx()
         user_input, extra_instructions = input_box(
             ctx, "Please enter edit instructions!", "Input", ""
@@ -320,16 +305,9 @@ class ChatbotModule(ModuleBase):
         if not user_input:
             return
         if extra_instructions:
-            from plugin.framework.config import (
-                set_config,
-                update_lru_history,
-                get_current_endpoint,
-            )
-
+            from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
             set_config(ctx, "additional_instructions", extra_instructions)
-            update_lru_history(
-                ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx)
-            )
+            update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
         config = self._services.config.proxy_for("chatbot")
         system_prompt = extra_instructions or config.get("system_prompt") or ""
@@ -337,9 +315,8 @@ class ChatbotModule(ModuleBase):
         max_new_tokens = int(float(_mnt))
 
         prompt = (
-            "ORIGINAL VERSION:\n"
-            + original_text
-            + "\n Below is an edited version according to the following "
+            "ORIGINAL VERSION:\n" + original_text +
+            "\n Below is an edited version according to the following "
             "instructions. There are no comments in the edited version. "
             "The edited version is followed by the end of the document. "
             "The original version will be edited as follows to create "
@@ -374,10 +351,7 @@ class ChatbotModule(ModuleBase):
         api_config = get_api_config(ctx)
         client = LlmClient(api_config, ctx)
         run_stream_async(
-            ctx,
-            client,
-            messages,
-            tools=None,
+            ctx, client, messages, tools=None,
             apply_chunk_fn=apply_chunk,
             on_done_fn=lambda: None,
             on_error_fn=on_error,
@@ -403,16 +377,9 @@ class ChatbotModule(ModuleBase):
         if not user_input:
             return
         if extra_instructions:
-            from plugin.framework.config import (
-                set_config,
-                update_lru_history,
-                get_current_endpoint,
-            )
-
+            from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
             set_config(ctx, "additional_instructions", extra_instructions)
-            update_lru_history(
-                ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx)
-            )
+            update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
         config = self._services.config.proxy_for("chatbot")
         system_prompt = extra_instructions or config.get("system_prompt") or ""
@@ -421,9 +388,7 @@ class ChatbotModule(ModuleBase):
 
         # Build task list
         tasks = []
-        cell_range = sheet.getCellRangeByPosition(
-            area.StartColumn, area.StartRow, area.EndColumn, area.EndRow
-        )
+        cell_range = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow)
         data_array = cell_range.getDataArray()
 
         for row_idx, row in enumerate(range(area.StartRow, area.EndRow + 1)):
@@ -432,16 +397,16 @@ class ChatbotModule(ModuleBase):
                 original = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
                 prompt = (
-                    "ORIGINAL VERSION:\n"
-                    + original
-                    + "\n Below is an edited version according to the following "
+                    "ORIGINAL VERSION:\n" + original +
+                    "\n Below is an edited version according to the following "
                     "instructions. Don't waste time thinking, be as fast as "
                     "you can. The edited text will be a shorter or longer "
                     "version of the original text based on the instructions. "
                     "There are no comments in the edited version. The edited "
                     "version is followed by the end of the document. The "
                     "original version will be edited as follows to create "
-                    "the edited version:\n" + user_input + "\nEDITED VERSION:\n"
+                    "the edited version:\n" + user_input +
+                    "\nEDITED VERSION:\n"
                 )
                 max_tokens = len(original) + max_new_tokens
 
@@ -486,10 +451,7 @@ class ChatbotModule(ModuleBase):
                 msgbox(ctx, "WriterAgent: Edit Selection", str(e))
 
             run_stream_async(
-                ctx,
-                client,
-                msgs,
-                tools=None,
+                ctx, client, msgs, tools=None,
                 apply_chunk_fn=apply_chunk,
                 on_done_fn=run_next_cell,
                 on_error_fn=on_error,

@@ -15,19 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Legacy operations for Writer (Extend/Edit Selection)."""
-
-from plugin.framework.config import (
-    get_config,
-    get_config_int,
-    get_api_config,
-    validate_api_config,
-    get_current_endpoint,
-    update_lru_history,
-)
+from plugin.framework.config import get_config, get_config_int, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
 from plugin.modules.http.errors import format_error_message
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
-
 
 def do_extend_selection(ctx, model, input_box_fn):
     selection = model.CurrentController.getSelection()
@@ -52,7 +43,6 @@ def do_extend_selection(ctx, model, input_box_fn):
         return
 
     from plugin.modules.http.client import LlmClient
-
     client = LlmClient(api_config)
 
     def apply_chunk(chunk_text, is_thinking=False):
@@ -64,18 +54,11 @@ def do_extend_selection(ctx, model, input_box_fn):
 
     try:
         run_stream_completion_async(
-            ctx,
-            client,
-            prompt,
-            system_prompt,
-            max_tokens,
-            apply_chunk,
-            lambda: None,
-            on_error,
+            ctx, client, prompt, system_prompt, max_tokens,
+            apply_chunk, lambda: None, on_error
         )
     except Exception as e:
         on_error(e)
-
 
 def do_edit_selection(ctx, model, input_box_fn):
     selection = model.CurrentController.getSelection()
@@ -83,33 +66,20 @@ def do_edit_selection(ctx, model, input_box_fn):
     original_text = text_range.getString()
 
     try:
-        user_input, extra_instructions = input_box_fn(
-            ctx, "Please enter edit instructions!", "Input", ""
-        )
+        user_input, extra_instructions = input_box_fn(ctx, "Please enter edit instructions!", "Input", "")
         if not user_input:
             return
         if extra_instructions:
             from plugin.framework.config import set_config
-
             set_config(ctx, "additional_instructions", extra_instructions)
-            update_lru_history(
-                ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx)
-            )
+            update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
     except Exception as e:
         msgbox(ctx, "WriterAgent: Edit Selection", format_error_message(e))
         return
 
-    prompt = (
-        "ORIGINAL VERSION:\n"
-        + original_text
-        + "\n Below is an edited version according to the following instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n"
-        + user_input
-        + "\nEDITED VERSION:\n"
-    )
+    prompt = "ORIGINAL VERSION:\n" + original_text + "\n Below is an edited version according to the following instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
     system_prompt = extra_instructions or ""
-    max_tokens = len(original_text) + get_config_int(
-        ctx, "edit_selection_max_new_tokens", 1000
-    )
+    max_tokens = len(original_text) + get_config_int(ctx, "edit_selection_max_new_tokens", 1000)
 
     api_config = get_api_config(ctx)
     ok, err_msg = validate_api_config(api_config)
@@ -118,7 +88,6 @@ def do_edit_selection(ctx, model, input_box_fn):
         return
 
     from plugin.modules.http.client import LlmClient
-
     client = LlmClient(api_config)
 
     text_range.setString("")
@@ -133,14 +102,8 @@ def do_edit_selection(ctx, model, input_box_fn):
 
     try:
         run_stream_completion_async(
-            ctx,
-            client,
-            prompt,
-            system_prompt,
-            max_tokens,
-            apply_chunk,
-            lambda: None,
-            on_error,
+            ctx, client, prompt, system_prompt, max_tokens,
+            apply_chunk, lambda: None, on_error
         )
     except Exception as e:
         on_error(e)

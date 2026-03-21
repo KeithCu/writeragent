@@ -18,7 +18,6 @@
 LLM API client for WriterAgent.
 Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
 """
-
 import logging
 import collections
 import json
@@ -88,10 +87,7 @@ class LlmClient:
 
         if self._persistent_conn:
             if self._conn_key != new_key:
-                log.debug(
-                    "Closing old connection to %s, opening new to %s"
-                    % (self._conn_key, new_key)
-                )
+                log.debug("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key))
                 self._persistent_conn.close()
                 self._persistent_conn = None
             else:
@@ -102,18 +98,10 @@ class LlmClient:
         timeout = self._timeout()
 
         if scheme == "https":
-            ssl_context = (
-                get_verified_ssl_context()
-                if ssl_mode == "verified"
-                else get_unverified_ssl_context()
-            )
-            self._persistent_conn = http.client.HTTPSConnection(
-                host, port, context=ssl_context, timeout=timeout
-            )
+            ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
+            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=timeout)
         else:
-            self._persistent_conn = http.client.HTTPConnection(
-                host, port, timeout=timeout
-            )
+            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=timeout)
 
         return self._persistent_conn
 
@@ -126,7 +114,6 @@ class LlmClient:
                     sock = getattr(self._persistent_conn, "sock", None)
                     if sock:
                         import socket
-
                         sock.shutdown(socket.SHUT_RDWR)
                 except Exception:
                     pass
@@ -165,9 +152,7 @@ class LlmClient:
             h.update(auth_headers)
         except AuthError as e:
             # Fall back to the previous behavior: simple Bearer header from config.
-            log.error(
-                f"Auth resolution error ({e.provider or 'unknown'}, level=logging.ERROR): {e}"
-            )
+            log.error(f"Auth resolution error ({e.provider or 'unknown'}, level=logging.ERROR): {e}")
             api_key = self.config.get("api_key", "")
             if api_key:
                 h["Authorization"] = "Bearer %s" % api_key
@@ -195,19 +180,12 @@ class LlmClient:
     def _enable_local_ssl_fallback(self, err):
         """Switch a local HTTPS host to unverified mode after cert validation fails."""
         host = self._current_host()
-        if (
-            not host
-            or not _is_local_host(host)
-            or not _is_certificate_verify_error(err)
-        ):
+        if not host or not _is_local_host(host) or not _is_certificate_verify_error(err):
             return False
         if host in self._ssl_fallback_hosts:
             return False
         self._ssl_fallback_hosts.add(host)
-        log.error(
-            "Local HTTPS certificate verification failed for %s; retrying unverified."
-            % host
-        )
+        log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
         self._close_connection()
         return True
 
@@ -272,9 +250,7 @@ class LlmClient:
 
         return content, finish_reason, thinking, delta
 
-    def make_chat_request(
-        self, messages, max_tokens=512, tools=None, stream=False, model=None
-    ):
+    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None):
         """Build a chat completions request from a full messages array."""
         try:
             max_tokens = int(max_tokens)
@@ -335,7 +311,9 @@ class LlmClient:
 
         json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)
-        log.debug("=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream))
+        log.debug(
+            "=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream)
+        )
         log.debug("URL: %s" % url)
         log.debug("Messages: %s" % json.dumps(messages, indent=2))
 
@@ -343,16 +321,7 @@ class LlmClient:
 
         return "POST", path, json_data, self._headers()
 
-    def make_image_request(
-        self,
-        prompt,
-        model=None,
-        width=1024,
-        height=1024,
-        steps=None,
-        source_image=None,
-        image_url=None,
-    ):
+    def make_image_request(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
         """Build an image generation request (OpenAI-compatible /images/generations).
         When source_image (base64 str) or image_url is provided, include image_url in the body for img2img (e.g. Together, FLUX)."""
         endpoint = self._endpoint()
@@ -399,39 +368,23 @@ class LlmClient:
 
         # 1. Check if the STT model itself supports native audio
         if has_native_audio(self.ctx, model_name, self._endpoint()):
-            log.debug(
-                "Using multimodal chat for transcription fallback (model: %s, level=logging.WARNING)"
-                % model_name
-            )
+            log.debug("Using multimodal chat for transcription fallback (model: %s, level=logging.WARNING)" % model_name)
             try:
                 with open(wav_path, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers.",
-                            },
-                            {
-                                "type": "input_audio",
-                                "input_audio": {"data": audio_b64, "format": "wav"},
-                            },
-                        ],
-                    }
-                ]
+                messages = [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."},
+                        {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}}
+                    ]
+                }]
 
                 # Using synchronous chat completion with model override
-                return self.chat_completion_sync(
-                    messages, max_tokens=16384, model=model_name
-                )
+                return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
             except Exception as e:
-                log.warning(
-                    "Multimodal transcription failed: %s. Falling back to stt endpoint."
-                    % type(e).__name__
-                )
+                log.warning("Multimodal transcription failed: %s. Falling back to stt endpoint." % type(e).__name__)
 
         # 2. Standard multipart fallback (Whisper, etc.)
         boundary = "Boundary-%s" % uuid.uuid4().hex
@@ -445,25 +398,21 @@ class LlmClient:
         # file part
         filename = os.path.basename(wav_path)
         parts.append(("--%s" % boundary).encode("utf-8"))
-        parts.append(
-            (
-                'Content-Disposition: form-data; name="file"; filename="%s"' % filename
-            ).encode("utf-8")
-        )
-        parts.append(b"Content-Type: audio/wav")
-        parts.append(b"")
+        parts.append(('Content-Disposition: form-data; name="file"; filename="%s"' % filename).encode("utf-8"))
+        parts.append(b'Content-Type: audio/wav')
+        parts.append(b'')
         with open(wav_path, "rb") as f:
             parts.append(f.read())
 
         # model part
         parts.append(("--%s" % boundary).encode("utf-8"))
         parts.append(('Content-Disposition: form-data; name="model"').encode("utf-8"))
-        parts.append(b"")
+        parts.append(b'')
         parts.append(model_name.encode("utf-8"))
 
         # End boundary
         parts.append(("--%s--" % boundary).encode("utf-8"))
-        parts.append(b"")
+        parts.append(b'')
 
         # Headers: use base headers but override Content-Type
         headers = self._headers()
@@ -494,10 +443,7 @@ class LlmClient:
             prompt, system_prompt, max_tokens
         )
         self.stream_request(
-            method,
-            path,
-            body,
-            headers,
+            method, path, body, headers,
             append_callback,
             append_thinking_callback,
             stop_checker=stop_checker,
@@ -533,11 +479,9 @@ class LlmClient:
                 # Close on error to be safe
                 self._close_connection()
                 raise NetworkError(
-                    _format_http_error_response(
-                        response.status, response.reason, err_body
-                    ),
+                    _format_http_error_response(response.status, response.reason, err_body),
                     code="HTTP_ERROR",
-                    context={"url": path, "status": response.status},
+                    context={"url": path, "status": response.status}
                 )
 
             try:
@@ -546,6 +490,7 @@ class LlmClient:
                 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                 last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
                 for payload in iterate_sse(response):
+
                     if payload == "[DONE]":
                         log.info("streaming_loop: [DONE] received")
                         content_finished = True
@@ -554,10 +499,7 @@ class LlmClient:
                     chunk = safe_json_loads(payload, default=None)
                     if chunk is None:
                         if payload and payload != "{}":
-                            log.error(
-                                "streaming_loop: JSON decode error in payload: %s"
-                                % payload
-                            )
+                            log.error("streaming_loop: JSON decode error in payload: %s" % payload)
                         continue
 
                     # Log all chunks for debugging, even after content_finished
@@ -588,9 +530,7 @@ class LlmClient:
 
                     # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
                     if finish_reason == "error":
-                        raise NetworkError(
-                            "Stream ended with finish_reason=error", code="STREAM_ERROR"
-                        )
+                        raise NetworkError("Stream ended with finish_reason=error", code="STREAM_ERROR")
 
                     if thinking and on_thinking:
                         on_thinking(thinking)
@@ -598,24 +538,20 @@ class LlmClient:
                         on_content(content)
                         # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                         last_contents.append(content)
-                        if (
-                            len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
-                            and len(content) > 2
-                            and all(c == last_contents[0] for c in last_contents)
-                        ):
+                        if (len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
+                                and len(content) > 2
+                                and all(c == last_contents[0] for c in last_contents)):
                             raise NetworkError(
                                 "The model is repeating the same chunk (infinite loop). "
                                 "Try again or use a different model.",
-                                code="INFINITE_LOOP",
+                                code="INFINITE_LOOP"
                             )
                     if delta and on_delta:
                         _normalize_delta(delta)
                         on_delta(delta)
 
                     if finish_reason:
-                        log.debug(
-                            "streaming_loop: logical finish_reason=%s" % finish_reason
-                        )
+                        log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
                         last_finish_reason = finish_reason
             finally:
                 # Ensure the entire response body is read so the connection is reusable.
@@ -640,10 +576,7 @@ class LlmClient:
                 return "stop"
             if self._enable_local_ssl_fallback(e):
                 return self._run_streaming_loop(
-                    method,
-                    path,
-                    body,
-                    headers,
+                    method, path, body, headers,
                     on_content=on_content,
                     on_thinking=on_thinking,
                     on_delta=on_delta,
@@ -655,10 +588,7 @@ class LlmClient:
             if _retry:
                 log.warning("Retrying streaming request once on fresh connection")
                 return self._run_streaming_loop(
-                    method,
-                    path,
-                    body,
-                    headers,
+                    method, path, body, headers,
                     on_content=on_content,
                     on_thinking=on_thinking,
                     on_delta=on_delta,
@@ -666,18 +596,14 @@ class LlmClient:
                     _retry=False,
                 )
             log.error("Connection retry failed: %s" % err_msg)
-            raise NetworkError(
-                err_msg, code="CONNECTION_ERROR", context={"url": path}
-            ) from e
+            raise NetworkError(err_msg, code="CONNECTION_ERROR", context={"url": path}) from e
         except NetworkError:
             self._close_connection()
             raise
         except Exception as e:
-            self._close_connection()  # Reset on any other error too
+            self._close_connection() # Reset on any other error too
             err_msg = format_error_message(e)
-            log.error(
-                "ERROR in _run_streaming_loop: %s -> %s" % (type(e).__name__, err_msg)
-            )
+            log.error("ERROR in _run_streaming_loop: %s -> %s" % (type(e).__name__, err_msg))
             raise NetworkError(err_msg, context={"url": path}) from e
 
         return last_finish_reason
@@ -716,10 +642,7 @@ class LlmClient:
             messages, max_tokens, tools=None, stream=True
         )
         self.stream_request(
-            method,
-            path,
-            body,
-            headers,
+            method, path, body, headers,
             append_callback,
             append_thinking_callback,
             stop_checker=stop_checker,
@@ -749,11 +672,7 @@ class LlmClient:
             messages, max_tokens, tools=tools, stream=stream, model=model
         )
         if body_override is not None:
-            body = (
-                body_override.encode("utf-8")
-                if isinstance(body_override, str)
-                else body_override
-            )
+            body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
         message_snapshot = {}
         last_finish_reason = None
@@ -766,10 +685,7 @@ class LlmClient:
             append_callback = append_callback or (lambda t: None)
             append_thinking_callback = append_thinking_callback or (lambda t: None)
 
-            log.debug(
-                "stream_request_with_tools: building request (%d messages)..."
-                % len(messages)
-            )
+            log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
                 last_finish_reason = self._run_streaming_loop(
                     method,
@@ -785,10 +701,7 @@ class LlmClient:
                 raise
             except Exception as e:
                 err_msg = format_error_message(e)
-                log.error(
-                    "stream_request_with_tools ERROR: %s -> %s"
-                    % (type(e).__name__, err_msg)
-                )
+                log.error("stream_request_with_tools ERROR: %s -> %s" % (type(e).__name__, err_msg))
                 raise NetworkError(err_msg, context={"url": path}) from e
 
             raw_content = message_snapshot.get("content")
@@ -808,11 +721,9 @@ class LlmClient:
                         log.error("API Error %d: %s" % (response.status, err_body))
                         self._close_connection()
                         raise NetworkError(
-                            _format_http_error_response(
-                                response.status, response.reason, err_body
-                            ),
+                            _format_http_error_response(response.status, response.reason, err_body),
                             code="HTTP_ERROR",
-                            context={"url": path, "status": response.status},
+                            context={"url": path, "status": response.status}
                         )
                     result = json.loads(response.read().decode("utf-8"))
                     break
@@ -822,24 +733,15 @@ class LlmClient:
                     if self._enable_local_ssl_fallback(e):
                         continue
                     if attempt == 0:
-                        log.warning(
-                            "Retrying request_with_tools once on fresh connection"
-                        )
+                        log.warning("Retrying request_with_tools once on fresh connection")
                         continue
                     log.error("Connection retry failed: %s" % format_error_message(e))
-                    raise NetworkError(
-                        format_error_message(e),
-                        code="CONNECTION_ERROR",
-                        context={"url": path},
-                    ) from e
+                    raise NetworkError(format_error_message(e), code="CONNECTION_ERROR", context={"url": path}) from e
                 except NetworkError:
                     raise
                 except Exception as e:
                     err_msg = format_error_message(e)
-                    log.error(
-                        "request_with_tools ERROR: %s -> %s"
-                        % (type(e).__name__, err_msg)
-                    )
+                    log.error("request_with_tools ERROR: %s -> %s" % (type(e).__name__, err_msg))
                     raise NetworkError(err_msg, context={"url": path}) from e
 
             log.debug("=== Sync response: %s" % json.dumps(result, indent=2))
@@ -847,9 +749,7 @@ class LlmClient:
             choice = result.get("choices", [{}])[0] if result.get("choices") else {}
             message = choice.get("message") or result.get("message") or {}
             _normalize_delta(message)
-            last_finish_reason = choice.get("finish_reason") or result.get(
-                "done_reason"
-            )
+            last_finish_reason = choice.get("finish_reason") or result.get("done_reason")
 
             raw_content = message.get("content")
             content = _normalize_message_content(raw_content)
@@ -863,7 +763,6 @@ class LlmClient:
 
         if not tool_calls and content:
             from plugin.contrib.tool_call_parsers import get_parser_for_model
-
             parser = get_parser_for_model(model or self.config.get("model", ""))
             if parser:
                 p_content, p_tool_calls = parser.parse(content)
@@ -886,6 +785,7 @@ class LlmClient:
         """Streaming chat request with tools. Wrapper around request_with_tools."""
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
+
 
     def chat_completion_sync(self, messages, max_tokens=512, model=None):
         """

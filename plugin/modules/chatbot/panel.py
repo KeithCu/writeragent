@@ -37,7 +37,6 @@ from plugin.modules.chatbot.history_db import get_chat_history
 # Recording available only if audio_recorder (and contrib/audio) is present
 try:
     from plugin.modules.chatbot.audio_recorder import start_recording, stop_recording  # noqa: F401
-
     HAS_RECORDING = True
 except ImportError:
     HAS_RECORDING = False
@@ -49,7 +48,6 @@ DEFAULT_MAX_TOOL_ROUNDS = 5
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
 # ---------------------------------------------------------------------------
-
 
 class ChatSession:
     """Maintains the message history for one sidebar chat session."""
@@ -91,13 +89,11 @@ class ChatSession:
             self.db.add_message("assistant", content)
 
     def add_tool_result(self, tool_call_id, content):
-        self.messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": content,
-            }
-        )
+        self.messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": content,
+        })
         # Note: We do NOT persist tool results to history_db.
         # This keeps the persistent history clean of tool formatting requirements.
 
@@ -120,9 +116,7 @@ class ChatSession:
         """Reset to just the system prompt."""
         system = None
         for msg in self.messages:
-            if msg["role"] == "system" and "[DOCUMENT CONTENT]" not in (
-                msg.get("content") or ""
-            ):
+            if msg["role"] == "system" and "[DOCUMENT CONTENT]" not in (msg.get("content") or ""):
                 system = msg
                 break
         self.messages = []
@@ -141,7 +135,6 @@ class ChatSession:
 from plugin.framework.listeners import BaseTextListener, BaseActionListener
 
 log = logging.getLogger(__name__)
-
 
 class QueryTextListener(BaseTextListener):
     def __init__(self, send_button):
@@ -169,10 +162,7 @@ class QueryTextListener(BaseTextListener):
             new_label = "Record" if HAS_RECORDING else "Send"
 
         if btn_model.Label != new_label:
-            log.debug(
-                "QueryTextListener: toggle label '%s' -> '%s'"
-                % (btn_model.Label, new_label)
-            )
+            log.debug("QueryTextListener: toggle label '%s' -> '%s'" % (btn_model.Label, new_label))
             btn_model.Label = new_label
         if self._fixed_send_width:
             try:
@@ -189,28 +179,10 @@ class QueryTextListener(BaseTextListener):
 # SendButtonListener - handles Send button click with tool-calling loop
 # ---------------------------------------------------------------------------
 
-
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
-    def __init__(
-        self,
-        ctx,
-        frame,
-        send_control,
-        stop_control,
-        query_control,
-        response_control,
-        image_model_selector,
-        model_selector,
-        status_control,
-        session,
-        direct_image_checkbox=None,
-        aspect_ratio_selector=None,
-        base_size_input=None,
-        web_research_checkbox=None,
-        ensure_path_fn=None,
-    ):
+    def __init__(self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_research_checkbox=None, ensure_path_fn=None):
         self.ctx = ctx
         self.frame = frame
         self.send_control = send_control
@@ -232,27 +204,22 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._send_busy = False
         self.client = None
         self.audio_wav_path = None
-        self._current_agent_backend = (
-            None  # Set during _do_send_via_agent_backend for Stop button
-        )
+        self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
         # Subscribe to MCP/tool bus events
         try:
             from plugin.main import get_tools
-
             event_bus = getattr(get_tools()._services, "events", None)
             if event_bus:
                 event_bus.subscribe("mcp:request", self._on_mcp_request)
                 event_bus.subscribe("mcp:result", self._on_mcp_result)
-                log.debug(
-                    f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***"
-                )
+                log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
         except Exception as e:
             log.error("MCP subscribe error: %s" % e)
 
     def set_session(self, session):
         """Update the active session (e.g. when switching between Document and Research chat)."""
         self.session = session
-        self.client = None  # Force client recreation if needed, though they usually share same config
+        self.client = None # Force client recreation if needed, though they usually share same config
 
     def _set_status(self, text):
         """Update the status field in the sidebar (read-only TextField).
@@ -264,9 +231,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             else:
                 log.debug("_set_status: NO CONTROL for '%s'" % text)
         except Exception as e:
-            log.debug(
-                "_set_status('%s', level=logging.DEBUG) EXCEPTION: %s" % (text, e)
-            )
+            log.debug("_set_status('%s', level=logging.DEBUG) EXCEPTION: %s" % (text, e))
 
     def _scroll_response_to_bottom(self):
         """Scroll the response area to show the bottom (newest content).
@@ -278,10 +243,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     text = model.Text or ""
                     length = len(text)
                     self.response_control.setSelection(
-                        uno.createUnoStruct(
-                            "com.sun.star.awt.Selection", length, length
-                        )
-                    )
+                        uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception:
             pass
 
@@ -299,11 +261,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Handle MCP request events from the bus (background thread)."""
         try:
             from plugin.framework.logging import format_tool_call_for_display
-
             fmt_str = format_tool_call_for_display(tool, args, method)
             log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
         except Exception as e:
-            log.error("_on_mcp_request error: %s" % e)
+                        log.error("_on_mcp_request error: %s" % e)
 
     def _on_mcp_result(self, tool="", result_snippet="", **kwargs):
         """Handle MCP result events from the bus (background thread)."""
@@ -312,25 +273,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         def _update_ui():
             try:
                 from plugin.framework.logging import format_tool_result_for_display
-
-                fmt_str = format_tool_result_for_display(
-                    tool, result_snippet, args=kwargs.get("args")
-                )
+                fmt_str = format_tool_result_for_display(tool, result_snippet, args=kwargs.get("args"))
                 self._append_response(f"[MCP Result] {fmt_str}\n")
             except Exception as e:
-                log.error("_on_mcp_result UI update error: %s" % e)
+                                log.error("_on_mcp_result UI update error: %s" % e)
 
         try:
             execute_on_main_thread(_update_ui)
         except Exception as e:
-            log.error("_on_mcp_result post error: %s" % e)
+                        log.error("_on_mcp_result post error: %s" % e)
 
     def _get_document_model(self):
         """Get the Writer document model."""
         model = get_active_document(self.ctx)
 
         from plugin.framework.document import is_writer, is_calc, is_draw
-
         if model and (is_writer(model) or is_calc(model) or is_draw(model)):
             return model
         return None
@@ -338,11 +295,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _set_button_states(self, send_enabled, stop_enabled):
         """Set Send/Stop button enabled states. Per-control try/except so one failure cannot leave Send stuck disabled.
         Prefer model Enabled property (LibreOffice UNO); fallback to control.setEnable if available."""
-
         def set_control_enabled(control, enabled):
             if control and control.getModel():
                 control.getModel().Enabled = bool(enabled)
-
         set_control_enabled(self.send_control, send_enabled)
         set_control_enabled(self.stop_control, stop_enabled)
 
@@ -352,7 +307,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if HAS_RECORDING and btn_model.Label == "Record":
                 # Start recording
                 from plugin.modules.chatbot.audio_recorder import start_recording
-
                 try:
                     start_recording()
                 except RuntimeError as re:
@@ -364,7 +318,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             elif HAS_RECORDING and btn_model.Label == "Stop Rec":
                 # Stop recording and proceed to send
                 from plugin.modules.chatbot.audio_recorder import stop_recording
-
                 self.audio_wav_path = stop_recording()
                 if self.query_control and get_control_text(self.query_control).strip():
                     btn_model.Label = "Send"
@@ -379,17 +332,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             self._terminal_status = "Error"
             import traceback
-
             tb = traceback.format_exc()
 
             # Use richer logging context before appending
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
-            log.error(
-                "SendButton unhandled exception [doc: %s]: %s\n%s",
-                doc_type_for_log,
-                e,
-                tb,
-            )
+            log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
 
             self._append_response("\n\n[Error: %s]\n" % str(e))
             raise
@@ -397,39 +344,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._send_busy = False
             log.debug("actionPerformed finally: resetting UI")
             self._set_status(self._terminal_status)
-            if self.send_control and self.send_control.getModel().Label not in (
-                "Record",
-                "Stop Rec",
-            ):
+            if self.send_control and self.send_control.getModel().Label not in ("Record", "Stop Rec"):
                 # if empty, set to Record (when recording available) else Send
-                if self.query_control and (
-                    get_control_text(self.query_control).strip() or self.audio_wav_path
-                ):
+                if self.query_control and (get_control_text(self.query_control).strip() or self.audio_wav_path):
                     self.send_control.getModel().Label = "Send"
                 else:
-                    self.send_control.getModel().Label = (
-                        "Record" if HAS_RECORDING else "Send"
-                    )
+                    self.send_control.getModel().Label = "Record" if HAS_RECORDING else "Send"
             self._set_button_states(send_enabled=True, stop_enabled=False)
             log.debug("control returned to LibreOffice")
-            update_activity_state(
-                ""
-            )  # clear phase so watchdog does not report after we return
+            update_activity_state("")  # clear phase so watchdog does not report after we return
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
 
     def _get_doc_type_str(self, model):
         from plugin.framework.document import is_writer, is_calc, is_draw
-
-        return (
-            "Calc"
-            if is_calc(model)
-            else "Draw"
-            if is_draw(model)
-            else "Writer"
-            if is_writer(model)
-            else "Unknown"
-        )
+        return "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
 
     def _do_send(self):
         self._set_status("Starting...")
@@ -446,45 +375,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         model = self._get_document_model()
         if not model:
             log.info("_do_send: no document found")
-            self._append_response(
-                "\n[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n"
-            )
+            self._append_response("\n[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n")
             self._terminal_status = "Error"
             return
         log.debug("_do_send: got document model OK")
 
         from plugin.framework.document import is_writer, is_calc, is_draw
-
-        doc_type_str = (
-            "Calc"
-            if is_calc(model)
-            else "Draw"
-            if is_draw(model)
-            else "Writer"
-            if is_writer(model)
-            else "Unknown"
-        )
+        doc_type_str = "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
         log.debug("_do_send: detected document type: %s" % doc_type_str)
 
         if self.initial_doc_type and doc_type_str != self.initial_doc_type:
-            err_msg = (
-                "[Internal Error: Document type changed from %s to %s! Please file an error.]"
-                % (self.initial_doc_type, doc_type_str)
-            )
+            err_msg = "[Internal Error: Document type changed from %s to %s! Please file an error.]" % (self.initial_doc_type, doc_type_str)
             log.error("_do_send ERROR: %s" % err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"
             return
 
         if doc_type_str == "Unknown":
-            err_msg = (
-                "[Internal Error: Could not identify document type for %s. Please report this!]"
-                % (
-                    model.getImplementationName()
-                    if hasattr(model, "getImplementationName")
-                    else "Unknown"
-                )
-            )
+            err_msg = "[Internal Error: Could not identify document type for %s. Please report this!]" % (model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
             log.error("_do_send ERROR: %s" % err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"
@@ -505,55 +413,34 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Transcription Fallback check
         if self.audio_wav_path:
-            from plugin.framework.config import (
-                get_text_model,
-                get_current_endpoint,
-                has_native_audio,
-                get_stt_model,
-            )
-
+            from plugin.framework.config import get_text_model, get_current_endpoint, has_native_audio, get_stt_model
             current_model = get_text_model(self.ctx)
             current_endpoint = get_current_endpoint(self.ctx)
 
             if has_native_audio(self.ctx, current_model, current_endpoint) is False:
                 stt_model = get_stt_model(self.ctx)
                 if stt_model:
-                    log.warning(
-                        "_do_send: model %s has no native audio, using stt fallback %s"
-                        % (current_model, stt_model)
-                    )
-                    self._transcribe_audio_async(
-                        self.audio_wav_path, stt_model, model, query_text=query_text
-                    )
+                    log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
+                    self._transcribe_audio_async(self.audio_wav_path, stt_model, model, query_text=query_text)
                     return
                 else:
-                    err_msg = (
-                        "[Model %s does not support native audio. Please select an STT Model in Settings.]"
-                        % current_model
-                    )
+                    err_msg = "[Model %s does not support native audio. Please select an STT Model in Settings.]" % current_model
                     self._append_response("\n%s\n" % err_msg)
                     self._terminal_status = "Error"
                     self._set_status("Error")
                     return
             else:
-                log.debug(
-                    "_do_send: model %s supports native audio, proceeding"
-                    % current_model
-                )
+                log.debug("_do_send: model %s supports native audio, proceeding" % current_model)
 
         # Optional web-research path
         web_research_checked = False
         if self.web_research_checkbox:
             try:
-                web_research_checked = (
-                    get_checkbox_state(self.web_research_checkbox) == 1
-                )
+                web_research_checked = (get_checkbox_state(self.web_research_checkbox) == 1)
             except Exception:
                 pass
         if web_research_checked:
-            log.info(
-                "_do_send: using web research sub-agent — skip chat model and direct image"
-            )
+            log.info("_do_send: using web research sub-agent — skip chat model and direct image")
             self._run_web_research(query_text, model)
             return
 
@@ -561,27 +448,18 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         direct_image_checked = False
         if self.direct_image_checkbox:
             try:
-                direct_image_checked = (
-                    get_checkbox_state(self.direct_image_checkbox) == 1
-                )
+                direct_image_checked = (get_checkbox_state(self.direct_image_checkbox) == 1)
             except Exception as e:
                 log.error("_do_send: Use Image model checkbox read error: %s" % e)
         if direct_image_checked:
-            log.debug(
-                "_do_send: using image model (direct, level=logging.INFO) — skip chat model"
-            )
+            log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
             self._do_send_direct_image(query_text, model)
             return
 
         # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
         try:
             from plugin.framework.config import get_config
-
-            agent_backend_id = (
-                str(get_config(self.ctx, "agent_backend.backend_id") or "builtin")
-                .strip()
-                .lower()
-            )
+            agent_backend_id = str(get_config(self.ctx, "agent_backend.backend_id") or "builtin").strip().lower()
             if agent_backend_id and agent_backend_id != "builtin":
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
                 self._do_send_via_agent_backend(query_text, model, doc_type_str.lower())
@@ -604,6 +482,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     # _run_web_research is provided by SendHandlersMixin.
 
+
+
     # _spawn_llm_worker is provided by ToolCallingMixin.
 
     # _spawn_final_stream is provided by ToolCallingMixin.
@@ -615,7 +495,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def disposing(self, evt):
         try:
             from plugin.framework.event_bus import global_event_bus
-
             global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
             global_event_bus.unsubscribe("mcp:result", self._on_mcp_result)
         except Exception:
@@ -625,7 +504,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 # ---------------------------------------------------------------------------
 # StopButtonListener - allows user to cancel the AI request
 # ---------------------------------------------------------------------------
-
 
 class StopButtonListener(BaseActionListener):
     """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
@@ -659,7 +537,6 @@ class StopButtonListener(BaseActionListener):
 # ---------------------------------------------------------------------------
 # ClearButtonListener - resets the conversation
 # ---------------------------------------------------------------------------
-
 
 class ClearButtonListener(BaseActionListener):
     """Listener for the Clear button - resets conversation history."""

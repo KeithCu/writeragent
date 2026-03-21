@@ -49,8 +49,7 @@ class BookmarkService:
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
                 para_idx = self._doc_svc.find_paragraph_for_range(
-                    anchor, para_ranges, text_obj
-                )
+                    anchor, para_ranges, text_obj)
                 if para_idx >= 0:
                     result[para_idx] = name
         except Exception as e:
@@ -79,7 +78,8 @@ class BookmarkService:
                     if para_index in existing_map:
                         bookmark_map[para_index] = existing_map[para_index]
                     else:
-                        needs_bookmark.append((para_index, element.getStart()))
+                        needs_bookmark.append(
+                            (para_index, element.getStart()))
             para_index += 1
             self._doc_svc.yield_to_gui()
 
@@ -107,7 +107,8 @@ class BookmarkService:
             if idx <= para_index and idx > best_idx:
                 best_idx = idx
         if best_idx >= 0:
-            return {"bookmark": bookmark_map[best_idx], "heading_para_index": best_idx}
+            return {"bookmark": bookmark_map[best_idx],
+                    "heading_para_index": best_idx}
         return None
 
     def cleanup_mcp_bookmarks(self, doc):

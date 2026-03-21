@@ -39,22 +39,18 @@ class CloudflareProvider:
         if tunnel_name:
             # Named tunnel — stable domain, pre-configured via cloudflared
             cmd = [
-                "cloudflared",
-                "tunnel",
+                "cloudflared", "tunnel",
                 "--no-autoupdate",
-                "run",
-                tunnel_name,
+                "run", tunnel_name,
             ]
             # Named tunnels log the URL differently; may need custom regex
             url_regex = r"(https://[\w.-]+)"
         else:
             # Quick tunnel — temporary URL
             cmd = [
-                "cloudflared",
-                "tunnel",
+                "cloudflared", "tunnel",
                 "--no-autoupdate",
-                "--url",
-                "http://localhost:%s" % port,
+                "--url", "http://localhost:%s" % port,
             ]
             url_regex = r"(https://[\w.-]+\.trycloudflare\.com)"
 

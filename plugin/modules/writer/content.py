@@ -59,14 +59,12 @@ def _normalize_search_string_for_find(s):
     (LibreOffice regex search does not work across paragraphs.)
     """
     import re as re_mod
-
     return re_mod.sub(r"[ \t]+", " ", s).strip()
 
 
 # ------------------------------------------------------------------
 # GetDocumentContent
 # ------------------------------------------------------------------
-
 
 class GetDocumentContent(ToolBase):
     """Export the document (or a portion) as formatted content."""
@@ -117,13 +115,9 @@ class GetDocumentContent(ToolBase):
             return self._tool_error("scope 'range' requires start and end.")
 
         content = format_support.document_to_content(
-            ctx.doc,
-            ctx.ctx,
-            ctx.services,
-            max_chars=max_chars,
-            scope=scope,
-            range_start=range_start,
-            range_end=range_end,
+            ctx.doc, ctx.ctx, ctx.services,
+            max_chars=max_chars, scope=scope,
+            range_start=range_start, range_end=range_end,
         )
         doc_len = ctx.services.document.get_document_length(ctx.doc)
         result = {
@@ -146,7 +140,6 @@ class GetDocumentContent(ToolBase):
 _OLD_CONTENT_BEGIN = "_BEGIN_"
 _OLD_CONTENT_END = "_END_"
 _OLD_CONTENT_SELECTION = "_SELECTION_"
-
 
 class ApplyDocumentContent(ToolBase):
     """Insert or replace content in the document.
@@ -233,9 +226,7 @@ class ApplyDocumentContent(ToolBase):
         if not target and old_content is not None:
             target = "search"
         if not target:
-            return self._tool_error(
-                "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace."
-            )
+            return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace.")
 
         if target == "search" and old_content is None:
             return self._tool_error("target='search' requires old_content.")
@@ -265,31 +256,21 @@ class ApplyDocumentContent(ToolBase):
 
         # Detect markup BEFORE any HTML wrapping.
         raw_content = content
-        use_preserve = isinstance(
-            content, str
-        ) and not format_support.content_has_markup(content)
+        use_preserve = isinstance(content, str) and not format_support.content_has_markup(content)
 
         config_svc = ctx.services.get("config")
 
         if target == "full_document":
-            format_support.replace_full_document(
-                ctx.doc, ctx.ctx, content, config_svc=config_svc
-            )
+            format_support.replace_full_document(ctx.doc, ctx.ctx, content, config_svc=config_svc)
             return {"status": "ok", "message": "Replaced entire document."}
         if target == "end":
-            format_support.insert_content_at_position(
-                ctx.doc, ctx.ctx, content, "end", config_svc=config_svc
-            )
+            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end", config_svc=config_svc)
             return {"status": "ok", "message": "Inserted content at end."}
         if target == "selection":
-            format_support.insert_content_at_position(
-                ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc
-            )
+            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", config_svc=config_svc)
             return {"status": "ok", "message": "Inserted content at selection."}
         if target == "beginning":
-            format_support.insert_content_at_position(
-                ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc
-            )
+            format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc)
             return {"status": "ok", "message": "Inserted content at beginning."}
 
         # target == "search" from here on
@@ -297,37 +278,24 @@ class ApplyDocumentContent(ToolBase):
         old_stripped = str(old_content).strip()
         if old_stripped == _OLD_CONTENT_END:
             format_support.insert_content_at_position(
-                ctx.doc,
-                ctx.ctx,
-                content,
-                "end",
+                ctx.doc, ctx.ctx, content, "end",
                 config_svc=config_svc,
             )
             return {"status": "ok", "message": "Inserted content at end."}
         if old_stripped == _OLD_CONTENT_SELECTION:
             format_support.insert_content_at_position(
-                ctx.doc,
-                ctx.ctx,
-                content,
-                "selection",
+                ctx.doc, ctx.ctx, content, "selection",
                 config_svc=config_svc,
             )
             return {"status": "ok", "message": "Inserted content at selection."}
         if not old_stripped or old_stripped == _OLD_CONTENT_BEGIN:
             format_support.insert_content_at_position(
-                ctx.doc,
-                ctx.ctx,
-                content,
-                "beginning",
+                ctx.doc, ctx.ctx, content, "beginning",
                 config_svc=config_svc,
             )
-            return {
-                "status": "ok",
-                "message": "Inserted content at beginning (old_content was empty).",
-            }
+            return {"status": "ok", "message": "Inserted content at beginning (old_content was empty)."}
 
         import re as re_mod
-
         search_string = old_stripped
         if format_support.content_has_markup(search_string):
             search_string = format_support.html_to_plain_text(
@@ -342,19 +310,13 @@ class ApplyDocumentContent(ToolBase):
         if all_matches:
             if use_preserve:
                 count = format_support._preserving_search_replace(
-                    doc,
-                    ctx.ctx,
-                    raw_content,
-                    search_string,
+                    doc, ctx.ctx, raw_content, search_string,
                     all_matches=True,
                     case_sensitive=True,
                 )
             else:
                 count = format_support.apply_content_at_search(
-                    doc,
-                    ctx.ctx,
-                    content,
-                    search_string,
+                    doc, ctx.ctx, content, search_string,
                     all_matches=True,
                     case_sensitive=True,
                     config_svc=config_svc,
@@ -370,10 +332,7 @@ class ApplyDocumentContent(ToolBase):
         found = None
         # Try literal string first (newlines preserved). If not found, try with \n collapsed to space
         # (helps when old_content came from HTML that had \n inside tags, e.g. "veteran\nKeith").
-        for try_string in (
-            search_string,
-            re_mod.sub(r" +", " ", search_string.replace("\n", " ")).strip(),
-        ):
+        for try_string in (search_string, re_mod.sub(r" +", " ", search_string.replace("\n", " ")).strip()):
             if not try_string:
                 continue
             sd.SearchString = try_string
@@ -394,10 +353,7 @@ class ApplyDocumentContent(ToolBase):
             }
         if use_preserve:
             format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx)
-            return {
-                "status": "ok",
-                "message": "Replaced 1 occurrence (by old_content). (formatting preserved)",
-            }
+            return {"status": "ok", "message": "Replaced 1 occurrence (by old_content). (formatting preserved)"}
         format_support.replace_single_range_with_content(
             doc, found, content, ctx.ctx, config_svc
         )
@@ -407,7 +363,6 @@ class ApplyDocumentContent(ToolBase):
 # ------------------------------------------------------------------
 # ReadParagraphs
 # ------------------------------------------------------------------
-
 
 class ReadParagraphs(ToolBase):
     """Read a range of paragraphs by index."""
@@ -472,7 +427,6 @@ class ReadParagraphs(ToolBase):
 # ------------------------------------------------------------------
 # InsertAtParagraph
 # ------------------------------------------------------------------
-
 
 class InsertAtParagraph(ToolBase):
     """Insert text at a specific paragraph index."""
@@ -565,7 +519,6 @@ class InsertAtParagraph(ToolBase):
 # ModifyParagraph
 # ------------------------------------------------------------------
 
-
 class ModifyParagraph(ToolBase):
     """Change paragraph text and/or style. Provide at least one of text or style."""
 
@@ -649,7 +602,6 @@ class ModifyParagraph(ToolBase):
 # DeleteParagraph
 # ------------------------------------------------------------------
 
-
 class DeleteParagraph(ToolBase):
     """Delete a paragraph from the document."""
 
@@ -712,7 +664,6 @@ class DeleteParagraph(ToolBase):
 # DuplicateParagraph
 # ------------------------------------------------------------------
 
-
 class DuplicateParagraph(ToolBase):
     """Duplicate a paragraph (with its style) after itself."""
 
@@ -739,7 +690,8 @@ class DuplicateParagraph(ToolBase):
             "count": {
                 "type": "integer",
                 "description": (
-                    "Number of consecutive paragraphs to duplicate (default: 1)."
+                    "Number of consecutive paragraphs to duplicate "
+                    "(default: 1)."
                 ),
             },
         },
@@ -789,7 +741,8 @@ class DuplicateParagraph(ToolBase):
 
         return {
             "status": "ok",
-            "message": "Duplicated %d paragraph(s) at %d." % (count, para_index),
+            "message": "Duplicated %d paragraph(s) at %d."
+                       % (count, para_index),
             "duplicated_count": count,
         }
 
@@ -797,7 +750,6 @@ class DuplicateParagraph(ToolBase):
 # ------------------------------------------------------------------
 # CloneHeadingBlock
 # ------------------------------------------------------------------
-
 
 class CloneHeadingBlock(ToolBase):
     """Clone an entire heading block (heading + all sub-headings + body)."""
@@ -838,14 +790,14 @@ class CloneHeadingBlock(ToolBase):
         # Use writer_tree service to find the heading node and block size
         tree_svc = ctx.services.get("writer_tree")
         if tree_svc is None:
-            return self._tool_error(
-                "writer_nav module not loaded; cannot resolve heading block."
-            )
+            return self._tool_error("writer_nav module not loaded; "
+                               "cannot resolve heading block.")
 
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc._find_node_by_para_index(tree, para_index)
         if node is None:
-            return self._tool_error("No heading found at paragraph %d." % para_index)
+            return self._tool_error("No heading found at paragraph %d."
+                               % para_index)
 
         # Total paragraphs in the block: heading + body + all children
         total = 1 + tree_svc._count_all_children(node)
@@ -884,7 +836,7 @@ class CloneHeadingBlock(ToolBase):
         return {
             "status": "ok",
             "message": "Cloned heading block '%s' (%d paragraphs)."
-            % (node.get("text", ""), total),
+                       % (node.get("text", ""), total),
             "heading_text": node.get("text", ""),
             "block_size": total,
         }
@@ -894,7 +846,6 @@ class CloneHeadingBlock(ToolBase):
 # InsertParagraphsBatch
 # ------------------------------------------------------------------
 
-
 class InsertParagraphsBatch(ToolBase):
     """Insert multiple paragraphs in one call."""
 
@@ -902,7 +853,7 @@ class InsertParagraphsBatch(ToolBase):
     intent = "edit"
     description = (
         "Insert multiple paragraphs in a single operation. "
-        'Each item in paragraphs is {"text": "...", "style": "..."}. '
+        "Each item in paragraphs is {\"text\": \"...\", \"style\": \"...\"}. "
         "Style is optional."
     )
     parameters = {
@@ -970,7 +921,8 @@ class InsertParagraphsBatch(ToolBase):
                 if sty:
                     sty = _resolve_style_name(ctx.doc, sty)
                 doc_text.insertString(cursor, txt, False)
-                doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                doc_text.insertControlCharacter(
+                    cursor, PARAGRAPH_BREAK, False)
                 if sty:
                     cursor.gotoPreviousParagraph(False)
                     cursor.gotoStartOfParagraph(False)
@@ -984,7 +936,8 @@ class InsertParagraphsBatch(ToolBase):
                 sty = item.get("style")
                 if sty:
                     sty = _resolve_style_name(ctx.doc, sty)
-                doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                doc_text.insertControlCharacter(
+                    cursor, PARAGRAPH_BREAK, False)
                 doc_text.insertString(cursor, txt, False)
                 if sty:
                     cursor.gotoStartOfParagraph(False)
@@ -998,7 +951,7 @@ class InsertParagraphsBatch(ToolBase):
         return {
             "status": "ok",
             "message": "Inserted %d paragraph(s) %s paragraph %d."
-            % (n, position, para_index),
+                       % (n, position, para_index),
             "count": n,
         }
 
@@ -1006,7 +959,6 @@ class InsertParagraphsBatch(ToolBase):
 # ------------------------------------------------------------------
 # Internal helpers
 # ------------------------------------------------------------------
-
 
 def _resolve_para_index(ctx, kwargs):
     """Resolve locator or paragraph_index from tool kwargs.
@@ -1038,6 +990,7 @@ def _resolve_style_name(doc, style_name):
     except Exception:
         pass
     return style_name
+
 
 
 class GetDocumentStats(ToolBase):

@@ -19,7 +19,6 @@ import sys
 import wave
 import tempfile
 
-
 class AudioRecorder:
     def __init__(self):
         self.fs = 16000  # Sample rate
@@ -61,16 +60,14 @@ class AudioRecorder:
         try:
             import sounddevice as sd
         except OSError as e:
-            raise RuntimeError(
-                "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
-            ) from e
+            raise RuntimeError("Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2") from e
 
         self.recording = True
         fd, self.temp_filename = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
-        self.wav_file = wave.open(self.temp_filename, "wb")
+        self.wav_file = wave.open(self.temp_filename, 'wb')
         self.wav_file.setnchannels(self.channels)
-        self.wav_file.setsampwidth(2)  # 16-bit
+        self.wav_file.setsampwidth(2) # 16-bit
         self.wav_file.setframerate(self.fs)
 
         def callback(indata, frames, time_info, status):
@@ -118,13 +115,10 @@ class AudioRecorder:
 
         return self.temp_filename
 
-
 _recorder = AudioRecorder()
-
 
 def start_recording():
     _recorder.start_recording()
-
 
 def stop_recording():
     return _recorder.stop_recording()

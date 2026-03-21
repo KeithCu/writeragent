@@ -47,10 +47,10 @@ class ACPConnection:
         self._proc = None
         self._lock = threading.Lock()
         self._request_id = 0
-        self._pending = {}  # id -> threading.Event, response dict
+        self._pending = {}         # id -> threading.Event, response dict
         self._reader_thread = None
         self._running = False
-        self._notifications = []  # queue of notification dicts
+        self._notifications = []   # queue of notification dicts
         self._notify_callback = None
 
     def start(self):
@@ -140,9 +140,7 @@ class ACPConnection:
         resp = entry.get("response")
         if resp and "error" in resp:
             err = resp["error"]
-            msg_str = (
-                err.get("message", str(err)) if isinstance(err, dict) else str(err)
-            )
+            msg_str = err.get("message", str(err)) if isinstance(err, dict) else str(err)
             raise ToolExecutionError(f"ACP error: {msg_str}")
 
         return resp.get("result") if resp else None
@@ -179,7 +177,7 @@ class ACPConnection:
                 if not line:
                     continue
 
-                idx = line.find("{")
+                idx = line.find('{')
                 if idx >= 0:
                     line = line[idx:]
 

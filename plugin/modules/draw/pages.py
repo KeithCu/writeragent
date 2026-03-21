@@ -38,7 +38,6 @@ class AddSlide(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
-
         bridge = DrawBridge(ctx.doc)
         bridge.create_slide(kwargs.get("index"))
         return {"status": "ok", "message": "Slide added"}
@@ -63,7 +62,6 @@ class DeleteSlide(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
-
         bridge = DrawBridge(ctx.doc)
         bridge.delete_slide(kwargs["index"])
         return {"status": "ok", "message": "Slide deleted"}
@@ -92,7 +90,6 @@ class ReadSlideText(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
-
         bridge = DrawBridge(ctx.doc)
         page_index = kwargs.get("page_index")
 

@@ -44,7 +44,6 @@ class BaseProvider(ABC):
     def setup_env(self, cwd, mcp_url):
         """Perform provider-specific environment setup."""
         from .. import write_unified_prompt
-
         write_unified_prompt(cwd, self.name)
         return {}
 

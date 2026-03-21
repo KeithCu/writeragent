@@ -38,19 +38,22 @@ class Undo(ToolBaseDummy):
 
     def execute(self, ctx, **kwargs):
         steps = kwargs.get("steps", 1)
-        um = _get_undo_manager(ctx.doc)
-        undone = 0
-        for _ in range(steps):
-            if not um.isUndoPossible():
-                break
-            um.undo()
-            undone += 1
-        return {
-            "status": "ok",
-            "undone": undone,
-            "can_undo": um.isUndoPossible(),
-            "can_redo": um.isRedoPossible(),
-        }
+        try:
+            um = _get_undo_manager(ctx.doc)
+            undone = 0
+            for _ in range(steps):
+                if not um.isUndoPossible():
+                    break
+                um.undo()
+                undone += 1
+            return {
+                "status": "ok",
+                "undone": undone,
+                "can_undo": um.isUndoPossible(),
+                "can_redo": um.isRedoPossible(),
+            }
+        except Exception as e:
+            return self._tool_error(str(e))
 
 
 class Redo(ToolBaseDummy):
@@ -76,16 +79,19 @@ class Redo(ToolBaseDummy):
 
     def execute(self, ctx, **kwargs):
         steps = kwargs.get("steps", 1)
-        um = _get_undo_manager(ctx.doc)
-        redone = 0
-        for _ in range(steps):
-            if not um.isRedoPossible():
-                break
-            um.redo()
-            redone += 1
-        return {
-            "status": "ok",
-            "redone": redone,
-            "can_undo": um.isUndoPossible(),
-            "can_redo": um.isRedoPossible(),
-        }
+        try:
+            um = _get_undo_manager(ctx.doc)
+            redone = 0
+            for _ in range(steps):
+                if not um.isRedoPossible():
+                    break
+                um.redo()
+                redone += 1
+            return {
+                "status": "ok",
+                "redone": redone,
+                "can_undo": um.isUndoPossible(),
+                "can_redo": um.isRedoPossible(),
+            }
+        except Exception as e:
+            return self._tool_error(str(e))

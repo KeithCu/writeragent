@@ -38,13 +38,10 @@ class NgrokProvider:
 
     def build_command(self, port, scheme, config):
         cmd = [
-            "ngrok",
-            "http",
+            "ngrok", "http",
             "%s://localhost:%s" % (scheme, port),
-            "--log",
-            "stdout",
-            "--log-format",
-            "json",
+            "--log", "stdout",
+            "--log-format", "json",
         ]
         authtoken = config.get("authtoken", "")
         if authtoken:

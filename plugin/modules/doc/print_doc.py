@@ -27,7 +27,8 @@ class PrintDocument(ToolBaseDummy):
             "pages": {
                 "type": "string",
                 "description": (
-                    "Page range to print (e.g. '1-3', '1,3,5'). All pages if omitted."
+                    "Page range to print (e.g. '1-3', '1,3,5'). "
+                    "All pages if omitted."
                 ),
             },
             "copies": {
@@ -48,25 +49,30 @@ class PrintDocument(ToolBaseDummy):
         pages = kwargs.get("pages")
         copies = kwargs.get("copies", 1)
 
-        # Set printer if specified
-        if printer_name:
-            printer_props = (PropertyValue(Name="Name", Value=printer_name),)
-            doc.setPrinter(printer_props)
+        try:
+            # Set printer if specified
+            if printer_name:
+                printer_props = (
+                    PropertyValue(Name="Name", Value=printer_name),
+                )
+                doc.setPrinter(printer_props)
 
-        # Build print options
-        opts = []
-        if pages:
-            opts.append(PropertyValue(Name="Pages", Value=pages))
-        if copies and copies > 1:
-            opts.append(PropertyValue(Name="CopyCount", Value=copies))
-        opts.append(PropertyValue(Name="Wait", Value=True))
+            # Build print options
+            opts = []
+            if pages:
+                opts.append(PropertyValue(Name="Pages", Value=pages))
+            if copies and copies > 1:
+                opts.append(PropertyValue(Name="CopyCount", Value=copies))
+            opts.append(PropertyValue(Name="Wait", Value=True))
 
-        doc.print(tuple(opts))
+            doc.print(tuple(opts))
 
-        return {
-            "status": "ok",
-            "message": "Document sent to printer.",
-            "printer": printer_name or "(default)",
-            "pages": pages or "all",
-            "copies": copies,
-        }
+            return {
+                "status": "ok",
+                "message": "Document sent to printer.",
+                "printer": printer_name or "(default)",
+                "pages": pages or "all",
+                "copies": copies,
+            }
+        except Exception as e:
+            return self._tool_error(str(e))

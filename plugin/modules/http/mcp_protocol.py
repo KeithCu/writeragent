@@ -30,7 +30,6 @@ import uuid
 
 from plugin.framework.main_thread import execute_on_main_thread
 from plugin.framework.errors import WriterAgentException, safe_json_loads
-
 log = logging.getLogger(__name__)
 
 log = logging.getLogger("writeragent.mcp.protocol")
@@ -47,7 +46,6 @@ _PROCESS_TIMEOUT = 60.0
 
 class BusyError(WriterAgentException):
     """The VCL main thread is already processing another tool call."""
-
     def __init__(self, message, context=None):
         super().__init__(message, code="SERVER_BUSY", context=context)
 
@@ -100,7 +98,6 @@ class MCPProtocolHandler:
         self.version = "unknown"
         try:
             from plugin.version import EXTENSION_VERSION
-
             self.version = EXTENSION_VERSION
         except ImportError:
             pass
@@ -119,9 +116,8 @@ class MCPProtocolHandler:
         """GET /mcp — SSE notification stream (keepalive)."""
         accept = handler.headers.get("Accept", "")
         if "text/event-stream" not in accept:
-            self._send_json(
-                handler, 406, {"error": "Not Acceptable: must Accept text/event-stream"}
-            )
+            self._send_json(handler, 406, {
+                "error": "Not Acceptable: must Accept text/event-stream"})
             return
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream")
@@ -218,36 +214,29 @@ class MCPProtocolHandler:
     def handle_debug_info(self, body, headers, query):
         """GET /debug — show available debug actions."""
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
-        return (
-            200,
-            {
-                "debug": True,
-                "usage": "POST /debug with JSON body",
-                "actions": {
-                    "call_tool": {
-                        "description": "Call a registered tool",
-                        "body": {
-                            "action": "call_tool",
-                            "tool": "get_document_info",
-                            "args": {},
-                        },
-                    },
-                    "trigger": {
-                        "description": "Simulate a menu trigger command",
-                        "body": {"action": "trigger", "command": "settings"},
-                    },
-                    "services": {
-                        "description": "List registered services",
-                        "body": {"action": "services"},
-                    },
-                    "config": {
-                        "description": "Get/set config values",
-                        "body": {"action": "config", "key": "mcp.port", "value": None},
-                    },
+        return (200, {
+            "debug": True,
+            "usage": "POST /debug with JSON body",
+            "actions": {
+                "call_tool": {
+                    "description": "Call a registered tool",
+                    "body": {"action": "call_tool", "tool": "get_document_info", "args": {}},
                 },
-                "tools": tools,
+                "trigger": {
+                    "description": "Simulate a menu trigger command",
+                    "body": {"action": "trigger", "command": "settings"},
+                },
+                "services": {
+                    "description": "List registered services",
+                    "body": {"action": "services"},
+                },
+                "config": {
+                    "description": "Get/set config values",
+                    "body": {"action": "config", "key": "mcp.port", "value": None},
+                },
             },
-        )
+            "tools": tools,
+        })
 
     def handle_debug_post(self, handler):
         """POST /debug — execute debug actions."""
@@ -255,11 +244,7 @@ class MCPProtocolHandler:
         client_ip = handler.client_address[0]
         if client_ip not in ("127.0.0.1", "::1", "localhost"):
             log.warning("Blocked remote access to /debug from %s", client_ip)
-            self._send_json(
-                handler,
-                403,
-                {"error": "Forbidden: Debug actions restricted to localhost"},
-            )
+            self._send_json(handler, 403, {"error": "Forbidden: Debug actions restricted to localhost"})
             return
 
         body = self._read_body(handler)
@@ -270,24 +255,20 @@ class MCPProtocolHandler:
             if action == "call_tool":
                 document_url = handler.headers.get("X-Document-URL") or None
                 result = self._debug_call_tool(
-                    body.get("tool", ""),
-                    body.get("args", {}),
-                    document_url=document_url,
-                )
+                    body.get("tool", ""), body.get("args", {}),
+                    document_url=document_url)
             elif action == "trigger":
                 result = self._debug_trigger(body.get("command", ""))
             elif action == "services":
                 result = self._debug_services()
             elif action == "config":
                 result = self._debug_config(
-                    body.get("key"), body.get("value", "__NOSET__")
-                )
+                    body.get("key"), body.get("value", "__NOSET__"))
             else:
                 result = {"error": "Unknown action: %s" % action}
             self._send_json(handler, 200, {"ok": True, "result": result})
         except Exception as e:
             from plugin.framework.errors import format_error_payload
-
             log.exception("Debug %s error", action)
             self._send_json(handler, 500, format_error_payload(e))
 
@@ -301,7 +282,8 @@ class MCPProtocolHandler:
         req_id = msg.get("id") if isinstance(msg, dict) else None
         log.info("[MCP] <<< %s (id=%s)", method, req_id)
 
-        is_initialize = isinstance(msg, dict) and msg.get("method") == "initialize"
+        is_initialize = (isinstance(msg, dict)
+                         and msg.get("method") == "initialize")
 
         # Batch request
         if isinstance(msg, list):
@@ -372,8 +354,8 @@ class MCPProtocolHandler:
     def _mcp_tools_list(self, params, document_url=None):
         if document_url:
             doc_type = execute_on_main_thread(
-                _resolve_doc_type_for_url, self.services, document_url, timeout=10.0
-            )
+                _resolve_doc_type_for_url, self.services, document_url,
+                timeout=10.0)
             if doc_type is None:
                 doc_type = self._detect_active_doc_type()
         else:
@@ -404,7 +386,7 @@ class MCPProtocolHandler:
                 "mcp:request",
                 tool=params["name"],
                 args=params.get("arguments", {}),
-                method="tools/call",
+                method="tools/call"
             )
 
         tool = self.tool_registry.get(tool_name)
@@ -412,25 +394,23 @@ class MCPProtocolHandler:
 
         if is_long_running:
             result = self._execute_long_running(
-                tool_name, arguments, document_url=document_url
-            )
+                tool_name, arguments, document_url=document_url)
         else:
             result = self._execute_with_backpressure(
-                tool_name, arguments, document_url=document_url
-            )
+                tool_name, arguments, document_url=document_url)
 
         if self.event_bus:
             snippet = str(result)[:100] if result else ""
-            self.event_bus.emit(
-                "mcp:result", tool=tool_name, result_snippet=snippet, args=arguments
-            )
+            self.event_bus.emit("mcp:result", tool=tool_name, result_snippet=snippet, args=arguments)
 
-        is_error = isinstance(result, dict) and result.get("status") == "error"
+        is_error = (isinstance(result, dict)
+                    and result.get("status") == "error")
         return {
             "content": [
                 {
                     "type": "text",
-                    "text": json.dumps(result, ensure_ascii=False, default=str),
+                    "text": json.dumps(result, ensure_ascii=False,
+                                       default=str),
                 }
             ],
             "isError": is_error,
@@ -444,10 +424,8 @@ class MCPProtocolHandler:
         Returns (http_status, response_dict) or None for notifications.
         """
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-            return (
-                400,
-                _jsonrpc_error(None, _INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"),
-            )
+            return (400, _jsonrpc_error(
+                None, _INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
         method = msg.get("method", "")
         params = msg.get("params", {})
@@ -457,26 +435,22 @@ class MCPProtocolHandler:
             return None
 
         handler = {
-            "initialize": self._mcp_initialize,
-            "ping": self._mcp_ping,
-            "tools/list": self._mcp_tools_list,
-            "tools/call": self._mcp_tools_call,
-            "resources/list": self._mcp_resources_list,
-            "prompts/list": self._mcp_prompts_list,
+            "initialize":      self._mcp_initialize,
+            "ping":            self._mcp_ping,
+            "tools/list":      self._mcp_tools_list,
+            "tools/call":      self._mcp_tools_call,
+            "resources/list":  self._mcp_resources_list,
+            "prompts/list":    self._mcp_prompts_list,
         }.get(method)
 
         log.debug(f"*** MCP INCOMING METHOD: {method} (id={req_id}) ***")
 
         if handler is None:
-            return (
-                400,
-                _jsonrpc_error(
-                    req_id, _METHOD_NOT_FOUND, "Unknown method: %s" % method
-                ),
-            )
+            return (400, _jsonrpc_error(
+                req_id, _METHOD_NOT_FOUND,
+                "Unknown method: %s" % method))
 
         from plugin.framework.errors import WriterAgentException, format_error_payload
-
         try:
             if method in ("tools/list", "tools/call"):
                 result = handler(params, document_url=document_url)
@@ -486,29 +460,21 @@ class MCPProtocolHandler:
             return (200, _jsonrpc_ok(req_id, result))
         except BusyError as e:
             log.warning("MCP %s: busy (%s)", method, e)
-            return (
-                429,
-                _jsonrpc_error(req_id, _SERVER_BUSY, str(e), {"retryable": True}),
-            )
+            return (429, _jsonrpc_error(
+                req_id, _SERVER_BUSY, str(e),
+                {"retryable": True}))
         except TimeoutError as e:
             log.error("MCP %s: timeout (%s)", method, e)
-            return (504, _jsonrpc_error(req_id, _EXECUTION_TIMEOUT, str(e)))
+            return (504, _jsonrpc_error(
+                req_id, _EXECUTION_TIMEOUT, str(e)))
         except WriterAgentException as e:
             log.error("MCP %s error: %s", method, e, exc_info=True)
-            return (
-                500,
-                _jsonrpc_error(
-                    req_id, _INTERNAL_ERROR, e.message, data=format_error_payload(e)
-                ),
-            )
+            return (500, _jsonrpc_error(
+                req_id, _INTERNAL_ERROR, e.message, data=format_error_payload(e)))
         except Exception as e:
             log.error("MCP %s error: %s", method, e, exc_info=True)
-            return (
-                500,
-                _jsonrpc_error(
-                    req_id, _INTERNAL_ERROR, str(e), data=format_error_payload(e)
-                ),
-            )
+            return (500, _jsonrpc_error(
+                req_id, _INTERNAL_ERROR, str(e), data=format_error_payload(e)))
 
     # ── Backpressure execution ───────────────────────────────────────
 
@@ -518,16 +484,11 @@ class MCPProtocolHandler:
         if not acquired:
             raise BusyError(
                 "LibreOffice is busy processing another tool call. "
-                "Please wait a moment and retry."
-            )
+                "Please wait a moment and retry.")
         try:
             return execute_on_main_thread(
-                self._execute_tool_on_main,
-                tool_name,
-                arguments,
-                document_url,
-                timeout=_PROCESS_TIMEOUT,
-            )
+                self._execute_tool_on_main, tool_name, arguments, document_url,
+                timeout=_PROCESS_TIMEOUT)
         finally:
             _tool_semaphore.release()
 
@@ -547,7 +508,6 @@ class MCPProtocolHandler:
                 if doc:
                     doc_type = doc_svc.detect_doc_type(doc)
             import uno
-
             ctx = uno.getComponentContext()
             return doc, doc_type, ctx
 
@@ -557,19 +517,17 @@ class MCPProtocolHandler:
             return {
                 "status": "error",
                 "code": "NO_DOCUMENT_OPEN",
-                "message": "No document open in LibreOffice.",
+                "message": "No document open in LibreOffice."
             }
         elif doc is None:
             return {
                 "status": "error",
                 "code": "DOCUMENT_NOT_FOUND",
-                "message": "No document open matching X-Document-URL: %s"
-                % document_url,
-                "details": {"document_url": document_url},
+                "message": "No document open matching X-Document-URL: %s" % document_url,
+                "details": {"document_url": document_url}
             }
 
         from plugin.framework.tool_context import ToolContext
-
         context = ToolContext(
             doc=doc,
             ctx=ctx,
@@ -598,9 +556,8 @@ class MCPProtocolHandler:
                     return {
                         "status": "error",
                         "code": "DOCUMENT_NOT_FOUND",
-                        "message": "No document open matching X-Document-URL: %s"
-                        % (document_url or ""),
-                        "details": {"document_url": document_url},
+                        "message": "No document open matching X-Document-URL: %s" % (document_url or ""),
+                        "details": {"document_url": document_url}
                     }
             else:
                 doc = doc_svc.get_active_document()
@@ -614,21 +571,19 @@ class MCPProtocolHandler:
             return {
                 "status": "error",
                 "code": "NO_DOCUMENT_OPEN",
-                "message": "No document open in LibreOffice.",
+                "message": "No document open in LibreOffice."
             }
 
         # Get UNO context
         ctx = None
         try:
             import uno
-
             ctx = uno.getComponentContext()
         except Exception as e:
             log.warning("Error getting UNO context in execution: %s", type(e).__name__)
             pass
 
         from plugin.framework.tool_context import ToolContext
-
         context = ToolContext(
             doc=doc,
             ctx=ctx,
@@ -652,21 +607,18 @@ class MCPProtocolHandler:
         if not tool_name:
             return {"error": "Missing 'tool' parameter"}
         result = self._execute_with_backpressure(
-            tool_name, arguments, document_url=document_url
-        )
+            tool_name, arguments, document_url=document_url)
         return result
 
     def _debug_trigger(self, command):
         from plugin.main import get_services
-
         if command == "settings":
             from plugin.framework.settings_dialog import show_settings
             from plugin._manifest import MODULES
-
             config_svc = get_services().config
             execute_on_main_thread(
-                show_settings, None, config_svc, MODULES, timeout=120.0
-            )
+                show_settings, None, config_svc, MODULES,
+                timeout=120.0)
             return "Settings dialog shown"
         return {"triggered": command, "note": "Use menu for UI commands"}
 
@@ -711,10 +663,7 @@ class MCPProtocolHandler:
         if data is None and raw.strip():
             log.warning("Invalid JSON body: %s", raw[:200])
             from plugin.framework.errors import AgentParsingError, format_error_payload
-
-            err = AgentParsingError(
-                "Invalid JSON body in HTTP request", details={"raw": raw[:200]}
-            )
+            err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
             self._send_json(handler, 400, format_error_payload(err))
             return None
         return data if data is not None else {}
@@ -725,22 +674,18 @@ class MCPProtocolHandler:
         self._send_cors_headers(handler)
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
-        handler.wfile.write(
-            json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
-        )
+        handler.wfile.write(json.dumps(
+            data, ensure_ascii=False, default=str).encode("utf-8"))
 
     def _send_cors_headers(self, handler):
         origin = handler.headers.get("Origin")
         if origin:
             import re
-
             if re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", origin):
                 handler.send_header("Access-Control-Allow-Origin", origin)
-        handler.send_header(
-            "Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"
-        )
-        handler.send_header(
-            "Access-Control-Allow-Headers",
-            "Content-Type, Authorization, Mcp-Session-Id",
-        )
-        handler.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
+        handler.send_header("Access-Control-Allow-Methods",
+                            "GET, POST, DELETE, OPTIONS")
+        handler.send_header("Access-Control-Allow-Headers",
+                            "Content-Type, Authorization, Mcp-Session-Id")
+        handler.send_header("Access-Control-Expose-Headers",
+                            "Mcp-Session-Id")

@@ -31,9 +31,7 @@ import tempfile
 
 from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 from plugin.framework.image_tools import (
-    insert_image,
-    replace_image_in_place,
-    get_selected_image_base64,
+    insert_image, replace_image_in_place, get_selected_image_base64,
     get_selected_image_dimensions_px,
 )
 
@@ -54,58 +52,42 @@ class GenerateImage(ToolBase):
         "properties": {
             "prompt": {
                 "type": "string",
-                "description": "Descriptive prompt for image generation or editing",
+                "description": "Descriptive prompt for image generation or editing"
             },
             "source_image": {
                 "type": "string",
                 "description": (
                     "Optional. Use 'selection' to edit the currently selected image (Img2Img). "
                     "Omit to generate a new image."
-                ),
+                )
             },
             "strength": {
                 "type": "number",
                 "description": "For editing: how much to change the image (0.0-1.0). Ignored when generating new.",
-                "default": 0.75,
+                "default": 0.75
             },
             "aspect_ratio": {
                 "type": "string",
-                "enum": [
-                    "square",
-                    "landscape_16_9",
-                    "portrait_9_16",
-                    "landscape_3_2",
-                    "portrait_2_3",
-                    "1:1",
-                    "4:3",
-                    "3:4",
-                    "16:9",
-                    "9:16",
-                ],
-                "default": "square",
+                "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"],
+                "default": "square"
             },
             "base_size": {
                 "type": "integer",
                 "description": "Base dimension for scaling",
-                "default": 512,
+                "default": 512
             },
             "width": {"type": "integer", "description": "Override calculated width"},
             "height": {"type": "integer", "description": "Override calculated height"},
-            "provider": {"type": "string", "description": "Override default provider"},
+            "provider": {"type": "string", "description": "Override default provider"}
         },
-        "required": ["prompt"],
+        "required": ["prompt"]
     }
     doc_types = ["writer", "calc", "draw", "impress"]
     is_mutation = True
     long_running = True
 
     def execute(self, ctx, prompt, **args):
-        from plugin.framework.config import (
-            get_config_dict,
-            as_bool,
-            get_text_model,
-            update_lru_history,
-        )
+        from plugin.framework.config import get_config_dict, as_bool, get_text_model, update_lru_history
 
         status_callback = getattr(ctx, "status_callback", None)
         config = get_config_dict(ctx.ctx)
@@ -128,7 +110,7 @@ class GenerateImage(ToolBase):
                 return self._tool_error(
                     "No image selected. Please select an image in the document first.",
                     code="NO_SELECTION",
-                    action="edit_image",
+                    action="edit_image"
                 )
             edit_width, edit_height = get_selected_image_dimensions_px(ctx.doc)
             if edit_width is None:
@@ -159,21 +141,11 @@ class GenerateImage(ToolBase):
         height = args.get("height", edit_height if is_edit else h)
 
         from plugin.framework.image_utils import ImageService
-
         image_svc = ImageService(ctx.ctx, config)
         args_copy = {
             k: v
             for k, v in args.items()
-            if k
-            not in (
-                "prompt",
-                "base_size",
-                "aspect_ratio",
-                "width",
-                "height",
-                "provider",
-                "source_image",
-            )
+            if k not in ("prompt", "base_size", "aspect_ratio", "width", "height", "provider", "source_image")
         }
         if is_edit:
             args_copy["source_image"] = source_b64
@@ -192,62 +164,33 @@ class GenerateImage(ToolBase):
             return self._tool_error(
                 error_msg or "No image returned.",
                 code="PROVIDER_ERROR",
-                provider=provider,
+                provider=provider
             )
 
         if is_edit:
             replaced = replace_image_in_place(
-                ctx.ctx,
-                ctx.doc,
-                paths[0],
-                width,
-                height,
-                title=prompt,
+                ctx.ctx, ctx.doc, paths[0], width, height, title=prompt,
                 description="Edited by %s" % provider,
-                add_to_gallery=add_to_gallery,
-                add_frame=add_frame,
+                add_to_gallery=add_to_gallery, add_frame=add_frame
             )
             if not replaced:
-                insert_image(
-                    ctx.ctx,
-                    ctx.doc,
-                    paths[0],
-                    width,
-                    height,
-                    title=prompt,
-                    description="Edited by %s" % provider,
-                    add_to_gallery=add_to_gallery,
-                    add_frame=add_frame,
-                )
+                insert_image(ctx.ctx, ctx.doc, paths[0], width, height, title=prompt,
+                             description="Edited by %s" % provider,
+                             add_to_gallery=add_to_gallery, add_frame=add_frame)
             msg = "Image edited and inserted from %s." % provider
         else:
-            insert_image(
-                ctx.ctx,
-                ctx.doc,
-                paths[0],
-                width,
-                height,
-                title=prompt,
-                description="Generated by %s" % provider,
-                add_to_gallery=add_to_gallery,
-                add_frame=add_frame,
-            )
+            insert_image(ctx.ctx, ctx.doc, paths[0], width, height, title=prompt,
+                         description="Generated by %s" % provider,
+                         add_to_gallery=add_to_gallery, add_frame=add_frame)
             msg = "Image generated and inserted from %s." % provider
 
         if provider in ("endpoint", "openrouter"):
-            image_model_used = (
-                args.get("image_model")
-                or config.get("image_model")
-                or get_text_model(ctx.ctx)
-            )
+            image_model_used = args.get("image_model") or config.get("image_model") or get_text_model(ctx.ctx)
             if image_model_used:
                 endpoint = str(config.get("endpoint", "")).strip()
-                update_lru_history(
-                    ctx.ctx, image_model_used.strip(), "image_model_lru", endpoint
-                )
+                update_lru_history(ctx.ctx, image_model_used.strip(), "image_model_lru", endpoint)
 
         return {"status": "ok", "message": msg}
-
 
 # Persistent cache directory for downloaded images.
 _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
@@ -256,7 +199,6 @@ _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
 # ------------------------------------------------------------------
 # ListImages
 # ------------------------------------------------------------------
-
 
 class ListImages(ToolBaseDummy):
     """List all images/graphic objects in the document."""
@@ -276,9 +218,7 @@ class ListImages(ToolBaseDummy):
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
-        graphics = self.get_collection(
-            doc, "getGraphicObjects", "Document does not support graphic objects."
-        )
+        graphics = self.get_collection(doc, "getGraphicObjects", "Document does not support graphic objects.")
         if isinstance(graphics, dict):
             return graphics
 
@@ -345,7 +285,6 @@ class ListImages(ToolBaseDummy):
 # GetImageInfo
 # ------------------------------------------------------------------
 
-
 class GetImageInfo(ToolBaseDummy):
     """Get detailed info about a specific image."""
 
@@ -371,11 +310,9 @@ class GetImageInfo(ToolBaseDummy):
         image_name = kwargs.get("image_name", "")
 
         graphic = self.get_item(
-            ctx.doc,
-            "getGraphicObjects",
-            image_name,
+            ctx.doc, "getGraphicObjects", image_name,
             missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name,
+            not_found_msg="Image '%s' not found." % image_name
         )
         if isinstance(graphic, dict):
             return graphic
@@ -462,13 +399,14 @@ class GetImageInfo(ToolBaseDummy):
 # SetImageProperties
 # ------------------------------------------------------------------
 
-
 class SetImageProperties(ToolBaseDummy):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
     name = "set_image_properties"
     intent = "media"
-    description = "Resize, reposition, crop, or update caption/alt-text for an image."
+    description = (
+        "Resize, reposition, crop, or update caption/alt-text for an image."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -516,18 +454,12 @@ class SetImageProperties(ToolBaseDummy):
     def execute(self, ctx, **kwargs):
         image_name = kwargs.get("image_name", "")
         if not image_name:
-            return self._tool_error(
-                "image_name is required.",
-                code="MISSING_PARAMETER",
-                parameter="image_name",
-            )
+            return self._tool_error("image_name is required.", code="MISSING_PARAMETER", parameter="image_name")
 
         graphic = self.get_item(
-            ctx.doc,
-            "getGraphicObjects",
-            image_name,
+            ctx.doc, "getGraphicObjects", image_name,
             missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name,
+            not_found_msg="Image '%s' not found." % image_name
         )
         if isinstance(graphic, dict):
             return graphic
@@ -539,15 +471,10 @@ class SetImageProperties(ToolBaseDummy):
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
-
             current = graphic.getPropertyValue("Size")
             new_size = Size()
-            new_size.Width = (
-                int(width_mm * 100) if width_mm is not None else current.Width
-            )
-            new_size.Height = (
-                int(height_mm * 100) if height_mm is not None else current.Height
-            )
+            new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
+            new_size.Height = int(height_mm * 100) if height_mm is not None else current.Height
             graphic.setPropertyValue("Size", new_size)
             updated.append("size")
 
@@ -567,13 +494,8 @@ class SetImageProperties(ToolBaseDummy):
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
             from com.sun.star.text.TextContentAnchorType import (
-                AT_PARAGRAPH,
-                AS_CHARACTER,
-                AT_PAGE,
-                AT_FRAME,
-                AT_CHARACTER,
+                AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER,
             )
-
             anchor_map = {
                 0: AT_PARAGRAPH,
                 1: AS_CHARACTER,
@@ -606,7 +528,6 @@ class SetImageProperties(ToolBaseDummy):
 # ------------------------------------------------------------------
 # DownloadImage
 # ------------------------------------------------------------------
-
 
 class DownloadImage(ToolBaseDummy):
     """Download an image from URL to local cache."""
@@ -655,7 +576,6 @@ class DownloadImage(ToolBaseDummy):
 # InsertImage
 # ------------------------------------------------------------------
 
-
 class InsertImage(ToolBaseDummy):
     """Insert an image from local path or URL into the document."""
 
@@ -670,7 +590,9 @@ class InsertImage(ToolBaseDummy):
         "properties": {
             "image_path": {
                 "type": "string",
-                "description": ("Local file path or URL of the image to insert."),
+                "description": (
+                    "Local file path or URL of the image to insert."
+                ),
             },
             "locator": {
                 "type": "string",
@@ -714,7 +636,9 @@ class InsertImage(ToolBaseDummy):
             image_path = _download_image_to_cache(image_path)
         if not os.path.isfile(image_path):
             return self._tool_error(
-                f"File not found: {image_path}", code="FILE_NOT_FOUND", path=image_path
+                f"File not found: {image_path}",
+                code="FILE_NOT_FOUND",
+                path=image_path
             )
 
         # Convert to file:// URL
@@ -726,7 +650,6 @@ class InsertImage(ToolBaseDummy):
 
         # Set size
         from com.sun.star.awt import Size
-
         size = Size()
         size.Width = int(width_mm) * 100
         size.Height = int(height_mm) * 100
@@ -746,7 +669,7 @@ class InsertImage(ToolBaseDummy):
                 return self._tool_error(
                     f"Paragraph {paragraph_index} not found.",
                     code="PARAGRAPH_NOT_FOUND",
-                    paragraph_index=paragraph_index,
+                    paragraph_index=paragraph_index
                 )
             cursor = doc_text.createTextCursorByRange(target.getEnd())
         else:
@@ -767,7 +690,6 @@ class InsertImage(ToolBaseDummy):
 # ------------------------------------------------------------------
 # DeleteImage
 # ------------------------------------------------------------------
-
 
 class DeleteImage(ToolBaseDummy):
     """Delete an image from the document."""
@@ -796,11 +718,9 @@ class DeleteImage(ToolBaseDummy):
         image_name = kwargs.get("image_name", "")
 
         graphic = self.get_item(
-            ctx.doc,
-            "getGraphicObjects",
-            image_name,
+            ctx.doc, "getGraphicObjects", image_name,
             missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name,
+            not_found_msg="Image '%s' not found." % image_name
         )
         if isinstance(graphic, dict):
             return graphic
@@ -816,13 +736,14 @@ class DeleteImage(ToolBaseDummy):
 # ReplaceImage
 # ------------------------------------------------------------------
 
-
 class ReplaceImage(ToolBaseDummy):
     """Replace an image's source file keeping position and frame."""
 
     name = "replace_image"
     intent = "media"
-    description = "Replace an image's source file keeping position and frame."
+    description = (
+        "Replace an image's source file keeping position and frame."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -855,25 +776,21 @@ class ReplaceImage(ToolBaseDummy):
         new_image_path = kwargs.get("new_image_path", "")
 
         graphic = self.get_item(
-            ctx.doc,
-            "getGraphicObjects",
-            image_name,
+            ctx.doc, "getGraphicObjects", image_name,
             missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name,
+            not_found_msg="Image '%s' not found." % image_name
         )
         if isinstance(graphic, dict):
             return graphic
 
         # Auto-download URLs
-        if new_image_path.startswith("http://") or new_image_path.startswith(
-            "https://"
-        ):
+        if new_image_path.startswith("http://") or new_image_path.startswith("https://"):
             new_image_path = _download_image_to_cache(new_image_path)
         if not os.path.isfile(new_image_path):
             return self._tool_error(
                 f"File not found: {new_image_path}",
                 code="FILE_NOT_FOUND",
-                path=new_image_path,
+                path=new_image_path
             )
 
         file_url = uno.systemPathToFileUrl(os.path.abspath(new_image_path))
@@ -885,15 +802,10 @@ class ReplaceImage(ToolBaseDummy):
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
-
             current = graphic.getPropertyValue("Size")
             new_size = Size()
-            new_size.Width = (
-                int(width_mm * 100) if width_mm is not None else current.Width
-            )
-            new_size.Height = (
-                int(height_mm * 100) if height_mm is not None else current.Height
-            )
+            new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
+            new_size.Height = int(height_mm * 100) if height_mm is not None else current.Height
             graphic.setPropertyValue("Size", new_size)
 
         return {
@@ -905,7 +817,6 @@ class ReplaceImage(ToolBaseDummy):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
 
 def _download_image_to_cache(url, verify_ssl=False, force=False):
     """Download an image URL to the local cache directory.

@@ -17,7 +17,6 @@
 """Registry of agent backends. Backend ids: builtin, aider, hermes."""
 
 from plugin.modules.agent_backend.builtin import BuiltinBackend
-
 # from plugin.modules.agent_backend.aider_proxy import AiderBackend
 from plugin.modules.agent_backend.hermes_proxy import HermesBackend
 from plugin.modules.agent_backend.claude_proxy import ClaudeBackend

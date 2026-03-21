@@ -17,7 +17,6 @@ from plugin.framework.errors import safe_json_loads
 
 log = logging.getLogger(__name__)
 
-
 class SendHandlersMixin:
     def _transcribe_audio_async(self, wav_path, stt_model, model, query_text=""):
         """Transcribe audio asynchronously and then proceed to chat."""
@@ -68,11 +67,7 @@ class SendHandlersMixin:
 
         except Exception as e:
             doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
-            log.error(
-                "Transcription error in _transcribe_audio_async [doc: %s]: %s",
-                doc_type,
-                e,
-            )
+            log.error("Transcription error in _transcribe_audio_async [doc: %s]: %s", doc_type, e)
             self._append_response(
                 "\n[Transcription error: %s]\n" % format_error_message(e)
             )
@@ -152,32 +147,25 @@ class SendHandlersMixin:
                         "aspect_ratio": mapped_aspect,
                         "base_size": base_size_val,
                         "image_model": image_model_text,
-                    },
+                    }
                 )
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})
                 if isinstance(data, dict):
                     note = data.get("message", data.get("status", "done"))
                 else:
-                    log.error(
-                        "Failed to parse generate_image result in _do_send_direct_image"
-                    )
+                    log.error("Failed to parse generate_image result in _do_send_direct_image")
                     note = "done"
                 q.put(("chunk", "[generate_image: %s]\n" % note))
                 q.put(("stream_done", {}))
             except Exception as e:
                 doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
-                log.error(
-                    "Direct image path ERROR in _do_send_direct_image [doc: %s]: %s",
-                    doc_type,
-                    e,
-                )
+                log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s",
+                          doc_type, e)
                 from plugin.framework.errors import format_error_payload
-
                 q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
-
         run_in_background(run_direct_image)
         try:
             toolkit = self.ctx.getServiceManager().createInstanceWithContext(
@@ -258,11 +246,9 @@ class SendHandlersMixin:
             self._set_status("Error")
             return
 
-        backend_id = (
-            str(get_config(self.ctx, "agent_backend.backend_id") or "builtin")
-            .strip()
-            .lower()
-        )
+        backend_id = str(
+            get_config(self.ctx, "agent_backend.backend_id") or "builtin"
+        ).strip().lower()
         adapter = get_backend(backend_id, ctx=self.ctx)
         if not adapter:
             self._append_response("\n[Agent backend '%s' not found.]\n" % backend_id)
@@ -308,9 +294,7 @@ class SendHandlersMixin:
                 )
 
                 # Add optional instructions from settings
-                extra = str(
-                    get_config(self.ctx, "additional_instructions") or ""
-                ).strip()
+                extra = str(get_config(self.ctx, "additional_instructions") or "").strip()
                 if extra:
                     lean_system_prompt += "\n\n" + extra
 
@@ -324,20 +308,14 @@ class SendHandlersMixin:
                     stop_checker=lambda: self.stop_requested,
                 )
             except Exception as e:
-                log.error(
-                    "Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s",
-                    backend_id,
-                    doc_type_str,
-                    e,
-                )
+                log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s",
+                          backend_id, doc_type_str, e)
                 from plugin.framework.errors import format_error_payload
-
                 q.put(("error", format_error_payload(e)))
             finally:
                 self._current_agent_backend = None
 
         from plugin.framework.worker_pool import run_in_background
-
         run_in_background(run_agent)
 
         try:
@@ -427,21 +405,22 @@ class SendHandlersMixin:
         try:
             from plugin.framework.config import get_config, as_bool
 
-            show_thinking = as_bool(
-                get_config(self.ctx, "chatbot.show_search_thinking")
-            )
+            show_thinking = as_bool(get_config(self.ctx, "chatbot.show_search_thinking"))
         except Exception:
             show_thinking = False
 
         from plugin.framework.dialogs import get_control_text
-
         history_text = ""
         if self.response_control and self.response_control.getModel():
             history_text = get_control_text(self.response_control) or ""
 
         def run_search():
             doc_type = (
-                "calc" if is_calc(model) else "draw" if is_draw(model) else "writer"
+                "calc"
+                if is_calc(model)
+                else "draw"
+                if is_draw(model)
+                else "writer"
             )
             try:
 
@@ -472,25 +451,15 @@ class SendHandlersMixin:
                 res = get_tools().execute(
                     "web_research",
                     tctx,
-                    **{"query": query_text, "history_text": history_text},
+                    **{"query": query_text, "history_text": history_text}
                 )
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                 data = safe_json_loads(result)
                 if not isinstance(data, dict):
-                    from plugin.framework.errors import (
-                        AgentParsingError,
-                        format_error_payload,
-                    )
-
-                    log.error(
-                        "Failed to parse web_research result in _run_web_research [doc: %s]",
-                        doc_type,
-                    )
-                    parsed_err = AgentParsingError(
-                        "Invalid JSON from web search tool.",
-                        details={"raw_result": result},
-                    )
+                    from plugin.framework.errors import AgentParsingError, format_error_payload
+                    log.error("Failed to parse web_research result in _run_web_research [doc: %s]", doc_type)
+                    parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
                     data = format_error_payload(parsed_err)
 
                 if data.get("status") == "ok":
@@ -507,17 +476,11 @@ class SendHandlersMixin:
 
                 q.put(("stream_done", {}))
             except Exception as e:
-                log.error(
-                    "Web research path ERROR in _run_web_research [doc: %s]: %s",
-                    doc_type,
-                    e,
-                )
+                log.error("Web research path ERROR in _run_web_research [doc: %s]: %s", doc_type, e)
                 from plugin.framework.errors import format_error_payload
-
                 q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
-
         run_in_background(run_search)
 
         try:

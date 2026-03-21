@@ -171,8 +171,6 @@ class ListPlaceholders(ToolBase):
             "placeholders": placeholders,
             "count": len(placeholders),
         }
-
-
 class GetPlaceholderText(ToolBase):
     """Get text from a slide placeholder by role or shape index."""
 
@@ -231,8 +229,6 @@ class GetPlaceholderText(ToolBase):
             "role": role,
             "shape_index": shape_index,
         }
-
-
 class SetPlaceholderText(ToolBase):
     """Set text on a slide placeholder by role or shape index."""
 

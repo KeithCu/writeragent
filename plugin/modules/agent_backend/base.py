@@ -17,6 +17,7 @@
 """Abstract base for agent backends. All adapters push events into a queue.Queue."""
 
 
+
 class AgentBackend:
     """Contract for pluggable agent backends (Aider, Hermes, etc.).
 
@@ -44,7 +45,7 @@ class AgentBackend:
         mcp_url=None,
         selection_text=None,
         stop_checker=None,
-        **kwargs,
+        **kwargs
     ):
         """Run the agent; push events to queue. Block until done or stopped.
 

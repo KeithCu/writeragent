@@ -103,12 +103,10 @@ def _get_format_props(config_svc=None):
 # UNO helpers (import inside functions to avoid import-time dependency)
 # ---------------------------------------------------------------------------
 
-
 def _file_url(path):
     """Return a ``file://`` URL for *path*."""
     import urllib.parse
     import urllib.request
-
     return urllib.parse.urljoin(
         "file:", urllib.request.pathname2url(os.path.abspath(path))
     )
@@ -152,7 +150,6 @@ def _with_temp_buffer(content=None, config_svc=None):
 # HTML helpers
 # ---------------------------------------------------------------------------
 
-
 def _strip_html_boilerplate(html_string):
     """Extract content between ``<body>`` tags if present."""
     if not html_string or not isinstance(html_string, str):
@@ -187,19 +184,11 @@ def _ensure_html_linebreaks(content):
     if not isinstance(content, str) or not content:
         return content
     import html as html_mod
-
     content = _normalize(content)
     unescaped = html_mod.unescape(content)
     html_tags = [
-        "<p>",
-        "<br>",
-        "</h1>",
-        "<h2>",
-        "<h3>",
-        "</ul>",
-        "</li>",
-        "</div>",
-        "<html>",
+        "<p>", "<br>", "</h1>", "<h2>", "<h3>",
+        "</ul>", "</li>", "</div>", "<html>",
     ]
     has_html = any(tag in unescaped.lower() for tag in html_tags)
     if has_html:
@@ -314,7 +303,9 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
-                temp_text.insertControlCharacter(temp_cursor, _PARAGRAPH_BREAK, False)
+                temp_text.insertControlCharacter(
+                    temp_cursor, _PARAGRAPH_BREAK, False
+                )
                 temp_cursor.setPropertyValue("ParaStyleName", style)
                 temp_cursor.setString(para_text)
             added_any = True
@@ -343,9 +334,8 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 pass
 
 
-def document_to_content(
-    model, ctx, services, max_chars=None, scope="full", range_start=None, range_end=None
-):
+def document_to_content(model, ctx, services, max_chars=None,
+                        scope="full", range_start=None, range_end=None):
     """Export a Writer document (or part of it) as HTML.
 
     Args:
@@ -364,7 +354,6 @@ def document_to_content(
 
     if scope == "selection":
         from plugin.modules.writer.ops import get_selection_range
-
         start, end = get_selection_range(model)
         return _range_to_content_via_temp_doc(
             model, ctx, start, end, max_chars, config_svc
@@ -401,13 +390,12 @@ def document_to_content(
 # Content -> Document
 # ---------------------------------------------------------------------------
 
-
-def insert_content_at_position(model, ctx, content, position, config_svc=None):
+def insert_content_at_position(model, ctx, content, position,
+                               config_svc=None):
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     import html as html_mod
-
     content = html_mod.unescape(content)
     content = _ensure_html_linebreaks(content)
 
@@ -443,7 +431,6 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
 def replace_full_document(model, ctx, content, config_svc=None):
     """Clear the document and insert *content*."""
     import html as html_mod
-
     content = html_mod.unescape(content)
     content = _ensure_html_linebreaks(content)
 
@@ -459,7 +446,8 @@ def replace_full_document(model, ctx, content, config_svc=None):
         cursor.insertDocumentFromURL(file_url, filter_props)
 
 
-def apply_content_at_range(model, ctx, content, start, end, config_svc=None):
+def apply_content_at_range(model, ctx, content, start, end,
+                           config_svc=None):
     """Replace character range ``[start, end)`` with rendered *content*."""
     from plugin.modules.writer.ops import get_text_cursor_at_range
 
@@ -470,7 +458,6 @@ def apply_content_at_range(model, ctx, content, start, end, config_svc=None):
         )
 
     import html as html_mod
-
     content = html_mod.unescape(content)
     content = _ensure_html_linebreaks(content)
 
@@ -481,15 +468,14 @@ def apply_content_at_range(model, ctx, content, start, end, config_svc=None):
         cursor.insertDocumentFromURL(file_url, filter_props)
 
 
-def apply_content_at_search(
-    model, ctx, content, search, all_matches=False, case_sensitive=True, config_svc=None
-):
+def apply_content_at_search(model, ctx, content, search,
+                            all_matches=False, case_sensitive=True,
+                            config_svc=None):
     """Find *search* in the document and replace with rendered *content*.
 
     Returns the number of replacements made.
     """
     import html as html_mod
-
     prepared = html_mod.unescape(content)
     prepared = _ensure_html_linebreaks(prepared)
 
@@ -518,10 +504,10 @@ def apply_content_at_search(
         return count
 
 
-def replace_single_range_with_content(model, text_range, content, ctx, config_svc=None):
+def replace_single_range_with_content(model, text_range, content, ctx,
+                                      config_svc=None):
     """Replace the given text range with rendered *content* (HTML path)."""
     import html as html_mod
-
     prepared = html_mod.unescape(content)
     prepared = _ensure_html_linebreaks(prepared)
     with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
@@ -533,9 +519,8 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
         cursor.insertDocumentFromURL(file_url, filter_props)
 
 
-def _preserving_search_replace(
-    model, uno_ctx, new_text, search_string, all_matches=False, case_sensitive=True
-):
+def _preserving_search_replace(model, uno_ctx, new_text, search_string,
+                               all_matches=False, case_sensitive=True):
     """Find *search_string* and replace with *new_text* using format-preserving
     character-by-character replacement. Returns the number of replacements.
     """
@@ -561,8 +546,8 @@ def _preserving_search_replace(
 # Text search
 # ---------------------------------------------------------------------------
 
-
-def find_text_ranges(model, ctx, search, start=0, limit=None, case_sensitive=True):
+def find_text_ranges(model, ctx, search, start=0, limit=None,
+                     case_sensitive=True):
     """Find occurrences of *search*, returning a list of
     ``{"start": int, "end": int, "text": str}`` dicts.
     """
@@ -592,13 +577,11 @@ def find_text_ranges(model, ctx, search, start=0, limit=None, case_sensitive=Tru
             m_start = len(measure.getString())
             matched_text = found.getString()
             m_end = m_start + len(matched_text)
-            matches.append(
-                {
-                    "start": m_start,
-                    "end": m_end,
-                    "text": matched_text,
-                }
-            )
+            matches.append({
+                "start": m_start,
+                "end": m_end,
+                "text": matched_text,
+            })
             if limit and len(matches) >= limit:
                 break
             found = model.findNext(found, sd)
@@ -614,38 +597,12 @@ def find_text_ranges(model, ctx, search, start=0, limit=None, case_sensitive=Tru
 
 _MARKUP_PATTERNS = [
     # Markdown
-    "**",
-    "__",
-    "``",
-    "# ",
-    "## ",
-    "### ",
-    "| ",
-    "|---",
-    "- [ ]",
+    "**", "__", "``", "# ", "## ", "### ", "| ", "|---", "- [ ]",
     # HTML
-    "<b>",
-    "<i>",
-    "<p>",
-    "<h1",
-    "<h2",
-    "<h3",
-    "<table",
-    "<tr",
-    "<td",
-    "<ul>",
-    "<ol>",
-    "<li>",
-    "<div",
-    "<span",
-    "<br",
-    "<img",
-    "<strong",
-    "<em>",
-    "</",
-    "<html",
-    "<body",
-    "<!DOCTYPE",
+    "<b>", "<i>", "<p>", "<h1", "<h2", "<h3", "<table", "<tr", "<td",
+    "<ul>", "<ol>", "<li>", "<div", "<span", "<br", "<img",
+    "<strong", "<em>", "</",
+    "<html", "<body", "<!DOCTYPE",
 ]
 
 

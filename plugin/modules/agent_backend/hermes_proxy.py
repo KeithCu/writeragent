@@ -39,7 +39,6 @@ import time
 from plugin.framework.errors import format_error_payload
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.modules.agent_backend.acp_connection import ACPConnection
-
 log = logging.getLogger(__name__)
 
 _LOG = "HermesACP"
@@ -72,6 +71,8 @@ def _find_hermes_binary():
     return None, None
 
 
+
+
 class HermesBackend(AgentBackend):
     """ACP-based Hermes backend via stdio JSON-RPC subprocess."""
 
@@ -91,7 +92,6 @@ class HermesBackend(AgentBackend):
         """Read hermes path and args from WriterAgent config."""
         try:
             from plugin.framework.config import get_config
-
             path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
             if path and not path.startswith("http"):
                 self._hermes_cmd = path
@@ -125,9 +125,7 @@ class HermesBackend(AgentBackend):
         if self._conn and self._conn.is_alive:
             return
         if not self._hermes_cmd:
-            raise RuntimeError(
-                "Hermes binary not found. Install hermes-agent and ensure 'hermes' is in PATH."
-            )
+            raise RuntimeError("Hermes binary not found. Install hermes-agent and ensure 'hermes' is in PATH.")
 
         cmd_line = [self._hermes_cmd]
         if os.path.basename(self._hermes_cmd) == "hermes":
@@ -145,15 +143,12 @@ class HermesBackend(AgentBackend):
         if "OPENROUTER_API_KEY" not in env:
             try:
                 from plugin.framework.config import get_api_key_for_endpoint, get_config
-
                 endpoint = str(get_config(self._ctx, "ai.endpoint") or "")
                 key = get_api_key_for_endpoint(self._ctx, endpoint)
                 if key:
                     env["OPENROUTER_API_KEY"] = key
                     env["OPENAI_API_KEY"] = key
-                    log.warning(
-                        "Using fallback OPENROUTER_API_KEY from general settings"
-                    )
+                    log.warning("Using fallback OPENROUTER_API_KEY from general settings")
             except Exception:
                 pass
 
@@ -163,24 +158,18 @@ class HermesBackend(AgentBackend):
         # Wait a moment for the process to start
         time.sleep(0.5)
         if not self._conn.is_alive:
-            raise RuntimeError(
-                "Hermes ACP process failed to start. Check hermes installation."
-            )
+            raise RuntimeError("Hermes ACP process failed to start. Check hermes installation.")
 
         # Initialize handshake
         try:
-            result = self._conn.send_request(
-                "initialize",
-                {
-                    "protocolVersion": _ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": {"read_text_file": False, "write_text_file": False},
-                        "terminal": False,
-                    },
-                    "clientInfo": {"name": "WriterAgent", "version": "1.0"},
+            result = self._conn.send_request("initialize", {
+                "protocolVersion": _ACP_PROTOCOL_VERSION,
+                "clientCapabilities": {
+                    "fs": {"read_text_file": False, "write_text_file": False},
+                    "terminal": False,
                 },
-                timeout=15,
-            )
+                "clientInfo": {"name": "WriterAgent", "version": "1.0"},
+            }, timeout=15)
             log.info(f"ACP initialized: {result}")
         except Exception as e:
             log.error(f"ACP initialize failed: {e}")
@@ -196,14 +185,12 @@ class HermesBackend(AgentBackend):
         # mcp_servers is required by the ACP schema (even if empty)
         mcp_servers = []
         if mcp_url:
-            mcp_servers.append(
-                {
-                    "url": mcp_url,
-                    "name": "writeragent",
-                    "type": "http",
-                    "headers": [],
-                }
-            )
+            mcp_servers.append({
+                "url": mcp_url,
+                "name": "writeragent",
+                "type": "http",
+                "headers": [],
+            })
 
         params = {
             "cwd": os.getcwd(),
@@ -228,7 +215,7 @@ class HermesBackend(AgentBackend):
         mcp_url=None,
         selection_text=None,
         stop_checker=None,
-        **kwargs,
+        **kwargs
     ):
         """Send a message to Hermes via ACP stdio."""
         self._stop_requested = False
@@ -240,28 +227,16 @@ class HermesBackend(AgentBackend):
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put(
-                (
-                    "error",
-                    format_error_payload(
-                        RuntimeError(
-                            f"Cannot start {self.display_name} ACP. "
-                            f"Is hermes installed? Error: {e}"
-                        )
-                    ),
-                )
-            )
+            queue.put(("error", format_error_payload(RuntimeError(
+                f"Cannot start {self.display_name} ACP. "
+                f"Is hermes installed? Error: {e}"
+            ))))
             return
 
         try:
             self._ensure_session(mcp_url=mcp_url, document_url=document_url)
         except Exception as e:
-            queue.put(
-                (
-                    "error",
-                    format_error_payload(RuntimeError(f"Session creation failed: {e}")),
-                )
-            )
+            queue.put(("error", format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
             return
 
         queue.put(("status", f"Sending to {self.display_name}..."))
@@ -274,48 +249,36 @@ class HermesBackend(AgentBackend):
             # For slash commands, only send the command itself so that Hermes'
             # ACP adapter (`user_text.startswith("/")`) can intercept it cleanly,
             # and we avoid polluting the command with document context.
-            prompt_blocks.append(
-                {
-                    "type": "text",
-                    "text": user_message,
-                }
-            )
+            prompt_blocks.append({
+                "type": "text",
+                "text": user_message,
+            })
         else:
             if system_prompt:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": system_prompt,
-                    }
-                )
-            if document_context:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": f"[DOCUMENT CONTENT]\n{document_context}",
-                    }
-                )
-            if selection_text:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": f"[SELECTED TEXT]\n{selection_text}",
-                    }
-                )
-            if document_url:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": f"Document URL: {document_url}",
-                    }
-                )
-            # Always add the user message last
-            prompt_blocks.append(
-                {
+                prompt_blocks.append({
                     "type": "text",
-                    "text": user_message,
-                }
-            )
+                    "text": system_prompt,
+                })
+            if document_context:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": f"[DOCUMENT CONTENT]\n{document_context}",
+                })
+            if selection_text:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": f"[SELECTED TEXT]\n{selection_text}",
+                })
+            if document_url:
+                prompt_blocks.append({
+                    "type": "text",
+                    "text": f"Document URL: {document_url}",
+                })
+            # Always add the user message last
+            prompt_blocks.append({
+                "type": "text",
+                "text": user_message,
+            })
 
         # Set up notification handler for streaming updates
         def on_notification(method, params, msg_id=None):
@@ -331,14 +294,10 @@ class HermesBackend(AgentBackend):
 
         # Send the prompt request
         try:
-            result = self._conn.send_request(
-                "session/prompt",
-                {
-                    "sessionId": self._session_id,
-                    "prompt": prompt_blocks,
-                },
-                timeout=600,
-            )
+            result = self._conn.send_request("session/prompt", {
+                "sessionId": self._session_id,
+                "prompt": prompt_blocks,
+            }, timeout=600)
 
             # Process the final response
             if result:
@@ -348,14 +307,7 @@ class HermesBackend(AgentBackend):
             queue.put(("stream_done", None))
 
         except TimeoutError:
-            queue.put(
-                (
-                    "error",
-                    format_error_payload(
-                        RuntimeError(f"{self.display_name} prompt timed out")
-                    ),
-                )
-            )
+            queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} prompt timed out"))))
         except Exception as e:
             if self._stop_requested:
                 queue.put(("stopped",))
@@ -406,14 +358,8 @@ class HermesBackend(AgentBackend):
             elif status == "completed":
                 raw_output = update.get("raw_output", update.get("rawOutput"))
                 if raw_output:
-                    out_text = (
-                        json.dumps(raw_output, indent=2)
-                        if not isinstance(raw_output, str)
-                        else raw_output
-                    )
-                    queue.put(
-                        ("thinking", f"[Tool result: {title}]\n{out_text[:500]}\n")
-                    )
+                    out_text = json.dumps(raw_output, indent=2) if not isinstance(raw_output, str) else raw_output
+                    queue.put(("thinking", f"[Tool result: {title}]\n{out_text[:500]}\n"))
             elif status == "failed":
                 queue.put(("thinking", f"[Tool failed: {title}]\n"))
 
@@ -445,21 +391,16 @@ class HermesBackend(AgentBackend):
         # Agent approval / permission request
         if "permission" in update or "approval" in update:
             description = json.dumps(update)
-            queue.put(
-                ("approval_required", description, "", {}, self._session_id or "")
-            )
+            queue.put(("approval_required", description, "", {}, self._session_id or ""))
 
     def stop(self):
         """Cancel the current prompt."""
         self._stop_requested = True
         if self._conn and self._conn.is_alive and self._session_id:
             try:
-                self._conn.send_notification(
-                    "session/cancel",
-                    {
-                        "sessionId": self._session_id,
-                    },
-                )
+                self._conn.send_notification("session/cancel", {
+                    "sessionId": self._session_id,
+                })
                 log.debug("Cancel notification sent")
             except Exception as e:
                 log.error(f"Cancel failed: {e}")
@@ -470,14 +411,16 @@ class HermesBackend(AgentBackend):
             return
 
         # Send a JSON-RPC response back to the agent's permission request
-        msg = {"jsonrpc": "2.0", "id": request_id, "result": {"approved": approved}}
+        msg = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {"approved": approved}
+        }
         line = json.dumps(msg) + "\n"
         try:
             self._conn._proc.stdin.write(line.encode("utf-8"))
             self._conn._proc.stdin.flush()
-            log.debug(
-                f"Approval responded (id={request_id}, level=logging.DEBUG): approved={approved}"
-            )
+            log.debug(f"Approval responded (id={request_id}, level=logging.DEBUG): approved={approved}")
         except Exception as e:
             log.error(f"Approval response failed: {e}")
 

@@ -62,7 +62,9 @@ class ListComments(ToolBaseDummy):
 
         while enum.hasMoreElements():
             field = enum.nextElement()
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
+            if not field.supportsService(
+                "com.sun.star.text.textfield.Annotation"
+            ):
                 continue
 
             entry = _read_annotation(field, para_ranges, text_obj)
@@ -161,7 +163,9 @@ class AddComment(ToolBaseDummy):
         else:
             return self._tool_error("Provide search_text, locator, or paragraph_index.")
 
-        annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
+        annotation = doc.createInstance(
+            "com.sun.star.text.textfield.Annotation"
+        )
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         cursor = doc_text.createTextCursorByRange(anchor_range)
@@ -216,7 +220,9 @@ class DeleteComment(ToolBaseDummy):
         to_delete = []
         while enum.hasMoreElements():
             field = enum.nextElement()
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
+            if not field.supportsService(
+                "com.sun.star.text.textfield.Annotation"
+            ):
                 continue
             try:
                 name = field.getPropertyValue("Name")
@@ -225,7 +231,8 @@ class DeleteComment(ToolBaseDummy):
             except Exception:
                 continue
 
-            if comment_name and (name == comment_name or parent == comment_name):
+            if comment_name and (name == comment_name
+                                 or parent == comment_name):
                 to_delete.append(field)
             elif author and field_author == author:
                 to_delete.append(field)
@@ -282,7 +289,9 @@ class ResolveComment(ToolBaseDummy):
         target = None
         while enum.hasMoreElements():
             field = enum.nextElement()
-            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
+            if not field.supportsService(
+                "com.sun.star.text.textfield.Annotation"
+            ):
                 continue
             try:
                 name = field.getPropertyValue("Name")
@@ -299,7 +308,9 @@ class ResolveComment(ToolBaseDummy):
             }
 
         if resolution:
-            reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
+            reply = doc.createInstance(
+                "com.sun.star.text.textfield.Annotation"
+            )
             reply.setPropertyValue("ParentName", comment_name)
             reply.setPropertyValue("Content", resolution)
             reply.setPropertyValue("Author", author)
@@ -501,7 +512,6 @@ class Workflow(ToolBaseDummy):
 # Helpers
 # ------------------------------------------------------------------
 
-
 def _read_annotation(field, para_ranges, text_obj):
     """Extract annotation properties into a plain dict."""
     entry = {}
@@ -524,11 +534,7 @@ def _read_annotation(field, para_ranges, text_obj):
     try:
         dt = field.getPropertyValue("DateTimeValue")
         entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-            dt.Year,
-            dt.Month,
-            dt.Day,
-            dt.Hours,
-            dt.Minutes,
+            dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes
         )
     except Exception:
         entry["date"] = ""
@@ -545,7 +551,6 @@ def _read_annotation(field, para_ranges, text_obj):
         entry["anchor_preview"] = ""
 
     return entry
-
 
 class AddAiSummary(ToolBaseDummy):
     name = "add_ai_summary"

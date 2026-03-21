@@ -32,7 +32,6 @@ from plugin.framework.errors import format_error_payload
 
 try:
     import pty
-
     _PTY_AVAILABLE = True
 except ImportError:
     _PTY_AVAILABLE = False
@@ -40,13 +39,11 @@ except ImportError:
 try:
     import fcntl
     import termios
-
     _WINSIZE_AVAILABLE = True
 except ImportError:
     _WINSIZE_AVAILABLE = False
 
 from plugin.modules.agent_backend.base import AgentBackend
-
 log = logging.getLogger(__name__)
 
 # CSI: ESC [ ... letter. Allow optional spaces (e.g. \x1b[2 q) and broader param chars.
@@ -55,7 +52,6 @@ _ANSI_CSI_RE = re.compile(r"\x1b\[[0-9;? ]*[a-zA-Z]")
 _ANSI_OSC_RE = re.compile(r"\x1b\][0-9]*;.*?\x1b\\")
 # Fallback: any ESC [ ... up to next letter (catches CPR and other controls)
 _ANSI_CSI_LOOSE_RE = re.compile(r"\x1b\[[^\x00-\x1f\x7f]*[a-zA-Z@`{|]")
-
 
 def strip_ansi(text):
     if not text:
@@ -93,7 +89,6 @@ class CLIProcessBackend(AgentBackend):
     def is_available(self, ctx):
         try:
             from plugin.framework.config import get_config
-
             path = str(get_config(ctx, "agent_backend.path") or "").strip()
             if path:
                 return os.path.isfile(path) or bool(shutil.which(path))
@@ -119,16 +114,7 @@ class CLIProcessBackend(AgentBackend):
         """Return True if the line indicates the CLI has finished responding to the current input."""
         raise NotImplementedError
 
-    def format_input(
-        self,
-        user_message,
-        document_context,
-        document_url,
-        system_prompt,
-        selection_text,
-        mcp_url=None,
-        **kwargs,
-    ):
+    def format_input(self, user_message, document_context, document_url, system_prompt, selection_text, mcp_url=None, **kwargs):
         """Return the string payload to write to stdin."""
         raise NotImplementedError
 
@@ -154,9 +140,7 @@ class CLIProcessBackend(AgentBackend):
         line = strip_ansi(line)
         if not line:
             if raw_line == "":
-                log.debug(
-                    f"reader_loop: read empty (EOF, level=logging.DEBUG), process may have exited, line_count={line_count[0]}"
-                )
+                log.debug(f"reader_loop: read empty (EOF, level=logging.DEBUG), process may have exited, line_count={line_count[0]}")
             return
 
         preview = repr((line[:50] + "…") if len(line) > 50 else line)
@@ -164,22 +148,16 @@ class CLIProcessBackend(AgentBackend):
         if self._current_queue is None:
             if self.is_ready_prompt(line):
                 self._reader_ready.set()
-                log.debug(
-                    f"reader_loop: saw prompt, _reader_ready set (between messages, level=logging.DEBUG) {preview}"
-                )
+                log.debug(f"reader_loop: saw prompt, _reader_ready set (between messages, level=logging.DEBUG) {preview}")
             elif line_count[0] <= 20 or line_count[0] % 50 == 0:
-                log.debug(
-                    f"reader_loop: skip line #{line_count[0]} (no queue, level=logging.DEBUG) {preview}"
-                )
+                log.debug(f"reader_loop: skip line #{line_count[0]} (no queue, level=logging.DEBUG) {preview}")
             return
 
         if self.is_end_of_response(line):
             # Only count as 'end of response' if we were currently waiting for one.
             # If we were already in 'between turns' state, this prompt is just confirming readiness.
             if self._current_queue is not None:
-                log.debug(
-                    f"reader_loop: saw end prompt, pushing stream_done (chunks pushed={response_chunk_count[0]}, level=logging.INFO)"
-                )
+                log.debug(f"reader_loop: saw end prompt, pushing stream_done (chunks pushed={response_chunk_count[0]}, level=logging.INFO)")
                 self._current_queue.put(("stream_done", None))
                 self._current_queue = None
                 self._response_done.set()
@@ -188,9 +166,7 @@ class CLIProcessBackend(AgentBackend):
             else:
                 self._reader_ready.set()
                 if line_count[0] <= 50 or line_count[0] % 100 == 0:
-                    log.debug(
-                        f"reader_loop: saw prompt (confirming readiness, level=logging.DEBUG)"
-                    )
+                    log.debug(f"reader_loop: saw prompt (confirming readiness, level=logging.DEBUG)")
             return
 
         if not self.should_forward_chunk(line):
@@ -198,9 +174,7 @@ class CLIProcessBackend(AgentBackend):
 
         response_chunk_count[0] += 1
         if response_chunk_count[0] <= 3 or response_chunk_count[0] % 100 == 0:
-            log.debug(
-                f"reader_loop: response chunk #{response_chunk_count[0]} {preview}"
-            )
+            log.debug(f"reader_loop: response chunk #{response_chunk_count[0]} {preview}")
         self._current_queue.put(("chunk", line if line.endswith("\n") else line + "\n"))
 
     def _reader_loop(self, stdout_stream):
@@ -242,11 +216,7 @@ class CLIProcessBackend(AgentBackend):
                     line_count[0] += 1
                     self._process_line(buf, line_count, response_chunk_count)
                     buf = ""
-                elif (
-                    buf
-                    and self.is_end_of_response(buf)
-                    and self._current_queue is not None
-                ):
+                elif buf and self.is_end_of_response(buf) and self._current_queue is not None:
                     line_count[0] += 1
                     self._process_line(buf, line_count, response_chunk_count)
                     buf = ""
@@ -260,20 +230,14 @@ class CLIProcessBackend(AgentBackend):
                 except Exception:
                     pass
                 alive = proc is not None and proc.poll() is None
-                stderr_snippet = (
-                    ("; ".join(self._stderr_lines[-5:])) if self._stderr_lines else ""
-                )
-                log.debug(
-                    f"reader_loop: EIO (errno 5, level=logging.DEBUG) - process_alive={alive} returncode={getattr(proc, 'returncode', None) if proc else None}; stderr tail: {stderr_snippet[:200]}"
-                )
+                stderr_snippet = ("; ".join(self._stderr_lines[-5:])) if self._stderr_lines else ""
+                log.debug(f"reader_loop: EIO (errno 5, level=logging.DEBUG) - process_alive={alive} returncode={getattr(proc, 'returncode', None) if proc else None}; stderr tail: {stderr_snippet[:200]}")
                 if self._current_queue is not None:
                     msg = (
                         f"{self.display_name} subprocess ended unexpectedly (I/O error). "
                         "Check backend configuration."
                     )
-                    self._current_queue.put(
-                        ("error", format_error_payload(RuntimeError(msg)))
-                    )
+                    self._current_queue.put(("error", format_error_payload(RuntimeError(msg))))
             else:
                 log.error(f"reader_loop: exception {e}")
                 if self._current_queue is not None:
@@ -283,18 +247,14 @@ class CLIProcessBackend(AgentBackend):
             if self._current_queue is not None:
                 self._current_queue.put(("error", format_error_payload(e)))
         finally:
-            log.debug(
-                f"reader_loop: exiting (total lines read={line_count[0]}, level=logging.DEBUG), setting _response_done"
-            )
+            log.debug(f"reader_loop: exiting (total lines read={line_count[0]}, level=logging.DEBUG), setting _response_done")
             self._response_done.set()
             self._current_queue = None
 
     def _ensure_process(self, path, args_str, queue, stop_checker, cwd=None, env=None):
         with self._lock:
             if self._process is not None and self._process.poll() is None:
-                log.debug(
-                    f"ensure_process: reusing existing process (pid={getattr(self._process, 'pid', None, level=logging.INFO)})"
-                )
+                log.debug(f"ensure_process: reusing existing process (pid={getattr(self._process, 'pid', None, level=logging.INFO)})")
                 return self._process, True
 
             log.info("ensure_process: no live process, starting new one")
@@ -329,27 +289,13 @@ class CLIProcessBackend(AgentBackend):
                             attr = termios.tcgetattr(slave_fd)
                             attr[3] = attr[3] & ~termios.ECHO
                             termios.tcsetattr(slave_fd, termios.TCSANOW, attr)
-                            fcntl.ioctl(
-                                slave_fd,
-                                termios.TIOCSWINSZ,
-                                struct.pack("HHHH", 24, 80, 0, 0),
-                            )
+                            fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
                         except Exception as e:
-                            log.debug(
-                                f"ensure_process: PTY config failed {e} (continuing, level=logging.ERROR)"
-                            )
+                            log.debug(f"ensure_process: PTY config failed {e} (continuing, level=logging.ERROR)")
 
                     master_read_fd = os.dup(master_fd)
-                    master_read = open(
-                        master_read_fd,
-                        "r",
-                        encoding="utf-8",
-                        errors="replace",
-                        newline="\n",
-                    )
-                    self._pty_master_write = open(
-                        master_fd, "w", encoding="utf-8", errors="replace", newline="\n"
-                    )
+                    master_read = open(master_read_fd, "r", encoding="utf-8", errors="replace", newline="\n")
+                    self._pty_master_write = open(master_fd, "w", encoding="utf-8", errors="replace", newline="\n")
 
                     try:
                         self._process = subprocess.Popen(
@@ -369,13 +315,9 @@ class CLIProcessBackend(AgentBackend):
                         raise
 
                     stdout_stream = master_read
-                    log.debug(
-                        f"ensure_process: Popen with PTY ok (echo disabled, level=logging.DEBUG), pid={self._process.pid}"
-                    )
+                    log.debug(f"ensure_process: Popen with PTY ok (echo disabled, level=logging.DEBUG), pid={self._process.pid}")
                 except Exception as e:
-                    log.error(
-                        f"ensure_process: PTY spawn failed {e}, falling back to pipes"
-                    )
+                    log.error(f"ensure_process: PTY spawn failed {e}, falling back to pipes")
                     if master_read is not None:
                         try:
                             master_read.close()
@@ -416,14 +358,11 @@ class CLIProcessBackend(AgentBackend):
 
             try:
                 from plugin.framework.worker_pool import run_in_background
-
                 self._reader_thread = run_in_background(
                     self._reader_loop, stdout_stream, name=f"{self.display_name}-reader"
                 )
                 _stderr_thread = run_in_background(
-                    self._stderr_drain_loop,
-                    self._process,
-                    name=f"{self.display_name}-stderr",
+                    self._stderr_drain_loop, self._process, name=f"{self.display_name}-stderr"
                 )
             except Exception as e:
                 log.error(f"ensure_process: failed to start reader/stderr {e}")
@@ -431,7 +370,7 @@ class CLIProcessBackend(AgentBackend):
                     try:
                         self._process.terminate()
                     except Exception:
-                        pass
+                            pass
                 self._process = None
                 return None, False
 
@@ -450,7 +389,7 @@ class CLIProcessBackend(AgentBackend):
                 try:
                     proc.kill()
                 except Exception:
-                    pass
+                            pass
             except Exception:
                 pass
         self._response_done.set()
@@ -459,7 +398,6 @@ class CLIProcessBackend(AgentBackend):
         env = os.environ.copy()
         try:
             from plugin.framework.config import get_api_config
-
             api_cfg = get_api_config(ctx)
             if api_cfg.apiKey:
                 # Common aider/proxy env vars
@@ -501,13 +439,12 @@ class CLIProcessBackend(AgentBackend):
         mcp_url=None,
         selection_text=None,
         stop_checker=None,
-        **kwargs,
+        **kwargs
     ):
         self._stop_requested = False
 
         try:
             from plugin.framework.config import get_config
-
             path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
             args_str = str(get_config(self._ctx, "agent_backend.args") or "").strip()
         except Exception:
@@ -515,13 +452,7 @@ class CLIProcessBackend(AgentBackend):
             args_str = ""
 
         stdin_payload = self.format_input(
-            user_message,
-            document_context,
-            document_url,
-            system_prompt,
-            selection_text,
-            mcp_url=mcp_url,
-            **kwargs,
+            user_message, document_context, document_url, system_prompt, selection_text, mcp_url=mcp_url, **kwargs
         )
 
         cwd = self._get_agent_cwd(document_url)
@@ -530,99 +461,52 @@ class CLIProcessBackend(AgentBackend):
         env = self._get_agent_env(self._ctx)
 
         with self._lock:
-            need_start = self._process is None or (
-                self._process and self._process.poll() is not None
-            )
+            need_start = self._process is None or (self._process and self._process.poll() is not None)
 
-        log.debug(
-            f"send(, level=logging.DEBUG): entry, path={path or self.get_default_cmd()}, need_start={need_start}, cwd={cwd}"
-        )
-        queue.put(
-            (
-                "status",
-                f"Starting {self.display_name}..." if need_start else "Sending...",
-            )
-        )
+        log.debug(f"send(, level=logging.DEBUG): entry, path={path or self.get_default_cmd()}, need_start={need_start}, cwd={cwd}")
+        queue.put(("status", f"Starting {self.display_name}..." if need_start else "Sending..."))
 
-        proc, ok = self._ensure_process(
-            path, args_str, queue, stop_checker, cwd=cwd, env=env
-        )
+        proc, ok = self._ensure_process(path, args_str, queue, stop_checker, cwd=cwd, env=env)
         if not ok:
-            log.debug(
-                f"send(, level=logging.DEBUG): _ensure_process returned not ok, proc={proc}"
-            )
+            log.debug(f"send(, level=logging.DEBUG): _ensure_process returned not ok, proc={proc}")
             if proc is None:
-                queue.put(
-                    (
-                        "error",
-                        RuntimeError(
-                            f"{self.display_name} not found. Install it or set Settings → Agent backends → Path."
-                        ),
-                    )
-                )
+                queue.put((
+                    "error",
+                    RuntimeError(
+                        f"{self.display_name} not found. Install it or set Settings → Agent backends → Path."
+                    ),
+                ))
             else:
-                queue.put(
-                    (
-                        "error",
-                        format_error_payload(
-                            RuntimeError(
-                                f"{self.display_name} did not start correctly within 30s."
-                            )
-                        ),
-                    )
-                )
+                queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} did not start correctly within 30s."))))
             return
 
         queue.put(("status", f"Waiting for {self.display_name}..."))
-        log.debug(
-            f"send(, level=logging.DEBUG): checking if {self.display_name} is ready..."
-        )
+        log.debug(f"send(, level=logging.DEBUG): checking if {self.display_name} is ready...")
         # Always wait for the initial or previous turn's prompt
         if not self._reader_ready.wait(timeout=30.0):
-            log.debug(
-                f"send(, level=logging.DEBUG): timed out waiting for {self.display_name} ready prompt"
-            )
+            log.debug(f"send(, level=logging.DEBUG): timed out waiting for {self.display_name} ready prompt")
             # Check if it died while we were waiting
             if proc.poll() is not None:
-                log.debug(
-                    f"send(, level=logging.DEBUG): {self.display_name} died during wait, code={proc.returncode}"
-                )
+                log.debug(f"send(, level=logging.DEBUG): {self.display_name} died during wait, code={proc.returncode}")
                 # Fall through to the error handler logic at the end of send() or handle here
                 self._current_queue = None
-                queue.put(
-                    (
-                        "error",
-                        format_error_payload(
-                            RuntimeError(
-                                f"{self.display_name} exited with code {proc.returncode} before turn started."
-                            )
-                        ),
-                    )
-                )
+                queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} exited with code {proc.returncode} before turn started."))))
                 return
             # We'll try to proceed anyway, but it might fail
         else:
             log.debug(f"send(, level=logging.DEBUG): {self.display_name} is ready")
 
         queue.put(("status", f"Sending to {self.display_name}..."))
-        log.debug(
-            f"send(, level=logging.DEBUG): process ready, pid={getattr(proc, 'pid', None)}, writing payload ({len(stdin_payload)} bytes)"
-        )
+        log.debug(f"send(, level=logging.DEBUG): process ready, pid={getattr(proc, 'pid', None)}, writing payload ({len(stdin_payload)} bytes)")
         self._response_done.clear()
         self._reader_ready.clear()
         self._current_queue = queue
 
         try:
-            stdin_stream = (
-                self._pty_master_write
-                if self._pty_master_write is not None
-                else proc.stdin
-            )
+            stdin_stream = self._pty_master_write if self._pty_master_write is not None else proc.stdin
             stdin_stream.write(stdin_payload)
             stdin_stream.flush()
-            log.debug(
-                "send(, level=logging.DEBUG): payload written, waiting for _response_done"
-            )
+            log.debug("send(, level=logging.DEBUG): payload written, waiting for _response_done")
         except Exception as e:
             self._current_queue = None
             log.debug(f"send(, level=logging.DEBUG): write failed {e}")
@@ -640,17 +524,13 @@ class CLIProcessBackend(AgentBackend):
             now = time.monotonic()
             elapsed = now - (deadline - timeout_seconds)
             if now - last_log[0] >= 5.0:
-                log.debug(
-                    f"send(, level=logging.DEBUG): still waiting for _response_done, proc.alive={proc.poll() is None}, elapsed={elapsed:.1f}s"
-                )
+                log.debug(f"send(, level=logging.DEBUG): still waiting for _response_done, proc.alive={proc.poll() is None}, elapsed={elapsed:.1f}s")
                 last_log[0] = now
             self._response_done.wait(timeout=0.25)
 
         self._current_queue = None
         elapsed = time.monotonic() - (deadline - timeout_seconds)
-        log.debug(
-            f"send(, level=logging.DEBUG): done waiting, stopped={self._stop_requested} returncode={getattr(proc, 'returncode', None)} elapsed={elapsed:.1f}s"
-        )
+        log.debug(f"send(, level=logging.DEBUG): done waiting, stopped={self._stop_requested} returncode={getattr(proc, 'returncode', None)} elapsed={elapsed:.1f}s")
 
         if proc.poll() is not None and proc.returncode != 0:
             try:
@@ -662,9 +542,7 @@ class CLIProcessBackend(AgentBackend):
                 err = "; ".join(self._stderr_lines[-8:])
             if not err:
                 err = f"{self.display_name} exited with code {proc.returncode}."
-            log.debug(
-                f"send(, level=logging.DEBUG): process exited, returncode={proc.returncode}, stderr: {err[:300]}"
-            )
+            log.debug(f"send(, level=logging.DEBUG): process exited, returncode={proc.returncode}, stderr: {err[:300]}")
             queue.put(("error", format_error_payload(RuntimeError(err))))
         elif self._stop_requested or (stop_checker and stop_checker()):
             queue.put(("stopped",))

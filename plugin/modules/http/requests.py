@@ -5,16 +5,10 @@ import urllib.parse
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 from plugin.framework.errors import NetworkError
 from plugin.framework.url_utils import get_url_hostname
-from plugin.modules.http.ssl_helpers import (
-    get_verified_ssl_context,
-    get_unverified_ssl_context,
-    _is_local_host,
-    _is_certificate_verify_error,
-)
+from plugin.modules.http.ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context, _is_local_host, _is_certificate_verify_error
 from plugin.modules.http.errors import _format_http_error_response, format_error_message
 
 log = logging.getLogger(__name__)
-
 
 def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     """
@@ -24,7 +18,6 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     Returns response data: decoded JSON if parse_json else raw bytes. Raises on error.
     """
     import urllib.error
-
     if headers is None:
         headers = {}
 
@@ -49,9 +42,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         if not header_keys and hasattr(req, "get_full_url"):
             # If it's a urllib Request object, headers might be in .headers
             pass
-        log.debug(
-            f"Request to {getattr(req, 'full_url', url)} with header keys: {header_keys}"
-        )
+        log.debug(f"Request to {getattr(req, 'full_url', url)} with header keys: {header_keys}")
     except Exception:
         pass
 
@@ -59,7 +50,6 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     parsed = urllib.parse.urlparse(str(full_url))
     host = get_url_hostname(str(full_url))
     is_local_https = parsed.scheme.lower() == "https" and _is_local_host(host)
-
     def _read_with_context(context):
         log.debug(f"About to open URL: {getattr(req, 'full_url', url)}")
         with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
@@ -83,17 +73,12 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
 
         msg = _format_http_error_response(status, reason, err_body)
         log.error(f"HTTP Error: {msg}")
-        raise NetworkError(
-            msg, code="HTTP_ERROR", context={"url": url, "status": status}
-        ) from e
+        raise NetworkError(msg, code="HTTP_ERROR", context={"url": url, "status": status}) from e
     except NetworkError:
         raise
     except Exception as e:
         if is_local_https and _is_certificate_verify_error(e):
-            log.error(
-                "Local HTTPS certificate verification failed for %s; retrying unverified."
-                % host
-            )
+            log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
             try:
                 return _read_with_context(get_unverified_ssl_context())
             except urllib.error.HTTPError as retry_http_e:
@@ -105,13 +90,9 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
                     err_body = ""
                 msg = _format_http_error_response(status, reason, err_body)
                 log.error(f"HTTP Error: {msg}")
-                raise NetworkError(
-                    msg, code="HTTP_ERROR", context={"url": url, "status": status}
-                ) from retry_http_e
+                raise NetworkError(msg, code="HTTP_ERROR", context={"url": url, "status": status}) from retry_http_e
             except Exception as retry_e:
                 log.error(f"Request failed: {format_error_message(retry_e)}")
-                raise NetworkError(
-                    format_error_message(retry_e), context={"url": url}
-                ) from retry_e
+                raise NetworkError(format_error_message(retry_e), context={"url": url}) from retry_e
         log.error(f"Request failed: {format_error_message(e)}")
         raise NetworkError(format_error_message(e), context={"url": url}) from e

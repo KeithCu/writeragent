@@ -50,8 +50,6 @@ class ListSheets(ToolBase):
 
         result = manipulator.list_sheets()
         return {"status": "ok", "result": result}
-
-
 class SwitchSheet(ToolBase):
     """Switch to a specified sheet."""
 
@@ -78,8 +76,6 @@ class SwitchSheet(ToolBase):
 
         result = manipulator.switch_sheet(sheet_name)
         return {"status": "ok", "message": result}
-
-
 class CreateSheet(ToolBase):
     """Create a new sheet."""
 
@@ -96,7 +92,8 @@ class CreateSheet(ToolBase):
             "position": {
                 "type": "integer",
                 "description": (
-                    "Sheet position (0-based). Appended to end if not specified."
+                    "Sheet position (0-based). Appended to end if not "
+                    "specified."
                 ),
             },
         },
@@ -113,8 +110,6 @@ class CreateSheet(ToolBase):
 
         result = manipulator.create_sheet(sheet_name, position=position)
         return {"status": "ok", "message": result}
-
-
 class GetSheetSummary(ToolBase):
     """Return a summary of a sheet."""
 

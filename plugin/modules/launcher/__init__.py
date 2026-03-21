@@ -35,10 +35,7 @@ from plugin.framework.module_base import ModuleBase
 log = logging.getLogger("writeragent.launcher")
 
 # Windows: open subprocess in a new console window (not hidden)
-_CREATION_FLAGS = (
-    getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if sys.platform == "win32" else 0
-)
-
+_CREATION_FLAGS = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if sys.platform == "win32" else 0
 
 def check_cli_installed(services):
     """Check if the selected CLI binary is available in PATH."""
@@ -57,10 +54,8 @@ def check_cli_installed(services):
     if shutil.which(provider.binary_name):
         return {"status": "ok", "message": "'%s' found in PATH" % provider.binary_name}
     else:
-        return {
-            "status": "ko",
-            "message": "'%s' not found — click Install" % provider.binary_name,
-        }
+        return {"status": "ko",
+                "message": "'%s' not found — click Install" % provider.binary_name}
 
 
 def run_install_for_provider(provider_name):
@@ -82,7 +77,8 @@ def run_install_for_provider(provider_name):
     mgr = services.launcher_manager
     provider = mgr.get_provider(provider_name)
     if provider is None:
-        msgbox(ctx, "WriterAgent", "CLI provider '%s' not found." % provider_name)
+        msgbox(ctx, "WriterAgent",
+               "CLI provider '%s' not found." % provider_name)
         return
 
     # Pick platform script
@@ -96,17 +92,15 @@ def run_install_for_provider(provider_name):
     script_path = os.path.join(mod_dir, f"{provider_name}_scripts", script_name)
 
     if not os.path.isfile(script_path):
-        msgbox(ctx, "WriterAgent", "Install script not found:\n%s" % script_path)
+        msgbox(ctx, "WriterAgent",
+               "Install script not found:\n%s" % script_path)
         return
 
     # Build command: run the script then wait for user input
     if sys.platform == "win32":
         # On Windows, CREATE_NEW_CONSOLE opens a new window — no terminal wrapper needed
         full_cmd = [
-            "powershell",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
+            "powershell", "-ExecutionPolicy", "Bypass", "-Command",
             "& '%s'; Write-Host; Write-Host 'Installation complete. Press Enter to close.';"
             " Read-Host" % script_path.replace("'", "''"),
         ]
@@ -121,8 +115,7 @@ def run_install_for_provider(provider_name):
             return
 
         cli_cmd = [
-            "bash",
-            "-c",
+            "bash", "-c",
             "bash %s; echo; echo 'Installation complete. Press Enter to close.'; read"
             % shlex.quote(script_path),
         ]
@@ -137,7 +130,8 @@ def run_install_for_provider(provider_name):
         )
     except Exception:
         log.exception("Failed to launch install script")
-        msgbox(ctx, "WriterAgent", "Failed to launch install script.")
+        msgbox(ctx, "WriterAgent",
+               "Failed to launch install script.")
 
 
 def get_provider_options(services):
@@ -147,29 +141,17 @@ def get_provider_options(services):
     select widget. Discovers registered providers from the launcher_manager.
     """
     try:
-        log.debug(
-            "get_provider_options called with services: %s",
-            "available" if services else "None",
-        )
+        log.debug("get_provider_options called with services: %s", "available" if services else "None")
         if services and hasattr(services, "launcher_manager"):
             mgr = services.launcher_manager
             options = [
-                {
-                    "value": name,
-                    "label": prov.label if hasattr(prov, "label") else name.title(),
-                }
+                {"value": name, "label": prov.label if hasattr(prov, "label") else name.title()}
                 for name, prov in sorted(mgr.providers.items())
             ]
-            log.info(
-                "get_provider_options returning %d options: %s",
-                len(options),
-                [o["value"] for o in options],
-            )
+            log.info("get_provider_options returning %d options: %s", len(options), [o["value"] for o in options])
             return options
         else:
-            log.warning(
-                "get_provider_options: launcher_manager service not found in services"
-            )
+            log.warning("get_provider_options: launcher_manager service not found in services")
     except Exception as e:
         log.error("get_provider_options exception: %s", e)
     return []
@@ -193,11 +175,8 @@ def get_active_provider_default_cwd(services):
 def get_global_instructions_default(services):
     """Return default content for AI CLI instructions."""
     from plugin.framework.constants import (
-        FORMATTING_RULES,
-        CORE_DIRECTIVES,
-        TRANSLATION_RULES,
-        CALC_WORKFLOW,
-        CALC_FORMULA_SYNTAX,
+        FORMATTING_RULES, CORE_DIRECTIVES, TRANSLATION_RULES,
+        CALC_WORKFLOW, CALC_FORMULA_SYNTAX
     )
 
     # Start with a strong persona and technical guidance
@@ -248,7 +227,6 @@ def get_unified_prompt(services):
 def write_unified_prompt(cwd, filename):
     """Write the unified prompt to the given file in the working directory."""
     from plugin.main import get_services
-
     services = get_services()
     if not services:
         log.warning("Could not write %s: services not available", filename)
@@ -264,6 +242,7 @@ def write_unified_prompt(cwd, filename):
     except Exception:
         log.exception("Failed to write %s", prompt_path)
         return False
+
 
 
 def on_install_active_provider():
@@ -297,11 +276,7 @@ def on_install_active_provider():
             log.exception("Failed to open install URL: %s", install_url)
             msgbox(get_ctx(), "WriterAgent", "Failed to open install URL.")
     else:
-        msgbox(
-            get_ctx(),
-            "WriterAgent",
-            "No install URL available for provider '%s'." % name,
-        )
+        msgbox(get_ctx(), "WriterAgent", "No install URL available for provider '%s'." % name)
 
 
 def _find_terminal(configured):
@@ -347,11 +322,8 @@ def _build_terminal_cmd(terminal, cli_cmd):
     if sys.platform == "darwin" and terminal == "open":
         # macOS: open -a Terminal <script>
         shell_cmd = " ".join(shlex.quote(c) for c in cli_cmd)
-        return [
-            "osascript",
-            "-e",
-            'tell app "Terminal" to do script "%s"' % shell_cmd.replace('"', '\\"'),
-        ]
+        return ["osascript", "-e",
+                'tell app "Terminal" to do script "%s"' % shell_cmd.replace('"', '\\"')]
 
     base = os.path.basename(terminal)
 
@@ -396,6 +368,7 @@ class LauncherManager:
 
 
 class LauncherModule(ModuleBase):
+
     def initialize(self, services):
         self._services = services
         self._process = None
@@ -407,7 +380,6 @@ class LauncherModule(ModuleBase):
         from .gemini import GeminiProvider
         from .hermes import HermesProvider
         from .opencode import OpenCodeProvider
-
         for cls in (ClaudeProvider, GeminiProvider, HermesProvider, OpenCodeProvider):
             p = cls(services)
             self._manager.register_provider(p.name, p)
@@ -477,16 +449,12 @@ class LauncherModule(ModuleBase):
         cfg = self._services.config.proxy_for(self.name)
         provider_name = cfg.get("provider")
         if not provider_name:
-            msgbox(
-                get_ctx(),
-                "WriterAgent",
-                "No AI CLI provider selected.\n"
-                "Go to Options → WriterAgent → Launcher to pick one.",
-            )
+            msgbox(get_ctx(), "WriterAgent",
+                   "No AI CLI provider selected.\n"
+                   "Go to Options → WriterAgent → Launcher to pick one.")
         else:
-            msgbox(
-                get_ctx(), "WriterAgent", "CLI provider '%s' not found." % provider_name
-            )
+            msgbox(get_ctx(), "WriterAgent",
+                   "CLI provider '%s' not found." % provider_name)
         return None
 
     def _get_mcp_url(self):
@@ -523,18 +491,16 @@ class LauncherModule(ModuleBase):
         cwd = cfg.get("cwd") or provider.default_cwd
         os.makedirs(cwd, exist_ok=True)
 
-        provider_cfg = self._services.config.proxy_for("launcher.%s" % provider.name)
+        provider_cfg = self._services.config.proxy_for(
+            "launcher.%s" % provider.name)
 
         # Check command exists
         if not shutil.which(provider.binary_name):
-            msgbox(
-                ctx,
-                "WriterAgent",
-                "Command '%s' not found.\n"
-                "Make sure it is installed and in your PATH.\n\n"
-                "Use 'Install AI CLI' from the menu to get install instructions."
-                % provider.binary_name,
-            )
+            msgbox(ctx, "WriterAgent",
+                   "Command '%s' not found.\n"
+                   "Make sure it is installed and in your PATH.\n\n"
+                   "Use 'Install AI CLI' from the menu to get install instructions."
+                   % provider.binary_name)
             return
 
         # Build CLI command
@@ -574,8 +540,7 @@ class LauncherModule(ModuleBase):
                     ps_parts.append(c)
             inner = "& " + " ".join(ps_parts)
             full_cmd = [
-                "powershell",
-                "-Command",
+                "powershell", "-Command",
                 "%s; Write-Host; Write-Host 'CLI exited. Press Enter to close.';"
                 " Read-Host" % inner,
             ]
@@ -588,21 +553,15 @@ class LauncherModule(ModuleBase):
                 msgbox(ctx, "WriterAgent", "Could not find a terminal emulator.")
                 return
 
-            if not shutil.which(term) and not (
-                sys.platform == "darwin" and term == "open"
-            ):
-                msgbox(
-                    ctx,
-                    "WriterAgent",
-                    "Terminal '%s' not found.\n"
-                    "Install it or set a different one in Options." % term,
-                )
+            if not shutil.which(term) and not (sys.platform == "darwin" and term == "open"):
+                msgbox(ctx, "WriterAgent",
+                       "Terminal '%s' not found.\n"
+                       "Install it or set a different one in Options." % term)
                 return
 
             shell_str = " ".join(shlex.quote(c) for c in cli_cmd)
             cli_cmd = [
-                "bash",
-                "-c",
+                "bash", "-c",
                 "%s; echo; echo 'CLI exited. Press Enter to close.'; read" % shell_str,
             ]
             full_cmd = _build_terminal_cmd(term, cli_cmd)
@@ -618,21 +577,20 @@ class LauncherModule(ModuleBase):
                     self._services.events.emit("menu:update")
 
             from plugin.framework.process_manager import AsyncProcess
-
             self._process = AsyncProcess(
                 full_cmd,
                 env=env,
                 cwd=cwd,
                 start_new_session=True,
                 creationflags=_CREATION_FLAGS,
-                on_exit_cb=_on_exit,
+                on_exit_cb=_on_exit
             )
             self._process.start()
 
         except FileNotFoundError:
-            msgbox(
-                ctx, "WriterAgent", "Failed to launch: terminal '%s' not found." % term
-            )
+            msgbox(ctx, "WriterAgent",
+                   "Failed to launch: terminal '%s' not found." % term)
         except Exception:
             log.exception("Failed to launch CLI")
-            msgbox(ctx, "WriterAgent", "Failed to launch AI CLI.")
+            msgbox(ctx, "WriterAgent",
+                   "Failed to launch AI CLI.")

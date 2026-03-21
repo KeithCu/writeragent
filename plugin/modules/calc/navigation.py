@@ -16,10 +16,8 @@ log = logging.getLogger("nelson.calc")
 def _range_address_str(ra):
     """Convert a RangeAddress to 'Sheet.A1:D10' style."""
     return "%s%d:%s%d" % (
-        index_to_column(ra.StartColumn),
-        ra.StartRow + 1,
-        index_to_column(ra.EndColumn),
-        ra.EndRow + 1,
+        index_to_column(ra.StartColumn), ra.StartRow + 1,
+        index_to_column(ra.EndColumn), ra.EndRow + 1,
     )
 
 
@@ -49,26 +47,18 @@ class ListNamedRanges(ToolBase):
             try:
                 entry["content"] = nr.getContent()
             except Exception as e:
-                logger.debug(
-                    "list_named_ranges getContent error for %s: %s", entry["name"], e
-                )
+                logger.debug("list_named_ranges getContent error for %s: %s", entry["name"], e)
             try:
                 ra = nr.getReferredCells().getRangeAddress()
                 entry["range"] = _range_address_str(ra)
             except Exception as e:
-                logger.debug(
-                    "list_named_ranges getRangeAddress error for %s: %s",
-                    entry["name"],
-                    e,
-                )
+                logger.debug("list_named_ranges getRangeAddress error for %s: %s", entry["name"], e)
             result.append(entry)
         return {
             "status": "ok",
             "named_ranges": result,
             "count": len(result),
         }
-
-
 class GetSheetOverview(ToolBase):
     """Get an overview of a sheet's data regions and structure."""
 
@@ -139,11 +129,7 @@ class GetSheetOverview(ToolBase):
             if hasattr(cursor, "getMergedArea"):
                 # Iterate used area to find merges
                 pass  # expensive, skip for overview
-            result["has_merges"] = (
-                sheet.getPropertyValue("HasMergedCells")
-                if hasattr(sheet, "getPropertyValue")
-                else None
-            )
+            result["has_merges"] = sheet.getPropertyValue("HasMergedCells") if hasattr(sheet, "getPropertyValue") else None
         except Exception as e:
             logger.debug("get_sheet_info merged cells error: %s", e)
 

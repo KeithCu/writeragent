@@ -53,7 +53,8 @@ class SearchInDocument(ToolBase):
             "context_paragraphs": {
                 "type": "integer",
                 "description": (
-                    "Number of paragraphs of context around each match (default: 1)."
+                    "Number of paragraphs of context around each match "
+                    "(default: 1)."
                 ),
             },
             "return_offsets": {
@@ -84,14 +85,9 @@ class SearchInDocument(ToolBase):
 
         if return_offsets:
             from plugin.modules.writer import format_support
-
             ranges = format_support.find_text_ranges(
-                ctx.doc,
-                ctx.ctx,
-                pattern,
-                start=0,
-                limit=max_results,
-                case_sensitive=case_sensitive,
+                ctx.doc, ctx.ctx, pattern,
+                start=0, limit=max_results, case_sensitive=case_sensitive,
             )
             return {"status": "ok", "ranges": ranges}
 
@@ -104,7 +100,9 @@ class SearchInDocument(ToolBase):
         para_texts = []
         for para in para_ranges:
             try:
-                if para.supportsService("com.sun.star.text.Paragraph"):
+                if para.supportsService(
+                    "com.sun.star.text.Paragraph"
+                ):
                     para_texts.append(para.getString())
                 else:
                     para_texts.append("")
@@ -136,16 +134,16 @@ class SearchInDocument(ToolBase):
                     if len(matches) < max_results:
                         matches.append(
                             _build_match(
-                                m.group(),
-                                i,
-                                context_paragraphs,
-                                para_count,
+                                m.group(), i,
+                                context_paragraphs, para_count,
                                 para_texts,
                             )
                         )
             else:
                 haystack = ptext if case_sensitive else ptext.lower()
-                needle = pattern if case_sensitive else pattern.lower()
+                needle = (
+                    pattern if case_sensitive else pattern.lower()
+                )
                 step = max(1, len(needle))
                 pos = 0
                 while True:
@@ -156,10 +154,8 @@ class SearchInDocument(ToolBase):
                     if len(matches) < max_results:
                         matches.append(
                             _build_match(
-                                ptext[pos : pos + len(pattern)],
-                                i,
-                                context_paragraphs,
-                                para_count,
+                                ptext[pos:pos + len(pattern)], i,
+                                context_paragraphs, para_count,
                                 para_texts,
                             )
                         )
@@ -170,13 +166,14 @@ class SearchInDocument(ToolBase):
             "matches": matches,
             "count": total_count,
         }
-
-
 def _build_match(text, para_idx, ctx_paras, para_count, para_texts):
     """Build a single match result with context paragraphs."""
     ctx_lo = max(0, para_idx - ctx_paras)
     ctx_hi = min(para_count, para_idx + ctx_paras + 1)
-    context = [{"index": j, "text": para_texts[j]} for j in range(ctx_lo, ctx_hi)]
+    context = [
+        {"index": j, "text": para_texts[j]}
+        for j in range(ctx_lo, ctx_hi)
+    ]
     return {
         "text": text,
         "paragraph_index": para_idx,
@@ -223,7 +220,8 @@ class AdvancedSearch(ToolBaseDummy):
             "page_radius": {
                 "type": "integer",
                 "description": (
-                    "Page radius for around_page filter (default: 1, meaning +/-1 page)"
+                    "Page radius for around_page filter "
+                    "(default: 1, meaning +/-1 page)"
                 ),
             },
             "include_pages": {
@@ -271,7 +269,8 @@ class AdvancedSearch(ToolBaseDummy):
                 hi = around_page + page_radius
                 before_count = len(result["matches"])
                 result["matches"] = [
-                    m for m in result["matches"] if lo <= m.get("page", 0) <= hi
+                    m for m in result["matches"]
+                    if lo <= m.get("page", 0) <= hi
                 ]
                 result["returned"] = len(result["matches"])
                 result["filtered_by_page"] = {

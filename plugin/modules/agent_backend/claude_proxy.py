@@ -30,7 +30,6 @@ import time
 from plugin.framework.errors import format_error_payload
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.modules.agent_backend.acp_connection import ACPConnection
-
 log = logging.getLogger(__name__)
 
 _LOG = "ClaudeACP"
@@ -74,7 +73,6 @@ class ClaudeBackend(AgentBackend):
         """Read claude path and args from WriterAgent config."""
         try:
             from plugin.framework.config import get_config
-
             path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
             if path and not path.startswith("http") and ("hermes" not in path.lower()):
                 self._claude_cmd = path
@@ -107,9 +105,7 @@ class ClaudeBackend(AgentBackend):
         if self._conn and self._conn.is_alive:
             return
         if not self._claude_cmd:
-            raise RuntimeError(
-                "Claude ACP binary not found. Install `@zed-industries/claude-code-acp` or `claude-code-acp-rs` and ensure it is in PATH."
-            )
+            raise RuntimeError("Claude ACP binary not found. Install `@zed-industries/claude-code-acp` or `claude-code-acp-rs` and ensure it is in PATH.")
 
         cmd_line = [self._claude_cmd] + self._claude_args
 
@@ -118,14 +114,11 @@ class ClaudeBackend(AgentBackend):
         if "ANTHROPIC_API_KEY" not in env:
             try:
                 from plugin.framework.config import get_api_key_for_endpoint, get_config
-
                 endpoint = str(get_config(self._ctx, "ai.endpoint") or "")
                 key = get_api_key_for_endpoint(self._ctx, endpoint)
                 if key:
                     env["ANTHROPIC_API_KEY"] = key
-                    log.warning(
-                        "Using fallback ANTHROPIC_API_KEY from general settings"
-                    )
+                    log.warning("Using fallback ANTHROPIC_API_KEY from general settings")
             except Exception:
                 pass
 
@@ -135,24 +128,18 @@ class ClaudeBackend(AgentBackend):
         # Wait a moment for the process to start
         time.sleep(0.5)
         if not self._conn.is_alive:
-            raise RuntimeError(
-                "Claude ACP process failed to start. Verify your API key and installation."
-            )
+            raise RuntimeError("Claude ACP process failed to start. Verify your API key and installation.")
 
         # Initialize handshake
         try:
-            result = self._conn.send_request(
-                "initialize",
-                {
-                    "protocolVersion": _ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": {"read_text_file": False, "write_text_file": False},
-                        "terminal": False,
-                    },
-                    "clientInfo": {"name": "WriterAgent", "version": "1.0"},
+            result = self._conn.send_request("initialize", {
+                "protocolVersion": _ACP_PROTOCOL_VERSION,
+                "clientCapabilities": {
+                    "fs": {"read_text_file": False, "write_text_file": False},
+                    "terminal": False,
                 },
-                timeout=15,
-            )
+                "clientInfo": {"name": "WriterAgent", "version": "1.0"},
+            }, timeout=15)
             log.info(f"Claude ACP initialized: {result}")
         except Exception as e:
             log.error(f"Claude ACP initialize failed: {e}")
@@ -168,14 +155,12 @@ class ClaudeBackend(AgentBackend):
         # mcp_servers is required by the ACP schema
         mcp_servers = []
         if mcp_url:
-            mcp_servers.append(
-                {
-                    "url": mcp_url,
-                    "name": "writeragent",
-                    "type": "http",
-                    "headers": [],
-                }
-            )
+            mcp_servers.append({
+                "url": mcp_url,
+                "name": "writeragent",
+                "type": "http",
+                "headers": [],
+            })
 
         params = {
             "cwd": os.getcwd(),
@@ -200,7 +185,7 @@ class ClaudeBackend(AgentBackend):
         mcp_url=None,
         selection_text=None,
         stop_checker=None,
-        **kwargs,
+        **kwargs
     ):
         """Send a message to Claude via ACP stdio."""
         self._stop_requested = False
@@ -212,28 +197,16 @@ class ClaudeBackend(AgentBackend):
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put(
-                (
-                    "error",
-                    format_error_payload(
-                        RuntimeError(
-                            f"Cannot start {self.display_name} ACP. "
-                            f"Is adapter installed? Error: {e}"
-                        )
-                    ),
-                )
-            )
+            queue.put(("error", format_error_payload(RuntimeError(
+                f"Cannot start {self.display_name} ACP. "
+                f"Is adapter installed? Error: {e}"
+            ))))
             return
 
         try:
             self._ensure_session(mcp_url=mcp_url, document_url=document_url)
         except Exception as e:
-            queue.put(
-                (
-                    "error",
-                    format_error_payload(RuntimeError(f"Session creation failed: {e}")),
-                )
-            )
+            queue.put(("error", format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
             return
 
         queue.put(("status", f"Sending to {self.display_name}..."))
@@ -243,17 +216,11 @@ class ClaudeBackend(AgentBackend):
         if system_prompt:
             prompt_blocks.append({"type": "text", "text": system_prompt})
         if document_context:
-            prompt_blocks.append(
-                {"type": "text", "text": f"[DOCUMENT CONTENT]\n{document_context}"}
-            )
+            prompt_blocks.append({"type": "text", "text": f"[DOCUMENT CONTENT]\n{document_context}"})
         if selection_text:
-            prompt_blocks.append(
-                {"type": "text", "text": f"[SELECTED TEXT]\n{selection_text}"}
-            )
+            prompt_blocks.append({"type": "text", "text": f"[SELECTED TEXT]\n{selection_text}"})
         if document_url:
-            prompt_blocks.append(
-                {"type": "text", "text": f"Document URL: {document_url}"}
-            )
+            prompt_blocks.append({"type": "text", "text": f"Document URL: {document_url}"})
 
         prompt_blocks.append({"type": "text", "text": user_message})
 
@@ -269,14 +236,10 @@ class ClaudeBackend(AgentBackend):
         self._conn.set_notification_callback(on_notification)
 
         try:
-            result = self._conn.send_request(
-                "session/prompt",
-                {
-                    "sessionId": self._session_id,
-                    "prompt": prompt_blocks,
-                },
-                timeout=600,
-            )
+            result = self._conn.send_request("session/prompt", {
+                "sessionId": self._session_id,
+                "prompt": prompt_blocks,
+            }, timeout=600)
 
             if result:
                 stop_reason = result.get("stopReason", result.get("stop_reason", ""))
@@ -285,14 +248,7 @@ class ClaudeBackend(AgentBackend):
             queue.put(("stream_done", None))
 
         except TimeoutError:
-            queue.put(
-                (
-                    "error",
-                    format_error_payload(
-                        RuntimeError(f"{self.display_name} prompt timed out")
-                    ),
-                )
-            )
+            queue.put(("error", format_error_payload(RuntimeError(f"{self.display_name} prompt timed out"))))
         except Exception as e:
             if self._stop_requested:
                 queue.put(("stopped",))
@@ -337,40 +293,27 @@ class ClaudeBackend(AgentBackend):
             elif status == "completed":
                 raw_output = update.get("raw_output", update.get("rawOutput"))
                 if raw_output:
-                    out_text = (
-                        json.dumps(raw_output, indent=2)
-                        if not isinstance(raw_output, str)
-                        else raw_output
-                    )
-                    queue.put(
-                        ("thinking", f"[Tool result: {title}]\n{out_text[:500]}\n")
-                    )
+                    out_text = json.dumps(raw_output, indent=2) if not isinstance(raw_output, str) else raw_output
+                    queue.put(("thinking", f"[Tool result: {title}]\n{out_text[:500]}\n"))
             elif status == "failed":
                 queue.put(("thinking", f"[Tool failed: {title}]\n"))
 
         elif session_update == "plan":
             entries = update.get("entries", [])
             if entries:
-                plan_text = "\n".join(
-                    f"  {'✓' if e.get('done') else '○'} {e.get('text', '')}"
-                    for e in entries
-                )
+                plan_text = "\n".join(f"  {'✓' if e.get('done') else '○'} {e.get('text', '')}" for e in entries)
                 queue.put(("thinking", f"[Plan]\n{plan_text}\n"))
 
     def _handle_agent_update(self, update, queue):
         if "permission" in update or "approval" in update:
             description = json.dumps(update)
-            queue.put(
-                ("approval_required", description, "", {}, self._session_id or "")
-            )
+            queue.put(("approval_required", description, "", {}, self._session_id or ""))
 
     def stop(self):
         self._stop_requested = True
         if self._conn and self._conn.is_alive and self._session_id:
             try:
-                self._conn.send_notification(
-                    "session/cancel", {"sessionId": self._session_id}
-                )
+                self._conn.send_notification("session/cancel", {"sessionId": self._session_id})
                 log.debug("Cancel notification sent")
             except Exception as e:
                 log.error(f"Cancel failed: {e}")

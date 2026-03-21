@@ -36,7 +36,8 @@ class ProximityService:
         self._tree_svc = tree_svc
         self._bm_svc = bookmark_svc
         self._flat_cache = {}  # doc_key -> [flat entries]
-        events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
+        events.subscribe("document:cache_invalidated",
+                         self._on_cache_invalidated)
 
     def _on_cache_invalidated(self, doc=None, **_kw):
         if doc is None:
@@ -81,7 +82,7 @@ class ProximityService:
 
         entry = flat[pos]
         node = entry["node"]
-        was_heading = node["para_index"] == para_index
+        was_heading = (node["para_index"] == para_index)
 
         return pos, {
             "was_heading": was_heading,
@@ -95,14 +96,12 @@ class ProximityService:
         entry = flat[ctx_idx] if ctx_idx is not None else None
         while entry is not None:
             node = entry["node"]
-            chain.append(
-                {
-                    "level": node["level"],
-                    "text": node["text"],
-                    "para_index": node["para_index"],
-                    "bookmark": bookmark_map.get(node["para_index"]),
-                }
-            )
+            chain.append({
+                "level": node["level"],
+                "text": node["text"],
+                "para_index": node["para_index"],
+                "bookmark": bookmark_map.get(node["para_index"]),
+            })
             entry = entry["parent"]
         chain.reverse()
         return chain
@@ -145,7 +144,8 @@ class ProximityService:
             ctx_node = flat[ctx_idx]["node"]
             from_info["context_heading"] = ctx_node["text"]
             from_info["context_level"] = ctx_node["level"]
-            from_info["context_bookmark"] = bookmark_map.get(ctx_node["para_index"])
+            from_info["context_bookmark"] = bookmark_map.get(
+                ctx_node["para_index"])
 
         target_entry = None
         error_msg = None
@@ -210,14 +210,14 @@ class ProximityService:
         else:
             raise ToolExecutionError(
                 "Unknown direction: %s. Use: next, previous, parent, "
-                "first_child, next_sibling, previous_sibling" % direction
-            )
+                "first_child, next_sibling, previous_sibling" % direction)
 
         if error_msg:
             return {"error": error_msg, "from": from_info}
 
         return {
-            "heading": self._build_heading_result(target_entry["node"], bookmark_map),
+            "heading": self._build_heading_result(
+                target_entry["node"], bookmark_map),
             "from": from_info,
             "direction": direction,
         }
@@ -261,14 +261,8 @@ class ProximityService:
 
         radius = max(1, min(50, radius))
         if include is None:
-            include = [
-                "paragraphs",
-                "images",
-                "tables",
-                "frames",
-                "comments",
-                "headings",
-            ]
+            include = ["paragraphs", "images", "tables",
+                       "frames", "comments", "headings"]
 
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         total = len(para_ranges)
@@ -276,8 +270,7 @@ class ProximityService:
         if center_idx >= total:
             raise ToolExecutionError(
                 "Paragraph %d out of range (document has %d paragraphs)"
-                % (center_idx, total)
-            )
+                % (center_idx, total))
 
         start_idx = max(0, center_idx - radius)
         end_idx = min(total - 1, center_idx + radius)
@@ -295,8 +288,7 @@ class ProximityService:
             flat = self._flatten_tree(tree, doc)
             ctx_idx, _ = self._find_heading_context(flat, center_idx)
             result["heading_chain"] = self._get_heading_chain(
-                flat, ctx_idx, bookmark_map
-            )
+                flat, ctx_idx, bookmark_map)
 
         if "paragraphs" in include:
             if not bookmark_map:
@@ -331,19 +323,16 @@ class ProximityService:
                     g = graphics.getByName(name)
                     anchor = g.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(
-                        anchor, para_ranges, text_obj
-                    )
+                        anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
                         size = g.getPropertyValue("Size")
-                        images.append(
-                            {
-                                "name": name,
-                                "paragraph_index": pi,
-                                "title": g.getPropertyValue("Title"),
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                            }
-                        )
+                        images.append({
+                            "name": name,
+                            "paragraph_index": pi,
+                            "title": g.getPropertyValue("Title"),
+                            "width_mm": size.Width // 100,
+                            "height_mm": size.Height // 100,
+                        })
                 except Exception:
                     pass
             result["images"] = images
@@ -356,17 +345,14 @@ class ProximityService:
                     t = text_tables.getByName(name)
                     anchor = t.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(
-                        anchor, para_ranges, text_obj
-                    )
+                        anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
-                        tables.append(
-                            {
-                                "name": name,
-                                "paragraph_index": pi,
-                                "rows": t.getRows().getCount(),
-                                "cols": t.getColumns().getCount(),
-                            }
-                        )
+                        tables.append({
+                            "name": name,
+                            "paragraph_index": pi,
+                            "rows": t.getRows().getCount(),
+                            "cols": t.getColumns().getCount(),
+                        })
                 except Exception:
                     pass
             result["tables"] = tables
@@ -379,18 +365,15 @@ class ProximityService:
                     fr = text_frames.getByName(fname)
                     anchor = fr.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(
-                        anchor, para_ranges, text_obj
-                    )
+                        anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
                         size = fr.getPropertyValue("Size")
-                        frames.append(
-                            {
-                                "name": fname,
-                                "paragraph_index": pi,
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                            }
-                        )
+                        frames.append({
+                            "name": fname,
+                            "paragraph_index": pi,
+                            "width_mm": size.Width // 100,
+                            "height_mm": size.Height // 100,
+                        })
                 except Exception:
                     pass
             result["frames"] = frames
@@ -403,8 +386,7 @@ class ProximityService:
                 while enum.hasMoreElements():
                     field = enum.nextElement()
                     if not field.supportsService(
-                        "com.sun.star.text.textfield.Annotation"
-                    ):
+                            "com.sun.star.text.textfield.Annotation"):
                         continue
                     try:
                         author = field.getPropertyValue("Author")
@@ -414,8 +396,7 @@ class ProximityService:
                         continue
                     anchor = field.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(
-                        anchor, para_ranges, text_obj
-                    )
+                        anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
                         content = field.getPropertyValue("Content")
                         resolved_flag = False
@@ -423,14 +404,12 @@ class ProximityService:
                             resolved_flag = field.getPropertyValue("Resolved")
                         except Exception:
                             pass
-                        comments.append(
-                            {
-                                "author": author,
-                                "content": content[:200],
-                                "paragraph_index": pi,
-                                "resolved": resolved_flag,
-                            }
-                        )
+                        comments.append({
+                            "author": author,
+                            "content": content[:200],
+                            "paragraph_index": pi,
+                            "resolved": resolved_flag,
+                        })
             except Exception:
                 pass
             result["comments"] = comments

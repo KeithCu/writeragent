@@ -331,7 +331,6 @@ log = logging.getLogger("writeragent.writer")
 # Helpers
 # ------------------------------------------------------------------
 
-
 def _parse_cell(ref):
     """Parse Excel-style cell reference to 0-based (row, col). Returns None if invalid.
 
@@ -841,7 +840,6 @@ def _col_letter(c):
 # Helpers
 # ------------------------------------------------------------------
 
-
 def _col_letter(c):
     """Convert 0-based column index to Excel-style letter(s)."""
     if c < 26:
@@ -855,14 +853,9 @@ def _parse_color(color_str):
         return None
     color_str = color_str.strip().lower()
     names = {
-        "red": 0xFF0000,
-        "green": 0x00FF00,
-        "blue": 0x0000FF,
-        "yellow": 0xFFFF00,
-        "white": 0xFFFFFF,
-        "black": 0x000000,
-        "orange": 0xFF8C00,
-        "gray": 0x808080,
+        "red": 0xFF0000, "green": 0x00FF00, "blue": 0x0000FF,
+        "yellow": 0xFFFF00, "white": 0xFFFFFF, "black": 0x000000,
+        "orange": 0xFF8C00, "gray": 0x808080,
     }
     if color_str in names:
         return names[color_str]

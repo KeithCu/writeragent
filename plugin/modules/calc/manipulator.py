@@ -66,11 +66,11 @@ def _parse_formula_or_values_string(s: str):
             for char in s_strip:
                 if char == '"' and not escaped:
                     in_quotes = not in_quotes
-                if char == ";" and not in_quotes:
-                    normalized_list.append(",")
+                if char == ';' and not in_quotes:
+                    normalized_list.append(',')
                 else:
                     normalized_list.append(char)
-                if char == "\\" and not escaped:
+                if char == '\\' and not escaped:
                     escaped = True
                 else:
                     escaped = False
@@ -94,9 +94,7 @@ def _parse_formula_or_values_string(s: str):
     if ";" in s and not s_strip.startswith("="):
         try:
             reader = csv.reader(
-                io.StringIO(s),
-                delimiter=";",
-                skipinitialspace=True,
+                io.StringIO(s), delimiter=";", skipinitialspace=True,
             )
             rows = list(reader)
             if rows:
@@ -129,27 +127,16 @@ class CellManipulator:
         return self.bridge.get_cell(sheet, col, row)
 
     def _apply_style_properties(
-        self,
-        obj,
-        bold,
-        italic,
-        bg_color,
-        font_color,
-        font_size,
-        h_align,
-        v_align,
-        wrap_text,
-        border_color,
+        self, obj, bold, italic, bg_color, font_color, font_size,
+        h_align, v_align, wrap_text, border_color,
     ):
         """Apply common style properties to a cell or range object."""
         if bold is not None:
             from com.sun.star.awt.FontWeight import BOLD, NORMAL
-
             obj.setPropertyValue("CharWeight", BOLD if bold else NORMAL)
 
         if italic is not None:
             from com.sun.star.awt.FontSlant import ITALIC, NONE
-
             obj.setPropertyValue("CharPosture", ITALIC if italic else NONE)
 
         if bg_color is not None:
@@ -163,35 +150,21 @@ class CellManipulator:
 
         if h_align is not None:
             from com.sun.star.table.CellHoriJustify import (
-                LEFT,
-                CENTER,
-                RIGHT,
-                BLOCK,
-                STANDARD,
+                LEFT, CENTER, RIGHT, BLOCK, STANDARD,
             )
-
             align_map = {
-                "left": LEFT,
-                "center": CENTER,
-                "right": RIGHT,
-                "justify": BLOCK,
-                "standard": STANDARD,
+                "left": LEFT, "center": CENTER, "right": RIGHT,
+                "justify": BLOCK, "standard": STANDARD,
             }
             if h_align.lower() in align_map:
                 obj.setPropertyValue("HoriJustify", align_map[h_align.lower()])
 
         if v_align is not None:
             from com.sun.star.table.CellVertJustify import (
-                TOP,
-                CENTER,
-                BOTTOM,
-                STANDARD,
+                TOP, CENTER, BOTTOM, STANDARD,
             )
-
             align_map = {
-                "top": TOP,
-                "center": CENTER,
-                "bottom": BOTTOM,
+                "top": TOP, "center": CENTER, "bottom": BOTTOM,
                 "standard": STANDARD,
             }
             if v_align.lower() in align_map:
@@ -237,23 +210,17 @@ class CellManipulator:
 
             if formula.startswith("="):
                 cell.setFormula(formula)
-                logger.info(
-                    "Cell %s <- formula '%s' written.", address.upper(), formula
-                )
+                logger.info("Cell %s <- formula '%s' written.", address.upper(), formula)
                 return f"Formula written to cell {address}: {formula}"
             else:
                 try:
                     num = float(formula)
                     cell.setValue(num)
-                    logger.info(
-                        "Cell %s <- number %s written.", address.upper(), formula
-                    )
+                    logger.info("Cell %s <- number %s written.", address.upper(), formula)
                     return f"Number written to cell {address}: {formula}"
                 except ValueError:
                     cell.setString(formula)
-                    logger.info(
-                        "Cell %s <- text '%s' written.", address.upper(), formula
-                    )
+                    logger.info("Cell %s <- text '%s' written.", address.upper(), formula)
                     return f"Text written to cell {address}: {formula}"
         except Exception as e:
             logger.error("Formula writing error (%s): %s", address, str(e))
@@ -296,15 +263,10 @@ class CellManipulator:
             if ":" in address_or_range:
                 self._set_range_style(
                     address_or_range,
-                    bold=bold,
-                    italic=italic,
-                    bg_color=bg_color,
-                    font_color=font_color,
-                    font_size=font_size,
-                    h_align=h_align,
-                    v_align=v_align,
-                    wrap_text=wrap_text,
-                    border_color=border_color,
+                    bold=bold, italic=italic, bg_color=bg_color,
+                    font_color=font_color, font_size=font_size,
+                    h_align=h_align, v_align=v_align,
+                    wrap_text=wrap_text, border_color=border_color,
                 )
                 if number_format:
                     self._set_range_number_format(address_or_range, number_format)
@@ -312,16 +274,8 @@ class CellManipulator:
             else:
                 cell = self._get_cell(address_or_range)
                 self._apply_style_properties(
-                    cell,
-                    bold,
-                    italic,
-                    bg_color,
-                    font_color,
-                    font_size,
-                    h_align,
-                    v_align,
-                    wrap_text,
-                    border_color,
+                    cell, bold, italic, bg_color, font_color, font_size,
+                    h_align, v_align, wrap_text, border_color,
                 )
                 if number_format:
                     self._set_number_format(address_or_range, number_format)
@@ -331,31 +285,15 @@ class CellManipulator:
             raise ToolExecutionError(str(e)) from e
 
     def _set_range_style(
-        self,
-        range_str,
-        bold=None,
-        italic=None,
-        bg_color=None,
-        font_color=None,
-        font_size=None,
-        h_align=None,
-        v_align=None,
-        wrap_text=None,
-        border_color=None,
+        self, range_str, bold=None, italic=None, bg_color=None,
+        font_color=None, font_size=None, h_align=None, v_align=None,
+        wrap_text=None, border_color=None,
     ):
         sheet = self.bridge.get_active_sheet()
         cell_range = self.bridge.get_cell_range(sheet, range_str)
         self._apply_style_properties(
-            cell_range,
-            bold,
-            italic,
-            bg_color,
-            font_color,
-            font_size,
-            h_align,
-            v_align,
-            wrap_text,
-            border_color,
+            cell_range, bold, italic, bg_color, font_color, font_size,
+            h_align, v_align, wrap_text, border_color,
         )
 
     def _set_range_number_format(self, range_str: str, format_str: str):
@@ -413,7 +351,6 @@ class CellManipulator:
             if center:
                 from com.sun.star.table.CellHoriJustify import CENTER
                 from com.sun.star.table.CellVertJustify import CENTER as V_CENTER
-
                 cell_range.setPropertyValue("HoriJustify", CENTER)
                 cell_range.setPropertyValue("VertJustify", V_CENTER)
         except Exception as e:
@@ -463,9 +400,7 @@ class CellManipulator:
             direction = "ascending" if ascending else "descending"
             logger.info(
                 "Range %s sorted %s by column %d.",
-                range_str.upper(),
-                direction,
-                sort_column,
+                range_str.upper(), direction, sort_column,
             )
             return f"Range {range_str} sorted {direction} by column {sort_column}."
         except Exception as e:
@@ -544,9 +479,7 @@ class CellManipulator:
                 data_array.append(tuple(data_row))
                 formula_array.append(tuple(formula_row))
 
-            cell_range = sheet.getCellRangeByPosition(
-                start[0], start[1], end[0], end[1]
-            )
+            cell_range = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
 
             if not has_formulas:
                 cell_range.setDataArray(tuple(data_array))
@@ -566,9 +499,7 @@ class CellManipulator:
                 cell_range.setFormulaArray(tuple(string_formulas))
 
             logger.info(
-                "Range %s filled with %d values.",
-                range_str.upper(),
-                len(values),
+                "Range %s filled with %d values.", range_str.upper(), len(values),
             )
             return f"Range {range_str} filled with {len(values)} values."
         except Exception as e:
@@ -589,7 +520,7 @@ class CellManipulator:
         """
         try:
             delimiter = ","
-            first_line = csv_data.split("\n")[0] if csv_data else ""
+            first_line = csv_data.split('\n')[0] if csv_data else ""
             if ";" in first_line and "," not in first_line:
                 delimiter = ";"
 
@@ -685,11 +616,7 @@ class CellManipulator:
             chart_service = type_map.get(chart_type, "com.sun.star.chart.BarDiagram")
 
             charts.addNewByName(
-                chart_name,
-                rect,
-                (range_address,),
-                has_header,
-                has_header,
+                chart_name, rect, (range_address,), has_header, has_header,
             )
 
             chart_obj = charts.getByName(chart_name)
@@ -731,11 +658,7 @@ class CellManipulator:
                             logger.debug("list_charts HasLegend error: %s", e)
                             entry["has_legend"] = False
                         try:
-                            entry["title"] = (
-                                chart_doc.getTitle().String
-                                if chart_doc.HasMainTitle
-                                else ""
-                            )
+                            entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
                         except Exception as e:
                             logger.debug("list_charts getTitle error: %s", e)
                             entry["title"] = ""
@@ -768,16 +691,12 @@ class CellManipulator:
             chart_doc = chart_obj.getEmbeddedObject()
             if chart_doc:
                 try:
-                    info["title"] = (
-                        chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                    )
+                    info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
                 except Exception as e:
                     logger.debug("get_chart_info getTitle error: %s", e)
                     info["title"] = ""
                 try:
-                    info["subtitle"] = (
-                        chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
-                    )
+                    info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
                 except Exception as e:
                     logger.debug("get_chart_info getSubTitle error: %s", e)
                     info["subtitle"] = ""
@@ -906,28 +825,15 @@ class CellManipulator:
         try:
             from com.sun.star.beans import PropertyValue
             from com.sun.star.sheet.ConditionOperator import (
-                NONE,
-                EQUAL,
-                NOT_EQUAL,
-                GREATER,
-                GREATER_EQUAL,
-                LESS,
-                LESS_EQUAL,
-                BETWEEN,
-                NOT_BETWEEN,
-                FORMULA,
+                NONE, EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL,
+                LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA,
             )
 
             op_map = {
-                "NONE": NONE,
-                "EQUAL": EQUAL,
-                "NOT_EQUAL": NOT_EQUAL,
-                "GREATER": GREATER,
-                "GREATER_EQUAL": GREATER_EQUAL,
-                "LESS": LESS,
-                "LESS_EQUAL": LESS_EQUAL,
-                "BETWEEN": BETWEEN,
-                "NOT_BETWEEN": NOT_BETWEEN,
+                "NONE": NONE, "EQUAL": EQUAL, "NOT_EQUAL": NOT_EQUAL,
+                "GREATER": GREATER, "GREATER_EQUAL": GREATER_EQUAL,
+                "LESS": LESS, "LESS_EQUAL": LESS_EQUAL,
+                "BETWEEN": BETWEEN, "NOT_BETWEEN": NOT_BETWEEN,
                 "FORMULA": FORMULA,
             }
 
@@ -1010,20 +916,17 @@ class CellManipulator:
             pass
         try:
             f1 = entry.getFormula1()
-            if f1:
-                result["formula1"] = f1
+            if f1: result["formula1"] = f1
         except Exception:
             pass
         try:
             f2 = entry.getFormula2()
-            if f2 and f2 != "0":
-                result["formula2"] = f2
+            if f2 and f2 != "0": result["formula2"] = f2
         except Exception:
             pass
         try:
             sn = entry.getStyleName()
-            if sn:
-                result["style_name"] = sn
+            if sn: result["style_name"] = sn
         except Exception:
             pass
 
@@ -1052,12 +955,9 @@ class CellManipulator:
             columns.removeByIndex(col_index, count)
             logger.info(
                 "%d column(s) deleted starting from column %s.",
-                count,
-                col_letter.upper(),
+                count, col_letter.upper(),
             )
-            return (
-                f"{count} column(s) deleted starting from column {col_letter.upper()}."
-            )
+            return f"{count} column(s) deleted starting from column {col_letter.upper()}."
         except Exception as e:
             logger.error("Column deletion error: %s", str(e))
             raise ToolExecutionError(str(e)) from e

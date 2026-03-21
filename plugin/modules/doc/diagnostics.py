@@ -55,93 +55,85 @@ class DocumentHealthCheck(ToolBaseDummy):
 
                 # --- Empty heading check ---
                 if not text.strip():
-                    issues.append(
-                        {
-                            "type": "empty_heading",
-                            "severity": "warning",
-                            "paragraph_index": i,
-                            "message": (
-                                "Empty heading level %d at paragraph %d."
-                                % (outline_level, i)
-                            ),
-                            "detail": "Heading level %d is empty." % outline_level,
-                        }
-                    )
+                    issues.append({
+                        "type": "empty_heading",
+                        "severity": "warning",
+                        "paragraph_index": i,
+                        "message": (
+                            "Empty heading level %d at paragraph %d."
+                            % (outline_level, i)
+                        ),
+                        "detail": "Heading level %d is empty." % outline_level,
+                    })
 
                 # --- Heading level jump check ---
-                if last_heading_level > 0 and outline_level > last_heading_level + 1:
-                    issues.append(
-                        {
-                            "type": "heading_level_skip",
-                            "severity": "info",
-                            "paragraph_index": i,
-                            "message": (
-                                "Heading jumps from level %d to %d "
-                                "at paragraph %d: '%s'"
-                                % (
-                                    last_heading_level,
-                                    outline_level,
-                                    i,
-                                    heading_preview,
-                                )
-                            ),
-                            "detail": (
-                                "Heading jumps from level %d to %d (skips %s)."
-                                % (
-                                    last_heading_level,
-                                    outline_level,
-                                    ", ".join(
-                                        str(lv)
-                                        for lv in range(
-                                            last_heading_level + 1, outline_level
-                                        )
-                                    ),
-                                )
-                            ),
-                        }
-                    )
+                if (last_heading_level > 0
+                        and outline_level > last_heading_level + 1):
+                    issues.append({
+                        "type": "heading_level_skip",
+                        "severity": "info",
+                        "paragraph_index": i,
+                        "message": (
+                            "Heading jumps from level %d to %d "
+                            "at paragraph %d: '%s'"
+                            % (
+                                last_heading_level,
+                                outline_level,
+                                i,
+                                heading_preview,
+                            )
+                        ),
+                        "detail": (
+                            "Heading jumps from level %d to %d (skips %s)."
+                            % (
+                                last_heading_level,
+                                outline_level,
+                                ", ".join(
+                                    str(lv) for lv in range(
+                                        last_heading_level + 1, outline_level
+                                    )
+                                ),
+                            )
+                        ),
+                    })
 
                 last_heading_level = outline_level
                 last_heading_text = heading_preview
 
                 # --- Large unstructured block check ---
                 if paragraphs_since_heading > 50:
-                    issues.append(
-                        {
-                            "type": "large_block",
-                            "severity": "info",
-                            "paragraph_index": i - paragraphs_since_heading,
-                            "message": (
-                                "%d paragraphs without a heading before "
-                                "paragraph %d." % (paragraphs_since_heading, i)
-                            ),
-                            "detail": (
-                                "%d paragraphs without a heading before "
-                                "paragraph %d." % (paragraphs_since_heading, i)
-                            ),
-                        }
-                    )
+                    issues.append({
+                        "type": "large_block",
+                        "severity": "info",
+                        "paragraph_index": i - paragraphs_since_heading,
+                        "message": (
+                            "%d paragraphs without a heading before "
+                            "paragraph %d." % (paragraphs_since_heading, i)
+                        ),
+                        "detail": (
+                            "%d paragraphs without a heading before "
+                            "paragraph %d." % (paragraphs_since_heading, i)
+                        ),
+                    })
                 paragraphs_since_heading = 0
             else:
                 paragraphs_since_heading += 1
 
         # Check trailing large block (after last heading to end of doc).
         if paragraphs_since_heading > 50:
-            issues.append(
-                {
-                    "type": "large_block",
-                    "severity": "info",
-                    "paragraph_index": len(para_ranges) - paragraphs_since_heading,
-                    "message": (
-                        "%d paragraphs without a heading at end of document."
-                        % paragraphs_since_heading
-                    ),
-                    "detail": (
-                        "%d paragraphs without a heading at end of document."
-                        % paragraphs_since_heading
-                    ),
-                }
-            )
+            issues.append({
+                "type": "large_block",
+                "severity": "info",
+                "paragraph_index": len(para_ranges) - paragraphs_since_heading,
+                "message": (
+                    "%d paragraphs without a heading at end of document."
+                    % paragraphs_since_heading
+                ),
+                "detail": (
+                    "%d paragraphs without a heading at end of document."
+                    % paragraphs_since_heading
+                ),
+            })
 
         # --- Broken bookmarks ---
         try:
@@ -153,29 +145,31 @@ class DocumentHealthCheck(ToolBaseDummy):
                         bm = bookmarks.getByName(name)
                         anchor = bm.getAnchor()
                         if anchor is None or not anchor.getString():
-                            issues.append(
-                                {
-                                    "type": "broken_bookmark",
-                                    "severity": "warning",
-                                    "paragraph_index": -1,
-                                    "message": (
-                                        "Bookmark '%s' has an empty anchor." % name
-                                    ),
-                                    "detail": (
-                                        "Bookmark '%s' has an empty anchor." % name
-                                    ),
-                                }
-                            )
-                    except Exception:
-                        issues.append(
-                            {
+                            issues.append({
                                 "type": "broken_bookmark",
                                 "severity": "warning",
                                 "paragraph_index": -1,
-                                "message": ("Bookmark '%s' could not be read." % name),
-                                "detail": ("Bookmark '%s' could not be read." % name),
-                            }
-                        )
+                                "message": (
+                                    "Bookmark '%s' has an empty anchor."
+                                    % name
+                                ),
+                                "detail": (
+                                    "Bookmark '%s' has an empty anchor."
+                                    % name
+                                ),
+                            })
+                    except Exception:
+                        issues.append({
+                            "type": "broken_bookmark",
+                            "severity": "warning",
+                            "paragraph_index": -1,
+                            "message": (
+                                "Bookmark '%s' could not be read." % name
+                            ),
+                            "detail": (
+                                "Bookmark '%s' could not be read." % name
+                            ),
+                        })
         except Exception:
             pass
 
@@ -201,21 +195,19 @@ class DocumentHealthCheck(ToolBaseDummy):
                             except Exception:
                                 pass
                             if not has_graphic:
-                                issues.append(
-                                    {
-                                        "type": "orphan_image",
-                                        "severity": "warning",
-                                        "paragraph_index": -1,
-                                        "message": (
-                                            "Graphic object '%s' has no image "
-                                            "data." % name
-                                        ),
-                                        "detail": (
-                                            "Graphic object '%s' has no image "
-                                            "data." % name
-                                        ),
-                                    }
-                                )
+                                issues.append({
+                                    "type": "orphan_image",
+                                    "severity": "warning",
+                                    "paragraph_index": -1,
+                                    "message": (
+                                        "Graphic object '%s' has no image "
+                                        "data." % name
+                                    ),
+                                    "detail": (
+                                        "Graphic object '%s' has no image "
+                                        "data." % name
+                                    ),
+                                })
                     except Exception:
                         pass
         except Exception:
@@ -258,7 +250,11 @@ class SetDocumentProtection(ToolBaseDummy):
         password = kwargs.get("password")
         doc = ctx.doc
 
-        sections = doc.getTextSections()
+        try:
+            sections = doc.getTextSections()
+        except Exception as exc:
+            return self._tool_error(str(exc))
+
         count = sections.getCount()
         if count == 0:
             return {
@@ -282,7 +278,9 @@ class SetDocumentProtection(ToolBaseDummy):
                         # passwords; silently skip.
                         pass
             except Exception as exc:
-                log.warning("Could not set protection on section %d: %s", i, exc)
+                log.warning(
+                    "Could not set protection on section %d: %s", i, exc
+                )
 
         return {
             "status": "ok",

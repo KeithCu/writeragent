@@ -64,7 +64,6 @@ def _format_http_error_response(status, reason, err_body):
 def format_error_for_display(e):
     """Return user-friendly error string for display in cells or dialogs."""
     from plugin.framework.errors import format_error_payload
-
     payload = format_error_payload(e)
     return "Error: %s" % payload.get("message", format_error_message(e))
 
@@ -74,22 +73,15 @@ def is_audio_unsupported_error(e):
     msg = str(e).lower()
 
     # Common error strings across providers
-    if "unsupported content type" in msg:
-        return True
-    if "unsupported modality" in msg:
-        return True
-    if "audio" in msg and ("not supported" in msg or "unsupported" in msg):
-        return True
-    if "modality" in msg and "not supported" in msg:
-        return True
+    if "unsupported content type" in msg: return True
+    if "unsupported modality" in msg: return True
+    if "audio" in msg and ("not supported" in msg or "unsupported" in msg): return True
+    if "modality" in msg and "not supported" in msg: return True
 
     # Specific API error bodies (passed via _format_http_error_response)
-    if "model" in msg and "cannot process" in msg and "audio" in msg:
-        return True
-    if "no endpoints found that support input audio" in msg:
-        return True
-    if "gpt-4" in msg and "audio" in msg:  # Some legacy GPT-4 might not have it
-        if "not support" in msg:
-            return True
+    if "model" in msg and "cannot process" in msg and "audio" in msg: return True
+    if "no endpoints found that support input audio" in msg: return True
+    if "gpt-4" in msg and "audio" in msg: # Some legacy GPT-4 might not have it
+        if "not support" in msg: return True
 
     return False

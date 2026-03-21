@@ -58,8 +58,6 @@ class ListConditionalFormats(ToolBase):
             "rules": rules,
             "count": len(rules),
         }
-
-
 class AddConditionalFormat(ToolBase):
     """Add a conditional formatting rule to a cell range."""
 
@@ -81,15 +79,8 @@ class AddConditionalFormat(ToolBase):
             "operator": {
                 "type": "string",
                 "enum": [
-                    "EQUAL",
-                    "NOT_EQUAL",
-                    "GREATER",
-                    "GREATER_EQUAL",
-                    "LESS",
-                    "LESS_EQUAL",
-                    "BETWEEN",
-                    "NOT_BETWEEN",
-                    "FORMULA",
+                    "EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL",
+                    "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA",
                 ],
                 "description": "Condition operator.",
             },
@@ -133,8 +124,6 @@ class AddConditionalFormat(ToolBase):
             "range_name": kwargs["range_name"],
             "rule_count": count,
         }
-
-
 class RemoveConditionalFormat(ToolBase):
     """Remove a conditional formatting rule from a cell range."""
 
@@ -164,20 +153,10 @@ class RemoveConditionalFormat(ToolBase):
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
-        if manipulator.remove_conditional_format(
-            kwargs["range_name"], kwargs["rule_index"]
-        ):
-            return {
-                "status": "ok",
-                "range_name": kwargs["range_name"],
-                "removed_index": kwargs["rule_index"],
-            }
+        if manipulator.remove_conditional_format(kwargs["range_name"], kwargs["rule_index"]):
+            return {"status": "ok", "range_name": kwargs["range_name"], "removed_index": kwargs["rule_index"]}
         else:
-            return self._tool_error(
-                f"Rule index {kwargs['rule_index']} not found on {kwargs['range_name']}."
-            )
-
-
+            return self._tool_error(f"Rule index {kwargs['rule_index']} not found on {kwargs['range_name']}.")
 class ClearConditionalFormats(ToolBase):
     """Clear all conditional formatting from a cell range."""
 

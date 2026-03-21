@@ -37,16 +37,7 @@ class OpenHandsBackend(CLIProcessBackend):
     def is_end_of_response(self, line):
         return self.is_ready_prompt(line)
 
-    def format_input(
-        self,
-        user_message,
-        document_context,
-        document_url,
-        system_prompt,
-        selection_text,
-        mcp_url=None,
-        **kwargs,
-    ):
+    def format_input(self, user_message, document_context, document_url, system_prompt, selection_text, mcp_url=None, **kwargs):
         parts = []
         if system_prompt:
             parts.append("System Instructions:\n")

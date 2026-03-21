@@ -6,7 +6,7 @@ from plugin.framework.dialogs import (
     get_checkbox_state,
     set_control_enabled,
     get_control_text,
-    set_control_text,
+    set_control_text
 )
 from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
@@ -68,9 +68,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         try:
             if controls["response"] and controls["response"].getModel():
                 current = get_control_text(controls["response"]) or ""
-                set_control_text(
-                    controls["response"], current + "[Init error: %s]\n" % msg
-                )
+                set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
         except Exception:
             pass
 
@@ -79,26 +77,17 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 1. Config, Models, and UI
     try:
         from plugin.framework.config import get_config
-
         extra_instructions = get_config(self.ctx, "additional_instructions")
 
-        self._wire_model_selectors(
-            controls["model_selector"], controls["image_model_selector"]
-        )
+        self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
 
         self._wire_image_ui(
-            controls["aspect_ratio_selector"],
-            controls["base_size_input"],
-            controls["base_size_label"],
-            controls["direct_image_check"],
-            controls["web_research_check"],
-            controls["model_label"],
-            controls["model_selector"],
-            controls["image_model_selector"],
+            controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"],
+            controls["direct_image_check"], controls["web_research_check"], controls["model_label"],
+            controls["model_selector"], controls["image_model_selector"]
         )
     except Exception as e:
         import traceback
-
         _show_init_error("Config: %s" % e)
         log.error(traceback.format_exc())
         extra_instructions = ""
@@ -108,17 +97,11 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     self._setup_sessions(model, extra_instructions)
 
     # 3. Determine Mode & Greeting
-    from plugin.framework.constants import (
-        get_greeting_for_document,
-        DEFAULT_RESEARCH_GREETING,
-    )
-
+    from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
     web_checked = False
     if controls["web_research_check"]:
-        try:
-            web_checked = get_checkbox_state(controls["web_research_check"]) == 1
-        except Exception as e:
-            log.exception("Error reading web_research_check state: %s", e)
+        try: web_checked = (get_checkbox_state(controls["web_research_check"]) == 1)
+        except Exception as e: log.exception("Error reading web_research_check state: %s", e)
 
     if web_checked:
         self.session = self.web_session
@@ -127,9 +110,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         self.session = self.doc_session
         active_greeting = get_greeting_for_document(model)
 
-    self._render_session_history(
-        self.session, controls["response"], model, active_greeting
-    )
+    self._render_session_history(self.session, controls["response"], model, active_greeting)
 
     # 4. Buttons
     self._wire_buttons(controls, model, active_greeting, set_control_enabled)
@@ -139,28 +120,22 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     if controls.get("query") and controls.get("send"):
         try:
             from plugin.modules.chatbot.panel import QueryTextListener
-
             query_text_listener = QueryTextListener(controls["send"])
             controls["query"].addTextListener(query_text_listener)
             if get_control_text(controls["query"]).strip():
                 controls["send"].getModel().Label = "Send"
             else:
-                controls["send"].getModel().Label = (
-                    "Record" if has_recording else "Send"
-                )
+                controls["send"].getModel().Label = "Record" if has_recording else "Send"
         except Exception as e:
             log.error("QueryTextListener setup error: %s" % e)
 
     if controls["status"] and hasattr(controls["status"], "setText"):
-        try:
-            controls["status"].setText("Ready")
-        except Exception as e:
-            log.exception("Error setting status text: %s", e)
+        try: controls["status"].setText("Ready")
+        except Exception as e: log.exception("Error setting status text: %s", e)
 
     # 5. Timer and Resize
     try:
         from main import try_ensure_mcp_timer
-
         try_ensure_mcp_timer(self.ctx)
     except Exception as e:
         log.error("try_ensure_mcp_timer: %s" % e)
@@ -202,12 +177,9 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     # 6. Global Config Listener
     from plugin.framework.config import add_config_listener
-
     _self_ref = weakref.ref(self)
-
     def on_config_changed(ctx):
         panel = _self_ref()
         if panel is not None:
             panel._refresh_controls_from_config()
-
     add_config_listener(on_config_changed)

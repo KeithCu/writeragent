@@ -100,12 +100,9 @@ class HttpModule(ModuleBase):
             self._server.start()
             if event_bus:
                 status = self._server.get_status()
-                event_bus.emit(
-                    "http:server_started",
-                    port=status["port"],
-                    host=status["host"],
-                    url=status["url"],
-                )
+                event_bus.emit("http:server_started",
+                               port=status["port"], host=status["host"],
+                               url=status["url"])
             if event_bus:
                 event_bus.emit("menu:update")
         except Exception:
@@ -153,14 +150,9 @@ class HttpModule(ModuleBase):
 
     def _unregister_mcp_routes(self, services):
         for method, path in [
-            ("POST", "/mcp"),
-            ("GET", "/mcp"),
-            ("DELETE", "/mcp"),
-            ("POST", "/sse"),
-            ("POST", "/messages"),
-            ("GET", "/sse"),
-            ("GET", "/debug"),
-            ("POST", "/debug"),
+            ("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"),
+            ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"),
+            ("GET", "/debug"), ("POST", "/debug"),
         ]:
             try:
                 self._registry.remove(method, path)
@@ -210,25 +202,14 @@ class HttpModule(ModuleBase):
             self._start_server(self._services)
             if self._server and self._server.is_running():
                 status = self._server.get_status()
-                msgbox(
-                    ctx,
-                    "WriterAgent",
-                    "HTTP server started\n%s" % status.get("url", ""),
-                )
+                msgbox(ctx, "WriterAgent",
+                       "HTTP server started\n%s" % status.get("url", ""))
             else:
-                msgbox(
-                    ctx,
-                    "WriterAgent",
-                    "HTTP server failed to start\nCheck ~/localwriter.log",
-                )
+                msgbox(ctx, "WriterAgent",
+                       "HTTP server failed to start\nCheck ~/localwriter.log")
 
     def _action_server_status(self):
-        from plugin.framework.dialogs import (
-            msgbox,
-            add_dialog_label,
-            add_dialog_edit,
-            add_dialog_button,
-        )
+        from plugin.framework.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
         from plugin.framework.uno_context import get_ctx
 
         ctx = get_ctx()
@@ -250,8 +231,7 @@ class HttpModule(ModuleBase):
             smgr = ctx.ServiceManager
 
             dlg_model = smgr.createInstanceWithContext(
-                "com.sun.star.awt.UnoControlDialogModel", ctx
-            )
+                "com.sun.star.awt.UnoControlDialogModel", ctx)
             dlg_model.Title = "Server Status"
             dlg_model.Width = 230
             dlg_model.Height = 80
@@ -261,15 +241,13 @@ class HttpModule(ModuleBase):
             # Read-only textfield for the URL — user can select + Ctrl+C
             add_dialog_edit(dlg_model, "UrlField", url, 10, 34, 210, 14, readonly=True)
 
-            add_dialog_button(
-                dlg_model, "OKBtn", "OK", 170, 58, 50, 14, push_button_type=1
-            )
+            add_dialog_button(dlg_model, "OKBtn", "OK", 170, 58, 50, 14, push_button_type=1)
 
             dlg = smgr.createInstanceWithContext(
-                "com.sun.star.awt.UnoControlDialog", ctx
-            )
+                "com.sun.star.awt.UnoControlDialog", ctx)
             dlg.setModel(dlg_model)
-            toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+            toolkit = smgr.createInstanceWithContext(
+                "com.sun.star.awt.Toolkit", ctx)
             dlg.createPeer(toolkit, None)
             dlg.execute()
             dlg.dispose()
@@ -281,30 +259,22 @@ class HttpModule(ModuleBase):
 
     def _handle_health(self, body, headers, query):
         from plugin.version import EXTENSION_VERSION
-
-        return (
-            200,
-            {
-                "status": "healthy",
-                "server": "WriterAgent",
-                "version": EXTENSION_VERSION,
-            },
-        )
+        return (200, {
+            "status": "healthy",
+            "server": "WriterAgent",
+            "version": EXTENSION_VERSION,
+        })
 
     def _handle_info(self, body, headers, query):
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
         from plugin.version import EXTENSION_VERSION
-
         routes = self._registry.list_routes()
-        return (
-            200,
-            {
-                "name": "WriterAgent",
-                "version": EXTENSION_VERSION,
-                "description": "WriterAgent HTTP server",
-                "routes": ["%s %s" % (m, p) for m, p in sorted(routes)],
-            },
-        )
+        return (200, {
+            "name": "WriterAgent",
+            "version": EXTENSION_VERSION,
+            "description": "WriterAgent HTTP server",
+            "routes": ["%s %s" % (m, p) for m, p in sorted(routes)],
+        })
 
     def _handle_config_get(self, body, headers, query):
         """GET /api/config — read config values.
@@ -327,11 +297,13 @@ class HttpModule(ModuleBase):
 
         if module:
             p = module if module.endswith(".") else module + "."
-            filtered = {k: v for k, v in all_config.items() if k.startswith(p)}
+            filtered = {k: v for k, v in all_config.items()
+                        if k.startswith(p)}
             return (200, {"config": filtered})
 
         if prefix:
-            filtered = {k: v for k, v in all_config.items() if k.startswith(prefix)}
+            filtered = {k: v for k, v in all_config.items()
+                        if k.startswith(prefix)}
             return (200, {"config": filtered})
 
         return (200, {"config": all_config})

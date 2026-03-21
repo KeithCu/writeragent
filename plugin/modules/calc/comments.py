@@ -69,29 +69,27 @@ class ListCellComments(ToolBase):
         for i in range(annotations.getCount()):
             ann = annotations.getByIndex(i)
             pos = ann.getPosition()
-            comments.append(
-                {
-                    "cell": _cell_label(pos.Column, pos.Row),
-                    "author": ann.getAuthor(),
-                    "date": ann.getDate(),
-                    "text": ann.getString(),
-                    "is_visible": ann.getIsVisible(),
-                }
-            )
+            comments.append({
+                "cell": _cell_label(pos.Column, pos.Row),
+                "author": ann.getAuthor(),
+                "date": ann.getDate(),
+                "text": ann.getString(),
+                "is_visible": ann.getIsVisible(),
+            })
         return {
             "status": "ok",
             "comments": comments,
             "count": len(comments),
             "sheet": sheet.getName(),
         }
-
-
 class AddCellComment(ToolBase):
     """Add a comment to a cell."""
 
     name = "add_cell_comment"
     intent = "review"
-    description = "Add a comment (annotation) to a specific cell in a Calc sheet."
+    description = (
+        "Add a comment (annotation) to a specific cell in a Calc sheet."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -126,7 +124,6 @@ class AddCellComment(ToolBase):
 
         # Insert or update annotation
         from com.sun.star.table import CellAddress
-
         addr = CellAddress()
         addr.Sheet = sheet.getRangeAddress().Sheet
         addr.Column = col
@@ -146,8 +143,6 @@ class AddCellComment(ToolBase):
             "text": text,
             "sheet": sheet.getName(),
         }
-
-
 class DeleteCellComment(ToolBase):
     """Delete a comment from a cell."""
 

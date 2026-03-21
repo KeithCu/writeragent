@@ -29,7 +29,6 @@ def _resolve_sheet(doc, sheet_name=None):
 def _cell_address_str(cell):
     """Return 'A1'-style address from a cell."""
     from plugin.modules.calc.address_utils import index_to_column
-
     col = cell.getCellAddress().Column
     row = cell.getCellAddress().Row
     return "%s%d" % (index_to_column(col), row + 1)
@@ -92,7 +91,8 @@ class SearchInSpreadsheet(ToolBase):
         if all_sheets:
             sheets_obj = doc.getSheets()
             targets = [
-                (sheets_obj.getByName(n), n) for n in sheets_obj.getElementNames()
+                (sheets_obj.getByName(n), n)
+                for n in sheets_obj.getElementNames()
             ]
         else:
             sheet = _resolve_sheet(doc, kwargs.get("sheet_name"))
@@ -112,13 +112,11 @@ class SearchInSpreadsheet(ToolBase):
                 if len(matches) >= max_results:
                     break
                 cell = found.getByIndex(i)
-                matches.append(
-                    {
-                        "sheet": sname,
-                        "cell": _cell_address_str(cell),
-                        "value": cell.getString(),
-                    }
-                )
+                matches.append({
+                    "sheet": sname,
+                    "cell": _cell_address_str(cell),
+                    "value": cell.getString(),
+                })
             if len(matches) >= max_results:
                 break
 
@@ -127,8 +125,6 @@ class SearchInSpreadsheet(ToolBase):
             "matches": matches,
             "count": len(matches),
         }
-
-
 class ReplaceInSpreadsheet(ToolBase):
     """Find and replace in the spreadsheet."""
 
@@ -186,7 +182,10 @@ class ReplaceInSpreadsheet(ToolBase):
 
         if all_sheets:
             sheets_obj = doc.getSheets()
-            targets = [sheets_obj.getByName(n) for n in sheets_obj.getElementNames()]
+            targets = [
+                sheets_obj.getByName(n)
+                for n in sheets_obj.getElementNames()
+            ]
         else:
             targets = [_resolve_sheet(doc, kwargs.get("sheet_name"))]
 

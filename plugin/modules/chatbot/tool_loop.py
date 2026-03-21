@@ -239,9 +239,7 @@ class ToolCallingMixin:
 
         log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
-    def _spawn_llm_worker(
-        self, q, client, max_tokens, tools, round_num, query_text=None
-    ):
+    def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num, query_text=None):
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
         log.debug(
@@ -249,9 +247,8 @@ class ToolCallingMixin:
             % (round_num, len(self.session.messages))
         )
         self._set_status(
-            "Thinking..."
-            if round_num == 0
-            else "Thinking (round %d)..." % (round_num + 1)
+            "Thinking..." if round_num == 0 else "Thinking (round %d)..."
+            % (round_num + 1)
         )
 
         def run():
@@ -274,7 +271,6 @@ class ToolCallingMixin:
                 q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
-
         run_in_background(run, name=f"llm-worker-{round_num}")
 
     def _spawn_final_stream(self, q, client, max_tokens):
@@ -309,13 +305,16 @@ class ToolCallingMixin:
                 q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
-
         run_in_background(run_final, name="llm-worker-final")
 
     def _handle_stream_completion(self, item):
         # item can be ('stream_done', response) or ('tool_done', ...) or ('final_done', ...) or ('next_tool',)
         kind = item[0] if isinstance(item, (tuple, list)) else item
-        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+        data = (
+            item[1]
+            if isinstance(item, (tuple, list)) and len(item) > 1
+            else None
+        )
 
         if kind == "stream_done":
             response = data
@@ -381,7 +380,9 @@ class ToolCallingMixin:
                 return True  # EXIT the drain loop
 
             # --- Has tool calls: queue them up ---
-            self.session.add_assistant_message(content=content, tool_calls=tool_calls)
+            self.session.add_assistant_message(
+                content=content, tool_calls=tool_calls
+            )
             if content:
                 self._append_response("\n")
 
@@ -402,9 +403,7 @@ class ToolCallingMixin:
                         data={"rounds": self._active_max_tool_rounds},
                         hypothesis_id="A",
                     )
-                    self._spawn_final_stream(
-                        self._active_q, self._active_client, self._active_max_tokens
-                    )
+                    self._spawn_final_stream(self._active_q, self._active_client, self._active_max_tokens)
                 else:
                     self._spawn_llm_worker(
                         self._active_q,
@@ -497,7 +496,6 @@ class ToolCallingMixin:
                         )
 
                 from plugin.framework.worker_pool import run_in_background
-
                 run_in_background(run_async, name=f"tool-async-{func_name}")
             else:
                 # --- SYNC EXECUTION (UNO tools) ---
@@ -569,14 +567,9 @@ class ToolCallingMixin:
                     result_data.get("success") is True
                     or result_data.get("status") == "ok"
                 )
-                doc = (
-                    self._get_document_model()
-                    if hasattr(self, "_get_document_model")
-                    else None
-                )
+                doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
                 if is_success and doc:
                     from plugin.main import get_tools as _get_tools_registry
-
                     tool = _get_tools_registry().get(func_name)
                     if tool and tool.detects_mutation():
                         max_ctx = get_config(self.ctx, "chat_context_length") or 8000
@@ -649,10 +642,7 @@ class ToolCallingMixin:
                     "\n[Model does not support audio. Falling back to STT...]\n"
                 )
                 self._transcribe_audio_async(
-                    self.audio_wav_path,
-                    stt_model,
-                    self._active_model,
-                    query_text=self._active_query_text,
+                    self.audio_wav_path, stt_model, self._active_model, query_text=self._active_query_text
                 )
                 return
 
@@ -688,7 +678,10 @@ class ToolCallingMixin:
         """
         if max_tool_rounds is None:
             max_tool_rounds = DEFAULT_MAX_TOOL_ROUNDS
-        log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
+        log.info(
+            "=== Tool-calling loop START (max %d rounds) ==="
+            % max_tool_rounds
+        )
         self._append_response("\nAI: ")
 
         self._active_q = queue.Queue()
@@ -733,12 +726,7 @@ class ToolCallingMixin:
 
         # --- Kick off the first LLM stream ---
         self._spawn_llm_worker(
-            self._active_q,
-            self._active_client,
-            self._active_max_tokens,
-            self._active_tools,
-            self._active_round_num,
-            query_text=self._active_query_text,
+            self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text
         )
 
         run_stream_drain_loop(

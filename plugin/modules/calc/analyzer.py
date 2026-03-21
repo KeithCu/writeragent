@@ -26,7 +26,6 @@ from plugin.framework.errors import ToolExecutionError
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-
     UNO_AVAILABLE = True
 except ImportError:
     EMPTY, VALUE, TEXT, FORMULA = 0, 1, 2, 3
@@ -79,9 +78,7 @@ class SheetAnalyzer:
             end_col_str = self.bridge._index_to_column(end_col)
             used_range = f"{start_col_str}{start_row + 1}:{end_col_str}{end_row + 1}"
 
-            header_range = sheet.getCellRangeByPosition(
-                start_col, start_row, end_col, start_row
-            )
+            header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
             header_data = header_range.getDataArray()
 
             headers = []

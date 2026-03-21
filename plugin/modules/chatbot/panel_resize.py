@@ -35,8 +35,8 @@ class _PanelResizeListener(BaseWindowListener):
     only the response area height changes to fill available space."""
 
     def __init__(self, controls, parent_window=None, deck_w_getter=None):
-        self._c = controls  # dict name -> control or None
-        self._initial = None  # captured from XDL-loaded pixel positions
+        self._c = controls        # dict name -> control or None
+        self._initial = None      # captured from XDL-loaded pixel positions
         self._in_relayout = False
         # Sidebar content area; root window width must match this (not LO's transient hints).
         self._parent_window = parent_window
@@ -74,10 +74,7 @@ class _PanelResizeListener(BaseWindowListener):
         r = win.getPosSize()
         if r.Width <= 0 or r.Height <= 0:
             return
-        log.debug(
-            "_capture_initial: starting snapshot for win W=%d H=%d"
-            % (r.Width, r.Height)
-        )
+        log.debug("_capture_initial: starting snapshot for win W=%d H=%d" % (r.Width, r.Height))
         info = {"win_w": r.Width, "win_h": r.Height, "ctrls": {}}
         resp = self._c.get("response")
         if resp:
@@ -128,7 +125,9 @@ class _PanelResizeListener(BaseWindowListener):
         try:
             summary_names = ("response", "query", "send", "clear", "model_selector")
             width_summary = {
-                n: info["ctrls"][n][2] for n in summary_names if n in info["ctrls"]
+                n: info["ctrls"][n][2]
+                for n in summary_names
+                if n in info["ctrls"]
             }
             log.debug("_capture_initial ctrl_widths=%s" % width_summary)
         except Exception:
@@ -170,7 +169,8 @@ class _PanelResizeListener(BaseWindowListener):
                 log.debug("_relayout: parent sync skipped: %s" % e)
 
         log.debug(
-            "_relayout: win W=%d H=%d (have_initial=%s)" % (w, h, bool(self._initial))
+            "_relayout: win W=%d H=%d (have_initial=%s)"
+            % (w, h, bool(self._initial))
         )
         fluid_debug = {}
 

@@ -63,13 +63,8 @@ class HttpRouteRegistry:
         if key in self._routes:
             log.warning("Route %s %s already registered — overwriting", method, path)
         self._routes[key] = Route(handler=handler, raw=raw, main_thread=main_thread)
-        log.debug(
-            "Route registered: %s %s (raw=%s, main_thread=%s)",
-            method,
-            path,
-            raw,
-            main_thread,
-        )
+        log.debug("Route registered: %s %s (raw=%s, main_thread=%s)",
+                  method, path, raw, main_thread)
 
     def remove(self, method, path):
         """Unregister a route."""

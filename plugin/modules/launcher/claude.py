@@ -36,7 +36,7 @@ class ClaudeProvider(BaseProvider):
             "mcpServers": {
                 "localwriter": {
                     "command": "npx",
-                    "args": ["-y", "@modelcontextprotocol/server-http", mcp_url],
+                    "args": ["-y", "@modelcontextprotocol/server-http", mcp_url]
                 }
             }
         }

@@ -50,8 +50,6 @@ class ListCharts(ToolBase):
             "charts": charts,
             "count": len(charts),
         }
-
-
 class GetChartInfo(ToolBase):
     """Get detailed info about a chart."""
 
@@ -82,14 +80,14 @@ class GetChartInfo(ToolBase):
             return self._tool_error(f"Chart '{chart_name}' not found.")
         info["status"] = "ok"
         return info
-
-
 class CreateChart(ToolBase):
     """Create a new chart from a data range."""
 
     name = "create_chart"
     intent = "edit"
-    description = "Creates a chart on the active sheet from the specified data range."
+    description = (
+        "Creates a chart on the active sheet from the specified data range."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -131,14 +129,14 @@ class CreateChart(ToolBase):
             has_header=kwargs.get("has_header", True),
         )
         return {"status": "ok", "message": result}
-
-
 class EditChart(ToolBase):
     """Modify chart properties."""
 
     name = "edit_chart"
     intent = "edit"
-    description = "Edit a Calc chart: update title, subtitle, or legend visibility."
+    description = (
+        "Edit a Calc chart: update title, subtitle, or legend visibility."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -175,8 +173,6 @@ class EditChart(ToolBase):
             has_legend=kwargs.get("has_legend"),
         )
         return {"status": "ok", "chart_name": chart_name, "updated": updated}
-
-
 class DeleteChart(ToolBase):
     """Delete a chart from a Calc sheet."""
 

@@ -28,7 +28,6 @@ from plugin.modules.calc.address_utils import parse_address
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-
     UNO_AVAILABLE = True
 except ImportError:
     EMPTY, VALUE, TEXT, FORMULA = 0, 1, 2, 3
@@ -36,8 +35,7 @@ except ImportError:
 
 logger = logging.getLogger("writeragent.calc")
 
-_FORMULA_REF_RE = re.compile(r"\$?([A-Z]+)\$?(\d+)")
-
+_FORMULA_REF_RE = re.compile(r'\$?([A-Z]+)\$?(\d+)')
 
 class CellInspector:
     """Examines cell contents and properties."""
@@ -188,9 +186,7 @@ class CellInspector:
             result = []
             for row_idx, row in enumerate(range(addr.StartRow, addr.EndRow + 1)):
                 row_data = []
-                for col_idx, col in enumerate(
-                    range(addr.StartColumn, addr.EndColumn + 1)
-                ):
+                for col_idx, col in enumerate(range(addr.StartColumn, addr.EndColumn + 1)):
                     # Extract raw data and formula strings from batch fetched arrays
                     raw_val = data_array[row_idx][col_idx]
                     raw_formula = formula_array[row_idx][col_idx]
@@ -213,14 +209,12 @@ class CellInspector:
                     col_letter = self.bridge._index_to_column(col)
                     cell_address = f"{col_letter}{row + 1}"
 
-                    row_data.append(
-                        {
-                            "address": cell_address,
-                            "value": value,
-                            "formula": formula,
-                            "type": self._cell_type_name(cell_type),
-                        }
-                    )
+                    row_data.append({
+                        "address": cell_address,
+                        "value": value,
+                        "formula": formula,
+                        "type": self._cell_type_name(cell_type),
+                    })
                 result.append(row_data)
 
             return result
@@ -271,23 +265,17 @@ class CellInspector:
                         cell_address = f"{col_letter}{cell_addr.Row + 1}"
 
                         formula = cell.getFormula()
-                        value = (
-                            cell.getValue()
-                            if cell.getValue() != 0
-                            else cell.getString()
-                        )
+                        value = cell.getValue() if cell.getValue() != 0 else cell.getString()
 
                         refs = _FORMULA_REF_RE.findall(formula.upper())
                         precedents = list({f"{c}{r}" for c, r in refs})
 
-                        formulas.append(
-                            {
-                                "address": cell_address,
-                                "formula": formula,
-                                "value": value,
-                                "precedents": precedents,
-                            }
-                        )
+                        formulas.append({
+                            "address": cell_address,
+                            "formula": formula,
+                            "value": value,
+                            "precedents": precedents,
+                        })
 
             return formulas
         except Exception as e:

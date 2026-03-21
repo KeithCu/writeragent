@@ -51,8 +51,6 @@ class ListMasterSlides(ToolBase):
                 pass
             result.append(entry)
         return {"status": "ok", "master_slides": result, "count": len(result)}
-
-
 class GetSlideMaster(ToolBase):
     """Get which master slide is assigned to a slide."""
 
@@ -82,8 +80,6 @@ class GetSlideMaster(ToolBase):
             "page_index": kwargs.get("page_index"),
             "master_name": master.Name if hasattr(master, "Name") else "",
         }
-
-
 class SetSlideMaster(ToolBase):
     """Assign a master slide to a slide."""
 

@@ -33,7 +33,6 @@ class OpenCodeProvider(BaseProvider):
 
         from plugin.framework.config import get_api_config
         from plugin.framework.uno_context import get_ctx
-
         try:
             api_config = get_api_config(get_ctx())
             endpoint = api_config.get("endpoint", "http://localhost:11434/v1")
@@ -46,7 +45,7 @@ class OpenCodeProvider(BaseProvider):
             "api_key": "ollama",
             "base_url": endpoint,
             "model": model,
-            "mcp_url": mcp_url,
+            "mcp_url": mcp_url
         }
         with open(os.path.join(cwd, "opencode.json"), "w") as f:
             json.dump(opencode_config, f, indent=2)

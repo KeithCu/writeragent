@@ -11,13 +11,12 @@ def test_sse_iter_yields_payloads():
         b"data: payload2\n\n",
         b"data: {}\n\n",
         b"data: [DONE]\n\n",
-        b"data: payload_after_done\n\n",  # Should not be yielded
+        b"data: payload_after_done\n\n" # Should not be yielded
     ]
 
-    with (
-        patch("urllib.request.Request") as mock_req_cls,
-        patch("urllib.request.urlopen") as mock_urlopen,
-    ):
+    with patch("urllib.request.Request") as mock_req_cls, \
+         patch("urllib.request.urlopen") as mock_urlopen:
+
         # Setup mock stream
         mock_stream = MagicMock()
         mock_urlopen.return_value.__enter__.return_value = mock_stream
@@ -33,10 +32,9 @@ def test_sse_iter_yields_payloads():
 
 def test_sse_iter_headers():
     """Test that default headers are injected and custom headers are preserved."""
-    with (
-        patch("urllib.request.Request") as mock_req_cls,
-        patch("urllib.request.urlopen") as mock_urlopen,
-    ):
+    with patch("urllib.request.Request") as mock_req_cls, \
+         patch("urllib.request.urlopen") as mock_urlopen:
+
         mock_stream = MagicMock()
         mock_urlopen.return_value.__enter__.return_value = mock_stream
         mock_stream.__iter__.return_value = iter([])
@@ -47,7 +45,7 @@ def test_sse_iter_headers():
         assert call_args["headers"] == {
             "User-Agent": USER_AGENT,
             "HTTP-Referer": APP_REFERER,
-            "X-Title": APP_TITLE,
+            "X-Title": APP_TITLE
         }
 
         # 2. Some custom headers provided
@@ -58,18 +56,17 @@ def test_sse_iter_headers():
         call_args = mock_req_cls.call_args[1]
         assert call_args["headers"] == {
             "Custom-Header": "value",
-            "User-Agent": "Custom-Agent",  # Preserved
+            "User-Agent": "Custom-Agent", # Preserved
             "HTTP-Referer": APP_REFERER,
-            "X-Title": APP_TITLE,
+            "X-Title": APP_TITLE
         }
 
 
 def test_sse_iter_timeout_and_data():
     """Test that timeout and data are correctly passed."""
-    with (
-        patch("urllib.request.Request") as mock_req_cls,
-        patch("urllib.request.urlopen") as mock_urlopen,
-    ):
+    with patch("urllib.request.Request") as mock_req_cls, \
+         patch("urllib.request.urlopen") as mock_urlopen:
+
         mock_stream = MagicMock()
         mock_urlopen.return_value.__enter__.return_value = mock_stream
         mock_stream.__iter__.return_value = iter([])

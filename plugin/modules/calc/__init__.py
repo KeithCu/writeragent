@@ -26,25 +26,7 @@ class CalcModule(ModuleBase):
     def initialize(self, services):
         self.services = services
 
-        from . import (
-            conditional,
-            charts,
-            navigation,
-            cells,
-            formulas,
-            sheets,
-            search,
-            comments,
-        )
+        from . import conditional, charts, navigation, cells, formulas, sheets, search, comments
 
-        for module in (
-            conditional,
-            charts,
-            navigation,
-            cells,
-            formulas,
-            sheets,
-            search,
-            comments,
-        ):
+        for module in (conditional, charts, navigation, cells, formulas, sheets, search, comments):
             services.tools.auto_discover(module)

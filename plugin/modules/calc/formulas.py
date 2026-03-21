@@ -48,7 +48,7 @@ class DetectErrors(ToolBase):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    'Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). '
+                    "Cell range(s) to check (e.g. [\"A1:Z100\"] or [\"A1\", \"B2\"]). "
                     "Omit or use empty list for full sheet."
                 ),
             },
@@ -67,7 +67,9 @@ class DetectErrors(ToolBase):
             rn = [rn] if rn else []
 
         if rn and isinstance(rn, list) and len(rn) > 0:
-            results = [error_detector.detect_and_explain(range_str=r) for r in rn]
+            results = [
+                error_detector.detect_and_explain(range_str=r) for r in rn
+            ]
             combined_errors = []
             for res in results:
                 combined_errors.extend(res.get("errors", []))
