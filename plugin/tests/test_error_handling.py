@@ -2,7 +2,7 @@ import queue
 import unittest
 from unittest.mock import Mock, patch
 
-from plugin.framework.errors import WriterAgentException, format_error_payload
+from plugin.framework.errors import WriterAgentException, format_error_payload, safe_json_loads
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.http.errors import format_error_for_display
 
@@ -46,6 +46,30 @@ class TestErrorHandling(unittest.TestCase):
         exc_generic = ValueError("System error")
         display_str_generic = format_error_for_display(exc_generic)
         self.assertEqual(display_str_generic, "Error: System error")
+
+class TestSafeJsonLoads(unittest.TestCase):
+    def test_safe_json_loads_valid(self):
+        self.assertEqual(safe_json_loads('{"key": "value"}'), {"key": "value"})
+        self.assertEqual(safe_json_loads('[1, 2, 3]'), [1, 2, 3])
+        self.assertEqual(safe_json_loads('"string"'), "string")
+        self.assertEqual(safe_json_loads('123'), 123)
+
+    def test_safe_json_loads_invalid(self):
+        self.assertIsNone(safe_json_loads('{"key": "value"'))
+        self.assertIsNone(safe_json_loads('invalid'))
+
+    def test_safe_json_loads_wrong_type(self):
+        self.assertIsNone(safe_json_loads(None))
+        self.assertIsNone(safe_json_loads(123))
+        self.assertIsNone(safe_json_loads({"not": "a string"}))
+
+    def test_safe_json_loads_null_eval(self):
+        self.assertIsNone(safe_json_loads('null'))
+        self.assertEqual(safe_json_loads('null', default={}), {})
+
+    def test_safe_json_loads_custom_default(self):
+        self.assertEqual(safe_json_loads('invalid', default={"error": True}), {"error": True})
+        self.assertEqual(safe_json_loads(None, default="default"), "default")
 
 from plugin.framework.async_stream import run_stream_drain_loop
 
