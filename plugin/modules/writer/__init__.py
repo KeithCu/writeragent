@@ -44,8 +44,5 @@ class WriterModule(ModuleBase):
         services.register("writer_proximity", prox)
         services.register("writer_index", idx)
 
-        # Register tools
-        from . import outline, styles, images, content, search, comments, tracking, frames
-
-        for module in (outline, styles, images, content, search, comments, tracking, frames):
-            services.tools.auto_discover(module)
+        # Register tools automatically for the entire package
+        services.tools.auto_discover_package(__name__)

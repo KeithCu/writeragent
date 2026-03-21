@@ -25,7 +25,4 @@ class DrawModule(ModuleBase):
     def initialize(self, services):
         self.services = services
 
-        from . import pages, transitions, masters, notes, shapes, placeholders
-
-        for module in (pages, transitions, masters, notes, shapes, placeholders):
-            services.tools.auto_discover(module)
+        services.tools.auto_discover_package(__name__)

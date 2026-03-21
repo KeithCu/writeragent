@@ -52,6 +52,23 @@ class ToolRegistry:
         for t in tools:
             self.register(t)
 
+    def auto_discover_package(self, package_name):
+        """Automatically discover and register ToolBase subclasses in all submodules of a package."""
+        import importlib
+        import pkgutil
+
+        # Import the package itself to get its path
+        package = importlib.import_module(package_name)
+
+        # Iterate over all submodules in the package directory
+        for _, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
+            full_module_name = f"{package_name}.{module_name}"
+            try:
+                module = importlib.import_module(full_module_name)
+                self.auto_discover(module)
+            except Exception as e:
+                log.error("Failed to discover tools in module %s: %s", full_module_name, e)
+
     def auto_discover(self, module):
         """Automatically discover and register ToolBase subclasses in a module."""
         import inspect
