@@ -154,9 +154,11 @@ docker-build:
 	@echo "Done: build/localwriter.oxt"
 
 auto-translate:
-	@if [ -n "$$OPENROUTER_API_KEY" ]; then \
-		echo "Regenerating translation templates (.pot)..."; \
-		$(MAKE) extract-strings; \
+	@echo "Showing translation status..."; \
+	$(PYTHON) scripts/translate_missing.py --preview; \
+	echo "Regenerating translation templates (.pot)..."; \
+	$(MAKE) extract-strings; \
+	if [ -n "$$OPENROUTER_API_KEY" ]; then \
 		echo "Auto-translating missing strings with AI..."; \
 		$(PYTHON) scripts/translate_missing.py --execute; \
 	fi
