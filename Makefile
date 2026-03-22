@@ -155,9 +155,12 @@ docker-build:
 
 auto-translate:
 	@if [ -n "$$OPENROUTER_API_KEY" ]; then \
+		echo "Regenerating translation templates (.pot)..."; \
+		$(MAKE) extract-strings; \
 		echo "Auto-translating missing strings with AI..."; \
 		$(PYTHON) scripts/translate_missing.py --execute; \
 	fi
+
 
 ifeq ($(USE_DOCKER),1)
 build: auto-translate compile-translations
@@ -287,10 +290,11 @@ nuke-cache-force:
 
 # ── Translation ──────────────────────────────────────────────────────────────
 extract-strings:
-	python scripts/extract_xdl_strings.py
+	$(PYTHON) scripts/extract_xdl_strings.py
 	xgettext -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py")
-	python scripts/merge_module_yaml_into_pot.py plugin/locales/writeragent.pot
+	$(PYTHON) scripts/merge_module_yaml_into_pot.py plugin/locales/writeragent.pot
 	rm -f plugin/xdl_strings.py
+
 
 add-language:
 	mkdir -p plugin/locales/$(LANG)/LC_MESSAGES

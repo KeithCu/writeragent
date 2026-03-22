@@ -955,9 +955,7 @@ msgid "Max Tool Rounds"
 msgstr "Rodadas máximas de ferramenta"
 
 msgid "Document Context Strategy"
-msgstr ""
-"\n"
-"[Erro de contexto do documento: {0}]\n"
+msgstr "Estratégia de Contexto do Documento"
 
 msgid "How much document content to include in LLM context"
 msgstr "Quanto conteúdo de documento incluir no contexto do LLM"
