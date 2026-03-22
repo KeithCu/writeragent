@@ -1109,6 +1109,23 @@ msgstr "Authtoken de Ngrok"
 msgid "Writer document tools (including navigation and search)"
 msgstr "Herramientas de documento de Writer (incluye navegación y búsqueda)"
 
+msgid "Transcribing audio..."
+msgstr "Transcribiendo audio..."
+
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+"\n"
+"[Transcribiendo audio...]\n"
+
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+"\n"
+"[Error de transcripción: {0}]\n"
+
 #~ msgid "AI chat sidebar and REST API"
 #~ msgstr "Barra lateral de chat IA y API REST"
 

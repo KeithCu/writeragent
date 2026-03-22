@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-22 00:56-0400\n"
+"POT-Creation-Date: 2026-03-22 02:22-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -259,11 +259,11 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: plugin/framework/legacy_ui.py:330 plugin/modules/chatbot/panel.py:477
-#: plugin/modules/chatbot/send_handlers.py:282
-#: plugin/modules/chatbot/send_handlers.py:293
-#: plugin/modules/chatbot/send_handlers.py:302
-#: plugin/modules/chatbot/send_handlers.py:543
+#: plugin/framework/legacy_ui.py:330 plugin/modules/chatbot/panel.py:482
+#: plugin/modules/chatbot/send_handlers.py:252
+#: plugin/modules/chatbot/send_handlers.py:263
+#: plugin/modules/chatbot/send_handlers.py:272
+#: plugin/modules/chatbot/send_handlers.py:513
 msgid "Error"
 msgstr ""
 
@@ -510,53 +510,70 @@ msgid ""
 "this!]"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:474
+#: plugin/modules/chatbot/panel.py:479
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:197
-#: plugin/modules/chatbot/send_handlers.py:365
-#: plugin/modules/chatbot/send_handlers.py:541
+#: plugin/modules/chatbot/send_handlers.py:39
+msgid "Transcribing audio..."
+msgstr ""
+
+#: plugin/modules/chatbot/send_handlers.py:40
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+
+#: plugin/modules/chatbot/send_handlers.py:58
+#, python-brace-format
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+
+#: plugin/modules/chatbot/send_handlers.py:167
+#: plugin/modules/chatbot/send_handlers.py:335
+#: plugin/modules/chatbot/send_handlers.py:511
 #, python-brace-format
 msgid ""
 "\n"
 "[Error: {0}]\n"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:280
+#: plugin/modules/chatbot/send_handlers.py:250
 #, python-brace-format
 msgid ""
 "\n"
 "[Document context error: {0}]\n"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:291
+#: plugin/modules/chatbot/send_handlers.py:261
 #, python-brace-format
 msgid ""
 "\n"
 "[Agent backend '{0}' not found.]\n"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:298
+#: plugin/modules/chatbot/send_handlers.py:268
 #, python-brace-format
 msgid ""
 "\n"
 "[Agent backend '{0}' is not available. Check Settings (path, install).]\n"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:517
+#: plugin/modules/chatbot/send_handlers.py:487
 #, python-brace-format
 msgid "AI (research): {0}\n"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:523
+#: plugin/modules/chatbot/send_handlers.py:493
 msgid "Unknown research error."
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:524
+#: plugin/modules/chatbot/send_handlers.py:494
 #, python-brace-format
 msgid "[Research error: {0}]\n"
 msgstr ""

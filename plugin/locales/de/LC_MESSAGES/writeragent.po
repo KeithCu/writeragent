@@ -1111,3 +1111,20 @@ msgstr "Writer-Dokumentenwerkzeuge (einschließlich Navigation und Suche)"
 
 msgid "TestItem456"
 msgstr "TestItem456"
+
+msgid "Transcribing audio..."
+msgstr "Transkribiere Audio..."
+
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+"\n"
+"[Transkribiere Audio...]\n"
+
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+"\n"
+"[Transkriptionsfehler: {0}]\n"

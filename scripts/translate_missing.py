@@ -182,10 +182,13 @@ def call_translate_batch(texts: List[str], target_lang: str, model: str = "x-ai/
     prompt = f"""
 Translate the following numbered list of English texts into the language '{target_lang}'.
 Return a strictly formatted JSON array containing only the translated strings, where the string at index `i` is the translation for item `i+1`.
+
+CRITICAL SAFETY: If the English text starts or ends with a newline character (\\n), spaces, or brackets, your translation MUST preserve that exact same starting and ending sequence (e.g. `\\n[Text]\\n` must remain `\\n[Translation]\\n`).
 DO NOT add commentary, only return the JSON array of strings.
 
 Texts to translate:
 """
+
     for i, text in enumerate(texts):
         prompt += f"{i+1}. \"{text}\"\n"
 
@@ -241,20 +244,34 @@ def update_po_file(po_file: str, translations_dict: Dict[str, str]) -> bool:
     for entry in po:
         is_fuzzy = 'fuzzy' in entry.flags
         if entry.msgid in translations_dict and (not entry.msgstr or entry.msgstr == "" or is_fuzzy):
-            entry.msgstr = translations_dict[entry.msgid]
+            new_val = translations_dict[entry.msgid]
+            # Programmatic layout safety enforcement
+            if entry.msgid.startswith("\n") and not new_val.startswith("\n"):
+                new_val = "\n" + new_val
+            if entry.msgid.endswith("\n") and not new_val.endswith("\n"):
+                new_val = new_val + "\n"
+            entry.msgstr = new_val
+            
             # Remove fuzzy flag if it exists since we supply a real translation
             if is_fuzzy:
                 entry.flags.remove('fuzzy')
             updated = True
+
 
             
     # Add completely new entries from the template if not present in .po
     po_msgids = {entry.msgid for entry in po}
     for msgid, msgstr in translations_dict.items():
         if msgid not in po_msgids:
-            entry = polib.POEntry(msgid=msgid, msgstr=msgstr)
+            new_val = msgstr
+            if msgid.startswith("\n") and not new_val.startswith("\n"):
+                new_val = "\n" + new_val
+            if msgid.endswith("\n") and not new_val.endswith("\n"):
+                new_val = new_val + "\n"
+            entry = polib.POEntry(msgid=msgid, msgstr=new_val)
             po.append(entry)
             updated = True
+
 
     if updated:
         po.save(po_file)

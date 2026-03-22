@@ -1118,3 +1118,20 @@ msgstr "Outils de documents Writer (y compris la navigation et la recherche)"
 
 msgid "TestItem456"
 msgstr "Élément de test 456"
+
+msgid "Transcribing audio..."
+msgstr "Transcription de l'audio..."
+
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+"\n"
+"[Transcription de l'audio...]\n"
+
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+"\n"
+"[Erreur de transcription : {0}]\n"

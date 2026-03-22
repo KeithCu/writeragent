@@ -1111,3 +1111,20 @@ msgstr "Ferramentas de documento Writer (incluindo navegação e pesquisa)"
 
 msgid "TestItem456"
 msgstr "Item de Teste 456"
+
+msgid "Transcribing audio..."
+msgstr "Transcrevendo áudio..."
+
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+"\n"
+"[Transcrevendo áudio...]\n"
+
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+"\n"
+"[Erro de transcrição: {0}]\n"

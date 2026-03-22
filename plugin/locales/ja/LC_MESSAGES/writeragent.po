@@ -1057,6 +1057,23 @@ msgstr "Ngrok 認証トークン"
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"
 
+msgid "Transcribing audio..."
+msgstr "音声を文字起こし中..."
+
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+"\n"
+"[音声を文字起こし中...]\n"
+
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+"\n"
+"[文字起こしエラー: {0}]\n"
+
 #~ msgid "AI chat sidebar and REST API"
 #~ msgstr "AI チャット サイドバーと REST API"
 

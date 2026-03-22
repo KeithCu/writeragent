@@ -1101,3 +1101,20 @@ msgstr "Token uwierzytelniający Ngrok"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Narzędzia do dokumentów Writer (w tym nawigacja i wyszukiwanie)"
+
+msgid "Transcribing audio..."
+msgstr "Transkrybuję audio..."
+
+msgid ""
+"\n"
+"[Transcribing audio...]\n"
+msgstr ""
+"\n"
+"[Transkrybuję audio...]\n"
+
+msgid ""
+"\n"
+"[Transcription error: {0}]\n"
+msgstr ""
+"\n"
+"[Błąd transkrypcji: {0}]\n"
