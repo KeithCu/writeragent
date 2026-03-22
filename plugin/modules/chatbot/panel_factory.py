@@ -152,17 +152,8 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         h = parent_h if parent_h > 0 else 400
         deck_w = width
         self._last_deck_w = deck_w
-        # When parent tracks deck (typical user-sized sidebar), fill full parent so fluid
-        # controls stretch. When parent runs far ahead of deck (intrinsic inflation), clamp
-        # to min(parent, deck) — see writeragent_debug.log (must match panel_resize).
-        _DIVERGENCE_PX = 80
-        if parent_w > 0 and deck_w > 0:
-            if parent_w > deck_w + _DIVERGENCE_PX:
-                eff_w = min(parent_w, deck_w)
-            else:
-                eff_w = parent_w
-        elif parent_w > 0:
-            eff_w = min(parent_w, deck_w)
+        if parent_w > 0:
+            eff_w = parent_w
         else:
             eff_w = deck_w
 

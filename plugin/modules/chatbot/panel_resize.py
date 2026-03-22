@@ -141,8 +141,6 @@ class _PanelResizeListener(BaseWindowListener):
         if w <= 0 or h <= 0:
             return
 
-        # Match getHeightForWidth: fill parent when aligned; clamp when parent >> deck.
-        _DIVERGENCE_PX = 80
         if self._parent_window:
             try:
                 pr = self._parent_window.getPosSize()
@@ -153,10 +151,8 @@ class _PanelResizeListener(BaseWindowListener):
                         deck = self._deck_w_getter()
                     except Exception:
                         deck = None
-                if deck is not None and deck > 0 and pw > deck + _DIVERGENCE_PX:
-                    target_w = min(pw, deck)
-                else:
-                    target_w = pw
+
+                target_w = pw
                 if target_w > 0 and abs(w - target_w) > 1:
                     log.debug(
                         "_relayout: sync root W %d -> target W %d (parent=%s deck=%s)"

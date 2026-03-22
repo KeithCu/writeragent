@@ -39,8 +39,8 @@ def test_legacy_ui_imports():
     try:
         from plugin.framework import legacy_ui
         legacy_ui_imported = True
-    except ModuleNotFoundError as e:
-        # Expected to fail when unohelper is not available in headless python,
+    except (ModuleNotFoundError, ImportError) as e:
+        # Expected to fail when unohelper or com.sun.star.* is not available in headless python,
         # but the module structure itself should not have syntax errors.
         legacy_ui_imported = False
-        assert 'unohelper' in str(e) or 'uno' in str(e)
+        assert 'unohelper' in str(e) or 'uno' in str(e) or 'com.sun.star' in str(e) or 'cannot import name' in str(e)
