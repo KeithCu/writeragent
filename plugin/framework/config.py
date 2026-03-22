@@ -204,6 +204,41 @@ class WriterAgentConfig:
 
     def validate(self):
         """Perform validation of config keys and emit warnings or fix values."""
+        # Clean up any translated headers that incorrectly made it into config
+        for f in dataclasses.fields(self):
+            val = getattr(self, f.name)
+            if isinstance(val, str) and "Project-Id-Version:" in val:
+                # Default seed should be -1, not empty string.
+                if f.name == "seed":
+                    setattr(self, f.name, "-1")
+                else:
+                    setattr(self, f.name, "")
+
+        for k, v in list(self._extra_config.items()):
+            if isinstance(v, str) and "Project-Id-Version:" in v:
+                self._extra_config[k] = ""
+
+        # Normalize localized strings back to internal keys (e.g. image_default_aspect)
+        # Search through schema options to find if current string is a translation of a known value
+        try:
+            from plugin.framework.settings_dialog import get_settings_field_specs
+            specs = get_settings_field_specs(None)
+            for spec in specs:
+                if "options" in spec and hasattr(self, spec["name"].replace("__", ".")):
+                    key = spec["name"].replace("__", ".")
+                    val = getattr(self, key)
+                    for opt in spec["options"]:
+                        if isinstance(opt, dict):
+                            # In LibreOffice dialogs the options labels are translated via _()
+                            # we have to use standard translation to match what might have been incorrectly saved
+                            from plugin.framework.i18n import _
+                            lbl = opt.get("label", opt.get("value", ""))
+                            if _(lbl) == str(val):
+                                setattr(self, key, opt.get("value", lbl))
+                                break
+        except Exception as e:
+            log.warning(f"Failed to normalize config against specs: {e}")
+
         if not isinstance(self.chat_max_tokens, int) or self.chat_max_tokens < 0:
             log.warning("Invalid chat_max_tokens %s, falling back to 16384", self.chat_max_tokens)
             self.chat_max_tokens = 16384

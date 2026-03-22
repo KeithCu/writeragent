@@ -497,7 +497,7 @@ def translate_dialog(dlg):
                     if prop == 'StringItemList':
                         items = ctrl.getStringItemList()
                         if items:
-                            translated = tuple(_(item) for item in items)
+                            translated = tuple(_(item) if item else "" for item in items)
                             ctrl.setStringItemList(translated)
                     else:
                         model = ctrl.getModel()

@@ -72,7 +72,7 @@ def get_settings_field_specs(ctx):
                 if opts and isinstance(opts[0], dict):
                     for o in opts:
                         if str(o.get("value", "")) == str(val).strip().lower():
-                            val = o.get("label", val)
+                            val = _(o.get("label", val))
                             break
                 field = {"name": ctrl_id, "value": str(val)}
                 
