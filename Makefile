@@ -153,25 +153,33 @@ docker-build:
 	UID=$$(id -u) GID=$$(id -g) docker compose -f builder/docker-compose.yml up --build
 	@echo "Done: build/localwriter.oxt"
 
+auto-translate:
+	@if [ -n "$$OPENROUTER_API_KEY" ]; then \
+		echo "Auto-translating missing strings with AI..."; \
+		$(PYTHON) scripts/translate_missing.py --execute; \
+	fi
+
 ifeq ($(USE_DOCKER),1)
-build: compile-translations
+build: auto-translate compile-translations
 	@$(MAKE) docker-build
 else
-build: vendor manifest compile-translations
+build: auto-translate vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: vendor manifest compile-translations
+build-no-recording: auto-translate vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 
-release: vendor manifest compile-translations
+release: auto-translate vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (release, no tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
+
+
 
 repack:
 	@echo "Re-packing from build/bundle/..."
@@ -278,7 +286,6 @@ nuke-cache-force:
 	rm -f "$(LO_CONF)/.lock"
 
 # ── Translation ──────────────────────────────────────────────────────────────
-
 extract-strings:
 	python scripts/extract_xdl_strings.py
 	xgettext -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py")
@@ -290,8 +297,12 @@ add-language:
 	cp plugin/locales/writeragent.pot plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
 	msgfmt -o plugin/locales/$(LANG)/LC_MESSAGES/writeragent.mo plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
 
+translate-missing:
+	$(PYTHON) scripts/translate_missing.py --execute
+
 compile-translations:
 	find plugin/locales -name "*.po" -exec sh -c 'msgfmt -o "$$(dirname $$1)/$$(basename $$1 .po).mo" "$$1"' _ {} \;
+
 
 # ── Shortcuts ───────────────────────────────────────────────────────────────
 
