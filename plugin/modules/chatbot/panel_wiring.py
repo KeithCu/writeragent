@@ -108,7 +108,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         
     if web_checked:
         self.session = self.web_session
-        active_greeting = DEFAULT_RESEARCH_GREETING
+        active_greeting = _(DEFAULT_RESEARCH_GREETING)
     else:
         self.session = self.doc_session
         active_greeting = get_greeting_for_document(model)

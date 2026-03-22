@@ -592,7 +592,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                     if is_research:
                         self.panel.session = self.panel.web_session
-                        greeting = DEFAULT_RESEARCH_GREETING
+                        greeting = _(DEFAULT_RESEARCH_GREETING)
                     else:
                         self.panel.session = self.panel.doc_session
                         greeting = get_greeting_for_document(self.model)

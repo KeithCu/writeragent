@@ -160,21 +160,30 @@ COORDINATES:
 All coordinates (x, y, width, height) are in 100ths of a millimeter.
 A typical page is roughly 21000 x 29700 (A4)."""
 
-DEFAULT_WRITER_GREETING = "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
-DEFAULT_CALC_GREETING = "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
-DEFAULT_DRAW_GREETING = "AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!"
-DEFAULT_RESEARCH_GREETING = "AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat."
+
+# Dummy gettext function for string extraction tools (xgettext)
+# We don't evaluate them here to avoid early localization issues.
+_ = lambda x: x
+
+DEFAULT_WRITER_GREETING = _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
+DEFAULT_CALC_GREETING = _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")
+DEFAULT_DRAW_GREETING = _("AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!")
+DEFAULT_RESEARCH_GREETING = _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat.")
+
+# Remove dummy _ so it doesn't leak
+del _
 
 
 def get_greeting_for_document(model):
     """Return a greeting relevant to the document type."""
+    from plugin.framework.i18n import _
     from plugin.framework.document import is_calc, is_draw
     if is_calc(model):
-        return DEFAULT_CALC_GREETING
+        return _(DEFAULT_CALC_GREETING)
     elif is_draw(model):
-        return DEFAULT_DRAW_GREETING
+        return _(DEFAULT_DRAW_GREETING)
     else:
-        return DEFAULT_WRITER_GREETING
+        return _(DEFAULT_WRITER_GREETING)
 
 
 def get_chat_system_prompt_for_document(model, additional_instructions=""):
