@@ -707,51 +707,51 @@ msgstr "DiesIstEinUnübersetzterString999"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
-msgstr ""
+msgstr "-1"
 
 #: plugin/xdl_strings.py:5
 msgid "7.5"
-msgstr ""
+msgstr "7.5"
 
 #: plugin/xdl_strings.py:6
 msgid "AI Horde API Key:"
-msgstr ""
+msgstr "AI Horde API-Schlüssel:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
-msgstr ""
+msgstr "KI-Modell:"
 
 #: plugin/xdl_strings.py:8
 msgid "API Key:"
-msgstr ""
+msgstr "API-Schlüssel:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr ""
+msgstr "Zusätzliche Anweisungen (Verlauf):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
-msgstr ""
+msgstr "Zusätzliche Anweisungen:"
 
 #: plugin/xdl_strings.py:11
 msgid "Allow NSFW"
-msgstr ""
+msgstr "NSFW erlauben"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
-msgstr ""
+msgstr "Fragen / anweisen:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
-msgstr ""
+msgstr "Seitenverhältnis:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
-msgstr ""
+msgstr "Audio-Modell:"
 
 #: plugin/xdl_strings.py:15
 msgid "Auto Gallery"
-msgstr ""
+msgstr "Autogalerie"
 
 #: plugin/xdl_strings.py:16
 #, fuzzy
@@ -760,51 +760,51 @@ msgstr "Größe:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
-msgstr ""
+msgstr "Basis:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr ""
+msgstr "CFG-Skala:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr ""
+msgstr "Rechner"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
-msgstr ""
+msgstr "Kategorien:"
 
 #: plugin/xdl_strings.py:21
 msgid "Censor NSFW"
-msgstr ""
+msgstr "NSFW zensieren"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr ""
+msgstr "Chat (Test):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
-msgstr ""
+msgstr "Klar"
 
 #: plugin/xdl_strings.py:24
 msgid "Close"
-msgstr ""
+msgstr "Schließen"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
-msgstr ""
+msgstr "Kontextlänge:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr ""
+msgstr "Zeichnen"
 
 #: plugin/xdl_strings.py:27
 msgid "Endpoint URL (/v1 added):"
-msgstr ""
+msgstr "Endpunkt-URL (/v1 hinzugefügt):"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL:"
-msgstr ""
+msgstr "Endpunkt-URL:"
 
 #: plugin/xdl_strings.py:29
 #, fuzzy
@@ -813,7 +813,7 @@ msgstr "Generieren..."
 
 #: plugin/xdl_strings.py:30
 msgid "Image Model:"
-msgstr ""
+msgstr "Bildmodell:"
 
 #: plugin/xdl_strings.py:31
 #, fuzzy
@@ -822,7 +822,7 @@ msgstr "Einstellungen"
 
 #: plugin/xdl_strings.py:33
 msgid "Insert Frame"
-msgstr ""
+msgstr "Frame einfügen"
 
 #: plugin/xdl_strings.py:34
 #, fuzzy
@@ -831,19 +831,19 @@ msgstr "Evaluations-Dashboard"
 
 #: plugin/xdl_strings.py:35
 msgid "Max Tokens:"
-msgstr ""
+msgstr "Max. Tokens:"
 
 #: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
-msgstr ""
+msgstr "Max. Wartezeit (s):"
 
 #: plugin/xdl_strings.py:37
 msgid "Models to Test:"
-msgstr ""
+msgstr "Modelle zum Testen:"
 
 #: plugin/xdl_strings.py:38
 msgid "Multimodal"
-msgstr ""
+msgstr "Multimodal"
 
 #: plugin/xdl_strings.py:40
 #, fuzzy
@@ -852,19 +852,19 @@ msgstr "Bitte geben Sie Bearbeitungsanweisungen ein!"
 
 #: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
-msgstr ""
+msgstr "Benchmark ausführen"
 
 #: plugin/xdl_strings.py:43
 msgid "Seed:"
-msgstr ""
+msgstr "Samen:"
 
 #: plugin/xdl_strings.py:46
 msgid "Square"
-msgstr ""
+msgstr "Quadrat"
 
 #: plugin/xdl_strings.py:47
 msgid "Steps:"
-msgstr ""
+msgstr "Schritte:"
 
 #: plugin/xdl_strings.py:48
 #, fuzzy
@@ -873,88 +873,93 @@ msgstr "Aufnahme stoppen"
 
 #: plugin/xdl_strings.py:49
 msgid "Temperature:"
-msgstr ""
+msgstr "Temperatur:"
 
 #: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
-msgstr ""
+msgstr "Text-/Chat-Modell:"
 
 #: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
-msgstr ""
+msgstr "Zeitüberschreitung (s):"
 
 #: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
-msgstr ""
+msgstr "Übersetzungs-Prompt"
 
 #: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
-msgstr ""
+msgstr "Übersetzen von (z. B. es):"
 
 #: plugin/xdl_strings.py:54
 msgid "Use AI Horde for Image Generation"
-msgstr ""
+msgstr "Verwenden Sie AI Horde für die Bildgenerierung"
 
 #: plugin/xdl_strings.py:55
 msgid "Use Image model"
-msgstr ""
+msgstr "Bildmodell verwenden"
 
 #: plugin/xdl_strings.py:56
 msgid "Web Research"
-msgstr ""
+msgstr "Web-Recherche"
 
 #: plugin/xdl_strings.py:57
 msgid "Writer"
-msgstr ""
+msgstr "Autor"
 
 msgid "Agent backends"
 msgstr "Agenten"
 
 msgid "Backend"
-msgstr ""
+msgstr "Backend"
 
 msgid "Built-in"
-msgstr ""
+msgstr "Eingebaut"
 
 msgid "Hermes"
-msgstr ""
+msgstr "Hermes"
 
 msgid "Claude Code (ACP)"
-msgstr ""
+msgstr "Claude Code (ACP)"
 
 msgid "Path / URL"
-msgstr ""
+msgstr "Pfad / URL"
 
 msgid ""
 "Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
 "http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
+"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. "
+"http://localhost:8000 für Hermes). Leer = Standard versuchen."
 
 msgid "Extra arguments"
-msgstr ""
+msgstr "Zusätzliche Argumente"
 
 msgid "Optional arguments for the selected backend (space-separated)."
 msgstr ""
+"Optionale Argumente für das ausgewählte Backend (Leerzeichen-getrennt)."
 
 msgid "ACP agent name"
-msgstr ""
+msgstr "ACP-Agentenname"
 
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
+"Name des Agents auf dem ACP-Server (z. B. hermes). Leer = ersten Agent "
+"automatisch entdecken."
 
 msgid "Calc spreadsheet tools"
-msgstr ""
+msgstr "Calc-Tabellen-Tools"
 
 msgid "Max Rows Display"
-msgstr ""
+msgstr "Maximale Zeilenanzeige"
 
 msgid "Sidebar"
 msgstr "Sidebar"
 
 msgid "Max Tool Rounds"
-msgstr ""
+msgstr "Maximale Tool-Runden"
 
 #, fuzzy
 msgid "Document Context Strategy"
@@ -963,22 +968,22 @@ msgstr ""
 "[Fehler im Dokumentenkontext: {0}]\n"
 
 msgid "How much document content to include in LLM context"
-msgstr ""
+msgstr "Wie viel Dokumentinhalt in den LLM-Kontext einschließen"
 
 msgid "Auto (by document size)"
-msgstr ""
+msgstr "Automatisch (nach Dokumentgröße)"
 
 msgid "Full document text"
-msgstr ""
+msgstr "Vollständiger Dokumenttext"
 
 msgid "Pages around cursor"
-msgstr ""
+msgstr "Seiten um den Cursor"
 
 msgid "Outline + excerpt"
-msgstr ""
+msgstr "Gliederung + Auszug"
 
 msgid "Stats + outline only"
-msgstr ""
+msgstr "Nur Statistiken + Gliederung"
 
 #, fuzzy
 msgid "Extend Selection Max Tokens"
@@ -990,27 +995,29 @@ msgstr "Auswahl bearbeiten"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
+"Zusätzliche Tokens über die ursprüngliche Textlänge hinaus. 0 = gleiche "
+"Länge wie Original."
 
 msgid "Show Web Search Thinking"
-msgstr ""
+msgstr "Web-Suchdenken anzeigen"
 
 msgid "Web Cache Max Size (MB)"
-msgstr ""
+msgstr "Web-Cache-Maximale Größe (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
+msgstr "Maximale Festplattengröße für Web-Such-Cache (0 zum Deaktivieren)"
 
 msgid "Web Cache Validity (Days)"
-msgstr ""
+msgstr "Web-Cache-Gültigkeit (Tage)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr ""
+msgstr "Wie viele Tage Cache-Einträge als gültig betrachtet werden sollen."
 
 msgid "Doc"
 msgstr "Dok"
 
 msgid "Draw and Impress tools"
-msgstr ""
+msgstr "Draw- und Impress-Werkzeuge"
 
 msgid "MCP"
 msgstr "MCP"
@@ -1020,89 +1027,101 @@ msgid "Enable MCP Server"
 msgstr "MCP-Server umschalten"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
-msgstr ""
+msgstr "Nur Localhost, keine Auth. Zugriff über stdio ist immer aktiviert."
 
 msgid "MCP Port"
-msgstr ""
+msgstr "MCP-Port"
 
 msgid "AI CLI Launcher"
-msgstr ""
+msgstr "KI CLI Starter"
 
 msgid "AI CLI Provider"
-msgstr ""
+msgstr "KI-CLI-Anbieter"
 
 msgid "Install"
-msgstr ""
+msgstr "Installieren"
 
 #, fuzzy
 msgid "CLI Status"
 msgstr "Server-Status"
 
 msgid "Auto-configure MCP"
-msgstr ""
+msgstr "MCP automatisch konfigurieren"
 
 msgid ""
 "Generate a temporary config file pointing the CLI to LocalWriter's MCP "
 "server."
 msgstr ""
+"Generieren Sie eine temporäre Konfigurationsdatei, die die CLI auf den MCP-"
+"Server von LocalWriter verweist."
 
 msgid "Terminal Emulator"
-msgstr ""
+msgstr "Terminal-Emulator"
 
 msgid ""
 "Terminal to use (e.g. xterm, gnome-terminal, konsole). Empty = auto-detect."
 msgstr ""
+"Zu verwendendes Terminal (z. B. xterm, gnome-terminal, konsole). Leer = "
+"automatische Erkennung."
 
 msgid "Working Directory"
-msgstr ""
+msgstr "Arbeitsverzeichnis"
 
 msgid "Directory to launch AI CLI in. Clear to restore default."
 msgstr ""
+"Verzeichnis zum Starten des AI CLI. Leeren, um Standard wiederherzustellen."
 
 msgid "Extra Arguments"
-msgstr ""
+msgstr "Zusätzliche Argumente"
 
 msgid "Additional CLI arguments. Placeholders: {mcp_url}, {port}, {host}."
-msgstr ""
+msgstr "Zusätzliche CLI-Argumente. Platzhalter: {mcp_url}, {port}, {host}."
 
 msgid "Global AI Instructions"
-msgstr ""
+msgstr "Globale KI-Anweisungen"
 
 msgid ""
 "Persona and rules sent to any AI CLI you launch. For Claude this is "
 "CLAUDE.md, for OpenCode this is AGENTS.md."
 msgstr ""
+"Persona und Regeln, die an jede AI CLI gesendet werden, die du startest. Für"
+" Claude ist das CLAUDE.md, für OpenCode AGENTS.md."
 
 msgid "Tunnel providers for external MCP access"
-msgstr ""
+msgstr "Tunnelanbieter für externen MCP-Zugriff"
 
 msgid "Auto Start Tunnel"
-msgstr ""
+msgstr "Tunnel automatisch starten"
 
 msgid "Tunnel Provider"
-msgstr ""
+msgstr "Tunnelanbieter"
 
 #, fuzzy
 msgid "Bore Server"
 msgstr "MCP-Server umschalten"
 
 msgid "Relay server (default: bore.pub)"
-msgstr ""
+msgstr "Relay-Server (Standard: bore.pub)"
 
 msgid "Cloudflare Tunnel Name"
-msgstr ""
+msgstr "Cloudflare Tunnel-Name"
 
 msgid "Optional: use a named tunnel instead of a quick tunnel"
 msgstr ""
+"Optional: Verwenden Sie einen benannten Tunnel anstelle eines schnellen "
+"Tunnels"
 
 msgid "Cloudflare Public URL"
-msgstr ""
+msgstr "Cloudflare Öffentliche URL"
 
 msgid "Required for named tunnels"
-msgstr ""
+msgstr "Erforderlich für benannte Tunnel"
 
 msgid "Ngrok Authtoken"
-msgstr ""
+msgstr "Ngrok Authentifizierungstoken"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr ""
+msgstr "Writer-Dokumentenwerkzeuge (einschließlich Navigation und Suche)"
+
+msgid "TestItem456"
+msgstr "TestItem456"
