@@ -252,9 +252,8 @@ class SendHandlersMixin:
             self._set_status(_("Error"))
             return
 
-        backend_id = str(
-            get_config(self.ctx, "agent_backend.backend_id") or "builtin"
-        ).strip().lower()
+        from plugin.modules.agent_backend.registry import normalize_backend_id
+        backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
         adapter = get_backend(backend_id, ctx=self.ctx)
         if not adapter:
             from plugin.framework.i18n import _

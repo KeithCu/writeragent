@@ -262,7 +262,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                             except Exception as e:
                                 log.error(f"Failed to set StringItemList for {field['name']}: {e}")
                         
-                        ctrl.setText(field["value"])
+                        ctrl.setText(_(field["value"]))
                     else:
                         try:
                             set_control_text(ctrl, field["value"])
