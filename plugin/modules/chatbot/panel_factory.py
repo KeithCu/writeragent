@@ -152,10 +152,12 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         h = parent_h if parent_h > 0 else 400
         deck_w = width
         self._last_deck_w = deck_w
-        if parent_w > 0:
+        if deck_w > 0:
+            eff_w = deck_w
+        elif parent_w > 0:
             eff_w = parent_w
         else:
-            eff_w = deck_w
+            eff_w = 400
 
         try:
             before = self.PanelWindow.getPosSize()

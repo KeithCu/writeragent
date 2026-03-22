@@ -152,7 +152,12 @@ class _PanelResizeListener(BaseWindowListener):
                     except Exception:
                         deck = None
 
-                target_w = pw
+                if deck is not None and deck > 0:
+                    target_w = deck
+                elif pw > 0:
+                    target_w = pw
+                else:
+                    target_w = w
                 if target_w > 0 and abs(w - target_w) > 1:
                     log.debug(
                         "_relayout: sync root W %d -> target W %d (parent=%s deck=%s)"
@@ -224,6 +229,12 @@ class _PanelResizeListener(BaseWindowListener):
                 # a bad initial snapshot cannot permanently shrink widths.
                 new_x = ox
                 new_w = max(10, avail)
+            elif name == "backend_indicator":
+                # Fixed size, but anchored to the right side so it isn't clipped
+                new_w = ow
+                new_x = w - new_w - fixed_margin
+                if new_x < ox:  # Don't let it overlap controls to its left
+                    new_x = ox
             else:
                 # Fixed size, anchored left
                 new_x = ox
