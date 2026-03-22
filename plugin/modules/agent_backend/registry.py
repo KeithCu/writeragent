@@ -54,8 +54,8 @@ def normalize_backend_id(backend_id):
     if b_id in ("built-in", "eingebaut", "встроенный", "integrato", "incorporado", "wbudowany", "intägré", "wbudowane", "組み込み"):
         return "builtin"
 
-    # Return original backend_id so invalid configs still trigger errors
-    return backend_id
+    # Default to builtin if not found, recovering from any other corrupted string
+    return "builtin"
 
 
 def get_backend(backend_id, ctx=None):

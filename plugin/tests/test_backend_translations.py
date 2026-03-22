@@ -11,5 +11,5 @@ def test_backend_translation_normalization():
     assert normalize_backend_id('hermes') == 'hermes'
     assert normalize_backend_id('Hermes') == 'hermes'
     assert normalize_backend_id('claude') == 'claude'
-    assert normalize_backend_id('nonexistent') == 'nonexistent'
+    assert normalize_backend_id('nonexistent') == 'builtin'
     assert get_backend('Eingebaut') is not None
