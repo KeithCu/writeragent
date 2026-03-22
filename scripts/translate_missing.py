@@ -5,6 +5,7 @@
 """
 Script to automatically translate missing strings using AI.
 Adds a completeness report at start and processes strings in batches.
+Leading/trailing whitespace is stripped before the API call and restored on the result.
 Uses `x-ai/grok-4.1-fast` (default).
 """
 
@@ -15,6 +16,7 @@ import logging
 import subprocess
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
@@ -45,39 +47,57 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 log = logging.getLogger("translate_missing")
 
 
-def print_status_report(locales_dir: str = "plugin/locales"):
-    """Print an aligned table of translation statistics for terminal view."""
+def _pot_nonheader_count(pot_file: polib.POFile) -> int:
+    return sum(1 for e in pot_file if e.msgid != "")
+
+
+def print_status_report(locales_dir: str = "plugin/locales", pot_path: str = "plugin/locales/writeragent.pot"):
+    """Print an aligned table: vs POT (same basis as find_missing) when writeragent.pot exists, else msgfmt."""
     files = glob_po_files(locales_dir)
     rows = []
-    for lang, f_path in sorted(files):
-        stats = get_stats(f_path)
-        if stats:
-            t, fz, u, tot = stats
-            pct = (t / tot) * 100 if tot > 0 else 0.0
-            rows.append([lang, str(t), str(fz), str(u), str(tot), f"{pct:.1f}%"])
+    headers: List[str]
+    pot_file: Optional[polib.POFile] = None
+    p = Path(pot_path)
+    if p.exists():
+        try:
+            pot_file = polib.pofile(str(p))
+        except Exception:
+            pot_file = None
+
+    if pot_file:
+        total_pot = _pot_nonheader_count(pot_file)
+        for lang, f_path in sorted(files):
+            pending = len(find_missing_translations(f_path, pot_file))
+            done = total_pot - pending
+            pct = (done / total_pot) * 100 if total_pot > 0 else 0.0
+            rows.append([lang, str(total_pot), str(pending), str(done), f"{pct:.1f}%"])
+        headers = ["Language", "POT total", "Pending", "Done", "Completion %"]
+    else:
+        for lang, f_path in sorted(files):
+            stats = get_stats(f_path)
+            if stats:
+                t, fz, u, tot = stats
+                pct = (t / tot) * 100 if tot > 0 else 0.0
+                rows.append([lang, str(t), str(fz), str(u), str(tot), f"{pct:.1f}%"])
+        headers = ["Language", "Translated", "Fuzzy", "Untranslated", "Total", "Completion %"]
 
     if not rows:
         print("No localization files found.")
         return
 
-    # Header and column width specs
-    headers = ["Language", "Translated", "Fuzzy", "Untranslated", "Total", "Completion %"]
     widths = [len(h) for h in headers]
     for r in rows:
         for i, val in enumerate(r):
             widths[i] = max(widths[i], len(val))
 
     print("\n=== Current Localization Status ===")
-    
-    # Print Headers
+
     header_line = " | ".join(f"{headers[i]:<{widths[i]}}" for i in range(len(headers)))
     print(f"| {header_line} |")
-    
-    # Print Separator
+
     sep_line = " | ".join("-" * widths[i] for i in range(len(headers)))
     print(f"| {sep_line} |")
 
-    # Print Rows
     for r in rows:
         row_line = " | ".join(f"{r[i]:<{widths[i]}}" for i in range(len(headers)))
         print(f"| {row_line} |")
@@ -156,6 +176,16 @@ def find_missing_translations(po_file: str, pot_file: polib.POFile) -> List[Dict
     return missing
 
 
+def peel_edge_whitespace(s: str) -> Tuple[str, str, str]:
+    """Split s into (leading_ws, core, trailing_ws). Core has no leading/trailing str.strip() whitespace."""
+    m0 = re.match(r"^(\s*)", s, re.UNICODE)
+    leading = m0.group(1) if m0 else ""
+    rest = s[len(leading) :]
+    m1 = re.search(r"(\s*)$", rest)
+    trailing = m1.group(1) if m1 else ""
+    core = rest[: len(rest) - len(trailing)] if trailing else rest
+    return leading, core, trailing
+
 
 def call_translate_batch(texts: List[str], target_lang: str, model: str = "x-ai/grok-4.1-fast", 
                          endpoint: str = "https://openrouter.ai/api/v1", api_key: str = None) -> List[Optional[str]]:
@@ -178,13 +208,10 @@ def call_translate_batch(texts: List[str], target_lang: str, model: str = "x-ai/
                 log.error("No API key available. Provide it via argument, config, or OPENROUTER_API_KEY env.")
                 return [None] * len(texts)
 
-    # Prompt designed to demand accurate mapping
     prompt = f"""
 Translate the following numbered list of English texts into the language '{target_lang}'.
 Return a strictly formatted JSON array containing only the translated strings, where the string at index `i` is the translation for item `i+1`.
-
-CRITICAL SAFETY: If the English text starts or ends with a newline character (\\n), spaces, or brackets, your translation MUST preserve that exact same starting and ending sequence (e.g. `\\n[Text]\\n` must remain `\\n[Translation]\\n`).
-DO NOT add commentary, only return the JSON array of strings.
+Do not add commentary, only return the JSON array.
 
 Texts to translate:
 """
@@ -280,13 +307,16 @@ def update_po_file(po_file: str, translations_dict: Dict[str, str]) -> bool:
 
 
 def translate_batch_worker(texts: List[str], lang: str, model: str, api_key: str = None) -> Dict[str, str]:
-    """Worker for thread pool to translate a batch and return a map."""
+    """Worker for thread pool to translate a batch and return a map (original msgid -> msgstr)."""
     try:
-        results = call_translate_batch(texts, lang, model=model, api_key=api_key)
+        edges = [peel_edge_whitespace(t) for t in texts]
+        cores = [c for _, c, _ in edges]
+        results = call_translate_batch(cores, lang, model=model, api_key=api_key)
         batch_map = {}
-        for original, result in zip(texts, results):
-            if result:
-                batch_map[original] = result
+        for original, (leading, _core, trailing), result in zip(texts, edges, results):
+            if result is None:
+                continue
+            batch_map[original] = leading + str(result) + trailing
         return batch_map
     except Exception as e:
         log.error(f"Batch worker error: {e}")
@@ -300,7 +330,13 @@ def main():
     parser.add_argument("--execute", action="store_true", help="Perform actual updates")
     parser.add_argument("--preview", action="store_true", help="Show mock translation on screen (Dry run)")
     parser.add_argument("--batch-size", type=int, default=10, help="Batch size (default: 10)")
-    parser.add_argument("--jobs", "-j", type=int, default=5, help="Number of parallel threads (default: 5)")
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=5,
+        help="Max concurrent API translation requests across all languages and batches (default: 5)",
+    )
     parser.add_argument("--delay", type=float, default=0.05, help="Delay in seconds between thread starts (default: 0.05)")
     parser.add_argument("--lang", type=str, default=None, help="Filter for single language (e.g. 'fr')")
 
@@ -316,70 +352,77 @@ def main():
 
     pot_file = load_pot_file()
     po_files = glob_po_files("plugin/locales")
-    
+
+    work_items: List[Tuple[str, str, List[Dict[str, str]]]] = []
     for lang, f_path in po_files:
         if args.lang and args.lang != lang:
             continue
-            
+
         log.info(f"Checking {lang}...")
         missing = find_missing_translations(f_path, pot_file)
         if not missing:
             log.info(f"{lang} is up to date.")
             continue
-            
-        log.info(f"Processing {len(missing)} strings for {lang} in batches of {args.batch_size}...")
-        
-        translated_map = {}
-        batch_size = args.batch_size
-        
-        # Collect batches
-        batches = []
-        for i in range(0, len(missing), batch_size):
-            batches.append(missing[i:i + batch_size])
-            
+
+        log.info(f"Queued {len(missing)} strings for {lang} (batch size {args.batch_size})...")
+        work_items.append((lang, f_path, missing))
+
+    if not work_items:
         if args.preview:
-            # Short-circuit logic for preview
-            log.info(f"[PREVIEW] Showing mock translated 1 batch for {lang}")
-            texts = [item["msgid"] for item in batches[0]]
-            for t in texts:
-                translated_map[t] = f"[{lang}_translated] {t}"
-                print(f"{t} - {translated_map[t]}")
+            print("\n=== [PREVIEW DONE] (No files edited) ===\n")
         else:
-            futures = {}
-            with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-                for b_idx, b in enumerate(batches):
-                    texts = [item["msgid"] for item in b]
-                    # Submit task
-                    f = pool.submit(translate_batch_worker, texts, lang, args.model, args.api_key)
-                    futures[f] = texts
-                    # Stagger starts
-                    if args.delay > 0:
-                        time.sleep(args.delay)
-                        
-                # Harvest results robustly as they complete
-                completed_batches = 0
-                for future in as_completed(futures):
-                    try:
-                        batch_res = future.result()
-                        translated_map.update(batch_res)
-                        completed_batches += 1
-                        log.info(f"Batch ({completed_batches}/{len(batches)}) complete.")
-                        # Print on screen immediately as requested
-                        for orig, res in batch_res.items():
-                            print(f"{orig} - {res}")
-                    except Exception as e:
-                        log.error(f"Batch failed with exception: {e}")
+            print("\n=== Post Translation Status ===")
+            print_status_report()
+        return
 
-        if translated_map and not args.preview:
-
-            update_po_file(f_path, translated_map)
-            subprocess.run(['msgfmt', '-o', f_path.replace('.po', '.mo'), f_path])
+    batch_size = args.batch_size
+    tasks: List[Tuple[str, str, List[str]]] = []
+    for lang, f_path, missing in work_items:
+        for i in range(0, len(missing), batch_size):
+            batch = missing[i : i + batch_size]
+            texts = [item["msgid"] for item in batch]
+            tasks.append((f_path, lang, texts))
 
     if args.preview:
+        for lang, f_path, missing in work_items:
+            log.info(f"[PREVIEW] Showing mock translated 1 batch for {lang}")
+            for item in missing[:batch_size]:
+                t = item["msgid"]
+                mock = f"[{lang}_translated] {t}"
+                print(f"{t} - {mock}")
         print("\n=== [PREVIEW DONE] (No files edited) ===\n")
-    else:
-        print("\n=== Post Translation Status ===")
-        print_status_report()
+        return
+
+    aggregated: Dict[str, Dict[str, str]] = defaultdict(dict)
+    total_tasks = len(tasks)
+    completed_batches = 0
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {}
+        for f_path, lang, texts in tasks:
+            fut = pool.submit(translate_batch_worker, texts, lang, args.model, args.api_key)
+            futures[fut] = (f_path, lang)
+            if args.delay > 0:
+                time.sleep(args.delay)
+
+        for fut in as_completed(futures):
+            f_path, lang = futures[fut]
+            try:
+                batch_res = fut.result()
+                aggregated[f_path].update(batch_res)
+                completed_batches += 1
+                log.info(f"Batch ({completed_batches}/{total_tasks}) complete ({lang}).")
+                for orig, res in batch_res.items():
+                    print(f"{orig} - {res}")
+            except Exception as e:
+                log.error(f"Batch failed with exception: {e}")
+
+    for f_path, translations in aggregated.items():
+        if translations:
+            update_po_file(f_path, translations)
+            subprocess.run(["msgfmt", "-o", f_path.replace(".po", ".mo"), f_path])
+
+    print("\n=== Post Translation Status ===")
+    print_status_report()
 
 
 
