@@ -116,6 +116,7 @@ def apply_settings_result(ctx, result):
     # Build type map so we always save int fields as integers (never float/string)
     _field_specs = get_settings_field_specs(ctx)
     _int_field_names = {f["name"] for f in _field_specs if f.get("type") == "int"}
+    _field_specs_by_name = {f["name"]: f for f in _field_specs}
 
     # Set keys from result (endpoint, api_key, use_aihorde handled below)
     for key in apply_keys:
@@ -132,10 +133,16 @@ def apply_settings_result(ctx, result):
                 except (ValueError, TypeError):
                     pass
             
-            # Map backend_id display label back to stored value
-            if save_key == "agent_backend.backend_id" and val:
-                _label_to_id = {"Built-in": "builtin", "Aider": "aider", "Hermes": "hermes"}
-                val = _label_to_id.get(str(val).strip(), val)
+            # Map translated display label back to stored value for select/combo widgets
+            spec = _field_specs_by_name.get(key)
+            if spec and "options" in spec and val:
+                for opt in spec["options"]:
+                    if isinstance(opt, dict):
+                        # The UI showed the translated label, so we must compare against _(label)
+                        lbl = opt.get("label", opt.get("value", ""))
+                        if _(lbl) == str(val):
+                            val = opt.get("value", lbl)
+                            break
 
             # Special validation for temperature
             if save_key == "temperature":

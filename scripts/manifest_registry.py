@@ -382,7 +382,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
             continue
 
         # Create tab button
-        tab_label = name.title()
+        tab_label = m.get("title", name.title())
         width = min(len(tab_label) * 5 + 15, 60)
         tabs.append(f'  <dlg:button dlg:id="btn_tab_{name.replace(".", "_")}" dlg:left="{tab_x}" dlg:top="5" dlg:width="{width}" dlg:height="14" dlg:value="{tab_label}"/>')
         tab_x += width + 3
