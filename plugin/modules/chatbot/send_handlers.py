@@ -24,69 +24,39 @@ from plugin.modules.chatbot.state_machine import (
 log = logging.getLogger(__name__)
 
 class SendHandlersMixin:
-    def _transcribe_audio_async(self, wav_path, stt_model, model, query_text=""):
-        """Transcribe audio asynchronously and then proceed to chat."""
-        interpreter = EffectInterpreter(self)
-        current_state = SendHandlerState(handler_type="audio", status="ready")
-
-        doc_type_str = self._get_doc_type_str(model).lower() if model else "unknown"
-        start_event = StartEvent(
-            query_text=query_text,
-            model=model,
-            doc_type_str=doc_type_str,
-            wav_path=wav_path,
-            stt_model=stt_model
-        )
-
-        step = next_state(current_state, start_event)
-        interpreter.current_state = step.state
-        current_state = step.state
-        for effect in step.effects:
-            interpreter.interpret(effect)
-
-    def _execute_audio_effect(self, wav_path, stt_model, model, query_text, current_state, interpreter):
+    def _transcribe_audio(self, wav_path, stt_model):
+        """Transcribe audio synchronously using event pumping on the main thread."""
         from plugin.framework.async_stream import run_blocking_in_thread
+        from plugin.framework.i18n import _
 
-        # Helper to push events through the state machine
-        def dispatch_event(event):
-            nonlocal current_state
-            step = next_state(current_state, event)
-            current_state = step.state
-            interpreter.current_state = current_state
-            for eff in step.effects:
-                interpreter.interpret(eff)
+        if not self.client:
+            from plugin.framework.config import get_api_config
+            from plugin.modules.http.client import LlmClient
 
-        def run_audio():
+            api_config = get_api_config(self.ctx)
+            self.client = LlmClient(api_config, self.ctx)
+
+        self._set_status(_("Transcribing audio..."))
+        self._append_response(_("\n[Transcribing audio...]\n"))
+
+        try:
+            transcript_text = run_blocking_in_thread(
+                self.ctx, self.client.transcribe_audio, wav_path, model=stt_model
+            )
+
+            import os
             try:
-                # Ensure client is initialized
-                if not self.client:
-                    from plugin.framework.config import get_api_config
-                    from plugin.modules.http.client import LlmClient
+                os.remove(wav_path)
+            except Exception:
+                pass
+            self.audio_wav_path = None
 
-                    api_config = get_api_config(self.ctx)
-                    self.client = LlmClient(api_config, self.ctx)
+            return transcript_text
 
-                transcript_text = run_blocking_in_thread(
-                    self.ctx, self.client.transcribe_audio, wav_path, model=stt_model
-                )
-
-                # Clean up audio file
-                import os
-                try:
-                    os.remove(wav_path)
-                except Exception:
-                    pass
-                self.audio_wav_path = None
-
-                dispatch_event(StreamDoneEvent(transcript_text))
-
-            except Exception as e:
-                doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
-                log.error("Transcription error in _transcribe_audio_async [doc: %s]: %s", doc_type, e)
-                dispatch_event(ErrorEvent(e))
-
-        from plugin.framework.worker_pool import run_in_background
-        run_in_background(run_audio, name="audio-transcribe-worker")
+        except Exception as e:
+            log.error("Transcription error in _transcribe_audio: %s", e)
+            self._append_response(_("\n[Transcription error: {0}]\n").format(str(e)))
+            raise e
 
     def _do_send_direct_image(self, query_text, model):
         interpreter = EffectInterpreter(self)

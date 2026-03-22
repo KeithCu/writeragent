@@ -117,7 +117,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> Tuple[SendButtonStat
             return state, effects
 
         new_state = SendButtonState(
-            is_busy=False,
+            is_busy=True,
             is_recording=False,
             has_text=state.has_text,
             has_audio=True, # Transitioning from Stop Rec means we now have audio
@@ -125,11 +125,12 @@ def next_state(state: SendButtonState, event: SendEvent) -> Tuple[SendButtonStat
         )
         effects.append("stop_recording")
         effects.append(UpdateUIEffect(
-            send_enabled=True,
-            stop_enabled=False,
+            send_enabled=False,
+            stop_enabled=True,
             send_label="Send",
-            status_text="Ready"
+            status_text="Starting..."
         ))
+        effects.append("start_send")
         return new_state, effects
 
     elif event.kind == SendEventKind.SEND_CLICKED:

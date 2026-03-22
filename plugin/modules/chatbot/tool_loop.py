@@ -548,20 +548,23 @@ class ToolCallingMixin:
 
             stt_model = get_stt_model(self.ctx)
             if stt_model:
-                # Remove the failed message from session so we can retry with text
                 if (
                     self.session.messages
                     and self.session.messages[-1]["role"] == "user"
                 ):
-                    # If it was a list (audio+text), just pop it
                     self.session.messages.pop()
 
                 self._append_response(
                     "\n[Model does not support audio. Falling back to STT...]\n"
                 )
-                self._transcribe_audio_async(
-                    self.audio_wav_path, stt_model, self._active_model, query_text=self._active_query_text
-                )
+                try:
+                    transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+                    if transcript:
+                        combined = (self._active_query_text + "\n" + transcript).strip() if self._active_query_text else transcript
+                        doc_type = self._get_doc_type_str(self._active_model).lower() if hasattr(self, "_get_doc_type_str") else "writer"
+                        self._do_send_chat_with_tools(combined, self._active_model, doc_type)
+                except Exception:
+                    pass
                 return
 
         # If we reached here, it's either not a modality error or STT is not configured

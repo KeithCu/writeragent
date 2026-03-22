@@ -468,8 +468,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 stt_model = get_stt_model(self.ctx)
                 if stt_model:
                     log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
-                    self._transcribe_audio_async(self.audio_wav_path, stt_model, model, query_text=query_text)
-                    return
+                    try:
+                        transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+                        if transcript:
+                            query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
+                    except Exception:
+                        self._terminal_status = "Error"
+                        return
                 else:
                     err_msg = _("[Model {0} does not support native audio. Please select an STT Model in Settings.]").format(current_model)
                     self._append_response("\n%s\n" % err_msg)

@@ -27,9 +27,14 @@ def test_record_flow():
     new_state2, effects2 = next_state(new_state, SendEvent(SendEventKind.STOP_REC_CLICKED))
     assert new_state2.is_recording is False
     assert new_state2.has_audio is True
+    assert new_state2.is_busy is True
     assert "stop_recording" in effects2
+    assert "start_send" in effects2
     ui_effect2 = next(e for e in effects2 if isinstance(e, UpdateUIEffect))
     assert ui_effect2.send_label == "Send"
+    assert ui_effect2.send_enabled is False
+    assert ui_effect2.stop_enabled is True
+    assert ui_effect2.status_text == "Starting..."
 
 def test_send_flow():
     state = SendButtonState(False, False, True, False, True)
