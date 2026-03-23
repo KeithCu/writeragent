@@ -356,16 +356,16 @@ class MCPProtocolHandler:
         return {}
 
     def _mcp_tools_list(self, params, document_url=None):
-        if document_url:
-            doc_type = execute_on_main_thread(
-                _resolve_doc_type_for_url, self.services, document_url,
-                timeout=10.0)
-            if doc_type is None:
-                doc_type = self._detect_active_doc_type()
-        else:
-            doc_type = self._detect_active_doc_type()
-        doc_type = doc_type or "writer"
-        schemas = self.tool_registry.get_schemas("mcp", doc_type=doc_type)
+        def _get_doc():
+            doc_svc = self.services.document
+            if document_url:
+                doc, _ = doc_svc.resolve_document_by_url(document_url)
+                return doc
+            return doc_svc.get_active_document()
+
+        doc = execute_on_main_thread(_get_doc, timeout=10.0)
+
+        schemas = self.tool_registry.get_schemas("mcp", doc=doc)
         return {"tools": schemas}
 
     def _mcp_resources_list(self, params):

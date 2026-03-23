@@ -85,7 +85,7 @@ class ReadCellRange(ToolBase):
         },
         "required": ["range_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
     is_mutation = False
 
@@ -133,7 +133,7 @@ class WriteCellRange(ToolBase):
         },
         "required": ["range_name", "formula_or_values"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
     is_mutation = True
 
@@ -213,7 +213,7 @@ class SetCellStyle(ToolBase):
         },
         "required": ["range_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -302,7 +302,7 @@ class MergeCells(ToolBase):
         },
         "required": ["range_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -345,7 +345,7 @@ class ClearRange(ToolBase):
         },
         "required": ["range_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -408,7 +408,7 @@ class SortRange(ToolBase):
         },
         "required": ["range_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -460,7 +460,7 @@ class ImportCsv(ToolBase):
         },
         "required": ["csv_data"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -502,7 +502,7 @@ class DeleteStructure(ToolBase):
         },
         "required": ["structure_type", "start"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

@@ -64,7 +64,7 @@ class ListStyles(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         family = kwargs.get("family", "ParagraphStyles")
@@ -127,7 +127,7 @@ class GetStyleInfo(ToolBase):
         },
         "required": ["style_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         style_name = kwargs.get("style_name", "")

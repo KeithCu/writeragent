@@ -38,7 +38,7 @@ class PrintDocument(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = None  # all document types
+    uno_services = None  # all document types
     is_mutation = False
 
     def execute(self, ctx, **kwargs):

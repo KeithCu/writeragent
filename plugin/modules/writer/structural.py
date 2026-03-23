@@ -25,7 +25,7 @@ class ListSections(ToolBaseDummy):
     intent = "navigate"
     description = "List all named sections in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -53,7 +53,7 @@ class GotoPage(ToolBaseDummy):
         },
         "required": ["page"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         controller = ctx.doc.getCurrentController()
@@ -76,7 +76,7 @@ class GetPageObjects(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -167,7 +167,7 @@ class RefreshIndexes(ToolBaseDummy):
     intent = "navigate"
     description = "Refresh all document indexes (TOC, bibliography, etc.)."
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -202,7 +202,7 @@ class ReadSection(ToolBaseDummy):
         },
         "required": ["section_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         section_name = kwargs.get("section_name", "")
@@ -260,7 +260,7 @@ class ResolveBookmark(ToolBaseDummy):
         },
         "required": ["bookmark_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         bookmark_name = kwargs.get("bookmark_name", "")
@@ -329,7 +329,7 @@ class UpdateFields(ToolBaseDummy):
         "Call after changes that affect computed fields."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -355,7 +355,7 @@ class ListBookmarks(ToolBaseDummy):
         "Includes both user bookmarks and _mcp_ heading bookmarks."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -380,7 +380,7 @@ class CleanupBookmarks(ToolBaseDummy):
         "Use when bookmarks become stale after major edits."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

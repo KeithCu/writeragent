@@ -38,7 +38,7 @@ class ListTextFrames(ToolBaseDummy):
         "properties": {},
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -101,7 +101,7 @@ class GetTextFrameInfo(ToolBaseDummy):
         },
         "required": ["frame_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         frame_name = kwargs.get("frame_name", "")
@@ -222,7 +222,7 @@ class SetTextFrameProperties(ToolBaseDummy):
         },
         "required": ["frame_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

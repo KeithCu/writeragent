@@ -67,7 +67,7 @@ class SearchInDocument(ToolBase):
         },
         "required": ["pattern"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
@@ -235,7 +235,7 @@ class AdvancedSearch(ToolBaseDummy):
         },
         "required": ["query"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         idx_svc = ctx.services.writer_index
@@ -328,7 +328,7 @@ class GetIndexStats(ToolBase):
         "language, build time, and top 20 most frequent stems."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         idx_svc = ctx.services.writer_index

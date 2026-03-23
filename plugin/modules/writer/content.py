@@ -102,7 +102,7 @@ class GetDocumentContent(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
@@ -214,7 +214,7 @@ class ApplyDocumentContent(ToolBase):
         },
         "required": ["content"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
     is_mutation = True
 
@@ -394,7 +394,7 @@ class ReadParagraphs(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
@@ -466,7 +466,7 @@ class InsertAtParagraph(ToolBase):
         },
         "required": ["text"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
     is_mutation = True
 
@@ -555,7 +555,7 @@ class ModifyParagraph(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
     is_mutation = True
 
@@ -624,7 +624,7 @@ class DeleteParagraph(ToolBase):
             },
         },
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -696,7 +696,7 @@ class DuplicateParagraph(ToolBase):
             },
         },
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -777,7 +777,7 @@ class CloneHeadingBlock(ToolBase):
             },
         },
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -890,7 +890,7 @@ class InsertParagraphsBatch(ToolBase):
         },
         "required": ["paragraphs"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -1006,7 +1006,7 @@ class GetDocumentStats(ToolBase):
         "properties": {},
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):

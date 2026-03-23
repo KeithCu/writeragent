@@ -27,7 +27,7 @@ class DocumentHealthCheck(ToolBaseDummy):
         "properties": {},
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -242,7 +242,7 @@ class SetDocumentProtection(ToolBaseDummy):
         },
         "required": ["enabled"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

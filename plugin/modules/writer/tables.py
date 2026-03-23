@@ -42,7 +42,7 @@ log = logging.getLogger("writeragent.writer")
 #         "properties": {},
 #         "required": [],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 
 #     def execute(self, ctx, **kwargs):
 #         doc = ctx.doc
@@ -77,7 +77,7 @@ log = logging.getLogger("writeragent.writer")
 #         },
 #         "required": ["table_name"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 
 #     def execute(self, ctx, **kwargs):
 #         table_name = kwargs.get("table_name", "")
@@ -154,7 +154,7 @@ log = logging.getLogger("writeragent.writer")
 #         },
 #         "required": ["table_name", "data"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -270,7 +270,7 @@ log = logging.getLogger("writeragent.writer")
 #         },
 #         "required": ["rows", "cols"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -381,7 +381,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -458,7 +458,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -576,7 +576,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -630,7 +630,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -688,7 +688,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name", "at_index"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -739,7 +739,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name", "at_index"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):
@@ -798,7 +798,7 @@ def _col_letter(c):
 #         },
 #         "required": ["table_name", "row", "values"],
 #     }
-#     doc_types = ["writer"]
+#     uno_services = ["com.sun.star.text.TextDocument"]
 #     is_mutation = True
 
 #     def execute(self, ctx, **kwargs):

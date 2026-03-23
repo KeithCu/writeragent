@@ -82,7 +82,7 @@ class GenerateImage(ToolBase):
         },
         "required": ["prompt"]
     }
-    doc_types = ["writer", "calc", "draw", "impress"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
     long_running = True
 
@@ -214,7 +214,7 @@ class ListImages(ToolBaseDummy):
         "properties": {},
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -304,7 +304,7 @@ class GetImageInfo(ToolBaseDummy):
         },
         "required": ["image_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         image_name = kwargs.get("image_name", "")
@@ -448,7 +448,7 @@ class SetImageProperties(ToolBaseDummy):
         },
         "required": ["image_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -556,7 +556,7 @@ class DownloadImage(ToolBaseDummy):
         },
         "required": ["url"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         url = kwargs.get("url", "")
@@ -616,7 +616,7 @@ class InsertImage(ToolBaseDummy):
         },
         "required": ["image_path"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -711,7 +711,7 @@ class DeleteImage(ToolBaseDummy):
         },
         "required": ["image_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -766,7 +766,7 @@ class ReplaceImage(ToolBaseDummy):
         },
         "required": ["image_name", "new_image_path"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

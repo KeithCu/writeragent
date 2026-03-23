@@ -59,7 +59,7 @@ class ListCellComments(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -108,7 +108,7 @@ class AddCellComment(ToolBase):
         },
         "required": ["cell", "text"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -163,7 +163,7 @@ class DeleteCellComment(ToolBase):
         },
         "required": ["cell"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

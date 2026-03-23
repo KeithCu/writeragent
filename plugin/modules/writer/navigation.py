@@ -47,7 +47,7 @@ class NavigateHeading(ToolBaseDummy):
         },
         "required": ["locator", "direction"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         prox_svc = ctx.services.writer_proximity
@@ -91,7 +91,7 @@ class GetSurroundings(ToolBaseDummy):
         },
         "required": ["locator"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         prox_svc = ctx.services.writer_proximity

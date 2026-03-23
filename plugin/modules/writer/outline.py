@@ -56,7 +56,7 @@ class GetDocumentTree(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         tree_svc = ctx.services.writer_tree
@@ -103,7 +103,7 @@ class GetHeadingChildren(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         tree_svc = ctx.services.writer_tree

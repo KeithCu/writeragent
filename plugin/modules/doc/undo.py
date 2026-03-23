@@ -33,7 +33,7 @@ class Undo(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = None
+    uno_services = None
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -74,7 +74,7 @@ class Redo(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = None
+    uno_services = None
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

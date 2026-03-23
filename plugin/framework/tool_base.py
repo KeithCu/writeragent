@@ -34,8 +34,8 @@ class ToolBase(ABC):
         name:        Unique tool identifier (e.g. "get_document_tree").
         description: Human-readable description shown to LLMs.
         parameters:  JSON Schema dict (MCP ``inputSchema`` format).
-        doc_types:   List of supported doc types (["writer"], ["calc"],
-                     ["draw"], or None for all types).
+        uno_services: List of UNO services the tool supports (e.g.,
+                     ["com.sun.star.text.TextDocument"], or None for all).
         tier:        "core" = always sent to the LLM, "extended" = on demand
                      via the tool broker.  Default "extended".
         intent:      Broker group: "navigate", "edit", "review", or "media".
@@ -48,7 +48,7 @@ class ToolBase(ABC):
     name: str = None
     description: str = ""
     parameters: dict = None
-    doc_types: list = None
+    uno_services: list = None
     tier: str = "extended"
     intent: str = None
     is_mutation: bool = None

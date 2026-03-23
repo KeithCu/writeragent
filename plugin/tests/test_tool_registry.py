@@ -4,6 +4,16 @@ import pytest
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.tool_context import ToolContext
+
+class MockDoc:
+    def __init__(self, doc_type="writer"):
+        self.doc_type = doc_type
+
+    def supportsService(self, svc):
+        if self.doc_type == "writer" and svc == "com.sun.star.text.TextDocument": return True
+        if self.doc_type == "calc" and svc == "com.sun.star.sheet.SpreadsheetDocument": return True
+        return False
+
 from plugin.framework.tool_registry import ToolRegistry
 from plugin.framework.service_registry import ServiceRegistry
 
@@ -16,7 +26,7 @@ class FakeTool(ToolBase):
         "properties": {"text": {"type": "string"}},
         "required": ["text"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "text": kwargs["text"]}
@@ -26,7 +36,7 @@ class AllDocTool(ToolBase):
     name = "universal_tool"
     description = "Works everywhere"
     parameters = {"type": "object", "properties": {}}
-    doc_types = None
+    uno_services = None
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok"}
@@ -51,7 +61,7 @@ def _make_registry(*tools):
 
 def _make_ctx(doc_type="writer"):
     return ToolContext(
-        doc=None, ctx=None, doc_type=doc_type,
+        doc=MockDoc(doc_type), ctx=None, doc_type=doc_type,
         services=ServiceRegistry(), caller="test"
     )
 
@@ -125,20 +135,20 @@ class TestRegister:
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.get_tools(doc_type="writer")]
+        names = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
         assert "fake_tool" in names
         assert "universal_tool" in names
 
     def test_tools_for_calc_excludes_writer_only(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.get_tools(doc_type="calc")]
+        names = [t.name for t in reg.get_tools(doc=MockDoc("calc"))]
         assert "fake_tool" not in names
         assert "universal_tool" in names
 
     def test_tools_for_none_returns_universal_only(self):
         """When doc_type is None (unknown), only universal tools are returned."""
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.get_tools(doc_type=None)]
+        names = [t.name for t in reg.get_tools(doc=None)]
         assert names == ["universal_tool"]
 
 
@@ -198,7 +208,7 @@ class TestExecute:
 class TestSchemas:
     def test_openai_schemas(self):
         reg = _make_registry(FakeTool())
-        schemas = reg.get_schemas("openai", doc_type="writer")
+        schemas = reg.get_schemas("openai", doc=MockDoc("writer"))
         assert len(schemas) == 1
         s = schemas[0]
         assert s["type"] == "function"
@@ -206,7 +216,7 @@ class TestSchemas:
 
     def test_mcp_schemas(self):
         reg = _make_registry(FakeTool())
-        schemas = reg.get_schemas("mcp", doc_type="writer")
+        schemas = reg.get_schemas("mcp", doc=MockDoc("writer"))
         assert len(schemas) == 1
         s = schemas[0]
         assert s["name"] == "fake_tool"
@@ -228,7 +238,7 @@ class TestExecuteEventsAndInvalidation:
             name = "tool_with_params"
             description = "Tool with params"
             parameters = {"type": "object", "properties": {"arg1": {"type": "string"}}}
-            doc_types = ["writer"]
+            uno_services = ["com.sun.star.text.TextDocument"]
 
             def execute(self, ctx, **kwargs):
                 return {"status": "success"}
@@ -240,7 +250,7 @@ class TestExecuteEventsAndInvalidation:
         reg = ToolRegistry(services)
         reg.register(ToolWithParams())
 
-        ctx = ToolContext(doc=object(), ctx=None, doc_type="writer", services=services, caller="test")
+        ctx = ToolContext(doc=MockDoc("writer"), ctx=None, doc_type="writer", services=services, caller="test")
         result = reg.execute("tool_with_params", ctx, arg1="val1", extra="ignored")
 
         assert result == {"status": "success"}
@@ -260,7 +270,7 @@ class TestExecuteEventsAndInvalidation:
             name = "failing_tool_with_params"
             description = "Tool with params that fails"
             parameters = {"type": "object", "properties": {"arg1": {"type": "string"}}}
-            doc_types = ["writer"]
+            uno_services = ["com.sun.star.text.TextDocument"]
 
             def execute(self, ctx, **kwargs):
                 raise RuntimeError("something went wrong")
@@ -272,7 +282,7 @@ class TestExecuteEventsAndInvalidation:
         reg = ToolRegistry(services)
         reg.register(FailingToolWithParams())
 
-        ctx = ToolContext(doc=object(), ctx=None, doc_type="writer", services=services, caller="test")
+        ctx = ToolContext(doc=MockDoc("writer"), ctx=None, doc_type="writer", services=services, caller="test")
         result = reg.execute("failing_tool_with_params", ctx, arg1="val1")
 
         assert result["status"] == "error"

@@ -45,7 +45,7 @@ class ListConditionalFormats(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
@@ -106,7 +106,7 @@ class AddConditionalFormat(ToolBase):
         },
         "required": ["range_name", "operator", "formula1", "style_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -147,7 +147,7 @@ class RemoveConditionalFormat(ToolBase):
         },
         "required": ["range_name", "rule_index"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -173,7 +173,7 @@ class ClearConditionalFormats(ToolBase):
         },
         "required": ["range_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

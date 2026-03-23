@@ -36,7 +36,7 @@ class TodoTool(ToolBase):
         "completed immediately when done; cancel tasks that are no longer needed."
     )
     # Available for all document types
-    doc_types = None
+    uno_services = None
     tier = "core"
     intent = "navigate"
     is_mutation = False  # Does not touch the LibreOffice document itself

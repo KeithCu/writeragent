@@ -112,7 +112,7 @@ class GetSlideTransition(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["impress"]
+    uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
@@ -213,7 +213,7 @@ class SetSlideTransition(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["impress"]
+    uno_services = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -331,7 +331,7 @@ class GetSlideLayout(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["impress"]
+    uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
@@ -371,7 +371,7 @@ class SetSlideLayout(ToolBase):
         },
         "required": ["layout"],
     }
-    doc_types = ["impress"]
+    uno_services = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

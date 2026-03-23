@@ -55,7 +55,7 @@ class DetectErrors(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = False
 
     def execute(self, ctx, **kwargs):

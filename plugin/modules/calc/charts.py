@@ -39,7 +39,7 @@ class ListCharts(ToolBase):
         "properties": {},
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
@@ -69,7 +69,7 @@ class GetChartInfo(ToolBase):
         },
         "required": ["chart_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
@@ -115,7 +115,7 @@ class CreateChart(ToolBase):
         },
         "required": ["data_range", "chart_type"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -159,7 +159,7 @@ class EditChart(ToolBase):
         },
         "required": ["chart_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -189,7 +189,7 @@ class DeleteChart(ToolBase):
         },
         "required": ["chart_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

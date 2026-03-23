@@ -40,7 +40,7 @@ class ListSheets(ToolBase):
         "type": "object",
         "properties": {},
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
     is_mutation = False
 
@@ -66,7 +66,7 @@ class SwitchSheet(ToolBase):
         },
         "required": ["sheet_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -99,7 +99,7 @@ class CreateSheet(ToolBase):
         },
         "required": ["sheet_name"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -128,7 +128,7 @@ class GetSheetSummary(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
     is_mutation = False
 

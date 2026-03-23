@@ -56,7 +56,7 @@ class ListPages(ToolBase):
     name = "list_pages"
     description = "Lists all pages (slides) in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["draw"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
@@ -84,7 +84,7 @@ class GetDrawSummary(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["draw"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument"]
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
@@ -220,7 +220,7 @@ class CreateShape(ToolBase):
         },
         "required": ["shape_type", "x", "y", "width", "height"],
     }
-    doc_types = ["draw"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument"]
     tier = "core"
     is_mutation = True
 
@@ -295,7 +295,7 @@ class EditShape(ToolBase):
         },
         "required": ["shape_index"],
     }
-    doc_types = ["draw"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -347,7 +347,7 @@ class DeleteShape(ToolBase):
         },
         "required": ["shape_index"],
     }
-    doc_types = ["draw"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

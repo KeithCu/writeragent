@@ -76,7 +76,7 @@ class ToolCallingMixin:
 
         try:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
-            active_tools = get_tools().get_schemas("openai", doc_type=doc_type_str)
+            active_tools = get_tools().get_schemas("openai", doc=model)
 
             def execute_fn(
                 name,

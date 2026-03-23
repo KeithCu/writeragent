@@ -47,7 +47,7 @@ class ListComments(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         author_filter = kwargs.get("author_filter")
@@ -121,7 +121,7 @@ class AddComment(ToolBaseDummy):
         },
         "required": ["content"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -202,7 +202,7 @@ class DeleteComment(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -273,7 +273,7 @@ class ResolveComment(ToolBaseDummy):
         },
         "required": ["comment_name"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -364,7 +364,7 @@ class Workflow(ToolBaseDummy):
         },
         "required": ["action"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True  # set_status mutates
 
     def execute(self, ctx, **kwargs):
@@ -578,7 +578,7 @@ class AddAiSummary(ToolBaseDummy):
         },
         "required": ["summary"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -605,7 +605,7 @@ class GetAiSummaries(ToolBaseDummy):
     intent = "review"
     description = "List all MCP-AI summary annotations in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         tree_svc = ctx.services.writer_tree
@@ -631,7 +631,7 @@ class RemoveAiSummary(ToolBaseDummy):
         },
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

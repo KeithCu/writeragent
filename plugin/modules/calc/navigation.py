@@ -35,7 +35,7 @@ class ListNamedRanges(ToolBase):
         "properties": {},
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -78,7 +78,7 @@ class GetSheetOverview(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc

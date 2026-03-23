@@ -39,7 +39,7 @@ class SetTrackChanges(ToolBaseDummy):
         },
         "required": ["enabled"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -64,7 +64,7 @@ class GetTrackedChanges(ToolBaseDummy):
         "properties": {},
         "required": [],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -131,7 +131,7 @@ class ManageTrackedChanges(ToolBaseDummy):
         },
         "required": ["action"],
     }
-    doc_types = ["writer"]
+    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

@@ -112,19 +112,46 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True):
+    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True):
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
-            doc_type: Optional string indicating compatibility. If None, only universal tools are returned (unless filter_doc_type=False).
+            doc: Optional document model instance to check against uno_services.
+            doc_type: Optional string indicating compatibility (deprecated, use doc). If None, only universal tools are returned (unless filter_doc_type=False).
             tier: Optional string (e.g. "core", "extended").
             intent: Optional string filtering by tool intent.
             names: Optional list of specific tool names to include.
-            filter_doc_type: If True, filters by doc_type. Defaults to True.
+            filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
         """
         tools = self._tools.values()
-        if filter_doc_type:
-            tools = [t for t in tools if t.doc_types is None or (doc_type is not None and doc_type in t.doc_types)]
+
+        # Helper to check if a tool supports the document
+        def supports_doc(t):
+            if not filter_doc_type:
+                return True
+
+            # Use uno_services if available and doc is provided
+            if hasattr(t, "uno_services") and t.uno_services is not None:
+                if doc is not None and hasattr(doc, "supportsService"):
+                    for svc in t.uno_services:
+                        try:
+                            if doc.supportsService(svc):
+                                return True
+                        except Exception:
+                            pass
+                return False
+
+            # Fallback to legacy doc_types
+            if hasattr(t, "doc_types") and t.doc_types is not None:
+                if doc_type is not None and doc_type in t.doc_types:
+                    return True
+                return False
+
+            # Universal tool (both uno_services and doc_types are None)
+            return True
+
+        tools = [t for t in tools if supports_doc(t)]
+
         if tier:
             tools = [t for t in tools if t.tier == tier]
         if intent:
@@ -214,10 +241,26 @@ class ToolRegistry:
             if tool is None:
                 raise KeyError(f"Unknown tool: {tool_name}")
 
-            # Check doc_type compatibility
-            if tool.doc_types and ctx.doc_type and ctx.doc_type not in tool.doc_types:
+            # Check document compatibility using uno_services or fallback doc_types
+            is_supported = False
+            if hasattr(tool, "uno_services") and tool.uno_services is not None:
+                if ctx.doc and hasattr(ctx.doc, "supportsService"):
+                    for svc in tool.uno_services:
+                        try:
+                            if ctx.doc.supportsService(svc):
+                                is_supported = True
+                                break
+                        except Exception:
+                            pass
+            elif hasattr(tool, "doc_types") and tool.doc_types is not None:
+                if ctx.doc_type and ctx.doc_type in tool.doc_types:
+                    is_supported = True
+            else:
+                is_supported = True # universal tool
+
+            if not is_supported:
                 raise ValueError(
-                    f"Tool {tool_name} does not support doc_type={ctx.doc_type}"
+                    f"Tool {tool_name} does not support the current document"
                 )
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model

@@ -160,7 +160,7 @@ class ListPlaceholders(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["draw", "impress"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
@@ -199,7 +199,7 @@ class GetPlaceholderText(ToolBase):
         },
         "required": [],
     }
-    doc_types = ["draw", "impress"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
@@ -261,7 +261,7 @@ class SetPlaceholderText(ToolBase):
         },
         "required": ["text"],
     }
-    doc_types = ["draw", "impress"]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

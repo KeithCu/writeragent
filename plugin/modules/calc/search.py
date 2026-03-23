@@ -72,7 +72,7 @@ class SearchInSpreadsheet(ToolBase):
         },
         "required": ["pattern"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
@@ -163,7 +163,7 @@ class ReplaceInSpreadsheet(ToolBase):
         },
         "required": ["search", "replace"],
     }
-    doc_types = ["calc"]
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
     is_mutation = True
 
