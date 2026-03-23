@@ -14,11 +14,47 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import json
 import logging
 
 from plugin.framework.tool_base import ToolBase
 
 log = logging.getLogger(__name__)
+
+
+def _web_search_query_from_arguments(arguments) -> str:
+    """Best-effort ``query`` string from smolagents ``ToolCall.arguments`` (dict or JSON string)."""
+    if isinstance(arguments, dict):
+        return str(arguments.get("query", "") or "")
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            if isinstance(parsed, dict):
+                return str(parsed.get("query", "") or "")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return ""
+
+
+def _apply_web_search_query_override(step, query_override: str) -> bool:
+    """Force ``query`` on ``step.arguments`` for DuckDuckGo. Returns True if arguments were coerced."""
+    args = step.arguments
+    coercion = False
+    if isinstance(args, dict):
+        new_args = args
+    elif isinstance(args, str):
+        coercion = True
+        try:
+            parsed = json.loads(args)
+            new_args = parsed if isinstance(parsed, dict) else {"query": query_override}
+        except (json.JSONDecodeError, TypeError, ValueError):
+            new_args = {"query": query_override}
+    else:
+        coercion = True
+        new_args = {"query": query_override}
+    new_args["query"] = query_override
+    step.arguments = new_args
+    return coercion
 
 
 def _norm_research_query(s: str) -> str:
@@ -136,7 +172,7 @@ class WebResearchTool(ToolBase):
                 if isinstance(step, ToolCall):
                     status_msg = ""
                     if step.name == "web_search":
-                        q = str(step.arguments.get("query", "")) if isinstance(step.arguments, dict) else ""
+                        q = _web_search_query_from_arguments(step.arguments)
 
                         if append_thinking_callback:
                             append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
@@ -165,6 +201,12 @@ class WebResearchTool(ToolBase):
                             else:
                                 proceed = bool(approval_result)
                                 query_override = None
+                            log.info(
+                                "web_research: approval result proceed=%s has_override=%s arg_type=%s",
+                                proceed,
+                                query_override is not None,
+                                type(step.arguments).__name__,
+                            )
                             if not proceed:
                                 log.info("web_research: user rejected web_search approval")
                                 return format_error_payload(
@@ -174,9 +216,18 @@ class WebResearchTool(ToolBase):
                                     )
                                 )
                             if query_override is not None:
+                                coerced = _apply_web_search_query_override(step, query_override)
                                 q = query_override
-                                if isinstance(step.arguments, dict):
-                                    step.arguments["query"] = query_override
+                                if coerced:
+                                    log.warning(
+                                        "web_research: coerced tool arguments to dict for query override "
+                                        "(original type was not a mutable dict)"
+                                    )
+                                log.info(
+                                    "web_research: effective web_search query (truncated)=%r coercion=%s",
+                                    (q[:200] if q else ""),
+                                    coerced,
+                                )
                         elif prompt_for_web_research and not approval_callback:
                             log.warning(
                                 "web_research: prompt_for_web_research set but no approval_callback (UI cannot prompt)"

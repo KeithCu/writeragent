@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-22 19:46-0400\n"
+"POT-Creation-Date: 2026-03-23 14:38-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:532
+#: plugin/modules/chatbot/panel.py:552
 msgid "Starting..."
 msgstr ""
 
@@ -271,7 +271,7 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: plugin/framework/legacy_ui.py:341 plugin/modules/chatbot/panel.py:605
+#: plugin/framework/legacy_ui.py:341 plugin/modules/chatbot/panel.py:625
 #: plugin/modules/chatbot/send_handlers.py:252
 #: plugin/modules/chatbot/send_handlers.py:262
 #: plugin/modules/chatbot/send_handlers.py:271
@@ -287,11 +287,11 @@ msgid ""
 "{1}"
 msgstr ""
 
-#: plugin/framework/settings_dialog.py:153
+#: plugin/framework/settings_dialog.py:156
 msgid "Invalid Setting"
 msgstr ""
 
-#: plugin/framework/settings_dialog.py:153
+#: plugin/framework/settings_dialog.py:156
 msgid "Temperature must be <= 1.0"
 msgstr ""
 
@@ -486,15 +486,15 @@ msgstr ""
 msgid "Ready"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:254 plugin/modules/chatbot/panel.py:511
+#: plugin/modules/chatbot/panel.py:254 plugin/modules/chatbot/panel.py:531
 msgid "Accept"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:267 plugin/modules/chatbot/panel.py:696
+#: plugin/modules/chatbot/panel.py:267 plugin/modules/chatbot/panel.py:716
 msgid "Change"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:271 plugin/modules/chatbot/panel.py:703
+#: plugin/modules/chatbot/panel.py:271 plugin/modules/chatbot/panel.py:723
 msgid "Reject"
 msgstr ""
 
@@ -502,43 +502,43 @@ msgstr ""
 msgid "Waiting for approval…"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:517
+#: plugin/modules/chatbot/panel.py:537
 msgid "Record"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:519
+#: plugin/modules/chatbot/panel.py:539
 msgid "Stop Rec"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:521 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py:541 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:541
+#: plugin/modules/chatbot/panel.py:561
 msgid "Getting document..."
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:546
+#: plugin/modules/chatbot/panel.py:566
 msgid ""
 "\n"
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]\n"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:556
+#: plugin/modules/chatbot/panel.py:576
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:563
+#: plugin/modules/chatbot/panel.py:583
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:602
+#: plugin/modules/chatbot/panel.py:622
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -587,7 +587,7 @@ msgid ""
 "%s\n"
 msgstr ""
 
-#: plugin/modules/chatbot/web_research.py:242
+#: plugin/modules/chatbot/web_research.py:293
 msgid "Web research completed."
 msgstr ""
 

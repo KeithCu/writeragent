@@ -17,6 +17,7 @@
 import importlib
 import json
 import os
+import sys
 import tempfile
 import textwrap
 import time
@@ -661,7 +662,10 @@ You have been provided with these additional arguments, that you can access dire
             finally:
                 self._finalize_step(action_step)
                 self.memory.steps.append(action_step)
-                yield action_step
+                # Do not yield while the generator is closing (GeneratorExit): yielding in
+                # finally breaks the generator protocol and raises RuntimeError.
+                if sys.exc_info()[0] is not GeneratorExit:
+                    yield action_step
                 self.step_number += 1
 
         if not returned_final_answer and self.step_number == max_steps + 1:

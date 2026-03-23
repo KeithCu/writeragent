@@ -286,11 +286,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _open_web_search_change_dialog(self):
         """Open edit dialog for the pending web_search query; OK continues with optional override."""
         from plugin.framework.dialogs import show_web_search_query_edit_dialog
+        from plugin.modules.chatbot.web_research_chat import web_search_engine_step_chat_text
 
         initial = getattr(self, "_approval_query_for_engine", None) or ""
         text = show_web_search_query_edit_dialog(self.ctx, self.frame, initial)
         if text is None:
             return
+        log.debug(
+            "_open_web_search_change_dialog: applying edited query len=%d",
+            len(text),
+        )
+        self._append_response(web_search_engine_step_chat_text(text, 0, approval_required=False))
         self._finish_inline_web_approval(True, query_override=text)
 
     def _finish_inline_web_approval(self, approved, query_override=None):
@@ -327,6 +333,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             ev.approved = approved
             ev.query_override = query_override if approved else None
+            if approved and query_override is not None:
+                log.debug(
+                    "_finish_inline_web_approval: approved with query_override len=%d",
+                    len(query_override),
+                )
             ev.set()
         except Exception as e:
             log.error("_finish_inline_web_approval: %s", e)
@@ -406,6 +417,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def set_fixed_send_width(self, width_px):
         self._fixed_send_width = width_px
 
+    def _set_button_states(self, send_enabled, stop_enabled):
+        """Set Send/Stop enabled flags (per-control try/except so one UNO failure cannot strand the other)."""
+        if self.send_control and self.send_control.getModel():
+            try:
+                self.send_control.getModel().Enabled = bool(send_enabled)
+            except Exception:
+                pass
+        if self.stop_control and self.stop_control.getModel():
+            try:
+                self.stop_control.getModel().Enabled = bool(stop_enabled)
+            except Exception:
+                pass
+
     def dispatch(self, event):
         """Dispatch an event to the state machine, compute new state, and apply effects."""
         log.debug(f"SendButtonListener: dispatching {type(event).__name__}")
@@ -421,11 +445,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.framework.i18n import _
         if isinstance(effect, UpdateUIEffect):
             # 1. Update Send/Stop enabled states
-            def set_control_enabled(control, enabled):
-                if control and control.getModel():
-                    control.getModel().Enabled = bool(enabled)
-            set_control_enabled(self.send_control, effect.send_enabled)
-            set_control_enabled(self.stop_control, effect.stop_enabled)
+            self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
             # 2. Update Send label and ensure GTK width doesn't creep
             if self.send_control and self.send_control.getModel():
