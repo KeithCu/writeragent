@@ -16,7 +16,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Shape tools for Draw/Impress documents."""
 
+from plugin.framework.errors import WriterAgentException
 from plugin.framework.tool_base import ToolBase
+
+
+class DrawError(WriterAgentException):
+    """Draw-specific errors."""
+
+    def __init__(self, message, code="DRAW_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
 
 
 def _parse_color(color_str):
@@ -104,6 +112,80 @@ class GetDrawSummary(ToolBase):
         return {"status": "ok", "page_index": idx, "shapes": shapes}
 
 
+class DrawShapes:
+    def _is_valid_position(self, position):
+        if not hasattr(position, "X") or not hasattr(position, "Y"):
+            return False
+        return True
+
+    def _is_valid_size(self, size):
+        if not hasattr(size, "Width") or not hasattr(size, "Height"):
+            return False
+        if size.Width <= 0 or size.Height <= 0:
+            return False
+        return True
+
+    def safe_create_shape(self, page, shape_type, position, size):
+        """Safely create shape with error handling."""
+        try:
+            # Validate inputs
+            if not page:
+                raise DrawError(
+                    "Page is None",
+                    code="DRAW_PAGE_NULL",
+                    details={"operation": "create_shape", "shape_type": shape_type}
+                )
+
+            if not self._is_valid_position(position):
+                raise DrawError(
+                    f"Invalid position: {position}",
+                    code="DRAW_INVALID_POSITION",
+                    details={"position": position}
+                )
+
+            if not self._is_valid_size(size):
+                raise DrawError(
+                    f"Invalid size: {size}",
+                    code="DRAW_INVALID_SIZE",
+                    details={"size": size}
+                )
+
+            # Create shape
+            shape = page.createInstance(f"com.sun.star.drawing.{shape_type}")
+            if not shape:
+                raise DrawError(
+                    f"Failed to create shape of type: {shape_type}",
+                    code="DRAW_SHAPE_CREATION_FAILED",
+                    details={"shape_type": shape_type}
+                )
+
+            # Set properties
+            shape.setPosition(position)
+            shape.setSize(size)
+
+            # Add to page
+            page.add(shape)
+
+            return shape
+
+        except DrawError:
+            # Re-raise our draw errors
+            raise
+        except Exception as e:
+            # Wrap other exceptions
+            raise DrawError(
+                f"Failed to create shape: {str(e)}",
+                code="DRAW_SHAPE_CREATION_ERROR",
+                details={
+                    "shape_type": shape_type,
+                    "position": position,
+                    "size": size,
+                    "original_error": str(e),
+                    "error_type": type(e).__name__
+                }
+            ) from e
+
+
 class CreateShape(ToolBase):
     name = "create_shape"
     description = "Creates a new shape on the active page."
@@ -133,19 +215,32 @@ class CreateShape(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
+        from com.sun.star.awt import Point, Size
+
         bridge = DrawBridge(ctx.doc)
         type_map = {
-            "rectangle": "com.sun.star.drawing.RectangleShape",
-            "ellipse": "com.sun.star.drawing.EllipseShape",
-            "text": "com.sun.star.drawing.TextShape",
-            "line": "com.sun.star.drawing.LineShape",
+            "rectangle": "RectangleShape",
+            "ellipse": "EllipseShape",
+            "text": "TextShape",
+            "line": "LineShape",
         }
         uno_type = type_map.get(kwargs["shape_type"])
         if not uno_type:
             return self._tool_error(f"Unsupported shape type: {kwargs['shape_type']}")
-        shape = bridge.create_shape(
-            uno_type, kwargs["x"], kwargs["y"], kwargs["width"], kwargs["height"]
-        )
+
+        page = bridge.get_active_page()
+        position = Point(kwargs["x"], kwargs["y"])
+        size = Size(kwargs["width"], kwargs["height"])
+
+        draw_shapes = DrawShapes()
+
+        try:
+            shape = draw_shapes.safe_create_shape(
+                page, uno_type, position, size
+            )
+        except DrawError as e:
+            return self._tool_error(e.message)
+
         if kwargs.get("text") and hasattr(shape, "setString"):
             shape.setString(kwargs["text"])
         if kwargs.get("bg_color"):
@@ -160,7 +255,7 @@ class CreateShape(ToolBase):
                     shape.setPropertyValue(prop, color)
                 except Exception:
                     pass
-        page = bridge.get_active_page()
+
         return {
             "status": "ok",
             "message": f"Created {kwargs['shape_type']}",
