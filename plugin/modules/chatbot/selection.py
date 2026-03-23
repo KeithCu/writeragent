@@ -39,7 +39,13 @@ def _extend_writer(services, ctx, doc):
         selection = doc.CurrentController.getSelection()
         text_range = selection.getByIndex(0)
         selected_text = text_range.getString()
-    except Exception:
+    except Exception as e:
+        from com.sun.star.lang import DisposedException
+        from com.sun.star.uno import RuntimeException, Exception as UnoException
+        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            log.debug("Failed to get Writer selection (likely disposed): %s", e)
+        else:
+            log.debug("No valid Writer selection found: %s", e)
         msgbox(ctx, "WriterAgent", "No text selected")
         return
 
@@ -61,8 +67,13 @@ def _extend_writer(services, ctx, doc):
         if not is_thinking:
             try:
                 text_range.setString(text_range.getString() + text)
-            except Exception:
-                log.exception("Failed to append text")
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to append text to Writer selection (likely disposed): %s", e)
+                else:
+                    log.exception("Failed to append text")
 
     def on_error(e):
         log.error("Extend selection failed: %s", e)
@@ -89,7 +100,13 @@ def _extend_calc(services, ctx, doc):
         sheet = doc.CurrentController.ActiveSheet
         selection = doc.CurrentController.Selection
         area = selection.getRangeAddress()
-    except Exception:
+    except Exception as e:
+        from com.sun.star.lang import DisposedException
+        from com.sun.star.uno import RuntimeException, Exception as UnoException
+        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            log.debug("Failed to get Calc selection (likely disposed): %s", e)
+        else:
+            log.debug("No valid Calc selection found: %s", e)
         msgbox(ctx, "WriterAgent", "No cells selected")
         return
 
@@ -137,8 +154,11 @@ def _extend_calc(services, ctx, doc):
             if not is_thinking:
                 try:
                     cell.setString(cell.getString() + text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    from com.sun.star.lang import DisposedException
+                    from com.sun.star.uno import RuntimeException, Exception as UnoException
+                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                        log.debug("Failed to append text to Calc cell (likely disposed): %s", e)
 
         def on_error(e):
             log.error("Extend selection (calc) failed: %s", e)
@@ -200,7 +220,13 @@ def _edit_writer(services, ctx, doc):
         selection = doc.CurrentController.getSelection()
         text_range = selection.getByIndex(0)
         original_text = text_range.getString()
-    except Exception:
+    except Exception as e:
+        from com.sun.star.lang import DisposedException
+        from com.sun.star.uno import RuntimeException, Exception as UnoException
+        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            log.debug("Failed to get Writer selection for edit (likely disposed): %s", e)
+        else:
+            log.debug("No valid Writer selection found for edit: %s", e)
         msgbox(ctx, "WriterAgent", "No text selected")
         return
 
@@ -244,14 +270,22 @@ def _edit_writer(services, ctx, doc):
         if not is_thinking:
             try:
                 text_range.setString(text_range.getString() + text)
-            except Exception:
-                log.exception("Failed to write text")
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to write text to Writer selection (likely disposed): %s", e)
+                else:
+                    log.exception("Failed to write text")
 
     def on_error(e):
         try:
             text_range.setString(original_text)
-        except Exception:
-            pass
+        except Exception as recovery_err:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(recovery_err, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to restore original text (likely disposed): %s", recovery_err)
         log.error("Edit selection failed: %s", e)
         msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 
@@ -276,7 +310,13 @@ def _edit_calc(services, ctx, doc):
         sheet = doc.CurrentController.ActiveSheet
         selection = doc.CurrentController.Selection
         area = selection.getRangeAddress()
-    except Exception:
+    except Exception as e:
+        from com.sun.star.lang import DisposedException
+        from com.sun.star.uno import RuntimeException, Exception as UnoException
+        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            log.debug("Failed to get Calc selection for edit (likely disposed): %s", e)
+        else:
+            log.debug("No valid Calc selection found for edit: %s", e)
         msgbox(ctx, "WriterAgent", "No cells selected")
         return
 
@@ -346,14 +386,20 @@ def _edit_calc(services, ctx, doc):
             if not is_thinking:
                 try:
                     cell.setString(cell.getString() + text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    from com.sun.star.lang import DisposedException
+                    from com.sun.star.uno import RuntimeException, Exception as UnoException
+                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                        log.debug("Failed to write text to Calc cell (likely disposed): %s", e)
 
         def on_error(e):
             try:
                 cell.setString(original)
-            except Exception:
-                pass
+            except Exception as recovery_err:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(recovery_err, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to restore original cell text (likely disposed): %s", recovery_err)
             log.error("Edit selection (calc) failed: %s", e)
             msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 

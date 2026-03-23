@@ -65,7 +65,11 @@ class ToolCallingMixin:
 
             log.debug("_do_send: core modules imported OK")
         except Exception as e:
-            log.error("_do_send: core import FAILED: %s" % e)
+            from plugin.framework.errors import UnoObjectError
+            if isinstance(e, UnoObjectError):
+                log.error("_do_send: core import failed (UnoObjectError): %s" % e)
+            else:
+                log.error("_do_send: core import FAILED: %s" % e)
             self._append_response("\n[Import error - core: %s]\n" % e)
             self._terminal_status = "Error"
             return
@@ -170,7 +174,11 @@ class ToolCallingMixin:
                     return json.dumps(format_error_payload(wrapped_error))
 
         except Exception as e:
-            log.error("_do_send: tool import FAILED: %s" % e)
+            from plugin.framework.errors import UnoObjectError
+            if isinstance(e, UnoObjectError):
+                log.error("_do_send: tool import failed (UnoObjectError): %s" % e)
+            else:
+                log.error("_do_send: tool import FAILED: %s" % e)
             self._append_response("\n[Import error - tools: %s]\n" % e)
             self._terminal_status = "Error"
             return
@@ -248,13 +256,19 @@ class ToolCallingMixin:
             self._set_status("Error")
             return
         except Exception as e:
-            log.error("Unexpected document error: %s" % e, extra={"context": "document_context"})
-            wrapped_error = UnoObjectError(
-                "Failed to get document context",
-                code="DOCUMENT_CONTEXT_ERROR",
-                details={"original_error": str(e), "type": type(e).__name__}
-            )
-            self._append_response("\n[Error reading document: %s]\n" % wrapped_error.message)
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Document likely disposed while reading context: %s", e)
+                self._append_response("\n[Document closed or unavailable.]\n")
+            else:
+                log.error("Unexpected document error: %s" % e, extra={"context": "document_context"})
+                wrapped_error = UnoObjectError(
+                    "Failed to get document context",
+                    code="DOCUMENT_CONTEXT_ERROR",
+                    details={"original_error": str(e), "type": type(e).__name__}
+                )
+                self._append_response("\n[Error reading document: %s]\n" % wrapped_error.message)
             self._terminal_status = "Error"
             self._set_status("Error")
             return
@@ -294,7 +308,11 @@ class ToolCallingMixin:
                 self._append_response("\nYou: %s\n" % query_text)
                 self.audio_wav_path = None
             except Exception as e:
-                log.error("Unexpected audio error: %s" % e, extra={"context": "audio_handling"})
+                from plugin.framework.errors import NetworkError
+                if isinstance(e, NetworkError):
+                    log.error("NetworkError while handling audio message: %s", e, extra={"context": "audio_handling"})
+                else:
+                    log.error("Unexpected audio error: %s" % e, extra={"context": "audio_handling"})
                 self.session.add_user_message(query_text)
                 self._append_response("\nYou: %s\n" % query_text)
                 self.audio_wav_path = None
@@ -354,7 +372,11 @@ class ToolCallingMixin:
                     update_activity_state("tool_loop", round_num=round_num)
                     q.put(("stream_done", response))
             except Exception as e:
-                log.error("Tool loop round %d: API ERROR: %s" % (round_num, e))
+                from plugin.framework.errors import NetworkError
+                if isinstance(e, NetworkError):
+                    log.error("Tool loop round %d: NetworkError: %s" % (round_num, e))
+                else:
+                    log.error("Tool loop round %d: API ERROR: %s" % (round_num, e))
                 q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
@@ -389,6 +411,11 @@ class ToolCallingMixin:
                 else:
                     q.put(("final_done", "".join(last_streamed)))
             except Exception as e:
+                from plugin.framework.errors import NetworkError
+                if isinstance(e, NetworkError):
+                    log.error("Final stream NetworkError: %s", e)
+                else:
+                    log.error("Final stream error: %s", e)
                 q.put(("error", format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
@@ -413,8 +440,26 @@ class ToolCallingMixin:
                 tool = _get_tools_registry().get(item[2])
                 if tool and tool.detects_mutation():
                     mutates = True
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    from com.sun.star.lang import DisposedException
+                    from com.sun.star.uno import RuntimeException, Exception as UnoException
+                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                        log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
+                except ImportError:
+                    pass
+            except Exception as e:
+                try:
+                    from com.sun.star.lang import DisposedException
+                    from com.sun.star.uno import RuntimeException, Exception as UnoException
+                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                        log.debug("_execute_effect 'update_document_context' failed (likely disposed): %s", e)
+                    else:
+                        log.debug("_execute_effect 'update_document_context' exception: %s", e)
+                except ImportError:
+                    log.debug("_execute_effect 'update_document_context' exception: %s", e)
+            except OSError as e:
+                log.debug("Failed to remove audio_wav_path during CleanupAudioEffect: %s", e)
             return ToolLoopEvent(
                 kind=EventKind.TOOL_RESULT,
                 data={
@@ -661,8 +706,8 @@ class ToolCallingMixin:
 
             try:
                 os.remove(self.audio_wav_path)
-            except Exception:
-                pass
+            except OSError as e:
+                log.debug("Failed to remove audio_wav_path during error handling: %s", e)
             self.audio_wav_path = None
 
     def _on_tool_loop_approval_required(self, item):
@@ -707,7 +752,8 @@ class ToolCallingMixin:
                 tool.name for tool in registry.values()
                 if getattr(tool, "is_async", lambda: False)()
             ])
-        except Exception:
+        except Exception as e:
+            log.debug("Failed to get async tools list, falling back to defaults: %s", e)
             async_tools = frozenset({"web_research", "generate_image"})
 
         self._sm_state = ToolLoopState(
@@ -736,7 +782,8 @@ class ToolCallingMixin:
             show_search_thinking = as_bool(
                 get_config(self.ctx, "chatbot.show_search_thinking")
             )
-        except Exception:
+        except (ValueError, TypeError) as e:
+            log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
             show_search_thinking = False
 
         try:
@@ -744,6 +791,12 @@ class ToolCallingMixin:
                 "com.sun.star.awt.Toolkit", self.ctx
             )
         except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to create Toolkit instance (likely disposed): %s", e)
+            else:
+                log.error("Failed to create Toolkit instance: %s", e)
             self._append_response("\n[Error: %s]\n" % str(e))
             self._terminal_status = "Error"
             self._set_status("Error")

@@ -80,6 +80,12 @@ class SendHandlersMixin:
                 "com.sun.star.awt.Toolkit", self.ctx
             )
         except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to create Toolkit for stream drain loop (likely disposed): %s", e)
+            else:
+                log.error("Failed to create Toolkit for stream drain loop: %s", e)
             self._append_response(_("\n[Error: {0}]\n").format(str(e)))
             self._terminal_status = "Error"
             if hasattr(self, "_current_agent_backend"):
@@ -195,7 +201,16 @@ class SendHandlersMixin:
                         self.ctx, base_size_val, "image_base_size_lru", ""
                     )
                 except Exception as elru:
-                    log.error("LRU update error: %s" % elru)
+                    from plugin.framework.errors import ConfigError
+                    if isinstance(elru, ConfigError):
+                        log.error("LRU update ConfigError: %s" % elru)
+                    else:
+                        from com.sun.star.lang import DisposedException
+                        from com.sun.star.uno import RuntimeException, Exception as UnoException
+                        if isinstance(elru, (DisposedException, RuntimeException, UnoException)):
+                            log.debug("LRU update error (likely disposed): %s" % elru)
+                        else:
+                            log.error("LRU update error: %s" % elru)
 
                 import json
 
@@ -257,8 +272,11 @@ class SendHandlersMixin:
         try:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
-        except Exception:
-            pass
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to get document URL for agent backend (likely disposed): %s", e)
 
         max_context = int(get_config(self.ctx, "chat_context_length"))
         try:
@@ -271,6 +289,12 @@ class SendHandlersMixin:
             )
         except Exception as e:
             from plugin.framework.i18n import _
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
+            else:
+                log.error("Failed to build document context for agent backend: %s", e)
             self._append_response(_("\n[Document context error: {0}]\n").format(str(e)))
             self._terminal_status = "Error"
             self._set_status(_("Error"))
@@ -364,8 +388,12 @@ class SendHandlersMixin:
             if request_id is not None and hasattr(adapter, "submit_approval"):
                 try:
                     adapter.submit_approval(request_id, approved)
-                except Exception:
-                    pass
+                except Exception as e:
+                    from plugin.framework.errors import NetworkError
+                    if isinstance(e, NetworkError):
+                        log.debug("NetworkError submitting agent backend approval: %s", e)
+                    else:
+                        log.debug("Error submitting agent backend approval: %s", e)
 
         self._run_unified_worker_drain_loop(
             q,
@@ -405,7 +433,8 @@ class SendHandlersMixin:
             from plugin.framework.config import get_config, as_bool
 
             show_thinking = as_bool(get_config(self.ctx, "chatbot.show_search_thinking"))
-        except Exception:
+        except (ValueError, TypeError) as e:
+            log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
             show_thinking = False
 
         from plugin.framework.dialogs import get_control_text
@@ -535,5 +564,6 @@ class SendHandlersMixin:
             use_ssl = get_config(self.ctx, "http.use_ssl")
             scheme = "https" if use_ssl else "http"
             return f"{scheme}://{host}:{port}"
-        except Exception:
+        except (ValueError, TypeError) as e:
+            log.debug("Failed to read MCP config: %s", e)
             return None

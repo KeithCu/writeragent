@@ -102,7 +102,7 @@ class WebResearchTool(ToolBase):
             from plugin.contrib.smolagents.agents import ToolCallingAgent
             from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
             from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
-        except Exception as e:
+        except (ImportError, ValueError, TypeError) as e:
             return format_error_payload(ToolExecutionError(f"Failed to load required dependencies: {e}"))
 
         status_callback = getattr(ctx, "status_callback", None)
@@ -156,7 +156,7 @@ class WebResearchTool(ToolBase):
                 prompt_for_web_research = as_bool(
                     get_config(ctx.ctx, "chatbot.prompt_for_web_research")
                 )
-            except Exception as ex:
+            except (ValueError, TypeError) as ex:
                 log.warning("prompt_for_web_research config read failed: %s", ex)
 
             log.debug(
@@ -294,5 +294,10 @@ class WebResearchTool(ToolBase):
                 "result": str(final_ans),
             }
         except Exception as e:
+            from plugin.framework.errors import NetworkError
+            if isinstance(e, NetworkError):
+                log.error("Web search NetworkError: %s", e)
+            else:
+                log.error("Web search error: %s", e)
             err = ToolExecutionError(f"Web search failed: {str(e)}", details={"query": query})
             return format_error_payload(err)

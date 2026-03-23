@@ -61,7 +61,7 @@ class ChatbotModule(ModuleBase):
                        self._api_handler.handle_providers)
             self._routes_registered = True
             log.info("Chat API routes registered")
-        except Exception as exc:  # ImportError, AttributeError, or route add failure
+        except (ImportError, AttributeError, ValueError) as exc:
             log.info(
                 "Chat API handler not available; skipping /api/chat routes: %s",
                 exc,
@@ -79,8 +79,8 @@ class ChatbotModule(ModuleBase):
             ]:
                 try:
                     routes.remove(method, path)
-                except Exception:
-                    pass
+                except ValueError as e:
+                    log.debug("Route %s %s not found during unregister: %s", method, path, e)
         self._routes_registered = False
         log.info("Chat API routes unregistered")
 
