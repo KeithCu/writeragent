@@ -18,6 +18,8 @@
 """Central tool registry with unified execution."""
 
 import logging
+import threading
+import queue
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
@@ -146,6 +148,41 @@ class ToolRegistry:
 
     # ── Execution ─────────────────────────────────────────────────────
 
+    def _get_tool_timeout(self, tool):
+        return getattr(tool, "timeout", 0)
+
+    def _execute_with_timeout(self, func, timeout, **kwargs):
+        """Simple timeout handling."""
+        if timeout <= 0:
+            return func(**kwargs)
+
+        # Use simple threading for timeout
+        result_queue = queue.Queue()
+
+        def worker():
+            try:
+                result = func(**kwargs)
+                result_queue.put(('success', result))
+            except Exception as e:
+                result_queue.put(('error', e))
+
+        worker_thread = threading.Thread(target=worker, daemon=True)
+        worker_thread.start()
+        worker_thread.join(timeout=timeout)
+
+        if worker_thread.is_alive():
+            return {
+                "status": "error",
+                "code": "TOOL_TIMEOUT",
+                "message": f"Tool timed out after {timeout} seconds"
+            }
+
+        result_type, result = result_queue.get()
+        if result_type == 'error':
+            raise result  # Will be caught by outer try/except
+
+        return result
+
     def execute(self, tool_name, ctx, **kwargs):
         """Execute a tool by name.
 
@@ -156,53 +193,56 @@ class ToolRegistry:
 
         Returns:
             dict result from the tool.
-
-        Raises:
-            KeyError:     Tool not found.
-            ValueError:   Validation failed or doc_type incompatible.
         """
-        tool = self._tools.get(tool_name)
-        if tool is None:
-            raise KeyError(f"Unknown tool: {tool_name}")
+        try:
+            tool = self._tools.get(tool_name)
+            if tool is None:
+                raise KeyError(f"Unknown tool: {tool_name}")
 
-        # Check doc_type compatibility
-        if tool.doc_types and ctx.doc_type and ctx.doc_type not in tool.doc_types:
-            raise ValueError(
-                f"Tool {tool_name} does not support doc_type={ctx.doc_type}"
+            # Check doc_type compatibility
+            if tool.doc_types and ctx.doc_type and ctx.doc_type not in tool.doc_types:
+                raise ValueError(
+                    f"Tool {tool_name} does not support doc_type={ctx.doc_type}"
+                )
+
+            # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
+            # from API/LLM) do not cause "Unknown parameter" validation errors.
+            props = (tool.parameters or {}).get("properties", {})
+            if props:
+                kwargs = {k: v for k, v in kwargs.items() if k in props}
+
+            from plugin.framework.errors import format_error_payload, ToolExecutionError
+
+            # Common context for all error details
+            common_details = {"tool_name": tool_name}
+            if ctx.caller:
+                common_details["caller"] = ctx.caller
+            if ctx.doc_type:
+                common_details["doc_type"] = ctx.doc_type
+
+            # Validate parameters
+            ok, err = tool.validate(**kwargs)
+            if not ok:
+                return {
+                    "status": "error",
+                    "code": "VALIDATION_ERROR",
+                    "message": err,
+                    "details": common_details
+                }
+
+            # Emit executing event
+            bus = self._services.get("events") if hasattr(self, "_services") and self._services else None
+            if bus:
+                bus.emit("tool:executing", name=tool_name, caller=ctx.caller)
+
+            # Execution with simple isolation and timeout
+            result = self._execute_with_timeout(
+                tool.execute_safe,
+                timeout=self._get_tool_timeout(tool),
+                ctx=ctx,
+                **kwargs
             )
 
-        # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
-        # from API/LLM) do not cause "Unknown parameter" validation errors.
-        props = (tool.parameters or {}).get("properties", {})
-        if props:
-            kwargs = {k: v for k, v in kwargs.items() if k in props}
-
-        from plugin.framework.errors import format_error_payload, WriterAgentException
-
-        # Common context for all error details
-        common_details = {"tool_name": tool_name}
-        if ctx.caller:
-            common_details["caller"] = ctx.caller
-        if ctx.doc_type:
-            common_details["doc_type"] = ctx.doc_type
-
-        # Validate parameters
-        ok, err = tool.validate(**kwargs)
-        if not ok:
-            return {
-                "status": "error",
-                "code": "VALIDATION_ERROR",
-                "message": err,
-                "details": common_details
-            }
-
-        # Emit executing event
-        bus = self._services.get("events")
-        if bus:
-            bus.emit("tool:executing", name=tool_name, caller=ctx.caller)
-
-        try:
-            result = tool.execute(ctx, **kwargs)
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":
                 result_details = result.get("details", {})
@@ -212,32 +252,36 @@ class ToolRegistry:
                         if k not in result_details:
                             result_details[k] = v
                     result["details"] = result_details
-        except ToolExecutionError as exc:
-            log.exception("Tool execution failed (ToolExecutionError): %s", tool_name)
-            if bus:
-                bus.emit("tool:failed", name=tool_name, error=str(exc), caller=ctx.caller)
 
-            error_details = exc.details or {}
-            for k, v in common_details.items():
-                if k not in error_details:
-                    error_details[k] = v
-            return {"status": "error", "code": exc.code, "message": exc.message, "details": error_details}
-        except Exception as exc:
+            if bus:
+                # only emit completed if result was not an error (optional, but follows general pattern)
+                if not (isinstance(result, dict) and result.get("status") == "error"):
+                    bus.emit("tool:completed", name=tool_name, caller=ctx.caller)
+                else:
+                    bus.emit("tool:failed", name=tool_name, error=result.get("message"), caller=ctx.caller)
+
+            return result
+
+        except KeyError:
+            raise
+        except ValueError:
+            raise
+        except Exception as e:
+            # Simple wrapping
+            bus = self._services.get("events") if hasattr(self, "_services") and self._services else None
             log.exception("Tool execution failed: %s", tool_name)
             if bus:
-                bus.emit("tool:failed", name=tool_name, error=str(exc), caller=ctx.caller)
-            payload = format_error_payload(exc)
-            error_details = payload.get("details", {})
-            for k, v in common_details.items():
-                if k not in error_details:
-                    error_details[k] = v
-            payload["details"] = error_details
-            return payload
-
-        if bus:
-            bus.emit("tool:completed", name=tool_name, caller=ctx.caller)
-
-        return result
+                bus.emit("tool:failed", name=tool_name, error=str(e), caller=ctx.caller)
+            return {
+                "status": "error",
+                "code": "TOOL_REGISTRY_ERROR",
+                "message": f"Failed to execute tool '{tool_name}'",
+                "details": {
+                    "tool_name": tool_name,
+                    "error": str(e),
+                    "type": type(e).__name__
+                }
+            }
 
     @property
     def tool_names(self):

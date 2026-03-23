@@ -279,5 +279,57 @@ class TestExecuteEventsAndInvalidation:
         assert len(events.events) == 2
         assert events.events[0][0] == "tool:executing"
         assert events.events[1][0] == "tool:failed"
-        assert events.events[1][1]["error"] == "something went wrong"
+        assert "something went wrong" in events.events[1][1]["error"]
+
+class TestToolIsolation:
+    def test_tool_execution_error(self):
+        from plugin.framework.tool_registry import ToolRegistry
+        from plugin.framework.tool_base import ToolBase
+
+        class FailingTool(ToolBase):
+            name = "test_fail"
+            parameters = {"type": "object", "properties": {}}
+
+            def execute(self, ctx, **kwargs):
+                raise ValueError("Test error")
+
+        registry = ToolRegistry(services={})
+        registry.register(FailingTool())
+
+        class DummyContext:
+            doc_type = None
+            caller = None
+
+        result = registry.execute("test_fail", DummyContext())
+
+        assert result["status"] == "error"
+        assert "Test error" in result["details"]["original_error"]
+        assert result["code"] == "TOOL_EXECUTION_ERROR"
+
+    def test_tool_timeout(self):
+        from plugin.framework.tool_registry import ToolRegistry
+        from plugin.framework.tool_base import ToolBase
+        import time
+
+        class SlowTool(ToolBase):
+            name = "test_slow"
+            timeout = 0.1
+            parameters = {"type": "object", "properties": {}}
+
+            def execute(self, ctx, **kwargs):
+                time.sleep(2)
+                return {"status": "ok"}
+
+        registry = ToolRegistry(services={})
+        registry.register(SlowTool())
+
+        class DummyContext:
+            doc_type = None
+            caller = None
+
+        result = registry.execute("test_slow", DummyContext())
+
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_TIMEOUT"
+        assert "Tool timed out" in result["message"]
 

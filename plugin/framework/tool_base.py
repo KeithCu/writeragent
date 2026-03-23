@@ -104,6 +104,18 @@ class ToolBase(ABC):
             dict with at least ``{"status": "ok"|"error", ...}``.
         """
 
+    def execute_safe(self, ctx, **kwargs):
+        """Execute with simple error containment."""
+        try:
+            return self.execute(ctx, **kwargs)
+        except Exception as e:
+            return self._tool_error(
+                f"Tool execution failed: {str(e)}",
+                code="TOOL_EXECUTION_ERROR",
+                original_error=str(e),
+                error_type=type(e).__name__
+            )
+
     def get_collection(self, doc, getter_name, missing_msg=None):
         """Helper to safely fetch a named collection from a document.
 
