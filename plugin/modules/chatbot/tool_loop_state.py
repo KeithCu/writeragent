@@ -66,6 +66,10 @@ class UpdateActivityStateEffect:
     round_num: Optional[int] = None
     tool_name: Optional[str] = None
 
+@dataclasses.dataclass(frozen=True)
+class CleanupAudioEffect:
+    pass
+
 
 # --- State Machine Transition ---
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopState, List[Any]]:
@@ -97,6 +101,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
         case EventKind.STREAM_DONE:
             response = event.data.get("response", {})
+            has_audio = event.data.get("has_audio", False)
             tool_calls = response.get("tool_calls")
             if isinstance(tool_calls, list) and len(tool_calls) == 0:
                 tool_calls = None
@@ -105,6 +110,9 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
             if not isinstance(tool_calls, list):
                 tool_calls = None
+
+            if has_audio:
+                effects.append(CleanupAudioEffect())
 
             effects.append(LogAgentEffect(
                 location="chat_panel.py:tool_round",

@@ -394,6 +394,43 @@ class ToolCallingMixin:
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run_final, name="llm-worker-final")
 
+    def _create_event_from_stream_item(self, item):
+        """Factory method to convert a raw stream item tuple into a ToolLoopEvent."""
+        kind = item[0] if isinstance(item, (tuple, list)) else item
+        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+
+        if kind == "stream_done":
+            return ToolLoopEvent(kind=EventKind.STREAM_DONE, data={
+                "response": data,
+                "has_audio": bool(self.audio_wav_path)
+            })
+        elif kind == "next_tool":
+            return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
+        elif kind == "tool_done":
+            mutates = False
+            try:
+                from plugin.main import get_tools as _get_tools_registry
+                tool = _get_tools_registry().get(item[2])
+                if tool and tool.detects_mutation():
+                    mutates = True
+            except Exception:
+                pass
+            return ToolLoopEvent(
+                kind=EventKind.TOOL_RESULT,
+                data={
+                    "call_id": item[1],
+                    "func_name": item[2],
+                    "func_args_str": item[3],
+                    "result": item[4],
+                    "mutates_document": mutates
+                }
+            )
+        elif kind == "final_done":
+            return ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
+        elif kind == "error":
+            return ToolLoopEvent(kind=EventKind.ERROR, data={"error": data})
+        return None
+
     def _execute_effect(self, effect):
         """Execute a single pure effect returned by the state machine."""
         if effect == "exit_loop":
@@ -454,6 +491,19 @@ class ToolCallingMixin:
                 update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
             elif effect.action == "exhausted_rounds":
                 update_activity_state("exhausted_rounds")
+
+        elif effect.__class__.__name__ == "CleanupAudioEffect":
+            current_model = get_text_model(self.ctx)
+            current_endpoint = get_current_endpoint(self.ctx)
+            set_native_audio_support(
+                self.ctx, current_model, current_endpoint, supported=True
+            )
+            import os
+            try:
+                os.remove(self.audio_wav_path)
+            except Exception:
+                pass
+            self.audio_wav_path = None
 
         elif isinstance(effect, SpawnToolWorkerEffect):
             func_name = effect.func_name
@@ -526,57 +576,11 @@ class ToolCallingMixin:
 
     def _handle_stream_completion(self, item):
         kind = item[0] if isinstance(item, (tuple, list)) else item
-        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+        if kind == "next_tool" and self.stop_requested and not self._sm_state.is_stopped:
+            # Synchronize stop state into the state machine
+            self._sm_state = dataclasses.replace(self._sm_state, is_stopped=True)
 
-        # Build the Event object
-        event = None
-        if kind == "stream_done":
-            event = ToolLoopEvent(kind=EventKind.STREAM_DONE, data={"response": data})
-
-            # If we were using audio and it reached here, cache success
-            if self.audio_wav_path:
-                current_model = get_text_model(self.ctx)
-                current_endpoint = get_current_endpoint(self.ctx)
-                set_native_audio_support(
-                    self.ctx, current_model, current_endpoint, supported=True
-                )
-                import os
-                try:
-                    os.remove(self.audio_wav_path)
-                except Exception:
-                    pass
-                self.audio_wav_path = None
-
-        elif kind == "next_tool":
-            if self.stop_requested and not self._sm_state.is_stopped:
-                # Synchronize stop state into the state machine
-                self._sm_state = dataclasses.replace(self._sm_state, is_stopped=True)
-            event = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
-        elif kind == "tool_done":
-            mutates = False
-            try:
-                from plugin.main import get_tools as _get_tools_registry
-                tool = _get_tools_registry().get(item[2])
-                if tool and tool.detects_mutation():
-                    mutates = True
-            except Exception:
-                pass
-
-            event = ToolLoopEvent(
-                kind=EventKind.TOOL_RESULT,
-                data={
-                    "call_id": item[1],
-                    "func_name": item[2],
-                    "func_args_str": item[3],
-                    "result": item[4],
-                    "mutates_document": mutates
-                }
-            )
-        elif kind == "final_done":
-            event = ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
-        elif kind == "error":
-            event = ToolLoopEvent(kind=EventKind.ERROR, data={"error": data})
-
+        event = self._create_event_from_stream_item(item)
         if not event:
             return False
 
