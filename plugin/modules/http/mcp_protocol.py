@@ -30,6 +30,7 @@ import uuid
 
 from plugin.framework.main_thread import execute_on_main_thread
 from plugin.framework.errors import WriterAgentException, safe_json_loads
+from plugin.framework.retry_decorator import retry_with_backoff
 from plugin.modules.http.mcp_state import (
     MCPState, MCPStateStr, EventKind, MCPEvent,
     ParseRequestEffect, ResolveDocumentEffect,
@@ -531,6 +532,13 @@ class MCPProtocolHandler:
 
     # ── Backpressure execution ───────────────────────────────────────
 
+    @retry_with_backoff(
+        max_attempts=3,
+        base_delay=0.1,
+        max_delay=1.0,
+        retry_exceptions=(BusyError, TimeoutError),
+        logger=log
+    )
     def _execute_with_backpressure(self, tool_name, arguments, document_url=None):
         """Execute a tool on the VCL main thread with backpressure."""
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)

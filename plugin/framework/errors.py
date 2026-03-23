@@ -121,6 +121,32 @@ def safe_json_loads(text: Any, default: Any = None) -> Any:
         return default
 
 
+def handle_network_error(e, context="network_operation"):
+    """Handle network errors with appropriate logging and user messaging."""
+    import logging
+    log = logging.getLogger(__name__)
+
+    error_payload = format_error_payload(e)
+
+    if isinstance(e, NetworkError):
+        log.error(f"Network error [{context}]: {e.message}",
+                 extra={"network_error": error_payload})
+    else:
+        # Wrap non-network exceptions
+        wrapped = NetworkError(
+            f"Network-related error in {context}",
+            code="NETWORK_WRAPPED_ERROR",
+            details={
+                "original_error": str(e),
+                "type": type(e).__name__,
+                "context": context
+            }
+        )
+        log.error(f"Wrapped network error [{context}]: {wrapped.message}")
+        error_payload = format_error_payload(wrapped)
+
+    return error_payload
+
 def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
     """Safely parse a Python-style literal (e.g. from an LLM) without using ast.literal_eval.
     Supports scalars (bool, None, number, string) and simple JSON-compatible lists/dicts.

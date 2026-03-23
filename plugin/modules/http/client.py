@@ -37,6 +37,7 @@ from plugin.framework.logging import init_logging
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError, safe_json_loads
 from plugin.framework.utils import get_url_hostname, get_url_path_and_query
+from plugin.framework.retry_decorator import retry_with_backoff
 
 from plugin.modules.http.errors import format_error_message, _format_http_error_response
 from plugin.modules.http.ssl_helpers import (
@@ -449,6 +450,13 @@ class LlmClient:
             stop_checker=stop_checker,
         )
 
+    @retry_with_backoff(
+        max_attempts=3,
+        base_delay=0.2,
+        max_delay=3.0,
+        retry_exceptions=(ConnectionError, TimeoutError, OSError, http.client.HTTPException),
+        logger=log
+    )
     def _run_streaming_loop(
         self,
         method,
@@ -459,7 +467,6 @@ class LlmClient:
         on_thinking=None,
         on_delta=None,
         stop_checker=None,
-        _retry=True,
     ):
         """Common low-level streaming engine."""
         init_logging(self.ctx)
@@ -575,29 +582,13 @@ class LlmClient:
             if stop_checker and stop_checker():
                 log.error("Connection error during stop; exiting streaming loop")
                 return "stop"
-            if self._enable_local_ssl_fallback(e):
-                return self._run_streaming_loop(
-                    method, path, body, headers,
-                    on_content=on_content,
-                    on_thinking=on_thinking,
-                    on_delta=on_delta,
-                    stop_checker=stop_checker,
-                    _retry=False,
-                )
             
-            err_msg = format_error_message(e)
-            if _retry:
-                log.warning("Retrying streaming request once on fresh connection")
-                return self._run_streaming_loop(
-                    method, path, body, headers,
-                    on_content=on_content,
-                    on_thinking=on_thinking,
-                    on_delta=on_delta,
-                    stop_checker=stop_checker,
-                    _retry=False,
-                )
-            log.error("Connection retry failed: %s" % err_msg)
-            raise NetworkError(err_msg, code="CONNECTION_ERROR", context={"url": path}) from e
+            # Check for local SSL fallback; state changes internally
+            self._enable_local_ssl_fallback(e)
+
+            # Re-raise so the @retry_with_backoff decorator catches it
+            raise e
+
         except NetworkError:
             self._close_connection()
             raise
@@ -648,6 +639,35 @@ class LlmClient:
             append_thinking_callback,
             stop_checker=stop_checker,
         )
+
+    @retry_with_backoff(
+        max_attempts=3,
+        base_delay=0.2,
+        max_delay=3.0,
+        retry_exceptions=(ConnectionError, TimeoutError, OSError, http.client.HTTPException),
+        logger=log
+    )
+    def _execute_sync_request(self, method, path, body, headers):
+        """Execute a synchronous request with retry logic."""
+        try:
+            conn = self._get_connection()
+            conn.request(method, path, body=body, headers=headers)
+            response = conn.getresponse()
+            if response.status != 200:
+                err_body = response.read().decode("utf-8", errors="replace")
+                log.error("API Error %d: %s" % (response.status, err_body))
+                self._close_connection()
+                raise NetworkError(
+                    _format_http_error_response(response.status, response.reason, err_body),
+                    code="HTTP_ERROR",
+                    context={"url": path, "status": response.status}
+                )
+            return json.loads(response.read().decode("utf-8"))
+        except (http.client.HTTPException, socket.error, OSError) as e:
+            log.error("Connection error in sync request, closing: %s" % e)
+            self._close_connection()
+            self._enable_local_ssl_fallback(e)
+            raise e
 
     def request_with_tools(
         self,
@@ -711,39 +731,14 @@ class LlmClient:
             usage = message_snapshot.get("usage", {})
         else:
             # Sync path
-            result = None
-            for attempt in (0, 1):
-                try:
-                    conn = self._get_connection()
-                    conn.request(method, path, body=body, headers=headers)
-                    response = conn.getresponse()
-                    if response.status != 200:
-                        err_body = response.read().decode("utf-8", errors="replace")
-                        log.error("API Error %d: %s" % (response.status, err_body))
-                        self._close_connection()
-                        raise NetworkError(
-                            _format_http_error_response(response.status, response.reason, err_body),
-                            code="HTTP_ERROR",
-                            context={"url": path, "status": response.status}
-                        )
-                    result = json.loads(response.read().decode("utf-8"))
-                    break
-                except (http.client.HTTPException, socket.error, OSError) as e:
-                    log.error("Connection error, closing: %s" % e)
-                    self._close_connection()
-                    if self._enable_local_ssl_fallback(e):
-                        continue
-                    if attempt == 0:
-                        log.warning("Retrying request_with_tools once on fresh connection")
-                        continue
-                    log.error("Connection retry failed: %s" % format_error_message(e))
-                    raise NetworkError(format_error_message(e), code="CONNECTION_ERROR", context={"url": path}) from e
-                except NetworkError:
-                    raise
-                except Exception as e:
-                    err_msg = format_error_message(e)
-                    log.error("request_with_tools ERROR: %s -> %s" % (type(e).__name__, err_msg))
-                    raise NetworkError(err_msg, context={"url": path}) from e
+            try:
+                result = self._execute_sync_request(method, path, body, headers)
+            except NetworkError:
+                raise
+            except Exception as e:
+                err_msg = format_error_message(e)
+                log.error("request_with_tools ERROR: %s -> %s" % (type(e).__name__, err_msg))
+                raise NetworkError(err_msg, context={"url": path}) from e
 
             log.debug("=== Sync response: %s" % json.dumps(result, indent=2))
 
