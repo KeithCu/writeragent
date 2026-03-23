@@ -20,13 +20,19 @@ import logging
 import subprocess
 import threading
 import traceback
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Callable
+
+from plugin.framework.errors import WorkerPoolError
 
 log = logging.getLogger("writeragent.framework.worker_pool")
 
+
 def run_in_background(func, *args, name=None, error_callback=None, daemon=True, **kwargs):
     """
-    Spawns a background thread to execute a function, catching any exceptions.
+    Spawns a background thread to execute a function, catching any exceptions
+    and wrapping them in WorkerPoolError for consistent error handling and task isolation.
 
     :param func: The callable to execute.
     :param args: Positional arguments for func.
@@ -37,16 +43,43 @@ def run_in_background(func, *args, name=None, error_callback=None, daemon=True, 
     :return: The spawned threading.Thread instance.
     """
     def _worker():
+        task_id = str(uuid.uuid4())
+        task_name = name or getattr(func, '__name__', 'anon')
+        log.debug(f"Starting task {task_id}: {task_name}")
+
         try:
-            func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            log.debug(f"Task {task_id} completed successfully")
+            return result
         except Exception as e:
-            log.error("Unhandled exception in background worker '%s': %s\n%s",
-                      name or func.__name__, e, traceback.format_exc())
+            error_id = str(uuid.uuid4())
+            log.error(
+                f"Task {task_id} failed: {str(e)}\n{traceback.format_exc()}",
+                extra={
+                    'task_id': task_id,
+                    'task_name': task_name,
+                    'error_id': error_id,
+                    'error_type': type(e).__name__
+                }
+            )
+
+            wrapped_error = WorkerPoolError(
+                f"Task '{task_name}' failed",
+                code="WORKER_TASK_FAILED",
+                details={
+                    'task_id': task_id,
+                    'task_name': task_name,
+                    'error_id': error_id,
+                    'original_error': str(e),
+                    'error_type': type(e).__name__
+                }
+            )
+
             if error_callback:
                 try:
-                    error_callback(e)
+                    error_callback(wrapped_error)
                 except Exception as ec:
-                    log.error("Error in error_callback for '%s': %s", name or func.__name__, ec)
+                    log.error("Error in error_callback for '%s': %s", task_name, ec)
 
     thread_name = name or f"worker-{getattr(func, '__name__', 'anon')}"
     t = threading.Thread(target=_worker, name=thread_name, daemon=daemon)

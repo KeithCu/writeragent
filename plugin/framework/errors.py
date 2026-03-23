@@ -51,6 +51,14 @@ class UnoObjectError(WriterAgentException):
         super().__init__(message, code=code, context=context, details=details)
 
 
+class WorkerPoolError(WriterAgentException):
+    """Worker pool specific errors."""
+
+    def __init__(self, message, code="WORKER_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+        self.task_context = context
+
+
 class ToolExecutionError(WriterAgentException):
     """Tool invocation and execution failures."""
 
