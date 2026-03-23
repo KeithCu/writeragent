@@ -32,7 +32,15 @@ from plugin.framework.config import (
 )
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.document import get_document_context_for_chat
-from plugin.framework.errors import format_error_payload, safe_json_loads
+from plugin.framework.errors import (
+    format_error_payload,
+    safe_json_loads,
+    WriterAgentException,
+    ToolExecutionError,
+    UnoObjectError,
+    NetworkError,
+    ConfigError
+)
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import as_bool
 
@@ -148,8 +156,18 @@ class ToolCallingMixin:
                 try:
                     res = _get_tools().execute(name, tctx, **args)
                     return json.dumps(res) if isinstance(res, dict) else str(res)
-                except Exception as e:
+                except (ToolExecutionError, UnoObjectError) as e:
+                    log.error("Tool execution failed: %s" % e, extra={"context": "tool_execution"})
+                    agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
                     return json.dumps(format_error_payload(e))
+                except Exception as e:
+                    wrapped_error = ToolExecutionError(
+                        "Unexpected error executing tool '%s'" % name,
+                        code="TOOL_UNEXPECTED_ERROR",
+                        details={"tool_name": name, "original_error": str(e), "type": type(e).__name__}
+                    )
+                    log.error("Unexpected tool error: %s" % wrapped_error)
+                    return json.dumps(format_error_payload(wrapped_error))
 
         except Exception as e:
             log.error("_do_send: tool import FAILED: %s" % e)
@@ -223,9 +241,20 @@ class ToolCallingMixin:
                 hypothesis_id="B",
             )
             self.session.update_document_context(doc_text)
+        except UnoObjectError as e:
+            log.error("Document unavailable: %s" % e, extra={"context": "document_context"})
+            self._append_response("\n[Document closed or unavailable.]\n")
+            self._terminal_status = "Error"
+            self._set_status("Error")
+            return
         except Exception as e:
-            log.error("_do_send: document context FAILED: %s" % e)
-            self._append_response("\n[Document unavailable or closed.]\n")
+            log.error("Unexpected document error: %s" % e, extra={"context": "document_context"})
+            wrapped_error = UnoObjectError(
+                "Failed to get document context",
+                code="DOCUMENT_CONTEXT_ERROR",
+                details={"original_error": str(e), "type": type(e).__name__}
+            )
+            self._append_response("\n[Error reading document: %s]\n" % wrapped_error.message)
             self._terminal_status = "Error"
             self._set_status("Error")
             return
@@ -257,8 +286,15 @@ class ToolCallingMixin:
                 )
                 self._append_response("\nYou: %s\n" % display_text)
                 # Note: We do NOT delete the audio file yet, in case native call fails and we need STT fallback
+            except (IOError, OSError) as e:
+                log.error("Audio file error: %s" % e, extra={"context": "audio_handling"})
+                # Preserve file for debugging
+                log.debug("Audio file preserved at: %s" % self.audio_wav_path)
+                self.session.add_user_message(query_text)
+                self._append_response("\nYou: %s\n" % query_text)
+                self.audio_wav_path = None
             except Exception as e:
-                log.error("_do_send: Error reading audio: %s" % e)
+                log.error("Unexpected audio error: %s" % e, extra={"context": "audio_handling"})
                 self.session.add_user_message(query_text)
                 self._append_response("\nYou: %s\n" % query_text)
                 self.audio_wav_path = None
