@@ -27,6 +27,7 @@ import json
 import logging
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, safe_json_loads
+from plugin.modules.calc.__init__ import CalcError
 from plugin.modules.calc.address_utils import parse_address
 
 logger = logging.getLogger("writeragent.calc")
@@ -120,6 +121,75 @@ class CellManipulator:
 
     # ── Internal helpers ───────────────────────────────────────────────
 
+    def _is_valid_cell_address(self, address: str) -> bool:
+        """Validate if a string is a valid cell address (e.g., A1)."""
+        import re
+        if not address:
+            return False
+        return bool(re.match(r'^[A-Za-z]+[1-9][0-9]*$', address.strip()))
+
+    def _get_error_name(self, error_code: int) -> str:
+        """Get a human-readable name for a Calc error code."""
+        # Common LibreOffice Calc error codes
+        # 501: Invalid character
+        # 502: Invalid argument
+        # 503: #NUM!
+        # 504: Error in parameter list
+        # 508: Error: Pair missing
+        # 509: Missing operator
+        # 510: Missing variable
+        # 511: Missing variable
+        # 512: Formula overflow
+        # 513: String overflow
+        # 514: Internal overflow
+        # 516: Internal syntax error
+        # 517: Internal syntax error
+        # 518: Internal syntax error
+        # 519: #VALUE!
+        # 520: Internal syntax error
+        # 521: #NULL!
+        # 522: Circular reference
+        # 523: The calculation process does not converge
+        # 524: #REF!
+        # 525: #NAME?
+        # 526: Internal syntax error
+        # 527: Internal overflow
+        # 532: #DIV/0!
+        # 533: Nested arrays are not supported
+        # 538: Error: Array or matrix size
+        # 539: Unsupported inline array content
+
+        errors = {
+            501: "Invalid character",
+            502: "Invalid argument",
+            503: "#NUM!",
+            504: "Error in parameter list",
+            508: "Error: Pair missing",
+            509: "Missing operator",
+            510: "Missing variable",
+            511: "Missing variable",
+            512: "Formula overflow",
+            513: "String overflow",
+            514: "Internal overflow",
+            516: "Internal syntax error",
+            517: "Internal syntax error",
+            518: "Internal syntax error",
+            519: "#VALUE!",
+            520: "Internal syntax error",
+            521: "#NULL!",
+            522: "Circular reference",
+            523: "The calculation process does not converge",
+            524: "#REF!",
+            525: "#NAME?",
+            526: "Internal syntax error",
+            527: "Internal overflow",
+            532: "#DIV/0!",
+            533: "Nested arrays are not supported",
+            538: "Error: Array or matrix size",
+            539: "Unsupported inline array content",
+        }
+        return errors.get(error_code, f"Unknown error ({error_code})")
+
     def _get_cell(self, address: str):
         """Return the cell object for *address*."""
         col, row = parse_address(address)
@@ -190,6 +260,100 @@ class CellManipulator:
         obj.setPropertyValue("RightBorder", line)
 
     # ── Write operations ───────────────────────────────────────────────
+
+    def safe_get_cell_value(self, sheet, cell_address):
+        """Safely get cell value with comprehensive error handling."""
+        try:
+            import com.sun.star.table.CellContentType
+        except ImportError:
+            pass  # Handled or mocked in tests
+        try:
+            # Validate sheet
+            if not sheet:
+                raise CalcError(
+                    "Sheet is None",
+                    code="CALC_SHEET_NULL",
+                    details={"operation": "get_cell_value"}
+                )
+
+            # Validate cell address
+            if not self._is_valid_cell_address(cell_address):
+                raise CalcError(
+                    f"Invalid cell address: {cell_address}",
+                    code="CALC_INVALID_ADDRESS",
+                    details={"address": cell_address}
+                )
+
+            # Get cell
+            try:
+                cell = sheet.getCellRangeByName(cell_address)
+            except Exception as e:
+                cell = None
+            if not cell:
+                raise CalcError(
+                    f"Cell not found: {cell_address}",
+                    code="CALC_CELL_NOT_FOUND",
+                    details={"address": cell_address}
+                )
+
+            # Get value with type handling
+            cell_type = cell.getType()
+
+            import sys
+            CCT = sys.modules.get('com.sun.star.table', None)
+            if CCT is not None and hasattr(CCT, 'CellContentType'):
+                CCT = CCT.CellContentType
+
+            # Also try to import for unmocked case
+            if CCT is None:
+                from com.sun.star.table import CellContentType as CCT
+
+            if cell_type == CCT.EMPTY:
+                return None
+            elif cell_type == CCT.VALUE:
+                return cell.getValue()
+            elif cell_type == CCT.TEXT:
+                return cell.getString()
+            elif cell_type == CCT.FORMULA:
+                try:
+                    # In LibreOffice Calc, cell.getError() returns 0 if no error
+                    error_code = cell.getError()
+                    if error_code != 0:
+                        raise Exception("Formula error")
+                    return cell.getValue()
+                except Exception as e:
+                    # Formula error
+                    error_code = cell.getError()
+                    raise CalcError(
+                        f"Formula error in {cell_address}: {self._get_error_name(error_code)}",
+                        code="CALC_FORMULA_ERROR",
+                        details={
+                            "address": cell_address,
+                            "error_code": error_code,
+                            "error_name": self._get_error_name(error_code)
+                        }
+                    ) from e
+            else:
+                raise CalcError(
+                    f"Unknown cell type: {cell_type}",
+                    code="CALC_UNKNOWN_CELL_TYPE",
+                    details={"address": cell_address, "type": cell_type}
+                )
+
+        except CalcError:
+            # Re-raise our calc errors
+            raise
+        except Exception as e:
+            # Wrap other exceptions
+            raise CalcError(
+                f"Failed to get cell value: {str(e)}",
+                code="CALC_CELL_VALUE_ERROR",
+                details={
+                    "address": cell_address,
+                    "original_error": str(e),
+                    "error_type": type(e).__name__
+                }
+            ) from e
 
     def write_formula(self, address: str, formula: str) -> str:
         """Write formula, text, or number to a cell.
