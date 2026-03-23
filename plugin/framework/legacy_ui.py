@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
-from plugin.framework.errors import format_error_payload
+from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
 from plugin.framework.dialogs import (
     TabListener,
@@ -52,7 +52,6 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         import traceback
         log.error("input_box: failed to create dialog: %s" % e)
         log.error("input_box: traceback: %s" % traceback.format_exc())
-        from plugin.framework.errors import UnoObjectError
         raise UnoObjectError(f"Failed to create dialog: {e}") from e
     try:
         dlg.getControl("label").getModel().Label = str(message)
@@ -90,7 +89,6 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         import traceback
         log.error("input_box: error while showing or reading dialog: %s" % e)
         log.error("input_box: traceback: %s" % traceback.format_exc())
-        from plugin.framework.errors import UnoObjectError
         raise UnoObjectError(f"Error while showing or reading dialog: {e}") from e
     finally:
         try:
@@ -119,7 +117,6 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     except Exception as e:
         error_msg = getattr(e, "Message", str(e))
         agent_log("legacy_ui:settings_box", "createDialog failed", data={"url": dialog_url, "error": error_msg}, hypothesis_id="H5")
-        from plugin.framework.errors import UnoObjectError
         raise UnoObjectError(f"Could not create dialog from {dialog_url}: {error_msg}")
 
     dlg.getControl("btn_tab_chat").addActionListener(TabListener(dlg, 1))
@@ -150,7 +147,9 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 
         page_num = 3
         for m in MODULES:
-            if m["name"] in ("main", "ai") or m["name"] in inline_set:
+            # Must match scripts/manifest_registry.generate_settings_dialog_tabs:
+            # no tab button is generated for main/core/ai or inlined modules.
+            if m["name"] in ("main", "core", "ai") or m["name"] in inline_set:
                 continue
             if m["name"] in ("tunnel", "launcher"):
                 continue
@@ -332,13 +331,9 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                     else:
                         result[field["name"]] = ""
                 except (ValueError, TypeError, AttributeError) as e:
-                    from plugin.framework.logging import log
-                    from plugin.framework.errors import UnoObjectError
                     log.error(f"Failed to extract or parse field {field['name']}: {e}")
                     raise UnoObjectError(f"Failed to extract or parse field {field['name']}: {e}") from e
                 except Exception as e:
-                    from plugin.framework.logging import log
-                    from plugin.framework.errors import UnoObjectError
                     log.error(f"Unexpected error extracting field {field['name']}: {e}")
                     raise UnoObjectError(f"Unexpected error extracting field {field['name']}: {e}") from e
 
