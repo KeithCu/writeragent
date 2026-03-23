@@ -29,6 +29,8 @@ from plugin.framework.worker_pool import run_in_background
 log = logging.getLogger(__name__)
 
 
+from plugin.framework.errors import format_error_payload
+
 def run_stream_drain_loop(
     q,
     toolkit,
@@ -46,6 +48,7 @@ def run_stream_drain_loop(
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
     and dispatches to callbacks. Keeps UI responsive via processEventsToIdle().
+    Includes comprehensive error handling to prevent UI thread crashes.
 
     Supported queue items (kind, *args):
     - ('chunk', text): Applied via apply_chunk_fn(text, is_thinking=False).
@@ -67,137 +70,168 @@ def run_stream_drain_loop(
             apply_chunk_fn(" /thinking\n", is_thinking=True)
             thinking_open[0] = False
 
-    while not job_done[0]:
-        if stop_checker and stop_checker():
-            log.info("run_stream_drain_loop: Stop requested via checker.")
-            on_stopped()
-            job_done[0] = True
-            break
+    try:
+        while not job_done[0]:
+            if stop_checker and stop_checker():
+                log.info("run_stream_drain_loop: Stop requested via checker.")
+                on_stopped()
+                job_done[0] = True
+                break
 
-        items = []
-        try:
-            # Wait for at least one item
-            items.append(q.get(timeout=0.1))
-            # Batch any additional items that arrived immediately
+            items = []
             try:
-                while True:
-                    items.append(q.get_nowait())
+                # Wait for at least one item
+                items.append(q.get(timeout=0.1))
+                # Batch any additional items that arrived immediately
+                try:
+                    while True:
+                        items.append(q.get_nowait())
+                except queue.Empty:
+                    pass
             except queue.Empty:
-                pass
-        except queue.Empty:
-            # Pulse MCP if enabled
-            if ctx:
-                pass # MC P pulse removed, executes in LibreOffice event loop natively.
+                # Pulse MCP if enabled
+                if ctx:
+                    pass # MC P pulse removed, executes in LibreOffice event loop natively.
+                if toolkit:
+                    toolkit.processEventsToIdle()
+                continue
+            except Exception as e:
+                # Queue operation error
+                error_payload = format_error_payload(e)
+                log.error("Stream queue error: %s" % error_payload)
+                on_error(error_payload)
+                job_done[0] = True
+                break
+
+            try:
+                current_content = []
+                current_thinking = []
+
+                def flush_buffers():
+                    if current_thinking:
+                        if not thinking_open[0]:
+                            apply_chunk_fn("[Thinking] ", is_thinking=True)
+                            thinking_open[0] = True
+                        apply_chunk_fn("".join(current_thinking), is_thinking=True)
+                        current_thinking.clear()
+                    if current_content:
+                        close_thinking()
+                        apply_chunk_fn("".join(current_content), is_thinking=False)
+                        current_content.clear()
+
+                for item in items:
+                    if stop_checker and stop_checker():
+                        log.info("run_stream_drain_loop: Stop requested via checker.")
+                        flush_buffers()
+                        close_thinking()
+                        on_stopped()
+                        job_done[0] = True
+                        break
+
+                    kind = item[0] if isinstance(item, (tuple, list)) else item
+                    data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+
+                    try:
+                        if kind == "chunk":
+                            if current_thinking:
+                                flush_buffers()
+                            current_content.append(data)
+                        elif kind == "thinking":
+                            if current_content:
+                                flush_buffers()
+                            current_thinking.append(data)
+                        elif kind == "status":
+                            if on_status_fn:
+                                on_status_fn(data)
+                        elif kind == "stream_done":
+                            flush_buffers()
+                            close_thinking()
+                            if on_stream_done(item): # Pass whole item for consistency
+                                job_done[0] = True
+                                break
+                        elif kind == "tool_done":
+                            # For unified tool loop handling, we relay back to on_stream_done
+                            # with a special structure or just let the caller handle it if they passed
+                            # accurate on_stream_done logic.
+                            flush_buffers()
+                            close_thinking()
+                            if on_stream_done(item): # Pass whole item for tool_done
+                                job_done[0] = True
+                                break
+                        elif kind == "tool_thinking":
+                            if show_search_thinking:
+                                if current_content:
+                                    flush_buffers()
+                                current_thinking.append(data)
+                        elif kind == "approval_required":
+                            flush_buffers()
+                            close_thinking()
+                            if on_approval_required:
+                                try:
+                                    on_approval_required(item)
+                                except Exception as e:
+                                    log.error("approval_required handler: %s" % e)
+                        elif kind == "final_done":
+                            flush_buffers()
+                            close_thinking()
+                            if on_stream_done(item): # Same as tool_done
+                                job_done[0] = True
+                                break
+                        elif kind == "next_tool":
+                            # Caller usually puts this back in to trigger next iteration
+                            # if it's a multi-tool-round loop.
+                            flush_buffers()
+                            close_thinking()
+                            if on_stream_done(item):
+                                job_done[0] = True
+                                break
+                        elif kind == "stopped":
+                            flush_buffers()
+                            close_thinking()
+                            on_stopped()
+                            job_done[0] = True
+                            break
+                        elif kind == "error":
+                            flush_buffers()
+                            close_thinking()
+                            on_error(data)
+                            job_done[0] = True
+                            break
+                    except Exception as loop_e:
+                        error_payload = format_error_payload(loop_e)
+                        log.error("Stream processing error: %s" % error_payload)
+                        q.put(("error", error_payload))
+
+                flush_buffers()
+
+            except Exception as e:
+                error_payload = format_error_payload(e)
+                log.error("run_stream_drain_loop EXCEPTION: %s" % error_payload)
+                job_done[0] = True
+                try:
+                    on_error(error_payload)
+                except:
+                    pass
+
             if toolkit:
                 toolkit.processEventsToIdle()
-            continue
 
-        try:
-            current_content = []
-            current_thinking = []
-
-            def flush_buffers():
-                if current_thinking:
-                    if not thinking_open[0]:
-                        apply_chunk_fn("[Thinking] ", is_thinking=True)
-                        thinking_open[0] = True
-                    apply_chunk_fn("".join(current_thinking), is_thinking=True)
-                    current_thinking.clear()
-                if current_content:
-                    close_thinking()
-                    apply_chunk_fn("".join(current_content), is_thinking=False)
-                    current_content.clear()
-
-            for item in items:
-                if stop_checker and stop_checker():
-                    log.info("run_stream_drain_loop: Stop requested via checker.")
-                    flush_buffers()
-                    close_thinking()
-                    on_stopped()
-                    job_done[0] = True
-                    break
-
-                kind = item[0] if isinstance(item, (tuple, list)) else item
-                data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
-
-                if kind == "chunk":
-                    if current_thinking:
-                        flush_buffers()
-                    current_content.append(data)
-                elif kind == "thinking":
-                    if current_content:
-                        flush_buffers()
-                    current_thinking.append(data)
-                elif kind == "status":
-                    if on_status_fn:
-                        on_status_fn(data)
-                elif kind == "stream_done":
-                    flush_buffers()
-                    close_thinking()
-                    if on_stream_done(item): # Pass whole item for consistency
-                        job_done[0] = True
-                        break
-                elif kind == "tool_done":
-                    # For unified tool loop handling, we relay back to on_stream_done
-                    # with a special structure or just let the caller handle it if they passed
-                    # accurate on_stream_done logic.
-                    flush_buffers()
-                    close_thinking()
-                    if on_stream_done(item): # Pass whole item for tool_done
-                        job_done[0] = True
-                        break
-                elif kind == "tool_thinking":
-                    if show_search_thinking:
-                        if current_content:
-                            flush_buffers()
-                        current_thinking.append(data)
-                elif kind == "approval_required":
-                    flush_buffers()
-                    close_thinking()
-                    if on_approval_required:
-                        try:
-                            on_approval_required(item)
-                        except Exception as e:
-                            log.error("approval_required handler: %s" % e)
-                elif kind == "final_done":
-                    flush_buffers()
-                    close_thinking()
-                    if on_stream_done(item): # Same as tool_done
-                        job_done[0] = True
-                        break
-                elif kind == "next_tool":
-                    # Caller usually puts this back in to trigger next iteration
-                    # if it's a multi-tool-round loop.
-                    flush_buffers()
-                    close_thinking()
-                    if on_stream_done(item):
-                        job_done[0] = True
-                        break
-                elif kind == "stopped":
-                    flush_buffers()
-                    close_thinking()
-                    on_stopped()
-                    job_done[0] = True
-                    break
-                elif kind == "error":
-                    flush_buffers()
-                    close_thinking()
-                    on_error(data)
-                    job_done[0] = True
-                    break
-
-            flush_buffers()
-
-        except Exception as e:
-            log.error("run_stream_drain_loop EXCEPTION: %s" % e)
-            job_done[0] = True
-            try:
-                on_error(e)
-            except:
-                pass
-
+        # Final event pump
         if toolkit:
             toolkit.processEventsToIdle()
+
+    except Exception as e:
+        # Catch-all for drain loop errors
+        error_payload = format_error_payload(e)
+        log.error("Stream drain loop crashed: %s" % error_payload)
+
+        try:
+            on_error(error_payload)
+        except Exception:
+            # Final fallback
+            log.error("Failed to notify error handler")
+
+        job_done[0] = True
 
 
 def run_stream_completion_async(

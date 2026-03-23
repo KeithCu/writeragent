@@ -193,6 +193,78 @@ def _get_agent_path():
     return _agent_log_path if _agent_log_path else FALLBACK_AGENT
 
 
+class SafeLogger:
+    """Logger wrapper with error handling."""
+
+    def __init__(self, logger):
+        self._logger = logger
+        self._fallback_enabled = True
+
+    def error(self, msg, *args, **kwargs):
+        """Safe error logging."""
+        try:
+            if self._logger:
+                self._logger.error(msg, *args, **kwargs)
+        except Exception as e:
+            if self._fallback_enabled:
+                print(f"LOG ERROR FAILED: {msg}")
+                print(f"Original error: {e}")
+
+    def warning(self, msg, *args, **kwargs):
+        """Safe warning logging."""
+        try:
+            if self._logger:
+                self._logger.warning(msg, *args, **kwargs)
+        except Exception as e:
+            if self._fallback_enabled:
+                print(f"LOG WARNING FAILED: {msg}")
+                print(f"Original error: {e}")
+
+    def disable_fallback(self):
+        """Disable fallback printing."""
+        self._fallback_enabled = False
+
+
+def safe_log_exception(e, context="general", logger=None):
+    """Safely log exceptions with fallback mechanisms."""
+
+    if logger is None:
+        logger = log
+
+    try:
+        # Try to get detailed error info
+        error_info = {
+            'type': type(e).__name__,
+            'message': str(e),
+            'context': context,
+            'timestamp': time.time()
+        }
+
+        # Add traceback if available
+        try:
+            import traceback
+            error_info['traceback'] = traceback.format_exc()
+        except Exception:
+            error_info['traceback'] = "<unavailable>"
+
+        # Log with structured data
+        if hasattr(logger, 'error'):
+            logger.error(
+                "Exception occurred: %s" % error_info['message'],
+                extra={'error_details': error_info}
+            )
+        else:
+            # Fallback logging
+            print(f"ERROR [{context}]: {error_info['message']}")
+            print(f"Type: {error_info['type']}")
+            print(f"Traceback: {error_info['traceback']}")
+
+    except Exception as logging_error:
+        # Final fallback if logging itself fails
+        print(f"CRITICAL: Logging failed for exception: {e}")
+        print(f"Logging error: {logging_error}")
+
+
 def log_exception(ex, context="AIHorde"):
     """Log an exception with traceback to the unified debug log. Used by aihordeclient and others."""
     try:
