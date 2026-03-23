@@ -66,6 +66,13 @@ class ToolExecutionError(WriterAgentException):
         super().__init__(message, code=code, context=context, details=details)
 
 
+class WriterError(WriterAgentException):
+    """Writer-specific errors."""
+
+    def __init__(self, message, code="WRITER_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+
+
 class AgentParsingError(WriterAgentException):
     """LLM output / JSON parsing failures."""
 

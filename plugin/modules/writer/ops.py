@@ -22,6 +22,7 @@ duplicating UNO details.
 """
 
 import logging
+from plugin.framework.errors import WriterError
 
 log = logging.getLogger("writeragent.writer")
 
@@ -36,6 +37,25 @@ def find_paragraph_for_range(anchor, para_ranges, text_obj):
     Returns 0 if no match is found.
     """
     try:
+        if not anchor:
+            raise WriterError(
+                "Anchor is None",
+                code="WRITER_ANCHOR_NULL",
+                details={"operation": "find_paragraph_for_range"}
+            )
+        if not para_ranges:
+            raise WriterError(
+                "Paragraph ranges list is empty or None",
+                code="WRITER_PARA_RANGES_EMPTY",
+                details={"operation": "find_paragraph_for_range"}
+            )
+        if not text_obj:
+            raise WriterError(
+                "Text object is None",
+                code="WRITER_TEXT_OBJ_NULL",
+                details={"operation": "find_paragraph_for_range"}
+            )
+
         match_start = anchor.getStart()
         for i, para in enumerate(para_ranges):
             try:
@@ -47,10 +67,19 @@ def find_paragraph_for_range(anchor, para_ranges, text_obj):
                 )
                 if cmp_start <= 0 and cmp_end >= 0:
                     return i
-            except Exception:
+            except Exception as e:
+                # Catch internal iteration exception and wrap it if it indicates a stale doc
+                log.debug("find_paragraph_for_range: region compare failed for para %d: %s", i, str(e))
                 continue
-    except Exception:
+    except WriterError:
+        raise
+    except Exception as e:
         log.debug("find_paragraph_for_range: failed", exc_info=True)
+        raise WriterError(
+            f"Failed to find paragraph for range: {str(e)}",
+            code="WRITER_FIND_PARA_ERROR",
+            details={"original_error": str(e), "error_type": type(e).__name__}
+        ) from e
     return 0
 
 
@@ -61,9 +90,24 @@ def get_selection_range(model):
     Returns ``(0, 0)`` on error or when no text range is available.
     """
     try:
-        sel = model.getCurrentController().getSelection()
+        if not model:
+            raise WriterError(
+                "Document model is None",
+                code="WRITER_MODEL_NULL",
+                details={"operation": "get_selection_range"}
+            )
+
+        ctrl = model.getCurrentController()
+        if not ctrl:
+            raise WriterError(
+                "Document controller is None",
+                code="WRITER_CONTROLLER_NULL",
+                details={"operation": "get_selection_range"}
+            )
+
+        sel = ctrl.getSelection()
         if not sel or sel.getCount() == 0:
-            rng = model.getCurrentController().getViewCursor()
+            rng = ctrl.getViewCursor()
         else:
             rng = sel.getByIndex(0)
 
@@ -71,6 +115,13 @@ def get_selection_range(model):
             return (0, 0)
 
         text = model.getText()
+        if not text:
+            raise WriterError(
+                "Text object not found in model",
+                code="WRITER_TEXT_NOT_FOUND",
+                details={"operation": "get_selection_range"}
+            )
+
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         cursor.gotoRange(rng.getStart(), True)
@@ -81,9 +132,15 @@ def get_selection_range(model):
         end_offset = len(cursor.getString())
 
         return (start_offset, end_offset)
-    except Exception:
+    except WriterError:
+        raise
+    except Exception as e:
         log.debug("get_selection_range: failed", exc_info=True)
-        return (0, 0)
+        raise WriterError(
+            f"Failed to get selection range: {str(e)}",
+            code="WRITER_SELECTION_RANGE_ERROR",
+            details={"original_error": str(e), "error_type": type(e).__name__}
+        ) from e
 
 
 # goRight(nCount, bExpand) takes a short; max 32767 per call.
@@ -96,6 +153,19 @@ def insert_html_at_cursor(cursor, html_content):
     Uses the 'HTML (StarWriter)' filter to parse and insert content.
     """
     try:
+        if not cursor:
+            raise WriterError(
+                "Cursor is None",
+                code="WRITER_CURSOR_NULL",
+                details={"operation": "insert_html_at_cursor"}
+            )
+        if not html_content:
+            raise WriterError(
+                "HTML content is empty",
+                code="WRITER_HTML_CONTENT_EMPTY",
+                details={"operation": "insert_html_at_cursor"}
+            )
+
         import tempfile
         import os
         from com.sun.star.beans import PropertyValue
@@ -114,9 +184,15 @@ def insert_html_at_cursor(cursor, html_content):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
         return True
-    except Exception:
+    except WriterError:
+        raise
+    except Exception as e:
         log.debug("insert_html_at_cursor: failed", exc_info=True)
-        return False
+        raise WriterError(
+            f"Failed to insert HTML at cursor: {str(e)}",
+            code="WRITER_HTML_INSERT_ERROR",
+            details={"original_error": str(e), "error_type": type(e).__name__}
+        ) from e
 
 
 def get_text_cursor_at_range(model, start, end):
@@ -129,6 +205,19 @@ def get_text_cursor_at_range(model, start, end):
     Returns ``None`` on error or invalid range.
     """
     try:
+        if not model:
+            raise WriterError(
+                "Document model is None",
+                code="WRITER_MODEL_NULL",
+                details={"operation": "get_text_cursor_at_range"}
+            )
+        if start is None or end is None:
+            raise WriterError(
+                f"Invalid start ({start}) or end ({end}) offset",
+                code="WRITER_INVALID_OFFSETS",
+                details={"operation": "get_text_cursor_at_range", "start": start, "end": end}
+            )
+
         doc_len = _doc_length(model)
         start = max(0, min(start, doc_len))
         end = max(0, min(end, doc_len))
@@ -136,6 +225,13 @@ def get_text_cursor_at_range(model, start, end):
             start, end = end, start
 
         text = model.getText()
+        if not text:
+            raise WriterError(
+                "Text object not found in model",
+                code="WRITER_TEXT_NOT_FOUND",
+                details={"operation": "get_text_cursor_at_range"}
+            )
+
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
 
@@ -152,9 +248,21 @@ def get_text_cursor_at_range(model, start, end):
             remaining -= n
 
         return cursor
-    except Exception:
+    except WriterError:
+        raise
+    except Exception as e:
         log.debug("get_text_cursor_at_range: failed", exc_info=True)
-        return None
+        raise WriterError(
+            f"Failed to get text cursor at range: {str(e)}",
+            code="WRITER_CURSOR_RANGE_ERROR",
+            details={
+                "operation": "get_text_cursor_at_range",
+                "start": start,
+                "end": end,
+                "original_error": str(e),
+                "error_type": type(e).__name__
+            }
+        ) from e
 
 
 from plugin.framework.document import get_document_length as _doc_length
