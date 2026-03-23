@@ -45,6 +45,9 @@ sys.modules['com.sun.star.frame'] = com_mock
 
 # Now import the actual ToolCallingMixin class from the module
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin  # noqa: E402
+from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState  # noqa: E402
+from plugin.modules.chatbot.send_state import SendButtonState  # noqa: E402
+from plugin.modules.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
 
 class MockSession:
     def __init__(self):
@@ -73,6 +76,13 @@ class FakePanel(ToolCallingMixin):
     def __init__(self, ctx, session):
         self.ctx = ctx
         self.session = session
+        self.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(
+                False, False, False, False, False,
+            ),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
         self.stop_requested = False
         self.audio_wav_path = None
         self.image_model_selector = Mock()

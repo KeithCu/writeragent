@@ -138,9 +138,23 @@ class ChatSession:
 # ---------------------------------------------------------------------------
 
 from plugin.framework.listeners import BaseTextListener, BaseActionListener
+from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.modules.chatbot.send_state import (
-    SendButtonState, next_state, SendEventKind, SendEvent,
-    UpdateUIEffect
+    SendButtonState,
+    SendEvent,
+    SendEventKind,
+    StartRecordingEffect,
+    StartSendEffect,
+    StopRecordingEffect,
+    StopSendEffect,
+    UpdateUIEffect,
+)
+from plugin.modules.chatbot.sidebar_state import (
+    LogSidebarEffect,
+    SidebarCompositeState,
+    SidebarEvent,
+    SidebarEventKind,
+    sidebar_next_state,
 )
 
 log = logging.getLogger(__name__)
@@ -197,13 +211,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_query_for_engine = None
         self.audio_recorder = AudioRecorder() if HAS_RECORDING else None
 
-        # Initialize pure state machine state
-        self.state = SendButtonState(
+        send_initial = SendButtonState(
             is_busy=False,
             is_recording=False,
             has_text=False,
             has_audio=False,
-            audio_supported=HAS_RECORDING
+            audio_supported=HAS_RECORDING,
+        )
+        self.sidebar_state = SidebarCompositeState(
+            send=send_initial,
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
         )
 
         # Subscribe to MCP/tool bus events
@@ -216,6 +234,27 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
         except Exception as e:
             log.error("MCP subscribe error: %s" % e)
+
+    @property
+    def state(self):
+        """Send-button slice of :attr:`sidebar_state` (migration alias)."""
+        return self.sidebar_state.send
+
+    @state.setter
+    def state(self, value):
+        import dataclasses
+
+        self.sidebar_state = dataclasses.replace(self.sidebar_state, send=value)
+
+    def sync_audio_slice(self):
+        """Mirror :attr:`audio_recorder.state` into the composite (strategy A)."""
+        import dataclasses
+
+        if self.audio_recorder is None:
+            return
+        self.sidebar_state = dataclasses.replace(
+            self.sidebar_state, audio=self.audio_recorder.state
+        )
 
     def set_session(self, session):
         """Update the active session (e.g. when switching between Document and Research chat)."""
@@ -474,9 +513,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def dispatch(self, event):
         """Dispatch an event to the state machine, compute new state, and apply effects."""
         log.debug(f"SendButtonListener: dispatching {type(event).__name__}")
-        tr = next_state(self.state, event)
-        self.state = tr.state
-        self._send_busy = self.state.is_busy # Keep public flag synced for external queries
+        tr = sidebar_next_state(
+            self.sidebar_state,
+            SidebarEvent(kind=SidebarEventKind.SEND, payload=event),
+        )
+        self.sidebar_state = tr.state
+        self._send_busy = self.sidebar_state.send.is_busy
 
         for effect in tr.effects:
             self._interpret_effect(effect)
@@ -484,95 +526,95 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _interpret_effect(self, effect):
         """Interpret a state machine effect and apply side-effects."""
         from plugin.framework.i18n import _
-        if isinstance(effect, UpdateUIEffect):
-            # 1. Update Send/Stop enabled states
-            self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
-            # 2. Update Send label and ensure GTK width doesn't creep
-            if self.send_control and self.send_control.getModel():
-                btn_model = self.send_control.getModel()
-                if btn_model.Label != _(effect.send_label):
-                    btn_model.Label = _(effect.send_label)
-                if self._fixed_send_width:
-                    try:
-                        r = self.send_control.getPosSize()
-                        if r.Width != self._fixed_send_width:
-                            self.send_control.setPosSize(
-                                r.X, r.Y, self._fixed_send_width, r.Height, 15
-                            )
-                    except Exception as e:
-                        from com.sun.star.lang import DisposedException
-                        from com.sun.star.uno import RuntimeException, Exception as UnoException
-                        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                            log.debug("Failed to set pos size for send_control (likely disposed): %s", e)
+        match effect:
+            case LogSidebarEffect():
+                log.debug("%s", effect.message)
+            case UpdateUIEffect():
+                self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
-            # 3. Update Status text if provided
-            if effect.status_text is not None and effect.status_text != "":
-                self._set_status(_(effect.status_text))
+                if self.send_control and self.send_control.getModel():
+                    btn_model = self.send_control.getModel()
+                    if btn_model.Label != _(effect.send_label):
+                        btn_model.Label = _(effect.send_label)
+                    if self._fixed_send_width:
+                        try:
+                            r = self.send_control.getPosSize()
+                            if r.Width != self._fixed_send_width:
+                                self.send_control.setPosSize(
+                                    r.X, r.Y, self._fixed_send_width, r.Height, 15
+                                )
+                        except Exception as e:
+                            from com.sun.star.lang import DisposedException
+                            from com.sun.star.uno import RuntimeException, Exception as UnoException
+                            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                                log.debug("Failed to set pos size for send_control (likely disposed): %s", e)
 
-        elif effect == "start_recording":
-            if not self.audio_recorder:
-                return
-            try:
-                self.audio_recorder.start_recording()
-            except RuntimeError as re:
-                self._append_response("\n[Audio error: %s]\n" % str(re))
-                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                if effect.status_text is not None and effect.status_text != "":
+                    self._set_status(_(effect.status_text))
 
-        elif effect == "stop_recording":
-            if not self.audio_recorder:
-                return
-            try:
-                self.audio_wav_path = self.audio_recorder.stop_recording()
-            except Exception as e:
-                from plugin.framework.errors import WriterAgentException
-                if isinstance(e, WriterAgentException):
-                    log.error(f"WriterAgentException stopping recording: {e}")
-                else:
-                    log.error(f"Error stopping recording: {e}")
-
-        elif effect == "start_send":
-            self.stop_requested = False
-            self._terminal_status = "Ready"
-            # In a real async environment we would spawn the thread from here,
-            # but _do_send blocks and catches its own errors so we call it directly.
-            try:
-                self._do_send()
-            except Exception as e:
-                import traceback
-                tb = traceback.format_exc()
-                doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
-                log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
-                self._append_response("\n\n[Error: %s]\n" % str(e))
-                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-            finally:
-                # Tell state machine we finished, it will re-enable buttons
-                update_activity_state("")
-                if self._terminal_status == "Error":
+            case StartRecordingEffect():
+                if not self.audio_recorder:
+                    return
+                try:
+                    self.audio_recorder.start_recording()
+                except RuntimeError as re:
+                    self._append_response("\n[Audio error: %s]\n" % str(re))
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                else:
-                    self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    # In some flows _set_status happens via _terminal_status.
-                    # State machine expects "Ready" on completion.
-                    if self._terminal_status:
-                        self._set_status(_(self._terminal_status))
+                self.sync_audio_slice()
 
-        elif effect == "stop_send":
-            # Used when the user clicks the explicit "Stop" button.
-            self.stop_requested = True
-            client = getattr(self, "client", None)
-            if client and hasattr(client, "stop"):
+            case StopRecordingEffect():
+                if not self.audio_recorder:
+                    return
                 try:
-                    client.stop()
+                    self.audio_wav_path = self.audio_recorder.stop_recording()
                 except Exception as e:
-                    log.error("StopButton error stopping client: %s", e)
+                    from plugin.framework.errors import WriterAgentException
+                    if isinstance(e, WriterAgentException):
+                        log.error(f"WriterAgentException stopping recording: {e}")
+                    else:
+                        log.error(f"Error stopping recording: {e}")
+                self.sync_audio_slice()
 
-            adapter = getattr(self, "_current_agent_backend", None)
-            if adapter and hasattr(adapter, "stop"):
+            case StartSendEffect():
+                self.stop_requested = False
+                self._terminal_status = "Ready"
                 try:
-                    adapter.stop()
+                    self._do_send()
                 except Exception as e:
-                    log.error("StopButton error stopping agent backend: %s", e)
+                    import traceback
+                    tb = traceback.format_exc()
+                    doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
+                    log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
+                    self._append_response("\n\n[Error: %s]\n" % str(e))
+                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                finally:
+                    update_activity_state("")
+                    if self._terminal_status == "Error":
+                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                    else:
+                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                        if self._terminal_status:
+                            self._set_status(_(self._terminal_status))
+
+            case StopSendEffect():
+                self.stop_requested = True
+                client = getattr(self, "client", None)
+                if client and hasattr(client, "stop"):
+                    try:
+                        client.stop()
+                    except Exception as e:
+                        log.error("StopButton error stopping client: %s", e)
+
+                adapter = getattr(self, "_current_agent_backend", None)
+                if adapter and hasattr(adapter, "stop"):
+                    try:
+                        adapter.stop()
+                    except Exception as e:
+                        log.error("StopButton error stopping agent backend: %s", e)
+
+            case _:
+                log.debug("SendButtonListener: unhandled effect type %s", type(effect).__name__)
 
 
     def on_action_performed(self, evt):

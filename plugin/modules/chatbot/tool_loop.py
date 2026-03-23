@@ -58,6 +58,23 @@ DEFAULT_MAX_TOOL_ROUNDS = 5
 
 
 class ToolCallingMixin:
+    """Tool loop state lives in ``sidebar_state.tool_loop`` when mixed with SendButtonListener."""
+
+    @property
+    def _sm_state(self):
+        if not hasattr(self, "sidebar_state"):
+            raise AttributeError(
+                "ToolCallingMixin requires sidebar_state (SendButtonListener provides it)"
+            )
+        tl = self.sidebar_state.tool_loop
+        if tl is None:
+            raise RuntimeError("Tool loop state used without active session")
+        return tl
+
+    @_sm_state.setter
+    def _sm_state(self, value):
+        self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
+
     def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
         try:
             log.debug("_do_send: importing core modules...")
@@ -756,6 +773,10 @@ class ToolCallingMixin:
             log.debug("Failed to get async tools list, falling back to defaults: %s", e)
             async_tools = frozenset({"web_research", "generate_image"})
 
+        self.sidebar_state = dataclasses.replace(
+            self.sidebar_state, tool_loop=None
+        )
+
         self._sm_state = ToolLoopState(
             round_num=0,
             pending_tools=[],
@@ -800,6 +821,9 @@ class ToolCallingMixin:
             self._append_response("\n[Error: %s]\n" % str(e))
             self._terminal_status = "Error"
             self._set_status("Error")
+            self.sidebar_state = dataclasses.replace(
+                self.sidebar_state, tool_loop=None
+            )
             return
 
         # Check once whether execute_tool_fn accepts status_callback

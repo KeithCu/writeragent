@@ -1,10 +1,13 @@
 from dataclasses import dataclass
-from typing import List, Union, NamedTuple
+from typing import List, NamedTuple, Union
 #import deal
 
 from enum import Enum, auto
 
 from plugin.framework.state import BaseState, FsmTransition
+
+# Imperative effects for the send panel interpreter (distinct from
+# audio_recorder_state.StartRecordingEffect / StopRecordingEffect types).
 
 # --- State ---
 
@@ -40,7 +43,34 @@ class UpdateUIEffect:
     send_label: str
     status_text: str
 
-SendEffect = Union[str, UpdateUIEffect]
+
+@dataclass(frozen=True)
+class StartRecordingEffect:
+    pass
+
+
+@dataclass(frozen=True)
+class StopRecordingEffect:
+    pass
+
+
+@dataclass(frozen=True)
+class StartSendEffect:
+    pass
+
+
+@dataclass(frozen=True)
+class StopSendEffect:
+    pass
+
+
+SendEffects = Union[
+    UpdateUIEffect,
+    StartRecordingEffect,
+    StopRecordingEffect,
+    StartSendEffect,
+    StopSendEffect,
+]
 
 
 # --- Pure Transition Function ---
@@ -67,7 +97,7 @@ def _get_send_label(state: SendButtonState) -> str:
 def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendButtonState]:
     """Pure state transition for the Send button."""
 
-    effects: List[SendEffect] = []
+    effects: List[SendEffects] = []
 
     if event.kind == SendEventKind.TEXT_UPDATED:
         new_state = SendButtonState(
@@ -105,7 +135,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             has_audio=state.has_audio,
             audio_supported=state.audio_supported
         )
-        effects.append("start_recording")
+        effects.append(StartRecordingEffect())
         effects.append(UpdateUIEffect(
             send_enabled=True, # Stop Rec button is essentially the "Send" button being clicked again
             stop_enabled=False,
@@ -125,14 +155,14 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             has_audio=True, # Transitioning from Stop Rec means we now have audio
             audio_supported=state.audio_supported
         )
-        effects.append("stop_recording")
+        effects.append(StopRecordingEffect())
         effects.append(UpdateUIEffect(
             send_enabled=False,
             stop_enabled=True,
             send_label="Send",
             status_text="Starting..."
         ))
-        effects.append("start_send")
+        effects.append(StartSendEffect())
         return FsmTransition(new_state, effects)
 
     elif event.kind == SendEventKind.SEND_CLICKED:
@@ -154,7 +184,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             send_label="Send", # Label remains Send, but disabled
             status_text="Starting..."
         ))
-        effects.append("start_send")
+        effects.append(StartSendEffect())
         return FsmTransition(new_state, effects)
 
     elif event.kind == SendEventKind.STOP_CLICKED:
@@ -165,7 +195,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         # which will eventually dispatch SendCompletedEvent or ErrorOccurredEvent
         # However, we can update the status text.
         new_state = state
-        effects.append("stop_send")
+        effects.append(StopSendEffect())
         effects.append(UpdateUIEffect(
             send_enabled=False,
             stop_enabled=True,

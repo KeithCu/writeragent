@@ -17,6 +17,9 @@ from plugin.framework.errors import (
 )
 
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
+from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
+from plugin.modules.chatbot.send_state import SendButtonState
+from plugin.modules.chatbot.sidebar_state import SidebarCompositeState
 
 class MockSession:
     def __init__(self):
@@ -35,6 +38,11 @@ class MockDummyToolCallingClass(ToolCallingMixin):
     def __init__(self):
         self.ctx = MagicMock()
         self.session = MockSession()
+        self.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, False),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
         self.model_selector = None
         self.image_model_selector = None
         self.client = MagicMock()
