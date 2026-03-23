@@ -229,9 +229,18 @@ class _PanelResizeListener(BaseWindowListener):
                 new_x = ox
                 new_w = max(10, avail)
             elif name == "backend_indicator":
-                # Fixed size, but anchored to the right side so it isn't clipped
+                # Fixed size, but anchored to the calculated right edge of the response field.
+                # The response field uses: max(10, w - response_ox - fixed_margin).
+                # We align the right side of the indicator to that same point so it never overflows.
                 new_w = ow
-                new_x = w - new_w - fixed_margin
+                resp_orig = self._initial["ctrls"].get("response")
+                if resp_orig:
+                    resp_ox = resp_orig[0]
+                    resp_avail = w - resp_ox - fixed_margin
+                    resp_right_edge = resp_ox + max(10, resp_avail)
+                    new_x = resp_right_edge - new_w
+                else:
+                    new_x = w - new_w - fixed_margin
                 if new_x < ox:  # Don't let it overlap controls to its left
                     new_x = ox
             else:
