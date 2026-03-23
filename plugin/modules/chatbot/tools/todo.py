@@ -96,7 +96,7 @@ class TodoTool(ToolBase):
         result_json = todo_tool(todos=todos, merge=merge, store=store)
         try:
             data = json.loads(result_json)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             return {"status": "error", "message": "Invalid JSON from todo_tool"}
         return {"status": "ok", **data}
 

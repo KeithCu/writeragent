@@ -39,8 +39,8 @@ def _get_db_path():
         try:
             if not os.path.exists(config_dir):
                 os.makedirs(config_dir, exist_ok=True)
-        except Exception as e:
-            log.error(f"Error creating config directory: {e}")
+        except OSError as e:
+            log.error(f"Error creating config directory: %s", e)
         path = os.path.join(config_dir, "writeragent_history.db")
         log.info(f"Using database path: {path}")
         return path
@@ -129,8 +129,8 @@ class JSONHistory:
             if not os.path.exists(self.history_dir):
                 os.makedirs(self.history_dir, exist_ok=True)
             log.info(f"JSONHistory: Using directory {self.history_dir}")
-        except Exception as e:
-            log.error(f"JSONHistory: Error creating directory: {e}")
+        except OSError as e:
+            log.error(f"JSONHistory: Error creating directory: %s", e)
         
         self.file_path = os.path.join(self.history_dir, f"{session_id}.json")
 
@@ -142,8 +142,8 @@ class JSONHistory:
             with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(messages, f, indent=2)
             log.info(f"JSONHistory: Added message for session {self.session_id}")
-        except Exception as e:
-            log.error(f"JSONHistory: Error saving message: {e}")
+        except (OSError, IOError, TypeError) as e:
+            log.error(f"JSONHistory: Error saving message: %s", e)
 
     def get_messages(self):
         if not os.path.exists(self.file_path):
@@ -153,16 +153,16 @@ class JSONHistory:
                 msgs = json.load(f)
             log.debug(f"JSONHistory: Retreived {len(msgs)} messages for session {self.session_id}")
             return msgs
-        except Exception as e:
-            log.error(f"JSONHistory: Error reading messages: {e}")
+        except (OSError, IOError, json.JSONDecodeError) as e:
+            log.error(f"JSONHistory: Error reading messages: %s", e)
             return []
 
     def clear(self):
         if os.path.exists(self.file_path):
             try:
                 os.remove(self.file_path)
-            except Exception as e:
-                                log.error(f"JSONHistory: Error clearing history: {e}")
+            except OSError as e:
+                                log.error(f"JSONHistory: Error clearing history: %s", e)
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -177,6 +177,6 @@ def get_chat_history(session_id, db_path=None):
     try:
         log.info(f"Using SQLite for chat history at {db_path}")
         return SQLite3History(session_id, db_path)
-    except Exception as e:
-        log.error(f"SQLite failed, falling back to JSON: {e}")
+    except sqlite3.Error as e:
+        log.error(f"SQLite failed, falling back to JSON: %s", e)
         return JSONHistory(session_id, db_path)

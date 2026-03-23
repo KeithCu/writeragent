@@ -31,7 +31,13 @@ def _measure_send_button_max_width(send_ctrl, has_recording):
             wmax = max(wmax, send_ctrl.getPosSize().Width)
         m.Label = saved
         return wmax if wmax > 0 else None
-    except Exception:
+    except Exception as e:
+        from com.sun.star.lang import DisposedException
+        from com.sun.star.uno import RuntimeException, Exception as UnoException
+        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            log.debug("Failed to measure send button width (likely disposed): %s", e)
+        else:
+            log.debug("Unexpected error measuring send button width: %s", e)
         return None
 
 
@@ -48,7 +54,14 @@ def _measure_aux_button_max_width(ctrl, labels):
             wmax = max(wmax, ctrl.getPosSize().Width)
         m.Label = saved
         return wmax if wmax > 0 else None
-    except Exception:
+    except Exception as e:
+        from com.sun.star.lang import DisposedException
+        from com.sun.star.uno import RuntimeException, Exception as UnoException
+        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            log.debug("Failed to measure aux button width '%s' (likely disposed): %s",
+                      ctrl.getName() if hasattr(ctrl, "getName") else "?", e)
+        else:
+            log.debug("Unexpected error measuring aux button width: %s", e)
         return None
 
 
@@ -93,8 +106,13 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             if controls["response"] and controls["response"].getModel():
                 current = get_control_text(controls["response"]) or ""
                 set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
-        except Exception:
-            pass
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to show init error on response control (likely disposed): %s", e)
+            else:
+                log.error("Unexpected error displaying init error: %s", e)
 
     ensure_extension_on_path(self.ctx)
 
@@ -126,7 +144,13 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     web_checked = False
     if controls["web_research_check"]:
         try: web_checked = (get_checkbox_state(controls["web_research_check"]) == 1)
-        except Exception as e: log.exception("Error reading web_research_check state: %s", e)
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to read web_research_check state (likely disposed): %s", e)
+            else:
+                log.exception("Error reading web_research_check state: %s", e)
         
     if web_checked:
         self.session = self.web_session
@@ -166,7 +190,12 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             from plugin.framework.i18n import _
             controls["status"].setText(_("Ready"))
         except Exception as e:
-            log.exception("Error setting status text: %s", e)
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to set status text on init (likely disposed): %s", e)
+            else:
+                log.exception("Error setting status text: %s", e)
 
     # 5. Timer and Resize
     try:
@@ -204,7 +233,12 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     sr = controls["send"].getPosSize()
                     controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
             except Exception as e:
-                log.debug("send button width stabilize skipped: %s" % e)
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("send button width stabilize skipped (likely disposed): %s", e)
+                else:
+                    log.debug("send button width stabilize skipped: %s", e)
             try:
                 for c, lab_list in (
                     (controls.get("stop"), ["Stop", "Change", "Reject"]),
@@ -217,7 +251,12 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                         r = c.getPosSize()
                         c.setPosSize(r.X, r.Y, aw, r.Height, 15)
             except Exception as e:
-                log.debug("stop/clear button width stabilize skipped: %s" % e)
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("stop/clear button width stabilize skipped (likely disposed): %s", e)
+                else:
+                    log.debug("stop/clear button width stabilize skipped: %s", e)
     except Exception as e:
         log.error("Resize listener error: %s" % e)
 

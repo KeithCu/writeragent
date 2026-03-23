@@ -62,7 +62,11 @@ class ChatSession:
                 self.db = get_chat_history(session_id)
                 self.messages = self.db.get_messages()
             except Exception as e:
-                log.error("ChatSession history load error: %s" % e)
+                from plugin.framework.errors import WriterAgentException
+                if isinstance(e, WriterAgentException):
+                    log.error("ChatSession history load WriterAgentException: %s" % e)
+                else:
+                    log.error("ChatSession history load error: %s" % e)
 
         # If no history, or system prompt forced
         if not self.messages and system_prompt:
@@ -246,7 +250,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self.status_control:
                 self._approval_ui_backup["status_text"] = self.status_control.getText()
         except Exception as e:
-            log.debug("begin_inline_web_approval backup: %s", e)
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("begin_inline_web_approval backup (likely disposed): %s", e)
+            else:
+                log.debug("begin_inline_web_approval backup: %s", e)
 
         try:
             if self.send_control and self.send_control.getModel():
@@ -260,8 +269,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             self.send_control.setPosSize(
                                 r.X, r.Y, self._fixed_send_width, r.Height, 15
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        from com.sun.star.lang import DisposedException
+                        from com.sun.star.uno import RuntimeException, Exception as UnoException
+                        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                            log.debug("begin_inline_web_approval setPosSize (likely disposed): %s", e)
             if self.stop_control and self.stop_control.getModel():
                 m = self.stop_control.getModel()
                 m.Label = _("Change")
@@ -271,7 +283,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 m.Label = _("Reject")
                 m.Enabled = True
         except Exception as e:
-            log.error("begin_inline_web_approval: %s", e)
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("begin_inline_web_approval error (likely disposed): %s", e)
+            else:
+                log.error("begin_inline_web_approval: %s", e)
 
         # Same block as non-approval path (see web_research_engine_chat_block), with approval header.
         self._append_response(
@@ -329,7 +346,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if self.status_control and "status_text" in b:
                 self.status_control.setText(b["status_text"])
         except Exception as e:
-            log.debug("_finish_inline_web_approval restore: %s", e)
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("_finish_inline_web_approval restore (likely disposed): %s", e)
+            else:
+                log.debug("_finish_inline_web_approval restore: %s", e)
         try:
             ev.approved = approved
             ev.query_override = query_override if approved else None
@@ -340,7 +362,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 )
             ev.set()
         except Exception as e:
-            log.error("_finish_inline_web_approval: %s", e)
+            log.error("_finish_inline_web_approval threading event error: %s", e)
 
     def _set_status(self, text):
         """Update the status field in the sidebar (read-only TextField).
@@ -352,7 +374,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             else:
                 log.debug("_set_status: NO CONTROL for '%s'" % text)
         except Exception as e:
-            log.debug("_set_status('%s', level=logging.DEBUG) EXCEPTION: %s" % (text, e))
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("_set_status('%s', level=logging.DEBUG) likely disposed: %s" % (text, e))
+            else:
+                log.debug("_set_status('%s', level=logging.DEBUG) EXCEPTION: %s" % (text, e))
 
     def _scroll_response_to_bottom(self):
         """Scroll the response area to show the bottom (newest content).
@@ -365,8 +392,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     length = len(text)
                     self.response_control.setSelection(
                         uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
-        except Exception:
-            pass
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("_scroll_response_to_bottom failed (likely disposed): %s", e)
 
     def _append_response(self, text, is_thinking=False):
         """Append text to the response area."""
@@ -376,8 +406,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 current = get_control_text(self.response_control) or ""
                 set_control_text(self.response_control, current + text)
                 self._scroll_response_to_bottom()
-        except Exception:
-            pass
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("_append_response failed (likely disposed): %s", e)
 
     def _on_mcp_request(self, tool="", args=None, method=None, **kwargs):
         """Handle MCP request events from the bus (background thread)."""
@@ -422,13 +455,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self.send_control and self.send_control.getModel():
             try:
                 self.send_control.getModel().Enabled = bool(send_enabled)
-            except Exception:
-                pass
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to set send_control enabled state (likely disposed): %s", e)
         if self.stop_control and self.stop_control.getModel():
             try:
                 self.stop_control.getModel().Enabled = bool(stop_enabled)
-            except Exception:
-                pass
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to set stop_control enabled state (likely disposed): %s", e)
 
     def dispatch(self, event):
         """Dispatch an event to the state machine, compute new state, and apply effects."""
@@ -459,8 +498,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             self.send_control.setPosSize(
                                 r.X, r.Y, self._fixed_send_width, r.Height, 15
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        from com.sun.star.lang import DisposedException
+                        from com.sun.star.uno import RuntimeException, Exception as UnoException
+                        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                            log.debug("Failed to set pos size for send_control (likely disposed): %s", e)
 
             # 3. Update Status text if provided
             if effect.status_text is not None and effect.status_text != "":
@@ -479,7 +521,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             try:
                 self.audio_wav_path = stop_recording()
             except Exception as e:
-                log.error(f"Error stopping recording: {e}")
+                from plugin.framework.errors import WriterAgentException
+                if isinstance(e, WriterAgentException):
+                    log.error(f"WriterAgentException stopping recording: {e}")
+                else:
+                    log.error(f"Error stopping recording: {e}")
 
         elif effect == "start_send":
             self.stop_requested = False
@@ -615,7 +661,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                         if transcript:
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
-                    except Exception:
+                    except Exception as e:
+                        from plugin.framework.errors import NetworkError
+                        if isinstance(e, NetworkError):
+                            log.error("NetworkError during STT fallback: %s" % e)
+                        else:
+                            log.error("Error during STT fallback: %s" % e)
                         self._terminal_status = "Error"
                         return
                 else:
@@ -632,8 +683,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self.web_research_checkbox:
             try:
                 web_research_checked = (get_checkbox_state(self.web_research_checkbox) == 1)
-            except Exception:
-                pass
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to read web_research_checkbox (likely disposed): %s", e)
         if web_research_checked:
             log.info("_do_send: using web research sub-agent — skip chat model and direct image")
             self._run_web_research(query_text, model)
@@ -693,8 +747,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.framework.event_bus import global_event_bus
             global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
             global_event_bus.unsubscribe("mcp:result", self._on_mcp_result)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
 
 
 # ---------------------------------------------------------------------------

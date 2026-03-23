@@ -168,8 +168,13 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 
         try:
             before = self.PanelWindow.getPosSize()
-        except Exception:
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("getHeightForWidth: PanelWindow likely disposed: %s", e)
             before = None
+
         log.debug(
             "getHeightForWidth deck_hint=%s parent=%sx%s eff_W=%s root_before=%s"
             % (
@@ -180,21 +185,29 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
                 "%sx%s" % (before.Width, before.Height) if before else None,
             )
         )
-        self.PanelWindow.setPosSize(0, 0, eff_w, h, 15)
         try:
+            self.PanelWindow.setPosSize(0, 0, eff_w, h, 15)
             after = self.PanelWindow.getPosSize()
             log.debug(
                 "getHeightForWidth root_after=%sx%s" % (after.Width, after.Height)
             )
-        except Exception:
-            pass
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("getHeightForWidth: failed to set or get pos size (likely disposed): %s", e)
 
         rl = getattr(self, "resize_listener", None)
         if rl is not None:
             try:
                 rl.relayout_now(self.PanelWindow)
             except Exception as e:
-                log.debug("getHeightForWidth relayout_now: %s" % e)
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("getHeightForWidth relayout_now failed (likely disposed): %s", e)
+                else:
+                    log.debug("getHeightForWidth relayout_now: %s" % e)
 
         return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
@@ -248,13 +261,25 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         log.debug("createContainerWindow returned")
         # Sidebar does not show the panel content without this (framework does not make it visible).
         if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
-            self.m_panelRootWindow.setVisible(True)
+            try:
+                self.m_panelRootWindow.setVisible(True)
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to set panel root window visible (likely disposed): %s", e)
         # Constrain panel only when parent already has size (layout may be 0x0 here).
-        parent_rect = self.xParentWindow.getPosSize()
-        if parent_rect.Width > 0 and parent_rect.Height > 0:
-            self.m_panelRootWindow.setPosSize(
-                0, 0, parent_rect.Width, parent_rect.Height, 15)
-            log.debug("panel constrained to W=%s H=%s" % (parent_rect.Width, parent_rect.Height))
+        try:
+            parent_rect = self.xParentWindow.getPosSize()
+            if parent_rect.Width > 0 and parent_rect.Height > 0:
+                self.m_panelRootWindow.setPosSize(
+                    0, 0, parent_rect.Width, parent_rect.Height, 15)
+                log.debug("panel constrained to W=%s H=%s" % (parent_rect.Width, parent_rect.Height))
+        except Exception as e:
+            from com.sun.star.lang import DisposedException
+            from com.sun.star.uno import RuntimeException, Exception as UnoException
+            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                log.debug("Failed to constrain panel window (likely disposed): %s", e)
         return self.m_panelRootWindow
 
     def _render_session_history(self, session, response_ctrl, model, greeting=""):
@@ -386,8 +411,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if self.xFrame:
             try:
                 model = self.xFrame.getController().getModel()
-            except Exception:
-                pass
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to get model from frame controller (likely disposed): %s", e)
         if model is None:
             model = get_active_document(self.ctx)
         return model
@@ -476,8 +504,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if rl and root:
                 try:
                     rl.relayout_now(root)
-                except Exception:
-                    pass
+                except Exception as e:
+                    from com.sun.star.lang import DisposedException
+                    from com.sun.star.uno import RuntimeException, Exception as UnoException
+                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                        log.debug("Failed to relayout after toggling image UI (likely disposed): %s", e)
 
         if direct_image_check:
             try:
@@ -501,14 +532,28 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             set_control_enabled(self.web_check, not is_checked)
                     direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_research_check))
             except Exception as e:
-                log.error("direct_image_check wire error: %s" % e)
+                from plugin.framework.errors import ConfigError
+                if isinstance(e, ConfigError):
+                    log.error("direct_image_check ConfigError: %s" % e)
+                else:
+                    from com.sun.star.lang import DisposedException
+                    from com.sun.star.uno import RuntimeException, Exception as UnoException
+                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                        log.debug("direct_image_check wire error (likely disposed): %s", e)
+                    else:
+                        log.error("direct_image_check wire error: %s" % e)
 
         if web_research_check:
             try:
                 if get_checkbox_state(web_research_check) == 1:
                     set_control_enabled(direct_image_check, False)
             except Exception as e:
-                log.error("web_research_check initial wire error: %s", e)
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("web_research_check initial wire error (likely disposed): %s", e)
+                else:
+                    log.error("web_research_check initial wire error: %s", e)
 
     def _setup_sessions(self, model, extra_instructions):
         """Creates the document and web research chat sessions."""

@@ -50,25 +50,29 @@ class AudioRecorder:
         if self.wav_file is not None:
             try:
                 self.wav_file.close()
-            except Exception:
-                pass
+            except (OSError, IOError) as e:
+                import logging
+                logging.getLogger(__name__).debug("Failed to close wav_file during cleanup: %s", e)
             self.wav_file = None
         if self.temp_filename:
             try:
                 os.remove(self.temp_filename)
-            except Exception:
-                pass
+            except OSError as e:
+                import logging
+                logging.getLogger(__name__).debug("Failed to remove temp_filename during cleanup: %s", e)
             self.temp_filename = None
         # Best-effort stream cleanup
         if self.stream is not None:
             try:
                 self.stream.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("Failed to stop stream during cleanup: %s", e)
             try:
                 self.stream.close()
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("Failed to close stream during cleanup: %s", e)
             self.stream = None
 
     def _execute_effect(self, effect):
@@ -136,19 +140,22 @@ class AudioRecorder:
             if self.stream:
                 try:
                     self.stream.stop()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to stop stream on StopRecordingEffect: %s", e)
                 try:
                     self.stream.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to close stream on StopRecordingEffect: %s", e)
                 self.stream = None
 
             if self.wav_file:
                 try:
                     self.wav_file.close()
-                except Exception:
-                    pass
+                except (OSError, IOError) as e:
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to close wav_file on StopRecordingEffect: %s", e)
                 self.wav_file = None
 
             # If we error'd before creating a file, temp_filename could be empty/removed
