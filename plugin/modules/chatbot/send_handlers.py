@@ -58,6 +58,75 @@ class SendHandlersMixin:
             self._append_response(_("\n[Transcription error: {0}]\n").format(str(e)))
             raise e
 
+    def _run_unified_worker_drain_loop(
+        self,
+        q,
+        worker_fn,
+        current_state,
+        interpreter,
+        show_thinking=True,
+        on_stopped_callback=None,
+        on_approval_callback=None
+    ):
+        from plugin.framework.worker_pool import run_in_background
+        from plugin.framework.async_stream import run_stream_drain_loop
+        from plugin.framework.i18n import _
+
+        job_done = [False]
+        run_in_background(worker_fn)
+
+        try:
+            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
+                "com.sun.star.awt.Toolkit", self.ctx
+            )
+        except Exception as e:
+            self._append_response(_("\n[Error: {0}]\n").format(str(e)))
+            self._terminal_status = "Error"
+            if hasattr(self, "_current_agent_backend"):
+                self._current_agent_backend = None
+            return
+
+        def dispatch_event(event):
+            nonlocal current_state
+            step = next_state(current_state, event)
+            current_state = step.state
+            interpreter.current_state = current_state
+            for eff in step.effects:
+                interpreter.interpret(eff)
+
+        def apply_chunk(chunk_text, is_thinking=False):
+            if is_thinking and not show_thinking:
+                return
+            dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
+
+        def on_stream_done(response):
+            job_done[0] = True
+            dispatch_event(StreamDoneEvent(response))
+            return True
+
+        def on_stopped():
+            if on_stopped_callback:
+                on_stopped_callback()
+            dispatch_event(StopRequestedEvent())
+            job_done[0] = True
+
+        def on_error(e):
+            dispatch_event(ErrorEvent(e))
+
+        run_stream_drain_loop(
+            q,
+            toolkit,
+            job_done,
+            apply_chunk,
+            on_stream_done=on_stream_done,
+            on_stopped=on_stopped,
+            on_error=on_error,
+            on_status_fn=self._set_status,
+            ctx=self.ctx,
+            stop_checker=lambda: self.stop_requested,
+            on_approval_required=on_approval_callback,
+        )
+
     def _do_send_direct_image(self, query_text, model):
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="image", status="ready")
@@ -156,56 +225,11 @@ class SendHandlersMixin:
                 from plugin.framework.errors import format_error_payload
                 q.put(("error", format_error_payload(e)))
 
-        from plugin.framework.worker_pool import run_in_background
-        run_in_background(run_direct_image)
-        try:
-            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", self.ctx
-            )
-        except Exception as e:
-            from plugin.framework.i18n import _
-            self._append_response(_("\n[Error: {0}]\n").format(str(e)))
-            self._terminal_status = "Error"
-            return
-
-        # Helper to push events through the state machine
-        def dispatch_event(event):
-            nonlocal current_state
-            step = next_state(current_state, event)
-            current_state = step.state
-            interpreter.current_state = current_state
-            for eff in step.effects:
-                interpreter.interpret(eff)
-
-        def apply_chunk(chunk_text, is_thinking=False):
-            dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
-
-        def on_stream_done(response):
-            job_done[0] = True
-            dispatch_event(StreamDoneEvent(response))
-            return True
-
-        def on_stopped():
-            # Simple stream (no tools) does not add to ChatSession; just update status.
-            dispatch_event(StopRequestedEvent())
-            job_done[0] = True
-
-        def on_error(e):
-            dispatch_event(ErrorEvent(e))
-
-        from plugin.framework.async_stream import run_stream_drain_loop
-
-        run_stream_drain_loop(
+        self._run_unified_worker_drain_loop(
             q,
-            toolkit,
-            job_done,
-            apply_chunk,
-            on_stream_done=on_stream_done,
-            on_stopped=on_stopped,
-            on_error=on_error,
-            on_status_fn=self._set_status,
-            ctx=self.ctx,
-            stop_checker=lambda: self.stop_requested,
+            run_direct_image,
+            current_state,
+            interpreter
         )
         if self._terminal_status != "Error":
             self._terminal_status = "Ready"
@@ -322,46 +346,10 @@ class SendHandlersMixin:
             finally:
                 self._current_agent_backend = None
 
-        from plugin.framework.worker_pool import run_in_background
-        run_in_background(run_agent)
-
-        try:
-            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", self.ctx
-            )
-        except Exception as e:
-            from plugin.framework.i18n import _
-            self._append_response(_("\n[Error: {0}]\n").format(str(e)))
-            self._terminal_status = "Error"
-            self._current_agent_backend = None
-            return
-
-        # Helper to push events through the state machine
-        def dispatch_event(event):
-            nonlocal current_state
-            step = next_state(current_state, event)
-            current_state = step.state
-            interpreter.current_state = current_state
-            for eff in step.effects:
-                interpreter.interpret(eff)
-
-        def apply_chunk(text, is_thinking=False):
-            dispatch_event(StreamChunkEvent(text, is_thinking))
-
-        def on_stream_done(item):
-            job_done[0] = True
-            dispatch_event(StreamDoneEvent(item))
-            return True
-
         def on_stopped():
             # Ensure conversation roles alternate user/assistant when stopping an
             # external agent backend mid-response.
             self.session.add_assistant_message(content="No response.")
-            dispatch_event(StopRequestedEvent())
-            job_done[0] = True
-
-        def on_error(e):
-            dispatch_event(ErrorEvent(e))
 
         def on_approval_required(item):
             # item = ("approval_required", description, tool_name, args, request_id)
@@ -379,20 +367,13 @@ class SendHandlersMixin:
                 except Exception:
                     pass
 
-        from plugin.framework.async_stream import run_stream_drain_loop
-
-        run_stream_drain_loop(
+        self._run_unified_worker_drain_loop(
             q,
-            toolkit,
-            job_done,
-            apply_chunk,
-            on_stream_done=on_stream_done,
-            on_stopped=on_stopped,
-            on_error=on_error,
-            on_status_fn=self._set_status,
-            ctx=self.ctx,
-            stop_checker=lambda: self.stop_requested,
-            on_approval_required=on_approval_required,
+            run_agent,
+            current_state,
+            interpreter,
+            on_stopped_callback=on_stopped,
+            on_approval_callback=on_approval_required
         )
         if self._terminal_status not in ("Error", "Stopped"):
             self._terminal_status = "Ready"
@@ -523,49 +504,6 @@ class SendHandlersMixin:
                 from plugin.framework.errors import format_error_payload
                 q.put(("error", format_error_payload(e)))
 
-        from plugin.framework.worker_pool import run_in_background
-        run_in_background(run_search)
-
-        try:
-            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", self.ctx
-            )
-        except Exception as e:
-            from plugin.framework.i18n import _
-            self._append_response(_("\n[Error: {0}]\n").format(str(e)))
-            self._terminal_status = "Error"
-            self._set_status(_("Error"))
-            return
-
-        # Helper to push events through the state machine
-        def dispatch_event(event):
-            nonlocal current_state
-            step = next_state(current_state, event)
-            current_state = step.state
-            interpreter.current_state = current_state
-            for eff in step.effects:
-                interpreter.interpret(eff)
-
-        def apply_chunk(chunk_text, is_thinking=False):
-            # Thinking items always flow through the queue to keep the drain loop
-            # active, but we only display them if the setting is on.
-            if is_thinking and not show_thinking:
-                return
-            dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
-
-        def on_stream_done(response):
-            job_done[0] = True
-            dispatch_event(StreamDoneEvent(response))
-            return True
-
-        def on_stopped():
-            # Web research cannot currently be cancelled mid-run; treat Stop as best-effort.
-            dispatch_event(StopRequestedEvent())
-            job_done[0] = True
-
-        def on_error(e):
-            dispatch_event(ErrorEvent(e))
-
         def on_approval_required(item):
             # item = ("approval_required", query_for_engine, tool_name, event_obj)
             query_for_engine = item[1] if len(item) > 1 else ""
@@ -578,20 +516,13 @@ class SendHandlersMixin:
                 tool_name,
             )
 
-        from plugin.framework.async_stream import run_stream_drain_loop
-
-        run_stream_drain_loop(
+        self._run_unified_worker_drain_loop(
             q,
-            toolkit,
-            job_done,
-            apply_chunk,
-            on_stream_done=on_stream_done,
-            on_stopped=on_stopped,
-            on_error=on_error,
-            on_status_fn=self._set_status,
-            ctx=self.ctx,
-            stop_checker=lambda: self.stop_requested,
-            on_approval_required=on_approval_required,
+            run_search,
+            current_state,
+            interpreter,
+            show_thinking=show_thinking,
+            on_approval_callback=on_approval_required
         )
 
     def _get_mcp_url(self):
