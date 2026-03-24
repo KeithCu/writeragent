@@ -272,9 +272,13 @@ class ToolCallingMixin:
             self._set_status("Error")
             return
         except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            try:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                is_disposed = isinstance(e, (DisposedException, RuntimeException, UnoException))
+            except ImportError:
+                is_disposed = False
+            if is_disposed:
                 log.debug("Document likely disposed while reading context: %s", e)
                 self._append_response("\n[Document closed or unavailable.]\n")
             else:
