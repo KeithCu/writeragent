@@ -643,8 +643,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     # _transcribe_audio_async is provided by SendHandlersMixin.
 
     def _get_doc_type_str(self, model):
-        from plugin.framework.document import is_writer, is_calc, is_draw
-        return "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
+        from plugin.framework.document import get_document_type, DocumentType
+        doc_type = get_document_type(model)
+        if doc_type == DocumentType.CALC: return "Calc"
+        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS): return "Draw"
+        if doc_type == DocumentType.WRITER: return "Writer"
+        return "Unknown"
 
     def _do_send(self):
         from plugin.framework.i18n import _
@@ -667,8 +671,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
         log.debug("_do_send: got document model OK")
 
-        from plugin.framework.document import is_writer, is_calc, is_draw
-        doc_type_str = "Calc" if is_calc(model) else "Draw" if is_draw(model) else "Writer" if is_writer(model) else "Unknown"
+        doc_type_str = self._get_doc_type_str(model)
         log.debug("_do_send: detected document type: %s" % doc_type_str)
         
         if self.initial_doc_type and doc_type_str != self.initial_doc_type:

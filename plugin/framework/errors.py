@@ -51,6 +51,27 @@ class UnoObjectError(WriterAgentException):
         super().__init__(message, code=code, context=context, details=details)
 
 
+class DocumentDisposedError(UnoObjectError):
+    """Document or UNO object was disposed during operation."""
+
+    def __init__(self, message, object_type="Object", context=None, details=None):
+        super().__init__(message, code="DISPOSED_OBJECT", context=context, details=details)
+        self.object_type = object_type
+
+
+class ResourceNotFoundError(WriterAgentException):
+    """Configuration files, documents, or resources not found."""
+
+    def __init__(self, resource_type, identifier, context=None, details=None):
+        from plugin.framework.i18n import _
+        message = _("{resource_type} not found: {identifier}").format(
+            resource_type=resource_type, identifier=identifier
+        )
+        super().__init__(message, code="RESOURCE_NOT_FOUND", context=context, details=details)
+        self.resource_type = resource_type
+        self.identifier = identifier
+
+
 class WorkerPoolError(WriterAgentException):
     """Worker pool specific errors."""
 
@@ -81,7 +102,7 @@ class AgentParsingError(WriterAgentException):
 
 
 def check_disposed(model, context_name="Object"):
-    """Check if a UNO object is disposed or None. Raises UnoObjectError if so."""
+    """Check if a UNO object is disposed or None. Raises UnoObjectError/DocumentDisposedError if so."""
     if model is None:
         raise UnoObjectError(f"{context_name} is null", code="UNO_NULL_OBJECT")
 
@@ -91,14 +112,46 @@ def check_disposed(model, context_name="Object"):
         # which safe_call handles, but this acts as an early guard if needed.
         pass
 
+def safe_uno_call(default=None):
+    """Decorator to safely call UNO methods with automatic error handling."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                # Catch potential DisposedException and RuntimeException from UNO bridge
+                e_name = type(e).__name__
+                if "DisposedException" in e_name or "RuntimeException" in e_name:
+                    raise DocumentDisposedError(
+                        f"UNO object disposed during {func.__name__}",
+                        object_type=func.__name__,
+                        details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}
+                    ) from e
+                else:
+                    raise UnoObjectError(
+                        f"UNO call {func.__name__} failed",
+                        details={"error": str(e), "type": e_name}
+                    ) from e
+        return wrapper
+    return decorator
+
 def safe_call(fn, context_name, *args, **kwargs):
-    """Safely call a UNO method. If it raises any exception (e.g., DisposedException), wrap it in UnoObjectError."""
+    """Safely call a UNO method. If it raises any exception (e.g., DisposedException), wrap it in UnoObjectError or DocumentDisposedError."""
     try:
         return fn(*args, **kwargs)
     except Exception as e:
+        # Catch potential DisposedException and RuntimeException from UNO bridge
+        e_name = type(e).__name__
+        if "DisposedException" in e_name or "RuntimeException" in e_name:
+            raise DocumentDisposedError(
+                f"UNO object disposed during {context_name}",
+                object_type=context_name,
+                details={"original_error": str(e)}
+            ) from e
+        
         # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
         # but catching Exception is the standard way to grab them. We immediately wrap it.
-        raise UnoObjectError(f"{context_name} failed: {e}", context={"operation": context_name, "type": type(e).__name__}) from e
+        raise UnoObjectError(f"{context_name} failed: {e}", context={"operation": context_name, "type": e_name}) from e
 
 def format_error_payload(e: Exception) -> dict:
     """Format an exception into the standard JSON error payload schema."""

@@ -558,9 +558,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _setup_sessions(self, model, extra_instructions):
         """Creates the document and web research chat sessions."""
         from plugin.framework.constants import get_chat_system_prompt_for_document, DEFAULT_CHAT_SYSTEM_PROMPT
-        from plugin.framework.document import get_document_property, set_document_property
+        from plugin.framework.document import get_document_property, set_document_property, get_document_type, DocumentType
         
-        if model and (is_writer(model) or is_calc(model) or is_draw(model)):
+        doc_type = get_document_type(model)
+        if doc_type != DocumentType.UNKNOWN:
             system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
         else:
             system_prompt = (DEFAULT_CHAT_SYSTEM_PROMPT + "\n\n" + str(extra_instructions)) if extra_instructions else DEFAULT_CHAT_SYSTEM_PROMPT
@@ -597,11 +598,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Save it to the instance so panel_wiring can use it for QueryTextListener
             self.send_listener = send_listener
 
-            if model:
-                if is_calc(model): send_listener.initial_doc_type = "Calc"
-                elif is_draw(model): send_listener.initial_doc_type = "Draw"
-                elif is_writer(model): send_listener.initial_doc_type = "Writer"
-                else: send_listener.initial_doc_type = "Unknown"
+            from plugin.framework.document import get_document_type, DocumentType
+            doc_type = get_document_type(model)
+            if doc_type == DocumentType.CALC: send_listener.initial_doc_type = "Calc"
+            elif doc_type in (DocumentType.DRAW, DocumentType.IMPRESS): send_listener.initial_doc_type = "Draw"
+            elif doc_type == DocumentType.WRITER: send_listener.initial_doc_type = "Writer"
+            else: send_listener.initial_doc_type = "Unknown"
 
             if controls["send"]:
                 controls["send"].addActionListener(send_listener)

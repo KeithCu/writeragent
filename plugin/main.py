@@ -526,11 +526,12 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             return
 
         model = get_active_document(self.ctx)
-        from plugin.framework.document import is_writer, is_calc
+        from plugin.framework.document import get_document_type, DocumentType
         
-        if is_writer(model):
+        doc_type = get_document_type(model)
+        if doc_type == DocumentType.WRITER:
             self._handle_writer_actions(args, model)
-        elif is_calc(model):
+        elif doc_type == DocumentType.CALC:
             self._handle_calc_actions(args, model)
 
     def _handle_framework_actions(self, args):

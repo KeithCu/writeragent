@@ -18,42 +18,57 @@
 import logging
 import uno
 import time
+from enum import Enum, auto
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 from plugin.framework.uno_context import get_active_document as get_active_doc
-from plugin.framework.errors import UnoObjectError, check_disposed, safe_call
+from plugin.framework.errors import UnoObjectError, DocumentDisposedError, check_disposed, safe_call, safe_uno_call
+
+
+class DocumentType(Enum):
+    UNKNOWN = auto()
+    WRITER = auto()
+    CALC = auto()
+    DRAW = auto()
+    IMPRESS = auto()
+
+
+_DOCUMENT_SERVICE_MAP = {
+    DocumentType.WRITER: "com.sun.star.text.TextDocument",
+    DocumentType.CALC: "com.sun.star.sheet.SpreadsheetDocument",
+    DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument",
+    DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument"
+}
+
+
+@safe_uno_call(default=DocumentType.UNKNOWN)
+def get_document_type(model):
+    """Return the DocumentType for the given model."""
+    if model is None:
+        return DocumentType.UNKNOWN
+
+    # Check services in priority order
+    for doc_type, service_name in _DOCUMENT_SERVICE_MAP.items():
+        if safe_call(model.supportsService, f"Check {service_name}", service_name):
+            return doc_type
+
+    return DocumentType.UNKNOWN
 
 
 def is_writer(model):
     """Return True if model is a Writer document."""
-    try:
-        check_disposed(model, "Document Model")
-        return safe_call(model.supportsService, "Check supportsService TextDocument", "com.sun.star.text.TextDocument")
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("is_writer error: %s", e)
-        return False
+    return get_document_type(model) == DocumentType.WRITER
 
 
 def is_calc(model):
     """Return True if model is a Calc document."""
-    try:
-        check_disposed(model, "Document Model")
-        return safe_call(model.supportsService, "Check supportsService SpreadsheetDocument", "com.sun.star.sheet.SpreadsheetDocument")
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("is_calc error: %s", e)
-        return False
+    return get_document_type(model) == DocumentType.CALC
 
 
 def is_draw(model):
     """Return True if model is a Draw/Impress document."""
-    try:
-        check_disposed(model, "Document Model")
-        is_drawing = safe_call(model.supportsService, "Check DrawingDocument", "com.sun.star.drawing.DrawingDocument")
-        is_presentation = safe_call(model.supportsService, "Check PresentationDocument", "com.sun.star.presentation.PresentationDocument")
-        return is_drawing or is_presentation
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("is_draw error: %s", e)
-        return False
+    doc_type = get_document_type(model)
+    return doc_type in (DocumentType.DRAW, DocumentType.IMPRESS)
 
 
 def get_document_property(model, name, default=None):
@@ -203,10 +218,11 @@ def resolve_document_by_url(ctx, url):
                 if model and hasattr(model, "getURL"):
                     doc_url = _normalize_doc_url(model.getURL())
                     if doc_url and doc_url == target:
+                        doc_type_enum = get_document_type(model)
                         doc_type = "writer"
-                        if is_calc(model):
+                        if doc_type_enum == DocumentType.CALC:
                             doc_type = "calc"
-                        elif is_draw(model):
+                        elif doc_type_enum in (DocumentType.DRAW, DocumentType.IMPRESS):
                             doc_type = "draw"
                         return (model, doc_type)
             except Exception as e:
@@ -233,7 +249,9 @@ def get_full_document_text(model, max_chars=8000):
     """Get full document text for Writer or summary for Calc, truncated to max_chars."""
     try:
         check_disposed(model, "Document Model")
-        if is_calc(model):
+        doc_type = get_document_type(model)
+        
+        if doc_type == DocumentType.CALC:
             # Calc document
             bridge = CalcBridge(model)
             analyzer = SheetAnalyzer(bridge)
@@ -243,15 +261,20 @@ def get_full_document_text(model, max_chars=8000):
             # Maybe add some preview rows?
             return text
         
-        text = safe_call(model.getText, "Get document text")
-        # ... rest of Writer logic
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-        full = safe_call(cursor.getString, "Cursor getString")
-        if len(full) > max_chars:
-            full = full[:max_chars] + "\n\n[... document truncated ...]"
-        return full
+        if doc_type == DocumentType.WRITER:
+            text = safe_call(model.getText, "Get document text")
+            cursor = safe_call(text.createTextCursor, "Create text cursor")
+            safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+            safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
+            full = safe_call(cursor.getString, "Cursor getString")
+            if len(full) > max_chars:
+                full = full[:max_chars] + "\n\n[... document truncated ...]"
+            return full
+        
+        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+            return get_draw_context_for_chat(model, max_chars)
+            
+        return ""
     except UnoObjectError as e:
         logging.getLogger(__name__).warning("get_full_document_text error: %s", e)
         return ""
@@ -358,94 +381,99 @@ def get_selection_range(model):
 def get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=True, ctx=None):
     """Build a single context string for chat. Handles Writer and Calc.
     ctx: component context (required for Calc and Draw documents)."""
-    if is_calc(model):
+    doc_type = get_document_type(model)
+
+    if doc_type == DocumentType.CALC:
         return get_calc_context_for_chat(model, max_context, ctx)
     
-    if is_draw(model):
+    if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
         return get_draw_context_for_chat(model, max_context, ctx)
     
     # Original Writer logic
-    try:
-        check_disposed(model, "Document Model")
-        text = safe_call(model.getText, "Get document text")
-        # ... (rest of the function)
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-        full = normalize_linebreaks(safe_call(cursor.getString, "Cursor getString"))
-        doc_len = len(full)
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_document_context_for_chat Writer error: %s", e)
-        return "[Unable to read Writer document context. The document may be locked or initializing.]"
+    if doc_type == DocumentType.WRITER:
+        try:
+            check_disposed(model, "Document Model")
+            text = safe_call(model.getText, "Get document text")
+            # ... (rest of the function)
+            cursor = safe_call(text.createTextCursor, "Create text cursor")
+            safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+            safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
+            full = normalize_linebreaks(safe_call(cursor.getString, "Cursor getString"))
+            doc_len = len(full)
+        except UnoObjectError as e:
+            logging.getLogger(__name__).warning("get_document_context_for_chat Writer error: %s", e)
+            return "[Unable to read Writer document context. The document may be locked or initializing.]"
 
-    # Context Extensions (Memory, User Profile, Skills)
-    # UNCOMMENT TO ENABLE:
-    # try:
-    #     if ctx:
-    #         from plugin.modules.chatbot.memory import MemoryStore
-    #         from plugin.modules.chatbot.skills import SkillsStore
-    #         m_store = MemoryStore(ctx)
-    #         memory_text = m_store.read("memory")
-    #         user_text = m_store.read("user")
-    #         s_store = SkillsStore(ctx)
-    #         skills = s_store.find_all_skills()
-    #         ext_ctx = ""
-    #         if user_text:
-    #             ext_ctx += f"\n[USER PROFILE]\n{user_text}\n"
-    #         if memory_text:
-    #             ext_ctx += f"\n[AGENT MEMORY]\n{memory_text}\n"
-    #         if skills:
-    #             ext_ctx += f"\n[AVAILABLE SKILLS]\n" + ", ".join(s['name'] for s in skills) + "\n"
-    #         if ext_ctx:
-    #             full = ext_ctx + "\n" + full
-    #             doc_len = len(full)
-    # except Exception as e:
-    #     logging.getLogger(__name__).warning("Failed to inject memory context: %s", e)
+        # Context Extensions (Memory, User Profile, Skills)
+        # UNCOMMENT TO ENABLE:
+        # try:
+        #     if ctx:
+        #         from plugin.modules.chatbot.memory import MemoryStore
+        #         from plugin.modules.chatbot.skills import SkillsStore
+        #         m_store = MemoryStore(ctx)
+        #         memory_text = m_store.read("memory")
+        #         user_text = m_store.read("user")
+        #         s_store = SkillsStore(ctx)
+        #         skills = s_store.find_all_skills()
+        #         ext_ctx = ""
+        #         if user_text:
+        #             ext_ctx += f"\n[USER PROFILE]\n{user_text}\n"
+        #         if memory_text:
+        #             ext_ctx += f"\n[AGENT MEMORY]\n{memory_text}\n"
+        #         if skills:
+        #             ext_ctx += f"\n[AVAILABLE SKILLS]\n" + ", ".join(s['name'] for s in skills) + "\n"
+        #         if ext_ctx:
+        #             full = ext_ctx + "\n" + full
+        #             doc_len = len(full)
+        # except Exception as e:
+        #     logging.getLogger(__name__).warning("Failed to inject memory context: %s", e)
 
-    # Selection/cursor range; cap selection span for very long selections (e.g. 100k chars)
-    start_offset, end_offset = (0, 0)
-    if include_selection:
-        start_offset, end_offset = get_selection_range(model)
-        # Clamp to document bounds
-        start_offset = max(0, min(start_offset, doc_len))
-        end_offset = max(0, min(end_offset, doc_len))
-        if start_offset > end_offset:
-            start_offset, end_offset = end_offset, start_offset
-        # Optional: cap selection span so we don't force huge context (e.g. 2000 chars max span for "selection" in excerpts)
-        max_selection_span = 2000
-        if end_offset - start_offset > max_selection_span:
-            end_offset = start_offset + max_selection_span
+        # Selection/cursor range; cap selection span for very long selections (e.g. 100k chars)
+        start_offset, end_offset = (0, 0)
+        if include_selection:
+            start_offset, end_offset = get_selection_range(model)
+            # Clamp to document bounds
+            start_offset = max(0, min(start_offset, doc_len))
+            end_offset = max(0, min(end_offset, doc_len))
+            if start_offset > end_offset:
+                start_offset, end_offset = end_offset, start_offset
+            # Optional: cap selection span so we don't force huge context (e.g. 2000 chars max span for "selection" in excerpts)
+            max_selection_span = 2000
+            if end_offset - start_offset > max_selection_span:
+                end_offset = start_offset + max_selection_span
 
-    # Budget split: half for start, half for end when include_end
-    if include_end and doc_len > (max_context // 2):
-        start_chars = max_context // 2
-        end_chars = max_context - start_chars
-        start_excerpt = full[:start_chars]
-        end_excerpt = full[-end_chars:]
-        # Inject markers into start excerpt
-        start_excerpt = _inject_markers_into_excerpt(
-            start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]"
-        )
-        # Inject markers into end excerpt (offsets relative to document; excerpt starts at doc_len - end_chars)
-        end_excerpt = _inject_markers_into_excerpt(
-            end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]"
-        )
-        middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
-        return (
-            "Document length: %d characters.\n\n%s%s%s"
-            % (doc_len, start_excerpt, middle_note, end_excerpt)
-        )
-    else:
-        # Short doc or start-only: one block
-        take = min(doc_len, max_context)
-        excerpt = full[:take]
-        if doc_len > max_context:
-            excerpt += "\n\n[... document truncated ...]"
-        content_len = take  # character range we're showing (before truncation message)
-        excerpt = _inject_markers_into_excerpt(
-            excerpt, 0, content_len, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]"
-        )
-        return "Document length: %d characters.\n\n%s" % (doc_len, excerpt)
+        # Budget split: half for start, half for end when include_end
+        if include_end and doc_len > (max_context // 2):
+            start_chars = max_context // 2
+            end_chars = max_context - start_chars
+            start_excerpt = full[:start_chars]
+            end_excerpt = full[-end_chars:]
+            # Inject markers into start excerpt
+            start_excerpt = _inject_markers_into_excerpt(
+                start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]"
+            )
+            # Inject markers into end excerpt (offsets relative to document; excerpt starts at doc_len - end_chars)
+            end_excerpt = _inject_markers_into_excerpt(
+                end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]"
+            )
+            middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
+            return (
+                "Document length: %d characters.\n\n%s%s%s"
+                % (doc_len, start_excerpt, middle_note, end_excerpt)
+            )
+        else:
+            # Short doc or start-only: one block
+            take = min(doc_len, max_context)
+            excerpt = full[:take]
+            if doc_len > max_context:
+                excerpt += "\n\n[... document truncated ...]"
+            content_len = take  # character range we're showing (before truncation message)
+            excerpt = _inject_markers_into_excerpt(
+                excerpt, 0, content_len, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]"
+            )
+            return "Document length: %d characters.\n\n%s" % (doc_len, excerpt)
+    
+    return ""
 
 
 def get_calc_context_for_chat(model, max_context=8000, ctx=None):
@@ -758,8 +786,9 @@ class DocumentService(ServiceBase):
         return resolve_document_by_url(get_ctx(), url)
 
     def detect_doc_type(self, doc):
-        if is_calc(doc): return "calc"
-        if is_draw(doc): return "draw"
+        doc_type = get_document_type(doc)
+        if doc_type == DocumentType.CALC: return "calc"
+        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS): return "draw"
         return "writer"
 
     def is_writer(self, doc): return is_writer(doc)
