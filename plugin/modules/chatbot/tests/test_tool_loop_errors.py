@@ -79,11 +79,13 @@ def test_instance():
     # Mock some configs used in the main logic to avoid full system dependency
     with patch("plugin.modules.chatbot.tool_loop.get_config") as mock_get_config, \
          patch("plugin.modules.chatbot.tool_loop.get_api_config") as mock_get_api_config, \
-         patch("plugin.modules.chatbot.tool_loop.validate_api_config") as mock_validate_api_config:
+         patch("plugin.modules.chatbot.tool_loop.validate_api_config") as mock_validate_api_config, \
+         patch("plugin.modules.chatbot.tool_loop.get_chat_system_prompt_for_document") as mock_get_prompt:
 
         mock_get_config.side_effect = lambda ctx, key: "10" if "tokens" in key or "context" in key else "test"
         mock_get_api_config.return_value = {"chat_max_tool_rounds": 1}
         mock_validate_api_config.return_value = (True, "")
+        mock_get_prompt.return_value = "System prompt"
 
         yield instance
 

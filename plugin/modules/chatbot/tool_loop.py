@@ -76,13 +76,13 @@ class ToolCallingMixin:
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
     def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
+        from plugin.framework.errors import UnoObjectError
         try:
             log.debug("_do_send: importing core modules...")
             from plugin.main import get_tools
 
             log.debug("_do_send: core modules imported OK")
         except Exception as e:
-            from plugin.framework.errors import UnoObjectError
             if isinstance(e, UnoObjectError):
                 log.error("_do_send: core import failed (UnoObjectError): %s" % e)
             else:
@@ -191,7 +191,6 @@ class ToolCallingMixin:
                     return json.dumps(format_error_payload(wrapped_error))
 
         except Exception as e:
-            from plugin.framework.errors import UnoObjectError
             if isinstance(e, UnoObjectError):
                 log.error("_do_send: tool import failed (UnoObjectError): %s" % e)
             else:
@@ -773,10 +772,6 @@ class ToolCallingMixin:
             log.debug("Failed to get async tools list, falling back to defaults: %s", e)
             async_tools = frozenset({"web_research", "generate_image"})
 
-        self.sidebar_state = dataclasses.replace(
-            self.sidebar_state, tool_loop=None
-        )
-
         self._sm_state = ToolLoopState(
             round_num=0,
             pending_tools=[],
@@ -785,75 +780,77 @@ class ToolCallingMixin:
             async_tools=async_tools
         )
 
-        self._active_q = queue.Queue()
-        self._active_round_num = 0
-        self._active_pending_tools = []
-        self._active_async_tools = async_tools
-
-        self._active_client = client
-        self._active_model = model
-        self._active_max_tokens = max_tokens
-        self._active_tools = tools
-        self._active_execute_tool_fn = execute_tool_fn
-        self._active_max_tool_rounds = max_tool_rounds
-        self._active_query_text = query_text
-
-        # Read config once for web research thinking display
         try:
-            show_search_thinking = as_bool(
-                get_config(self.ctx, "chatbot.show_search_thinking")
-            )
-        except (ValueError, TypeError) as e:
-            log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
-            show_search_thinking = False
+            self._active_q = queue.Queue()
+            self._active_round_num = 0
+            self._active_pending_tools = []
+            self._active_async_tools = async_tools
 
-        try:
-            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", self.ctx
+            self._active_client = client
+            self._active_model = model
+            self._active_max_tokens = max_tokens
+            self._active_tools = tools
+            self._active_execute_tool_fn = execute_tool_fn
+            self._active_max_tool_rounds = max_tool_rounds
+            self._active_query_text = query_text
+
+            # Read config once for web research thinking display
+            try:
+                show_search_thinking = as_bool(
+                    get_config(self.ctx, "chatbot.show_search_thinking")
+                )
+            except (ValueError, TypeError) as e:
+                log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
+                show_search_thinking = False
+
+            try:
+                toolkit = self.ctx.getServiceManager().createInstanceWithContext(
+                    "com.sun.star.awt.Toolkit", self.ctx
+                )
+            except Exception as e:
+                from com.sun.star.lang import DisposedException
+                from com.sun.star.uno import RuntimeException, Exception as UnoException
+                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    log.debug("Failed to create Toolkit instance (likely disposed): %s", e)
+                else:
+                    log.error("Failed to create Toolkit instance: %s", e)
+                self._append_response("\n[Error: %s]\n" % str(e))
+                self._terminal_status = "Error"
+                self._set_status("Error")
+                return
+
+            # Check once whether execute_tool_fn accepts status_callback
+            sig = inspect.signature(execute_tool_fn)
+            self._active_supports_status = (
+                "status_callback" in sig.parameters or "kwargs" in sig.parameters
             )
-        except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                log.debug("Failed to create Toolkit instance (likely disposed): %s", e)
-            else:
-                log.error("Failed to create Toolkit instance: %s", e)
-            self._append_response("\n[Error: %s]\n" % str(e))
-            self._terminal_status = "Error"
-            self._set_status("Error")
+
+            # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
+            thinking_open = [False]
+
+            # --- Kick off the first LLM stream ---
+            self._spawn_llm_worker(
+                self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text
+            )
+
+            run_stream_drain_loop(
+                self._active_q,
+                toolkit,
+                [False],
+                self._append_response,
+                on_stream_done=self._handle_stream_completion,
+                on_stopped=self._handle_stream_stopped,
+                on_error=self._handle_stream_error,
+                on_status_fn=self._set_status,
+                ctx=self.ctx,
+                stop_checker=lambda: self.stop_requested,
+                show_search_thinking=show_search_thinking,
+                on_approval_required=self._on_tool_loop_approval_required,
+            )
+        finally:
             self.sidebar_state = dataclasses.replace(
                 self.sidebar_state, tool_loop=None
             )
-            return
-
-        # Check once whether execute_tool_fn accepts status_callback
-        sig = inspect.signature(execute_tool_fn)
-        self._active_supports_status = (
-            "status_callback" in sig.parameters or "kwargs" in sig.parameters
-        )
-
-        # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
-        thinking_open = [False]
-
-        # --- Kick off the first LLM stream ---
-        self._spawn_llm_worker(
-            self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text
-        )
-
-        run_stream_drain_loop(
-            self._active_q,
-            toolkit,
-            [False],
-            self._append_response,
-            on_stream_done=self._handle_stream_completion,
-            on_stopped=self._handle_stream_stopped,
-            on_error=self._handle_stream_error,
-            on_status_fn=self._set_status,
-            ctx=self.ctx,
-            stop_checker=lambda: self.stop_requested,
-            show_search_thinking=show_search_thinking,
-            on_approval_required=self._on_tool_loop_approval_required,
-        )
 
     def _start_simple_stream_async(self, client, max_tokens):
         """Start simple streaming (no tools) via async helper; returns immediately."""

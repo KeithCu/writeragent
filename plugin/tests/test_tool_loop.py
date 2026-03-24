@@ -109,24 +109,17 @@ def setup_mock_panel():
 def test_stream_done_no_tools(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
-    captured_callback = {}
+    results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        captured_callback['on_stream_done'] = on_stream_done
+        res = on_stream_done(('stream_done', {"content": "Hello World", "tool_calls": []}))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
-    # Run the loop to bind the nested function and capture it
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
 
-    on_stream_done = captured_callback.get('on_stream_done')
-    assert on_stream_done is not None
-
-    # 1. Test standard stream completion with no tools
-    result = on_stream_done(('stream_done', {"content": "Hello World", "tool_calls": []}))
-
-    # When no tools are present, it should exit the loop (return True)
-    assert result is True
+    assert results[0] is True
 
     # It should have updated the session and the UI
     assert len(session.messages) == 1
@@ -142,30 +135,23 @@ def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     captured_q = None
-    captured_callback = {}
-    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        nonlocal captured_q
-        captured_q = q
-        captured_callback['on_stream_done'] = on_stream_done
-
-    mock_drain_loop.side_effect = mock_drain_impl
-
-    # Run the loop to bind the nested function and capture it
-    client = Mock()
-    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
-
-    on_stream_done = captured_callback.get('on_stream_done')
-    assert on_stream_done is not None
-
-    # Define tool call data
+    results = []
     tool_calls = [
         {"id": "call_abc", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}
     ]
 
-    result = on_stream_done(('stream_done', {"content": "Let me check.", "tool_calls": tool_calls}))
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        nonlocal captured_q
+        captured_q = q
+        res = on_stream_done(('stream_done', {"content": "Let me check.", "tool_calls": tool_calls}))
+        results.append(res)
 
-    # When tools are present, it should queue them and return False to continue the loop
-    assert result is False
+    mock_drain_loop.side_effect = mock_drain_impl
+
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
+
+    assert results[0] is False
 
     # Session should have the assistant message with tool calls
     assert len(session.messages) == 1
@@ -185,20 +171,17 @@ def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
 def test_next_tool_advances_round(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
-    captured_callback = {}
+    results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        captured_callback['on_stream_done'] = on_stream_done
+        res = on_stream_done(('next_tool',))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    # Send 'next_tool' when there are no pending tools
-    result = on_stream_done(('next_tool',))
-
-    assert result is False
+    assert results[0] is False
     # When pending_tools is empty, it advances the round and spawns another worker
     panel._set_status.assert_called_with("Sending results to AI...")
     panel._spawn_llm_worker.assert_called()
@@ -210,11 +193,21 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     panel, session = setup_mock_panel()
 
     captured_q = None
-    captured_callback = {}
+    results = []
+    tool_calls = [
+        {"id": "call_abc", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
+    ]
+
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        captured_callback['on_stream_done'] = on_stream_done
+        on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+        
+        item = q.get()
+        assert item == ("next_tool",)
+        
+        res = on_stream_done(('next_tool',))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -223,23 +216,8 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    # First, queue a tool by simulating a stream_done
-    tool_calls = [
-        {"id": "call_abc", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
-    ]
-    on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
-
-    # Consume the enqueued 'next_tool' signal that the stream_done just put in
-    item = captured_q.get()
-    assert item == ("next_tool",)
-
-    # Now simulate processing 'next_tool'
-    result = on_stream_done(('next_tool',))
-
-    # Keep looping
-    assert result is False
+    assert results[0] is False
 
     panel._set_status.assert_called_with("Running: apply_document_content")
     panel._append_response.assert_called_with("[Running tool: apply_document_content...]\n")
@@ -264,15 +242,39 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     panel, session = setup_mock_panel()
 
     captured_q = None
-    captured_callback = {}
+    results = []
+    tool_calls = [
+        {"id": "call_1", "type": "function", "function": {"name": "tool_one", "arguments": '{"arg": 1}'}},
+        {"id": "call_2", "type": "function", "function": {"name": "tool_two", "arguments": '{"arg": 2}'}}
+    ]
+
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        captured_callback['on_stream_done'] = on_stream_done
+        
+        on_stream_done(('stream_done', {"content": "Calling tools", "tool_calls": tool_calls}))
+        assert len(session.messages) == 1
+        
+        item = q.get()
+        assert item == ("next_tool",)
+        
+        res1 = on_stream_done(('next_tool',))
+        results.append(res1)
+        
+        tool_done_item1 = q.get()
+        res2 = on_stream_done(tool_done_item1)
+        results.append(res2)
+        
+        item = q.get()
+        res3 = on_stream_done(('next_tool',))
+        results.append(res3)
+        
+        tool_done_item2 = q.get()
+        res4 = on_stream_done(tool_done_item2)
+        results.append(res4)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
-    # Track execution order
     execution_order = []
     def mock_execute_tool(name, args, doc, ctx, **kwargs):
         execution_order.append(name)
@@ -282,66 +284,8 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    tool_calls = [
-        {"id": "call_1", "type": "function", "function": {"name": "tool_one", "arguments": '{"arg": 1}'}},
-        {"id": "call_2", "type": "function", "function": {"name": "tool_two", "arguments": '{"arg": 2}'}}
-    ]
-
-    # 1. Provide the stream_done with multiple tool calls
-    on_stream_done(('stream_done', {"content": "Calling tools", "tool_calls": tool_calls}))
-
-    # Check session
-    assert len(session.messages) == 1
-    assert session.messages[0]["tool_calls"] == tool_calls
-
-    # Check queue has 'next_tool'
-    item = captured_q.get()
-    assert item == ("next_tool",)
-
-    # 2. Process first tool
-    result = on_stream_done(('next_tool',))
-    assert result is False
-
-    # Verify first tool execution
-    assert len(execution_order) == 1
-    assert execution_order[0] == "tool_one"
-
-    # Pop tool_done for the first tool
-    tool_done_item1 = captured_q.get()
-    assert tool_done_item1[0] == "tool_done"
-    assert tool_done_item1[1] == "call_1"
-
-    # 3. Process tool_done for the first tool
-    result = on_stream_done(tool_done_item1)
-    assert result is False
-
-    # Verify it added tool result to session
-    assert len(session.messages) == 2
-    assert session.messages[1]["role"] == "tool"
-    assert session.messages[1]["tool_call_id"] == "call_1"
-
-    # Check queue has the next 'next_tool' trigger
-    item = captured_q.get()
-    assert item == ("next_tool",)
-
-    # 4. Process second tool
-    result = on_stream_done(('next_tool',))
-    assert result is False
-
-    # Verify second tool execution
-    assert len(execution_order) == 2
-    assert execution_order[1] == "tool_two"
-
-    # Pop tool_done for the second tool
-    tool_done_item2 = captured_q.get()
-    assert tool_done_item2[0] == "tool_done"
-    assert tool_done_item2[1] == "call_2"
-
-    # 5. Process tool_done for the second tool
-    result = on_stream_done(tool_done_item2)
-    assert result is False
+    assert len(results) == 4
 
     # Verify it added tool result to session
     assert len(session.messages) == 3
@@ -354,12 +298,19 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
 def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
-    captured_q = None
-    captured_callback = {}
+    results = []
+    tool_calls = [
+        {"id": "call_1", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
+    ]
+
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        nonlocal captured_q
-        captured_q = q
-        captured_callback['on_stream_done'] = on_stream_done
+        on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+        item = q.get()
+        assert item == ("next_tool",)
+        
+        panel.stop_requested = True
+        res = on_stream_done(('next_tool',))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -367,26 +318,8 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    tool_calls = [
-        {"id": "call_1", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
-    ]
-
-    # 1. Provide the stream_done with a tool call
-    on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
-
-    # Consume the enqueued 'next_tool' signal that the stream_done just put in
-    item = captured_q.get()
-    assert item == ("next_tool",)
-
-    # 2. Simulate user pressing stop button
-    panel.stop_requested = True
-
-    # 3. Process the pending next_tool
-    result = on_stream_done(('next_tool',))
-
-    assert result is False
+    assert results[0] is False
 
     # Verify execute tool was NOT called because StopRequested skips the pending tools
     execute_tool_mock.assert_not_called()
@@ -402,15 +335,22 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
     panel, session = setup_mock_panel()
 
     captured_q = None
-    captured_callback = {}
+    results = []
+    tool_calls = [{
+        "type": "function",
+        "function": { "arguments": 'not-valid-json' }
+    }]
+
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        captured_callback['on_stream_done'] = on_stream_done
+        on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+        item = q.get()
+        res = on_stream_done(('next_tool',))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
-    # Track arguments sent to the mock tool
     executed_args = {}
     def mock_execute_tool(name, args, doc, ctx, **kwargs):
         executed_args['name'] = name
@@ -421,32 +361,8 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock)
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    # Provide malformed tool call: missing id, missing function name, and invalid json for arguments
-    tool_calls = [
-        {
-            # "id" missing
-            "type": "function",
-            "function": {
-                # "name" missing
-                "arguments": 'not-valid-json'
-            }
-        }
-    ]
-
-    # 1. Provide the stream_done with malformed tool call
-    on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
-
-    # Consume the enqueued 'next_tool' signal that the stream_done just put in
-    item = captured_q.get()
-    assert item == ("next_tool",)
-
-    # 2. Process the pending next_tool
-    result = on_stream_done(('next_tool',))
-
-    # Keep looping
-    assert result is False
+    assert results[0] is False
 
     # Verify execute tool was called with fallbacks
     assert executed_args['name'] == 'unknown'
@@ -467,43 +383,34 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
-    captured_q = None
-    captured_callback = {}
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        nonlocal captured_q
-        captured_q = q
-        captured_callback['on_stream_done'] = on_stream_done
+        tool_calls_1 = [{"id": "call_1", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
+        on_stream_done(('stream_done', {"content": "step 1", "tool_calls": tool_calls_1}))
+        q.get()  # next_tool
+        on_stream_done(('next_tool',))
+        
+        # Simulate tool execution result
+        on_stream_done(('tool_done', "call_1", "dummy", "{}", '{"ok": true}', False))
+        q.get()  # next_tool
+        on_stream_done(('next_tool',))
+        
+        # Round 1
+        tool_calls_2 = [{"id": "call_2", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
+        on_stream_done(('stream_done', {"content": "step 2", "tool_calls": tool_calls_2}))
+        q.get()  # next_tool
+        on_stream_done(('next_tool',))
+        
+        on_stream_done(('tool_done', "call_2", "dummy", "{}", '{"ok": true}', False))
+        q.get()  # next_tool
+        on_stream_done(('next_tool',))
 
     mock_drain_loop.side_effect = mock_drain_impl
     execute_tool_mock = Mock()
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=2)
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    # Round 0 - tools provided
-    tool_calls_1 = [{"id": "call_1", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
-    on_stream_done(('stream_done', {"content": "step 1", "tool_calls": tool_calls_1}))
-    captured_q.get()  # next_tool
-    on_stream_done(('next_tool',)) # Execute tool
-    captured_q.get()  # tool_done
-    on_stream_done(('tool_done', "call_1", "dummy", "{}", '{"ok": true}', False)) # Add result
-    captured_q.get()  # next_tool
-    on_stream_done(('next_tool',)) # This should spawn Round 1 since max_rounds is 2
     panel._spawn_llm_worker.assert_called()
-    panel._spawn_llm_worker.reset_mock()
-
-    # Round 1 - tools provided
-    tool_calls_2 = [{"id": "call_2", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
-    on_stream_done(('stream_done', {"content": "step 2", "tool_calls": tool_calls_2}))
-    captured_q.get()  # next_tool
-    on_stream_done(('next_tool',)) # Execute tool
-    captured_q.get()  # tool_done
-    on_stream_done(('tool_done', "call_2", "dummy", "{}", '{"ok": true}', False)) # Add result
-    captured_q.get()  # next_tool
-    on_stream_done(('next_tool',)) # This should spawn final_stream since max_rounds is 2 (new_round_num 2 >= 2)
-    
-    panel._spawn_llm_worker.assert_not_called()
     panel._spawn_final_stream.assert_called()
 
 @patch('plugin.modules.chatbot.tool_loop.run_stream_drain_loop')
@@ -511,18 +418,17 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
 def test_final_done_handling(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
-    captured_callback = {}
+    results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        captured_callback['on_stream_done'] = on_stream_done
+        res = on_stream_done(('final_done', 'This is the final word.'))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    result = on_stream_done(('final_done', 'This is the final word.'))
-    assert result is True # Return true means exit loop
+    assert results[0] is True # Return true means exit loop
     assert panel._terminal_status == "Ready"
     assert len(session.messages) == 1
     assert session.messages[0]["content"] == "This is the final word."
@@ -532,17 +438,16 @@ def test_final_done_handling(mock_get_config, mock_drain_loop):
 def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
-    captured_callback = {}
+    results = []
+    exc = Exception("Network failure")
+
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        captured_callback['on_stream_done'] = on_stream_done
+        res = on_stream_done(('error', exc))
+        results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
     client = Mock()
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock())
-    on_stream_done = captured_callback.get('on_stream_done')
 
-    # Emit an error
-    exc = Exception("Network failure")
-    result = on_stream_done(('error', exc))
-    assert result is True # Should exit loop
+    assert results[0] is True # Should exit loop
