@@ -262,7 +262,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.client = None # Force client recreation if needed, though they usually share same config
 
     def begin_inline_web_approval(self, query_for_engine, tool_name, event_obj):
-        """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event_obj`` when user chooses."""
+        """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event_obj`` when user chooses.
+
+        Approval mode only mutates UNO control labels/enabled flags here and restores them from
+        ``_approval_ui_backup`` in ``_finish_inline_web_approval``. It does **not** update
+        ``sidebar_state.send`` or go through :meth:`dispatch` for those temporary labels—by design.
+        Do not "fix" this by routing approval chrome through the send FSM; keep backup/restore
+        as the source of truth for this overlay.
+        """
         from plugin.framework.i18n import _
         from plugin.modules.chatbot.web_research_chat import web_research_engine_chat_block
 

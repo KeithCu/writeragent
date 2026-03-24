@@ -32,9 +32,10 @@ class ChatbotModule(ModuleBase):
         self._api_handler = None
 
         from . import web_research
+        # from .tools import memory, skills
         services.tools.auto_discover(web_research)
-
-        # Chat tool routing is now handled natively by main.py's get_tools() instead of ChatToolAdapter
+        # services.tools.auto_discover(memory)
+        # services.tools.auto_discover(skills)        # Chat tool routing is now handled natively by main.py's get_tools() instead of ChatToolAdapter
         self._adapter = None
 
         # Always register API routes (legacy Chat API) when http_routes is available.

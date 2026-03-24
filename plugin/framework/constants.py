@@ -73,6 +73,20 @@ CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the f
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)"""
 
+MEMORY_GUIDANCE = """MEMORY:
+You have a persistent file-backed memory.
+Target 'user' stores user profile, preferences, and quirks.
+Target 'memory' stores project facts, environmental notes, and general thoughts.
+WHEN TO SAVE (do this proactively, don't wait to be asked):
+- User corrects you.
+- You discover something about the environment.
+Prioritize what reduces future user steering."""
+
+SKILLS_GUIDANCE = """SKILLS:
+You have a procedural skills system (skills_list, skill_view, skill_manage).
+After completing a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, ask to save the approach as a skill using skill_manage.
+If you used a skill and found it outdated/wrong, patch it immediately using skill_manage."""
+
 DEFAULT_CHAT_SYSTEM_PROMPT = f"""{CORE_DIRECTIVES}
 
 TOOLS:
@@ -88,6 +102,9 @@ TOOLS:
 {TOOL_USAGE_PATTERNS}
 
 {FORMATTING_RULES}
+
+# {MEMORY_GUIDANCE}
+# {SKILLS_GUIDANCE}
 """
 # NOTE: Experimental planning/todo guidance (commented out).
 # When the hermes-style `todo` tool is enabled, you can append guidance like:
