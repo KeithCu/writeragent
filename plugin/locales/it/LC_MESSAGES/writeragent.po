@@ -1192,3 +1192,6 @@ msgstr "Ricerca web completata."
 
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
+
+msgid "{resource_type} not found: {identifier}"
+msgstr "\"{resource_type} non trovato: {identifier}\""

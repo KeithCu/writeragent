@@ -1196,6 +1196,9 @@ msgstr "Investigación web completada."
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
+msgid "{resource_type} not found: {identifier}"
+msgstr "{resource_type} no encontrado: {identifier}"
+
 #~ msgid "AI chat sidebar and REST API"
 #~ msgstr "Barra lateral de chat IA y API REST"
 

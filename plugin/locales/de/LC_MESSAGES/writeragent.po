@@ -1198,3 +1198,6 @@ msgstr "Web-Recherche abgeschlossen."
 
 msgid "Mistral Vibe (ACP)"
 msgstr "Mistral-Stimmung (ACP)"
+
+msgid "{resource_type} not found: {identifier}"
+msgstr "\"{resource_type} nicht gefunden: {identifier}\""

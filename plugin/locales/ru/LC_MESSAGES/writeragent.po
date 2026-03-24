@@ -1205,3 +1205,6 @@ msgstr "Веб-исследование завершено."
 
 msgid "Mistral Vibe (ACP)"
 msgstr "Вайб Mistral (ACP)"
+
+msgid "{resource_type} not found: {identifier}"
+msgstr "\"{resource_type} не найден: {identifier}\""
