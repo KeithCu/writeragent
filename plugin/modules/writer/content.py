@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 from plugin.framework.document import normalize_linebreaks
 from plugin.modules.writer import format_support
 
@@ -364,7 +364,7 @@ class ApplyDocumentContent(ToolBase):
 # ReadParagraphs
 # ------------------------------------------------------------------
 
-class ReadParagraphs(ToolBase):
+class ReadParagraphs(ToolBaseDummy):
     """Read a range of paragraphs by index."""
 
     name = "read_paragraphs"
@@ -428,7 +428,7 @@ class ReadParagraphs(ToolBase):
 # InsertAtParagraph
 # ------------------------------------------------------------------
 
-class InsertAtParagraph(ToolBase):
+class InsertAtParagraph(ToolBaseDummy):
     """Insert text at a specific paragraph index."""
 
     name = "insert_at_paragraph"
@@ -519,7 +519,7 @@ class InsertAtParagraph(ToolBase):
 # ModifyParagraph
 # ------------------------------------------------------------------
 
-class ModifyParagraph(ToolBase):
+class ModifyParagraph(ToolBaseDummy):
     """Change paragraph text and/or style. Provide at least one of text or style."""
 
     name = "modify_paragraph"
@@ -602,7 +602,7 @@ class ModifyParagraph(ToolBase):
 # DeleteParagraph
 # ------------------------------------------------------------------
 
-class DeleteParagraph(ToolBase):
+class DeleteParagraph(ToolBaseDummy):
     """Delete a paragraph from the document."""
 
     name = "delete_paragraph"
@@ -664,7 +664,7 @@ class DeleteParagraph(ToolBase):
 # DuplicateParagraph
 # ------------------------------------------------------------------
 
-class DuplicateParagraph(ToolBase):
+class DuplicateParagraph(ToolBaseDummy):
     """Duplicate a paragraph (with its style) after itself."""
 
     name = "duplicate_paragraph"
@@ -751,7 +751,7 @@ class DuplicateParagraph(ToolBase):
 # CloneHeadingBlock
 # ------------------------------------------------------------------
 
-class CloneHeadingBlock(ToolBase):
+class CloneHeadingBlock(ToolBaseDummy):
     """Clone an entire heading block (heading + all sub-headings + body)."""
 
     name = "clone_heading_block"
@@ -846,7 +846,7 @@ class CloneHeadingBlock(ToolBase):
 # InsertParagraphsBatch
 # ------------------------------------------------------------------
 
-class InsertParagraphsBatch(ToolBase):
+class InsertParagraphsBatch(ToolBaseDummy):
     """Insert multiple paragraphs in one call."""
 
     name = "insert_paragraphs_batch"

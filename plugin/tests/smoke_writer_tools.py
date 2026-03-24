@@ -15,11 +15,18 @@ class TestWriterToolsSmoke(unittest.TestCase):
         writer_tools = {t.name for t in registry.get_tools(doc_type="writer")}
         # Core / navigation
         self.assertIn("get_document_tree", writer_tools)
-        # Content
-        self.assertIn("read_paragraphs", writer_tools)
-        self.assertIn("insert_at_paragraph", writer_tools)
+        # Content (paragraph batch tools disabled via ToolBaseDummy)
         self.assertIn("get_document_stats", writer_tools)
-        self.assertIn("modify_paragraph", writer_tools)
+        for name in (
+            "read_paragraphs",
+            "insert_at_paragraph",
+            "modify_paragraph",
+            "delete_paragraph",
+            "duplicate_paragraph",
+            "clone_heading_block",
+            "insert_paragraphs_batch",
+        ):
+            self.assertNotIn(name, writer_tools)
         # Removed tools no longer present
         self.assertNotIn("get_document_outline", writer_tools)
         self.assertNotIn("get_heading_content", writer_tools)
@@ -34,7 +41,7 @@ class TestWriterToolsSmoke(unittest.TestCase):
         registry = get_tools()
         schemas = registry.get_schemas("openai", doc_type="writer")
         names = {s["function"]["name"] for s in schemas}
-        for name in ("get_document_tree", "read_paragraphs", "get_document_stats", "modify_paragraph"):
+        for name in ("get_document_tree", "get_document_content", "get_document_stats"):
             self.assertIn(name, names, f"Schema missing for {name}")
         for s in schemas:
             self.assertIn("description", s["function"])
