@@ -726,7 +726,8 @@ class LlmClient:
                             code="HTTP_ERROR",
                             context={"url": path, "status": response.status}
                         )
-                    result = json.loads(response.read().decode("utf-8"))
+                    from plugin.framework.errors import safe_json_loads
+                    result = safe_json_loads(response.read().decode("utf-8"))
                     break
                 except (http.client.HTTPException, socket.error, OSError) as e:
                     log.error("Connection error, closing: %s" % e)

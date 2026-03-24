@@ -304,10 +304,10 @@ def format_tool_call_for_display(tool, args, method=None):
 def format_tool_result_for_display(tool, result, args=None):
     """Format an MCP tool result for UI display, extracting inner text/messages and summarizing length."""
     try:
-        import json
+        from plugin.framework.errors import safe_json_loads
         res_str = str(result)
         try:
-            res_dict = json.loads(result) if isinstance(result, str) else result
+            res_dict = safe_json_loads(result) if isinstance(result, str) else result
             if isinstance(res_dict, dict) and "content" in res_dict and isinstance(res_dict["content"], list):
                 parts = []
                 for item in res_dict["content"]:
@@ -315,12 +315,9 @@ def format_tool_result_for_display(tool, result, args=None):
                         parts.append(item.get("text", ""))
                 if parts:
                     res_str = " ".join(parts)
-                    try:
-                        inner_dict = json.loads(res_str)
-                        if isinstance(inner_dict, dict) and "message" in inner_dict:
-                            res_str = inner_dict["message"]
-                    except:
-                        pass
+                    inner_dict = safe_json_loads(res_str)
+                    if isinstance(inner_dict, dict) and "message" in inner_dict:
+                        res_str = inner_dict["message"]
         except:
             pass
 

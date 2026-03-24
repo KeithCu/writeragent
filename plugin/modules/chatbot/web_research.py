@@ -27,12 +27,10 @@ def _web_search_query_from_arguments(arguments) -> str:
     if isinstance(arguments, dict):
         return str(arguments.get("query", "") or "")
     if isinstance(arguments, str):
-        try:
-            parsed = json.loads(arguments)
-            if isinstance(parsed, dict):
-                return str(parsed.get("query", "") or "")
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
+        from plugin.framework.errors import safe_json_loads
+        parsed = safe_json_loads(arguments)
+        if isinstance(parsed, dict):
+            return str(parsed.get("query", "") or "")
     return ""
 
 
@@ -44,11 +42,9 @@ def _apply_web_search_query_override(step, query_override: str) -> bool:
         new_args = args
     elif isinstance(args, str):
         coercion = True
-        try:
-            parsed = json.loads(args)
-            new_args = parsed if isinstance(parsed, dict) else {"query": query_override}
-        except (json.JSONDecodeError, TypeError, ValueError):
-            new_args = {"query": query_override}
+        from plugin.framework.errors import safe_json_loads
+        parsed = safe_json_loads(args)
+        new_args = parsed if isinstance(parsed, dict) else {"query": query_override}
     else:
         coercion = True
         new_args = {"query": query_override}

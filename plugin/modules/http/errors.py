@@ -48,8 +48,9 @@ def _format_http_error_response(status, reason, err_body):
     base = _("HTTP Error {0}: {1}").format(status, reason)
     if not err_body or not err_body.strip():
         return base
-    try:
-        data = json.loads(err_body)
+    from plugin.framework.errors import safe_json_loads
+    data = safe_json_loads(err_body)
+    if data is not None and isinstance(data, dict):
         err = data.get("error")
         if isinstance(err, dict):
             detail = err.get("message") or err.get("msg") or err.get("error") or ""
@@ -57,8 +58,6 @@ def _format_http_error_response(status, reason, err_body):
             detail = str(err) if err else ""
         if detail:
             return base + ". " + detail
-    except (json.JSONDecodeError, TypeError):
-        pass
     snippet = err_body.strip().replace("\n", " ")[:400]
     return base + ". " + snippet
 

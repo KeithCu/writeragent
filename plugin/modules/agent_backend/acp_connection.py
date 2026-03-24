@@ -201,9 +201,9 @@ class ACPConnection:
                 if idx >= 0:
                     line = line[idx:]
 
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
+                from plugin.framework.errors import safe_json_loads
+                msg = safe_json_loads(line)
+                if msg is None:
                     log.debug(f"Non-JSON output: {line[:200]}")
                     continue
 

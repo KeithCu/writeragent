@@ -190,12 +190,9 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 func_args_str = func_data.get("arguments", "{}")
                 call_id = tc.get("id", "")
 
-                import json
-                try:
-                    func_args = json.loads(func_args_str) if func_args_str else {}
-                    if not isinstance(func_args, dict):
-                        func_args = {}
-                except (json.JSONDecodeError, TypeError):
+                from plugin.framework.errors import safe_json_loads
+                func_args = safe_json_loads(func_args_str) if func_args_str else {}
+                if not isinstance(func_args, dict):
                     func_args = {}
 
                 effects.append(UIEffect(kind="status", text=f"Running: {func_name}"))
@@ -230,18 +227,15 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, pending_tools=state.pending_tools[1:]), effects)
 
         case EventKind.TOOL_RESULT:
-            import json
+            from plugin.framework.errors import safe_json_loads
             result = event.data.get("result", "")
             func_name = event.data.get("func_name", "")
             func_args_str = event.data.get("func_args_str", "")
             call_id = event.data.get("call_id", "")
             mutates_document = event.data.get("mutates_document", False)
 
-            try:
-                result_data = json.loads(result) if result else {}
-                if not isinstance(result_data, dict):
-                    result_data = {}
-            except (json.JSONDecodeError, TypeError):
+            result_data = safe_json_loads(result) if result else {}
+            if not isinstance(result_data, dict):
                 result_data = {}
 
             note = result_data.get("message", result_data.get("status", "done"))

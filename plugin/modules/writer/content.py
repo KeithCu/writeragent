@@ -238,15 +238,10 @@ class ApplyDocumentContent(ToolBase):
         if isinstance(content, str):
             stripped = content.strip()
             if stripped.startswith("[") and "<" in stripped:
-                try:
-                    import json
-
-                    parsed = json.loads(stripped)
-                    if isinstance(parsed, list):
-                        content = parsed
-                except Exception:
-                    # On malformed JSON, fall back to the original string.
-                    pass
+                from plugin.framework.errors import safe_json_loads
+                parsed = safe_json_loads(stripped)
+                if isinstance(parsed, list):
+                    content = parsed
 
         # Normalize list input to a single string for HTML import paths.
         if isinstance(content, list):
