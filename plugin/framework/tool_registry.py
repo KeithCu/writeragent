@@ -83,6 +83,8 @@ class ToolRegistry:
                 self.auto_discover(module)
             except ImportError as e:
                 log.error("Failed to import module %s for tool discovery: %s", full_module_name, e)
+            except AttributeError as e:
+                log.error("Module attribute error during tool discovery in %s: %s", full_module_name, e)
             except Exception as e:
                 log.error("Unexpected error during tool discovery in %s: %s", full_module_name, e)
 
@@ -107,6 +109,10 @@ class ToolRegistry:
                 try:
                     tool_instance = obj()
                     self.register(tool_instance)
+                except TypeError as e:
+                    log.error("Failed to instantiate tool %s (TypeError): %s", obj.__name__, e)
+                except ValueError as e:
+                    log.error("Failed to instantiate tool %s (ValueError): %s", obj.__name__, e)
                 except Exception as e:
                     log.error("Failed to instantiate tool %s: %s", obj.__name__, e)
 

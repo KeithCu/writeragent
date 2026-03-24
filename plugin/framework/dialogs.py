@@ -73,7 +73,7 @@ def msgbox(ctx, title, message):
         box = toolkit.createMessageBox(
             window, 1, 1, _(title), _(message))  # INFOBOX, OK button
         box.execute()
-    except Exception:
+    except Exception as e:
         log.exception("MSGBOX fallback - %s: %s", title, message)
 
 

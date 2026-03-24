@@ -91,12 +91,11 @@ def get_document_property(model, name, default=None):
 
             if hasattr(props, "getPropertyValue"):
                 # Fallback if hasByName is missing
-                try:
-                    return safe_call(props.getPropertyValue, "Get property value fallback", name)
-                except UnoObjectError:
-                    return default
+                return safe_call(props.getPropertyValue, "Get property value fallback", name)
     except UnoObjectError as e:
         logging.getLogger(__name__).warning("get_document_property error: %s", e)
+    except Exception as e:
+        logging.getLogger(__name__).warning("Unexpected error in get_document_property: %s", e)
     return default
 
 
@@ -111,23 +110,15 @@ def set_document_property(model, name, value):
                 check_disposed(props, "UserDefinedProperties")
                 exists = False
                 if hasattr(props, "hasByName"):
-                    # Catch the UnoObjectError specifically to treat missing as exists=False
-                    try:
-                        exists = safe_call(props.hasByName, "Check property name", name)
-                    except UnoObjectError:
-                        exists = False
+                    exists = safe_call(props.hasByName, "Check property name", name) or False
 
                 from com.sun.star.beans.PropertyAttribute import REMOVABLE
                 if not exists and hasattr(props, "addProperty"):
                     safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
                 elif hasattr(props, "setPropertyValue"):
-                    try:
-                        safe_call(props.setPropertyValue, "Set property value", name, str(value))
-                    except UnoObjectError:
-                        if hasattr(props, "addProperty"):
-                            safe_call(props.addProperty, "Add property fallback", name, REMOVABLE, str(value))
-                        else:
-                            raise
+                    result = safe_call(props.setPropertyValue, "Set property value", name, str(value))
+                    if result is None and hasattr(props, "addProperty"):
+                        safe_call(props.addProperty, "Add property fallback", name, REMOVABLE, str(value))
     except UnoObjectError as e:
         # Fallback context enrichment
         doc_url = ""
