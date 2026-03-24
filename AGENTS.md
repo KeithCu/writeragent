@@ -396,9 +396,8 @@ If logs appear empty, check both versioned user dirs (e.g. `4/user` and `24/user
 
 ---
 
-## 5c. Chatbot REST API & Calc chart tool cleanup
+## 5c. Calc chart tool cleanup
 
-- **Chatbot REST API handler (optional)**: `plugin/modules/chatbot/__init__.py` now treats the legacy Chat API handler (`plugin.modules.chatbot.handler.ChatApiHandler`) as **optional**. If the handler module/class is missing, route registration for `/api/chat` is skipped with a clear warning log instead of failing module initialization, so `make test` and other entry points no longer emit repeated “Failed to load module chatbot” errors. When a handler implementation is added back in the future, the routes will be registered automatically again.
 - **Calc `create_chart` tool de-duplication**: A duplicate `create_chart` tool definition in `plugin/modules/calc/sheets.py` was removed so the canonical implementation in `plugin/modules/calc/charts.py` is the only one discovered by the tool registry. This eliminates noisy “Tool already registered, replacing: create_chart” warnings while preserving the existing chart-creation behavior.
 
 ## 6. Build and Install

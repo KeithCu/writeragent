@@ -28,8 +28,6 @@ class ChatbotModule(ModuleBase):
 
     def initialize(self, services):
         self._services = services
-        self._routes_registered = False
-        self._api_handler = None
 
         from . import web_research
         # from .tools import memory, skills
@@ -37,53 +35,6 @@ class ChatbotModule(ModuleBase):
         # services.tools.auto_discover(memory)
         # services.tools.auto_discover(skills)        # Chat tool routing is now handled natively by main.py's get_tools() instead of ChatToolAdapter
         self._adapter = None
-
-        # Always register API routes (legacy Chat API) when http_routes is available.
-        # The old chatbot.api_enabled toggle was removed from the manifest, so the
-        # routes are now unconditionally enabled for the HTTP server.
-        self._register_routes(services)
-
-    def _register_routes(self, services):
-        routes = services.get("http_routes")
-        if not routes:
-            log.warning("http_routes service not available")
-            return
-
-        try:
-            from plugin.modules.chatbot.handler import ChatApiHandler
-            self._api_handler = ChatApiHandler(services)
-            routes.add("POST", "/api/chat",
-                       self._api_handler.handle_chat, raw=True)
-            routes.add("GET", "/api/chat",
-                       self._api_handler.handle_history)
-            routes.add("DELETE", "/api/chat",
-                       self._api_handler.handle_reset)
-            routes.add("GET", "/api/providers",
-                       self._api_handler.handle_providers)
-            self._routes_registered = True
-            log.info("Chat API routes registered")
-        except (ImportError, AttributeError, ValueError) as exc:
-            log.info(
-                "Chat API handler not available; skipping /api/chat routes: %s",
-                exc,
-            )
-            self._api_handler = None
-
-    def _unregister_routes(self, services):
-        routes = services.get("http_routes")
-        if routes:
-            for method, path in [
-                ("POST", "/api/chat"),
-                ("GET", "/api/chat"),
-                ("DELETE", "/api/chat"),
-                ("GET", "/api/providers"),
-            ]:
-                try:
-                    routes.remove(method, path)
-                except ValueError as e:
-                    log.debug("Route %s %s not found during unregister: %s", method, path, e)
-        self._routes_registered = False
-        log.info("Chat API routes unregistered")
 
     def get_adapter(self):
         """Return the ChatToolAdapter for use by the panel factory."""
