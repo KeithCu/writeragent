@@ -4,8 +4,8 @@ import tempfile
 import shutil
 from unittest.mock import Mock
 
-from plugin.modules.chatbot.tools.memory import MemoryTool, MemoryStore
-from plugin.modules.chatbot.tools.skills import SkillManageTool, SkillsListTool, SkillViewTool, SkillsStore
+from plugin.modules.chatbot.memory import MemoryTool, MemoryStore
+from plugin.modules.chatbot.skills import SkillManageTool, SkillsListTool, SkillViewTool, SkillsStore
 
 class DummyCtx:
     def __init__(self, tmp_dir):

@@ -382,8 +382,8 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
     # UNCOMMENT TO ENABLE:
     # try:
     #     if ctx:
-    #         from plugin.modules.chatbot.tools.memory import MemoryStore
-    #         from plugin.modules.chatbot.tools.skills import SkillsStore
+    #         from plugin.modules.chatbot.memory import MemoryStore
+    #         from plugin.modules.chatbot.skills import SkillsStore
     #         m_store = MemoryStore(ctx)
     #         memory_text = m_store.read("memory")
     #         user_text = m_store.read("user")

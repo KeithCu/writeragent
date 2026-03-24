@@ -208,6 +208,7 @@ class TestI18n(unittest.TestCase):
                         "unohelper",
                         "uno",
                         "com.sun.star",
+                        "com",
                         "XItemListener",
                         "unknown",
                     )
