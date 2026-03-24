@@ -10,32 +10,23 @@
 import unittest
 from unittest.mock import patch
 
-from plugin.modules.agent_backend.claude_proxy import (
+from plugin.modules.agent_backend.claude_simple import (
     ClaudeBackend,
-    _find_claude_binary,
 )
 
 
-class TestFindClaudeBinary(unittest.TestCase):
-    """Test binary discovery."""
+class TestClaudeBinaryDiscovery(unittest.TestCase):
+    """Test binary discovery through backend methods."""
 
-    @patch("shutil.which")
-    def test_finds_rs_first(self, mock_which):
-        mock_which.side_effect = lambda name: f"/usr/bin/{name}" if name == "claude-code-acp-rs" else None
-        path = _find_claude_binary()
-        self.assertEqual(path, "/usr/bin/claude-code-acp-rs")
+    def test_binary_name_is_correct(self):
+        """Test that the backend returns the correct binary name."""
+        backend = ClaudeBackend()
+        self.assertEqual(backend.get_binary_name(), "claude-code-acp-rs")
 
-    @patch("shutil.which")
-    def test_falls_back_to_js(self, mock_which):
-        mock_which.side_effect = lambda name: "/usr/bin/claude-code-acp" if name == "claude-code-acp" else None
-        path = _find_claude_binary()
-        self.assertEqual(path, "/usr/bin/claude-code-acp")
-
-    @patch("shutil.which", return_value=None)
-    @patch("os.path.isfile", return_value=False)
-    def test_returns_none_when_not_found(self, mock_isfile, mock_which):
-        path = _find_claude_binary()
-        self.assertIsNone(path)
+    def test_display_name_is_correct(self):
+        """Test that the backend returns the correct display name."""
+        backend = ClaudeBackend()
+        self.assertEqual(backend.get_display_name(), "Claude Code (ACP)")
 
 
 class TestClaudeBackendInit(unittest.TestCase):
@@ -44,7 +35,7 @@ class TestClaudeBackendInit(unittest.TestCase):
     def test_backend_id(self):
         backend = ClaudeBackend()
         self.assertEqual(backend.backend_id, "claude")
-        self.assertEqual(backend.display_name, "Claude Code (ACP)")
+        self.assertEqual(backend.get_display_name(), "Claude Code (ACP)")
 
 
 class TestIsAvailable(unittest.TestCase):

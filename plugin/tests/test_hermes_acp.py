@@ -16,35 +16,23 @@ from unittest.mock import MagicMock, patch
 from plugin.framework.worker_pool import run_in_background
 
 from plugin.modules.agent_backend.acp_connection import ACPConnection
-from plugin.modules.agent_backend.hermes_proxy import (
-    HermesBackend,
-    _find_hermes_binary,
-)
+from plugin.modules.agent_backend.hermes_simple import HermesBackend
 
 
-class TestFindHermesBinary(unittest.TestCase):
-    """Test binary discovery."""
+class TestHermesBinaryDiscovery(unittest.TestCase):
+    """Test binary / identity hooks used by ACPBackend._find_binary()."""
 
-    @patch("shutil.which")
-    def test_finds_hermes_acp_first(self, mock_which):
-        mock_which.side_effect = lambda name: f"/usr/bin/{name}" if name == "hermes-acp" else None
-        path, name = _find_hermes_binary()
-        self.assertEqual(path, "/usr/bin/hermes-acp")
-        self.assertEqual(name, "hermes-acp")
+    def test_binary_name_is_hermes_acp(self):
+        backend = HermesBackend()
+        self.assertEqual(backend.get_binary_name(), "hermes-acp")
 
-    @patch("shutil.which")
-    def test_falls_back_to_hermes(self, mock_which):
-        mock_which.side_effect = lambda name: "/usr/bin/hermes" if name == "hermes" else None
-        path, name = _find_hermes_binary()
-        self.assertEqual(path, "/usr/bin/hermes")
-        self.assertEqual(name, "hermes")
+    def test_display_name(self):
+        backend = HermesBackend()
+        self.assertEqual(backend.get_display_name(), "Hermes")
 
-    @patch("shutil.which", return_value=None)
-    @patch("os.path.isfile", return_value=False)
-    def test_returns_none_when_not_found(self, mock_isfile, mock_which):
-        path, name = _find_hermes_binary()
-        self.assertIsNone(path)
-        self.assertIsNone(name)
+    def test_agent_name(self):
+        backend = HermesBackend()
+        self.assertEqual(backend.get_agent_name(), "hermes")
 
 
 class TestHermesBackendInit(unittest.TestCase):
@@ -53,13 +41,13 @@ class TestHermesBackendInit(unittest.TestCase):
     def test_backend_id(self):
         backend = HermesBackend()
         self.assertEqual(backend.backend_id, "hermes")
-        self.assertEqual(backend.display_name, "Hermes")
+        self.assertEqual(backend.get_display_name(), "Hermes")
 
 
 class TestIsAvailable(unittest.TestCase):
     """Test availability check."""
 
-    @patch("shutil.which", return_value="/usr/bin/hermes")
+    @patch("shutil.which", return_value="/usr/bin/hermes-acp")
     def test_available_when_binary_in_path(self, mock_which):
         backend = HermesBackend()
         self.assertTrue(backend.is_available(None))
@@ -140,15 +128,14 @@ class TestACPConnection(unittest.TestCase):
         self.assertEqual(received[0][0], "notifications/session")
 
 
-class TestHandleNotifications(unittest.TestCase):
-    """Test notification handling in the backend."""
+class TestHandleSessionUpdate(unittest.TestCase):
+    """Test ACPBackend session update handling (used by Hermes via ACP)."""
 
-    def test_text_update_produces_chunk(self):
+    def test_text_content_list_queues_chunk(self):
         backend = HermesBackend()
         q = queue.Queue()
-        backend._handle_notification(
-            "notifications/session",
-            {"update": {"session_update": "text", "text": "Hello world"}},
+        backend._handle_session_update(
+            {"content": [{"type": "text", "text": "Hello world"}]},
             q,
         )
         events = []
@@ -157,78 +144,50 @@ class TestHandleNotifications(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], ("chunk", "Hello world"))
 
-    def test_tool_call_in_progress_produces_thinking(self):
+    def test_text_content_dict_queues_chunk(self):
         backend = HermesBackend()
         q = queue.Queue()
-        backend._handle_notification(
-            "notifications/session",
-            {"update": {
-                "session_update": "tool_call",
-                "status": "in_progress",
-                "title": "read_file",
-                "tool_call_id": "tc-1",
-                "raw_input": {"path": "/tmp/test.txt"},
-            }},
+        backend._handle_session_update(
+            {"content": {"type": "text", "text": "Hello"}},
             q,
         )
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0][0], "thinking")
-        self.assertIn("read_file", events[0][1])
+        self.assertEqual(events, [("chunk", "Hello")])
 
-    def test_tool_call_completed_produces_thinking(self):
+    def test_tool_call_in_content_queues_tool_call(self):
         backend = HermesBackend()
         q = queue.Queue()
-        backend._handle_notification(
-            "notifications/session",
-            {"update": {
-                "session_update": "tool_call",
-                "status": "completed",
-                "title": "search",
-                "tool_call_id": "tc-2",
-                "raw_output": "Found 3 results",
-            }},
-            q,
-        )
+        item = {"type": "tool_call", "name": "read_file", "id": "tc-1"}
+        backend._handle_session_update({"content": [item]}, q)
         events = []
         while not q.empty():
             events.append(q.get_nowait())
         self.assertEqual(len(events), 1)
-        self.assertIn("Tool result", events[0][1])
+        self.assertEqual(events[0][0], "tool_call")
+        self.assertEqual(events[0][1], item)
 
-    def test_plan_update_produces_thinking(self):
+    def test_tool_result_in_content_queues_tool_result(self):
         backend = HermesBackend()
         q = queue.Queue()
-        backend._handle_notification(
-            "notifications/session",
-            {"update": {
-                "session_update": "plan",
-                "entries": [
-                    {"text": "Read the document", "done": True},
-                    {"text": "Edit the section", "done": False},
-                ],
-            }},
-            q,
-        )
+        item = {"type": "tool_result", "content": "Found 3 results"}
+        backend._handle_session_update({"content": [item]}, q)
         events = []
         while not q.empty():
             events.append(q.get_nowait())
         self.assertEqual(len(events), 1)
-        self.assertIn("Plan", events[0][1])
-        self.assertIn("✓", events[0][1])
-        self.assertIn("○", events[0][1])
+        self.assertEqual(events[0], ("tool_result", item))
 
 
 class TestSend(unittest.TestCase):
     """Test the send method with mocked connection."""
 
-    @patch("shutil.which", return_value="/usr/bin/hermes")
+    @patch("shutil.which", return_value="/usr/bin/hermes-acp")
     def test_send_error_when_process_fails(self, mock_which):
         """send() should queue an error if connection fails."""
         backend = HermesBackend()
-        backend._hermes_cmd = "/nonexistent/hermes"
+        backend._binary_path = "/nonexistent/hermes-acp"
         q = queue.Queue()
 
         # Mock _ensure_connection to raise

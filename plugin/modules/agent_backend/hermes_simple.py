@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 class HermesBackend(ACPBackend):
     """ACP-based Hermes backend."""
 
+    backend_id = "hermes"
+
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""
         return "hermes-acp"

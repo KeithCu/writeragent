@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 class VibeBackend(ACPBackend):
     """ACP-based Mistral Vibe backend."""
 
+    backend_id = "vibe"
+
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""
         return "vibe-acp"

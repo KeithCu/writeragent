@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 class ClaudeBackend(ACPBackend):
     """ACP-based Claude backend."""
 
+    backend_id = "claude"
+
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""
         return "claude-code-acp-rs"
