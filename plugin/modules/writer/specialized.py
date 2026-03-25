@@ -35,6 +35,7 @@ _AVAILABLE_DOMAINS = [
     "indexes",
     "fields",
     "bookmarks",
+    "tracking",
 ]
 
 
@@ -50,7 +51,7 @@ class DelegateToSpecializedWriter(ToolBase):
         "Delegates a specialized task to a sub-agent with a focused toolset. "
         "Use this for complex Writer operations like manipulating tables, "
         "charts, fields, styles, layout, embedded objects, shapes, indexes, "
-        "or bookmarks."
+        "bookmarks, or track changes (tracking)."
     )
     parameters = {
         "type": "object",

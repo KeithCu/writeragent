@@ -22,15 +22,16 @@ Ported from nelson-mcp (MPL 2.0): nelson-mcp/plugin/modules/writer/tools/trackin
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.modules.writer.base import ToolWriterSpecialBase
 
 log = logging.getLogger("writeragent.writer")
 
 
-class SetTrackChanges(ToolBase):
+class SetTrackChanges(ToolWriterSpecialBase):
     """Enable or disable change tracking."""
 
     name = "set_track_changes"
+    specialized_domain = "tracking"
     intent = "review"
     description = "Enable or disable track changes (change recording) in the document."
     parameters = {
@@ -55,10 +56,11 @@ class SetTrackChanges(ToolBase):
         return {"status": "ok", "record_changes": bool(enabled)}
 
 
-class GetTrackedChanges(ToolBase):
+class GetTrackedChanges(ToolWriterSpecialBase):
     """List all tracked changes (redlines) in the document."""
 
     name = "get_tracked_changes"
+    specialized_domain = "tracking"
     intent = "review"
     description = (
         "List all tracked changes (redlines) in the document, "
@@ -120,10 +122,11 @@ class GetTrackedChanges(ToolBase):
         }
 
 
-class ManageTrackedChanges(ToolBase):
+class ManageTrackedChanges(ToolWriterSpecialBase):
     """Accept or reject all tracked changes in the document."""
 
     name = "manage_tracked_changes"
+    specialized_domain = "tracking"
     intent = "review"
     description = "Accept or reject all tracked changes in the document."
     parameters = {

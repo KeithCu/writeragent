@@ -38,6 +38,7 @@ class WriterModule(ModuleBase):
             indexes,
             fields,
             embedded,
+            tracking,
         )
 
         # Order matters: tree needs bookmarks, proximity/index need tree
