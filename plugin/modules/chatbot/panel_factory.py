@@ -95,23 +95,35 @@ def _get_arg(args, name):
 
 
 
-def _ensure_extension_on_path(ctx):
-    """Add the extension's directory to sys.path so cross-module imports work.
-    LibreOffice registers each .py as a UNO component individually but does not
-    put the extension folder on sys.path, so 'from main import ...' and
-    'from document_tools import ...' fail without this."""
+_paths_initialized = False
+
+def _initialize_extension_paths(ctx):
+    """Initialize extension paths once per session."""
+    global _paths_initialized
+    if _paths_initialized:
+        return
+
     try:
         ext_path = get_extension_path(ctx)
         if ext_path and ext_path not in sys.path:
             sys.path.insert(0, ext_path)
-            init_logging(ctx)
-            log.info("Added extension path to sys.path: %s" % ext_path)
-        else:
-            init_logging(ctx)
-            log.debug("Extension path already on sys.path: %s" % ext_path)
+
+        contrib_dir = os.path.join(ext_path, "contrib")
+        if contrib_dir not in sys.path:
+            sys.path.insert(0, contrib_dir)
+
+        # Audio paths (only if needed)
+        if HAS_RECORDING:
+            audio_dir = os.path.join(ext_path, "contrib", "audio")
+            if audio_dir not in sys.path:
+                sys.path.insert(0, audio_dir)
+
+        init_logging(ctx)
+        log.info("Initialized extension paths for session: %s" % ext_path)
+        _paths_initialized = True
     except Exception as e:
         init_logging(ctx)
-        log.error("_ensure_extension_on_path ERROR: %s" % e)
+        log.error("_initialize_extension_paths ERROR: %s" % e)
 
 
 
@@ -234,11 +246,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not self.toolpanel:
             try:
                 # Ensure extension on path early so _wireControls imports work
-                _ensure_extension_on_path(self.ctx)
+                _initialize_extension_paths(self.ctx)
                 root_window = self._getOrCreatePanelRootWindow()
                 log.debug("root_window created: %s" % (root_window is not None))
                 self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
-                wire_chatpanel_controls(self, root_window, HAS_RECORDING, _ensure_extension_on_path)
+                wire_chatpanel_controls(self, root_window, HAS_RECORDING, _initialize_extension_paths)
                 log.info("getRealInterface completed successfully")
             except Exception as e:
                 from plugin.framework.errors import UnoObjectError
@@ -592,7 +604,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
                 web_research_checkbox=controls["web_research_check"],
-                ensure_path_fn=_ensure_extension_on_path,
+                ensure_path_fn=_initialize_extension_paths,
                 clear_control=controls.get("clear"))
 
             # Save it to the instance so panel_wiring can use it for QueryTextListener
