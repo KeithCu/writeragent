@@ -89,13 +89,47 @@ class SheetAnalyzer:
                     str_val = str(val) if val != "" else None
                     headers.append(str_val)
 
-            return {
+            result = {
                 "sheet_name": sheet.getName(),
                 "used_range": used_range,
                 "row_count": row_count,
                 "col_count": col_count,
                 "headers": headers,
             }
+
+            # Charts
+            try:
+                charts = sheet.getCharts()
+                result["chart_count"] = charts.getCount()
+                result["charts"] = list(charts.getElementNames())
+            except Exception as e:
+                logger.debug("get_sheet_summary charts error: %s", e)
+                result["chart_count"] = 0
+                result["charts"] = []
+
+            # Annotations
+            try:
+                result["annotation_count"] = sheet.getAnnotations().getCount()
+            except Exception as e:
+                logger.debug("get_sheet_summary annotations error: %s", e)
+                result["annotation_count"] = 0
+
+            # Merged cells - count via querying
+            try:
+                result["has_merges"] = sheet.getPropertyValue("HasMergedCells") if hasattr(sheet, "getPropertyValue") else None
+            except Exception as e:
+                logger.debug("get_sheet_summary merged cells error: %s", e)
+                result["has_merges"] = None
+
+            # Draw page (shapes on sheet)
+            try:
+                dp = sheet.DrawPage
+                result["shape_count"] = dp.getCount()
+            except Exception as e:
+                logger.debug("get_sheet_summary shape_count error: %s", e)
+                result["shape_count"] = 0
+
+            return result
         except Exception as e:
             logger.error("Error creating sheet summary: %s", str(e))
             raise ToolExecutionError(str(e)) from e

@@ -133,7 +133,7 @@ TOOLS (grouped by use):
 
 READ:
 - read_cell_range: Read values from a cell or range (e.g. A1:D10).
-- get_sheet_summary: Summary of the active sheet (size, headers, used range).
+- get_sheet_summary: Summary of the active sheet (size, headers, used range, charts, annotations, merges).
 
 WRITE & FORMAT:
 - write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Use ranges for efficiency; avoid single-cell operations.

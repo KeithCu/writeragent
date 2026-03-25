@@ -146,8 +146,8 @@ class GetSheetSummary(ToolBase):
 
     name = "get_sheet_summary"
     description = (
-        "Returns a summary of the active or specified sheet (size, "
-        "used cells, column headers, etc.)"
+        "Returns a comprehensive summary of the active or specified sheet: "
+        "used area, column headers, charts, merged cells, annotations, and shapes."
     )
     parameters = {
         "type": "object",
