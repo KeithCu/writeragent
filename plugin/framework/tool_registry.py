@@ -197,19 +197,22 @@ class ToolRegistry:
         else:
             to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
 
-        if to_exclude:
+        if active_domain:
+            # If an active domain is set, restrict the list ONLY to the specialized tools
+            # for that domain and the finish tool. Do not include normal core/extended tools.
             filtered_tools = []
             for t in tools:
-                tool_tier = getattr(t, "tier", None)
-                if tool_tier not in to_exclude:
+                if isinstance(t, ToolWriterSpecialBase) and t.specialized_domain == active_domain:
                     filtered_tools.append(t)
-                elif active_domain:
-                    # If it's excluded but matches our active domain, include it
-                    if isinstance(t, ToolWriterSpecialBase) and t.specialized_domain == active_domain:
-                        filtered_tools.append(t)
-                    elif getattr(t, "name", "") == "specialized_workflow_finished":
-                        filtered_tools.append(t)
+                elif getattr(t, "name", "") == "specialized_workflow_finished":
+                    filtered_tools.append(t)
             tools = filtered_tools
+        else:
+            if to_exclude:
+                tools = [
+                    t for t in tools
+                    if getattr(t, "tier", None) not in to_exclude
+                ]
 
         if tier:
             tools = [t for t in tools if t.tier == tier]

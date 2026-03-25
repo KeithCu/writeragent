@@ -165,7 +165,7 @@ We currently support two alternative implementations for the `delegate_to_specia
 
 **Approach B: In-Place Tool Switching (`USE_SUB_AGENT = False`)**
 - The gateway tool simply sets an active domain flag on the current session and immediately returns control to the main chat model with a message like: `"Tool call switched to '{domain}'..."`.
-- On the next turn, the main chat model receives the normal core tools *plus* the specialized tools for that domain.
+- On the next turn, the main chat model receives *only* the specialized tools for that domain (plus the finish tool). All normal core/extended tools are hidden to keep the context clean and make the sub-task easy for the model.
 - The model continues its reasoning within the same context and explicitly calls `specialized_workflow_finished` when the sub-task is complete, which clears the active domain and restores the default toolset.
 
 ---
