@@ -102,6 +102,7 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [result]}
         results = [inspector.read_range(r) for r in rn]
         return {"status": "ok", "result": results}
+
 class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
@@ -109,7 +110,8 @@ class WriteCellRange(ToolBase):
     description = (
         "Writes formulas or values to a cell range(s) efficiently. "
         "Single string fills entire range; JSON array must match range size "
-        "exactly (one value per cell). Supports lists for non-contiguous areas."
+        "exactly (one value per cell). Use an empty string or empty array to "
+        "clear contents. Supports lists for non-contiguous areas."
     )
     parameters = {
         "type": "object",
@@ -127,7 +129,8 @@ class WriteCellRange(ToolBase):
                 "description": (
                     "Single string: fills the entire range with that value or formula "
                     "(use '=' prefix for formulas). JSON array: must have exactly as "
-                    "many elements as cells in the range (e.g. '[\"a\", \"b\"]' for 2 cells)."
+                    "many elements as cells in the range (e.g. '[\"a\", \"b\"]' for 2 cells). "
+                    "Empty string/array clears the range."
                 ),
             },
         },
@@ -157,6 +160,7 @@ class WriteCellRange(ToolBase):
         for r in rn:
             manipulator.write_formula_range(r, fov)
         return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
+
 class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
@@ -274,6 +278,7 @@ class SetCellStyle(ToolBase):
             "status": "ok",
             "message": f"Style applied to {len(rn)} ranges",
         }
+
 class MergeCells(ToolBase):
     """Merge a cell range."""
 
@@ -323,48 +328,7 @@ class MergeCells(ToolBase):
             "status": "ok",
             "message": f"Merged cells in {len(rn)} ranges",
         }
-class ClearRange(ToolBase):
-    """Clear all contents in a cell range."""
 
-    name = "clear_range"
-    intent = "edit"
-    description = (
-        "Clears all contents (values, formulas) in the specified "
-        "range(s). Supports lists for non-contiguous areas."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "Range(s) to clear (e.g. [\"A1:D10\"] or [\"A1\", \"B2:C3\"])."
-                ),
-            },
-        },
-        "required": ["range_name"],
-    }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        rn = kwargs.get("range_name") or []
-        rn = [rn] if isinstance(rn, str) else (rn or [])
-
-        if len(rn) == 0:
-            return self._tool_error("range_name is required")
-        if len(rn) == 1:
-            manipulator.clear_range(rn[0])
-            return {"status": "ok", "message": f"Cleared range {rn[0]}"}
-        for r in rn:
-            manipulator.clear_range(r)
-        return {
-            "status": "ok",
-            "message": f"Cleared {len(rn)} ranges",
-        }
 class SortRange(ToolBase):
     """Sort a range by a column."""
 
@@ -437,40 +401,7 @@ class SortRange(ToolBase):
             "status": "ok",
             "message": f"Sorted {len(rn)} ranges",
         }
-class ImportCsv(ToolBase):
-    """Import CSV data into the sheet."""
 
-    name = "import_csv_from_string"
-    intent = "edit"
-    description = (
-        "Inserts CSV data into the sheet starting at a cell. "
-        "Handles large datasets efficiently."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "csv_data": {
-                "type": "string",
-                "description": "CSV content as string (rows separated by \\n).",
-            },
-            "target_cell": {
-                "type": "string",
-                "description": "Starting cell (default 'A1').",
-            },
-        },
-        "required": ["csv_data"],
-    }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        csv_data = kwargs["csv_data"]
-        target_cell = kwargs.get("target_cell", "A1")
-
-        result = manipulator.import_csv_from_string(csv_data, target_cell=target_cell)
-        return {"status": "ok", "message": result}
 class DeleteStructure(ToolBase):
     """Delete rows or columns."""
 

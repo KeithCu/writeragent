@@ -90,18 +90,33 @@ def _parse_formula_or_values_string(s: str):
         except TypeError:
             pass
 
-    # Case 2: Raw semicolon-separated string e.g. "Name;Age;Country"
-    # Only if it is not a formula (starting with =) and not a single value.
-    if ";" in s and not s_strip.startswith("="):
-        try:
-            reader = csv.reader(
-                io.StringIO(s), delimiter=";", skipinitialspace=True,
-            )
-            rows = list(reader)
-            if rows:
-                return [val.strip() for val in rows[0]]
-        except Exception as e:
-            logger.debug("Failed to read sample csv: %s", e)
+    # Case 2: Raw semicolon-separated string or multiline CSV
+    # Only if it is not a formula (starting with =)
+    if not s_strip.startswith("="):
+        # Could be multiline CSV or single line with delimiter
+        delimiter = ","
+        first_line = s.split('\n')[0] if s else ""
+        if ";" in first_line and "," not in first_line:
+            delimiter = ";"
+
+        # If it has a delimiter or is multiline, try to parse it
+        if delimiter in s or "\n" in s:
+            try:
+                reader = csv.reader(
+                    io.StringIO(s), delimiter=delimiter, skipinitialspace=True,
+                )
+                rows = list(reader)
+                if rows:
+                    if len(rows) == 1:
+                        # 1D row
+                        return [val.strip() for val in rows[0]]
+                    else:
+                        # 2D array representing multiline CSV
+                        # We return it as a list of lists, but write_formula_range needs to flatten it
+                        # Wait, if we return a 2D array, write_formula_range can process it and adjust its target range.
+                        return [[val.strip() for val in row] for row in rows]
+            except Exception as e:
+                logger.debug("Failed to read sample csv: %s", e)
 
     return None
 
@@ -583,6 +598,18 @@ class CellManipulator:
             Summary of the operation.
         """
         try:
+            # Handle empty values as a clear_range operation
+            is_empty = (
+                formula_or_values is None or
+                formula_or_values == "" or
+                formula_or_values == [] or
+                formula_or_values == "[]" or
+                formula_or_values == "{}"
+            )
+            if is_empty:
+                self.clear_range(range_str)
+                return f"Range {range_str} cleared."
+
             sheet = self.bridge.get_active_sheet()
             start, end = self.bridge.parse_range_string(range_str)
 
@@ -597,6 +624,32 @@ class CellManipulator:
                     formula_or_values = parsed
 
             if isinstance(formula_or_values, (list, tuple)):
+                if len(formula_or_values) > 0 and isinstance(formula_or_values[0], (list, tuple)):
+                    rows_cnt = len(formula_or_values)
+                    cols_cnt = max(len(r) for r in formula_or_values)
+
+                    if total_cells == 1:
+                        # Expand single cell target to fit the 2D array
+                        end = (start[0] + cols_cnt - 1, start[1] + rows_cnt - 1)
+                        num_rows = end[1] - start[1] + 1
+                        num_cols = end[0] - start[0] + 1
+                        total_cells = num_rows * num_cols
+
+                        range_str = (
+                            f"{self.bridge._index_to_column(start[0])}{start[1]}"
+                            f":"
+                            f"{self.bridge._index_to_column(end[0])}{end[1]}"
+                        )
+
+                    # Pad rows to ensure uniform width, and flatten into 1D
+                    flat_vals = []
+                    for r in formula_or_values:
+                        row_vals = list(r)
+                        if num_cols > len(row_vals):
+                            row_vals.extend([""] * (num_cols - len(row_vals)))
+                        flat_vals.extend(row_vals[:num_cols])
+                    formula_or_values = flat_vals
+
                 if len(formula_or_values) != total_cells:
                     raise UnoObjectError(
                         f"Array has {len(formula_or_values)} values but range has "
@@ -670,431 +723,7 @@ class CellManipulator:
             logger.error("Range formula write error (%s): %s", range_str, str(e))
             raise ToolExecutionError(str(e)) from e
 
-    def import_csv_from_string(self, csv_data: str, target_cell: str = "A1"):
-        """Import CSV data into the sheet starting at *target_cell*.
-
-        Automatically detects comma vs semicolon delimiter.
-
-        Args:
-            csv_data: CSV content as a string.
-            target_cell: Starting cell (e.g. "A1").
-
-        Returns:
-            Summary string.
-        """
-        try:
-            delimiter = ","
-            first_line = csv_data.split('\n')[0] if csv_data else ""
-            if ";" in first_line and "," not in first_line:
-                delimiter = ";"
-
-            col_start, row_start = parse_address(target_cell)
-            reader = csv.reader(io.StringIO(csv_data), delimiter=delimiter)
-            rows = list(reader)
-            if not rows:
-                return "No data to import."
-
-            sheet = self.bridge.get_active_sheet()
-            total_rows = len(rows)
-            total_cols = max(len(r) for r in rows) if rows else 0
-
-            data_array = []
-            for row_data in rows:
-                data_row = []
-                for c_idx in range(total_cols):
-                    if c_idx < len(row_data):
-                        cell_value = row_data[c_idx]
-                        try:
-                            # Convert to float if possible, but keeping it as a string
-                            # if we just want to import it as string. Wait, if we use
-                            # setDataArray, it takes floats and strings.
-                            data_row.append(float(cell_value))
-                        except ValueError:
-                            data_row.append(cell_value)
-                    else:
-                        data_row.append("")
-                data_array.append(tuple(data_row))
-
-            range_imported = (
-                f"{target_cell}:"
-                f"{self.bridge._index_to_column(col_start + total_cols - 1)}"
-                f"{row_start + total_rows}"
-            )
-            # -1 because rows are 1-based in address strings but total_rows is count
-            end_col = col_start + total_cols - 1
-            end_row = row_start + total_rows - 1
-
-            cell_range = sheet.getCellRangeByPosition(
-                col_start, row_start, end_col, end_row
-            )
-            cell_range.setDataArray(tuple(data_array))
-
-            logger.info("CSV imported to range %s.", range_imported)
-            return f"Imported {total_rows} rows, {total_cols} cols to {range_imported}."
-        except Exception as e:
-            logger.error("CSV import error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
     # ── Chart ──────────────────────────────────────────────────────────
-
-    def create_chart(
-        self,
-        data_range: str,
-        chart_type: str,
-        title: str = None,
-        position: str = None,
-        has_header: bool = True,
-    ):
-        """Create a chart from data."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, data_range)
-            range_address = cell_range.getRangeAddress()
-
-            if position:
-                pos_cell = self._get_cell(position)
-                pos_x = pos_cell.Position.X
-                pos_y = pos_cell.Position.Y
-            else:
-                pos_x = 10000
-                pos_y = 1000
-
-            from com.sun.star.awt import Rectangle
-
-            rect = Rectangle()
-            rect.X = pos_x
-            rect.Y = pos_y
-            rect.Width = 12000
-            rect.Height = 8000
-
-            charts = sheet.getCharts()
-            chart_name = f"Chart_{len(charts)}"
-
-            type_map = {
-                "bar": "com.sun.star.chart.BarDiagram",
-                "column": "com.sun.star.chart.BarDiagram",
-                "line": "com.sun.star.chart.LineDiagram",
-                "pie": "com.sun.star.chart.PieDiagram",
-                "scatter": "com.sun.star.chart.XYDiagram",
-            }
-            chart_service = type_map.get(chart_type, "com.sun.star.chart.BarDiagram")
-
-            charts.addNewByName(
-                chart_name, rect, (range_address,), has_header, has_header,
-            )
-
-            chart_obj = charts.getByName(chart_name)
-            chart_doc = chart_obj.getEmbeddedObject()
-            diagram = chart_doc.createInstance(chart_service)
-            chart_doc.setDiagram(diagram)
-
-            if chart_type == "bar" and hasattr(diagram, "Vertical"):
-                diagram.Vertical = True
-            elif chart_type == "column" and hasattr(diagram, "Vertical"):
-                diagram.Vertical = False
-
-            if title:
-                chart_doc.setPropertyValue("HasMainTitle", True)
-                chart_title = chart_doc.getTitle()
-                chart_title.setPropertyValue("String", title)
-
-            logger.info("Chart created: %s (%s)", chart_name, chart_type)
-            return f"{chart_type} type chart created as '{chart_name}'."
-        except Exception as e:
-            logger.error("Chart creation error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def list_charts(self):
-        """List all charts on the active sheet."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            charts = sheet.getCharts()
-            result = []
-            for name in charts.getElementNames():
-                chart_obj = charts.getByName(name)
-                entry = {"name": name}
-                try:
-                    chart_doc = chart_obj.getEmbeddedObject()
-                    if chart_doc:
-                        try:
-                            entry["has_legend"] = chart_doc.HasLegend
-                        except Exception as e:
-                            logger.debug("list_charts HasLegend error: %s", e)
-                            entry["has_legend"] = False
-                        try:
-                            entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                        except Exception as e:
-                            logger.debug("list_charts getTitle error: %s", e)
-                            entry["title"] = ""
-                except Exception as e:
-                    logger.debug("list_charts getEmbeddedObject error: %s", e)
-                result.append(entry)
-            return result
-        except Exception as e:
-            logger.error("List charts error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def get_chart_info(self, chart_name: str):
-        """Get detailed info about a chart."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            charts = sheet.getCharts()
-            if not charts.hasByName(chart_name):
-                return None
-
-            chart_obj = charts.getByName(chart_name)
-            info = {"name": chart_name, "sheet": sheet.getName()}
-
-            try:
-                ranges = chart_obj.getRanges()
-                info["data_ranges"] = [self.bridge._range_to_str(r) for r in ranges]
-            except Exception as e:
-                logger.debug("get_chart_info getRanges error: %s", e)
-                info["data_ranges"] = []
-
-            chart_doc = chart_obj.getEmbeddedObject()
-            if chart_doc:
-                try:
-                    info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                except Exception as e:
-                    logger.debug("get_chart_info getTitle error: %s", e)
-                    info["title"] = ""
-                try:
-                    info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
-                except Exception as e:
-                    logger.debug("get_chart_info getSubTitle error: %s", e)
-                    info["subtitle"] = ""
-                try:
-                    info["has_legend"] = chart_doc.HasLegend
-                except Exception as e:
-                    logger.debug("get_chart_info HasLegend error: %s", e)
-                    info["has_legend"] = None
-                try:
-                    diagram = chart_doc.getDiagram()
-                    info["diagram_type"] = diagram.getDiagramType()
-                except Exception as e:
-                    logger.debug("get_chart_info getDiagramType error: %s", e)
-                    info["diagram_type"] = ""
-
-            return info
-        except Exception as e:
-            logger.error("Get chart info error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def edit_chart(
-        self,
-        chart_name: str,
-        title: str = None,
-        subtitle: str = None,
-        has_legend: bool = None,
-    ):
-        """Modify chart properties."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            charts = sheet.getCharts()
-            if not charts.hasByName(chart_name):
-                raise UnoObjectError(f"Chart '{chart_name}' not found.")
-
-            chart_obj = charts.getByName(chart_name)
-            chart_doc = chart_obj.getEmbeddedObject()
-            if chart_doc is None:
-                raise RuntimeError("Cannot access chart document.")
-
-            updated = []
-            if title is not None:
-                chart_doc.HasMainTitle = True
-                title_obj = chart_doc.getTitle()
-                title_obj.String = title
-                updated.append("title")
-
-            if subtitle is not None:
-                chart_doc.HasSubTitle = True
-                sub_obj = chart_doc.getSubTitle()
-                sub_obj.String = subtitle
-                updated.append("subtitle")
-
-            if has_legend is not None:
-                chart_doc.HasLegend = has_legend
-                updated.append("has_legend")
-
-            return updated
-        except Exception as e:
-            logger.error("Edit chart error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def delete_chart(self, chart_name: str):
-        """Delete a chart."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            charts = sheet.getCharts()
-            if not charts.hasByName(chart_name):
-                return False
-            charts.removeByName(chart_name)
-            return True
-        except Exception as e:
-            logger.error("Delete chart error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    # ── Conditional Formatting ─────────────────────────────────────────
-
-    def list_conditional_formats(self, range_str: str = None):
-        """List conditional formatting rules on a cell range.
-
-        Args:
-            range_str: Cell range (e.g. "A1:D10"). If None, scans used area.
-
-        Returns:
-            List of rule dictionaries.
-        """
-        try:
-            sheet = self.bridge.get_active_sheet()
-            if range_str:
-                cell_range = self.bridge.get_cell_range(sheet, range_str)
-            else:
-                cursor = sheet.createCursor()
-                cursor.gotoStartOfUsedArea(False)
-                cursor.gotoEndOfUsedArea(True)
-                cell_range = cursor
-
-            formats = cell_range.getPropertyValue("ConditionalFormat")
-            if formats is None or formats.getCount() == 0:
-                return []
-
-            rules = []
-            for i in range(formats.getCount()):
-                entry = formats.getByIndex(i)
-                rules.append(self._entry_to_dict(entry, i))
-            return rules
-        except Exception as e:
-            logger.error("List conditional formats error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def add_conditional_format(
-        self,
-        range_str: str,
-        operator: str,
-        formula1: str,
-        style_name: str,
-        formula2: str = "",
-    ):
-        """Add a conditional formatting rule to a range.
-
-        Args:
-            range_str: Cell range (e.g. "A1:B10").
-            operator: Condition operator (EQUAL, GREATER, FORMULA, etc.).
-            formula1: First formula or value.
-            style_name: Cell style name to apply.
-            formula2: Second formula or value (for BETWEEN).
-        """
-        try:
-            from com.sun.star.beans import PropertyValue
-            from com.sun.star.sheet.ConditionOperator import (
-                NONE, EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL,
-                LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA,
-            )
-
-            op_map = {
-                "NONE": NONE, "EQUAL": EQUAL, "NOT_EQUAL": NOT_EQUAL,
-                "GREATER": GREATER, "GREATER_EQUAL": GREATER_EQUAL,
-                "LESS": LESS, "LESS_EQUAL": LESS_EQUAL,
-                "BETWEEN": BETWEEN, "NOT_BETWEEN": NOT_BETWEEN,
-                "FORMULA": FORMULA,
-            }
-
-            op_val = op_map.get(operator.upper())
-            if op_val is None:
-                raise UnoObjectError(f"Unknown condition operator: {operator}")
-
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, range_str)
-
-            props = []
-            pv = PropertyValue()
-            pv.Name = "Operator"
-            pv.Value = op_val
-            props.append(pv)
-
-            pv = PropertyValue()
-            pv.Name = "Formula1"
-            pv.Value = formula1
-            props.append(pv)
-
-            if formula2:
-                pv = PropertyValue()
-                pv.Name = "Formula2"
-                pv.Value = formula2
-                props.append(pv)
-
-            pv = PropertyValue()
-            pv.Name = "StyleName"
-            pv.Value = style_name
-            props.append(pv)
-
-            formats = cell_range.getPropertyValue("ConditionalFormat")
-            formats.addNew(tuple(props))
-            cell_range.setPropertyValue("ConditionalFormat", formats)
-
-            logger.info("Conditional format added to %s.", range_str.upper())
-            return formats.getCount()
-        except Exception as e:
-            logger.error("Add conditional format error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def remove_conditional_format(self, range_str: str, index: int):
-        """Remove a conditional formatting rule by index."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, range_str)
-            formats = cell_range.getPropertyValue("ConditionalFormat")
-            if formats and 0 <= index < formats.getCount():
-                formats.removeByIndex(index)
-                cell_range.setPropertyValue("ConditionalFormat", formats)
-                return True
-            return False
-        except Exception as e:
-            logger.error("Remove conditional format error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def clear_conditional_formats(self, range_str: str):
-        """Clear all conditional formatting from a range."""
-        try:
-            sheet = self.bridge.get_active_sheet()
-            cell_range = self.bridge.get_cell_range(sheet, range_str)
-            formats = cell_range.getPropertyValue("ConditionalFormat")
-            formats.clear()
-            cell_range.setPropertyValue("ConditionalFormat", formats)
-            return True
-        except Exception as e:
-            logger.error("Clear conditional formats error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def _entry_to_dict(self, entry, idx):
-        """Convert a conditional entry to a readable dict."""
-        result = {"index": idx}
-        try:
-            op = entry.getOperator()
-            # UNO enum handling
-            op_name = str(op.value) if hasattr(op, "value") else str(op)
-            result["operator"] = op_name
-        except Exception:
-            pass
-        try:
-            f1 = entry.getFormula1()
-            if f1: result["formula1"] = f1
-        except Exception:
-            pass
-        try:
-            f2 = entry.getFormula2()
-            if f2 and f2 != "0": result["formula2"] = f2
-        except Exception:
-            pass
-        try:
-            sn = entry.getStyleName()
-            if sn: result["style_name"] = sn
-        except Exception:
-            pass
-
-        return result
 
     # ── Structure operations ───────────────────────────────────────────
 
@@ -1144,68 +773,3 @@ class CellManipulator:
                 f"Must be 'rows' or 'columns'."
             )
 
-    # ── Sheet management ───────────────────────────────────────────────
-
-    def list_sheets(self):
-        """List all sheet names in the workbook.
-
-        Returns:
-            List of sheet name strings.
-        """
-        try:
-            doc = self.bridge.get_active_document()
-            sheets = doc.getSheets()
-            sheet_names = []
-            for i in range(sheets.getCount()):
-                sheet = sheets.getByIndex(i)
-                sheet_names.append(sheet.getName())
-            logger.info("Sheets listed: %s", sheet_names)
-            return sheet_names
-        except Exception as e:
-            logger.error("Sheet listing error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def switch_sheet(self, sheet_name: str):
-        """Switch to the specified sheet.
-
-        Args:
-            sheet_name: Name of the sheet to activate.
-
-        Returns:
-            Confirmation string.
-        """
-        try:
-            doc = self.bridge.get_active_document()
-            sheets = doc.getSheets()
-            if not sheets.hasByName(sheet_name):
-                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
-            sheet = sheets.getByName(sheet_name)
-            controller = doc.getCurrentController()
-            controller.setActiveSheet(sheet)
-            logger.info("Switched to sheet: %s", sheet_name)
-            return f"Switched to sheet '{sheet_name}'."
-        except Exception as e:
-            logger.error("Sheet switch error (%s): %s", sheet_name, str(e))
-            raise ToolExecutionError(str(e)) from e
-
-    def create_sheet(self, sheet_name: str, position: int = None):
-        """Create a new sheet.
-
-        Args:
-            sheet_name: New sheet name.
-            position: 0-based position (appended to end if None).
-
-        Returns:
-            Confirmation string.
-        """
-        try:
-            doc = self.bridge.get_active_document()
-            sheets = doc.getSheets()
-            if position is None:
-                position = sheets.getCount()
-            sheets.insertNewByName(sheet_name, position)
-            logger.info("New sheet created: %s (position: %d)", sheet_name, position)
-            return f"New sheet named '{sheet_name}' created."
-        except Exception as e:
-            logger.error("Sheet creation error (%s): %s", sheet_name, str(e))
-            raise ToolExecutionError(str(e)) from e

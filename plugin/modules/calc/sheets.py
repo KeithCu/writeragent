@@ -23,9 +23,9 @@ appropriate helper class per call using ``ctx.doc``.
 
 import logging
 
+from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
-from plugin.modules.calc.manipulator import CellManipulator
 from plugin.modules.calc.analyzer import SheetAnalyzer
 
 logger = logging.getLogger("writeragent.calc")
@@ -46,10 +46,19 @@ class ListSheets(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
+        try:
+            doc = bridge.get_active_document()
+            sheets = doc.getSheets()
+            sheet_names = []
+            for i in range(sheets.getCount()):
+                sheet = sheets.getByIndex(i)
+                sheet_names.append(sheet.getName())
+            logger.info("Sheets listed: %s", sheet_names)
+            return {"status": "ok", "result": sheet_names}
+        except Exception as e:
+            logger.error("Sheet listing error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
 
-        result = manipulator.list_sheets()
-        return {"status": "ok", "result": result}
 class SwitchSheet(ToolBase):
     """Switch to a specified sheet."""
 
@@ -71,11 +80,23 @@ class SwitchSheet(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
         sheet_name = kwargs["sheet_name"]
 
-        result = manipulator.switch_sheet(sheet_name)
-        return {"status": "ok", "message": result}
+        try:
+            doc = bridge.get_active_document()
+            sheets = doc.getSheets()
+            if not sheets.hasByName(sheet_name):
+                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+            sheet = sheets.getByName(sheet_name)
+            controller = doc.getCurrentController()
+            controller.setActiveSheet(sheet)
+            logger.info("Switched to sheet: %s", sheet_name)
+            result = f"Switched to sheet '{sheet_name}'."
+            return {"status": "ok", "message": result}
+        except Exception as e:
+            logger.error("Sheet switch error (%s): %s", sheet_name, str(e))
+            raise ToolExecutionError(str(e)) from e
+
 class CreateSheet(ToolBase):
     """Create a new sheet."""
 
@@ -104,19 +125,29 @@ class CreateSheet(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
         sheet_name = kwargs["sheet_name"]
         position = kwargs.get("position")
 
-        result = manipulator.create_sheet(sheet_name, position=position)
-        return {"status": "ok", "message": result}
+        try:
+            doc = bridge.get_active_document()
+            sheets = doc.getSheets()
+            if position is None:
+                position = sheets.getCount()
+            sheets.insertNewByName(sheet_name, position)
+            logger.info("New sheet created: %s (position: %d)", sheet_name, position)
+            result = f"New sheet named '{sheet_name}' created."
+            return {"status": "ok", "message": result}
+        except Exception as e:
+            logger.error("Sheet creation error (%s): %s", sheet_name, str(e))
+            raise ToolExecutionError(str(e)) from e
+
 class GetSheetSummary(ToolBase):
     """Return a summary of a sheet."""
 
     name = "get_sheet_summary"
     description = (
-        "Returns a summary of the active or specified sheet (size, "
-        "used cells, column headers, etc.)"
+        "Returns a comprehensive summary of the active or specified sheet: "
+        "used area, column headers, charts, merged cells, annotations, and shapes."
     )
     parameters = {
         "type": "object",

@@ -18,6 +18,19 @@ WriterAgent provides powerful AI-driven capabilities integrated directly into yo
 ### 1. Local-First & Flexible
 Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between them in less than 2 seconds, maintaining full control over where your data goes.
 
+
+## For the GPU-poor: OpenRouter Free Models
+
+If you don't have a powerful GPU, or an API key for LLMs, we encourage you to sign up for a service provider like [OpenRouter](https://openrouter.ai/collections/free-models) to access their extensive collection of free AI models. As they state on their platform:
+
+> "At OpenRouter, we believe that free models play a crucial role in democratizing access to AI. These models allow hundreds of thousands of users worldwide to experiment, learn, and innovate."
+
+Please note, the prompts to free models are often saved and used for training purposes.
+
+Another option is [Together.AI](https://www.together.ai/), which also has a variety of high-performance and intelligent cost-effective models with a generous, private,  free tier.
+
+
+
 ### 2. Chat with Document (Writer, Calc, and Draw)
 The main way to interact with your document. While you can ask it anything, **its primary job is to edit your document**, not just answer questions.
 *   **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly.
@@ -55,6 +68,17 @@ When you ask the AI to fix a typo or change a name, the result can keep the form
 
 ### Ongoing Challenge: Styles vs. Custom Formatting
 One of the unique challenges of building an AI assistant for a rich word processor, unlike a plain-text code editor, is the multiple ways of applying formatting, both directly and through character and paragraph styles. Eventually, we will encourage models to output properly classed HTML that maps to your LibreOffice template, ensuring documents remain maintainable and consistently branded. For more details, see [LLM_STYLES.md](LLM_STYLES.md).
+
+### Ongoing work: splitting the Writer tool API (specialized toolsets)
+
+A related challenge is **scale**: LibreOffice Writer exposes an enormous UNO surface (fields, indexes, tables, frames, embedded objects, shapes, charts, track changes, and more). If **every** operation is advertised to the model on **every** turn, context grows fast, tool choice gets noisier, and providers with **strict JSON schemas** struggle as definitions multiply.
+
+Active development (including on branches such as **Nested-Writer-Features**) explores **progressive disclosure**:
+
+- **Specialized sub-agent (delegation)** — The main chat keeps a **small default** Writer tool list. When the user or model needs deep work in one area (e.g. fields, footnotes, nested tables), it calls a **delegate** tool that hands off to a **second LLM turn** with only that domain’s tools, then returns a summary to the main conversation. Same sidebar session; different **tool registry** for that sub-run.
+- **Swapping tools per send or mode** — The same idea without a nested model hop: branch in the send path (similar to the **Web search** checkbox, which already switches to a research sub-agent and a different tool surface) so a turn uses **memory-only**, **full Writer**, or **domain X** tools only.
+
+Design tradeoffs—**skinny vs fat** tool schemas, tiering, and future domains like **track changes**—are written up in **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md)**. That document is the reference for *why* we are breaking APIs apart and *how* the pieces are intended to fit together.
 
 ### 6. Image generation and AI Horde integration
 Image generation and editing are integrated and complete. You can generate images from the chat (via tools or “Use Image model”) and edit selected images (Img2Img). Two backends are supported: **AI Horde** (Stable Diffusion, SDXL, etc., with its own API key and queue) and **same endpoint as chat** (uses your configured endpoint and a separate image model). Settings are in **WriterAgent > Settings** under the **Image Settings** tab, with shared options (size, insert behavior, prompt translation) and a clearly separated **AI Horde only** section.
@@ -137,7 +161,7 @@ Their client-side tool call parsers (from `environments/tool_call_parsers/`) pro
 To handle complex spreadsheet tasks, WriterAgent is optimized for high-throughput "batch" operations:
 
 *   **Batch Tool-Calling**: Instead of making one-by-one changes, tools like `write_formula_range` and `set_cell_style` operate on entire ranges in a single call.
-*   **High-Volume Insertion**: The `import_csv_from_string` tool allows the AI to generate and inject large datasets instantly. This is orders of magnitude faster than inserting data cell-by-cell; we found that providing these batch tools encourages the AI to perform far more ambitious spreadsheet automation and data analysis.
+*   **High-Volume Insertion**: The `write_formula_range` tool allows the AI to generate and inject large CSV datasets instantly. This is orders of magnitude faster than inserting data cell-by-cell; we found that providing these batch tools encourages the AI to perform far more ambitious spreadsheet automation and data analysis.
 *   **Optimized Ranges**: Formatting and number formats are applied at the range level, minimizing UNO calls and ensuring the UI remains fluid even during heavy document analysis.
 
 ## Recent Progress & Benchmarks (Feb 2026)

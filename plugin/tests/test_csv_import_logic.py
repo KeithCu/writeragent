@@ -22,11 +22,12 @@ class TestCSVImportLogic(unittest.TestCase):
         self.sheet = MagicMock()
         self.bridge.get_active_sheet.return_value = self.sheet
         self.bridge._index_to_column.return_value = "A"
+        self.bridge.parse_range_string.return_value = ((0,0), (0,0))
 
     def test_detect_comma(self):
         csv_data = "Name,Age,Country\nJohn,28,USA"
         with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.import_csv_from_string(csv_data)
+            self.manipulator.write_formula_range("A1", csv_data)
             # Check if csv.reader was called with delimiter=','
             args, kwargs = mock_reader.call_args
             self.assertEqual(kwargs['delimiter'], ',')
@@ -34,7 +35,7 @@ class TestCSVImportLogic(unittest.TestCase):
     def test_detect_semicolon(self):
         csv_data = "Name;Age;Country\nJohn;28;USA"
         with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.import_csv_from_string(csv_data)
+            self.manipulator.write_formula_range("A1", csv_data)
             # Check if csv.reader was called with delimiter=';'
             args, kwargs = mock_reader.call_args
             self.assertEqual(kwargs['delimiter'], ';')
@@ -45,14 +46,14 @@ class TestCSVImportLogic(unittest.TestCase):
         # So mixed should be ","
         csv_data = "Name,Age;Country\nJohn,28;USA"
         with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.import_csv_from_string(csv_data)
+            self.manipulator.write_formula_range("A1", csv_data)
             args, kwargs = mock_reader.call_args
             self.assertEqual(kwargs['delimiter'], ',')
 
     def test_no_delimiter_defaults_to_comma(self):
         csv_data = "NameAgeCountry\nJohn28USA"
         with patch('csv.reader', side_effect=csv.reader) as mock_reader:
-            self.manipulator.import_csv_from_string(csv_data)
+            self.manipulator.write_formula_range("A1", csv_data)
             args, kwargs = mock_reader.call_args
             self.assertEqual(kwargs['delimiter'], ',')
 

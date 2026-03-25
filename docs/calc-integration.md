@@ -256,9 +256,9 @@ Your current 11 tools cover the essentials, but expanding to more advanced opera
 - Range number formats now apply to entire range (new `set_range_number_format` method).
 - Exposed `delete_rows`, `delete_columns` (backend methods existed; now full tools). Insert tools removed as CSV import provides better bulk data insertion.
 - Added `write_formula_range` tool: Efficiently writes formulas or values to ranges. Accepts single value for entire range or array for individual cells.
-- Added `import_csv_from_string` tool: Parses CSV string (e.g., "Name,Age\nAlice,30\nBob,25") and bulk-inserts into sheet starting at a cell. No file I/O required—ideal for AI-generated or pasted data.
+- Enhanced `write_formula_range` tool: Parses CSV string (e.g., "Name,Age\nAlice,30\nBob,25") and bulk-inserts into sheet starting at a cell. No file I/O required—ideal for AI-generated or pasted data.
 - The method handles text/number detection automatically, supports custom delimiters (',', ';', etc.), and provides error handling for malformed CSV.
-- Updated `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` to reference new tools: "Use `write_formula_range` for bulk writes, `import_csv_from_string` for bulk data inserts. `set_cell_style` works on ranges (e.g. 'A1:D10') for efficient formatting."
+- Updated `DEFAULT_CALC_CHAT_SYSTEM_PROMPT` to reference new tools: "Use `write_formula_range` for bulk writes or bulk CSV data inserts. `set_cell_style` works on ranges (e.g. 'A1:D10') for efficient formatting."
 
 **Next Steps** (Future Enhancements):
 - Add `write_formula_batch` for bulk cell writes (dict of cell->value) to avoid loops.

@@ -162,7 +162,7 @@ def test_clear_range():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
     active_sheet.getCellByPosition(6, 0).setString("ClearMe")
     active_sheet.getCellByPosition(7, 0).setString("ClearMe")
-    _execute_calc_tool("clear_range", {"range_name": ["G1", "H1"]})
+    _execute_calc_tool("write_formula_range", {"range_name": ["G1", "H1"], "formula_or_values": ""})
     assert active_sheet.getCellByPosition(6, 0).getString() == "", "G1 not cleared"
     assert active_sheet.getCellByPosition(7, 0).getString() == "", "H1 not cleared"
 
@@ -327,9 +327,9 @@ def test_import_csv_from_string():
 
     # Test case 1: Standard comma-separated
     csv_1 = "Name,Age\nAlice,30\nBob,25"
-    res1 = _execute_calc_tool("import_csv_from_string", {
-        "csv_data": csv_1,
-        "target_cell": "E1"
+    res1 = _execute_calc_tool("write_formula_range", {
+        "formula_or_values": csv_1,
+        "range_name": "E1"
     })
     assert res1.get("status") == "ok", f"CSV import failed: {res1}"
     assert active_sheet.getCellByPosition(4, 0).getString() == "Name" # E1
@@ -340,9 +340,9 @@ def test_import_csv_from_string():
 
     # Test case 2: Semicolon-separated
     csv_2 = "Item;Price\nApple;1.5\nBanana;0.75"
-    res2 = _execute_calc_tool("import_csv_from_string", {
-        "csv_data": csv_2,
-        "target_cell": "G1"
+    res2 = _execute_calc_tool("write_formula_range", {
+        "formula_or_values": csv_2,
+        "range_name": "G1"
     })
     assert res2.get("status") == "ok", f"Semicolon CSV import failed: {res2}"
     assert active_sheet.getCellByPosition(6, 0).getString() == "Item" # G1
@@ -352,9 +352,9 @@ def test_import_csv_from_string():
 
     # Test case 3: CSV with quoted commas
     csv_3 = "Person,Description\nCarol,\"Smart, Funny, Tall\"\nDave,Cool"
-    res3 = _execute_calc_tool("import_csv_from_string", {
-        "csv_data": csv_3,
-        "target_cell": "E5"
+    res3 = _execute_calc_tool("write_formula_range", {
+        "formula_or_values": csv_3,
+        "range_name": "E5"
     })
     assert res3.get("status") == "ok", f"Quoted CSV import failed: {res3}"
     assert active_sheet.getCellByPosition(4, 5).getString() == "Carol" # E6
@@ -429,8 +429,8 @@ def test_read_after_write_stability():
     assert grid_merged[0][0]["value"] == "Apple", f"Expected Apple in merged range, got {grid_merged[0][0]['value']}"
 
     # 4. Clear range and search
-    res_clear = _execute_calc_tool("clear_range", {"range_name": "Z1:Z2"})
-    assert res_clear.get("status") == "ok", f"clear_range failed: {res_clear}"
+    res_clear = _execute_calc_tool("write_formula_range", {"range_name": "Z1:Z2", "formula_or_values": ""})
+    assert res_clear.get("status") == "ok", f"write_formula_range clear failed: {res_clear}"
     res_search = _execute_calc_tool("search_in_spreadsheet", {"pattern": "Apple"})
     assert res_search.get("status") == "ok", f"search_in_spreadsheet failed: {res_search}"
     # Filter matches to only check Z column to avoid false positives from other tests
@@ -525,14 +525,31 @@ def test_calc_conditional_formatting():
     assert rule.get("formula1") == "15", f"Expected 15, got {rule.get('formula1')}"
     assert rule.get("style_name") == "Result", f"Expected Result, got {rule.get('style_name')}"
 
-    # 3. Clear formats
-    res_clear = _execute_calc_tool("clear_conditional_formats", {"range_name": "C20:C22"})
-    assert res_clear.get("status") == "ok", f"clear_conditional_formats failed: {res_clear}"
+    # 3. Clear formats (using new unified tool)
+    res_clear = _execute_calc_tool("remove_conditional_formats", {"range_name": "C20:C22"})
+    assert res_clear.get("status") == "ok", f"remove_conditional_formats (clear) failed: {res_clear}"
 
     # 4. Verify cleared
     res_list_after = _execute_calc_tool("list_conditional_formats", {"range_name": "C20:C22"})
     rules_after = res_list_after.get("rules", [])
     assert len(rules_after) == 0, f"Expected rules to be cleared, but found {len(rules_after)}"
+
+    # 5. Add two rules to test removing by index
+    _execute_calc_tool("add_conditional_format", {
+        "range_name": "C20:C22", "operator": "GREATER", "formula1": "10", "style_name": "Result"
+    })
+    _execute_calc_tool("add_conditional_format", {
+        "range_name": "C20:C22", "operator": "LESS", "formula1": "5", "style_name": "Result"
+    })
+
+    # 6. Remove the first rule by index
+    res_remove_idx = _execute_calc_tool("remove_conditional_formats", {"range_name": "C20:C22", "rule_index": 0})
+    assert res_remove_idx.get("status") == "ok", f"remove_conditional_formats (index) failed: {res_remove_idx}"
+
+    # 7. Verify only 1 rule remains
+    res_list_final = _execute_calc_tool("list_conditional_formats", {"range_name": "C20:C22"})
+    rules_final = res_list_final.get("rules", [])
+    assert len(rules_final) == 1, f"Expected 1 rule remaining after removing by index, found {len(rules_final)}"
 
 
 @native_test

@@ -6,7 +6,7 @@ This document tracks technical workarounds and "hacks" implemented to handle the
 **Problem**: LLMs are inconsistent with CSV delimiters. Since Calc formula syntax favors semicolons (`;`), models often use them for CSV data even when asked for commas (`,`). This leads to data being imported into a single column.
 
 ### [Workaround] Auto-Detection
-Instead of requiring a `delimiter` parameter, the tool `import_csv_from_string` now handles it automatically in `core/calc_manipulator.py`.
+Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now handles it automatically in `plugin/modules/calc/manipulator.py` when CSV data is provided.
 - **Implementation**: The tool peeks at the first few lines. If semicolons are significantly more prevalent than commas, it switches the CSV reader to `;`. Otherwise, it defaults to `,`.
 - **Reasoning**: Reduces the cognitive load on the LLM and makes the tool "just work" regardless of the model's preferred separator.
 
@@ -32,7 +32,7 @@ In `core/calc_manipulator.py`, we use a regular expression to normalize JSON arr
 ### [Workaround] Explicit Prompt Rules
 In `core/constants.py`, the system prompt includes high-pressure instructions on formula syntax.
 - **Constraint**: "FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator. Wrong: =SUM(A1,A10) (no commas)."
-- **Duality**: We also explicitly warn about CSV: "CSV DATA: Use comma (,) for import_csv_from_string." to counteract the formula semicolon rule.
+- **Duality**: We also explicitly warn about CSV: "CSV DATA: Use comma (,) for write_formula_range." to counteract the formula semicolon rule.
 
 ## 5. Defensive Parameter Handling
 **Problem**: Models sometimes pass range names as lists or wrap them in extra quotes.

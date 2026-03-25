@@ -19,9 +19,10 @@
 
 import logging
 
+from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.framework.tool_base import ToolBase
+from plugin.modules.calc.address_utils import parse_address
 from plugin.modules.calc.bridge import CalcBridge
-from plugin.modules.calc.manipulator import CellManipulator
 
 logger = logging.getLogger("writeragent.calc")
 
@@ -43,13 +44,38 @@ class ListCharts(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        charts = manipulator.list_charts()
-        return {
-            "status": "ok",
-            "charts": charts,
-            "count": len(charts),
-        }
+        try:
+            sheet = bridge.get_active_sheet()
+            charts = sheet.getCharts()
+            result = []
+            for name in charts.getElementNames():
+                chart_obj = charts.getByName(name)
+                entry = {"name": name}
+                try:
+                    chart_doc = chart_obj.getEmbeddedObject()
+                    if chart_doc:
+                        try:
+                            entry["has_legend"] = chart_doc.HasLegend
+                        except Exception as e:
+                            logger.debug("list_charts HasLegend error: %s", e)
+                            entry["has_legend"] = False
+                        try:
+                            entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
+                        except Exception as e:
+                            logger.debug("list_charts getTitle error: %s", e)
+                            entry["title"] = ""
+                except Exception as e:
+                    logger.debug("list_charts getEmbeddedObject error: %s", e)
+                result.append(entry)
+
+            return {
+                "status": "ok",
+                "charts": result,
+                "count": len(result),
+            }
+        except Exception as e:
+            logger.error("List charts error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
 class GetChartInfo(ToolBase):
     """Get detailed info about a chart."""
 
@@ -73,13 +99,53 @@ class GetChartInfo(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
         chart_name = kwargs["chart_name"]
-        info = manipulator.get_chart_info(chart_name)
-        if info is None:
-            return self._tool_error(f"Chart '{chart_name}' not found.")
-        info["status"] = "ok"
-        return info
+
+        try:
+            sheet = bridge.get_active_sheet()
+            charts = sheet.getCharts()
+            if not charts.hasByName(chart_name):
+                return self._tool_error(f"Chart '{chart_name}' not found.")
+
+            chart_obj = charts.getByName(chart_name)
+            info = {"name": chart_name, "sheet": sheet.getName()}
+
+            try:
+                ranges = chart_obj.getRanges()
+                info["data_ranges"] = [bridge._range_to_str(r) for r in ranges]
+            except Exception as e:
+                logger.debug("get_chart_info getRanges error: %s", e)
+                info["data_ranges"] = []
+
+            chart_doc = chart_obj.getEmbeddedObject()
+            if chart_doc:
+                try:
+                    info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
+                except Exception as e:
+                    logger.debug("get_chart_info getTitle error: %s", e)
+                    info["title"] = ""
+                try:
+                    info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
+                except Exception as e:
+                    logger.debug("get_chart_info getSubTitle error: %s", e)
+                    info["subtitle"] = ""
+                try:
+                    info["has_legend"] = chart_doc.HasLegend
+                except Exception as e:
+                    logger.debug("get_chart_info HasLegend error: %s", e)
+                    info["has_legend"] = None
+                try:
+                    diagram = chart_doc.getDiagram()
+                    info["diagram_type"] = diagram.getDiagramType()
+                except Exception as e:
+                    logger.debug("get_chart_info getDiagramType error: %s", e)
+                    info["diagram_type"] = ""
+
+            info["status"] = "ok"
+            return info
+        except Exception as e:
+            logger.error("Get chart info error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
 class CreateChart(ToolBase):
     """Create a new chart from a data range."""
 
@@ -120,15 +186,71 @@ class CreateChart(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
-        result = manipulator.create_chart(
-            kwargs["data_range"],
-            kwargs["chart_type"],
-            title=kwargs.get("title"),
-            position=kwargs.get("position"),
-            has_header=kwargs.get("has_header", True),
-        )
-        return {"status": "ok", "message": result}
+        data_range = kwargs["data_range"]
+        chart_type = kwargs["chart_type"]
+        title = kwargs.get("title")
+        position = kwargs.get("position")
+        has_header = kwargs.get("has_header", True)
+
+        try:
+            sheet = bridge.get_active_sheet()
+            cell_range = bridge.get_cell_range(sheet, data_range)
+            range_address = cell_range.getRangeAddress()
+
+            if position:
+                col, row = parse_address(position)
+                pos_cell = bridge.get_cell(sheet, col, row)
+                pos_x = pos_cell.Position.X
+                pos_y = pos_cell.Position.Y
+            else:
+                pos_x = 10000
+                pos_y = 1000
+
+            from com.sun.star.awt import Rectangle
+
+            rect = Rectangle()
+            rect.X = pos_x
+            rect.Y = pos_y
+            rect.Width = 12000
+            rect.Height = 8000
+
+            charts = sheet.getCharts()
+            chart_name = f"Chart_{len(charts)}"
+
+            type_map = {
+                "bar": "com.sun.star.chart.BarDiagram",
+                "column": "com.sun.star.chart.BarDiagram",
+                "line": "com.sun.star.chart.LineDiagram",
+                "pie": "com.sun.star.chart.PieDiagram",
+                "scatter": "com.sun.star.chart.XYDiagram",
+            }
+            chart_service = type_map.get(chart_type, "com.sun.star.chart.BarDiagram")
+
+            charts.addNewByName(
+                chart_name, rect, (range_address,), has_header, has_header,
+            )
+
+            chart_obj = charts.getByName(chart_name)
+            chart_doc = chart_obj.getEmbeddedObject()
+            diagram = chart_doc.createInstance(chart_service)
+            chart_doc.setDiagram(diagram)
+
+            if chart_type == "bar" and hasattr(diagram, "Vertical"):
+                diagram.Vertical = True
+            elif chart_type == "column" and hasattr(diagram, "Vertical"):
+                diagram.Vertical = False
+
+            if title:
+                chart_doc.setPropertyValue("HasMainTitle", True)
+                chart_title = chart_doc.getTitle()
+                chart_title.setPropertyValue("String", title)
+
+            logger.info("Chart created: %s (%s)", chart_name, chart_type)
+            result = f"{chart_type} type chart created as '{chart_name}'."
+            return {"status": "ok", "message": result}
+        except Exception as e:
+            logger.error("Chart creation error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
 class EditChart(ToolBase):
     """Modify chart properties."""
 
@@ -164,15 +286,43 @@ class EditChart(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
         chart_name = kwargs["chart_name"]
-        updated = manipulator.edit_chart(
-            chart_name,
-            title=kwargs.get("title"),
-            subtitle=kwargs.get("subtitle"),
-            has_legend=kwargs.get("has_legend"),
-        )
-        return {"status": "ok", "chart_name": chart_name, "updated": updated}
+        title = kwargs.get("title")
+        subtitle = kwargs.get("subtitle")
+        has_legend = kwargs.get("has_legend")
+
+        try:
+            sheet = bridge.get_active_sheet()
+            charts = sheet.getCharts()
+            if not charts.hasByName(chart_name):
+                raise UnoObjectError(f"Chart '{chart_name}' not found.")
+
+            chart_obj = charts.getByName(chart_name)
+            chart_doc = chart_obj.getEmbeddedObject()
+            if chart_doc is None:
+                raise RuntimeError("Cannot access chart document.")
+
+            updated = []
+            if title is not None:
+                chart_doc.HasMainTitle = True
+                title_obj = chart_doc.getTitle()
+                title_obj.String = title
+                updated.append("title")
+
+            if subtitle is not None:
+                chart_doc.HasSubTitle = True
+                sub_obj = chart_doc.getSubTitle()
+                sub_obj.String = subtitle
+                updated.append("subtitle")
+
+            if has_legend is not None:
+                chart_doc.HasLegend = has_legend
+                updated.append("has_legend")
+
+            return {"status": "ok", "chart_name": chart_name, "updated": updated}
+        except Exception as e:
+            logger.error("Edit chart error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
 class DeleteChart(ToolBase):
     """Delete a chart from a Calc sheet."""
 
@@ -194,9 +344,15 @@ class DeleteChart(ToolBase):
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
         chart_name = kwargs["chart_name"]
-        if manipulator.delete_chart(chart_name):
+
+        try:
+            sheet = bridge.get_active_sheet()
+            charts = sheet.getCharts()
+            if not charts.hasByName(chart_name):
+                return self._tool_error(f"Chart '{chart_name}' not found.")
+            charts.removeByName(chart_name)
             return {"status": "ok", "deleted": chart_name}
-        else:
-            return self._tool_error(f"Chart '{chart_name}' not found.")
+        except Exception as e:
+            logger.error("Delete chart error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
