@@ -27,7 +27,18 @@ class WriterModule(ModuleBase):
 
         # Initialize core Writer services via auto-discovery
         from . import bookmarks, tree, proximity, index
-        from . import base, specialized, tables, styles, shapes, charts
+        from . import (
+            base,
+            specialized,
+            tables,
+            styles,
+            shapes,
+            charts,
+            bookmark_tools,
+            indexes,
+            fields,
+            embedded,
+        )
 
         # Order matters: tree needs bookmarks, proximity/index need tree
         for module in (bookmarks, tree, proximity, index):

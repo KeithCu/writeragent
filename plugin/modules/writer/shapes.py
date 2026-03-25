@@ -47,14 +47,55 @@ class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
-# And here are the Writer specific ones (WIP placeholders) that Draw didn't have:
+class ListWriterImages(ToolWriterShapeBase):
+    """List graphic objects anchored in the Writer document (text layer)."""
+
+    name = "list_writer_images"
+    intent = "media"
+    description = (
+        "List images and graphic objects in the Writer document (names, sizes, titles). "
+        "Uses the document graphic-object collection (not the full Draw page API)."
+    )
+    parameters = {"type": "object", "properties": {}, "required": []}
+    uno_services = ["com.sun.star.text.TextDocument"]
+
+    def execute(self, ctx, **kwargs):
+        doc = ctx.doc
+        if not hasattr(doc, "getGraphicObjects"):
+            return {"status": "ok", "images": [], "count": 0}
+        images = []
+        gos = doc.getGraphicObjects()
+        for name in gos.getElementNames():
+            try:
+                g = gos.getByName(name)
+                size = g.getPropertyValue("Size")
+                title = ""
+                try:
+                    title = g.getPropertyValue("Title")
+                except Exception:
+                    pass
+                images.append({
+                    "name": name,
+                    "width_mm": size.Width / 100.0,
+                    "height_mm": size.Height / 100.0,
+                    "title": title,
+                })
+            except Exception as e:
+                log.debug("list_writer_images skip %s: %s", name, e)
+        return {"status": "ok", "images": images, "count": len(images)}
+
+
+# Writer-specific WIP placeholders (Draw did not provide these):
 
 class ConnectShapes(ToolWriterShapeBase):
     """Connect two shapes with a connector."""
 
     name = "shapes_connect"
     intent = "edit"
-    description = "Draw a connector line between two existing shapes."
+    description = (
+        "WIP stub: connector between shapes is not implemented. "
+        "Use Draw/Writer UI or create_shape for new objects."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -81,7 +122,10 @@ class GroupShapes(ToolWriterShapeBase):
 
     name = "shapes_group"
     intent = "edit"
-    description = "Group several drawing shapes into a single group object."
+    description = (
+        "WIP stub: shape grouping is not implemented. "
+        "Group objects in LibreOffice Draw/Writer UI if needed."
+    )
     parameters = {
         "type": "object",
         "properties": {

@@ -14,16 +14,20 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer track-changes tools."""
+"""Writer track-changes tools.
+
+Ported from nelson-mcp (MPL 2.0): nelson-mcp/plugin/modules/writer/tools/tracking.py
+(accept/reject combined here as manage_tracked_changes).
+"""
 
 import logging
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool_base import ToolBase
 
 log = logging.getLogger("writeragent.writer")
 
 
-class SetTrackChanges(ToolBaseDummy):
+class SetTrackChanges(ToolBase):
     """Enable or disable change tracking."""
 
     name = "set_track_changes"
@@ -40,6 +44,7 @@ class SetTrackChanges(ToolBaseDummy):
         "required": ["enabled"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
+    tier = "extended"
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -50,7 +55,7 @@ class SetTrackChanges(ToolBaseDummy):
         return {"status": "ok", "record_changes": bool(enabled)}
 
 
-class GetTrackedChanges(ToolBaseDummy):
+class GetTrackedChanges(ToolBase):
     """List all tracked changes (redlines) in the document."""
 
     name = "get_tracked_changes"
@@ -65,6 +70,7 @@ class GetTrackedChanges(ToolBaseDummy):
         "required": [],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
+    tier = "extended"
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -114,7 +120,7 @@ class GetTrackedChanges(ToolBaseDummy):
         }
 
 
-class ManageTrackedChanges(ToolBaseDummy):
+class ManageTrackedChanges(ToolBase):
     """Accept or reject all tracked changes in the document."""
 
     name = "manage_tracked_changes"
@@ -132,6 +138,7 @@ class ManageTrackedChanges(ToolBaseDummy):
         "required": ["action"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
+    tier = "extended"
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

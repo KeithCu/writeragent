@@ -14,7 +14,11 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer charting tools leveraging Calc's implementation."""
+"""Writer charting tools leveraging Calc's chart implementation.
+
+These operate on the active Writer context but use the same UNO paths as Calc chart
+tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only module.
+"""
 
 import logging
 from plugin.modules.writer.base import ToolWriterChartBase

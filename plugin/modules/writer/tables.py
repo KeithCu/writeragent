@@ -14,16 +14,11 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer table tools.
-
-Tool classes below are fully commented out. To re-enable: uncomment them, add
-``from plugin.modules.writer.base import ToolWriterTableBase as ToolBase``, register instances in
-``plugin/modules/writer/__init__.py``, and set
-``WRITER_TABLE_TOOLS_DISABLED = False`` in ``plugin/tests/smoke_writer_tools.py``.
-"""
+"""Writer table tools (specialized tier; use delegate_to_specialized_writer_toolset domain tables)."""
 
 import logging
 
+from plugin.modules.writer.base import ToolWriterTableBase as ToolBase
 
 log = logging.getLogger("writeragent.writer")
 
@@ -143,9 +138,12 @@ class WriteTableCells(ToolBase):
                 "type": "array",
                 "items": {
                     "type": "array",
-                    "items": {"oneOf": [{"type": "string"}, {"type": "number"}]},
+                    "items": {"type": "string"},
                 },
-                "description": "2D array of values (same shape as read_table data).",
+                "description": (
+                    "2D array of cell values (rows of strings). "
+                    "Numeric strings are stored as numbers when possible."
+                ),
             },
             "start_cell": {
                 "type": "string",
@@ -327,9 +325,7 @@ class CreateTable(ToolBase):
         }
 
 
-------------------------------------------------------------------
-Helpers
-------------------------------------------------------------------
+# --- Helpers ---
 
 def _parse_cell(ref):
     """Parse Excel-style cell reference to 0-based (row, col). Returns None if invalid.
@@ -834,17 +830,6 @@ class WriteTableRow(ToolBase):
             "row": row_idx,
             "cells_written": written,
         }
-
-
-------------------------------------------------------------------
-Helpers
-------------------------------------------------------------------
-
-def _col_letter(c):
-    """Convert 0-based column index to Excel-style letter(s)."""
-    if c < 26:
-        return chr(ord("A") + c)
-    return "A" + chr(ord("A") + c - 26)
 
 
 def _parse_color(color_str):

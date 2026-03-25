@@ -63,6 +63,10 @@ class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain = "fields"
 
 
+class ToolWriterBookmarkBase(ToolWriterSpecialBase):
+    specialized_domain = "bookmarks"
+
+
 class SpecializedWorkflowFinished(ToolBase):
     """Tool called by the sub-agent to indicate it has completed its task."""
 

@@ -26,7 +26,15 @@ log = logging.getLogger("writeragent.writer")
 
 # Available domains matching the specialized_domain attributes of subclasses
 _AVAILABLE_DOMAINS = [
-    "tables", "styles", "layout", "embedded", "shapes", "charts", "indexes", "fields"
+    "tables",
+    "styles",
+    "layout",
+    "embedded",
+    "shapes",
+    "charts",
+    "indexes",
+    "fields",
+    "bookmarks",
 ]
 
 
@@ -41,7 +49,8 @@ class DelegateToSpecializedWriter(ToolBase):
     description = (
         "Delegates a specialized task to a sub-agent with a focused toolset. "
         "Use this for complex Writer operations like manipulating tables, "
-        "charts, fields, styles, layout, embedded objects, shapes, or indexes."
+        "charts, fields, styles, layout, embedded objects, shapes, indexes, "
+        "or bookmarks."
     )
     parameters = {
         "type": "object",
@@ -93,7 +102,10 @@ class DelegateToSpecializedWriter(ToolBase):
             registry = ctx.services.get("tools")
 
             # Add the control tool
-            all_tools = registry.get_tools(filter_doc_type=False)
+            all_tools = registry.get_tools(
+                filter_doc_type=False,
+                exclude_tiers=(),
+            )
 
             domain_tools = []
             for t in all_tools:

@@ -18,6 +18,7 @@
 
 import logging
 
+from plugin.framework.tool_base import ToolBase as FrameworkToolBase
 from plugin.modules.writer.base import ToolWriterStyleBase as ToolBase
 
 log = logging.getLogger("writeragent.writer")
@@ -51,15 +52,17 @@ class ListStyles(ToolBase):
     intent = "edit"
     description = (
         "List available styles in the document. "
-        "Call this before applying styles to discover exact style names."
+        "Omit family to list all style family names; set family to list styles in that family."
     )
     parameters = {
         "type": "object",
         "properties": {
             "family": {
                 "type": "string",
-                "enum": _STYLE_FAMILIES,
-                "description": "Style family to list. Default: ParagraphStyles.",
+                "description": (
+                    "Style family (ParagraphStyles, CharacterStyles, PageStyles, "
+                    "FrameStyles, NumberingStyles). Omit to list family names only."
+                ),
             },
         },
         "required": [],
@@ -67,9 +70,19 @@ class ListStyles(ToolBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
-        family = kwargs.get("family", "ParagraphStyles")
+        family = kwargs.get("family")
         doc = ctx.doc
 
+        families = doc.getStyleFamilies()
+        if not family or not str(family).strip():
+            available = list(families.getElementNames())
+            return {
+                "status": "ok",
+                "families": available,
+                "count": len(available),
+            }
+
+        family = str(family).strip()
         style_family = self.get_item(
             doc, "getStyleFamilies", family,
             missing_msg="Document does not support style families.",
@@ -121,7 +134,6 @@ class GetStyleInfo(ToolBase):
             },
             "family": {
                 "type": "string",
-                "enum": _STYLE_FAMILIES,
                 "description": "Style family. Default: ParagraphStyles.",
             },
         },
@@ -159,3 +171,43 @@ class GetStyleInfo(ToolBase):
                 pass
 
         return {"status": "ok", **info}
+
+
+class StylesApplyToSelection(FrameworkToolBase):
+    """Apply a paragraph style to the current selection (or paragraph under cursor)."""
+
+    name = "styles_apply_to_selection"
+    intent = "edit"
+    tier = "extended"
+    description = (
+        "Apply a paragraph style name to the current text selection. "
+        "For a full style list, use delegate_to_specialized_writer_toolset(domain=styles) "
+        "or discover names from the document / Styles sidebar."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "style_name": {
+                "type": "string",
+                "description": "Paragraph style name (e.g. Heading 1).",
+            },
+        },
+        "required": ["style_name"],
+    }
+    uno_services = ["com.sun.star.text.TextDocument"]
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        style_name = (kwargs.get("style_name") or "").strip()
+        if not style_name:
+            return self._tool_error("style_name is required.")
+
+        ctrl = ctx.doc.getCurrentController()
+        vc = ctrl.getViewCursor()
+        try:
+            vc.setPropertyValue("ParaStyleName", style_name)
+        except Exception as e:
+            return self._tool_error(
+                "Could not apply style (select text or a paragraph): %s" % e
+            )
+        return {"status": "ok", "style_name": style_name}

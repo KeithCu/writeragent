@@ -205,6 +205,38 @@ class TestExecute:
         assert "text must be a string" in result.get("message", "")
 
 
+class TestExcludeSpecializedTiers:
+    def test_default_excludes_specialized_tier(self):
+        class SpecTool(ToolBase):
+            name = "spec_tool"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+            tier = "specialized"
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg = _make_registry(FakeTool(), SpecTool())
+        names = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
+        assert "fake_tool" in names
+        assert "spec_tool" not in names
+
+    def test_exclude_tiers_empty_includes_specialized(self):
+        class SpecTool(ToolBase):
+            name = "spec_tool"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+            tier = "specialized"
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg = _make_registry(FakeTool(), SpecTool())
+        names = [t.name for t in reg.get_tools(doc=MockDoc("writer"), exclude_tiers=())]
+        assert "fake_tool" in names
+        assert "spec_tool" in names
+
+
 class TestSchemas:
     def test_openai_schemas(self):
         reg = _make_registry(FakeTool())
