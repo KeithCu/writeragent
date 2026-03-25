@@ -102,6 +102,7 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [result]}
         results = [inspector.read_range(r) for r in rn]
         return {"status": "ok", "result": results}
+
 class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
@@ -157,6 +158,7 @@ class WriteCellRange(ToolBase):
         for r in rn:
             manipulator.write_formula_range(r, fov)
         return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
+
 class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
@@ -274,6 +276,7 @@ class SetCellStyle(ToolBase):
             "status": "ok",
             "message": f"Style applied to {len(rn)} ranges",
         }
+
 class MergeCells(ToolBase):
     """Merge a cell range."""
 
@@ -323,6 +326,7 @@ class MergeCells(ToolBase):
             "status": "ok",
             "message": f"Merged cells in {len(rn)} ranges",
         }
+
 class ClearRange(ToolBase):
     """Clear all contents in a cell range."""
 
@@ -365,6 +369,7 @@ class ClearRange(ToolBase):
             "status": "ok",
             "message": f"Cleared {len(rn)} ranges",
         }
+
 class SortRange(ToolBase):
     """Sort a range by a column."""
 
@@ -437,6 +442,7 @@ class SortRange(ToolBase):
             "status": "ok",
             "message": f"Sorted {len(rn)} ranges",
         }
+
 class ImportCsv(ToolBase):
     """Import CSV data into the sheet."""
 
@@ -471,6 +477,7 @@ class ImportCsv(ToolBase):
 
         result = manipulator.import_csv_from_string(csv_data, target_cell=target_cell)
         return {"status": "ok", "message": result}
+
 class DeleteStructure(ToolBase):
     """Delete rows or columns."""
 

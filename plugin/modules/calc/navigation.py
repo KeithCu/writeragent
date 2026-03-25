@@ -59,6 +59,7 @@ class ListNamedRanges(ToolBase):
             "named_ranges": result,
             "count": len(result),
         }
+
 class GetSheetOverview(ToolBase):
     """Get an overview of a sheet's data regions and structure."""
 

@@ -58,6 +58,7 @@ class ListSheets(ToolBase):
         except Exception as e:
             logger.error("Sheet listing error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
+
 class SwitchSheet(ToolBase):
     """Switch to a specified sheet."""
 
@@ -95,6 +96,7 @@ class SwitchSheet(ToolBase):
         except Exception as e:
             logger.error("Sheet switch error (%s): %s", sheet_name, str(e))
             raise ToolExecutionError(str(e)) from e
+
 class CreateSheet(ToolBase):
     """Create a new sheet."""
 
@@ -138,6 +140,7 @@ class CreateSheet(ToolBase):
         except Exception as e:
             logger.error("Sheet creation error (%s): %s", sheet_name, str(e))
             raise ToolExecutionError(str(e)) from e
+
 class GetSheetSummary(ToolBase):
     """Return a summary of a sheet."""
 

@@ -82,6 +82,7 @@ class ListCellComments(ToolBase):
             "count": len(comments),
             "sheet": sheet.getName(),
         }
+
 class AddCellComment(ToolBase):
     """Add a comment to a cell."""
 
@@ -143,6 +144,7 @@ class AddCellComment(ToolBase):
             "text": text,
             "sheet": sheet.getName(),
         }
+
 class DeleteCellComment(ToolBase):
     """Delete a comment from a cell."""
 
