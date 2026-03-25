@@ -583,6 +583,18 @@ class CellManipulator:
             Summary of the operation.
         """
         try:
+            # Handle empty values as a clear_range operation
+            is_empty = (
+                formula_or_values is None or
+                formula_or_values == "" or
+                formula_or_values == [] or
+                formula_or_values == "[]" or
+                formula_or_values == "{}"
+            )
+            if is_empty:
+                self.clear_range(range_str)
+                return f"Range {range_str} cleared."
+
             sheet = self.bridge.get_active_sheet()
             start, end = self.bridge.parse_range_string(range_str)
 

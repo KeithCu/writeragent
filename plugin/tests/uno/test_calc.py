@@ -162,7 +162,7 @@ def test_clear_range():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
     active_sheet.getCellByPosition(6, 0).setString("ClearMe")
     active_sheet.getCellByPosition(7, 0).setString("ClearMe")
-    _execute_calc_tool("clear_range", {"range_name": ["G1", "H1"]})
+    _execute_calc_tool("write_formula_range", {"range_name": ["G1", "H1"], "formula_or_values": ""})
     assert active_sheet.getCellByPosition(6, 0).getString() == "", "G1 not cleared"
     assert active_sheet.getCellByPosition(7, 0).getString() == "", "H1 not cleared"
 
@@ -429,8 +429,8 @@ def test_read_after_write_stability():
     assert grid_merged[0][0]["value"] == "Apple", f"Expected Apple in merged range, got {grid_merged[0][0]['value']}"
 
     # 4. Clear range and search
-    res_clear = _execute_calc_tool("clear_range", {"range_name": "Z1:Z2"})
-    assert res_clear.get("status") == "ok", f"clear_range failed: {res_clear}"
+    res_clear = _execute_calc_tool("write_formula_range", {"range_name": "Z1:Z2", "formula_or_values": ""})
+    assert res_clear.get("status") == "ok", f"write_formula_range clear failed: {res_clear}"
     res_search = _execute_calc_tool("search_in_spreadsheet", {"pattern": "Apple"})
     assert res_search.get("status") == "ok", f"search_in_spreadsheet failed: {res_search}"
     # Filter matches to only check Z column to avoid false positives from other tests

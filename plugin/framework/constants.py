@@ -136,12 +136,11 @@ READ:
 - get_sheet_summary: Summary of the active sheet (size, headers, used range, charts, annotations, merges).
 
 WRITE & FORMAT:
-- write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Use ranges for efficiency; avoid single-cell operations.
+- write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations.
 - set_cell_style: Formatting (bold, colors, alignment, number format) for a range. Prefer ranges for efficiency; use after bulk writes.
 - import_csv_from_string: Bulk insert CSV data into the sheet starting at a cell. Use for large datasets.
 - merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_cell_style.
 - sort_range: Sort a range by a column (ascending/descending, optional header row).
-- clear_range: Clear contents of a range.
 - delete_structure: Remove rows or columns at specific positions.
 
 SHEET MANAGEMENT:
