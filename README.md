@@ -23,7 +23,9 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 If you don't have a powerful GPU, or an API key for LLMs, we encourage you to sign up for a service provider like [OpenRouter](https://openrouter.ai/collections/free-models) to access their extensive collection of free AI models. As they state on their platform:
 
-> "At OpenRouter, we believe that free models play a crucial role in democratizing access to AI. These models allow hundreds of thousands of users worldwide to experiment, learn, and innovate." (Please note, the prompts to free models are often saved and used for testing or training purposes.) 
+> "At OpenRouter, we believe that free models play a crucial role in democratizing access to AI. These models allow hundreds of thousands of users worldwide to experiment, learn, and innovate."
+
+Please note, the prompts to free models are often saved and used for training purposes.
 
 Another option is [Together.AI](https://www.together.ai/), which also has a variety of high-performance and intelligent cost-effective models with a generous, private,  free tier.
 
