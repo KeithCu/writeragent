@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Base classes for specialized Writer toolsets."""
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 
 class ToolWriterSpecialBase(ToolBase):
@@ -40,15 +40,24 @@ class ToolWriterSpecialBase(ToolBase):
 
 class ToolWriterTableBase(ToolWriterSpecialBase):
     specialized_domain = "tables"
+    intent = "edit"
+    uno_services = ["com.sun.star.text.TextDocument"]
+
 
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain = "styles"
+    intent = "edit"
+    uno_services = ["com.sun.star.text.TextDocument"]
 
 class ToolWriterLayoutBase(ToolWriterSpecialBase):
     specialized_domain = "layout"
+    intent = "edit"
+    uno_services = ["com.sun.star.text.TextDocument"]
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     specialized_domain = "embedded"
+    intent = "edit"
+    uno_services = ["com.sun.star.text.TextDocument"]
 
 class ToolWriterShapeBase(ToolWriterSpecialBase):
     specialized_domain = "shapes"
@@ -58,13 +67,24 @@ class ToolWriterChartBase(ToolWriterSpecialBase):
 
 class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain = "indexes"
+    uno_services = ["com.sun.star.text.TextDocument"]
 
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain = "fields"
+    uno_services = ["com.sun.star.text.TextDocument"]
+
+
+class WriterAgentSpecialTracking(ToolWriterSpecialBase):
+    specialized_domain = "tracking"
+    intent = "review"
+    uno_services = ["com.sun.star.text.TextDocument"]
+    tier = "extended"  # Tracking tools are explicitly exposed to the main agent tier
 
 
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain = "bookmarks"
+    intent = "navigate"
+    uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class SpecializedWorkflowFinished(ToolBase):

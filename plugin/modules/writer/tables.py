@@ -27,7 +27,6 @@ class ListTables(ToolBase):
     """List all text tables in the document."""
 
     name = "list_tables"
-    intent = "edit"
     description = (
         "List all text tables in the document with their names "
         "and dimensions (rows x cols)."
@@ -37,7 +36,6 @@ class ListTables(ToolBase):
         "properties": {},
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -60,7 +58,6 @@ class ReadTable(ToolBase):
     """Read all cell contents from a named Writer table."""
 
     name = "read_table"
-    intent = "edit"
     description = "Read all cell contents from a named Writer table as a 2D array."
     parameters = {
         "type": "object",
@@ -72,7 +69,6 @@ class ReadTable(ToolBase):
         },
         "required": ["table_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         table_name = kwargs.get("table_name", "")
@@ -120,7 +116,6 @@ class WriteTableCells(ToolBase):
     """Write a 2D block of values to a named Writer table."""
 
     name = "write_table_cells"
-    intent = "edit"
     description = (
         "Write a 2D block of values to a named Writer table. "
         "Data is the same shape as read_table's data (array of rows, each row an array of values). "
@@ -152,7 +147,6 @@ class WriteTableCells(ToolBase):
         },
         "required": ["table_name", "data"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -229,7 +223,6 @@ class CreateTable(ToolBase):
     """Create a new table at a paragraph position."""
 
     name = "create_table"
-    intent = "edit"
     description = (
         "Create a new table at a paragraph position. "
         "The table is inserted relative to the target paragraph. "
@@ -268,7 +261,6 @@ class CreateTable(ToolBase):
         },
         "required": ["rows", "cols"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -365,7 +357,6 @@ class DeleteTable(ToolBase):
     """Delete a table from the document."""
 
     name = "delete_table"
-    intent = "edit"
     description = "Delete a named table from the Writer document."
     parameters = {
         "type": "object",
@@ -377,7 +368,6 @@ class DeleteTable(ToolBase):
         },
         "required": ["table_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -405,7 +395,6 @@ class SetTableProperties(ToolBase):
     """Set table layout properties: width, alignment, equal columns."""
 
     name = "set_table_properties"
-    intent = "edit"
     description = (
         "Set layout properties on a Writer table: width, alignment, "
         "equal-width columns, repeat header row, background color. "
@@ -454,7 +443,6 @@ class SetTableProperties(ToolBase):
         },
         "required": ["table_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -552,7 +540,6 @@ class AddTableRows(ToolBase):
     """Add rows to a Writer table."""
 
     name = "add_table_rows"
-    intent = "edit"
     description = "Insert one or more rows into a Writer table at a given position."
     parameters = {
         "type": "object",
@@ -572,7 +559,6 @@ class AddTableRows(ToolBase):
         },
         "required": ["table_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -606,7 +592,6 @@ class AddTableColumns(ToolBase):
     """Add columns to a Writer table."""
 
     name = "add_table_columns"
-    intent = "edit"
     description = "Insert one or more columns into a Writer table at a given position."
     parameters = {
         "type": "object",
@@ -626,7 +611,6 @@ class AddTableColumns(ToolBase):
         },
         "required": ["table_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -664,7 +648,6 @@ class DeleteTableRows(ToolBase):
     """Delete rows from a Writer table."""
 
     name = "delete_table_rows"
-    intent = "edit"
     description = "Delete one or more rows from a Writer table."
     parameters = {
         "type": "object",
@@ -684,7 +667,6 @@ class DeleteTableRows(ToolBase):
         },
         "required": ["table_name", "at_index"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -715,7 +697,6 @@ class DeleteTableColumns(ToolBase):
     """Delete columns from a Writer table."""
 
     name = "delete_table_columns"
-    intent = "edit"
     description = "Delete one or more columns from a Writer table."
     parameters = {
         "type": "object",
@@ -735,7 +716,6 @@ class DeleteTableColumns(ToolBase):
         },
         "required": ["table_name", "at_index"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -770,7 +750,6 @@ class WriteTableRow(ToolBase):
     """Write a full row of values to a Writer table."""
 
     name = "write_table_row"
-    intent = "edit"
     description = (
         "Write a full row of values to a Writer table in one call. "
         "More efficient than calling write_table_cell for each cell."
@@ -794,7 +773,6 @@ class WriteTableRow(ToolBase):
         },
         "required": ["table_name", "row", "values"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

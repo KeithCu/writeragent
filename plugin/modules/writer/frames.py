@@ -31,14 +31,12 @@ class ListTextFrames(ToolWriterLayoutBase):
     """List all text frames in the document."""
 
     name = "list_text_frames"
-    intent = "edit"
     description = "List all text frames in the document."
     parameters = {
         "type": "object",
         "properties": {},
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -89,7 +87,6 @@ class GetTextFrameInfo(ToolWriterLayoutBase):
     """Get detailed info about a text frame."""
 
     name = "get_text_frame_info"
-    intent = "edit"
     description = "Get detailed info about a text frame."
     parameters = {
         "type": "object",
@@ -101,7 +98,6 @@ class GetTextFrameInfo(ToolWriterLayoutBase):
         },
         "required": ["frame_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         frame_name = kwargs.get("frame_name", "")
@@ -187,7 +183,6 @@ class SetTextFrameProperties(ToolWriterLayoutBase):
     """Resize or reposition a text frame."""
 
     name = "set_text_frame_properties"
-    intent = "edit"
     description = "Resize or reposition a text frame."
     parameters = {
         "type": "object",
@@ -222,7 +217,6 @@ class SetTextFrameProperties(ToolWriterLayoutBase):
         },
         "required": ["frame_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

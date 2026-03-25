@@ -63,8 +63,16 @@ class ToolRegistry:
             existing_tool = self._tools[tool.name]
             if type(existing_tool) is type(tool):
                 return
-            log.warning("Tool '%s' already registered (class %s), replacing with class %s",
-                        tool.name, type(existing_tool).__name__, type(tool).__name__)
+            # Normal repeated imports during auto-discovery can re-register the
+            # same-named tool class from different module instances.
+            # Only warn when the *class name* differs to avoid noise.
+            if type(existing_tool).__name__ != type(tool).__name__:
+                log.warning(
+                    "Tool '%s' already registered (class %s), replacing with class %s",
+                    tool.name,
+                    type(existing_tool).__name__,
+                    type(tool).__name__,
+                )
         self._tools[tool.name] = tool
 
     def register_many(self, tools):

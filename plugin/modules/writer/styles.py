@@ -49,7 +49,6 @@ class ListStyles(ToolBase):
     """List available styles in a given family."""
 
     name = "list_styles"
-    intent = "edit"
     description = (
         "List available styles in the document. "
         "Omit family to list all style family names; set family to list styles in that family."
@@ -67,7 +66,6 @@ class ListStyles(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         family = kwargs.get("family")
@@ -120,7 +118,6 @@ class GetStyleInfo(ToolBase):
     """Get detailed properties of a named style."""
 
     name = "get_style_info"
-    intent = "edit"
     description = (
         "Get detailed properties of a specific style "
         "(font, size, margins, etc.)."
@@ -139,7 +136,6 @@ class GetStyleInfo(ToolBase):
         },
         "required": ["style_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         style_name = kwargs.get("style_name", "")

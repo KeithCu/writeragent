@@ -20,7 +20,6 @@ class FieldsUpdateAll(ToolWriterFieldBase):
         "Call after changes that affect computed fields."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -46,7 +45,6 @@ class UpdateFieldsAlias(ToolWriterFieldBase):
     intent = "navigate"
     description = "Refresh all text fields. Alias of fields_update_all."
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -80,7 +78,6 @@ class FieldsInsert(ToolWriterFieldBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

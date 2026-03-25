@@ -14,7 +14,6 @@ from plugin.modules.writer.base import ToolWriterEmbeddedBase
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
     name = "embedded_insert"
-    intent = "edit"
     description = (
         "Insert an embedded object (e.g. Calc spreadsheet) into the document. "
         "Planned: CLSID-based insert + in-place activation."
@@ -29,7 +28,6 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -41,7 +39,6 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
 
 class EmbeddedEdit(ToolWriterEmbeddedBase):
     name = "embedded_edit"
-    intent = "edit"
     description = "Activate or edit an embedded OLE object (planned)."
     parameters = {
         "type": "object",
@@ -53,7 +50,6 @@ class EmbeddedEdit(ToolWriterEmbeddedBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

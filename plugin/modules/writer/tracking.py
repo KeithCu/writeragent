@@ -22,17 +22,15 @@ Ported from nelson-mcp (MPL 2.0): nelson-mcp/plugin/modules/writer/tools/trackin
 
 import logging
 
-from plugin.modules.writer.base import ToolWriterSpecialBase
+from plugin.modules.writer.base import WriterAgentSpecialTracking
 
 log = logging.getLogger("writeragent.writer")
 
 
-class SetTrackChanges(ToolWriterSpecialBase):
+class SetTrackChanges(WriterAgentSpecialTracking):
     """Enable or disable change tracking."""
 
     name = "set_track_changes"
-    specialized_domain = "tracking"
-    intent = "review"
     description = "Enable or disable track changes (change recording) in the document."
     parameters = {
         "type": "object",
@@ -44,8 +42,6 @@ class SetTrackChanges(ToolWriterSpecialBase):
         },
         "required": ["enabled"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "extended"
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -56,12 +52,10 @@ class SetTrackChanges(ToolWriterSpecialBase):
         return {"status": "ok", "record_changes": bool(enabled)}
 
 
-class GetTrackedChanges(ToolWriterSpecialBase):
+class GetTrackedChanges(WriterAgentSpecialTracking):
     """List all tracked changes (redlines) in the document."""
 
     name = "get_tracked_changes"
-    specialized_domain = "tracking"
-    intent = "review"
     description = (
         "List all tracked changes (redlines) in the document, "
         "including type, author, date, and comment."
@@ -71,8 +65,6 @@ class GetTrackedChanges(ToolWriterSpecialBase):
         "properties": {},
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "extended"
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -122,12 +114,10 @@ class GetTrackedChanges(ToolWriterSpecialBase):
         }
 
 
-class ManageTrackedChanges(ToolWriterSpecialBase):
+class ManageTrackedChanges(WriterAgentSpecialTracking):
     """Accept or reject all tracked changes in the document."""
 
     name = "manage_tracked_changes"
-    specialized_domain = "tracking"
-    intent = "review"
     description = "Accept or reject all tracked changes in the document."
     parameters = {
         "type": "object",
@@ -140,8 +130,6 @@ class ManageTrackedChanges(ToolWriterSpecialBase):
         },
         "required": ["action"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "extended"
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

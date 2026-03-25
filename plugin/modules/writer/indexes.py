@@ -19,7 +19,6 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         "Refresh/update all document indexes (table of contents, bibliography, etc.)."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -44,7 +43,6 @@ class RefreshIndexesAlias(ToolWriterIndexBase):
     intent = "navigate"
     description = "Refresh all document indexes (TOC, bibliography, etc.). Alias of indexes_update_all."
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -80,7 +78,6 @@ class IndexesCreate(ToolWriterIndexBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -107,7 +104,6 @@ class IndexesAddMark(ToolWriterIndexBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

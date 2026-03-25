@@ -17,13 +17,11 @@ from plugin.modules.writer.base import ToolWriterBookmarkBase
 
 class ListBookmarks(ToolWriterBookmarkBase):
     name = "list_bookmarks"
-    intent = "navigate"
     description = (
         "List all bookmarks in the document with their anchor text preview. "
         "Includes both user bookmarks and _mcp_ heading bookmarks."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -47,13 +45,11 @@ class ListBookmarks(ToolWriterBookmarkBase):
 
 class CleanupBookmarks(ToolWriterBookmarkBase):
     name = "cleanup_bookmarks"
-    intent = "navigate"
     description = (
         "Remove all _mcp_* bookmarks from the document. "
         "Use when bookmarks become stale after major edits."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
