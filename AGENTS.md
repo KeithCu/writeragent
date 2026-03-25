@@ -86,6 +86,8 @@ Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolB
 
 **Testing specialized tools**: Tests should retrieve tools via `plugin.main.get_tools().get("tool_name")` rather than direct internal imports. This avoids regressions when tools are moved between specialized modules and allows bypassing tier-based filtering.
 
+**Writer Fields Specialized Tools**: Text fields in LibreOffice are implemented using `doc.createInstance("com.sun.star.text.textfield.<TYPE>")` (like `PageNumber`, `DateTime`). See `plugin/modules/writer/fields.py` for tools to insert, list, and delete fields natively using property reflection.
+
 **Tool Compatibility**: `ToolRegistry` prioritizes `uno_services` matches (strict), but falls back to `doc_types` if no service match is found. This ensures tools remain accessible in test environments or across slightly different LibreOffice flavors.
 
 **Shared tool names (Writer vs Calc/Draw)**: [`plugin/modules/writer/charts.py`](plugin/modules/writer/charts.py) and [`plugin/modules/writer/shapes.py`](plugin/modules/writer/shapes.py) register the same `name` as Calc/Draw tools; the last class registered wins. Those Writer subclasses must list a **union** of every document `uno_services` the inherited `execute()` supports (e.g. Text + Spreadsheet for chart tools, Text + Drawing + Presentation for shape tools), or `ToolRegistry.execute` will reject Calc/Draw documents.

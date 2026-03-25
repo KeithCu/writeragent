@@ -61,27 +61,202 @@ class UpdateFieldsAlias(ToolWriterFieldBase):
         return {"status": "ok", "fields_refreshed": count}
 
 
+class FieldsList(ToolWriterFieldBase):
+    name = "fields_list"
+    intent = "examine"
+    description = (
+        "List all text fields in the document. Returns their types and text content, "
+        "allowing you to identify and inspect fields like page numbers or dates."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    def execute(self, ctx, **kwargs):
+        doc = ctx.doc
+        if not hasattr(doc, "getTextFields"):
+            return self._tool_error("Document does not support text fields.")
+
+        fields = doc.getTextFields()
+        enum = fields.createEnumeration()
+
+        results = []
+        count = 0
+        while enum.hasMoreElements():
+            field = enum.nextElement()
+            count += 1
+
+            # Use getPresentation to get human-readable info
+            try:
+                presentation = field.getPresentation(False)
+            except Exception:
+                presentation = str(field)
+
+            try:
+                content = field.getPresentation(True)
+            except Exception:
+                content = ""
+
+            # Try to get the specific field type by checking supported services
+            # since we know fields start with com.sun.star.text.textfield.
+            # However, LibreOffice API does not have an easy introspection for this.
+            # Getting the PropertySetInfo is the best way to extract properties.
+            props = {}
+            if hasattr(field, "getPropertySetInfo"):
+                try:
+                    for prop in field.getPropertySetInfo().getProperties():
+                        try:
+                            # Avoid extracting complex types
+                            val = field.getPropertyValue(prop.Name)
+                            if isinstance(val, (int, float, str, bool)):
+                                props[prop.Name] = val
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            results.append({
+                "id": count,
+                "presentation": presentation,
+                "content": content,
+                "properties": props
+            })
+
+        return {
+            "status": "ok",
+            "field_count": count,
+            "fields": results
+        }
+
+
+class FieldsDelete(ToolWriterFieldBase):
+    name = "fields_delete"
+    intent = "edit"
+    description = (
+        "Deletes one or more text fields from the document by their 1-based ID. "
+        "Use fields_list first to obtain the IDs of the fields you wish to remove."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "ids": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "A list of 1-based IDs representing the text fields to delete.",
+            },
+        },
+        "required": ["ids"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, ids, **kwargs):
+        doc = ctx.doc
+        if not hasattr(doc, "getTextFields"):
+            return self._tool_error("Document does not support text fields.")
+
+        fields = doc.getTextFields()
+        enum = fields.createEnumeration()
+
+        fields_to_delete = []
+        count = 0
+        while enum.hasMoreElements():
+            field = enum.nextElement()
+            count += 1
+            if count in ids:
+                fields_to_delete.append(field)
+
+        if not fields_to_delete:
+            return {"status": "ok", "deleted_count": 0, "message": "No matching fields found to delete."}
+
+        deleted_count = 0
+        for field in fields_to_delete:
+            try:
+                # Text fields can be deleted by removing their anchor content
+                anchor = field.getAnchor()
+                anchor.setString("")
+                deleted_count += 1
+            except Exception as e:
+                return self._tool_error(f"Failed to delete field: {str(e)}")
+
+        return {
+            "status": "ok",
+            "message": f"Successfully deleted {deleted_count} field(s).",
+            "deleted_count": deleted_count
+        }
+
+
 class FieldsInsert(ToolWriterFieldBase):
     name = "fields_insert"
     intent = "edit"
     description = (
-        "Insert a text field (page number, date, cross-ref). "
-        "Reserved for future UNO implementation (masters + dependent fields)."
+        "Insert a text field at the current cursor position. Supports various "
+        "field types natively provided by LibreOffice. Common field types include: "
+        "'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', "
+        "'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', "
+        "'EmbeddedObjectCount', and 'Annotation'. Specify optional properties "
+        "to configure the field, such as 'NumberingType' (e.g., 4 for Arabic numerals) "
+        "or 'IsDate' (true/false) for DateTime fields."
     )
     parameters = {
         "type": "object",
         "properties": {
             "field_type": {
                 "type": "string",
-                "description": "Intended field kind (e.g. page, date, cross_ref).",
+                "description": (
+                    "The exact name of the text field service to create, excluding the "
+                    "'com.sun.star.text.textfield.' prefix. Examples: 'PageNumber', "
+                    "'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount'."
+                ),
+            },
+            "properties": {
+                "type": "object",
+                "description": (
+                    "Optional dictionary of UNO properties to apply to the field. "
+                    "Example: {'NumberingType': 4} for Arabic numbering, or "
+                    "{'IsDate': true} to force a date display on a DateTime field."
+                ),
+                "default": {},
             },
         },
-        "required": [],
+        "required": ["field_type"],
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
-        return self._tool_error(
-            "fields_insert is not implemented yet. Insert fields via LibreOffice "
-            "Insert > Field, then call fields_update_all."
-        )
+    def execute(self, ctx, field_type, properties=None, **kwargs):
+        doc = ctx.doc
+        if not hasattr(doc, "createInstance"):
+            return self._tool_error("Document does not support creating instances.")
+
+        properties = properties or {}
+        full_service_name = f"com.sun.star.text.textfield.{field_type}"
+
+        try:
+            field = doc.createInstance(full_service_name)
+            if not field:
+                return self._tool_error(f"Failed to create field of type '{field_type}'.")
+        except Exception as e:
+            return self._tool_error(f"Error creating field '{field_type}': {str(e)}")
+
+        # Apply properties
+        for key, value in properties.items():
+            try:
+                field.setPropertyValue(key, value)
+            except Exception as e:
+                return self._tool_error(f"Failed to set property '{key}' to '{value}': {str(e)}")
+
+        # Insert at current view cursor
+        try:
+            controller = doc.getCurrentController()
+            view_cursor = controller.getViewCursor()
+            text = view_cursor.getText()
+            text.insertTextContent(view_cursor, field, False)
+        except Exception as e:
+            return self._tool_error(f"Failed to insert field into document: {str(e)}")
+
+        return {
+            "status": "ok",
+            "message": f"Successfully inserted {field_type} field.",
+            "applied_properties": properties
+        }
