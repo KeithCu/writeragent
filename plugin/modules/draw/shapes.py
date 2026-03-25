@@ -57,6 +57,7 @@ class ListPages(ToolBase):
     description = "Lists all pages (slides) in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    doc_types = ["draw", "impress"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
@@ -85,6 +86,7 @@ class GetDrawSummary(ToolBase):
         "required": [],
     }
     uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    doc_types = ["draw", "impress"]
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
@@ -221,6 +223,7 @@ class CreateShape(ToolBase):
         "required": ["shape_type", "x", "y", "width", "height"],
     }
     uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    doc_types = ["draw", "impress"]
     tier = "core"
     is_mutation = True
 

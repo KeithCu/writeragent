@@ -204,7 +204,7 @@ def test_writer_structural_and_tree_service():
     from plugin.modules.writer.bookmarks import BookmarkService
     from plugin.framework.event_bus import EventBus
     from plugin.framework.document import DocumentService
-    from plugin.modules.writer.structural import ListBookmarks, ListSections
+    from plugin.modules.writer.structural import ListSections
 
     events = EventBus()
     doc_svc = DocumentService()
@@ -247,8 +247,12 @@ def test_writer_structural_and_tree_service():
 
     mock_ctx = MockCtx(_test_doc, MockServices(bm_svc, doc_svc))
 
-    # Test ListBookmarks
-    list_bm_tool = ListBookmarks()
+    # Test ListBookmarks via registry (Specialized API testing pattern)
+    from plugin.main import get_tools
+    registry = get_tools()
+    list_bm_tool = registry.get("list_bookmarks")
+    assert list_bm_tool is not None, "list_bookmarks tool not found in registry"
+    
     bm_res = list_bm_tool.execute(mock_ctx)
     assert bm_res["status"] == "ok", f"ListBookmarks failed: {bm_res}"
     # Initially we might have 0 bookmarks unless they were created by ensure_heading_bookmarks in previous test
@@ -256,7 +260,8 @@ def test_writer_structural_and_tree_service():
     assert isinstance(bm_res["bookmarks"], list), "ListBookmarks should return a list"
 
     # Test ListSections
-    list_sec_tool = ListSections()
+    list_sec_tool = registry.get("list_sections")
+    assert list_sec_tool is not None, "list_sections tool not found in registry"
     sec_res = list_sec_tool.execute(mock_ctx)
     assert sec_res["status"] == "ok", f"ListSections failed: {sec_res}"
     assert isinstance(sec_res["sections"], list), "ListSections should return a list"

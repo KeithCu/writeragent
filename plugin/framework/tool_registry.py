@@ -160,25 +160,28 @@ class ToolRegistry:
             if not filter_doc_type:
                 return True
 
-            # Use uno_services if available and doc is provided
-            if hasattr(t, "uno_services") and t.uno_services is not None:
+            has_uno = hasattr(t, "uno_services") and t.uno_services is not None
+            has_types = hasattr(t, "doc_types") and t.doc_types is not None
+
+            is_supported = False
+            if has_uno:
                 if doc is not None and hasattr(doc, "supportsService"):
                     for svc in t.uno_services:
                         try:
                             if doc.supportsService(svc):
-                                return True
+                                is_supported = True
+                                break
                         except Exception:
                             pass
-                return False
+                if is_supported:
+                    return True
 
-            # Fallback to legacy doc_types
-            if hasattr(t, "doc_types") and t.doc_types is not None:
+            if has_types:
                 if doc_type is not None and doc_type in t.doc_types:
                     return True
                 return False
 
-            # Universal tool (both uno_services and doc_types are None)
-            return True
+            return not has_uno
 
         tools = [t for t in tools if supports_doc(t)]
 
@@ -283,7 +286,10 @@ class ToolRegistry:
 
             # Check document compatibility using uno_services or fallback doc_types
             is_supported = False
-            if hasattr(tool, "uno_services") and tool.uno_services is not None:
+            has_uno = hasattr(tool, "uno_services") and tool.uno_services is not None
+            has_types = hasattr(tool, "doc_types") and tool.doc_types is not None
+
+            if has_uno:
                 if ctx.doc and hasattr(ctx.doc, "supportsService"):
                     for svc in tool.uno_services:
                         try:
@@ -292,11 +298,13 @@ class ToolRegistry:
                                 break
                         except Exception:
                             pass
-            elif hasattr(tool, "doc_types") and tool.doc_types is not None:
+
+            if not is_supported and has_types:
                 if ctx.doc_type and ctx.doc_type in tool.doc_types:
                     is_supported = True
-            else:
-                is_supported = True # universal tool
+
+            if not has_uno and not has_types:
+                is_supported = True  # universal tool
 
             if not is_supported:
                 raise ValueError(

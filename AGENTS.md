@@ -82,9 +82,11 @@ Bypasses document context/tools for that send; calls `web_research`. **`panel_fa
 
 ### Tools by document type
 
-- **Writer** (`TextDocument`): registered in `plugin/modules/writer/__init__.py` — `get_document_content`, `apply_document_content` (**`old_content`+`content`** for section replace; no `replace_in_document`), `search_in_document` (`return_offsets`), tree/stats, `generate_image`, etc. Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolBaseDummy`** until rebased. **Specialized tier** (`ToolWriterSpecialBase` in [`base.py`](plugin/modules/writer/base.py)): tables (e.g. `ToolWriterTableBase`), styles, layout (frames), shapes/charts in doc, indexes, fields, bookmarks, embedded — omitted from default chat/MCP tool lists via `exclude_tiers` in [`tool_registry.py`](plugin/framework/tool_registry.py). Main chat exposes **`delegate_to_specialized_writer_toolset`** ([`specialized.py`](plugin/modules/writer/specialized.py)) to run a sub-agent with only that domain’s tools. **Track changes** tools in [`tracking.py`](plugin/modules/writer/tracking.py) use `tier = "extended"` (remain visible). Prompt note: [`constants.py`](plugin/framework/constants.py) `WRITER_SPECIALIZED_DELEGATION`.
-- **Calc**: auto-discovered from `plugin/modules/calc/tools/`; shim [`tools.py`](plugin/modules/calc/tools.py); core `core/calc_*.py`. Charts / conditional formatting: [`charts.py`](plugin/modules/calc/charts.py), [`conditional.py`](plugin/modules/calc/conditional.py). **Single canonical `create_chart`** in `charts.py` (not duplicated in `sheets.py`).
-- **Draw/Impress**: auto-discovered from `plugin/modules/draw/`; context via `get_draw_context_for_chat` in `document.py`.
+Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolBaseDummy`** until rebased. **Specialized tier** (`ToolWriterSpecialBase` in [`base.py`](plugin/modules/writer/base.py)): tables (e.g. `ToolWriterTableBase`), styles, layout (frames), shapes/charts in doc, indexes, fields, bookmarks, embedded — omitted from default chat/MCP tool lists via `exclude_tiers` in [`tool_registry.py`](plugin/framework/tool_registry.py).
+
+**Testing specialized tools**: Tests should retrieve tools via `plugin.main.get_tools().get("tool_name")` rather than direct internal imports. This avoids regressions when tools are moved between specialized modules and allows bypassing tier-based filtering.
+
+**Tool Compatibility**: `ToolRegistry` prioritizes `uno_services` matches (strict), but falls back to `doc_types` if no service match is found. This ensures tools remain accessible in test environments or across slightly different LibreOffice flavors.
 
 **Menu chat**: No tool-calling; same doc detection as sidebar.
 
