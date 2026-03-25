@@ -59,6 +59,15 @@ import threading
 _services = None
 log = logging.getLogger(__name__)
 
+# Action handler registry
+_ACTION_HANDLERS = {}
+
+def register_action_handler(module_name, action_name, handler_func):
+    """Register an action handler function."""
+    key = f"{module_name}.{action_name}"
+    _ACTION_HANDLERS[key] = handler_func
+
+
 _tools = None
 _modules = []
 _init_lock = threading.Lock()
@@ -136,6 +145,43 @@ def bootstrap(ctx=None):
         from plugin.framework.worker_pool import run_in_background
         run_in_background(_update_menu_icons)
 
+        # Register core handlers
+        _register_core_handlers()
+
+
+def _register_core_handlers():
+    """Register core application handlers during bootstrap."""
+    from plugin.framework.legacy_ui import settings_box, show_eval_dashboard
+    from plugin.framework.dialogs import about_dialog
+    from plugin.tests.uno import format_tests, test_calc, test_draw
+    from plugin.framework.document import is_writer, is_calc, is_draw
+    from plugin.framework.uno_context import get_ctx
+
+    def _open_settings():
+        _open_dialog_safely(settings_box, "Failed to open settings")
+        _start_mcp_server(get_ctx())
+
+    register_action_handler("main", "settings", _open_settings)
+
+    register_action_handler("main", "about",
+        lambda: _open_dialog_safely(about_dialog, "Failed to open about dialog"))
+
+    register_action_handler("main", "EvaluationDashboard",
+        lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
+
+    register_action_handler("main", "RunFormatTests",
+        lambda: _run_test_suite(format_tests, is_writer, "writer.format_tests"))
+
+    register_action_handler("main", "RunCalcTests",
+        lambda: _run_test_suite(test_calc, is_calc, "calc.tests"))
+
+    register_action_handler("main", "RunCalcIntegrationTests",
+        lambda: _run_test_suite(test_calc, is_calc, "calc.integration_tests"))
+
+    register_action_handler("main", "RunDrawTests",
+        lambda: _run_test_suite(test_draw, is_draw, "draw.tests"))
+
+    register_action_handler("main", "NoOp", lambda: None)
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -147,6 +193,23 @@ _status_lock = threading.Lock()
 
 EXTENSION_ID = "org.extension.writeragent"
 
+
+def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
+    """Safely open a dialog with standardized error handling."""
+    from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+    try:
+        from plugin.framework.uno_context import get_ctx
+        dialog_func(get_ctx(), *args, **kwargs)
+    except DocumentDisposedError:
+        log.debug("Dialog opening aborted: document disposed")
+    except UnoObjectError as e:
+        log.warning(f"UNO error opening dialog: {e.message}")
+    except Exception as e:
+        log.error(f"{error_msg}: {e}", exc_info=True)
+        # Show user-friendly error message
+        from plugin.framework.dialogs import msgbox
+        from plugin.framework.i18n import _
+        msgbox(get_ctx(), _("Error"), _(f"{error_msg}: {str(e)}"))
 
 def _run_test_suite(test_func, doc_checker, test_name):
     """Helper to run a test suite in a blocking thread and show the result."""
@@ -170,7 +233,17 @@ def _run_test_suite(test_func, doc_checker, test_name):
 
 
 def _dispatch_command(command):
-    """Dispatch a module.action command. Used by both MainJob and DispatchHandler."""
+    """Dispatch command using handler registry, falling back to module actions."""
+    # First try the action registry
+    handler = _ACTION_HANDLERS.get(command)
+    if handler:
+        try:
+            handler()
+        except Exception as e:
+            logging.getLogger("writeragent.main").error(f"Action {command} failed: {e}", exc_info=True)
+        return
+
+    # If no handler, check for module delegation
     dot = command.find(".")
     if dot <= 0:
         log = logging.getLogger("writeragent.main")
@@ -180,53 +253,6 @@ def _dispatch_command(command):
     mod_name = command[:dot]
     action = command[dot + 1:]
 
-    # Framework actions
-    if mod_name == "main":
-        if action == "settings":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.framework.legacy_ui import settings_box
-            try:
-                settings_box(get_ctx())
-                _start_mcp_server(get_ctx())
-            except Exception as e:
-                logging.getLogger("writeragent.main").error("Failed to open settings: %s", e, exc_info=True)
-                pass
-        elif action == "about":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.framework.dialogs import about_dialog
-            try:
-                about_dialog(get_ctx())
-            except Exception as e:
-                logging.getLogger("writeragent.main").error("Failed to open about dialog: %s", e, exc_info=True)
-                pass
-        elif action == "EvaluationDashboard":
-            from plugin.framework.uno_context import get_ctx
-            from plugin.framework.legacy_ui import show_eval_dashboard
-            try:
-                show_eval_dashboard(get_ctx())
-            except Exception as e:
-                logging.getLogger("writeragent.main").error("Failed to show eval dashboard: %s", e, exc_info=True)
-                pass
-        elif action == "RunFormatTests":
-            from plugin.tests.uno import format_tests
-            from plugin.framework.document import is_writer
-            _run_test_suite(format_tests, is_writer, "writer.format_tests")
-        elif action == "RunCalcTests":
-            from plugin.tests.uno import test_calc
-            from plugin.framework.document import is_calc
-            _run_test_suite(test_calc, is_calc, "calc.tests")
-        elif action == "RunCalcIntegrationTests":
-            from plugin.tests.uno import test_calc
-            from plugin.framework.document import is_calc
-            _run_test_suite(test_calc, is_calc, "calc.integration_tests")
-        elif action == "RunDrawTests":
-            from plugin.tests.uno import test_draw
-            from plugin.framework.document import is_draw
-            _run_test_suite(test_draw, is_draw, "draw.tests")
-        elif action == "NoOp":
-            pass
-        return
-
     # Module actions
     for mod in _modules:
         if mod.name == mod_name:
@@ -234,7 +260,7 @@ def _dispatch_command(command):
             return
 
     log = logging.getLogger("writeragent.main")
-    log.warning("Module not found for command: %s", command)
+    log.warning("No handler or module found for command: %s", command)
 
 
 def get_menu_text(command):
