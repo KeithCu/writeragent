@@ -28,23 +28,30 @@ log = logging.getLogger("writeragent.writer")
 
 # 1. Inherit from the Draw tool implementation.
 # 2. Inherit from the specialized ToolWriterShapeBase to enforce Writer scoping.
-# 3. Explicitly override `uno_services` to allow Writer documents.
+# 3. Union services: same names as Draw tools; include Draw/Impress so registration
+# order does not drop support for non-Writer documents.
+_WRITER_DRAW_SHAPE_DOCS = [
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.drawing.DrawingDocument",
+    "com.sun.star.presentation.PresentationDocument",
+]
+
 
 class CreateShape(DrawCreateShape, ToolWriterShapeBase):
     name = "create_shape"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_DRAW_SHAPE_DOCS
 
 class EditShape(DrawEditShape, ToolWriterShapeBase):
     name = "edit_shape"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_DRAW_SHAPE_DOCS
 
 class DeleteShape(DrawDeleteShape, ToolWriterShapeBase):
     name = "delete_shape"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_DRAW_SHAPE_DOCS
 
 class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
     name = "get_draw_summary"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_DRAW_SHAPE_DOCS
 
 
 class ListWriterImages(ToolWriterShapeBase):

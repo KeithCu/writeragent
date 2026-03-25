@@ -30,27 +30,34 @@ from plugin.modules.calc.charts import DeleteChart as CalcDeleteChart
 
 log = logging.getLogger("writeragent.writer")
 
+# Union services: Writer wrappers share tool names with Calc; last registration wins,
+# so both must be listed or spreadsheets fail ToolRegistry.execute compatibility.
+_WRITER_AND_CALC_CHART_DOCS = [
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+]
+
 
 class ListCharts(CalcListCharts, ToolWriterChartBase):
     name = "list_charts"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_AND_CALC_CHART_DOCS
 
 
 class GetChartInfo(CalcGetChartInfo, ToolWriterChartBase):
     name = "get_chart_info"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_AND_CALC_CHART_DOCS
 
 
 class CreateChart(CalcCreateChart, ToolWriterChartBase):
     name = "create_chart"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_AND_CALC_CHART_DOCS
 
 
 class EditChart(CalcEditChart, ToolWriterChartBase):
     name = "edit_chart"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_AND_CALC_CHART_DOCS
 
 
 class DeleteChart(CalcDeleteChart, ToolWriterChartBase):
     name = "delete_chart"
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = _WRITER_AND_CALC_CHART_DOCS
