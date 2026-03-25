@@ -44,6 +44,7 @@ class ToolContext:
         "stop_checker",
         "approval_callback",
         "chat_append_callback",
+        "set_active_domain_callback",
     )
 
     def __init__(
@@ -58,6 +59,7 @@ class ToolContext:
         stop_checker=None,
         approval_callback=None,
         chat_append_callback=None,
+        set_active_domain_callback=None,
     ):
         self.doc = doc
         self.ctx = ctx
@@ -69,3 +71,4 @@ class ToolContext:
         self.stop_checker = stop_checker
         self.approval_callback = approval_callback
         self.chat_append_callback = chat_append_callback
+        self.set_active_domain_callback = set_active_domain_callback

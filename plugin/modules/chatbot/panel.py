@@ -59,6 +59,8 @@ class ChatSession:
         self.db = None
         self.messages = []
         
+        self.active_specialized_domain = None
+
         if session_id:
             try:
                 self.db = get_chat_history(session_id)

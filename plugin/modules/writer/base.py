@@ -87,22 +87,67 @@ class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
-class SpecializedWorkflowFinished(ToolBase):
-    """Tool called by the sub-agent to indicate it has completed its task."""
+# class SpecializedWorkflowFinished(ToolBase):
+#     """Tool called by the sub-agent to indicate it has completed its task."""
+#
+#     name = "specialized_workflow_finished"
+#     description = "Call this tool when you have successfully completed the specialized task."
+#     parameters = {
+#         "type": "object",
+#         "properties": {
+#             "summary": {
+#                 "type": "string",
+#                 "description": "A brief summary of what you accomplished.",
+#             },
+#         },
+#         "required": ["summary"],
+#     }
+#     tier = "specialized_control"
+#
+#     def execute(self, ctx, **kwargs):
+#         # Allow the main LLM loop to exit specialized mode
+#         from plugin.modules.writer.specialized import USE_SUB_AGENT
+#         if not USE_SUB_AGENT:
+#             if getattr(ctx, "set_active_domain_callback", None):
+#                 ctx.set_active_domain_callback(None)
+#
+#         return {
+#             "status": "ok",
+#             "finished": True,
+#             "summary": kwargs.get("summary"),
+#             "message": "Specialized workflow finished. Normal toolset restored."
+#         }
 
-    name = "specialized_workflow_finished"
-    description = "Call this tool when you have successfully completed the specialized task."
+
+class SpecializedWorkflowFinalAnswer(ToolBase):
+    """Tool called by the main chat model to indicate it has completed its specialized task.
+    This mimics the built-in 'final_answer' tool of smolagents for the in-place switching approach.
+    """
+
+    name = "final_answer"
+    description = "Provides a final answer to the given task and exits the specialized toolset mode."
     parameters = {
         "type": "object",
         "properties": {
-            "summary": {
+            "answer": {
                 "type": "string",
-                "description": "A brief summary of what you accomplished.",
+                "description": "The final answer to the task.",
             },
         },
-        "required": ["summary"],
+        "required": ["answer"],
     }
     tier = "specialized_control"
 
     def execute(self, ctx, **kwargs):
-        return {"status": "ok", "finished": True, "summary": kwargs.get("summary")}
+        # Allow the main LLM loop to exit specialized mode
+        from plugin.modules.writer.specialized import USE_SUB_AGENT
+        if not USE_SUB_AGENT:
+            if getattr(ctx, "set_active_domain_callback", None):
+                ctx.set_active_domain_callback(None)
+
+        return {
+            "status": "ok",
+            "finished": True,
+            "answer": kwargs.get("answer"),
+            "message": "Specialized task complete. Normal toolset restored."
+        }

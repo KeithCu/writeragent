@@ -139,6 +139,7 @@ class ToolRegistry:
         names=None,
         filter_doc_type=True,
         exclude_tiers=_UNSET_EXCLUDE_TIERS,
+        active_domain=None,
     ):
         """Return a list of ToolBase instances matching the given criteria.
 
@@ -152,6 +153,8 @@ class ToolRegistry:
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
                 ``specialized`` and ``specialized_control`` so nested Writer tools
                 stay off the main tool list. Pass ``()`` or ``frozenset()`` to include all tiers.
+            active_domain: If provided, dynamically includes specialized tools for this domain
+                and the specialized_workflow_finished tool.
         """
         tools = self._tools.values()
 
@@ -185,15 +188,31 @@ class ToolRegistry:
 
         tools = [t for t in tools if supports_doc(t)]
 
+        # If we have an active domain, we want to include its tools (and the finish tool),
+        # even if they are in the excluded tiers.
+        from plugin.modules.writer.base import ToolWriterSpecialBase
+
         if exclude_tiers is _UNSET_EXCLUDE_TIERS:
             to_exclude = _DEFAULT_EXCLUDE_TIERS
         else:
             to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
-        if to_exclude:
-            tools = [
-                t for t in tools
-                if getattr(t, "tier", None) not in to_exclude
-            ]
+
+        if active_domain:
+            # If an active domain is set, restrict the list ONLY to the specialized tools
+            # for that domain and the finish tool. Do not include normal core/extended tools.
+            filtered_tools = []
+            for t in tools:
+                if isinstance(t, ToolWriterSpecialBase) and t.specialized_domain == active_domain:
+                    filtered_tools.append(t)
+                elif getattr(t, "name", "") == "final_answer":
+                    filtered_tools.append(t)
+            tools = filtered_tools
+        else:
+            if to_exclude:
+                tools = [
+                    t for t in tools
+                    if getattr(t, "tier", None) not in to_exclude
+                ]
 
         if tier:
             tools = [t for t in tools if t.tier == tier]
@@ -203,14 +222,15 @@ class ToolRegistry:
             tools = [t for t in tools if t.name in names]
         return list(tools)
 
-    def get_schemas(self, protocol="openai", **kwargs):
+    def get_schemas(self, protocol="openai", active_domain=None, **kwargs):
         """Return schemas for tools matching the given kwargs criteria.
 
         Args:
             protocol: Either "openai" or "mcp".
+            active_domain: Optional active specialized domain.
             **kwargs: Filters passed to get_tools().
         """
-        tools = self.get_tools(**kwargs)
+        tools = self.get_tools(active_domain=active_domain, **kwargs)
         if protocol == "openai":
             return [to_openai_schema(t) for t in tools]
         elif protocol == "mcp":

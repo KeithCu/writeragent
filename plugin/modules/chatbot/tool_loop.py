@@ -91,9 +91,16 @@ class ToolCallingMixin:
             self._terminal_status = "Error"
             return
 
+        # Callback for updating active domain in the session
+        def set_active_domain(domain):
+            if hasattr(self, "session") and self.session:
+                self.session.active_specialized_domain = domain
+                log.debug("_do_send: updated active specialized domain to: %s", domain)
+
         try:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
-            active_tools = get_tools().get_schemas("openai", doc=model)
+            active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") else None
+            active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain)
 
             def execute_fn(
                 name,
@@ -173,6 +180,7 @@ class ToolCallingMixin:
                     chat_append_callback=chat_append_callback
                     if name == "web_research"
                     else None,
+                    set_active_domain_callback=set_active_domain,
                 )
                 try:
                     res = _get_tools().execute(name, tctx, **args)
