@@ -30,6 +30,7 @@ import unicodedata
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service_base import ServiceBase
+from plugin.modules.writer.base import ToolWriterIndexBase
 
 log = logging.getLogger("writeragent.writer.index")
 

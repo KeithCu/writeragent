@@ -14,20 +14,20 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer text frame management tools."""
+"""Writer text frame management tools (layout domain, specialized tier).
+
+Frame tool logic adapted from nelson-mcp (MPL 2.0):
+nelson-mcp/plugin/modules/writer/tools/frames.py
+"""
 
 import logging
 
-from plugin.framework.tool_base import ToolBaseDummy
+from plugin.modules.writer.base import ToolWriterLayoutBase
 
 log = logging.getLogger("writeragent.writer")
 
 
-# ------------------------------------------------------------------
-# ListTextFrames
-# ------------------------------------------------------------------
-
-class ListTextFrames(ToolBaseDummy):
+class ListTextFrames(ToolWriterLayoutBase):
     """List all text frames in the document."""
 
     name = "list_text_frames"
@@ -85,7 +85,7 @@ class ListTextFrames(ToolBaseDummy):
 # GetTextFrameInfo
 # ------------------------------------------------------------------
 
-class GetTextFrameInfo(ToolBaseDummy):
+class GetTextFrameInfo(ToolWriterLayoutBase):
     """Get detailed info about a text frame."""
 
     name = "get_text_frame_info"
@@ -183,7 +183,7 @@ class GetTextFrameInfo(ToolBaseDummy):
 # SetTextFrameProperties
 # ------------------------------------------------------------------
 
-class SetTextFrameProperties(ToolBaseDummy):
+class SetTextFrameProperties(ToolWriterLayoutBase):
     """Resize or reposition a text frame."""
 
     name = "set_text_frame_properties"

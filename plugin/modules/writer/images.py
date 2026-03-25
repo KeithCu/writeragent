@@ -29,7 +29,7 @@ import hashlib
 import os
 import tempfile
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.modules.writer.base import ToolWriterShapeBase as ToolBase, ToolBaseDummy
 from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
     get_selected_image_dimensions_px,

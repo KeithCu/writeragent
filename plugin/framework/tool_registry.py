@@ -27,6 +27,10 @@ from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger("writeragent.tools")
 
+# Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
+_DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control"})
+_UNSET_EXCLUDE_TIERS = object()
+
 
 class ToolRegistry:
     """Registers and dispatches tools.
@@ -118,7 +122,16 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True):
+    def get_tools(
+        self,
+        doc=None,
+        doc_type=None,
+        tier=None,
+        intent=None,
+        names=None,
+        filter_doc_type=True,
+        exclude_tiers=_UNSET_EXCLUDE_TIERS,
+    ):
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
@@ -128,6 +141,9 @@ class ToolRegistry:
             intent: Optional string filtering by tool intent.
             names: Optional list of specific tool names to include.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
+            exclude_tiers: Tiers to omit from the result. If omitted, excludes
+                ``specialized`` and ``specialized_control`` so nested Writer tools
+                stay off the main tool list. Pass ``()`` or ``frozenset()`` to include all tiers.
         """
         tools = self._tools.values()
 
@@ -157,6 +173,16 @@ class ToolRegistry:
             return True
 
         tools = [t for t in tools if supports_doc(t)]
+
+        if exclude_tiers is _UNSET_EXCLUDE_TIERS:
+            to_exclude = _DEFAULT_EXCLUDE_TIERS
+        else:
+            to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
+        if to_exclude:
+            tools = [
+                t for t in tools
+                if getattr(t, "tier", None) not in to_exclude
+            ]
 
         if tier:
             tools = [t for t in tools if t.tier == tier]

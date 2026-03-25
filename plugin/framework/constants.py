@@ -87,14 +87,23 @@ You have a procedural skills system (skills_list, skill_view, skill_manage).
 After completing a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, ask to save the approach as a skill using skill_manage.
 If you used a skill and found it outdated/wrong, patch it immediately using skill_manage."""
 
+WRITER_SPECIALIZED_DELEGATION = """SPECIALIZED WRITER (nested tools):
+The default tool list hides deep Writer features (tables, text frames, in-document charts,
+images on the drawing layer, TOC/index refresh, field refresh, bookmarks, OLE, etc.).
+When the user needs those, call delegate_to_specialized_writer_toolset with:
+domain one of: tables, styles, layout, embedded, shapes, charts, indexes, fields, bookmarks —
+and a clear task string. The sub-agent only sees tools for that domain."""
+
 DEFAULT_CHAT_SYSTEM_PROMPT = f"""{CORE_DIRECTIVES}
+
+{WRITER_SPECIALIZED_DELEGATION}
 
 TOOLS:
 - apply_document_content: Write HTML. Provide content and old_content. Special old_content: '' or '_BEGIN_' = beginning, '_END_' = end, '_SELECTION_' = selection; else find-and-replace. Full-doc replace: old_content=full doc, content=new doc.
   HINT: {_FORMAT_HINT}
 - get_document_content: Read document (full/selection/range) as HTML.
 - search_in_document: Find text (use return_offsets for character positions if needed for inspection).
-- list_styles / get_style_info: Discover paragraph/character styles before applying them.
+- styles_apply_to_selection: Apply a paragraph style to the selection (use after discovering style names if needed).
 - generate_image: Create a new image from a prompt, or edit the selected image (pass source_image='selection').
 
 {TRANSLATION_RULES}

@@ -14,8 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Structural tools: list_sections, goto_page, get_page_objects, refresh_indexes,
-read_section, resolve_bookmark, update_fields."""
+"""Structural tools: list_sections, goto_page, get_page_objects, read_section, resolve_bookmark.
+
+(Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
 from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
@@ -162,27 +163,6 @@ class GetPageObjects(ToolBaseDummy):
         return {"images": images, "tables": tables, "frames": frames}
 
 
-class RefreshIndexes(ToolBaseDummy):
-    name = "refresh_indexes"
-    intent = "navigate"
-    description = "Refresh all document indexes (TOC, bibliography, etc.)."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        doc = ctx.doc
-        if not hasattr(doc, "getDocumentIndexes"):
-            return self._tool_error("Document does not support indexes")
-        indexes = doc.getDocumentIndexes()
-        count = indexes.getCount()
-        refreshed = []
-        for i in range(count):
-            idx = indexes.getByIndex(i)
-            idx.update()
-            name = idx.getName() if hasattr(idx, "getName") else "index_%d" % i
-            refreshed.append(name)
-        return {"status": "ok", "refreshed": refreshed, "count": count}
 class ReadSection(ToolBaseDummy):
     """Read the content of a named text section."""
 
@@ -319,71 +299,3 @@ class ResolveBookmark(ToolBaseDummy):
                     pass
 
         return result
-class UpdateFields(ToolBaseDummy):
-    """Refresh all text fields in the document."""
-
-    name = "update_fields"
-    intent = "navigate"
-    description = (
-        "Refresh all text fields (dates, page numbers, cross-references). "
-        "Call after changes that affect computed fields."
-    )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        doc = ctx.doc
-        if not hasattr(doc, "getTextFields"):
-            return self._tool_error("Document does not support text fields.")
-        fields = doc.getTextFields()
-        fields.refresh()
-
-        # Count the fields
-        enum = fields.createEnumeration()
-        count = 0
-        while enum.hasMoreElements():
-            enum.nextElement()
-            count += 1
-
-        return {"status": "ok", "fields_refreshed": count}
-class ListBookmarks(ToolBaseDummy):
-    name = "list_bookmarks"
-    intent = "navigate"
-    description = (
-        "List all bookmarks in the document with their anchor text preview. "
-        "Includes both user bookmarks and _mcp_ heading bookmarks."
-    )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
-
-    def execute(self, ctx, **kwargs):
-        doc = ctx.doc
-        if not hasattr(doc, "getBookmarks"):
-            return {"status": "ok", "bookmarks": [], "count": 0}
-        bookmarks = doc.getBookmarks()
-        names = bookmarks.getElementNames()
-        result = []
-        for name in names:
-            bm = bookmarks.getByName(name)
-            anchor_text = bm.getAnchor().getString()
-            result.append({
-                "name": name,
-                "preview": anchor_text[:100] if anchor_text else "",
-            })
-        return {"status": "ok", "bookmarks": result, "count": len(result)}
-class CleanupBookmarks(ToolBaseDummy):
-    name = "cleanup_bookmarks"
-    intent = "navigate"
-    description = (
-        "Remove all _mcp_* bookmarks from the document. "
-        "Use when bookmarks become stale after major edits."
-    )
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        bm_svc = ctx.services.writer_bookmarks
-        removed = bm_svc.cleanup_mcp_bookmarks(ctx.doc)
-        return {"status": "ok", "removed": removed}

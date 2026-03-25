@@ -4,10 +4,6 @@ import unittest
 
 from plugin.main import get_tools
 
-# Writer table tools (tables.py) are commented out; flip to False after uncommenting
-# those ToolBase classes and restoring imports in plugin/modules/writer/__init__.py.
-WRITER_TABLE_TOOLS_DISABLED = True
-
 
 class TestWriterToolsSmoke(unittest.TestCase):
     def test_registration(self):
@@ -36,6 +32,8 @@ class TestWriterToolsSmoke(unittest.TestCase):
         self.assertNotIn("get_workflow_status", writer_tools)
         self.assertNotIn("set_workflow_status", writer_tools)
         self.assertNotIn("check_stop_conditions", writer_tools)
+        # Specialized table tools are not in the default chat tool list
+        self.assertNotIn("list_tables", writer_tools)
 
     def test_schemas(self):
         registry = get_tools()
@@ -47,13 +45,11 @@ class TestWriterToolsSmoke(unittest.TestCase):
             self.assertIn("description", s["function"])
             self.assertIn("parameters", s["function"])
 
-    @unittest.skipIf(
-        WRITER_TABLE_TOOLS_DISABLED,
-        "Writer table tools disabled; see plugin/modules/writer/tables.py and __init__.py",
-    )
     def test_table_tools_registered(self):
         registry = get_tools()
-        names = {t.name for t in registry.get_tools(doc_type="writer")}
+        names = {
+            t.name for t in registry.get_tools(doc_type="writer", exclude_tiers=())
+        }
         for name in (
             "list_tables",
             "read_table",

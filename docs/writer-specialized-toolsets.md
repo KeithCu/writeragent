@@ -1,6 +1,6 @@
 # Writer specialized toolsets (nested delegation)
 
-This document describes **why** Writer exposes many UNO-backed tools through a **two-level** model (main chat + domain-scoped sub-agent), **how** that is implemented in code, and **what** remains to be built.
+This document describes **why** Writer exposes many UNO-backed tools through a **two-level** model (main chat + domain-scoped sub-agent), **how** that is implemented in code, and the **API design philosophies** (Fine-grained vs. Fat APIs) driving these decisions.
 
 ---
 
@@ -8,7 +8,7 @@ This document describes **why** Writer exposes many UNO-backed tools through a *
 
 ### 1.1 Why this feature exists
 
-Writer documents support a large surface area in LibreOffice UNO: tables, styles, text frames, drawing shapes, embedded OLE objects, fields, indexes (TOC, bibliographies), bookmarks, charts, and more. Each area has many service names, properties, and multi-step workflows (DevGuide “create table in five steps,” field masters + dependents + refresh, etc.).
+Writer documents support a large surface area in LibreOffice UNO: tables, styles, text frames, drawing shapes, embedded OLE objects, fields, indexes (TOC, bibliographies), bookmarks, charts, **track changes** (record/review markup), and more. Each area has many service names, properties, and multi-step workflows (DevGuide “create table in five steps,” field masters + dependents + refresh, etc.).
 
 If **every** tool were advertised to the primary chat model on every turn:
 
@@ -18,7 +18,136 @@ If **every** tool were advertised to the primary chat model on every turn:
 
 The design goal is **progressive disclosure**: keep a **small, stable default tool list** for routine chat and document editing, while still allowing **full access** to deep Writer operations when the user or model explicitly enters a **domain**.
 
-### 1.2 What “success” looks like
+### 1.2 Two Perspectives on API Design
+
+Another way to solve the tool proliferation problem is through API design. There are two primary perspectives on how to structure the tools exposed to the LLM:
+
+**Perspective A: Fine-Grained (Skinny) APIs**
+Create highly specific, narrowly-scoped tools for each operation. 
+Examples: `create_footnote`, `edit_footnote`, `delete_footnote`, `create_rectangle`, `create_ellipse`.
+* **Pros:** Simpler parameter schemas per tool, easier to map directly to underlying UNO DevGuide steps, less confusing validation logic per tool. LLMs often perform better with explicit constraints.
+* **Cons:** Exploding tool counts. Even with nested delegation, a single domain like "Shapes" could end up with a dozen individual tools (`create_rectangle`, `create_ellipse`, `create_line`, `create_text_shape`, etc.).
+
+**Perspective B: Fat APIs**
+Combine related operations into broader, multi-purpose "fat" tools. 
+Examples: `manage_footnotes(action, ...)` or `create_shape(shape_type="rectangle", ...)` or `insert_element(type="footnote", text="...")`
+* **Pros:** Drastically reduces the total number of tools, limiting context size. A polymorphic schema allows more capabilities to remain in the main chat prompt, potentially eliminating the need for the sub-agent delegation pattern.
+* **Cons:** The parameter schemas become extremely large and complex (e.g., union types or deeply nested generic objects). LibreOffice operations are highly disparate, making a unified underlying Python handler harder to write compared to pure RPC bindings, and LLMs may struggle to reliably structure the union parameters correctly.
+
+#### Detailed Comparison 1: What the two APIs would look like (Footnotes)
+
+**Skinny API (Granular Approach):**
+```json
+// Tool 1: create_footnote
+{
+  "name": "create_footnote",
+  "parameters": {
+    "text": {"type": "string", "description": "The content of the footnote"}
+  }
+}
+
+// Tool 2: edit_footnote
+{
+  "name": "edit_footnote",
+  "parameters": {
+    "footnote_index": {"type": "integer"},
+    "new_text": {"type": "string"}
+  }
+}
+
+// Tool 3: delete_footnote
+{
+  "name": "delete_footnote",
+  "parameters": {
+    "footnote_index": {"type": "integer"}
+  }
+}
+```
+
+**Fat API (Polymorphic Approach):**
+```json
+// Single Tool: manage_footnotes
+{
+  "name": "manage_footnotes",
+  "parameters": {
+    "action": {"type": "string", "enum": ["create", "edit", "delete"]},
+    "footnote_index": {"type": "integer", "description": "Required for edit/delete"},
+    "text": {"type": "string", "description": "Required for create/edit"}
+  }
+}
+```
+
+#### Detailed Comparison 2: What the two APIs would look like (Shapes)
+
+LibreOffice provides numerous drawing shapes through the generic UNO `com.sun.star.drawing.Shape` interface, but instances are created using specific service names (e.g., `RectangleShape`, `EllipseShape`, `LineShape`, `TextShape`).
+
+**Skinny API (Granular Approach):**
+```json
+// Tool 1: create_rectangle
+{
+  "name": "create_rectangle",
+  "parameters": {
+    "x": {"type": "integer"},
+    "y": {"type": "integer"},
+    "width": {"type": "integer"},
+    "height": {"type": "integer"},
+    "bg_color": {"type": "string", "description": "e.g., 'red' or '#FF0000'"}
+  }
+}
+
+// Tool 2: create_ellipse
+// (Similar schema to create_rectangle)
+
+// Tool 3: create_text_shape
+{
+  "name": "create_text_shape",
+  "parameters": {
+    "x": {"type": "integer"},
+    "y": {"type": "integer"},
+    "width": {"type": "integer"},
+    "height": {"type": "integer"},
+    "text": {"type": "string"}
+  }
+}
+```
+
+**Fat API (Polymorphic Approach):**
+*(Note: This is similar to how WriterAgent currently implements shapes via `CreateShape`)*
+```json
+// Single Tool: create_shape
+{
+  "name": "create_shape",
+  "parameters": {
+    "shape_type": {"type": "string", "enum": ["rectangle", "ellipse", "text", "line"]},
+    "x": {"type": "integer"},
+    "y": {"type": "integer"},
+    "width": {"type": "integer"},
+    "height": {"type": "integer"},
+    "text": {"type": "string", "description": "Initial text (optional, applicable to text shapes)"},
+    "bg_color": {"type": "string", "description": "Background color (optional)"}
+  }
+}
+```
+**Ultra-Fat API (Single `manage_shapes` Tool):**
+```json
+{
+  "name": "manage_shapes",
+  "parameters": {
+    "action": {"type": "string", "enum": ["create", "edit", "delete"]},
+    "shape_index": {"type": "integer", "description": "Target shape (for edit/delete)"},
+    "shape_type": {"type": "string", "enum": ["rectangle", "ellipse", "text", "line"], "description": "Required for create"},
+    "geometry": {
+      "type": "object", 
+      "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "width": {"type": "integer"}, "height": {"type": "integer"}}
+    },
+    ...
+  }
+}
+```
+
+While the "Fat API" approach drastically reduces tool count and could potentially eliminate the need for nested sub-agents, we currently use the "Fine-Grained + Nested Delegation" approach for most domains because LibreOffice UNO bindings map better to explicit discrete steps, and many LLMs perform better with simpler parameter shapes than with highly polymorphic schemas. However, domains like `shapes` do employ a "medium-fat" API (`create_shape` vs `create_rectangle`, `create_ellipse`) to balance practical usability with LLM schema robustness.
+
+### 1.3 What “success” looks like under the Delegation model
 
 - The **main** sidebar chat sees `core` / `extended` tools plus the **gateway** `delegate_to_specialized_writer_toolset`, not the full set of table/style/chart/… tools.
 - When the model (or product logic) calls the gateway with a **domain** and **task**, a **short-lived sub-agent** runs with **only** tools for that domain (plus a completion tool).
@@ -192,9 +321,36 @@ The following items align with a fuller UNO/DevGuide coverage map; they are **no
 ### 5.9 Cross-cutting
 
 - **MCP / API opt-in:** Config or query parameter to list `specialized` tools on `tools/list` for power users or external agents that do not use `delegate_to_specialized_writer_toolset`.
-- **Review domain:** Optional `delegate` domain for track changes + comment workflows if the main list should shrink further.
+- **Review domain:** Optional `delegate` domain for **track changes** + comment workflows if the main list should shrink further; see [§5.10 Track changes (planned specialized toolset)](#510-track-changes-planned-specialized-toolset) for UNO entry points.
 - **Limits:** Tune `max_steps` / timeouts for the sub-agent; add telemetry on which domains are used.
 - **Documentation:** Keep [`AGENTS.md`](../../AGENTS.md) in sync when behavior or entry points change.
+
+### 5.10 Track changes (planned specialized toolset)
+
+**Status:** Not implemented. Treat this like other **specialized** domains: keep **record / review / accept-reject** operations off the default Writer tool list, and expose them only after `delegate_to_specialized_writer_toolset` enters a **track_changes** (or **review**) domain—same progressive-disclosure story as fields, indexes, tables, etc.
+
+**Product fit:** Lets the model turn recording on before bulk edits, list or filter changes by author/type, accept or reject individually or in bulk, and toggle markup visibility—without bloating every chat turn with long schemas.
+
+**UNO reference (LibreOffice Writer):** Obtain `XTrackChanges` from the document model (query the text document for the appropriate interface; exact `queryInterface` path follows your LO version and DevGuide). Use the supplier/enumeration pattern to walk changes.
+
+| Interface / type | Method | Role |
+|------------------|--------|------|
+| `XTrackChanges` | `setRecordChanges(boolean)` | Start/stop recording changes. |
+| `XTrackChanges` | `getRecordChanges()` | Query whether recording is active. |
+| `XTrackChanges` | `setShowChanges(boolean)` | Show or hide revision markup. |
+| `XTrackChanges` | `getShowChanges()` | Query whether markup is visible. |
+| `XTrackChanges` | `acceptAllChanges()` | Accept every tracked change. |
+| `XTrackChanges` | `rejectAllChanges()` | Reject every tracked change. |
+| `XTrackChangesSupplier` | `getChanges()` | Obtain an `XChanges` collection. |
+| `XChanges` | `createEnumeration()` | Enumerate `XChange` objects. |
+| `XChange` | `getAuthor()` | Author of the change. |
+| `XChange` | `getDate()` | Timestamp of the change. |
+| `XChange` | `getChangeType()` | Type: **INSERT**, **DELETE**, **FORMAT**, **MOVE**, etc. |
+| `XChange` | `getTextRange()` | Affected text range. |
+| `XChange` | `accept()` | Accept this change. |
+| `XChange` | `reject()` | Reject this change. |
+
+When implementing, align service names and includes with the installed LibreOffice SDK (e.g. `com.sun.star.text.*` track-changes interfaces) and add smoke tests against a doc with known revisions.
 
 ---
 
