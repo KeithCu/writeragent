@@ -186,14 +186,22 @@ class ToolCallingMixin:
                     res = _get_tools().execute(name, tctx, **args)
                     return json.dumps(res) if isinstance(res, dict) else str(res)
                 except (ToolExecutionError, UnoObjectError) as e:
+                    import traceback
+                    tb = traceback.format_exc()
                     log.error("Tool execution failed: %s" % e, extra={"context": "tool_execution"})
                     agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
-                    return json.dumps(format_error_payload(e))
+                    err_payload = format_error_payload(e)
+                    if "details" not in err_payload:
+                        err_payload["details"] = {}
+                    err_payload["details"]["traceback"] = tb
+                    return json.dumps(err_payload)
                 except Exception as e:
+                    import traceback
+                    tb = traceback.format_exc()
                     wrapped_error = ToolExecutionError(
                         "Unexpected error executing tool '%s'" % name,
                         code="TOOL_UNEXPECTED_ERROR",
-                        details={"tool_name": name, "original_error": str(e), "type": type(e).__name__}
+                        details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb}
                     )
                     log.error("Unexpected tool error: %s" % wrapped_error)
                     return json.dumps(format_error_payload(wrapped_error))

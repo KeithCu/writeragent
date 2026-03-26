@@ -238,9 +238,26 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             if not isinstance(result_data, dict):
                 result_data = {}
 
-            note = result_data.get("message", result_data.get("status", "done"))
             effects.append(UIEffect(kind="debug", text=f"Tool result: {result}"))
-            effects.append(UIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
+
+            if result_data.get("status") == "error":
+                import json
+                error_msg = result_data.get("message", "Unknown error")
+                details = result_data.get("details", {})
+
+                detailed_text = f"[{func_name} failed: {error_msg}]\n"
+                if details:
+                    tb = details.pop("traceback", None)
+                    if details:
+                        detailed_text += f"Details: {json.dumps(details, indent=2)}\n"
+                    if tb and tb.strip() != "NoneType: None":
+                        detailed_text += f"Traceback:\n{tb}\n"
+
+                effects.append(UIEffect(kind="append", text=detailed_text))
+                note = error_msg
+            else:
+                note = result_data.get("message", result_data.get("status", "done"))
+                effects.append(UIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
 
             if func_name == "apply_document_content" and isinstance(note, str) and note.strip().startswith("Replaced 0 occurrence"):
                 params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
