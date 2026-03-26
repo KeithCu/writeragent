@@ -787,7 +787,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             log.error(f"Failed to check memory store for librarian onboarding: {e}")
 
-        if False: # not user_md_exists:
+        # FIXME: This is how to enable the librarian onboarding agent
+        if not user_md_exists:
             log.info("_do_send: using librarian onboarding agent")
             self._run_librarian(query_text, model)
             return

@@ -5,9 +5,13 @@ from plugin.framework.config import user_config_dir
 
 log = logging.getLogger(__name__)
 
+def _resolve_uno_ctx(ctx):
+    """Accept ToolContext or raw UNO context."""
+    return getattr(ctx, "ctx", ctx)
+
 class MemoryStore:
     def __init__(self, ctx):
-        self.config_dir = user_config_dir(ctx)
+        self.config_dir = user_config_dir(_resolve_uno_ctx(ctx))
         self.memory_dir = os.path.join(self.config_dir, "memories")
         os.makedirs(self.memory_dir, exist_ok=True)
     
