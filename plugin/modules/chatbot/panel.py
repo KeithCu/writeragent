@@ -777,6 +777,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             log.error("_do_send: agent backend check failed: %s" % e)
 
+        # Check if USER.md exists for Librarian Onboarding
+        user_md_exists = False
+        try:
+            from plugin.modules.chatbot.memory import MemoryStore
+            store = MemoryStore(self.ctx)
+            if store.read("user"):
+                user_md_exists = True
+        except Exception as e:
+            log.error(f"Failed to check memory store for librarian onboarding: {e}")
+
+        if not user_md_exists:
+            log.info("_do_send: using librarian onboarding agent")
+            self._run_librarian(query_text, model)
+            return
+
         # Regular Chat with Tools or Streams
         self._do_send_chat_with_tools(query_text, model, doc_type_str.lower())
 

@@ -211,7 +211,7 @@ def get_greeting_for_document(model):
         return _(DEFAULT_WRITER_GREETING)
 
 
-def get_chat_system_prompt_for_document(model, additional_instructions=""):
+def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=None):
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
@@ -222,6 +222,17 @@ def get_chat_system_prompt_for_document(model, additional_instructions=""):
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
     else:
         base = DEFAULT_CHAT_SYSTEM_PROMPT
+
+    if ctx:
+        try:
+            from plugin.modules.chatbot.memory import MemoryStore
+            store = MemoryStore(ctx)
+            user_mem = store.read("user")
+            if user_mem:
+                base += "\n\n[USER PROFILE / MEMORY]\n" + user_mem.strip() + "\n"
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(f"Failed to read user memory for prompt: {e}")
 
     if additional_instructions and str(additional_instructions).strip():
         return base + "\n\n" + str(additional_instructions).strip()

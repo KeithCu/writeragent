@@ -209,7 +209,7 @@ class ToolCallingMixin:
 
         extra_instructions = get_config(self.ctx, "additional_instructions") or ""
         self.session.messages[0]["content"] = get_chat_system_prompt_for_document(
-            model, extra_instructions
+            model, extra_instructions, ctx=self.ctx
         )
 
         if self.model_selector:

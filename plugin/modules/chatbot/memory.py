@@ -45,6 +45,7 @@ class MemoryTool(ToolBase):
         "preferences, and quirks. Target 'memory' stores project facts, "
         "environmental notes, and general agent thoughts. "
         "Actions: 'add' (appends text + newline), 'replace' (overwrites ALL content), "
+        "'replace_key' (overwrites a specific key when using YAML/JSON-like key: value structure), "
         "'remove' (clears the file), 'read' (returns current content)."
     )
     uno_services = None
@@ -57,7 +58,7 @@ class MemoryTool(ToolBase):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "replace", "remove", "read"],
+                "enum": ["add", "replace", "replace_key", "remove", "read"],
                 "description": "The action to perform."
             },
             "target": {
@@ -67,16 +68,22 @@ class MemoryTool(ToolBase):
             },
             "content": {
                 "type": "string",
-                "description": "The text to add or replace. Ignore for read/remove."
+                "description": "The text to add or replace. If action is replace_key, this is the new value."
+            },
+            "key": {
+                "type": "string",
+                "description": "The key to update. Only used when action is replace_key."
             }
         },
         "required": ["action", "target"]
     }
 
     def execute(self, ctx, **kwargs):
+        import yaml
         action = kwargs.get("action")
         target = kwargs.get("target")
         content = kwargs.get("content", "")
+        key = kwargs.get("key")
         
         try:
             store = MemoryStore(ctx)
@@ -95,6 +102,31 @@ class MemoryTool(ToolBase):
             if store.write(target, content):
                 return {"status": "ok", "message": f"Replaced {target} memory.", "new_length": len(content)}
             return self._tool_error(f"Failed to replace {target} memory.")
+        elif action == "replace_key":
+            if not key:
+                return self._tool_error("Key is required for replace_key action.")
+            try:
+                parsed = yaml.safe_load(current) if current.strip() else {}
+                if not isinstance(parsed, dict):
+                    parsed = {"_raw": current}
+            except Exception:
+                # Fallback if invalid yaml
+                parsed = {"_raw": current}
+
+            # Nested update
+            parts = key.split(".")
+            current_dict = parsed
+            for part in parts[:-1]:
+                if part not in current_dict or not isinstance(current_dict[part], dict):
+                    current_dict[part] = {}
+                current_dict = current_dict[part]
+
+            current_dict[parts[-1]] = content
+
+            new_content = yaml.dump(parsed, sort_keys=False, allow_unicode=True)
+            if store.write(target, new_content):
+                return {"status": "ok", "message": f"Replaced key '{key}' in {target} memory."}
+            return self._tool_error(f"Failed to update key in {target} memory.")
         elif action == "add":
             new_content = current
             if new_content and not new_content.endswith("\n"):

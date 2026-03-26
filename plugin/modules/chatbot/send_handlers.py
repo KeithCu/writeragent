@@ -419,6 +419,24 @@ class SendHandlersMixin:
             self._terminal_status = "Ready"
         self._current_agent_backend = None
 
+    def _run_librarian(self, query_text, model):
+        """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
+        interpreter = EffectInterpreter(self)
+        current_state = SendHandlerState(handler_type="web", status="ready") # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
+
+        self.session.add_user_message(query_text)
+
+        # 1. State machine transition: start
+        step = next_state(current_state, StartEvent(query_text, model, "web"))
+        current_state = step.state
+        interpreter.current_state = current_state
+
+        # Manually set the run_librarian flag to distinguish from web research in effect execution
+        setattr(self, "_active_run_librarian", True)
+
+        for effect in step.effects:
+            interpreter.interpret(effect)
+
     def _run_web_research(self, query_text, model):
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
@@ -434,6 +452,10 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_web_research_effect(self, query_text, model, current_state, interpreter):
+        is_librarian = getattr(self, "_active_run_librarian", False)
+        if hasattr(self, "_active_run_librarian"):
+            delattr(self, "_active_run_librarian")
+
         from plugin.modules.http.errors import format_error_message
         from plugin.main import get_tools
         from plugin.framework.document import is_calc, is_draw
@@ -463,6 +485,7 @@ class SendHandlersMixin:
                 else "writer"
             )
             try:
+                # If librarian mode, clear active_run_librarian and run librarian
 
                 def status_cb(msg):
                     q.put(("status", msg))
@@ -511,37 +534,73 @@ class SendHandlersMixin:
 
                 import json
 
-                res = get_tools().execute(
-                    "web_research",
-                    tctx,
-                    **{"query": query_text, "history_text": history_text}
-                )
-                result = json.dumps(res) if isinstance(res, dict) else str(res)
+                if is_librarian:
+                    res = get_tools().execute(
+                        "librarian_onboarding",
+                        tctx,
+                        **{"query": query_text, "history_text": history_text}
+                    )
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
-                data = safe_json_loads(result)
-                if not isinstance(data, dict):
-                    from plugin.framework.errors import AgentParsingError, format_error_payload
-                    log.error("Failed to parse web_research result in _run_web_research [doc: %s]", doc_type)
-                    parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
-                    data = format_error_payload(parsed_err)
+                    data = safe_json_loads(result)
+                    if not isinstance(data, dict):
+                        from plugin.framework.errors import AgentParsingError, format_error_payload
+                        log.error("Failed to parse librarian result in _run_librarian [doc: %s]", doc_type)
+                        parsed_err = AgentParsingError("Invalid JSON from librarian tool.", details={"raw_result": result})
+                        data = format_error_payload(parsed_err)
 
-                if data.get("status") == "ok":
-                    from plugin.framework.i18n import _
-                    answer = data.get("result", "")
-                    if not isinstance(answer, str):
-                        answer = str(answer)
-                    msg = _("AI (research): {0}").format(answer) + "\n"
-                    q.put(("chunk", msg))
-                    # Persist assistant result to current session
-                    self.session.add_assistant_message(content=msg)
+                    if data.get("status") == "ok":
+                        from plugin.framework.i18n import _
+                        answer = data.get("result", "")
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        msg = _("Librarian: {0}").format(answer) + "\n"
+                        q.put(("chunk", msg))
+                        self.session.add_assistant_message(content=msg)
+                    elif data.get("status") == "switch_mode":
+                        # We want to exit librarian flow on the next turn. We could just stop here
+                        from plugin.framework.i18n import _
+                        msg = _("Librarian: Perfect! I'm switching you to the main assistant now. You can chat with it directly.") + "\n"
+                        q.put(("chunk", msg))
+                        self.session.add_assistant_message(content=msg)
+                    else:
+                        from plugin.framework.i18n import _
+                        msg = data.get("message", _("Unknown librarian error."))
+                        q.put(("chunk", "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))
+
+                    q.put(("stream_done", {}))
                 else:
-                    from plugin.framework.i18n import _
-                    msg = data.get("message", _("Unknown research error."))
-                    q.put(("chunk", "\n" + _("[Research error: {0}]").format(msg) + "\n"))
+                    res = get_tools().execute(
+                        "web_research",
+                        tctx,
+                        **{"query": query_text, "history_text": history_text}
+                    )
+                    result = json.dumps(res) if isinstance(res, dict) else str(res)
 
-                q.put(("stream_done", {}))
+                    data = safe_json_loads(result)
+                    if not isinstance(data, dict):
+                        from plugin.framework.errors import AgentParsingError, format_error_payload
+                        log.error("Failed to parse web_research result in _run_web_research [doc: %s]", doc_type)
+                        parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
+                        data = format_error_payload(parsed_err)
+
+                    if data.get("status") == "ok":
+                        from plugin.framework.i18n import _
+                        answer = data.get("result", "")
+                        if not isinstance(answer, str):
+                            answer = str(answer)
+                        msg = _("AI (research): {0}").format(answer) + "\n"
+                        q.put(("chunk", msg))
+                        # Persist assistant result to current session
+                        self.session.add_assistant_message(content=msg)
+                    else:
+                        from plugin.framework.i18n import _
+                        msg = data.get("message", _("Unknown research error."))
+                        q.put(("chunk", "\n" + _("[Research error: {0}]").format(msg) + "\n"))
+
+                    q.put(("stream_done", {}))
             except Exception as e:
-                log.error("Web research path ERROR in _run_web_research [doc: %s]: %s", doc_type, e)
+                log.error("Web/Librarian path ERROR in _run_web_research [doc: %s]: %s", doc_type, e)
                 from plugin.framework.errors import format_error_payload
                 q.put(("error", format_error_payload(e)))
 
