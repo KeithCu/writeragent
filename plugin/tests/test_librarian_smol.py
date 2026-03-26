@@ -24,18 +24,18 @@ class TestLibrarianSmol(unittest.TestCase):
         self.assertTrue(isinstance(smol_switch, BaseTool))
         
         # Verify inputs conversion
-        self.assertIn("action", smol_memory.inputs)
-        self.assertIn("target", smol_memory.inputs)
-        self.assertEqual(smol_memory.inputs["action"]["type"], "string")
-        self.assertEqual(smol_memory.inputs["target"]["type"], "string")
+        self.assertIn("key", smol_memory.inputs)
+        self.assertIn("content", smol_memory.inputs)
+        self.assertEqual(smol_memory.inputs["key"]["type"], "string")
+        self.assertEqual(smol_memory.inputs["content"]["type"], "string")
         
         # Verify forward call
         memory_tool.execute = MagicMock(return_value={"status": "ok"})
-        smol_memory.forward(action="read", target="user")
+        smol_memory.forward(key="favorite_color", content="blue")
         memory_tool.execute.assert_called_once()
         args, kwargs = memory_tool.execute.call_args
-        self.assertEqual(kwargs["action"], "read")
-        self.assertEqual(kwargs["target"], "user")
+        self.assertEqual(kwargs["key"], "favorite_color")
+        self.assertEqual(kwargs["content"], "blue")
 
     def test_agent_initialization_with_adapted_tools(self):
         ctx = MagicMock()
@@ -53,7 +53,7 @@ class TestLibrarianSmol(unittest.TestCase):
             model=model
         )
         self.assertEqual(len(agent.tools), 3) # memory, switch, final_answer
-        self.assertIn("memory", agent.tools)
+        self.assertIn("upsert_memory", agent.tools)
         self.assertIn("switch_to_document_mode", agent.tools)
 
     def test_switch_mode_extraction(self):
