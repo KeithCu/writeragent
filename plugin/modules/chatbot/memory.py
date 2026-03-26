@@ -23,22 +23,14 @@ class MemoryStore:
         path = self._get_path(target)
         if not os.path.exists(path):
             return ""
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-        except OSError as e:
-            log.error(f"Failed to read {target} memory: {e}")
-            return ""
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
 
     def write(self, target: str, content: str) -> bool:
         path = self._get_path(target)
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
-            return True
-        except OSError as e:
-            log.error(f"Failed to write {target} memory: {e}")
-            return False
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return True
 
 class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""
@@ -83,15 +75,17 @@ class MemoryTool(ToolBase):
             return self._tool_error(f"Failed to initialize memory store: {e}")
             
         target = "user"
-        current = store.read(target)
+        try:
+            current = store.read(target)
+        except OSError as e:
+            return self._tool_error(f"Failed to read existing memory: {e}")
         
         try:
             parsed = yaml.safe_load(current) if current.strip() else {}
             if not isinstance(parsed, dict):
                 parsed = {"_raw": current}
-        except Exception:
-            # Fallback if invalid yaml
-            parsed = {"_raw": current}
+        except Exception as e:
+            return self._tool_error(f"Failed to parse existing memory YAML: {e}")
 
         # Nested update
         parts = key.split(".")
@@ -104,6 +98,8 @@ class MemoryTool(ToolBase):
         current_dict[parts[-1]] = content
 
         new_content = yaml.dump(parsed, sort_keys=False, allow_unicode=True)
-        if store.write(target, new_content):
+        try:
+            store.write(target, new_content)
             return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
-        return self._tool_error("Failed to update memory.")
+        except OSError as e:
+            return self._tool_error(f"Failed to write memory: {e}")
