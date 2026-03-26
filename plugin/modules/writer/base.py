@@ -59,6 +59,11 @@ class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
+class ToolWriterImageBase(ToolWriterSpecialBase):
+    specialized_domain = "images"
+    intent = "media"
+    uno_services = ["com.sun.star.text.TextDocument"]
+
 class ToolWriterShapeBase(ToolWriterSpecialBase):
     specialized_domain = "shapes"
 

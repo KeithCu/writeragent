@@ -1,7 +1,6 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
-# Copyright (c) 2026 LibreCalc AI Assistant (Calc integration features, originally MIT)
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,25 +14,27 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Calc module — tools for Calc spreadsheet manipulation."""
+"""Base classes for specialized Calc toolsets."""
 
-from plugin.framework.errors import WriterAgentException
-from plugin.framework.module_base import ModuleBase
-
-
-class CalcError(WriterAgentException):
-    """Calc-specific errors."""
-
-    def __init__(self, message, code="CALC_ERROR", context=None, details=None):
-        super().__init__(message, code=code, context=context, details=details)
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 
-class CalcModule(ModuleBase):
-    """Registers Calc tools for cells, sheets, formulas, charts."""
+class ToolCalcSpecialBase(ToolBase):
+    """Base class for all specialized Calc tools.
 
-    def initialize(self, services):
-        self.services = services
+    Tools deriving from this base are NOT exposed directly to the main
+    agent's general toolset. Instead, they are exposed only to the
+    specialized sub-agent when the user delegates a task to that specific
+    domain (e.g., 'images').
+    """
 
-        services.tools.auto_discover_package(__name__)
+    tier = "specialized"
+    specialized_domain = None
 
-from . import specialized
+
+# --- Domain-Specific Base Classes ---
+
+class ToolCalcImageBase(ToolCalcSpecialBase):
+    specialized_domain = "images"
+    intent = "media"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]

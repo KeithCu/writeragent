@@ -29,7 +29,8 @@ import hashlib
 import os
 import tempfile
 
-from plugin.modules.writer.base import ToolWriterShapeBase as ToolBase, ToolBaseDummy
+from plugin.modules.writer.base import ToolWriterShapeBase as ToolBase, ToolWriterImageBase
+from plugin.modules.calc.base import ToolCalcImageBase
 from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
     get_selected_image_dimensions_px,
@@ -200,7 +201,7 @@ _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
 # ListImages
 # ------------------------------------------------------------------
 
-class ListImages(ToolBaseDummy):
+class ListImages(ToolWriterImageBase, ToolCalcImageBase):
     """List all images/graphic objects in the document."""
 
     name = "list_images"
@@ -214,22 +215,37 @@ class ListImages(ToolBaseDummy):
         "properties": {},
         "required": [],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
-        graphics = self.get_collection(doc, "getGraphicObjects", "Document does not support graphic objects.")
-        if isinstance(graphics, dict):
-            return graphics
+        is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
+        graphics_names = []
 
-        doc_svc = ctx.services.document
-        para_ranges = doc_svc.get_paragraph_ranges(doc)
-        text_obj = doc.getText()
+        if is_calc:
+            sheet = doc.getCurrentController().getActiveSheet()
+            dp = sheet.getDrawPage()
+            for i in range(dp.getCount()):
+                shape = dp.getByIndex(i)
+                if shape.supportsService("com.sun.star.drawing.GraphicObjectShape"):
+                    graphics_names.append((shape.getName(), shape))
+        else:
+            if not hasattr(doc, "getGraphicObjects"):
+                return self._tool_error("Document does not support graphic objects.")
+            graphics = doc.getGraphicObjects()
+            for name in graphics.getElementNames():
+                graphics_names.append((name, graphics.getByName(name)))
+
+        doc_svc = getattr(ctx.services, "document", None)
+        para_ranges = None
+        text_obj = None
+        if not is_calc and doc_svc:
+            para_ranges = doc_svc.get_paragraph_ranges(doc)
+            text_obj = doc.getText()
 
         images = []
-        for name in graphics.getElementNames():
+        for name, graphic in graphics_names:
             try:
-                graphic = graphics.getByName(name)
                 size = graphic.getPropertyValue("Size")
                 title = ""
                 description = ""
@@ -244,23 +260,25 @@ class ListImages(ToolBaseDummy):
 
                 # Paragraph index via anchor
                 paragraph_index = -1
-                try:
-                    anchor = graphic.getAnchor()
-                    paragraph_index = doc_svc.find_paragraph_for_range(
-                        anchor, para_ranges, text_obj
-                    )
-                except Exception:
-                    pass
+                if not is_calc and doc_svc:
+                    try:
+                        anchor = graphic.getAnchor()
+                        paragraph_index = doc_svc.find_paragraph_for_range(
+                            anchor, para_ranges, text_obj
+                        )
+                    except Exception:
+                        pass
 
                 # Page number via view cursor
                 page = None
-                try:
-                    anchor = graphic.getAnchor()
-                    vc = doc.getCurrentController().getViewCursor()
-                    vc.gotoRange(anchor.getStart(), False)
-                    page = vc.getPage()
-                except Exception:
-                    pass
+                if not is_calc:
+                    try:
+                        anchor = graphic.getAnchor()
+                        vc = doc.getCurrentController().getViewCursor()
+                        vc.gotoRange(anchor.getStart(), False)
+                        page = vc.getPage()
+                    except Exception:
+                        pass
 
                 entry = {
                     "name": name,
@@ -285,7 +303,25 @@ class ListImages(ToolBaseDummy):
 # GetImageInfo
 # ------------------------------------------------------------------
 
-class GetImageInfo(ToolBaseDummy):
+def _get_graphic_object(ctx, doc, image_name):
+    is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
+    if is_calc:
+        sheet = doc.getCurrentController().getActiveSheet()
+        dp = sheet.getDrawPage()
+        for i in range(dp.getCount()):
+            shape = dp.getByIndex(i)
+            if shape.supportsService("com.sun.star.drawing.GraphicObjectShape") and shape.getName() == image_name:
+                return shape
+        return None
+    else:
+        if not hasattr(doc, "getGraphicObjects"):
+            return None
+        graphics = doc.getGraphicObjects()
+        if graphics.hasByName(image_name):
+            return graphics.getByName(image_name)
+        return None
+
+class GetImageInfo(ToolWriterImageBase, ToolCalcImageBase):
     """Get detailed info about a specific image."""
 
     name = "get_image_info"
@@ -304,18 +340,14 @@ class GetImageInfo(ToolBaseDummy):
         },
         "required": ["image_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         image_name = kwargs.get("image_name", "")
 
-        graphic = self.get_item(
-            ctx.doc, "getGraphicObjects", image_name,
-            missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name
-        )
-        if isinstance(graphic, dict):
-            return graphic
+        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        if not graphic:
+            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
         size = graphic.getPropertyValue("Size")
 
@@ -367,16 +399,18 @@ class GetImageInfo(ToolBaseDummy):
 
         # Paragraph index via anchor
         paragraph_index = -1
-        try:
-            anchor = graphic.getAnchor()
-            doc_svc = ctx.services.document
-            para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
-            text_obj = ctx.doc.getText()
-            paragraph_index = doc_svc.find_paragraph_for_range(
-                anchor, para_ranges, text_obj
-            )
-        except Exception:
-            pass
+        is_calc = not hasattr(ctx.doc, "getGraphicObjects") and hasattr(ctx.doc, "getSheets")
+        if not is_calc:
+            try:
+                anchor = graphic.getAnchor()
+                doc_svc = ctx.services.document
+                para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
+                text_obj = ctx.doc.getText()
+                paragraph_index = doc_svc.find_paragraph_for_range(
+                    anchor, para_ranges, text_obj
+                )
+            except Exception:
+                pass
 
         return {
             "status": "ok",
@@ -399,7 +433,7 @@ class GetImageInfo(ToolBaseDummy):
 # SetImageProperties
 # ------------------------------------------------------------------
 
-class SetImageProperties(ToolBaseDummy):
+class SetImageProperties(ToolWriterImageBase, ToolCalcImageBase):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
     name = "set_image_properties"
@@ -448,7 +482,7 @@ class SetImageProperties(ToolBaseDummy):
         },
         "required": ["image_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -456,13 +490,9 @@ class SetImageProperties(ToolBaseDummy):
         if not image_name:
             return self._tool_error("image_name is required.", code="MISSING_PARAMETER", parameter="image_name")
 
-        graphic = self.get_item(
-            ctx.doc, "getGraphicObjects", image_name,
-            missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name
-        )
-        if isinstance(graphic, dict):
-            return graphic
+        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        if not graphic:
+            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
         updated = []
 
@@ -529,7 +559,7 @@ class SetImageProperties(ToolBaseDummy):
 # DownloadImage
 # ------------------------------------------------------------------
 
-class DownloadImage(ToolBaseDummy):
+class DownloadImage(ToolWriterImageBase, ToolCalcImageBase):
     """Download an image from URL to local cache."""
 
     name = "download_image"
@@ -556,7 +586,7 @@ class DownloadImage(ToolBaseDummy):
         },
         "required": ["url"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         url = kwargs.get("url", "")
@@ -576,7 +606,7 @@ class DownloadImage(ToolBaseDummy):
 # InsertImage
 # ------------------------------------------------------------------
 
-class InsertImage(ToolBaseDummy):
+class InsertImage(ToolWriterImageBase, ToolCalcImageBase):
     """Insert an image from local path or URL into the document."""
 
     name = "insert_image"
@@ -616,7 +646,7 @@ class InsertImage(ToolBaseDummy):
         },
         "required": ["image_path"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -630,6 +660,7 @@ class InsertImage(ToolBaseDummy):
         paragraph_index = kwargs.get("paragraph_index")
 
         doc = ctx.doc
+        is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
 
         # Auto-download URLs
         if image_path.startswith("http://") or image_path.startswith("https://"):
@@ -645,7 +676,10 @@ class InsertImage(ToolBaseDummy):
         file_url = uno.systemPathToFileUrl(os.path.abspath(image_path))
 
         # Create graphic object
-        graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
+        if is_calc:
+            graphic = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
+        else:
+            graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
         graphic.setPropertyValue("GraphicURL", file_url)
 
         # Set size
@@ -655,29 +689,42 @@ class InsertImage(ToolBaseDummy):
         size.Height = int(height_mm) * 100
         graphic.setPropertyValue("Size", size)
 
-        # Resolve insertion point
-        doc_text = doc.getText()
-        doc_svc = ctx.services.document
-
-        if locator is not None and paragraph_index is None:
-            resolved = doc_svc.resolve_locator(doc, locator)
-            paragraph_index = resolved.get("para_index")
-
-        if paragraph_index is not None:
-            target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
-            if target is None:
-                return self._tool_error(
-                    f"Paragraph {paragraph_index} not found.",
-                    code="PARAGRAPH_NOT_FOUND",
-                    paragraph_index=paragraph_index
-                )
-            cursor = doc_text.createTextCursorByRange(target.getEnd())
+        # Resolve insertion point and insert
+        if is_calc:
+            # For Calc, insert into the current sheet's draw page
+            sheet = doc.getCurrentController().getActiveSheet()
+            dp = sheet.getDrawPage()
+            dp.add(graphic)
+            # Center or place it in the view if possible, otherwise just at 0,0
+            # For now, we set a basic position
+            from com.sun.star.awt import Point
+            pos = Point()
+            pos.X = 1000
+            pos.Y = 1000
+            graphic.setPosition(pos)
         else:
-            # Insert at current cursor position (end of document)
-            cursor = doc_text.createTextCursor()
-            cursor.gotoEnd(False)
+            doc_text = doc.getText()
+            doc_svc = getattr(ctx.services, "document", None)
 
-        doc_text.insertTextContent(cursor, graphic, False)
+            if locator is not None and paragraph_index is None and doc_svc:
+                resolved = doc_svc.resolve_locator(doc, locator)
+                paragraph_index = resolved.get("para_index")
+
+            if paragraph_index is not None and doc_svc:
+                target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
+                if target is None:
+                    return self._tool_error(
+                        f"Paragraph {paragraph_index} not found.",
+                        code="PARAGRAPH_NOT_FOUND",
+                        paragraph_index=paragraph_index
+                    )
+                cursor = doc_text.createTextCursorByRange(target.getEnd())
+            else:
+                # Insert at current cursor position (end of document)
+                cursor = doc_text.createTextCursor()
+                cursor.gotoEnd(False)
+
+            doc_text.insertTextContent(cursor, graphic, False)
 
         return {
             "status": "ok",
@@ -691,7 +738,7 @@ class InsertImage(ToolBaseDummy):
 # DeleteImage
 # ------------------------------------------------------------------
 
-class DeleteImage(ToolBaseDummy):
+class DeleteImage(ToolWriterImageBase, ToolCalcImageBase):
     """Delete an image from the document."""
 
     name = "delete_image"
@@ -711,23 +758,25 @@ class DeleteImage(ToolBaseDummy):
         },
         "required": ["image_name"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
         image_name = kwargs.get("image_name", "")
 
-        graphic = self.get_item(
-            ctx.doc, "getGraphicObjects", image_name,
-            missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name
-        )
-        if isinstance(graphic, dict):
-            return graphic
+        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        if not graphic:
+            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        anchor = graphic.getAnchor()
-        text = anchor.getText()
-        text.removeTextContent(graphic)
+        is_calc = not hasattr(ctx.doc, "getGraphicObjects") and hasattr(ctx.doc, "getSheets")
+        if is_calc:
+            sheet = ctx.doc.getCurrentController().getActiveSheet()
+            dp = sheet.getDrawPage()
+            dp.remove(graphic)
+        else:
+            anchor = graphic.getAnchor()
+            text = anchor.getText()
+            text.removeTextContent(graphic)
 
         return {"status": "ok", "deleted": image_name}
 
@@ -736,7 +785,7 @@ class DeleteImage(ToolBaseDummy):
 # ReplaceImage
 # ------------------------------------------------------------------
 
-class ReplaceImage(ToolBaseDummy):
+class ReplaceImage(ToolWriterImageBase, ToolCalcImageBase):
     """Replace an image's source file keeping position and frame."""
 
     name = "replace_image"
@@ -766,7 +815,7 @@ class ReplaceImage(ToolBaseDummy):
         },
         "required": ["image_name", "new_image_path"],
     }
-    uno_services = ["com.sun.star.text.TextDocument"]
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -775,13 +824,9 @@ class ReplaceImage(ToolBaseDummy):
         image_name = kwargs.get("image_name", "")
         new_image_path = kwargs.get("new_image_path", "")
 
-        graphic = self.get_item(
-            ctx.doc, "getGraphicObjects", image_name,
-            missing_msg="Document does not support graphic objects.",
-            not_found_msg="Image '%s' not found." % image_name
-        )
-        if isinstance(graphic, dict):
-            return graphic
+        graphic = _get_graphic_object(ctx, ctx.doc, image_name)
+        if not graphic:
+            return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
         # Auto-download URLs
         if new_image_path.startswith("http://") or new_image_path.startswith("https://"):
