@@ -22,6 +22,11 @@ def mock_ctx():
         def __init__(self):
             self.doc = MagicMock()
             self.doc_type = "writer"
+            self.services = {}
+            self.ctx = MagicMock()
+
+        def get(self, key, default=None):
+            return self.services.get(key, default)
     return DummyContext()
 
 
@@ -90,12 +95,15 @@ def test_fields_insert(mock_ctx):
 
     tool = FieldsInsert()
     props = {"NumberingType": 4, "IsDate": True}
-    res = tool.execute(mock_ctx, field_type="PageNumber", properties=props)
+    res = tool.execute(mock_ctx, field_type="PageNumber", properties=props, target="selection")
 
     assert res["status"] == "ok"
     doc.createInstance.assert_called_with("com.sun.star.text.textfield.PageNumber")
     assert mock_field.setPropertyValue.call_count == 2
-    mock_text.insertTextContent.assert_called_with(mock_view_cursor, mock_field, False)
+
+    # Text insertion uses the cursor returned by resolve_target_cursor (doc.getText().createTextCursor)
+    mock_cursor = doc.getText().createTextCursor()
+    mock_cursor.getText().insertTextContent.assert_called_with(mock_cursor, mock_field, False)
 
 
 def test_fields_delete(mock_ctx):

@@ -16,6 +16,8 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     name = "embedded_insert"
     description = (
         "Insert an embedded object (e.g. Calc spreadsheet) into the document. "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text. "
         "Planned: CLSID-based insert + in-place activation."
     )
     parameters = {
@@ -25,12 +27,33 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
                 "type": "string",
                 "description": "Target type, e.g. spreadsheet, chart.",
             },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to insert the embedded object.",
+            },
+            "old_content": {
+                "type": "string",
+                "description": "Text to find and replace if target = 'search'.",
+            },
         },
         "required": [],
     }
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
+        target = kwargs.get("target", "selection")
+        old_content = kwargs.get("old_content")
+
+        from plugin.modules.writer.target_resolver import resolve_target_cursor
+        try:
+            cursor = resolve_target_cursor(ctx, target, old_content)
+        except ValueError as ve:
+            return self._tool_error(str(ve))
+
+        if not cursor:
+            return self._tool_error("Failed to resolve target location.")
+
         return self._tool_error(
             "embedded_insert is not implemented yet. Use Insert > Object > OLE Object "
             "in LibreOffice Writer."

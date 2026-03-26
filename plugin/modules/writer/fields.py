@@ -191,13 +191,14 @@ class FieldsInsert(ToolWriterFieldBase):
     name = "fields_insert"
     intent = "edit"
     description = (
-        "Insert a text field at the current cursor position. Supports various "
-        "field types natively provided by LibreOffice. Common field types include: "
+        "Insert a text field at the specified target position. "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text. "
+        "Supports various field types natively provided by LibreOffice. Common field types include: "
         "'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', "
         "'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', "
         "'EmbeddedObjectCount', and 'Annotation'. Specify optional properties "
-        "to configure the field, such as 'NumberingType' (e.g., 4 for Arabic numerals) "
-        "or 'IsDate' (true/false) for DateTime fields."
+        "to configure the field."
     )
     parameters = {
         "type": "object",
@@ -219,6 +220,15 @@ class FieldsInsert(ToolWriterFieldBase):
                 ),
                 "default": {},
             },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to insert the field.",
+            },
+            "old_content": {
+                "type": "string",
+                "description": "Text to find and replace if target = 'search'.",
+            },
         },
         "required": ["field_type"],
     }
@@ -228,6 +238,18 @@ class FieldsInsert(ToolWriterFieldBase):
         doc = ctx.doc
         if not hasattr(doc, "createInstance"):
             return self._tool_error("Document does not support creating instances.")
+
+        target = kwargs.get("target", "selection")
+        old_content = kwargs.get("old_content")
+
+        from plugin.modules.writer.target_resolver import resolve_target_cursor
+        try:
+            cursor = resolve_target_cursor(ctx, target, old_content)
+        except ValueError as ve:
+            return self._tool_error(str(ve))
+
+        if not cursor:
+            return self._tool_error("Failed to resolve target location.")
 
         properties = properties or {}
         full_service_name = f"com.sun.star.text.textfield.{field_type}"
@@ -246,12 +268,13 @@ class FieldsInsert(ToolWriterFieldBase):
             except Exception as e:
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {str(e)}")
 
-        # Insert at current view cursor
+        if target == "search" and old_content:
+            cursor.setString("")
+
+        # Insert at resolved cursor
         try:
-            controller = doc.getCurrentController()
-            view_cursor = controller.getViewCursor()
-            text = view_cursor.getText()
-            text.insertTextContent(view_cursor, field, False)
+            text = cursor.getText()
+            text.insertTextContent(cursor, field, False)
         except Exception as e:
             return self._tool_error(f"Failed to insert field into document: {str(e)}")
 

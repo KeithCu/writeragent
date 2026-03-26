@@ -101,8 +101,10 @@ class IndexesCreate(ToolWriterIndexBase):
     name = "indexes_create"
     intent = "edit"
     description = (
-        "Create a new document index (e.g. toc, alphabetical, user, illustration, table, object, bibliography) "
-        "at the current selection/cursor."
+        "Create a new document index (e.g. toc, alphabetical, user, illustration, table, object, bibliography). "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text. "
+        "Note for future AI maintainers: Other specialized tools may also need this logic."
     )
     parameters = {
         "type": "object",
@@ -119,7 +121,16 @@ class IndexesCreate(ToolWriterIndexBase):
             "create_from_outline": {
                 "type": "boolean",
                 "description": "Whether to create the index from the document outline (mainly for toc). Default true.",
-            }
+            },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to insert the index.",
+            },
+            "old_content": {
+                "type": "string",
+                "description": "Text to find and replace if target = 'search'.",
+            },
         },
         "required": ["index_kind"],
     }
@@ -130,6 +141,8 @@ class IndexesCreate(ToolWriterIndexBase):
         index_kind = kwargs.get("index_kind", "toc")
         title = kwargs.get("title")
         create_from_outline = kwargs.get("create_from_outline", True)
+        target = kwargs.get("target", "selection")
+        old_content = kwargs.get("old_content")
 
         try:
             # Map simplified names to UNO services
@@ -151,9 +164,17 @@ class IndexesCreate(ToolWriterIndexBase):
             if index_kind == "toc" and hasattr(index, "CreateFromOutline"):
                 index.CreateFromOutline = create_from_outline
 
-            cursor = ctx.get_cursor()
+            from plugin.modules.writer.target_resolver import resolve_target_cursor
+            try:
+                cursor = resolve_target_cursor(ctx, target, old_content)
+            except ValueError as ve:
+                return self._tool_error(str(ve))
+
             if not cursor:
-                return self._tool_error("No current selection or cursor position to insert index.")
+                return self._tool_error("Failed to resolve target location.")
+
+            if target == "search" and old_content:
+                cursor.setString("")
 
             text = cursor.getText()
             text.insertTextContent(cursor, index, False)
@@ -172,7 +193,9 @@ class IndexesAddMark(ToolWriterIndexBase):
     name = "indexes_add_mark"
     intent = "edit"
     description = (
-        "Add an index mark (e.g. alphabetical index entry) at the current selection. "
+        "Add an index mark (e.g. alphabetical index entry). "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text. "
         "Can specify primary/secondary keys for alphabetical indexes."
     )
     parameters = {
@@ -194,7 +217,16 @@ class IndexesAddMark(ToolWriterIndexBase):
             "secondary_key": {
                 "type": "string",
                 "description": "The secondary key for an alphabetical index entry (optional).",
-            }
+            },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to insert the index mark.",
+            },
+            "old_content": {
+                "type": "string",
+                "description": "Text to find and replace if target = 'search'.",
+            },
         },
         "required": ["mark_text"],
     }
@@ -206,11 +238,17 @@ class IndexesAddMark(ToolWriterIndexBase):
         index_kind = kwargs.get("index_kind", "alphabetical")
         primary_key = kwargs.get("primary_key")
         secondary_key = kwargs.get("secondary_key")
+        target = kwargs.get("target", "selection")
+        old_content = kwargs.get("old_content")
 
-        # FIXME: Currently applies to the current selection. Review supporting explicit document locations in the future.
-        cursor = ctx.get_cursor()
+        from plugin.modules.writer.target_resolver import resolve_target_cursor
+        try:
+            cursor = resolve_target_cursor(ctx, target, old_content)
+        except ValueError as ve:
+            return self._tool_error(str(ve))
+
         if not cursor:
-            return self._tool_error("No current selection to add index mark.")
+            return self._tool_error("Failed to resolve target location.")
 
         try:
             service_name = "com.sun.star.text.DocumentIndexMark"

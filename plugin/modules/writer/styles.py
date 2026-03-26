@@ -169,14 +169,16 @@ class GetStyleInfo(ToolBase):
         return {"status": "ok", **info}
 
 
-class StylesApplyToSelection(FrameworkToolBase):
-    """Apply a paragraph style to the current selection (or paragraph under cursor)."""
+class StylesApply(FrameworkToolBase):
+    """Apply a paragraph style."""
 
-    name = "styles_apply_to_selection"
+    name = "styles_apply"
     intent = "edit"
     tier = "extended"
     description = (
-        "Apply a paragraph style name to the current text selection. "
+        "Apply a paragraph style name to a specific target. "
+        "Use target='beginning', 'end', or 'selection' to apply to those positions. "
+        "Use target='search' with old_content to apply to the found text. "
         "For a full style list, use delegate_to_specialized_writer_toolset(domain=styles) "
         "or discover names from the document / Styles sidebar."
     )
@@ -186,6 +188,15 @@ class StylesApplyToSelection(FrameworkToolBase):
             "style_name": {
                 "type": "string",
                 "description": "Paragraph style name (e.g. Heading 1).",
+            },
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "full_document", "search"],
+                "description": "Where to apply the style.",
+            },
+            "old_content": {
+                "type": "string",
+                "description": "Text to find and apply style to if target = 'search'.",
             },
         },
         "required": ["style_name"],
@@ -198,10 +209,20 @@ class StylesApplyToSelection(FrameworkToolBase):
         if not style_name:
             return self._tool_error("style_name is required.")
 
-        ctrl = ctx.doc.getCurrentController()
-        vc = ctrl.getViewCursor()
+        target = kwargs.get("target", "selection")
+        old_content = kwargs.get("old_content")
+
+        from plugin.modules.writer.target_resolver import resolve_target_cursor
         try:
-            vc.setPropertyValue("ParaStyleName", style_name)
+            cursor = resolve_target_cursor(ctx, target, old_content)
+        except ValueError as ve:
+            return self._tool_error(str(ve))
+
+        if not cursor:
+            return self._tool_error("Failed to resolve target location.")
+
+        try:
+            cursor.setPropertyValue("ParaStyleName", style_name)
         except Exception as e:
             return self._tool_error(
                 "Could not apply style (select text or a paragraph): %s" % e
