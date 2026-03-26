@@ -49,7 +49,7 @@ class TestMemoryToolContext(unittest.TestCase):
         self.assertEqual(result.get("status"), "ok")
         user_memory_path = os.path.join(self.tmp_dir, "memories", "USER.md")
         with open(user_memory_path, "r", encoding="utf-8") as f:
-            self.assertIn("user_name: Keith", f.read())
+            self.assertIn('"user_name": "Keith"', f.read())
 
 
 if __name__ == "__main__":
