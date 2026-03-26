@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-24 21:17-0400\n"
+"POT-Creation-Date: 2026-03-26 14:57-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:657
+#: plugin/modules/chatbot/panel.py:659
 msgid "Starting..."
 msgstr "起動..."
 
@@ -294,7 +294,7 @@ msgstr "{resource_type} が見つかりません: {identifier}"
 msgid "Settings"
 msgstr "設定"
 
-#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:734
+#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:736
 #: plugin/modules/chatbot/send_handlers.py:300
 #: plugin/modules/chatbot/send_handlers.py:310
 #: plugin/modules/chatbot/send_handlers.py:319 plugin/main.py:212
@@ -314,7 +314,7 @@ msgstr "無効な設定"
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatureは1.0以下である必要があります"
 
-#: plugin/framework/constants.py:185
+#: plugin/framework/constants.py:193
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
@@ -322,14 +322,14 @@ msgstr ""
 "AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻"
 "訳できます。ぜひお試しください！"
 
-#: plugin/framework/constants.py:186
+#: plugin/framework/constants.py:194
 msgid ""
 "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しくだ"
 "さい！"
 
-#: plugin/framework/constants.py:187
+#: plugin/framework/constants.py:195
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
@@ -337,7 +337,7 @@ msgstr ""
 "AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いしま"
 "す。ぜひお試しください！"
 
-#: plugin/framework/constants.py:188
+#: plugin/framework/constants.py:196
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -483,6 +483,18 @@ msgstr "WriterAgent: 選択範囲の編集 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 
+#: plugin/modules/calc/specialized.py:97
+#: plugin/modules/writer/specialized.py:108
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っていま"
+"す。完了したら 'specialized_workflow_finished' を呼び出して、APIのフルセット"
+"を復元してください。"
+
 #: plugin/modules/writer/legacy.py:43 plugin/modules/writer/legacy.py:54
 #: plugin/modules/chatbot/selection.py:80
 #: plugin/modules/chatbot/selection.py:165
@@ -499,39 +511,39 @@ msgstr "WriterAgent: 選択範囲の編集"
 msgid "Ready"
 msgstr "準備ができて"
 
-#: plugin/modules/chatbot/panel.py:313 plugin/modules/chatbot/panel.py:632
+#: plugin/modules/chatbot/panel.py:315 plugin/modules/chatbot/panel.py:634
 msgid "Accept"
 msgstr "承認"
 
-#: plugin/modules/chatbot/panel.py:329 plugin/modules/chatbot/panel.py:828
+#: plugin/modules/chatbot/panel.py:331 plugin/modules/chatbot/panel.py:846
 msgid "Change"
 msgstr "変更"
 
-#: plugin/modules/chatbot/panel.py:333 plugin/modules/chatbot/panel.py:835
+#: plugin/modules/chatbot/panel.py:335 plugin/modules/chatbot/panel.py:853
 msgid "Reject"
 msgstr "拒否"
 
-#: plugin/modules/chatbot/panel.py:350
+#: plugin/modules/chatbot/panel.py:352
 msgid "Waiting for approval…"
 msgstr "承認を待っています…"
 
-#: plugin/modules/chatbot/panel.py:638
+#: plugin/modules/chatbot/panel.py:640
 msgid "Record"
 msgstr "録音"
 
-#: plugin/modules/chatbot/panel.py:640
+#: plugin/modules/chatbot/panel.py:642
 msgid "Stop Rec"
 msgstr "録音停止"
 
-#: plugin/modules/chatbot/panel.py:642 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py:644 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "送信"
 
-#: plugin/modules/chatbot/panel.py:666
+#: plugin/modules/chatbot/panel.py:668
 msgid "Getting document..."
 msgstr "ドキュメントを取得しています..."
 
-#: plugin/modules/chatbot/panel.py:671
+#: plugin/modules/chatbot/panel.py:673
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
@@ -539,7 +551,7 @@ msgstr ""
 "[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、"
 "または Draw) が見つかりません。]"
 
-#: plugin/modules/chatbot/panel.py:680
+#: plugin/modules/chatbot/panel.py:682
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
@@ -548,7 +560,7 @@ msgstr ""
 "[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報"
 "告してください。]"
 
-#: plugin/modules/chatbot/panel.py:687
+#: plugin/modules/chatbot/panel.py:689
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
@@ -557,7 +569,7 @@ msgstr ""
 "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ぜひご報告くだ"
 "さい！】"
 
-#: plugin/modules/chatbot/panel.py:731
+#: plugin/modules/chatbot/panel.py:733
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -634,19 +646,42 @@ msgstr ""
 "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）"
 "を確認してください。]"
 
-#: plugin/modules/chatbot/send_handlers.py:533
+#: plugin/modules/chatbot/send_handlers.py:557
+#: plugin/modules/chatbot/send_handlers.py:564
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "ライブラリアン：{0}"
+
+#: plugin/modules/chatbot/send_handlers.py:563
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "完璧！今からメインアシスタントに切り替えます。"
+
+#: plugin/modules/chatbot/send_handlers.py:569
+msgid "Unknown librarian error."
+msgstr "不明なライブラリアンエラー。"
+
+#: plugin/modules/chatbot/send_handlers.py:570
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[ライブラリアンエラー：{0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:593
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "AI（研究）: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:539
+#: plugin/modules/chatbot/send_handlers.py:599
 msgid "Unknown research error."
 msgstr "不明な研究エラー。"
 
-#: plugin/modules/chatbot/send_handlers.py:540
+#: plugin/modules/chatbot/send_handlers.py:600
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[研究エラー: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:72
+msgid "Switching to document mode..."
+msgstr "ドキュメントモードに切り替え中…"
 
 #: plugin/modules/chatbot/panel_factory.py:485
 msgid "Size:"
@@ -1036,36 +1071,6 @@ msgstr "ローカルホストのみ、認証なし。stdio 経由のアクセス
 
 msgid "MCP Port"
 msgstr "MCP ポート"
-
-msgid "Tunnel providers for external MCP access"
-msgstr "外部 MCP アクセス用のトンネルプロバイダー"
-
-msgid "Auto Start Tunnel"
-msgstr "トンネルの自動開始"
-
-msgid "Tunnel Provider"
-msgstr "トンネルプロバイダー"
-
-msgid "Bore Server"
-msgstr "Bore サーバー"
-
-msgid "Relay server (default: bore.pub)"
-msgstr "リレーサーバー (デフォルト: bore.pub)"
-
-msgid "Cloudflare Tunnel Name"
-msgstr "Cloudflare トンネル名"
-
-msgid "Optional: use a named tunnel instead of a quick tunnel"
-msgstr "オプション: クイックトンネルの代わりに名前付きトンネルを使用する"
-
-msgid "Cloudflare Public URL"
-msgstr "Cloudflare パブリック URL"
-
-msgid "Required for named tunnels"
-msgstr "名前付きトンネルに必須"
-
-msgid "Ngrok Authtoken"
-msgstr "Ngrok 認証トークン"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ドキュメントツール (ナビゲーションと検索を含む)"

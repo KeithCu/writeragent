@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-24 21:17-0400\n"
+"POT-Creation-Date: 2026-03-26 14:57-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:657
+#: plugin/modules/chatbot/panel.py:659
 msgid "Starting..."
 msgstr "Запуск..."
 
@@ -297,7 +297,7 @@ msgstr "\"{resource_type} не найден: {identifier}\""
 msgid "Settings"
 msgstr "Настройки"
 
-#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:734
+#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:736
 #: plugin/modules/chatbot/send_handlers.py:300
 #: plugin/modules/chatbot/send_handlers.py:310
 #: plugin/modules/chatbot/send_handlers.py:319 plugin/main.py:212
@@ -317,7 +317,7 @@ msgstr "Недействительная настройка"
 msgid "Temperature must be <= 1.0"
 msgstr "Температура должна быть <= 1.0"
 
-#: plugin/framework/constants.py:185
+#: plugin/framework/constants.py:193
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
@@ -325,14 +325,14 @@ msgstr ""
 "ИИ: Я могу мгновенно отредактировать или перевести ваш документ с "
 "профессиональным форматированием и цветом. Попробуйте!"
 
-#: plugin/framework/constants.py:186
+#: plugin/framework/constants.py:194
 msgid ""
 "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "ИИ: Я могу помочь вам с формулами, анализом данных и красочными диаграммами. "
 "Попробуйте!"
 
-#: plugin/framework/constants.py:187
+#: plugin/framework/constants.py:195
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
@@ -340,7 +340,7 @@ msgstr ""
 "ИИ: Я могу помочь вам создавать и редактировать элегантные, красочные фигуры "
 "в Draw и Impress. Попробуйте!"
 
-#: plugin/framework/constants.py:188
+#: plugin/framework/constants.py:196
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -486,6 +486,18 @@ msgstr "WriterAgent: Редактировать выделение (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Расширить выделение (Calc)"
 
+#: plugin/modules/calc/specialized.py:97
+#: plugin/modules/writer/specialized.py:108
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Вызов инструмента переключён на '{0}'. Вы находитесь в режиме "
+"специализированного набора инструментов. При завершении вы должны вызвать "
+"'specialized_workflow_finished', чтобы восстановить полный набор API."
+
 #: plugin/modules/writer/legacy.py:43 plugin/modules/writer/legacy.py:54
 #: plugin/modules/chatbot/selection.py:80
 #: plugin/modules/chatbot/selection.py:165
@@ -502,39 +514,39 @@ msgstr "WriterAgent: Редактировать выделение"
 msgid "Ready"
 msgstr "Готово"
 
-#: plugin/modules/chatbot/panel.py:313 plugin/modules/chatbot/panel.py:632
+#: plugin/modules/chatbot/panel.py:315 plugin/modules/chatbot/panel.py:634
 msgid "Accept"
 msgstr "Принять"
 
-#: plugin/modules/chatbot/panel.py:329 plugin/modules/chatbot/panel.py:828
+#: plugin/modules/chatbot/panel.py:331 plugin/modules/chatbot/panel.py:846
 msgid "Change"
 msgstr "Изменить"
 
-#: plugin/modules/chatbot/panel.py:333 plugin/modules/chatbot/panel.py:835
+#: plugin/modules/chatbot/panel.py:335 plugin/modules/chatbot/panel.py:853
 msgid "Reject"
 msgstr "Отклонить"
 
-#: plugin/modules/chatbot/panel.py:350
+#: plugin/modules/chatbot/panel.py:352
 msgid "Waiting for approval…"
 msgstr "Ожидание одобрения…"
 
-#: plugin/modules/chatbot/panel.py:638
+#: plugin/modules/chatbot/panel.py:640
 msgid "Record"
 msgstr "Запись"
 
-#: plugin/modules/chatbot/panel.py:640
+#: plugin/modules/chatbot/panel.py:642
 msgid "Stop Rec"
 msgstr "Остановить"
 
-#: plugin/modules/chatbot/panel.py:642 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py:644 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Отправить"
 
-#: plugin/modules/chatbot/panel.py:666
+#: plugin/modules/chatbot/panel.py:668
 msgid "Getting document..."
 msgstr "Получение документа..."
 
-#: plugin/modules/chatbot/panel.py:671
+#: plugin/modules/chatbot/panel.py:673
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
@@ -542,7 +554,7 @@ msgstr ""
 "[В активном окне не найдено совместимого документа LibreOffice (Writer, Calc "
 "или Draw).]"
 
-#: plugin/modules/chatbot/panel.py:680
+#: plugin/modules/chatbot/panel.py:682
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
@@ -551,7 +563,7 @@ msgstr ""
 "[Внутренняя ошибка: Тип документа изменен с {0} на {1}! Пожалуйста, сообщите "
 "об ошибке.]"
 
-#: plugin/modules/chatbot/panel.py:687
+#: plugin/modules/chatbot/panel.py:689
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
@@ -560,7 +572,7 @@ msgstr ""
 "[Внутренняя ошибка: Не удалось определить тип документа для {0}. Пожалуйста, "
 "сообщите об этом!]"
 
-#: plugin/modules/chatbot/panel.py:731
+#: plugin/modules/chatbot/panel.py:733
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -636,19 +648,42 @@ msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Бэкенд агента '{0}' недоступен. Проверьте настройки (путь, установка).]"
 
-#: plugin/modules/chatbot/send_handlers.py:533
+#: plugin/modules/chatbot/send_handlers.py:557
+#: plugin/modules/chatbot/send_handlers.py:564
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Библиотекарь: {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:563
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Отлично! Теперь я переключаю вас на главного ассистента."
+
+#: plugin/modules/chatbot/send_handlers.py:569
+msgid "Unknown librarian error."
+msgstr "Неизвестная ошибка библиотекаря."
+
+#: plugin/modules/chatbot/send_handlers.py:570
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Ошибка библиотекаря: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:593
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "ИИ (исследование): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:539
+#: plugin/modules/chatbot/send_handlers.py:599
 msgid "Unknown research error."
 msgstr "Неизвестная ошибка исследования."
 
-#: plugin/modules/chatbot/send_handlers.py:540
+#: plugin/modules/chatbot/send_handlers.py:600
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Ошибка исследования: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:72
+msgid "Switching to document mode..."
+msgstr "Переключение в режим документов..."
 
 #: plugin/modules/chatbot/panel_factory.py:485
 msgid "Size:"
@@ -1043,36 +1078,6 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "Порт MCP"
-
-msgid "Tunnel providers for external MCP access"
-msgstr "Провайдеры туннелей для внешнего доступа к MCP"
-
-msgid "Auto Start Tunnel"
-msgstr "Автозапуск туннеля"
-
-msgid "Tunnel Provider"
-msgstr "Провайдер туннеля"
-
-msgid "Bore Server"
-msgstr "Переключить сервер MCP"
-
-msgid "Relay server (default: bore.pub)"
-msgstr "Сервер ретрансляции (по умолчанию: bore.pub)"
-
-msgid "Cloudflare Tunnel Name"
-msgstr "Имя туннеля Cloudflare"
-
-msgid "Optional: use a named tunnel instead of a quick tunnel"
-msgstr "Необязательно: используйте именованный туннель вместо быстрого туннеля"
-
-msgid "Cloudflare Public URL"
-msgstr "Публичный URL Cloudflare"
-
-msgid "Required for named tunnels"
-msgstr "Требуется для именованных туннелей"
-
-msgid "Ngrok Authtoken"
-msgstr "Токен аутентификации Ngrok"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Инструменты документов Writer (включая навигацию и поиск)"

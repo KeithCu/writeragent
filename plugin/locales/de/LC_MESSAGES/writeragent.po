@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-24 21:17-0400\n"
+"POT-Creation-Date: 2026-03-26 14:57-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -13,7 +13,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:657
+#: plugin/modules/chatbot/panel.py:659
 msgid "Starting..."
 msgstr "Starten..."
 
@@ -295,7 +295,7 @@ msgstr "\"{resource_type} nicht gefunden: {identifier}\""
 msgid "Settings"
 msgstr "Einstellungen"
 
-#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:734
+#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:736
 #: plugin/modules/chatbot/send_handlers.py:300
 #: plugin/modules/chatbot/send_handlers.py:310
 #: plugin/modules/chatbot/send_handlers.py:319 plugin/main.py:212
@@ -315,7 +315,7 @@ msgstr "Ungültige Einstellung"
 msgid "Temperature must be <= 1.0"
 msgstr "Die Temperatur muss <= 1.0 sein"
 
-#: plugin/framework/constants.py:185
+#: plugin/framework/constants.py:193
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
@@ -323,14 +323,14 @@ msgstr ""
 "KI: Ich kann Ihr Dokument sofort mit professioneller Formatierung und Farbe "
 "bearbeiten oder übersetzen. Probieren Sie es aus!"
 
-#: plugin/framework/constants.py:186
+#: plugin/framework/constants.py:194
 msgid ""
 "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "KI: Ich kann Ihnen bei Formeln, Datenanalysen und farbigen Diagrammen "
 "helfen. Probieren Sie es aus!"
 
-#: plugin/framework/constants.py:187
+#: plugin/framework/constants.py:195
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
@@ -338,7 +338,7 @@ msgstr ""
 "KI: Ich kann Ihnen helfen, ansprechende, farbenfrohe Formen in Draw und "
 "Impress zu erstellen und zu bearbeiten. Probieren Sie es aus!"
 
-#: plugin/framework/constants.py:188
+#: plugin/framework/constants.py:196
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -484,6 +484,18 @@ msgstr "WriterAgent: Auswahl bearbeiten (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Auswahl erweitern (Calc)"
 
+#: plugin/modules/calc/specialized.py:97
+#: plugin/modules/writer/specialized.py:108
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Tool-Aufruf auf '{0}' umgeschaltet. Sie befinden sich im spezialisierten "
+"Toolset-Modus. Rufen Sie 'specialized_workflow_finished' auf, wenn Sie "
+"fertig sind, um den vollständigen Satz von APIs wiederherzustellen."
+
 #: plugin/modules/writer/legacy.py:43 plugin/modules/writer/legacy.py:54
 #: plugin/modules/chatbot/selection.py:80
 #: plugin/modules/chatbot/selection.py:165
@@ -500,39 +512,39 @@ msgstr "WriterAgent: Auswahl bearbeiten"
 msgid "Ready"
 msgstr "Bereit"
 
-#: plugin/modules/chatbot/panel.py:313 plugin/modules/chatbot/panel.py:632
+#: plugin/modules/chatbot/panel.py:315 plugin/modules/chatbot/panel.py:634
 msgid "Accept"
 msgstr "Akzeptieren"
 
-#: plugin/modules/chatbot/panel.py:329 plugin/modules/chatbot/panel.py:828
+#: plugin/modules/chatbot/panel.py:331 plugin/modules/chatbot/panel.py:846
 msgid "Change"
 msgstr "Ändern"
 
-#: plugin/modules/chatbot/panel.py:333 plugin/modules/chatbot/panel.py:835
+#: plugin/modules/chatbot/panel.py:335 plugin/modules/chatbot/panel.py:853
 msgid "Reject"
 msgstr "Ablehnen"
 
-#: plugin/modules/chatbot/panel.py:350
+#: plugin/modules/chatbot/panel.py:352
 msgid "Waiting for approval…"
 msgstr "Warten auf Genehmigung…"
 
-#: plugin/modules/chatbot/panel.py:638
+#: plugin/modules/chatbot/panel.py:640
 msgid "Record"
 msgstr "Aufnehmen"
 
-#: plugin/modules/chatbot/panel.py:640
+#: plugin/modules/chatbot/panel.py:642
 msgid "Stop Rec"
 msgstr "Stoppen"
 
-#: plugin/modules/chatbot/panel.py:642 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py:644 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Senden"
 
-#: plugin/modules/chatbot/panel.py:666
+#: plugin/modules/chatbot/panel.py:668
 msgid "Getting document..."
 msgstr "Dokument wird abgerufen..."
 
-#: plugin/modules/chatbot/panel.py:671
+#: plugin/modules/chatbot/panel.py:673
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
@@ -540,7 +552,7 @@ msgstr ""
 "[Kein kompatibles LibreOffice-Dokument (Writer, Calc oder Draw) im aktiven "
 "Fenster gefunden.]"
 
-#: plugin/modules/chatbot/panel.py:680
+#: plugin/modules/chatbot/panel.py:682
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
@@ -549,7 +561,7 @@ msgstr ""
 "[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden "
 "Sie einen Fehler.]"
 
-#: plugin/modules/chatbot/panel.py:687
+#: plugin/modules/chatbot/panel.py:689
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
@@ -558,7 +570,7 @@ msgstr ""
 "[Interner Fehler: Dokumenttyp für {0} konnte nicht identifiziert werden. "
 "Bitte melden Sie dies!]"
 
-#: plugin/modules/chatbot/panel.py:731
+#: plugin/modules/chatbot/panel.py:733
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -635,19 +647,42 @@ msgstr ""
 "[Agent-Backend '{0}' ist nicht verfügbar. Einstellungen prüfen (Pfad, "
 "Installation).]"
 
-#: plugin/modules/chatbot/send_handlers.py:533
+#: plugin/modules/chatbot/send_handlers.py:557
+#: plugin/modules/chatbot/send_handlers.py:564
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Bibliothekar: {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:563
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfekt! Ich schalte Sie jetzt zum Hauptassistenten um."
+
+#: plugin/modules/chatbot/send_handlers.py:569
+msgid "Unknown librarian error."
+msgstr "Unbekannter Bibliothekar-Fehler."
+
+#: plugin/modules/chatbot/send_handlers.py:570
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Bibliothekar-Fehler: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:593
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "KI (Forschung): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:539
+#: plugin/modules/chatbot/send_handlers.py:599
 msgid "Unknown research error."
 msgstr "Unbekannter Forschungsfehler."
 
-#: plugin/modules/chatbot/send_handlers.py:540
+#: plugin/modules/chatbot/send_handlers.py:600
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Forschungsfehler: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:72
+msgid "Switching to document mode..."
+msgstr "Wechsle zum Dokumentenmodus..."
 
 #: plugin/modules/chatbot/panel_factory.py:485
 msgid "Size:"
@@ -801,7 +836,7 @@ msgstr "Chat (Test):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
-msgstr "Klar"
+msgstr "Leeren"
 
 #: plugin/xdl_strings.py:24
 msgid "Close"
@@ -1040,38 +1075,6 @@ msgstr "Nur Localhost, keine Auth. Zugriff über stdio ist immer aktiviert."
 
 msgid "MCP Port"
 msgstr "MCP-Port"
-
-msgid "Tunnel providers for external MCP access"
-msgstr "Tunnelanbieter für externen MCP-Zugriff"
-
-msgid "Auto Start Tunnel"
-msgstr "Tunnel automatisch starten"
-
-msgid "Tunnel Provider"
-msgstr "Tunnelanbieter"
-
-msgid "Bore Server"
-msgstr "MCP-Server umschalten"
-
-msgid "Relay server (default: bore.pub)"
-msgstr "Relay-Server (Standard: bore.pub)"
-
-msgid "Cloudflare Tunnel Name"
-msgstr "Cloudflare Tunnel-Name"
-
-msgid "Optional: use a named tunnel instead of a quick tunnel"
-msgstr ""
-"Optional: Verwenden Sie einen benannten Tunnel anstelle eines schnellen "
-"Tunnels"
-
-msgid "Cloudflare Public URL"
-msgstr "Cloudflare Öffentliche URL"
-
-msgid "Required for named tunnels"
-msgstr "Erforderlich für benannte Tunnel"
-
-msgid "Ngrok Authtoken"
-msgstr "Ngrok Authentifizierungstoken"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-Dokumentenwerkzeuge (einschließlich Navigation und Suche)"
