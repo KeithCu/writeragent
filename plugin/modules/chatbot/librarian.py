@@ -55,7 +55,8 @@ class SwitchToDocumentModeTool(ToolBase):
         },
         "required": ["message"]
     }
-    tier = "agent"
+    # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
+    tier = "specialized_control"
     is_mutation = False
     long_running = False
 
@@ -89,7 +90,8 @@ class LibrarianOnboardingTool(ToolBase):
         },
         "required": ["query"]
     }
-    tier = "agent"
+    # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
+    tier = "specialized_control"
     is_mutation = False
     long_running = True
 

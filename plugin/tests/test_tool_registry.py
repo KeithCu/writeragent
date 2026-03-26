@@ -237,6 +237,39 @@ class TestExcludeSpecializedTiers:
         assert "spec_tool" in names
 
 
+class TestLibrarianToolVisibility:
+    def test_librarian_tools_are_hidden_by_default_in_main_chat_schema(self):
+        # Import real librarian tools to ensure their tier affects the registry output.
+        from plugin.modules.chatbot.librarian import (
+            LibrarianOnboardingTool,
+            SwitchToDocumentModeTool,
+        )
+
+        class VisibleTool(ToolBase):
+            name = "visible_tool"
+            description = "Visible tool"
+            parameters = {"type": "object", "properties": {}}
+
+            # Universal tool (no uno_services / doc_types), should be included.
+            uno_services = None
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg = _make_registry(
+            VisibleTool(),
+            LibrarianOnboardingTool(),
+            SwitchToDocumentModeTool(),
+        )
+
+        schemas = reg.get_schemas("openai", doc=MockDoc("writer"))
+        tool_names = {s["function"]["name"] for s in schemas}
+
+        assert "visible_tool" in tool_names
+        assert "librarian_onboarding" not in tool_names
+        assert "switch_to_document_mode" not in tool_names
+
+
 class TestSchemas:
     def test_openai_schemas(self):
         reg = _make_registry(FakeTool())
