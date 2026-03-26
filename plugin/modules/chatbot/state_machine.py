@@ -294,7 +294,7 @@ def next_state(
                 effects.append(SpawnAgentWorkerEffect(q_text, mod, doc_type))
             elif state.handler_type == 'web':
                 effects.append(UIEffect("append", f"\nYou: {q_text}\n"))
-                effects.append(UIEffect("append", "\n[Using research chat.]\n"))
+                #effects.append(UIEffect("append", "\n[Using research chat.]\n"))
                 effects.append(UIEffect("status", "Starting research..."))
                 effects.append(SpawnWebWorkerEffect(q_text, mod))
 

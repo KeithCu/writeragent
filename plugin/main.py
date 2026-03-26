@@ -153,9 +153,9 @@ def _register_core_handlers():
     """Register core application handlers during bootstrap."""
     from plugin.framework.legacy_ui import settings_box, show_eval_dashboard
     from plugin.framework.dialogs import about_dialog
-    from plugin.tests.uno import format_tests, test_calc, test_draw
     from plugin.framework.document import is_writer, is_calc, is_draw
     from plugin.framework.uno_context import get_ctx
+    import importlib
 
     def _open_settings():
         _open_dialog_safely(settings_box, "Failed to open settings")
@@ -170,16 +170,32 @@ def _register_core_handlers():
         lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
     register_action_handler("main", "RunFormatTests",
-        lambda: _run_test_suite(format_tests, is_writer, "writer.format_tests"))
+        lambda: _run_test_suite(
+            importlib.import_module("plugin.tests.uno.format_tests"),
+            is_writer,
+            "writer.format_tests",
+        ) if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
 
     register_action_handler("main", "RunCalcTests",
-        lambda: _run_test_suite(test_calc, is_calc, "calc.tests"))
+        lambda: _run_test_suite(
+            importlib.import_module("plugin.tests.uno.test_calc"),
+            is_calc,
+            "calc.tests",
+        ) if _tests_bundled() else _show_tests_unavailable("calc.tests"))
 
     register_action_handler("main", "RunCalcIntegrationTests",
-        lambda: _run_test_suite(test_calc, is_calc, "calc.integration_tests"))
+        lambda: _run_test_suite(
+            importlib.import_module("plugin.tests.uno.test_calc"),
+            is_calc,
+            "calc.integration_tests",
+        ) if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
 
     register_action_handler("main", "RunDrawTests",
-        lambda: _run_test_suite(test_draw, is_draw, "draw.tests"))
+        lambda: _run_test_suite(
+            importlib.import_module("plugin.tests.uno.test_draw"),
+            is_draw,
+            "draw.tests",
+        ) if _tests_bundled() else _show_tests_unavailable("draw.tests"))
 
     register_action_handler("main", "NoOp", lambda: None)
 
@@ -192,6 +208,36 @@ _status_listeners = []  # [(listener, url)]
 _status_lock = threading.Lock()
 
 EXTENSION_ID = "org.extension.writeragent"
+
+_TESTS_AVAILABLE = None
+
+
+def _tests_bundled() -> bool:
+    """True when `plugin.tests` test modules are included in this build."""
+    global _TESTS_AVAILABLE
+    if _TESTS_AVAILABLE is None:
+        try:
+            import importlib.util
+            _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.uno") is not None
+        except Exception:
+            _TESTS_AVAILABLE = False
+    return bool(_TESTS_AVAILABLE)
+
+
+def _show_tests_unavailable(test_name: str) -> None:
+    """Show a message when test suites are not bundled (release builds)."""
+    try:
+        from plugin.framework.dialogs import msgbox
+        from plugin.framework.uno_context import get_ctx
+
+        msgbox(
+            get_ctx(),
+            test_name,
+            "This WriterAgent build was packaged without the optional `plugin.tests` test modules.",
+        )
+    except Exception:
+        # Never let test menu state/messaging break core UI dispatch.
+        pass
 
 
 def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
@@ -347,7 +393,15 @@ def _fire_status_event(listener, url, text):
     """Send a FeatureStateEvent to one listener."""
     ev = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
     ev.FeatureURL = url
+    command = url.Path
     ev.IsEnabled = True
+    if command in {
+        "main.RunFormatTests",
+        "main.RunCalcTests",
+        "main.RunCalcIntegrationTests",
+        "main.RunDrawTests",
+    }:
+        ev.IsEnabled = _tests_bundled()
     ev.Requery = False
     if text is not None:
         ev.State = text

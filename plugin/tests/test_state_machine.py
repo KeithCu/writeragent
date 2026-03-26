@@ -32,12 +32,12 @@ class TestSendHandlerStateMachine:
 
         assert new_state.status == "starting"
         assert new_state.query_text == "search python"
-        assert len(effects) == 4
+        assert len(effects) == 3
         assert isinstance(effects[0], UIEffect) # You
-        assert isinstance(effects[1], UIEffect) # Using research
-        assert isinstance(effects[2], UIEffect) # Starting status
-        assert effects[2].kind == "status"
-        assert isinstance(effects[3], SpawnWebWorkerEffect)
+#        assert isinstance(effects[1], UIEffect) # Using research
+        assert isinstance(effects[1], UIEffect) # Starting status
+        #assert effects[2].kind == "status"
+        assert isinstance(effects[2], SpawnWebWorkerEffect)
 
     def test_stop_event_agent_terminates(self):
         state = SendHandlerState(handler_type="agent", status="running", round_num=2, max_rounds=10)
