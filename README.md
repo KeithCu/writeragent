@@ -35,6 +35,7 @@ Another option is [Together.AI](https://www.together.ai/), which also has a vari
 The main way to interact with your document. While you can ask it anything, **its primary job is to edit your document**, not just answer questions.
 *   **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly.
 *   **Persistent Chat History**: Previous conversations are automatically saved and restored when you reopen a document. History is stored in a local SQLite database in the user config directory when available; if SQLite is not available (e.g. some bundled Python builds), a JSON fallback is used.
+*   **Librarian onboarding agent (memory-aware)**: For new users without a config/Memories/USER.md, the sidebar starts with a Librarian / Welcome sub-agent that chats with the user to learn preferences: name, favorite color. When the Librarian (or main agent) decides something is worth remembering, it uses the `upsert_memory` tool. The memories are passed into requests automatically. When the Librarian / new user are done chatting, it switches control to the main document assistant for the current session and future ones.
 *   **Robust Session Tracking**: Chat history is linked directly to the document using an internal metadata ID (saved in the file). This means your conversation follows the document even if you rename it or move it to a different folder.
 *   **Performance**: Features built-in connection management with persistent HTTPS connections for fast response times.
 
