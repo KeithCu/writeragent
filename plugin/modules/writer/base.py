@@ -124,12 +124,12 @@ class ToolWriterBookmarkBase(ToolWriterSpecialBase):
 #         }
 
 
-class SpecializedWorkflowFinalAnswer(ToolBase):
+class SpecializedWorkflowFinished(ToolBase):
     """Tool called by the main chat model to indicate it has completed its specialized task.
     This mimics the built-in 'final_answer' tool of smolagents for the in-place switching approach.
     """
 
-    name = "final_answer"
+    name = "specialized_workflow_finished"
     description = "Provides a final answer to the given task and exits the specialized toolset mode."
     parameters = {
         "type": "object",

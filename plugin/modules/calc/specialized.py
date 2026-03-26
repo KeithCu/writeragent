@@ -95,7 +95,7 @@ class DelegateToSpecializedCalc(ToolBase):
 
             from plugin.framework.i18n import _
             msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. "
-                    "You must call 'final_answer' when done to restore "
+                    "You must call 'specialized_workflow_finished' when done to restore "
                     "the full set of APIs.").format(domain)
 
             if status_callback:
@@ -124,8 +124,6 @@ class DelegateToSpecializedCalc(ToolBase):
                 # Check if it's a subclass of our special base and matches the domain
                 if isinstance(t, ToolCalcSpecialBase) and t.specialized_domain == domain:
                     domain_tools.append(t)
-                # Note: We do NOT append our custom 'final_answer' tool here because
-                # smolagents provides its own 'final_answer' tool natively.
 
             if not domain_tools:
                 return self._tool_error(
@@ -186,6 +184,7 @@ class DelegateToSpecializedCalc(ToolBase):
                 model=smol_model,
                 max_steps=10,
                 instructions=instructions,
+                final_answer_tool_name="specialized_workflow_finished",
             )
 
             final_ans = None

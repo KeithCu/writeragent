@@ -149,7 +149,7 @@ CONVERSATION STYLE:
 - Make it fun! Use appropriate emojis and enthusiasm.
 
 TOOLS FOR COMPLETION:
-- Use 'final_answer' to respond to the user and CONTINUE the onboarding conversation (e.g., asking more questions).
+- Use 'reply_to_user' to respond to the user and CONTINUE the onboarding conversation (e.g., asking more questions).
 - Use 'switch_to_document_mode' with a friendly 'message' to END the onboarding and hand over to the document assistant.
 - NEVER explain that you lack document tools. Instead, just say "I'll switch you to document mode for that!" and call the switch tool.
 """
@@ -161,6 +161,7 @@ TOOLS FOR COMPLETION:
                 model=smol_model,
                 max_steps=10,
                 instructions=instructions,
+                final_answer_tool_name="reply_to_user",
             )
 
             task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"

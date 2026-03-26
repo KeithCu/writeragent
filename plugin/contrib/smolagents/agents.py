@@ -461,7 +461,12 @@ class MultiStepAgent(ABC):
                     if name != "python_interpreter" or self.__class__.__name__ == "ToolCallingAgent"
                 }
             )
-        self.tools.setdefault("final_answer", FinalAnswerTool())
+        # Register the final answer tool under its configured name.
+        fa_tool_name = getattr(self, "final_answer_tool_name", "final_answer")
+        if fa_tool_name not in self.tools:
+            fa_tool = FinalAnswerTool()
+            fa_tool.name = fa_tool_name
+            self.tools[fa_tool_name] = fa_tool
 
     def _validate_tools_and_managed_agents(self, tools, managed_agents):
         tool_and_managed_agent_names = [tool.name for tool in tools]
@@ -1297,8 +1302,10 @@ class ToolCallingAgent(MultiStepAgent):
         planning_interval: int | None = None,
         stream_outputs: bool = False,
         max_tool_threads: int | None = None,
+        final_answer_tool_name: str = "final_answer",
         **kwargs,
     ):
+        self.final_answer_tool_name = final_answer_tool_name
         if prompt_templates is None:
             import json
             import os
@@ -1327,8 +1334,10 @@ class ToolCallingAgent(MultiStepAgent):
         return list(self.tools.values()) + list(self.managed_agents.values())
 
     def initialize_system_prompt(self) -> str:
+        # Inject the dynamically configured final_answer tool name
+        template_str = self.prompt_templates["system_prompt"].replace("final_answer", self.final_answer_tool_name)
         return _render_toolcalling_system_prompt(
-            self.prompt_templates["system_prompt"],
+            template_str,
             tools=self.tools,
             managed_agents=self.managed_agents,
             custom_instructions=self.instructions or "",
@@ -1397,7 +1406,7 @@ class ToolCallingAgent(MultiStepAgent):
                             id=str(uuid.uuid4()),
                             type="function",
                             function=ChatMessageToolCallFunction(
-                                name="final_answer",
+                                name=self.final_answer_tool_name,
                                 arguments={"answer": raw_content},
                             ),
                         )
@@ -1485,7 +1494,7 @@ class ToolCallingAgent(MultiStepAgent):
                 f"Observations: {observation.replace('[', '|')}",  # escape potential rich-tag-like components
                 level=LogLevel.INFO,
             )
-            is_final_answer = tool_name == "final_answer"
+            is_final_answer = tool_name == self.final_answer_tool_name
 
             return ToolOutput(
                 id=tool_call.id,

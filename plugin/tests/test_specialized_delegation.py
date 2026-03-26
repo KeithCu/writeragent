@@ -12,7 +12,7 @@ sys.modules['com.sun.star.awt'] = MagicMock()
 
 from plugin.framework.tool_registry import ToolRegistry
 from plugin.framework.tool_context import ToolContext
-from plugin.modules.writer.base import ToolWriterSpecialBase, SpecializedWorkflowFinalAnswer
+from plugin.modules.writer.base import ToolWriterSpecialBase, SpecializedWorkflowFinished
 from plugin.modules.writer.specialized import DelegateToSpecializedWriter
 
 
@@ -30,7 +30,7 @@ class DummyTableTool(ToolWriterSpecialBase):
 def registry():
     r = ToolRegistry(services={})
     r.register(DummyTableTool())
-    r.register(SpecializedWorkflowFinalAnswer())
+    r.register(SpecializedWorkflowFinished())
     r.register(DelegateToSpecializedWriter())
     return r
 
@@ -79,11 +79,11 @@ def test_specialized_delegation_in_place_mode(registry, mock_ctx):
     # It should only include the specialized domain tools and final_answer
     tool_names = [s["function"]["name"] for s in schemas]
     assert "dummy_table_tool" in tool_names
-    assert "final_answer" in tool_names
+    assert "specialized_workflow_finished" in tool_names
     assert "delegate_to_specialized_writer_toolset" not in tool_names
 
     # Now execute final_answer to finish
-    finish_tool = registry.get("final_answer")
+    finish_tool = registry.get("specialized_workflow_finished")
     finish_result = finish_tool.execute_safe(mock_ctx, answer="Done")
 
     # Verify callback was called to clear the domain
@@ -156,4 +156,4 @@ def test_specialized_delegation_sub_agent_mode(
     # The sub-agent should only receive dummy_table_tool, NOT final_answer
     smol_tool_names = [t.name for t in smol_tools]
     assert "dummy_table_tool" in smol_tool_names
-    assert "final_answer" not in smol_tool_names
+    assert "specialized_workflow_finished" not in smol_tool_names
