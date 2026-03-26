@@ -95,7 +95,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations
+        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -162,18 +162,28 @@ auto-translate:
 		$(PYTHON) scripts/translate_missing.py --execute --skip-initial-status; \
 	fi
 
+refresh-pot:
+	@echo "Regenerating translation templates (.pot) without updating .po..."; \
+	$(PYTHON) scripts/extract_xdl_strings.py; \
+	xgettext -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py"); \
+	$(PYTHON) scripts/merge_module_yaml_into_pot.py plugin/locales/writeragent.pot; \
+	rm -f plugin/xdl_strings.py
+
+preview-translations: refresh-pot
+	$(PYTHON) scripts/translate_missing.py --preview
+
 
 ifeq ($(USE_DOCKER),1)
-build: auto-translate compile-translations
+build: preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: auto-translate vendor manifest compile-translations
+build: preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: auto-translate vendor manifest compile-translations
+build-no-recording: preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
