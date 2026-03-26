@@ -33,27 +33,28 @@ class TestMemoryTool(unittest.TestCase):
 
     def test_memory_tool_actions(self):
         tool = MemoryTool()
+        store = MemoryStore(self.ctx)
         
-        # Add to memory
-        res = tool.execute(self.ctx, action="add", target="user", content="User likes Python.")
+        # Insert new key
+        res = tool.execute(self.ctx, key="favorite_language", content="Python")
         self.assertEqual(res["status"], "ok", f"Expected ok but got {res}")
         
-        # Read memory
-        res = tool.execute(self.ctx, action="read", target="user")
-        self.assertEqual(res["status"], "ok")
-        self.assertIn("User likes Python.", res["content"])
+        # Verify store read
+        content = store.read("user")
+        self.assertIn("favorite_language: Python", content)
 
-        # Replace memory
-        res = tool.execute(self.ctx, action="replace", target="user", content="User likes Rust.")
+        # Update existing key
+        res = tool.execute(self.ctx, key="favorite_language", content="Rust")
         self.assertEqual(res["status"], "ok")
-        res = tool.execute(self.ctx, action="read", target="user")
-        self.assertEqual(res["content"], "User likes Rust.")
+        content = store.read("user")
+        self.assertIn("favorite_language: Rust", content)
         
-        # Remove memory
-        res = tool.execute(self.ctx, action="remove", target="user")
+        # Insert nested key
+        res = tool.execute(self.ctx, key="editor.vim", content="Yes")
         self.assertEqual(res["status"], "ok")
-        res = tool.execute(self.ctx, action="read", target="user")
-        self.assertEqual(res["content"], "")
+        content = store.read("user")
+        self.assertIn("editor:", content)
+        self.assertIn("vim: Yes", content)
 
 
 @unittest.skip("Disabled per user request")

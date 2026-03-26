@@ -37,16 +37,13 @@ class MemoryStore:
             return False
 
 class MemoryTool(ToolBase):
-    """Persistent file-backed memory for the agent (USER profile and MEMORY notes)."""
+    """Persistent file-backed memory for the agent (USER profile)."""
     
-    name = "memory"
+    name = "upsert_memory"
     description = (
-        "Persistent memory for the agent. Target 'user' stores user profile, "
-        "preferences, and quirks. Target 'memory' stores project facts, "
-        "environmental notes, and general agent thoughts. "
-        "Actions: 'add' (appends text + newline), 'replace' (overwrites ALL content), "
-        "'replace_key' (overwrites a specific key when using YAML/JSON-like key: value structure), "
-        "'remove' (clears the file), 'read' (returns current content)."
+        "Persistent memory for the agent. Stores user profile, preferences, and quirks. "
+        "Inserts or updates a specific key in a YAML/JSON-like key: value structure. "
+        "To delete a memory, update it with a value like 'unknown'."
     )
     uno_services = None
     tier = "core"
@@ -56,89 +53,53 @@ class MemoryTool(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "action": {
+            "key": {
                 "type": "string",
-                "enum": ["add", "replace", "replace_key", "remove", "read"],
-                "description": "The action to perform."
-            },
-            "target": {
-                "type": "string",
-                "enum": ["user", "memory"],
-                "description": "Which memory file to target."
+                "description": "The key to update or insert (e.g., 'favorite_color')."
             },
             "content": {
                 "type": "string",
-                "description": "The text to add or replace. If action is replace_key, this is the new value."
-            },
-            "key": {
-                "type": "string",
-                "description": "The key to update. Only used when action is replace_key."
+                "description": "The new value to associate with the key."
             }
         },
-        "required": ["action", "target"]
+        "required": ["key", "content"]
     }
 
     def execute(self, ctx, **kwargs):
         import yaml
-        action = kwargs.get("action")
-        target = kwargs.get("target")
-        content = kwargs.get("content", "")
         key = kwargs.get("key")
+        content = kwargs.get("content", "")
         
+        if not key:
+            return self._tool_error("Key is required.")
+
         try:
             store = MemoryStore(ctx)
         except Exception as e:
             return self._tool_error(f"Failed to initialize memory store: {e}")
             
+        target = "user"
         current = store.read(target)
         
-        if action == "read":
-            return {"status": "ok", "target": target, "content": current}
-        elif action == "remove":
-            if store.write(target, ""):
-                return {"status": "ok", "message": f"Cleared {target} memory."}
-            return self._tool_error(f"Failed to clear {target} memory.")
-        elif action == "replace":
-            if store.write(target, content):
-                return {"status": "ok", "message": f"Replaced {target} memory.", "new_length": len(content)}
-            return self._tool_error(f"Failed to replace {target} memory.")
-        elif action == "replace_key":
-            if not key:
-                return self._tool_error("Key is required for replace_key action.")
-            try:
-                parsed = yaml.safe_load(current) if current.strip() else {}
-                if not isinstance(parsed, dict):
-                    parsed = {"_raw": current}
-            except Exception:
-                # Fallback if invalid yaml
+        try:
+            parsed = yaml.safe_load(current) if current.strip() else {}
+            if not isinstance(parsed, dict):
                 parsed = {"_raw": current}
+        except Exception:
+            # Fallback if invalid yaml
+            parsed = {"_raw": current}
 
-            # Nested update
-            parts = key.split(".")
-            current_dict = parsed
-            for part in parts[:-1]:
-                if part not in current_dict or not isinstance(current_dict[part], dict):
-                    current_dict[part] = {}
-                current_dict = current_dict[part]
+        # Nested update
+        parts = key.split(".")
+        current_dict = parsed
+        for part in parts[:-1]:
+            if part not in current_dict or not isinstance(current_dict[part], dict):
+                current_dict[part] = {}
+            current_dict = current_dict[part]
 
-            current_dict[parts[-1]] = content
+        current_dict[parts[-1]] = content
 
-            new_content = yaml.dump(parsed, sort_keys=False, allow_unicode=True)
-            if store.write(target, new_content):
-                return {"status": "ok", "message": f"Replaced key '{key}' in {target} memory."}
-            return self._tool_error(f"Failed to update key in {target} memory.")
-        elif action == "add":
-            new_content = current
-            if new_content and not new_content.endswith("\n"):
-                new_content += "\n"
-            new_content += content
-            
-            # Simple length limit equivalent
-            if len(new_content) > 10000:
-                return self._tool_error(f"Memory too large ({len(new_content)} chars). Use 'replace' to summarize.")
-                
-            if store.write(target, new_content):
-                return {"status": "ok", "message": f"Appended to {target} memory.", "new_length": len(new_content)}
-            return self._tool_error(f"Failed to append to {target} memory.")
-        
-        return self._tool_error(f"Unknown action: {action}")
+        new_content = yaml.dump(parsed, sort_keys=False, allow_unicode=True)
+        if store.write(target, new_content):
+            return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
+        return self._tool_error("Failed to update memory.")
