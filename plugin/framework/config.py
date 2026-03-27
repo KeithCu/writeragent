@@ -703,7 +703,6 @@ def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint):
             for m in DEFAULT_MODELS:
                 caps = [c.strip() for c in m.get("capability", "text").split(",")]
                 if req_cap in caps:
-                    # Only add models that are marked as default for this capability
                     is_default = False
                     if req_cap == "text" and m.get("default_text"):
                         is_default = True
