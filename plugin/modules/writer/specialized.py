@@ -159,10 +159,10 @@ class DelegateToSpecializedWriter(ToolBase):
                     props = params.get("properties", {})
                     for param_name, spec in props.items():
                         # smolagents expects a dict with 'type' and 'description'
-                        self.inputs[param_name] = {
-                            "type": spec.get("type", "any"),
-                            "description": spec.get("description", ""),
-                        }
+                        # but we also need to pass through 'items' for array types, etc.
+                        self.inputs[param_name] = {**spec}
+                        self.inputs[param_name]["type"] = spec.get("type", "any")
+                        self.inputs[param_name]["description"] = spec.get("description", "")
                     
                     self.output_type = "object"
                     super().__init__()

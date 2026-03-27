@@ -459,7 +459,7 @@ class TestStreamingHttpErrors(unittest.TestCase):
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
-        self.assertEqual(str(ctx.exception), "HTTP Error 500 from AI Provider: Internal Server Error.\nProvider Response:\nInternal Server Error: Database Down")
+        self.assertEqual(str(ctx.exception), "HTTP Error 500: Internal Server Error. Internal Server Error: Database Down")
 
 
 if __name__ == "__main__":

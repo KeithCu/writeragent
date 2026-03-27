@@ -45,7 +45,7 @@ def format_error_message(e):
 
 def _format_http_error_response(status, reason, err_body):
     """Build error message including response body for display in chat/UI."""
-    base = _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
+    base = _("HTTP Error {0}: {1}").format(status, reason)
     if not err_body or not err_body.strip():
         return base
     from plugin.framework.errors import safe_json_loads
@@ -59,7 +59,7 @@ def _format_http_error_response(status, reason, err_body):
         if detail:
             return base + ". " + detail
     snippet = err_body.strip().replace("\n", " ")[:400]
-    return base + ".\nProvider Response:\n" + snippet
+    return base + ". " + snippet
 
 
 def format_error_for_display(e):

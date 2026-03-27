@@ -475,7 +475,7 @@ class LlmClient:
             
             if response.status != 200:
                 err_body = response.read().decode("utf-8", errors="replace")
-                log.error("API Error %d: %s" % (response.status, err_body))
+                log.error("Provider API Error %d: %s" % (response.status, err_body))
                 # Close on error to be safe
                 self._close_connection()
                 raise NetworkError(
@@ -719,7 +719,7 @@ class LlmClient:
                     response = conn.getresponse()
                     if response.status != 200:
                         err_body = response.read().decode("utf-8", errors="replace")
-                        log.error("API Error %d: %s" % (response.status, err_body))
+                        log.error("Provider API Error %d: %s" % (response.status, err_body))
                         self._close_connection()
                         raise NetworkError(
                             _format_http_error_response(response.status, response.reason, err_body),

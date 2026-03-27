@@ -146,7 +146,7 @@ def test_stream_request_with_tools_http_error(client):
         mock_conn.getresponse.return_value = mock_response
 
         with pytest.raises(
-            Exception, match="HTTP Error 401 from AI Provider: Unauthorized. Invalid API key"
+            Exception, match="HTTP Error 401: Unauthorized. Invalid API key"
         ):
             client.stream_request_with_tools(
                 messages=[{"role": "user", "content": "Hi"}], max_tokens=100
