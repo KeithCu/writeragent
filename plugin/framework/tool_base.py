@@ -107,6 +107,17 @@ class ToolBase(ABC):
     def execute_safe(self, ctx, **kwargs):
         """Execute with simple error containment."""
         try:
+            # Check thread safety: If the tool is synchronous, it must not be called from a background thread
+            # unless it's being executed through the QueueExecutor. Direct UNO calls from background threads
+            # cause UI hangs and deadlocks in LibreOffice.
+            if not self.is_async():
+                import threading
+                if threading.current_thread() is not threading.main_thread():
+                    raise RuntimeError(
+                        f"Thread Safety Violation: Synchronous tool '{self.name}' was executed from a background thread. "
+                        "Synchronous tools execute UNO APIs which are not thread-safe. You must wrap this call "
+                        "using `execute_on_main_thread` from `plugin.framework.queue_executor`."
+                    )
             return self.execute(ctx, **kwargs)
         except Exception as e:
             return self._tool_error(

@@ -171,8 +171,13 @@ class DelegateToSpecializedWriter(ToolBase):
                     return self.forward(*args, **kwargs)
 
                 def forward(self, *args, **kwargs):
-                    # Convert arguments and execute via the writer tool
-                    return self.writer_tool.execute_safe(self.ctx, **kwargs)
+                    from plugin.framework.queue_executor import execute_on_main_thread
+                    log.debug("Specialized agent executing tool '%s' on main thread", self.name)
+                    # Convert arguments and execute via the writer tool on the main thread
+                    # to prevent deadlocking or blocking the background agent thread.
+                    res = execute_on_main_thread(self.writer_tool.execute_safe, self.ctx, **kwargs)
+                    log.debug("Specialized agent tool '%s' finished", self.name)
+                    return res
 
             smol_tools = [WrappedSmolTool(t, ctx) for t in domain_tools]
 
