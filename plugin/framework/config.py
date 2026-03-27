@@ -703,9 +703,19 @@ def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint):
             for m in DEFAULT_MODELS:
                 caps = [c.strip() for c in m.get("capability", "text").split(",")]
                 if req_cap in caps:
-                    effective_id = resolve_model_id(m, provider)
-                    if effective_id and effective_id not in to_show:
-                        to_show.append(effective_id)
+                    # Only add models that are marked as default for this capability
+                    is_default = False
+                    if req_cap == "text" and m.get("default_text"):
+                        is_default = True
+                    elif req_cap == "image" and m.get("default_image"):
+                        is_default = True
+                    elif req_cap == "audio" and m.get("default_audio"):
+                        is_default = True
+
+                    if is_default:
+                        effective_id = resolve_model_id(m, provider)
+                        if effective_id and effective_id not in to_show:
+                            to_show.append(effective_id)
 
     curr_val_str = str(current_val).strip()
     if curr_val_str and curr_val_str not in to_show:
@@ -744,7 +754,14 @@ def update_lru_history(ctx, val, lru_key, endpoint, max_items=None):
 
 def get_text_model(ctx):
     """Return the text/chat model (stored as text_model, fallback to model)."""
-    return str(get_config(ctx, "text_model") or get_config(ctx, "model") or "").strip()
+    val = str(get_config(ctx, "text_model") or get_config(ctx, "model") or "").strip()
+    if val:
+        return val
+    from plugin.framework.default_models import get_provider_defaults
+    current_endpoint = get_current_endpoint(ctx)
+    provider = get_provider_from_endpoint(current_endpoint)
+    defaults = get_provider_defaults(provider)
+    return str(defaults.get("text_model", "")).strip()
 
 
 def get_stt_model(ctx):
@@ -859,7 +876,17 @@ def get_image_model(ctx):
     image_provider = get_config(ctx, "image_provider")
     if image_provider == "aihorde":
         return str(get_config(ctx, "aihorde_model") or "").strip()
-    return str(get_config(ctx, "image_model") or "").strip()
+    val = str(get_config(ctx, "image_model") or "").strip()
+    if val:
+        return val
+    from plugin.framework.default_models import get_provider_defaults
+    if image_provider == "endpoint":
+        current_endpoint = get_current_endpoint(ctx)
+        provider = get_provider_from_endpoint(current_endpoint)
+    else:
+        provider = image_provider
+    defaults = get_provider_defaults(provider)
+    return str(defaults.get("image_model", "")).strip()
 
 
 def set_image_model(ctx, val, update_lru=True):
