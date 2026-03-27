@@ -26,7 +26,7 @@ log = logging.getLogger("writeragent.calc")
 
 # Global variable to toggle between the sub-agent approach (True) and the
 # in-place tool-switching approach (False).
-USE_SUB_AGENT = False
+USE_SUB_AGENT = True
 
 # Available domains matching the specialized_domain attributes of subclasses
 _AVAILABLE_DOMAINS = [
