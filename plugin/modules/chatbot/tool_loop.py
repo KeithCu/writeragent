@@ -785,7 +785,7 @@ class ToolCallingMixin:
             from plugin.main import get_tools as _get_tools_registry
             registry = _get_tools_registry()
             async_tools = frozenset([
-                tool.name for tool in registry.values()
+                tool.name for tool in registry.get_tools()
                 if getattr(tool, "is_async", lambda: False)()
             ])
         except Exception as e:
