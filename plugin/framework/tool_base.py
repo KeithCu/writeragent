@@ -104,6 +104,10 @@ class ToolBase(ABC):
             dict with at least ``{"status": "ok"|"error", ...}``.
         """
 
+    def is_async(self):
+        """Returns True if this tool should execute asynchronously in the background. Defaults to False."""
+        return False
+
     def execute_safe(self, ctx, **kwargs):
         """Execute with simple error containment."""
         try:

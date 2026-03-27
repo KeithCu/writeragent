@@ -395,6 +395,10 @@ class TestToolIsolation:
             timeout = 0.1
             parameters = {"type": "object", "properties": {}}
 
+            def is_async(self):
+                # allow it to run in the test thread pool
+                return True
+
             def execute(self, ctx, **kwargs):
                 time.sleep(2)
                 return {"status": "ok"}
