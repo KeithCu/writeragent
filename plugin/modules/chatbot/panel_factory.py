@@ -66,8 +66,13 @@ from plugin.framework.uno_context import get_active_document, get_extension_url,
 from plugin.framework.document import is_writer, is_calc, is_draw
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
+import typing
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
-from com.sun.star.ui.UIElementType import TOOLPANEL
+try:
+    from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
+except ImportError:
+    TOOLPANEL = 3  # Fallback
+
 from plugin.framework.listeners import BaseItemListener
 from com.sun.star.awt import XItemListener
 
@@ -148,10 +153,11 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     def getWindow(self):
         return self.Window
 
-    def createAccessible(self, parent_accessible):
+    def createAccessible(self, ParentAccessible):
         return self.PanelWindow
 
-    def getHeightForWidth(self, width):
+    def getHeightForWidth(self, nWidth: int):
+        width = nWidth
         # LayoutSize(Minimum, Maximum, Preferred) — IDL field order.
         # Maximum=-1 means unbounded; the sidebar gives all remaining height
         # to panels with unbounded max (see DeckLayouter.cxx DistributeHeights).
@@ -453,7 +459,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if model_selector and hasattr(model_selector, "addItemListener"):
             class ModelSyncListener(BaseItemListener):
                 def __init__(self, ctx): self.ctx = ctx
-                def on_item_state_changed(self, ev):
+                def on_item_state_changed(self, rEvent):
+                    ev = rEvent
                     txt = model_selector.getText()
                     if txt: set_config(self.ctx, "text_model", txt)
             model_selector.addItemListener(ModelSyncListener(self.ctx))
@@ -461,7 +468,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if image_model_selector and hasattr(image_model_selector, "addItemListener"):
             class ImageModelSyncListener(BaseItemListener):
                 def __init__(self, ctx): self.ctx = ctx
-                def on_item_state_changed(self, ev):
+                def on_item_state_changed(self, rEvent):
+                    ev = rEvent
                     txt = image_model_selector.getText()
                     if txt: set_image_model(self.ctx, txt, update_lru=False)
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
@@ -494,7 +502,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             update_base_size_label(aspect_ratio_selector.getText())
             if hasattr(aspect_ratio_selector, "addItemListener"):
                 class AspectListener(BaseItemListener):
-                    def on_item_state_changed(self, ev):
+                    def on_item_state_changed(self, rEvent):
+                        ev = rEvent
                         idx = getattr(ev, "Selected", -1)
                         if idx >= 0:
                             update_base_size_label(aspect_ratio_selector.getItem(idx))
@@ -537,11 +546,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                             self.ctx = ctx
                             self.toggle_cb = toggle_cb
                             self.web_check = web_check
-                        def on_item_state_changed(self, ev):
-                            is_checked = (getattr(ev, "Selected", 0) == 1)
-                            set_config(self.ctx, "chat_direct_image", is_checked)
-                            self.toggle_cb(is_checked)
-                            set_control_enabled(self.web_check, not is_checked)
+                            def on_item_state_changed(self, rEvent):
+                                ev = rEvent
+                                is_checked = (getattr(ev, "Selected", 0) == 1)
+                                set_config(self.ctx, "chat_direct_image", is_checked)
+                                self.toggle_cb(is_checked)
+                                set_control_enabled(self.web_check, not is_checked)
                     direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_research_check))
             except Exception as e:
                 from plugin.framework.errors import ConfigError
@@ -652,7 +662,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self.clear_listener = clear_listener
                     self.img_check = img_check
 
-                def on_item_state_changed(self, ev):
+                def on_item_state_changed(self, rEvent):
+                    ev = rEvent
                     from plugin.framework.i18n import _
                     is_research = (getattr(ev, "Selected", 0) == 1)
                     set_control_enabled(self.img_check, not is_research)
@@ -681,7 +692,9 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     def __init__(self, ctx):
         self.ctx = ctx
 
-    def createUIElement(self, resource_url, args):
+    def createUIElement(self, ResourceURL, Args):
+        resource_url = ResourceURL
+        args = Args
         log.debug("createUIElement: %s" % resource_url)
         if "ChatPanel" not in resource_url:
             from com.sun.star.container import NoSuchElementException

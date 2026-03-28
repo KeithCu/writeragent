@@ -8,7 +8,7 @@ from plugin.modules.http.errors import format_error_for_display
 from plugin.framework.state import BaseState, FsmTransition
 
 try:
-    import deal
+    import deal  # type: ignore
 except ImportError:
     # Dummy decorators for production where deal is not installed
     class _DummyDeal:
@@ -260,26 +260,16 @@ def next_state(
             return FsmTransition(new_state, effects)
 
         case StartEvent(query_text=q_text, model=mod, doc_type_str=doc_type, wav_path=w_path, stt_model=stt_mod):
-            base_state_kwargs = dict(
-                handler_type=state.handler_type,
-                status="starting",
-                query_text=q_text,
-                model=mod,
-                doc_type_str=doc_type,
-                round_num=state.round_num,
-                pending_tools=state.pending_tools,
-                max_rounds=state.max_rounds,
-            )
-
             if state.handler_type == 'audio':
                 effects.append(UIEffect("status", "Transcribing audio..."))
                 effects.append(UIEffect("append", "\n[Transcribing audio...]\n"))
-                effects.append(SpawnAudioWorkerEffect(
-                    wav_path=w_path,
-                    stt_model=stt_mod,
-                    model=mod,
-                    query_text=q_text
-                ))
+                if w_path and stt_mod:
+                    effects.append(SpawnAudioWorkerEffect(
+                        wav_path=w_path,
+                        stt_model=stt_mod,
+                        model=mod,
+                        query_text=q_text
+                    ))
             elif state.handler_type == 'image':
                 effects.append(UIEffect("append", f"\nYou: {q_text}\n"))
                 effects.append(UIEffect("append", "\n[Using image model (direct).]\n"))
@@ -298,7 +288,17 @@ def next_state(
                 effects.append(UIEffect("status", "Starting research..."))
                 effects.append(SpawnWebWorkerEffect(q_text, mod))
 
-            new_state = SendHandlerState(**base_state_kwargs, recent_effects=tuple(effects))
+            new_state = SendHandlerState(
+                handler_type=state.handler_type,
+                status="starting",
+                query_text=q_text,
+                model=mod,
+                doc_type_str=doc_type,
+                round_num=state.round_num,
+                pending_tools=state.pending_tools,
+                max_rounds=state.max_rounds,
+                recent_effects=tuple(effects)
+            )
             return FsmTransition(new_state, effects)
 
     return FsmTransition(state, effects)
