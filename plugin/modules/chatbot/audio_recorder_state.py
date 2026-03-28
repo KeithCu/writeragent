@@ -4,7 +4,7 @@ from typing import List, Optional
 from plugin.framework.state import BaseState, FsmTransition
 
 try:
-    import deal
+    import deal  # type: ignore
 except ImportError:
     class _DummyDeal:
         @staticmethod

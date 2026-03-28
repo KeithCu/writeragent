@@ -8,7 +8,7 @@ from types import ModuleType
 
 # Mock core.calc_address_utils
 m = ModuleType("core.calc_address_utils")
-m.parse_address = lambda x: (0, 0)
+setattr(m, "parse_address", lambda x: (0, 0))
 sys.modules["core.calc_address_utils"] = m
 
 

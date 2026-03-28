@@ -126,7 +126,7 @@ class GetDocumentContent(ToolBase):
             "length": len(content),
             "document_length": doc_len,
         }
-        if scope == "range" and range_start is not None:
+        if scope == "range" and range_start is not None and range_end is not None:
             result["start"] = int(range_start)
             result["end"] = int(range_end)
         return result
@@ -390,7 +390,7 @@ class CloneHeadingBlock(ToolBaseDummy):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK # type: ignore
 
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:

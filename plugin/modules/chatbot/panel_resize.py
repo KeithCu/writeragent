@@ -1,5 +1,6 @@
 import logging
 
+from typing import cast, Any
 from plugin.framework.listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
@@ -61,13 +62,13 @@ class _PanelResizeListener(BaseWindowListener):
         finally:
             self._in_relayout = False
 
-    def on_window_resized(self, evt):
-        r = evt.Source.getPosSize()
+    def on_window_resized(self, rEvent):
+        r = rEvent.Source.getPosSize()
         log.debug("windowResized: W=%d H=%d" % (r.Width, r.Height))
         if self._in_relayout:
             log.debug("windowResized: skipped (in_relayout)")
             return
-        self.relayout_now(evt.Source)
+        self.relayout_now(rEvent.Source)
 
     def _capture_initial(self, win):
         """Snapshot XDL-loaded pixel positions/sizes of every control."""
@@ -107,8 +108,8 @@ class _PanelResizeListener(BaseWindowListener):
                 info["gap_below_response"] = max(0, bottom_top - info["resp_bottom"])
             else:
                 # Fallback: no controls below response; keep a small gap.
-                info["bottom_top"] = info["resp_bottom"]
-                info["bottom_bottom"] = info["resp_bottom"]
+                info["bottom_top"] = cast(int, info["resp_bottom"])
+                info["bottom_bottom"] = cast(int, info["resp_bottom"])
                 info["gap_below_response"] = 2
 
         log.debug(
@@ -181,12 +182,15 @@ class _PanelResizeListener(BaseWindowListener):
             log.warning("_relayout: no initial state, skip")
             return
 
-        iw = self._initial["win_w"]
-        ih = self._initial["win_h"]
-        resp_bottom = self._initial.get("resp_bottom", 0)
-        gap_below_response = self._initial.get("gap_below_response", 2)
-        bottom_top_initial = self._initial.get("bottom_top")
-        bottom_bottom_initial = self._initial.get("bottom_bottom")
+        initial = cast(dict[str, Any], self._initial)
+        iw = cast(int, initial["win_w"])
+        ih = cast(int, initial["win_h"])
+        resp_bottom = int(initial.get("resp_bottom", 0))
+        gap_below_response = int(initial.get("gap_below_response", 2))
+        bottom_top_initial = initial.get("bottom_top")
+        bottom_bottom_initial = initial.get("bottom_bottom")
+        if isinstance(bottom_top_initial, (int, float)): bottom_top_initial = int(bottom_top_initial)
+        if isinstance(bottom_bottom_initial, (int, float)): bottom_bottom_initial = int(bottom_bottom_initial)
 
         # Compute where the bottom control group should start for this window height.
         bottom_top_new = None
@@ -216,7 +220,7 @@ class _PanelResizeListener(BaseWindowListener):
         for name, ctrl in self._c.items():
             if not ctrl or name == "response":
                 continue
-            orig = self._initial["ctrls"].get(name)
+            orig = initial["ctrls"].get(name)
             if not orig:
                 continue
             ox, oy, ow, oh = orig
@@ -233,7 +237,7 @@ class _PanelResizeListener(BaseWindowListener):
                 # The response field uses: max(10, w - response_ox - fixed_margin).
                 # We align the right side of the indicator to that same point so it never overflows.
                 new_w = ow
-                resp_orig = self._initial["ctrls"].get("response")
+                resp_orig = initial["ctrls"].get("response")
                 if resp_orig:
                     resp_ox = resp_orig[0]
                     resp_avail = w - resp_ox - fixed_margin
@@ -292,7 +296,7 @@ class _PanelResizeListener(BaseWindowListener):
             log.debug("_relayout fluid widths: %s" % fluid_debug)
 
         # Second pass: stretch response area to fill remaining vertical gap
-        resp_orig = self._initial["ctrls"].get("response")
+        resp_orig = initial["ctrls"].get("response")
         resp_ctrl = self._c.get("response")
         if resp_orig and resp_ctrl:
             rx, ry, rw, rh = resp_orig

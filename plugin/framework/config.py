@@ -25,13 +25,13 @@ import json
 import logging
 import dataclasses
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 try:
     import uno
     import unohelper
 except ImportError:
-    uno = None
-    unohelper = None
+    uno: Any = None
+    unohelper: Any = None
 from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
@@ -93,7 +93,7 @@ def _config_path(ctx):
         sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
         path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
         user_config_path = getattr(path_settings, "UserConfig", "")
-        if user_config_path and str(user_config_path).startswith("file://"):
+        if uno and user_config_path and str(user_config_path).startswith("file://"):
             user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
         return os.path.join(user_config_path, CONFIG_FILENAME)
     except Exception as e:
@@ -122,15 +122,19 @@ def _get_schema_default(key):
         mod_name, field_name = key.split(".", 1)
         for m in MODULES:
             if m.get("name") == mod_name:
-                for fname, schema in m.get("config", {}).items():
-                    if fname == field_name and "default" in schema:
-                        return schema["default"]
+                config = m.get("config", {})
+                if isinstance(config, dict):
+                    for fname, schema in config.items():
+                        if fname == field_name and isinstance(schema, dict) and "default" in schema:
+                            return schema["default"]
         return None
     # Flat key: find first module that has this config field
     for m in MODULES:
-        for fname, schema in m.get("config", {}).items():
-            if fname == key and "default" in schema:
-                return schema["default"]
+        config = m.get("config", {})
+        if isinstance(config, dict):
+            for fname, schema in config.items():
+                if fname == key and isinstance(schema, dict) and "default" in schema:
+                    return schema["default"]
     return None
 
 
@@ -146,10 +150,12 @@ def _dotted_fallback_keys(key):
         mod_name = m.get("name", "")
         if not mod_name:
             continue
-        for fname in m.get("config", {}):
-            if fname == key:
-                yield f"{mod_name}.{fname}"
-                break
+        config = m.get("config", {})
+        if isinstance(config, dict):
+            for fname in config:
+                if fname == key:
+                    yield f"{mod_name}.{fname}"
+                    break
 
 
 
@@ -701,7 +707,10 @@ def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint):
         # Merge defaults into the list if no fetching was done or fetching failed
         if provider:
             for m in DEFAULT_MODELS:
-                caps = [c.strip() for c in m.get("capability", "text").split(",")]
+                capability = m.get("capability", "text")
+                if not isinstance(capability, str):
+                    capability = str(capability)
+                caps = [c.strip() for c in capability.split(",")]
                 if req_cap in caps:
                     # Only add models that are marked as default for this capability
                     is_default = False

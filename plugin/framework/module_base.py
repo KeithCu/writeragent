@@ -33,7 +33,7 @@ class ModuleBase(ABC):
     time — it does NOT need to be set in the subclass.
     """
 
-    name: str = None
+    name: str | None = None
 
     def initialize(self, services):
         """Phase 1: Called in dependency order during bootstrap.

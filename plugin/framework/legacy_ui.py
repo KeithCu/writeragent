@@ -130,7 +130,10 @@ def settings_box(ctx, title="Settings", x=None, y=None):
             inline_val = m.get("config_inline")
             if not inline_val:
                 continue
-            target = inline_val if isinstance(inline_val, str) else (m["name"].rsplit(".", 1)[0] if "." in m["name"] else None)
+            m_name = m.get("name")
+            if not isinstance(m_name, str):
+                continue
+            target = inline_val if isinstance(inline_val, str) else (m_name.rsplit(".", 1)[0] if "." in m_name else None)
             if target:
                 inline_targets[m["name"]] = target
 
@@ -160,7 +163,10 @@ def settings_box(ctx, title="Settings", x=None, y=None):
             if not config and not children:
                 continue
 
-            btn_id = f"btn_tab_{m['name'].replace('.', '_')}"
+            m_name = m.get("name")
+            if not isinstance(m_name, str):
+                continue
+            btn_id = f"btn_tab_{m_name.replace('.', '_')}"
             ctrl = dlg.getControl(btn_id)
             if ctrl:
                 ctrl.addActionListener(TabListener(dlg, page_num))
@@ -213,9 +219,9 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 except Exception as e:
                                     log.error("EndpointCombinedListener error updating dropdowns: %s", e, exc_info=True)
 
-                            def itemStateChanged(self, ev):
+                            def itemStateChanged(self, rEvent):
                                 try:
-                                    idx = getattr(ev, "Selected", -1)
+                                    idx = getattr(rEvent, "Selected", -1)
                                     if idx < 0: return
                                     item_text = self._ctrl.getItem(idx)
                                     if item_text:
@@ -225,7 +231,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 except Exception as e:
                                     log.error("EndpointCombinedListener error in itemStateChanged: %s", e, exc_info=True)
 
-                            def textChanged(self, ev):
+                            def textChanged(self, rEvent):
                                 try:
                                     self.update_dropdowns()
                                 except Exception as e:
@@ -373,7 +379,7 @@ def show_eval_dashboard(ctx):
                 self.toolkit = toolkit
                 self.is_running = False
 
-            def on_action_performed(self, ev):
+            def on_action_performed(self, rEvent):
                 if self.is_running: return
                 self.is_running = True
                 try:
@@ -412,7 +418,7 @@ def show_eval_dashboard(ctx):
         
         class CloseListener(BaseActionListener):
             def __init__(self, dialog): self.dialog = dialog
-            def on_action_performed(self, ev): self.dialog.endDialog(0)
+            def on_action_performed(self, rEvent): self.dialog.endDialog(0)
         dlg.getControl("btn_close").addActionListener(CloseListener(dlg))
 
         dlg.execute()

@@ -218,7 +218,7 @@ class AiHordeClient:
         url_version_update: str,
         client_help_url: str,
         client_download_url: str,
-        settings: json = None,
+        settings: Any = None,
         client_name: str = __HORDE_CLIENT_NAME__,
         informer=None,
     ):
@@ -232,7 +232,7 @@ class AiHordeClient:
         if settings is None:
             self.settings = {"api_key": ANONYMOUS_KEY}
         else:
-            self.settings: json = settings
+            self.settings: Any = settings
 
         if "max_wait_minutes" not in self.settings:
             self.settings["max_wait_minutes"] = 1
@@ -250,7 +250,7 @@ class AiHordeClient:
 
         self.api_key: str = self.settings.get("aihorde_api_key") or self.settings.get("api_key", ANONYMOUS_KEY)
         self.client_name: str = client_name
-        self.headers: json = {
+        self.headers: Any = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "apikey": self.api_key,
@@ -412,7 +412,7 @@ class AiHordeClient:
         
         self.settings["local_settings"]["date_requirements_updated"] = today.strftime("%Y-%m-%d")
 
-    def __get_model_requirements__(self, model: str) -> json:
+    def __get_model_requirements__(self, model: str) -> Any:
         """
         Given the name of a model, fetch the requirements if any,
         to have the opportunity to mix the requirements for the
@@ -463,7 +463,7 @@ class AiHordeClient:
         log.debug(f"Requirements for {model} are {reqs}")
         return reqs
 
-    def __get_model_restrictions__(self, model: str) -> json:
+    def __get_model_restrictions__(self, model: str) -> Any:
         """
         Returns a json that offers for each key a fixed value or
         a range for the requirements present in self.settings["local_settings"].
@@ -681,7 +681,7 @@ class AiHordeClient:
                 _("No longer valid, please try again.  Your request took too long")
             )
 
-    def generate_image(self, options: json) -> [str]:
+    def generate_image(self, options: Any) -> [str]:
         """
         options have been prefilled for the selected model
         informer will be acknowledged on the process via show_progress
@@ -1152,13 +1152,13 @@ class AiHordeClient:
 
         return "\n".join(result)
 
-    def get_settings(self) -> json:
+    def get_settings(self) -> Any:
         """
         Returns the stored settings
         """
         return self.settings
 
-    def set_settings(self, settings: json):
+    def set_settings(self, settings: Any):
         """
         Store the given settings, useful when fetching from a file or updating
         based on user selection.

@@ -748,7 +748,11 @@ class LlmClient:
 
             log.debug("=== Sync response: %s" % json.dumps(result, indent=2))
 
+            if result is None:
+                result = {}
             choice = result.get("choices", [{}])[0] if result.get("choices") else {}
+            if choice is None:
+                choice = {}
             message = choice.get("message") or result.get("message") or {}
             _normalize_delta(message)
             last_finish_reason = choice.get("finish_reason") or result.get("done_reason")

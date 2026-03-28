@@ -55,34 +55,45 @@ def get_settings_field_specs(ctx):
     try:
         from plugin._manifest import MODULES
         for m in MODULES:
-            if m["name"] in ("main", "ai"):
+            m_name = str(m.get("name", ""))
+            if m_name in ("main", "ai"):
                 continue
-            for field_name, schema in m.get("config", {}).items():
+
+            m_config = m.get("config", {})
+            if not isinstance(m_config, dict):
+                m_config = {}
+
+            for field_name, schema in m_config.items():
+                if not isinstance(schema, dict):
+                    continue
+
                 if schema.get("internal") or schema.get("widget") == "list_detail":
                     continue
                 
-                prefix = m["name"].replace(".", "_")
+                prefix = m_name.replace(".", "_")
                 ctrl_id = f"{prefix}__{field_name}"
-                config_key = f"{m['name']}.{field_name}"
+                config_key = f"{m_name}.{field_name}"
                 
                 default = str(schema.get("default", ""))
                 val = get_config(ctx, config_key)
                 opts = schema.get("options", [])
+
                 # For select/combo with value/label options, use label for display so dropdown shows correctly
-                if opts and isinstance(opts[0], dict):
+                if isinstance(opts, list) and opts and isinstance(opts[0], dict):
                     for o in opts:
-                        if str(o.get("value", "")) == str(val).strip().lower():
-                            val = _(o.get("label", val))
+                        if isinstance(o, dict) and str(o.get("value", "")) == str(val).strip().lower():
+                            val = _(str(o.get("label", val)))
                             break
-                field = {"name": ctrl_id, "value": str(val)}
+
+                field: dict = {"name": ctrl_id, "value": str(val)}
                 
                 # Resolve dynamic options if options_provider is present; else use schema options
                 provider_path = schema.get("options_provider")
-                if provider_path:
+                if provider_path and isinstance(provider_path, str):
                     try:
                         field["options"] = _call_options_provider(ctx, provider_path)
                     except (ImportError, AttributeError, TypeError, ValueError) as e:
-                                                log.error(f"Failed to resolve options_provider {provider_path}: {e}")
+                        log.error(f"Failed to resolve options_provider {provider_path}: {e}")
                     except Exception as e:
                         from plugin.framework.errors import ConfigError
                         log.error(f"ConfigError in options_provider {provider_path}: {e}")
@@ -93,7 +104,7 @@ def get_settings_field_specs(ctx):
                 if schema_type == "boolean":
                     schema_type = "bool"
                 if schema_type in ("bool", "int", "float"):
-                    field["type"] = schema_type
+                    field["type"] = str(schema_type)
                     if schema_type == "bool":
                         field["value"] = "true" if as_bool(val) else "false"
                         

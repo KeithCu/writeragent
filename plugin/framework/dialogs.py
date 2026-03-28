@@ -177,7 +177,7 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text):
         _result = {"v": _UNSET}
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, ev):
+            def actionPerformed(self, rEvent):
                 try:
                     ec = dlg.getControl("QueryEdit")
                     t = (ec.getModel().Text or "").strip() if ec and ec.getModel() else ""
@@ -186,15 +186,15 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text):
                 _result["v"] = t
                 dlg.endDialog(1)
 
-            def disposing(self, ev):
+            def disposing(self, Source):
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, ev):
+            def actionPerformed(self, rEvent):
                 _result["v"] = None
                 dlg.endDialog(0)
 
-            def disposing(self, ev):
+            def disposing(self, Source):
                 pass
 
         dlg.getControl("BtnOK").addActionListener(_OkListener())
@@ -229,7 +229,7 @@ def copy_to_clipboard(ctx, text):
             def __init__(self, txt):
                 self._text = txt
 
-            def getTransferData(self, flavor):
+            def getTransferData(self, aFlavor):
                 return self._text
 
             def getTransferDataFlavors(self):
@@ -239,8 +239,8 @@ def copy_to_clipboard(ctx, text):
                 f.DataType = uno.getTypeByName("string")
                 return (f,)
 
-            def isDataFlavorSupported(self, flavor):
-                return "text/plain" in flavor.MimeType
+            def isDataFlavorSupported(self, aFlavor):
+                return "text/plain" in aFlavor.MimeType
 
         clip.setContents(_TextTransferable(text), None)
         log.info("Copied to clipboard: %s", text)
@@ -353,7 +353,7 @@ def msgbox_with_copy(ctx, title, message, copy_text):
                 self._ctx = context
                 self._text = text
 
-            def on_action_performed(self, ev):
+            def on_action_performed(self, rEvent):
                 if copy_to_clipboard(self._ctx, self._text):
                     try:
                         self._dlg.getModel().getByName("CopyBtn").Label = \
@@ -408,7 +408,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         has_copy = copy_url_fn is not None
         if has_copy:
             add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 88, 65, 14,
-                              enabled=bool(copy_url_fn()))
+                              enabled=bool(copy_url_fn() if copy_url_fn else False))
 
         add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 88, 50, 14, push_button_type=1)
 
@@ -427,7 +427,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                     self._ctx = context
                     self._url_fn = url_fn
 
-                def on_action_performed(self, ev):
+                def on_action_performed(self, rEvent):
                     url = self._url_fn()
                     if url and copy_to_clipboard(self._ctx, url):
                         try:
@@ -448,7 +448,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                 updated = build_status_fn()
                 dlg_model.getByName("StatusText").Label = updated
                 if has_copy:
-                    url = copy_url_fn()
+                    url = copy_url_fn() if copy_url_fn else None
                     dlg_model.getByName("CopyBtn").Enabled = bool(url)
             except Exception:
                 pass  # dialog already closed
@@ -470,7 +470,8 @@ def about_dialog(ctx):
     try:
         from plugin.version import EXTENSION_VERSION
     except ImportError:
-        EXTENSION_VERSION = "?"
+        from typing import cast, Any
+        EXTENSION_VERSION = cast(Any, "?")
 
     if not ctx:
         log.info("ABOUT (no ctx)")
@@ -827,6 +828,6 @@ class TabListener(BaseActionListener):
         self._dlg = dialog
         self._page = page
 
-    def on_action_performed(self, ev):
+    def on_action_performed(self, rEvent):
         """Switch to the specified page when button is clicked."""
         self._dlg.getModel().Step = self._page

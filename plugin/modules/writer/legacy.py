@@ -44,7 +44,7 @@ def do_extend_selection(ctx, model, input_box_fn):
         return
 
     from plugin.modules.http.client import LlmClient
-    client = LlmClient(api_config)
+    client = LlmClient(api_config, ctx)
 
     def apply_chunk(chunk_text, is_thinking=False):
         if not is_thinking:
@@ -89,7 +89,7 @@ def do_edit_selection(ctx, model, input_box_fn):
         return
 
     from plugin.modules.http.client import LlmClient
-    client = LlmClient(api_config)
+    client = LlmClient(api_config, ctx)
 
     text_range.setString("")
 

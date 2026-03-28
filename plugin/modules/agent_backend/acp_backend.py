@@ -186,9 +186,10 @@ class ACPBackend(AgentBackend):
         }
 
         try:
-            result = self._conn.send_request("session/new", params, timeout=30)
-            self._session_id = result.get("sessionId", "") if result else ""
-            log.debug(f"ACP session created: {self._session_id}")
+            if self._conn:
+                result = self._conn.send_request("session/new", params, timeout=30)
+                self._session_id = result.get("sessionId", "") if result else ""
+                log.debug(f"ACP session created: {self._session_id}")
         except Exception as e:
             log.error(f"ACP session creation failed: {e}")
             raise
@@ -384,19 +385,21 @@ class ACPBackend(AgentBackend):
                 update = params.get("update", params)
                 self._handle_agent_update(update, queue)
 
-        self._conn.set_notification_callback(on_notification)
+        if self._conn:
+            self._conn.set_notification_callback(on_notification)
 
         # Send prompt
         try:
-            result = self._conn.send_request("session/prompt", {
-                "sessionId": self._session_id,
-                "prompt": prompt_blocks,
-            }, timeout=600)
+            if self._conn:
+                result = self._conn.send_request("session/prompt", {
+                    "sessionId": self._session_id,
+                    "prompt": prompt_blocks,
+                }, timeout=600)
 
-            # Process the final response
-            if result:
-                stop_reason = result.get("stopReason", result.get("stop_reason", ""))
-                log.info(f"Prompt completed: stop_reason={stop_reason}")
+                # Process the final response
+                if result:
+                    stop_reason = result.get("stopReason", result.get("stop_reason", ""))
+                    log.info(f"Prompt completed: stop_reason={stop_reason}")
 
             queue.put(("stream_done", None))
 
@@ -409,7 +412,8 @@ class ACPBackend(AgentBackend):
                 log.error(f"Prompt error: {e}")
                 queue.put(("error", format_error_payload(e)))
         finally:
-            self._conn.set_notification_callback(None)
+            if self._conn:
+                self._conn.set_notification_callback(None)
             self._prompt_done.set()
 
     def stop(self):

@@ -30,7 +30,8 @@ try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
     UNO_AVAILABLE = True
 except ImportError:
-    EMPTY, VALUE, TEXT, FORMULA = 0, 1, 2, 3
+    from typing import Any, cast
+    EMPTY, VALUE, TEXT, FORMULA = cast(Any, 0), cast(Any, 1), cast(Any, 2), cast(Any, 3)
     UNO_AVAILABLE = False
 
 logger = logging.getLogger("writeragent.calc")
@@ -222,7 +223,7 @@ class CellInspector:
             logger.error("Range reading error (%s): %s", range_name, str(e))
             raise ToolExecutionError(str(e)) from e
 
-    def get_all_formulas(self, sheet_name: str = None) -> list[dict]:
+    def get_all_formulas(self, sheet_name: str | None = None) -> list[dict]:
         """List all formulas in a sheet.
 
         Args:

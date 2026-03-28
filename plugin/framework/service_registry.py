@@ -61,7 +61,8 @@ class ServiceRegistry:
 
                 try:
                     # Instantiate by passing the registry itself as 'services'
-                    svc_instance = obj(self)
+                    from typing import Any
+                    svc_instance = (obj)(self) if hasattr(obj, "__init__") else (obj)() # type: ignore
                     self.register(obj.name, svc_instance)
                 except (TypeError, ValueError, ImportError) as e:
                     log.error("Failed to instantiate service %s (TypeError/ValueError/ImportError): %s", obj.__name__, e)

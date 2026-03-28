@@ -36,7 +36,10 @@ if _vendor_dir not in sys.path:
     sys.path.insert(0, _vendor_dir)
 
 import unohelper
-import officehelper
+try:
+    import officehelper
+except ImportError:
+    pass
 
 from plugin.framework.logging import init_logging
 import uno
@@ -391,7 +394,12 @@ def notify_menu_update():
 
 def _fire_status_event(listener, url, text):
     """Send a FeatureStateEvent to one listener."""
-    ev = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
+    import typing
+    if typing.TYPE_CHECKING:
+        from com.sun.star.frame import FeatureStateEvent
+        ev = FeatureStateEvent()
+    else:
+        ev = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
     ev.FeatureURL = url
     command = url.Path
     ev.IsEnabled = True
@@ -443,9 +451,10 @@ def _collect_icon_commands():
         return {}
 
     result = {}
+    import typing
     for m in MODULES:
         mod_name = m["name"]
-        action_icons = m.get("action_icons", {})
+        action_icons = typing.cast(typing.Dict[str, str], m.get("action_icons", {}))
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
             # Ask the module for dynamic icon (may override the default)
@@ -461,7 +470,7 @@ def _load_icon_graphic(module_name, icon_filename, ctx=None):
         import uno
         if ctx is None:
             ctx = uno.getComponentContext()
-        smgr = ctx.ServiceManager
+        smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
         gp = smgr.createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx)
         ext_url = get_extension_url(ctx)
@@ -507,7 +516,7 @@ def _update_menu_icons():
         if not key_graphics:
             return
 
-        smgr = ctx.ServiceManager
+        smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
 
         supplier = smgr.createInstanceWithContext(
             "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
@@ -580,7 +589,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         except NameError:
             self.sm = ctx.ServiceManager
 
-    def execute(self, args):
+    def execute(self, Arguments):
         """Called by the Jobs framework on OnStartApp."""
         try:
             bootstrap(self.ctx)
@@ -588,10 +597,11 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         return ()
 
-    def trigger(self, args):
+    def trigger(self, Event):
         bootstrap(self.ctx)
         init_logging(self.ctx)
 
+        args = Event
         if args and isinstance(args, str) and ("." in args or args.startswith("plugin.")):
             cmd = args
             if cmd.startswith("plugin."): cmd = cmd[7:]
@@ -644,8 +654,9 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 # Starting from Python IDE
 def main():
     try:
-        ctx = XSCRIPTCONTEXT
-    except NameError:
+        # Using locals()/globals() bypasses static analyzer checks for XSCRIPTCONTEXT
+        ctx = globals()["XSCRIPTCONTEXT"]
+    except KeyError:
         ctx = officehelper.bootstrap()
         if ctx is None:
             print("ERROR: Could not bootstrap default Office.")
@@ -673,7 +684,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
 
     # ── XInitialization ──────────────────────────────────────────
 
-    def initialize(self, args):
+    def initialize(self, aArguments):
         pass
 
     # ── XServiceInfo ─────────────────────────────────────────────
@@ -681,26 +692,29 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
     def getImplementationName(self):
         return self.IMPL_NAME
 
-    def supportsService(self, name):
-        return name in self.SERVICE_NAMES
+    def supportsService(self, ServiceName):
+        return ServiceName in self.SERVICE_NAMES
 
     def getSupportedServiceNames(self):
         return self.SERVICE_NAMES
 
     # ── XDispatchProvider ────────────────────────────────────────
 
-    def queryDispatch(self, url, name, flags):
+    def queryDispatch(self, URL, TargetFrameName, SearchFlags):
+        url = URL
         if url.Protocol == "org.extension.writeragent:":
             return self
         return None
 
-    def queryDispatches(self, requests):
+    def queryDispatches(self, Requests):
+        requests = Requests
         return [self.queryDispatch(r.FeatureURL, r.FrameName,
                                    r.SearchFlags) for r in requests]
 
     # ── XDispatch ────────────────────────────────────────────────
 
-    def dispatch(self, url, args):
+    def dispatch(self, URL, Arguments):
+        url = URL
         command = url.Path
         from plugin.framework.dialogs import msgbox
         from plugin.framework.logging import init_logging, log_exception
@@ -718,7 +732,9 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             from plugin.framework.i18n import _
             msgbox(self.ctx, _("Dispatch Error"), _(str(e)))
 
-    def addStatusListener(self, listener, url):
+    def addStatusListener(self, Control, URL):
+        listener = Control
+        url = URL
         with _status_lock:
             _status_listeners.append((listener, url))
         # Send current state immediately
@@ -730,7 +746,9 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             except Exception as e:
                 log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
 
-    def removeStatusListener(self, listener, url):
+    def removeStatusListener(self, Control, URL):
+        listener = Control
+        url = URL
         with _status_lock:
             _status_listeners[:] = [
                 (l, u) for l, u in _status_listeners

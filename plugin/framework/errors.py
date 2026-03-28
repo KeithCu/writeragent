@@ -1,5 +1,20 @@
-"""
-Centralized exception hierarchy for WriterAgent.
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2024 John Balis
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""Centralized exception hierarchy and error formatting for WriterAgent.
 
 All custom exceptions should inherit from WriterAgentException.
 """
@@ -156,16 +171,23 @@ def safe_call(fn, context_name, *args, **kwargs):
 def format_error_payload(e: Exception) -> dict:
     """Format an exception into the standard JSON error payload schema."""
     if isinstance(e, WriterAgentException):
-        payload = {"status": "error", "code": e.code, "message": e.message}
+        payload = {
+            "status": "error",
+            "code": e.code,
+            "message": e.message,
+        }
         if e.details:
             payload["details"] = e.details
         return payload
 
+    # For unexpected exceptions
     return {
         "status": "error",
         "code": "INTERNAL_ERROR",
         "message": str(e),
-        "details": {"type": type(e).__name__},
+        "details": {
+            "type": type(e).__name__,
+        },
     }
 
 

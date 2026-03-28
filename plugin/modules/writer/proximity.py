@@ -151,7 +151,8 @@ class ProximityService(ServiceBase):
             from_info["context_bookmark"] = bookmark_map.get(
                 ctx_node["para_index"])
 
-        target_entry = None
+        import typing
+        target_entry = typing.cast(typing.Optional[typing.Dict[str, typing.Any]], None)
         error_msg = None
 
         if direction == "next":
@@ -218,6 +219,9 @@ class ProximityService(ServiceBase):
 
         if error_msg:
             return {"error": error_msg, "from": from_info}
+
+        if target_entry is None:
+            return {"error": "Unexpectedly found no target entry.", "from": from_info}
 
         return {
             "heading": self._build_heading_result(

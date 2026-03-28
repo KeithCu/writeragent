@@ -123,8 +123,9 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
             )
 
         # Move to executing tool
+        import typing
         effects.append(ExecuteToolEffect(
-            tool_name=state.tool_name,
+            tool_name=typing.cast(str, state.tool_name),
             arguments=state.arguments,
             doc_context=doc_context,
             doc_type=doc_type,

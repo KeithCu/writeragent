@@ -13,11 +13,13 @@ from plugin.contrib.smolagents.models import ChatMessage, ChatMessageToolCall, C
 class DummyChatbotPanel(SendHandlersMixin):
     def __init__(self):
         self.ctx = MockContext()
-        self.ctx.getServiceManager = MagicMock()
+        setattr(self.ctx, "getServiceManager", MagicMock())
         self.stop_requested = False
         self.responses = []
         self.status_history = []
         self._terminal_status = None
+        setattr(self, "session", MagicMock())
+        setattr(self, "response_control", MagicMock())
 
         # UI Mocks
         self.aspect_ratio_selector = MagicMock()
@@ -86,9 +88,14 @@ def test_do_send_direct_image():
                             on_error(item[1])
                 mock_run_stream.side_effect = fake_drain_loop
 
-                panel.ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
+                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
 
-                panel._do_send_direct_image("A cute dog", model)
+                from typing import cast
+                from plugin.modules.chatbot.send_handlers import SendHandlerHost
+                # We tell the type checker to treat panel as a SendHandlerHost to bypass the static error.
+                # In Python < 3.12 `cast(SendHandlerHost, panel)` could work, but using type ignores
+                # is simpler and less prone to edge-cases with Protocol types in ty/mypy.
+                panel._do_send_direct_image("A cute dog", model)  # type: ignore
 
                 # Verify responses
                 assert "\nYou: A cute dog\n" in panel.responses
@@ -149,9 +156,9 @@ def test_do_send_direct_image_error():
                             on_error(item[1])
                 mock_run_stream.side_effect = fake_drain_loop
 
-                panel.ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
+                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
 
-                panel._do_send_direct_image("A cute dog", model)
+                panel._do_send_direct_image("A cute dog", model) # type: ignore
 
                 # Verify responses
                 assert "\nYou: A cute dog\n" in panel.responses
@@ -167,7 +174,7 @@ def test_web_research_tool():
     # Setup mock context
     ctx = MagicMock()
     ctx.ctx = MockContext()
-    ctx.ctx.getServiceManager = MagicMock()  # for ConfigService
+    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
     ctx.stop_checker = lambda: False
@@ -244,7 +251,7 @@ def test_web_research_tool():
                 mock_get.return_value = mock_get_resp
 
                 tool = WebResearchTool()
-                result = tool.execute(ctx, "What is the latest Python release?", "User said hello previously")
+                result = tool.execute(ctx, query="What is the latest Python release?", history_text="User said hello previously")
 
                 assert result["status"] == "ok"
                 assert "3.12.3" in result["result"]
@@ -258,14 +265,14 @@ def test_web_research_tool():
 def test_web_research_tool_stop():
     ctx = MagicMock()
     ctx.ctx = MockContext()
-    ctx.ctx.getServiceManager = MagicMock()  # for ConfigService
+    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
     ctx.stop_checker = lambda: True  # Stop immediately
 
     with patch("plugin.framework.smol_model.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
                 tool = WebResearchTool()
-                result = tool.execute(ctx, "What is the latest Python release?", "")
+                result = tool.execute(ctx, query="What is the latest Python release?", history_text="")
 
                 assert result["status"] == "error"
                 assert result["message"] == "Web search stopped by user."
@@ -276,8 +283,8 @@ def test_run_web_research_invalid_json():
     model = MockDocument()
 
     # Need a mock session so add_assistant_message doesn't blow up
-    panel.session = MagicMock()
-    panel.response_control = MagicMock()
+    setattr(panel, "session", MagicMock())
+    setattr(panel, "response_control", MagicMock())
 
     mock_main = MagicMock()
     mock_registry = MagicMock()
@@ -320,9 +327,9 @@ def test_run_web_research_invalid_json():
                             on_error(item[1])
                 mock_run_stream.side_effect = fake_drain_loop
 
-                panel.ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
+                getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
 
-                panel._run_web_research("What is the speed of light?", model)
+                panel._run_web_research("What is the speed of light?", model) # type: ignore
 
                 # Verify responses
                 assert "\nYou: What is the speed of light?\n" in panel.responses

@@ -47,12 +47,12 @@ class ListNamedRanges(ToolBase):
             try:
                 entry["content"] = nr.getContent()
             except Exception as e:
-                logger.debug("list_named_ranges getContent error for %s: %s", entry["name"], e)
+                log.debug("list_named_ranges getContent error for %s: %s", entry["name"], e)
             try:
                 ra = nr.getReferredCells().getRangeAddress()
                 entry["range"] = _range_address_str(ra)
             except Exception as e:
-                logger.debug("list_named_ranges getRangeAddress error for %s: %s", entry["name"], e)
+                log.debug("list_named_ranges getRangeAddress error for %s: %s", entry["name"], e)
             result.append(entry)
         return {
             "status": "ok",

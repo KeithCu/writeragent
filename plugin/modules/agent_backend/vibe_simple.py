@@ -119,49 +119,51 @@ class VibeBackend(ACPBackend):
                 update = params.get("update", params)
                 self._handle_agent_update(update, queue)
 
-        self._conn.set_notification_callback(on_notification)
+        if self._conn:
+            self._conn.set_notification_callback(on_notification)
 
         # Send prompt
         try:
-            result = self._conn.send_request("session/prompt", {
-                "sessionId": self._session_id,
-                "prompt": prompt_blocks,
-            }, timeout=600)
+            if self._conn:
+                result = self._conn.send_request("session/prompt", {
+                    "sessionId": self._session_id,
+                    "prompt": prompt_blocks,
+                }, timeout=600)
 
-            # Process the final response - Vibe returns content in result
-            log.info(f"Vibe prompt result: {result}")  # DEBUG: Log full result
-            
-            if result:
-                stop_reason = result.get("stopReason", result.get("stop_reason", ""))
-                log.info(f"Prompt completed: stop_reason={stop_reason}")
+                # Process the final response - Vibe returns content in result
+                log.info(f"Vibe prompt result: {result}")  # DEBUG: Log full result
                 
-                # Check if Vibe returned content in the result
-                content_blocks = result.get("contentBlocks", [])
-                log.info(f"Found {len(content_blocks)} content blocks")  # DEBUG: Log block count
-                
-                if content_blocks:
-                    for i, block in enumerate(content_blocks):
-                        log.info(f"Processing block {i}: {block}")  # DEBUG: Log each block
-                        if isinstance(block, dict):
-                            if block.get("type") == "text":
-                                text = block.get("text", "")
-                                log.info(f"Queueing text chunk: {text[:50]}...")  # DEBUG: Log text
-                                queue.put(("chunk", text))
-                            elif block.get("type") == "tool_call":
-                                log.info(f"Queueing tool call: {block}")  # DEBUG: Log tool call
-                                queue.put(("tool_call", block))
-                            elif block.get("type") == "tool_result":
-                                log.info(f"Queueing tool result: {block}")  # DEBUG: Log tool result
-                                queue.put(("tool_result", block))
-                else:
-                    log.warning("No contentBlocks found in Vibe response")
-                    # Check for other possible response formats
-                    if "content" in result:
-                        log.info(f"Found 'content' field: {result['content']}")
-                    if "output" in result:
-                        log.info(f"Found 'output' field: {result['output']}")
-                    if "response" in result:
-                        log.info(f"Found 'response' field: {result['response']}")
+                if result:
+                    stop_reason = result.get("stopReason", result.get("stop_reason", ""))
+                    log.info(f"Prompt completed: stop_reason={stop_reason}")
+
+                    # Check if Vibe returned content in the result
+                    content_blocks = result.get("contentBlocks", [])
+                    log.info(f"Found {len(content_blocks)} content blocks")  # DEBUG: Log block count
+
+                    if content_blocks:
+                        for i, block in enumerate(content_blocks):
+                            log.info(f"Processing block {i}: {block}")  # DEBUG: Log each block
+                            if isinstance(block, dict):
+                                if block.get("type") == "text":
+                                    text = block.get("text", "")
+                                    log.info(f"Queueing text chunk: {text[:50]}...")  # DEBUG: Log text
+                                    queue.put(("chunk", text))
+                                elif block.get("type") == "tool_call":
+                                    log.info(f"Queueing tool call: {block}")  # DEBUG: Log tool call
+                                    queue.put(("tool_call", block))
+                                elif block.get("type") == "tool_result":
+                                    log.info(f"Queueing tool result: {block}")  # DEBUG: Log tool result
+                                    queue.put(("tool_result", block))
+                    else:
+                        log.warning("No contentBlocks found in Vibe response")
+                        # Check for other possible response formats
+                        if "content" in result:
+                            log.info(f"Found 'content' field: {result['content']}")
+                        if "output" in result:
+                            log.info(f"Found 'output' field: {result['output']}")
+                        if "response" in result:
+                            log.info(f"Found 'response' field: {result['response']}")
 
             queue.put(("stream_done", None))
 
@@ -174,5 +176,6 @@ class VibeBackend(ACPBackend):
                 log.error(f"Prompt error: {e}")
                 queue.put(("error", format_error_payload(e)))
         finally:
-            self._conn.set_notification_callback(None)
+            if self._conn:
+                self._conn.set_notification_callback(None)
             self._prompt_done.set()

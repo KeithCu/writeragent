@@ -49,10 +49,12 @@ class LogSidebarEffect:
     message: str
 
 
+import typing
+
 @dataclass(frozen=True)
 class SidebarCompositeState(BaseState):
     send: SendButtonState
-    tool_loop: Optional[ToolLoopState]
+    tool_loop: typing.Optional[ToolLoopState]
     audio: AudioRecorderState
 
 

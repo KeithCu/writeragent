@@ -85,7 +85,9 @@ class WebResearchTool(ToolBase):
         """Run in a background thread so HITL approval can use the main-thread queue/drain loop."""
         return True
 
-    def execute(self, ctx, query, history_text=None):
+    def execute(self, ctx, **kwargs):
+        query = kwargs.get("query")
+        history_text = kwargs.get("history_text")
         from plugin.framework.errors import format_error_payload, ToolExecutionError
         import os
         from plugin.framework.utils import get_url_domain
@@ -113,7 +115,7 @@ class WebResearchTool(ToolBase):
 
         try:
             if status_callback:
-                status_callback("Sub-agent starting web search: " + query)
+                status_callback("Sub-agent starting web search: " + str(query or ""))
 
             config = get_api_config(ctx.ctx)
             max_tokens = int(config.get("chat_max_tokens", 2048))
@@ -161,7 +163,9 @@ class WebResearchTool(ToolBase):
             )
 
             web_search_step_index = 0
-            for step in agent.run(task, stream=True):
+            from typing import Iterable, cast
+            run_stream = cast(Iterable, agent.run(task, stream=True))
+            for step in run_stream:
                 if stop_checker and stop_checker():
                     return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
                 if isinstance(step, ToolCall):
@@ -230,9 +234,11 @@ class WebResearchTool(ToolBase):
                         elif not prompt_for_web_research and chat_append_callback:
                             # Skip a duplicate full `[Web search]` preview when the first DDG query
                             # matches the outer `query` passed into this tool (same text as user intent).
+                            q_norm = _norm_research_query(q)
+                            query_norm = _norm_research_query(cast(str, query)) if query is not None else ""
                             skip_redundant_preview = (
                                 web_search_step_index == 0
-                                and _norm_research_query(q) == _norm_research_query(query)
+                                and q_norm == query_norm
                             )
                             if not skip_redundant_preview:
                                 chat_append_callback(

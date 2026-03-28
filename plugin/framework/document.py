@@ -112,7 +112,7 @@ def set_document_property(model, name, value):
                 if hasattr(props, "hasByName"):
                     exists = safe_call(props.hasByName, "Check property name", name) or False
 
-                from com.sun.star.beans.PropertyAttribute import REMOVABLE
+                REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
                 if not exists and hasattr(props, "addProperty"):
                     safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
                 elif hasattr(props, "setPropertyValue"):
@@ -636,7 +636,7 @@ def build_heading_tree(model):
         text = safe_call(model.getText, "Get document text")
         enum = safe_call(text.createEnumeration, "Create enumeration")
         root = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
-        stack = [root]
+        stack: list[dict] = [root]
         para_index = 0
 
         while safe_call(enum.hasMoreElements, "Check more elements"):
@@ -648,8 +648,8 @@ def build_heading_tree(model):
                 except UnoObjectError as e:
                     logging.getLogger(__name__).debug("build_heading_tree could not get OutlineLevel: %s", e)
 
-                if outline_level > 0:
-                    while len(stack) > 1 and stack[-1]["level"] >= outline_level:
+                if isinstance(outline_level, int) and outline_level > 0:
+                    while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
                         stack.pop()
                     node = {
                         "level": outline_level,

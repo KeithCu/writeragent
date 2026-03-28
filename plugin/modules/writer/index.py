@@ -219,7 +219,7 @@ class IndexService(ServiceBase):
             lib_dir = os.path.normpath(lib_dir)
             if lib_dir not in sys.path:
                 sys.path.insert(0, lib_dir)
-            import snowballstemmer
+            import snowballstemmer # type: ignore
             s = snowballstemmer.stemmer(lang)
             self._stemmers[lang] = s
             return s

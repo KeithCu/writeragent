@@ -9,6 +9,12 @@ import inspect
 import dataclasses
 import json
 import queue
+from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
+
+if TYPE_CHECKING:
+    import threading
+    from plugin.modules.http.client import LlmClient
+    from plugin.modules.chatbot.panel import ChatSession
 
 from plugin.framework.async_stream import (
     run_stream_completion_async,
@@ -56,12 +62,62 @@ log = logging.getLogger(__name__)
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
+class ToolLoopHost(Protocol):
+    ctx: Any
+    session: "ChatSession"
+    client: "LlmClient | None"
+    model_selector: Any
+    image_model_selector: Any
+    audio_wav_path: str | None
+    stop_requested: bool
+    sidebar_state: Any
+    _terminal_status: str
+
+    _active_q: "queue.Queue[Any]"
+    _active_client: "LlmClient"
+    _active_max_tokens: int
+    _active_tools: list[dict[str, Any]]
+    _active_execute_tool_fn: Callable[..., Any]
+    _active_max_tool_rounds: int
+    _active_query_text: str | None
+    _active_model: Any
+    _active_async_tools: frozenset[str]
+    _active_supports_status: bool
+    _active_round_num: int
+    _active_pending_tools: list[Any]
+
+    def _append_response(self, text: str, is_thinking: bool = False) -> None: ...
+    def _set_status(self, text: str) -> None: ...
+    def _get_document_model(self) -> Any: ...
+    def _get_doc_type_str(self, model: Any) -> str: ...
+    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
+    def _transcribe_audio(self, path: str, model_id: str) -> str: ...
+    def _get_mcp_url(self) -> str | None: ...
+
+    @property
+    def _sm_state(self) -> "ToolLoopState": ...
+    @_sm_state.setter
+    def _sm_state(self, value: "ToolLoopState | None") -> None: ...
+
+    # Mixin methods called on self
+    def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None: ...
+    def _spawn_llm_worker(self, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None: ...
+    def _spawn_final_stream(self, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int) -> None: ...
+    def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None: ...
+    def _handle_stream_completion(self, item: Any) -> bool: ...
+    def _handle_stream_stopped(self) -> None: ...
+    def _handle_stream_error(self, e: Any) -> None: ...
+    def _on_tool_loop_approval_required(self, item: Any) -> None: ...
+    def _execute_effect(self, effect: Any) -> bool: ...
+    def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
+    def _is_400_input_validation(self, err: Any) -> bool: ...
+
 
 class ToolCallingMixin:
     """Tool loop state lives in ``sidebar_state.tool_loop`` when mixed with SendButtonListener."""
 
     @property
-    def _sm_state(self):
+    def _sm_state(self: ToolLoopHost) -> ToolLoopState:
         if not hasattr(self, "sidebar_state"):
             raise AttributeError(
                 "ToolCallingMixin requires sidebar_state (SendButtonListener provides it)"
@@ -72,10 +128,10 @@ class ToolCallingMixin:
         return tl
 
     @_sm_state.setter
-    def _sm_state(self, value):
+    def _sm_state(self: ToolLoopHost, value: ToolLoopState | None) -> None:
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
-    def _do_send_chat_with_tools(self, query_text, model, doc_type_str):
+    def _do_send_chat_with_tools(self: ToolLoopHost, query_text: str, model: Any, doc_type_str: str) -> None:
         from plugin.framework.errors import UnoObjectError
         try:
             log.debug("_do_send: importing core modules...")
@@ -147,8 +203,9 @@ class ToolCallingMixin:
                                     )
                                     return True
                                 event = threading.Event()
-                                event.approved = False
-                                event.query_override = None
+                                # Use setattr/getattr to avoid static attribute errors on Event
+                                setattr(event, "approved", False)
+                                setattr(event, "query_override", None)
                                 q.put(
                                     (
                                         "approval_required",
@@ -158,10 +215,10 @@ class ToolCallingMixin:
                                     )
                                 )
                                 event.wait()
-                                if not event.approved:
+                                if not getattr(event, "approved", False):
                                     q.put(("stopped",))
                                 return (
-                                    bool(event.approved),
+                                    bool(getattr(event, "approved", False)),
                                     getattr(event, "query_override", None),
                                 )
                     except Exception as ex:
@@ -380,7 +437,7 @@ class ToolCallingMixin:
 
         log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
-    def _spawn_llm_worker(self, q, client, max_tokens, tools, round_num, query_text=None):
+    def _spawn_llm_worker(self: ToolLoopHost, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None:
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
         log.debug(
@@ -418,7 +475,7 @@ class ToolCallingMixin:
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run, name=f"llm-worker-{round_num}")
 
-    def _spawn_final_stream(self, q, client, max_tokens):
+    def _spawn_final_stream(self: ToolLoopHost, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int) -> None:
         """Spawn a background thread for a final no-tools stream into q."""
         update_activity_state("exhausted_rounds")
         self._set_status("Finishing...")
@@ -457,7 +514,7 @@ class ToolCallingMixin:
         from plugin.framework.worker_pool import run_in_background
         run_in_background(run_final, name="llm-worker-final")
 
-    def _create_event_from_stream_item(self, item):
+    def _create_event_from_stream_item(self: ToolLoopHost, item: Any) -> ToolLoopEvent | None:
         """Factory method to convert a raw stream item tuple into a ToolLoopEvent."""
         kind = item[0] if isinstance(item, (tuple, list)) else item
         data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
@@ -512,7 +569,7 @@ class ToolCallingMixin:
             return ToolLoopEvent(kind=EventKind.ERROR, data={"error": data})
         return None
 
-    def _execute_effect(self, effect):
+    def _execute_effect(self: ToolLoopHost, effect: Any) -> bool:
         """Execute a single pure effect returned by the state machine."""
         if effect == "exit_loop":
             return True
@@ -581,7 +638,8 @@ class ToolCallingMixin:
             )
             import os
             try:
-                os.remove(self.audio_wav_path)
+                if self.audio_wav_path:
+                    os.remove(self.audio_wav_path)
             except Exception:
                 pass
             self.audio_wav_path = None
@@ -655,7 +713,7 @@ class ToolCallingMixin:
 
         return False
 
-    def _handle_stream_completion(self, item):
+    def _handle_stream_completion(self: ToolLoopHost, item: Any) -> bool:
         kind = item[0] if isinstance(item, (tuple, list)) else item
         if kind == "next_tool" and self.stop_requested and not self._sm_state.is_stopped:
             # Synchronize stop state into the state machine
@@ -681,7 +739,7 @@ class ToolCallingMixin:
 
         return exit_loop
 
-    def _handle_stream_stopped(self):
+    def _handle_stream_stopped(self: ToolLoopHost) -> None:
         event = ToolLoopEvent(kind=EventKind.STOP_REQUESTED)
         tr = next_state(self._sm_state, event)
         self._sm_state = tr.state
@@ -689,12 +747,12 @@ class ToolCallingMixin:
         for effect in tr.effects:
             self._execute_effect(effect)
 
-    def _is_400_input_validation(self, err):
+    def _is_400_input_validation(self: ToolLoopHost, err: Any) -> bool:
         """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
         msg = str(err).lower()
         return "400" in msg and ("input validation" in msg or "bad request" in msg)
 
-    def _handle_stream_error(self, e):
+    def _handle_stream_error(self: ToolLoopHost, e: Any) -> None:
         current_model = get_text_model(self.ctx)
         current_endpoint = get_current_endpoint(self.ctx)
 
@@ -746,7 +804,7 @@ class ToolCallingMixin:
                 log.debug("Failed to remove audio_wav_path during error handling: %s", e)
             self.audio_wav_path = None
 
-    def _on_tool_loop_approval_required(self, item):
+    def _on_tool_loop_approval_required(self: ToolLoopHost, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
         query_for_engine = item[1] if len(item) > 1 else ""
         tool_name = item[2] if len(item) > 2 else ""
@@ -759,15 +817,15 @@ class ToolCallingMixin:
         )
 
     def _start_tool_calling_async(
-        self,
-        client,
-        model,
-        max_tokens,
-        tools,
-        execute_tool_fn,
-        max_tool_rounds=None,
-        query_text=None,
-    ):
+        self: ToolLoopHost,
+        client: "LlmClient",
+        model: Any,
+        max_tokens: int,
+        tools: list[dict[str, Any]],
+        execute_tool_fn: Callable[..., Any],
+        max_tool_rounds: int | None = None,
+        query_text: str | None = None,
+    ) -> None:
         """Tool-calling event loop: single queue, single main-thread loop.
 
         Background threads push messages onto q. The main thread dispatches
@@ -872,7 +930,7 @@ class ToolCallingMixin:
                 self.sidebar_state, tool_loop=None
             )
 
-    def _start_simple_stream_async(self, client, max_tokens):
+    def _start_simple_stream_async(self: ToolLoopHost, client: "LlmClient", max_tokens: int) -> None:
         """Start simple streaming (no tools) via async helper; returns immediately."""
         log.info("=== Simple stream START ===")
         self._set_status("Thinking...")
@@ -935,9 +993,9 @@ class ToolCallingMixin:
             stop_checker=lambda: self.stop_requested,
         )
 
-    def begin_inline_web_approval(self, description, tool_name, event_obj):
+    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Override on ``SendButtonListener`` for real UI. Default: auto-approve (tests / no panel)."""
-        if event_obj is not None:
-            event_obj.approved = True
-            event_obj.query_override = None
-            event_obj.set()
+        if event is not None:
+            event.approved = True
+            event.query_override = None
+            event.set()

@@ -95,7 +95,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations
+        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -142,12 +142,17 @@ help:
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run pytest (plugin/tests), then in-process LO tests (plugin.testing_runner)"
+	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
 	@echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────────
 
 vendor:
 	uv pip install --target vendor -r requirements-vendor.txt
+
+fix-uno:
+	@echo "Fixing UNO import in .venv..."
+	@$(PYTHON) scripts/fix_uno_import.py
 
 docker-build:
 	UID=$$(id -u) GID=$$(id -g) docker compose -f builder/docker-compose.yml up --build
@@ -174,10 +179,10 @@ preview-translations: refresh-pot
 
 
 ifeq ($(USE_DOCKER),1)
-build: preview-translations compile-translations
+build: check preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: preview-translations vendor manifest compile-translations
+build: check preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -415,3 +420,9 @@ poc-deploy: poc-install
 	@echo "Waiting for LO..."
 	@sleep 10
 	@$(MAKE) poc-log
+
+check: ty
+
+ty:
+	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
+	$(PYTHON) -m ty check --exclude plugin/contrib/

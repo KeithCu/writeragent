@@ -124,8 +124,8 @@ def get_event_bus():
     """Return the true singleton EventBus across all LO import contexts."""
     import sys
     if not hasattr(sys, '_localwriter_event_bus'):
-        sys._localwriter_event_bus = EventBus()
-    return sys._localwriter_event_bus
+        setattr(sys, '_localwriter_event_bus', EventBus())
+    return getattr(sys, '_localwriter_event_bus')
 
 global_event_bus = get_event_bus()
 

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-26 15:19-0400\n"
+"POT-Creation-Date: 2026-03-27 23:46-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:659
+#: plugin/modules/chatbot/panel.py:672
 msgid "Starting..."
 msgstr ""
 
@@ -225,7 +225,7 @@ msgid "Search query:"
 msgstr ""
 
 #: plugin/framework/dialogs.py:168 plugin/framework/dialogs.py:341
-#: plugin/framework/dialogs.py:413 plugin/framework/dialogs.py:500
+#: plugin/framework/dialogs.py:413 plugin/framework/dialogs.py:501
 #: plugin/modules/http/__init__.py:247 plugin/xdl_strings.py:39
 msgid "OK"
 msgstr ""
@@ -246,56 +246,56 @@ msgstr ""
 msgid "Copy URL"
 msgstr ""
 
-#: plugin/framework/dialogs.py:484 plugin/framework/dialogs.py:512
-#: plugin/main.py:316
+#: plugin/framework/dialogs.py:485 plugin/framework/dialogs.py:513
+#: plugin/main.py:365
 msgid "About WriterAgent"
 msgstr ""
 
-#: plugin/framework/dialogs.py:491
+#: plugin/framework/dialogs.py:492
 #, python-format
 msgid "Version: %s"
 msgstr ""
 
-#: plugin/framework/dialogs.py:492
+#: plugin/framework/dialogs.py:493
 msgid "AI-powered extension for LibreOffice"
 msgstr ""
 
-#: plugin/framework/dialogs.py:497
+#: plugin/framework/dialogs.py:498
 msgid "GitHub: quazardous/localwriter"
 msgstr ""
 
-#: plugin/framework/dialogs.py:513
+#: plugin/framework/dialogs.py:514
 #, python-brace-format
 msgid "WriterAgent {0}"
 msgstr ""
 
-#: plugin/framework/errors.py:67
+#: plugin/framework/errors.py:82
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr ""
 
-#: plugin/framework/legacy_ui.py:294 plugin/main.py:307
+#: plugin/framework/legacy_ui.py:300 plugin/main.py:356
 #: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr ""
 
-#: plugin/framework/legacy_ui.py:346 plugin/modules/chatbot/panel.py:736
-#: plugin/modules/chatbot/send_handlers.py:300
-#: plugin/modules/chatbot/send_handlers.py:310
-#: plugin/modules/chatbot/send_handlers.py:319 plugin/main.py:212
+#: plugin/framework/legacy_ui.py:352 plugin/modules/chatbot/panel.py:749
+#: plugin/modules/chatbot/send_handlers.py:357
+#: plugin/modules/chatbot/send_handlers.py:367
+#: plugin/modules/chatbot/send_handlers.py:376 plugin/main.py:261
 msgid "Error"
 msgstr ""
 
-#: plugin/framework/legacy_ui.py:346
+#: plugin/framework/legacy_ui.py:352
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr ""
 
-#: plugin/framework/settings_dialog.py:156
+#: plugin/framework/settings_dialog.py:167
 msgid "Invalid Setting"
 msgstr ""
 
-#: plugin/framework/settings_dialog.py:156
+#: plugin/framework/settings_dialog.py:167
 msgid "Temperature must be <= 1.0"
 msgstr ""
 
@@ -345,7 +345,7 @@ msgstr ""
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr ""
 
-#: plugin/modules/http/errors.py:27 plugin/modules/http/errors.py:48
+#: plugin/modules/http/errors.py:27
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr ""
@@ -370,6 +370,11 @@ msgstr ""
 
 #: plugin/modules/http/errors.py:41
 msgid "The AI provider reported an error. Try again."
+msgstr ""
+
+#: plugin/modules/http/errors.py:48
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr ""
 
 #: plugin/modules/http/errors.py:69
@@ -479,59 +484,59 @@ msgstr ""
 msgid "Ready"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:315 plugin/modules/chatbot/panel.py:634
+#: plugin/modules/chatbot/panel.py:328 plugin/modules/chatbot/panel.py:647
 msgid "Accept"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:331 plugin/modules/chatbot/panel.py:846
+#: plugin/modules/chatbot/panel.py:344 plugin/modules/chatbot/panel.py:865
 msgid "Change"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:335 plugin/modules/chatbot/panel.py:853
+#: plugin/modules/chatbot/panel.py:348 plugin/modules/chatbot/panel.py:872
 msgid "Reject"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:352
+#: plugin/modules/chatbot/panel.py:365
 msgid "Waiting for approval…"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:640
+#: plugin/modules/chatbot/panel.py:653
 msgid "Record"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:642
+#: plugin/modules/chatbot/panel.py:655
 msgid "Stop Rec"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:644 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py:657 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:668
+#: plugin/modules/chatbot/panel.py:681
 msgid "Getting document..."
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:673
+#: plugin/modules/chatbot/panel.py:686
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:682
+#: plugin/modules/chatbot/panel.py:695
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:689
+#: plugin/modules/chatbot/panel.py:702
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
 
-#: plugin/modules/chatbot/panel.py:733
+#: plugin/modules/chatbot/panel.py:746
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -567,90 +572,90 @@ msgstr ""
 msgid "Context for the research agent:"
 msgstr ""
 
-#: plugin/modules/chatbot/web_research.py:288
+#: plugin/modules/chatbot/web_research.py:294
 msgid "Web research completed."
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:39
+#: plugin/modules/chatbot/send_handlers.py:91
 msgid "Transcribing audio..."
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:40
+#: plugin/modules/chatbot/send_handlers.py:92
 msgid "[Transcribing audio...]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:58
+#: plugin/modules/chatbot/send_handlers.py:110
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:89
+#: plugin/modules/chatbot/send_handlers.py:141
 #, python-brace-format
 msgid "[Error: {0}]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:298
+#: plugin/modules/chatbot/send_handlers.py:355
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:308
+#: plugin/modules/chatbot/send_handlers.py:365
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:315
+#: plugin/modules/chatbot/send_handlers.py:372
 #, python-brace-format
 msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:557
-#: plugin/modules/chatbot/send_handlers.py:564
+#: plugin/modules/chatbot/send_handlers.py:617
+#: plugin/modules/chatbot/send_handlers.py:624
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:563
+#: plugin/modules/chatbot/send_handlers.py:623
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:569
+#: plugin/modules/chatbot/send_handlers.py:629
 msgid "Unknown librarian error."
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:570
+#: plugin/modules/chatbot/send_handlers.py:630
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:593
+#: plugin/modules/chatbot/send_handlers.py:653
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:599
+#: plugin/modules/chatbot/send_handlers.py:659
 msgid "Unknown research error."
 msgstr ""
 
-#: plugin/modules/chatbot/send_handlers.py:600
+#: plugin/modules/chatbot/send_handlers.py:660
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr ""
 
-#: plugin/modules/chatbot/librarian.py:72
+#: plugin/modules/chatbot/librarian.py:73
 msgid "Switching to document mode..."
 msgstr ""
 
-#: plugin/modules/chatbot/panel_factory.py:485
+#: plugin/modules/chatbot/panel_factory.py:493
 msgid "Size:"
 msgstr ""
 
-#: plugin/modules/chatbot/panel_factory.py:486
+#: plugin/modules/chatbot/panel_factory.py:494
 msgid "Height:"
 msgstr ""
 
-#: plugin/modules/chatbot/panel_factory.py:487
+#: plugin/modules/chatbot/panel_factory.py:495
 msgid "Width:"
 msgstr ""
 
@@ -666,53 +671,53 @@ msgstr ""
 msgid "Backend"
 msgstr ""
 
-#: plugin/main.py:229
+#: plugin/main.py:278
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr ""
 
-#: plugin/main.py:232
+#: plugin/main.py:281
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr ""
 
-#: plugin/main.py:305
+#: plugin/main.py:354
 msgid "Extend Selection"
 msgstr ""
 
-#: plugin/main.py:306
+#: plugin/main.py:355
 msgid "Edit Selection"
 msgstr ""
 
-#: plugin/main.py:308
+#: plugin/main.py:357
 msgid "Toggle MCP Server"
 msgstr ""
 
-#: plugin/main.py:309
+#: plugin/main.py:358
 msgid "MCP Server Status"
 msgstr ""
 
-#: plugin/main.py:311
+#: plugin/main.py:360
 msgid "Run format tests"
 msgstr ""
 
-#: plugin/main.py:312
+#: plugin/main.py:361
 msgid "Run calc tests"
 msgstr ""
 
-#: plugin/main.py:313
+#: plugin/main.py:362
 msgid "Run Calc API integration tests"
 msgstr ""
 
-#: plugin/main.py:314
+#: plugin/main.py:363
 msgid "Run draw tests"
 msgstr ""
 
-#: plugin/main.py:315
+#: plugin/main.py:364
 msgid "Evaluation Dashboard"
 msgstr ""
 
-#: plugin/main.py:665
+#: plugin/main.py:733
 msgid "Dispatch Error"
 msgstr ""
 

@@ -29,7 +29,7 @@ class ServiceBase(ABC):
         name: Unique service identifier (e.g. "document", "config").
     """
 
-    name: str = None
+    name: str | None = None
 
     def initialize(self, ctx):
         """Called once during bootstrap with the UNO component context.

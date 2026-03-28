@@ -48,7 +48,7 @@ def _catch_and_log(func):
 class BaseListener(unohelper.Base, XEventListener):
     """Base UNO listener providing empty disposing()."""
 
-    def disposing(self, ev):
+    def disposing(self, Source):
         """Required by XEventListener interface."""
         pass
 
@@ -57,10 +57,10 @@ class BaseActionListener(BaseListener, XActionListener):
     """Base class for XActionListener that catches and logs exceptions."""
 
     @_catch_and_log
-    def actionPerformed(self, ev):
-        self.on_action_performed(ev)
+    def actionPerformed(self, rEvent):
+        self.on_action_performed(rEvent)
 
-    def on_action_performed(self, ev):
+    def on_action_performed(self, rEvent):
         """Override this method to handle the action event."""
         pass
 
@@ -69,10 +69,10 @@ class BaseItemListener(BaseListener, XItemListener):
     """Base class for XItemListener that catches and logs exceptions."""
 
     @_catch_and_log
-    def itemStateChanged(self, ev):
-        self.on_item_state_changed(ev)
+    def itemStateChanged(self, rEvent):
+        self.on_item_state_changed(rEvent)
 
-    def on_item_state_changed(self, ev):
+    def on_item_state_changed(self, rEvent):
         """Override this method to handle the item state change event."""
         pass
 
@@ -81,10 +81,10 @@ class BaseTextListener(BaseListener, XTextListener):
     """Base class for XTextListener that catches and logs exceptions."""
 
     @_catch_and_log
-    def textChanged(self, ev):
-        self.on_text_changed(ev)
+    def textChanged(self, rEvent):
+        self.on_text_changed(rEvent)
 
-    def on_text_changed(self, ev):
+    def on_text_changed(self, rEvent):
         """Override this method to handle the text changed event."""
         pass
 
@@ -93,29 +93,29 @@ class BaseWindowListener(BaseListener, XWindowListener):
     """Base class for XWindowListener providing empty defaults and catching exceptions."""
 
     @_catch_and_log
-    def windowResized(self, ev):
-        self.on_window_resized(ev)
+    def windowResized(self, rEvent):
+        self.on_window_resized(rEvent)
 
     @_catch_and_log
-    def windowMoved(self, ev):
-        self.on_window_moved(ev)
+    def windowMoved(self, rEvent):
+        self.on_window_moved(rEvent)
 
     @_catch_and_log
-    def windowShown(self, ev):
-        self.on_window_shown(ev)
+    def windowShown(self, rEvent):
+        self.on_window_shown(rEvent)
 
     @_catch_and_log
-    def windowHidden(self, ev):
-        self.on_window_hidden(ev)
+    def windowHidden(self, rEvent):
+        self.on_window_hidden(rEvent)
 
-    def on_window_resized(self, ev):
+    def on_window_resized(self, rEvent):
         pass
 
-    def on_window_moved(self, ev):
+    def on_window_moved(self, rEvent):
         pass
 
-    def on_window_shown(self, ev):
+    def on_window_shown(self, rEvent):
         pass
 
-    def on_window_hidden(self, ev):
+    def on_window_hidden(self, rEvent):
         pass

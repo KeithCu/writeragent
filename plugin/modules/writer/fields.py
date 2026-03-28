@@ -151,7 +151,8 @@ class FieldsDelete(ToolWriterFieldBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, ids, **kwargs):
+    def execute(self, ctx, **kwargs):
+        ids = kwargs.get("ids")
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
@@ -164,7 +165,7 @@ class FieldsDelete(ToolWriterFieldBase):
         while enum.hasMoreElements():
             field = enum.nextElement()
             count += 1
-            if count in ids:
+            if ids and count in ids:
                 fields_to_delete.append(field)
 
         if not fields_to_delete:
@@ -234,7 +235,9 @@ class FieldsInsert(ToolWriterFieldBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, field_type, properties=None, **kwargs):
+    def execute(self, ctx, **kwargs):
+        field_type = kwargs.get("field_type")
+        properties = kwargs.get("properties")
         doc = ctx.doc
         if not hasattr(doc, "createInstance"):
             return self._tool_error("Document does not support creating instances.")

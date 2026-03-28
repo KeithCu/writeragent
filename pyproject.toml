@@ -7,6 +7,7 @@ license = {text = "GPL-3.0-or-later"}
 dependencies = [
     "polib",
     "pytest-cov>=7.1.0",
+    "ty",
 ]
 
 [tool.uv]
@@ -32,4 +33,11 @@ dev = [
     "pyyaml",
     "sounddevice",
     "dspy",
+    "types-unopy",
 ]
+
+
+[tool.ty.src]
+# Optional: explicitly set what to include (defaults to common patterns)
+include = ["plugin"]
+exclude = ["plugin/contrib", "plugin/tests"]

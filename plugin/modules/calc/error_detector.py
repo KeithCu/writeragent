@@ -31,11 +31,12 @@ CELL_REF_PATTERN = re.compile(r'\$?([A-Z]+)\$?(\d+)')
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-    from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR
+    from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR # type: ignore
     UNO_AVAILABLE = True
 except ImportError:
-    EMPTY, VALUE, TEXT, FORMULA = 0, 1, 2, 3
-    RESULT_ERROR = 4
+    from typing import Any, cast
+    EMPTY, VALUE, TEXT, FORMULA = cast(Any, 0), cast(Any, 1), cast(Any, 2), cast(Any, 3)
+    RESULT_ERROR = cast(Any, 4)
     UNO_AVAILABLE = False
 
 logger = logging.getLogger("writeragent.calc")
@@ -182,7 +183,7 @@ class ErrorDetector:
                 logger.debug("Explain error getString exception: %s", e2)
             return {}
 
-    def detect_errors(self, range_str: str = None) -> list:
+    def detect_errors(self, range_str: str | None = None) -> list:
         """Detect errors in the specified range or the entire sheet.
 
         Args:
@@ -298,7 +299,7 @@ class ErrorDetector:
             logger.error("Error explanation failure (%s): %s", address, str(e))
             raise ToolExecutionError(str(e)) from e
 
-    def detect_and_explain(self, range_str: str = None) -> dict:
+    def detect_and_explain(self, range_str: str | None = None) -> dict:
         """Detect formula errors in a range and return them with explanations.
 
         Args:

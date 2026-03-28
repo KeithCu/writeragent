@@ -22,6 +22,7 @@ Uses standard Python gettext to localize strings dynamically.
 import os
 import gettext
 import logging
+from typing import Any, cast
 
 from plugin.framework.utils import get_plugin_dir
 
@@ -44,7 +45,7 @@ def get_lo_locale(ctx=None):
         import uno
         if ctx is None:
             ctx = uno.getComponentContext()
-        smgr = ctx.getServiceManager()
+        smgr = cast(Any, ctx).getServiceManager()
         config_provider = smgr.createInstanceWithContext(
             "com.sun.star.configuration.ConfigurationProvider", ctx)
         ca = config_provider.createInstanceWithArguments(
@@ -115,6 +116,9 @@ def _(message):
     global _translation
     if _translation is None:
         init_i18n()
+    
+    if _translation is None:
+        return str(message)
 
     # Ensure message is a string before passing to gettext
     if not isinstance(message, str):

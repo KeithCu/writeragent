@@ -17,6 +17,7 @@ Common touchpoints: [`plugin/main.py`](plugin/main.py) (MainJob, settings apply)
 
 **WriterAgent** is a LibreOffice extension (Python + UNO) for Writer, Calc, and Draw:
 
+- **Build & Dev**: `make build`, `make deploy`. **External tools (ty, pytest)**: `make fix-uno` to link system UNO into `.venv`.
 - **Extend Selection** (Ctrl+Q) / **Edit Selection** (Ctrl+E): model continues or rewrites the selection.
 - **Chat with Document**: sidebar (multi-turn + tool-calling), persistent history (SQLite when available, else JSON under `writeragent_history.db.d/`), menu fallback (Writer: append; Calc: "AI Response" sheet).
 - **Settings**: endpoint, models, keys, timeouts, image provider, MCP, etc. Config: `writeragent.json` in LibreOffice user config. Examples: [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
@@ -248,7 +249,25 @@ Use `WriterAgentException` hierarchy and **`format_error_payload`** ([`plugin/fr
 
 ---
 
-## 20. Debugging
+## 21. Static Type Checking (ty)
+
+The project uses `ty` for static type checking.
+
+- **Dependencies**: Requires `types-unopy` (in `dev` group) for LibreOffice API stubs.
+- **UNO Resolution**: Because the `uno` module is typically provided by the system (not PyPI), you MUST run `make fix-uno` to symlink the system UNO paths into your `.venv`. Otherwise, `ty` will fail to resolve `import uno` or `com.sun.star` types.
+- **Python Version & Syntax**: Use modern 3.11+ syntax: `list[str]`, `dict[str, Any]`, and `str | None` instead of `List`, `Dict`, or `Optional`.
+- **Annotation Patterns**:
+    - **Protocols for Mixins**: When a mixin accesses attributes/methods from its host class, define a `Protocol` (e.g., `ToolLoopHost`) and annotate the mixin methods with `self: ToolLoopHost`.
+    - **TYPE_CHECKING**: Wrap UNO and other complex imports in `if TYPE_CHECKING:` blocks to avoid runtime issues while still providing context to `ty`.
+    - **Dynamic Attributes**: For objects with dynamic attributes (like attaching results to a `threading.Event`), use `setattr(obj, "name", val)` and `getattr(obj, "name")` to satisfy the static analyzer's "unresolved-attribute" rules.
+    - **Casting for UNO/Dynamic Types**: Use `cast(Any, ...)` for UNO constants (like `CellContentType.EMPTY`) that may lack full stubs.
+    - **Iterator Casting**: Use `cast(Iterable, agent.run(...))` for complex generators that `ty` cannot automatically infer as iterable.
+    - **None/Check Normalization**: Explicitly check for `None` before casting or converting (e.g., `int(val) if val is not None else 0`).
+- **Interface Signatures**: When overriding UNO interfaces (e.g., `XActionListener`, `XEventListener`), you must match the argument names in the `.pyi` stubs exactly (e.g., `actionPerformed(self, rEvent)`, `disposing(self, Source)`). Mismatched names will trigger `invalid-method-override` errors.
+
+---
+
+## 22. Debugging
 
 - **`make deploy`** vs **`make repack`**: full rebuild/deploy vs re-zip only.
 - New components: [`extension/META-INF/manifest.xml`](extension/META-INF/manifest.xml).

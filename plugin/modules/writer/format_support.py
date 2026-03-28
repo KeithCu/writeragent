@@ -114,7 +114,8 @@ def _file_url(path):
 
 def _create_property_value(name, value):
     """Create a ``com.sun.star.beans.PropertyValue``."""
-    p = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    from typing import Any, cast
+    p = cast(Any, uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
     p.Name = name
     p.Value = value
     return p

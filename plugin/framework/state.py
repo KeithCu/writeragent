@@ -64,4 +64,4 @@ def unpack_transition(
     if isinstance(t, FsmTransition):
         return t
     state, effects = t
-    return FsmTransition(state=cast(StateT, state), effects=list(effects))
+    return FsmTransition(state=state, effects=list(effects))

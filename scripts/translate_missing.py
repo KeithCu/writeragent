@@ -34,7 +34,7 @@ try:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     
     from plugin.framework.auth import resolve_auth_for_config, build_auth_headers
-    from plugin.framework.config import get_config
+    from plugin.framework.config import get_config, get_config_dict
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
 except ImportError:
     # Fallback for when running outside the full WriterAgent environment
@@ -188,17 +188,18 @@ def peel_edge_whitespace(s: str) -> Tuple[str, str, str]:
 
 
 def call_translate_batch(texts: List[str], target_lang: str, model: str = "x-ai/grok-4.1-fast", 
-                         endpoint: str = "https://openrouter.ai/api/v1", api_key: str = None) -> List[Optional[str]]:
+                         endpoint: str = "https://openrouter.ai/api/v1", api_key: Optional[str] = None) -> List[Optional[str]]:
     """Call AI with a list of strings and get corresponding translations back."""
     import urllib.request
     import urllib.parse
     
     if not api_key:
         try:
-            config = get_config()
-            api_key = config.get("api_keys_by_endpoint", {}).get(endpoint, "")
-            if not api_key and "api_key" in config:
-                api_key = config.get("api_key", "")
+            config = get_config_dict(None)
+            if config:
+                api_key = config.get("api_keys_by_endpoint", {}).get(endpoint, "")
+                if not api_key and "api_key" in config:
+                    api_key = config.get("api_key", "")
         except: pass
         
         if not api_key:
@@ -306,7 +307,7 @@ def update_po_file(po_file: str, translations_dict: Dict[str, str]) -> bool:
     return updated
 
 
-def translate_batch_worker(texts: List[str], lang: str, model: str, api_key: str = None) -> Dict[str, str]:
+def translate_batch_worker(texts: List[str], lang: str, model: str, api_key: Optional[str] = None) -> Dict[str, str]:
     """Worker for thread pool to translate a batch and return a map (original msgid -> msgstr)."""
     try:
         edges = [peel_edge_whitespace(t) for t in texts]

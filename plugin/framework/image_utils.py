@@ -261,7 +261,7 @@ class AIHordeImageProvider(ImageProvider):
             "api_key": self.api_key,
             "max_wait_minutes": kwargs.get("max_wait", 5),
             "prompt_strength": kwargs.get("strength", 0.6), # LOSHD uses 1 - init_strength
-            "steps": kwargs.get("steps") if kwargs.get("steps") is not None and kwargs.get("steps") > 0 else 30,
+            "steps": int(float(kwargs["steps"])) if kwargs.get("steps") is not None and int(float(kwargs["steps"] or 0)) > 0 else 30,
             "seed": kwargs.get("seed", ""),
             "nsfw": kwargs.get("nsfw", False),
             "censor_nsfw": kwargs.get("censor_nsfw", True),

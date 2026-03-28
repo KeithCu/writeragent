@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any
 
 from plugin.framework.document import (
     build_heading_tree,
@@ -10,8 +11,8 @@ from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import setup, teardown, native_test
 
 
-_test_doc = None
-_test_ctx = None
+_test_doc: Any = None
+_test_ctx: Any = None
 
 
 @setup

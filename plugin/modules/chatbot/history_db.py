@@ -22,7 +22,7 @@ try:
     import sqlite3
     HAS_SQLITE = True
 except ImportError:
-    sqlite3 = None  # type: ignore[assignment]
+    sqlite3 = None  # type: ignore
     HAS_SQLITE = False
 
 logger = logging.getLogger(__name__)

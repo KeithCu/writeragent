@@ -96,6 +96,7 @@ class WriterAgentSmolModel(Model):
             tool_calls=smol_tool_calls if smol_tool_calls else None
         )
         if token_usage:
-            msg.token_usage = token_usage
+            import typing
+            msg.token_usage = typing.cast(typing.Any, token_usage)
         return msg
 

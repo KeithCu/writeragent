@@ -45,13 +45,13 @@ class ToolBase(ABC):
         long_running: Hint that the tool may take a while (e.g. image gen).
     """
 
-    name: str = None
+    name: str | None = None
     description: str = ""
-    parameters: dict = None
-    uno_services: list = None
+    parameters: dict | None = None
+    uno_services: list | None = None
     tier: str = "extended"
-    intent: str = None
-    is_mutation: bool = None
+    intent: str | None = None
+    is_mutation: bool | None = None
     long_running: bool = False
 
     def detects_mutation(self):

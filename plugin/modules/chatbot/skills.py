@@ -123,11 +123,14 @@ class SkillViewTool(ToolBase):
 
     def execute(self, ctx, **kwargs):
         name = kwargs.get("name")
+        if not name:
+            return self._tool_error("name is required")
+        name = str(name)
         file_path = kwargs.get("file_path")
         try:
             store = SkillsStore(ctx)
             if file_path:
-                target = store._resolve_skill_dir(name) / file_path
+                target = store._resolve_skill_dir(name) / str(file_path)
                 if not target.exists():
                     return self._tool_error(f"File {file_path} not found in skill {name}")
                 content = target.read_text(encoding="utf-8")
@@ -172,6 +175,9 @@ class SkillManageTool(ToolBase):
     def execute(self, ctx, **kwargs):
         action = kwargs.get("action")
         name = kwargs.get("name")
+        if not name:
+            return self._tool_error("name is required")
+        name = str(name)
         
         try:
             store = SkillsStore(ctx)
@@ -179,7 +185,7 @@ class SkillManageTool(ToolBase):
                 content = kwargs.get("content")
                 if not content:
                     return self._tool_error("content is required for create/edit")
-                store.write_skill(name, content)
+                store.write_skill(name, str(content))
                 return {"status": "ok", "message": f"Skill {action}d successfully."}
             elif action == "delete":
                 if store.delete_skill(name):
@@ -196,13 +202,13 @@ class SkillManageTool(ToolBase):
                 if not content:
                     return self._tool_error("Skill not found.")
                 
-                count = content.count(old_string)
+                count = content.count(str(old_string))
                 if count == 0:
                     return self._tool_error("old_string not found.")
                 if count > 1 and not replace_all:
                     return self._tool_error("old_string matched multiple times, set replace_all=true or provide more context.")
                 
-                new_content = content.replace(old_string, new_string) if replace_all else content.replace(old_string, new_string, 1)
+                new_content = content.replace(str(old_string), str(new_string)) if replace_all else content.replace(str(old_string), str(new_string), 1)
                 store.write_skill(name, new_content)
                 return {"status": "ok", "message": f"Patched skill {name}"}
             elif action == "write_file":
@@ -210,13 +216,13 @@ class SkillManageTool(ToolBase):
                 fcontent = kwargs.get("file_content")
                 if not fpath or fcontent is None:
                     return self._tool_error("file_path and file_content required")
-                store.write_file(name, fpath, fcontent)
+                store.write_file(name, str(fpath), str(fcontent))
                 return {"status": "ok", "message": f"Wrote {fpath} to skill {name}"}
             elif action == "remove_file":
                 fpath = kwargs.get("file_path")
                 if not fpath:
                     return self._tool_error("file_path required")
-                if store.remove_file(name, fpath):
+                if store.remove_file(name, str(fpath)):
                     return {"status": "ok", "message": f"Removed {fpath}"}
                 return self._tool_error("File not found.")
             

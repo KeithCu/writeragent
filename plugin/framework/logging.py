@@ -392,7 +392,8 @@ def _watchdog_loop(status_control):
             last = _activity_state["last_activity"]
         if not phase:
             continue
-        elapsed = time.monotonic() - last
+        last_val = last if isinstance(last, (int, float)) else 0.0
+        elapsed = time.monotonic() - last_val
         if elapsed < _watchdog_threshold_sec:
             continue
         msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (
