@@ -37,21 +37,21 @@ Commonly supported `<shape_name>` values include:
 
 By leveraging `CustomShape`, the AI assistant can draw a vast array of geometric figures and symbols without needing to specify complex paths.
 
-## Arbitrary Polygons and Paths
+## Arbitrary Polygons and Paths (Advanced API)
 For truly arbitrary shapes that don't fit into the predefined custom shape types, LibreOffice provides:
 - `com.sun.star.drawing.PolyPolygonShape`: A shape defined by an array of arrays of points (allowing for holes).
 - `com.sun.star.drawing.PolyLineShape`: A line defined by multiple points.
 - `com.sun.star.drawing.PolyPolygonPathShape`: Similar to PolyPolygon but using bezier paths.
 - `com.sun.star.drawing.PolyLinePathShape`: A multi-segment bezier line.
 
-These require specifying the `Polygon` or `PolyPolygon` properties, which expect an array of `com.sun.star.awt.Point` structures.
+These require specifying the `Polygon` or `PolyPolygon` properties, which expect an array of `com.sun.star.awt.Point` structures. *(Note: Support for these advanced arbitrary polygon creations via AI tool calls may be implemented as a separate API in the future to keep standard shape creation simple and distinct).*
 
 ## WriterAgent Shape Implementation
-The `CreateShape` tool unifies these distinct UNO APIs into a single interface.
+The `CreateShape` tool unifies the simple and CustomShape UNO APIs into a single interface.
 
 When the user requests a `shape_type`:
 1. **Base Aliases**: If it's a known simple alias (e.g., `"rectangle"`, `"ellipse"`), it maps to the corresponding base UNO shape (`RectangleShape`, `EllipseShape`).
-2. **UNO Classes**: If it matches a specific UNO class name (e.g., `PolyPolygonShape` or `com.sun.star.drawing.PolyPolygonShape`), it instantiates that class directly.
-3. **Custom Shapes (Fallback)**: If it's none of the above, the tool assumes the user is requesting a specific `CustomShape` geometry type (like `"octagon"` or `"smiley"`). It will instantiate a `CustomShape` and apply the requested string to the `Type` geometry property.
+2. **UNO Classes**: If it matches a specific UNO class name, it instantiates that class directly.
+3. **Custom Shapes**: If it's none of the above, the tool assumes the user is requesting a specific `CustomShape` geometry type (like `"octagon"` or `"smiley"`). It will instantiate a `CustomShape` and apply the requested string to the `Type` geometry property.
 
-This unified approach allows the LLM to access the full richness of LibreOffice shapes simply by naming them, while still providing an escape hatch to raw UNO classes for advanced usage.
+To ensure AI assistants do not need to guess, the tool's JSON schema explicitly lists all supported CustomShape type strings, allowing the assistant to reliably pick from the available shapes.
