@@ -53,7 +53,7 @@ def get_settings_field_specs(ctx):
     ]
 
     try:
-        from plugin._manifest import MODULES
+        from plugin._manifest import MODULES  # type: ignore
         for m in MODULES:
             if m["name"] in ("main", "ai"):
                 continue

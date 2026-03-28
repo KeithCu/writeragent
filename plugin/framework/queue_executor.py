@@ -53,7 +53,8 @@ class QueueExecutor:
             try:
                 import uno
                 ctx = uno.getComponentContext()
-                smgr = ctx.ServiceManager
+                # Use getattr to satisfy type checkers that may not know ctx has ServiceManager
+                smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
                 self._async_callback_service = smgr.createInstanceWithContext(
                     "com.sun.star.awt.AsyncCallback", ctx)
                 if self._async_callback_service is None:
@@ -83,7 +84,7 @@ class QueueExecutor:
             other events (redraws, user input) between tool executions.
             """
 
-            def notify(self, _ignored):
+            def notify(self, aData):
                 executor.process_queue()
 
         return _MainThreadCallback()
@@ -114,7 +115,7 @@ class QueueExecutor:
         try:
             import uno
             self._async_callback_service.addCallback(
-                self._callback_instance, uno.Any("void", None))
+                self._callback_instance, uno.Any("void", None))  # type: ignore
         except Exception as e:
             log.debug("_poke_main_thread with Any failed, retrying without: %s", e)
             try:
