@@ -148,6 +148,46 @@ def test_create_and_verify_shape():
 
 
 @native_test
+def test_create_custom_shape_octagon():
+    """Enhanced CustomShape types need CustomShapeEngine + geometry Type (e.g. octagon)."""
+    try:
+        import pytest
+        if _test_doc is None:
+            pytest.skip("Requires LibreOffice document from native runner")
+    except ImportError:
+        pass
+
+    active_page = _test_doc.getCurrentController().getCurrentPage()
+    if active_page is None:
+        active_page = _test_doc.getDrawPages().getByIndex(0)
+    initial_shape_count = active_page.getCount()
+
+    result = _exec_tool("create_shape", {
+        "shape_type": "octagon",
+        "x": 1000,
+        "y": 1000,
+        "width": 5000,
+        "height": 5000,
+        "fill_color": "none",
+        "line_color": "black",
+        "line_width": 100,
+    })
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"create_shape octagon failed: {result}"
+    assert data.get("geometry_applied") is True, data
+    assert "warning" not in data, data
+
+    assert active_page.getCount() == initial_shape_count + 1, "Octagon not added to page"
+
+    created = active_page.getByIndex(active_page.getCount() - 1)
+    pos = created.getPosition()
+    size = created.getSize()
+    assert pos.X == 1000 and pos.Y == 1000, (pos.X, pos.Y)
+    assert size.Width == 5000 and size.Height == 5000, (size.Width, size.Height)
+    assert size.Width > 0 and size.Height > 0, "Shape must have non-zero size"
+
+
+@native_test
 def test_get_draw_context_for_chat():
     try:
         import pytest

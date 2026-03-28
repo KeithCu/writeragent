@@ -54,4 +54,4 @@ When the user requests a `shape_type`:
 2. **UNO Classes**: If it matches a specific UNO class name, it instantiates that class directly.
 3. **Custom Shapes**: If it's none of the above, the tool assumes the user is requesting a specific `CustomShape` geometry type (like `"octagon"` or `"smiley"`). It will instantiate a `CustomShape` and apply the requested string to the `Type` geometry property.
 
-To ensure AI assistants do not need to guess, the tool's JSON schema explicitly lists all supported CustomShape type strings, allowing the assistant to reliably pick from the available shapes.
+The tool's JSON schema summarizes CustomShape types **by category** (with a few examples each); the full set is defined by LibreOffice (see `svx/source/customshapes/EnhancedCustomShapeTypeNames.cxx` in LibreOffice core). Any valid type string from that catalog can be passed as `shape_type`.

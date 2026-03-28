@@ -167,7 +167,7 @@ def test_draw_shapes_safe_create_shape_valid():
 
     shape_type = "RectangleShape"
 
-    result = draw_shapes.safe_create_shape(doc, page, shape_type, position, size)
+    result, geom_ok, geom_err = draw_shapes.safe_create_shape(doc, page, shape_type, position, size)
 
     doc.createInstance.assert_called_once_with("com.sun.star.drawing.RectangleShape")
     shape.setPosition.assert_called_once_with(position)
@@ -175,6 +175,7 @@ def test_draw_shapes_safe_create_shape_valid():
     page.add.assert_called_once_with(shape)
 
     assert result == shape
+    assert geom_ok is None and geom_err is None
 
 
 def test_draw_shapes_safe_create_shape_invalid_page():

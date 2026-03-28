@@ -16,8 +16,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Shape tools for Draw/Impress documents."""
 
+import logging
+
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.tool_base import ToolBase
+
+log = logging.getLogger(__name__)
+
+# LibreOffice interprets CustomShapeGeometry as EnhancedCustomShapeGeometry when this engine is set.
+_ENHANCED_CUSTOM_SHAPE_ENGINE = "com.sun.star.drawing.EnhancedCustomShapeEngine"
 
 
 class DrawError(WriterAgentException):
@@ -50,6 +57,369 @@ def _parse_color(color_str):
         except ValueError:
             return None
     return None
+
+
+def _try_writer_anchor_shape_before_add(doc, shape) -> None:
+    """Writer: set ``AnchorType`` before ``XDrawPage.add`` or shapes often do not display.
+
+    Uses ``TextContentAnchorType.AT_PAGE`` when the property exists (``text.Shape``).
+    """
+    try:
+        if doc is None:
+            log.debug("create_shape writer_anchor: skip (doc is None)")
+            return
+        if not doc.supportsService("com.sun.star.text.TextDocument"):
+            log.debug("create_shape writer_anchor: skip (not TextDocument)")
+            return
+        from com.sun.star.text.TextContentAnchorType import AT_PAGE
+
+        has_anchor = False
+        try:
+            ps = shape.getPropertySetInfo()
+            has_anchor = ps is not None and ps.hasPropertyByName("AnchorType")
+        except Exception as ex:
+            log.debug("create_shape writer_anchor: PropertySetInfo failed: %s", ex)
+
+        shape.setPropertyValue("AnchorType", AT_PAGE)
+        log.debug(
+            "create_shape writer_anchor: set AnchorType=AT_PAGE ok has_anchor_prop=%s",
+            has_anchor,
+        )
+        try:
+            cur = shape.getPropertyValue("AnchorType")
+            log.debug("create_shape writer_anchor: readback AnchorType=%r", cur)
+        except Exception as ex:
+            log.debug("create_shape writer_anchor: readback AnchorType failed: %s", ex)
+    except Exception as ex:
+        log.warning(
+            "create_shape writer_anchor: set AnchorType failed: %s: %s",
+            type(ex).__name__,
+            ex,
+        )
+
+
+def _log_shape_uno_snapshot(phase: str, shape) -> None:
+    """Best-effort UNO snapshot for debugging visibility/geometry (Writer vs Draw)."""
+    try:
+        parts: list[str] = []
+        try:
+            parts.append(f"uno_type={shape.getShapeType()!r}")
+        except Exception as ex:
+            parts.append(f"getShapeType_err={ex!r}")
+        try:
+            pos = shape.getPosition()
+            parts.append(f"pos=({pos.X},{pos.Y})")
+        except Exception as ex:
+            parts.append(f"pos_err={ex!r}")
+        try:
+            sz = shape.getSize()
+            parts.append(f"size=({sz.Width}x{sz.Height})")
+        except Exception as ex:
+            parts.append(f"size_err={ex!r}")
+        for name in (
+            "AnchorType",
+            "AnchorPageNo",
+            "HoriOrient",
+            "VertOrient",
+            "HoriOrientPosition",
+            "VertOrientPosition",
+            "Visible",
+            "Opaque",
+            "FillStyle",
+            "FillColor",
+            "LineColor",
+            "LineWidth",
+            "CustomShapeEngine",
+            "ZOrder",
+            "TextWrap",
+            "SurroundContour",
+            "IsFollowingTextFlow",
+        ):
+            try:
+                v = shape.getPropertyValue(name)
+                parts.append(f"{name}={v!r}")
+            except Exception:
+                pass
+        log.debug("create_shape snapshot [%s]: %s", phase, " ".join(parts))
+    except Exception as ex:
+        log.debug("create_shape snapshot [%s]: failed: %s", phase, ex)
+
+
+def _log_custom_shape_geometry_dump(shape, phase: str) -> None:
+    """Truncated ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
+    try:
+        g = shape.getPropertyValue("CustomShapeGeometry")
+        s = repr(g)
+        if len(s) > 500:
+            s = s[:500] + "…"
+        log.debug("create_shape geometry_dump [%s]: %s", phase, s)
+    except Exception as ex:
+        log.debug("create_shape geometry_dump [%s]: %s", phase, ex)
+
+
+def _log_shape_property_names_sample(shape, phase: str, limit: int = 60) -> None:
+    """Sorted sample of ``PropertySetInfo`` names — diff rectangle vs CustomShape in Writer."""
+    try:
+        ps = shape.getPropertySetInfo()
+        if ps is None:
+            log.debug("create_shape prop_names [%s]: no PropertySetInfo", phase)
+            return
+        names: list[str] = []
+        for p in ps.getProperties():
+            try:
+                names.append(p.Name)
+            except Exception:
+                pass
+        names.sort()
+        log.debug(
+            "create_shape prop_names [%s]: total=%s first_%s=%s",
+            phase,
+            len(names),
+            limit,
+            names[:limit],
+        )
+    except Exception as ex:
+        log.debug("create_shape prop_names [%s]: failed: %s", phase, ex)
+
+
+def _log_writer_document_shape_context(doc) -> None:
+    """Writer-only: body enumeration count and URL (helps compare empty doc runs)."""
+    try:
+        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
+            return
+        url = ""
+        try:
+            if hasattr(doc, "getURL"):
+                url = doc.getURL() or ""
+        except Exception:
+            pass
+        n_para = -1
+        try:
+            text = doc.getText()
+            enum = text.createEnumeration()
+            n_para = 0
+            while enum.hasMoreElements():
+                enum.nextElement()
+                n_para += 1
+        except Exception as ex:
+            log.debug("create_shape writer_doc_ctx: enum failed: %s", ex)
+        log.debug(
+            "create_shape writer_doc_ctx: body_elements_enumerated=%s url=%r",
+            n_para,
+            url[:120] if url else "",
+        )
+    except Exception as ex:
+        log.debug("create_shape writer_doc_ctx: %s", ex)
+
+
+def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
+    """Writer: ``AT_PAGE`` shapes must set ``AnchorPageNo`` (1-based) and absolute orient or they may not paint.
+
+    See ``com.sun.star.text.Shape`` — ``AnchorPageNo`` is only valid for ``AT_PAGE``.
+    """
+    try:
+        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
+            return
+        idx = _page_index_for(bridge, page)
+        anchor_no = idx + 1
+        # IDL: com.sun.star.text.HoriOrientation/VertOrientation NONE = 0 (absolute position)
+        shape.setPropertyValue("AnchorPageNo", anchor_no)
+        shape.setPropertyValue("HoriOrient", 0)
+        shape.setPropertyValue("VertOrient", 0)
+        log.debug(
+            "create_shape writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0",
+            anchor_no,
+            idx,
+        )
+        try:
+            log.debug(
+                "create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r",
+                shape.getPropertyValue("AnchorPageNo"),
+                shape.getPropertyValue("HoriOrient"),
+                shape.getPropertyValue("VertOrient"),
+            )
+        except Exception as ex:
+            log.debug("create_shape writer_at_page_finalize: readback failed: %s", ex)
+    except Exception as ex:
+        log.warning(
+            "create_shape writer_at_page_finalize: failed %s: %s",
+            type(ex).__name__,
+            ex,
+        )
+
+
+def _try_writer_reapply_position_after_anchor(doc, shape, position, size) -> None:
+    """Writer: setting ``AnchorPageNo`` / orient can reset placement; re-apply ``Position``/``Size``."""
+    try:
+        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
+            return
+        shape.setPosition(position)
+        shape.setSize(size)
+        log.debug(
+            "create_shape writer_reapply_pos: pos=(%s,%s) size=(%sx%s)",
+            position.X,
+            position.Y,
+            size.Width,
+            size.Height,
+        )
+    except Exception as ex:
+        log.warning("create_shape writer_reapply_pos: %s: %s", type(ex).__name__, ex)
+
+
+def _try_writer_invalidate_and_pump(doc) -> None:
+    """Force a repaint after shape changes (Writer sometimes does not redraw the draw layer)."""
+    try:
+        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
+            return
+        ctrl = doc.getCurrentController()
+        if ctrl is None:
+            log.debug("create_shape writer_invalidate: no controller")
+            return
+        frame = ctrl.getFrame()
+        if frame is None:
+            return
+        win = frame.getContainerWindow()
+        if win is None:
+            return
+        win.invalidate(0)
+        tk = win.getToolkit()
+        if tk is not None:
+            tk.processEventsToIdle()
+        log.debug("create_shape writer_invalidate: invalidate(0) + processEventsToIdle")
+    except Exception as ex:
+        log.debug("create_shape writer_invalidate: %s", ex)
+
+
+def _try_writer_select_created_shape(doc, shape) -> None:
+    """Select the new shape so the view shows handles and scrolls to it if needed."""
+    try:
+        if doc is None or not doc.supportsService("com.sun.star.text.TextDocument"):
+            return
+        ctrl = doc.getCurrentController()
+        if ctrl is None:
+            return
+        import uno
+
+        sel = None
+        try:
+            t = uno.getTypeByName("com.sun.star.view.XSelectionSupplier")
+            sel = ctrl.queryInterface(t)
+        except Exception:
+            pass
+        if sel is None:
+            try:
+                from com.sun.star.view import XSelectionSupplier
+
+                sel = ctrl.queryInterface(XSelectionSupplier)
+            except Exception:
+                sel = None
+        if sel is None:
+            log.debug("create_shape writer_select: no XSelectionSupplier")
+            return
+        sel.select(shape)
+        log.debug("create_shape writer_select: controller.select(shape) ok")
+    except Exception as ex:
+        log.debug("create_shape writer_select: %s: %s", type(ex).__name__, ex)
+
+
+def _log_create_shape_page_context(doc, bridge, page) -> None:
+    """How the target draw page was chosen (Writer vs Draw / controller vs first page)."""
+    try:
+        is_writer = bool(doc and doc.supportsService("com.sun.star.text.TextDocument"))
+        pages = bridge.get_pages()
+        n_draw_pages = pages.getCount() if pages is not None else -1
+        n_on_page = page.getCount() if page is not None else -1
+        log.debug(
+            "create_shape page_context: is_writer=%s draw_pages=%s shapes_on_target_page=%s",
+            is_writer,
+            n_draw_pages,
+            n_on_page,
+        )
+        ctrl = doc.getCurrentController() if doc else None
+        if ctrl is None:
+            log.debug("create_shape page_context: controller=None")
+            return
+        has_cur = hasattr(ctrl, "getCurrentPage")
+        log.debug("create_shape page_context: controller has getCurrentPage=%s", has_cur)
+        if not has_cur:
+            return
+        try:
+            cur = ctrl.getCurrentPage()
+        except Exception as ex:
+            log.debug("create_shape page_context: getCurrentPage raised %s: %s", type(ex).__name__, ex)
+            return
+        log.debug(
+            "create_shape page_context: getCurrentPage is_none=%s same_ref_as_target=%s",
+            cur is None,
+            (cur is page) if cur is not None and page is not None else None,
+        )
+        try:
+            if cur is not None and page is not None and cur is not page:
+                eq = cur == page
+                log.debug("create_shape page_context: target_page == controller_page (==) %s", eq)
+        except Exception as ex:
+            log.debug("create_shape page_context: page equality check failed: %s", ex)
+    except Exception as ex:
+        log.debug("create_shape page_context: failed: %s", ex)
+
+
+def _page_index_for(bridge, page):
+    """Index of ``page`` in the document's draw pages collection.
+
+    ``uno.isSame`` is not available in all LibreOffice Python-UNO builds; fall back to
+    identity and ``==`` (many UNO bindings implement equality for the same underlying object).
+    """
+    pages = bridge.get_pages()
+    is_same = None
+    try:
+        import uno
+
+        is_same = getattr(uno, "isSame", None)
+    except ImportError:
+        pass
+
+    for i in range(pages.getCount()):
+        p = pages.getByIndex(i)
+        if p is page:
+            return i
+        try:
+            if p == page:
+                return i
+        except Exception:
+            pass
+        if callable(is_same):
+            try:
+                if is_same(p, page):
+                    return i
+            except Exception:
+                pass
+    return 0
+
+
+def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bool, str | None]:
+    """Set EnhancedCustomShape engine and geometry ``Type`` so names like ``octagon`` render."""
+    from com.sun.star.beans import PropertyValue
+
+    prop = PropertyValue()
+    prop.Name = "Type"
+    prop.Value = custom_shape_type
+    try:
+        shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
+        shape.setPropertyValue("CustomShapeGeometry", (prop,))
+        log.debug(
+            "create_shape enhanced_geometry: ok type=%r engine=%r",
+            custom_shape_type,
+            _ENHANCED_CUSTOM_SHAPE_ENGINE,
+        )
+        return True, None
+    except Exception as ex:
+        log.debug(
+            "create_shape enhanced_geometry: failed type=%r err=%s: %s",
+            custom_shape_type,
+            type(ex).__name__,
+            ex,
+        )
+        return False, f"{type(ex).__name__}: {ex}"
 
 
 class ListPages(ToolBase):
@@ -127,11 +497,23 @@ class DrawShapes:
             return False
         return True
 
-    def safe_create_shape(self, doc, page, shape_type, position, size):
+    def safe_create_shape(
+        self,
+        doc,
+        page,
+        shape_type,
+        position,
+        size,
+        custom_shape_type: str | None = None,
+    ):
         """Safely create shape with error handling.
 
         Shapes are created via the document's factory (``doc.createInstance``);
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
+
+        For Writer, ``CustomShape`` + ``EnhancedCustomShapeGeometry`` must be applied **before**
+        ``page.add`` (after position/size). Applying geometry only after add breaks display while
+        ``RectangleShape`` etc. are unaffected.
         """
         try:
             if doc is None:
@@ -176,14 +558,49 @@ class DrawShapes:
                     details={"shape_type": shape_type}
                 )
 
-            # Set properties
             shape.setPosition(position)
             shape.setSize(size)
+
+            geometry_applied: bool | None = None
+            geometry_error: str | None = None
+            if custom_shape_type:
+                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(
+                    shape, custom_shape_type
+                )
+                if geometry_applied:
+                    log.debug(
+                        "create_shape safe_create: enhanced geometry applied before page.add type=%r",
+                        custom_shape_type,
+                    )
+                else:
+                    log.warning(
+                        "create_shape safe_create: enhanced geometry failed before add type=%s err=%s",
+                        custom_shape_type,
+                        geometry_error,
+                    )
+            else:
+                log.debug(
+                    "create_shape safe_create: builtin path (e.g. RectangleShape) full_type=%s — no EnhancedCustomShape step",
+                    full_type,
+                )
+
+            _try_writer_anchor_shape_before_add(doc, shape)
 
             # Add to page
             page.add(shape)
 
-            return shape
+            try:
+                n_after = page.getCount()
+            except Exception:
+                n_after = -1
+            log.debug(
+                "create_shape safe_create: added uno=%s page_shape_count=%s",
+                full_type,
+                n_after,
+            )
+            _log_shape_uno_snapshot("after_page_add", shape)
+
+            return shape, geometry_applied, geometry_error
 
         except DrawError:
             # Re-raise our draw errors
@@ -211,14 +628,22 @@ def _apply_shape_properties(shape, kwargs):
     # Background/Fill Color
     if kwargs.get("bg_color") or kwargs.get("fill_color"):
         color_str = kwargs.get("fill_color") or kwargs.get("bg_color")
-        color = _parse_color(color_str)
-        if color is not None:
-            # LineShape doesn't have FillColor, typically LineColor is used instead
-            prop = "LineColor" if "LineShape" in shape.getShapeType() else "FillColor"
+        color_str_l = (color_str or "").strip().lower()
+        if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
             try:
-                shape.setPropertyValue(prop, color)
+                from com.sun.star.drawing import FillStyle
+                shape.setPropertyValue("FillStyle", FillStyle.NONE)
             except Exception:
                 pass
+        else:
+            color = _parse_color(color_str)
+            if color is not None:
+                # LineShape doesn't have FillColor, typically LineColor is used instead
+                prop = "LineColor" if "LineShape" in shape.getShapeType() else "FillColor"
+                try:
+                    shape.setPropertyValue(prop, color)
+                except Exception:
+                    pass
 
     # Fill Style (solid, transparent, etc)
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
@@ -296,12 +721,12 @@ def _apply_shape_properties(shape, kwargs):
  
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
-    "Simple aliases (built-in UNO classes): rectangle, ellipse, text, line, connector. "
+    "Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. "
     "polygons and symbols (octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon); "
     "stars (star4, star5, star8, star24); "
     "arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); "
     "braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); "
-    "other gallery shapes (cube, ring, cloud-callout, round-rectangle, teardrop, lightning, etc.). "
+    "other shapes (cube, ring, cloud-callout, lightning, etc.). "
 )
 
 
@@ -352,6 +777,9 @@ class CreateShape(ToolBase):
         shape_type_raw = kwargs["shape_type"]
 
         page = bridge.get_active_page()
+        _log_create_shape_page_context(ctx.doc, bridge, page)
+        _log_writer_document_shape_context(ctx.doc)
+
         position = Point(kwargs["x"], kwargs["y"])
         size = Size(kwargs["width"], kwargs["height"])
 
@@ -369,34 +797,92 @@ class CreateShape(ToolBase):
             is_custom_shape = True
             custom_shape_type = shape_type_raw
 
+        log.debug(
+            "create_shape branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r "
+            "(rectangle path uses RectangleShape + no enhanced geometry; octagon uses CustomShape + geometry before add)",
+            shape_type_raw,
+            uno_type,
+            is_custom_shape,
+            custom_shape_type if is_custom_shape else None,
+        )
+
         draw_shapes = DrawShapes()
 
         try:
-            shape = draw_shapes.safe_create_shape(
-                ctx.doc, page, uno_type, position, size
+            shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(
+                ctx.doc,
+                page,
+                uno_type,
+                position,
+                size,
+                custom_shape_type=custom_shape_type if is_custom_shape else None,
             )
-
+            if is_custom_shape and geometry_applied:
+                _log_shape_uno_snapshot("after_custom_geometry", shape)
             if is_custom_shape:
-                from com.sun.star.beans import PropertyValue
-                prop = PropertyValue()
-                prop.Name = "Type"
-                prop.Value = custom_shape_type
-                try:
-                    shape.setPropertyValue("CustomShapeGeometry", (prop,))
-                except Exception as ex:
-                    # Ignore if the specific CustomShape Type fails to apply,
-                    # LibreOffice will just draw a default shape or nothing.
-                    pass
+                _log_custom_shape_geometry_dump(shape, "after_safe_create")
         except DrawError as e:
             return self._tool_error(e.message)
 
-        _apply_shape_properties(shape, kwargs)
+        # Writer often clears CustomShapeGeometry on page.add; readback is () until re-applied.
+        if (
+            ctx.doc is not None
+            and ctx.doc.supportsService("com.sun.star.text.TextDocument")
+            and is_custom_shape
+            and custom_shape_type
+        ):
+            geom_empty = True
+            try:
+                g = shape.getPropertyValue("CustomShapeGeometry")
+                geom_empty = g is None or len(tuple(g)) == 0
+            except Exception:
+                geom_empty = True
+            if geom_empty:
+                log.warning(
+                    "create_shape: Writer CustomShapeGeometry empty after add; re-applying enhanced geometry"
+                )
+                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(
+                    shape, custom_shape_type
+                )
 
-        return {
+        _apply_shape_properties(shape, kwargs)
+        _try_writer_at_page_shape_finalize(ctx.doc, bridge, page, shape)
+        _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+        _try_writer_invalidate_and_pump(ctx.doc)
+        _try_writer_select_created_shape(ctx.doc, shape)
+        _log_shape_uno_snapshot("after_formatting", shape)
+        if is_custom_shape:
+            _log_custom_shape_geometry_dump(shape, "after_formatting")
+        _log_shape_property_names_sample(shape, "after_formatting")
+
+        page_index = _page_index_for(bridge, page)
+        shape_count_after = page.getCount()
+        shape_index = shape_count_after - 1
+
+        log.debug(
+            "create_shape: page_index=%s shape_index=%s shape_type=%s is_custom=%s geometry_applied=%s",
+            page_index,
+            shape_index,
+            shape_type_raw,
+            is_custom_shape,
+            geometry_applied,
+        )
+
+        result: dict = {
             "status": "ok",
             "message": f"Created {shape_type_raw}",
-            "shape_index": page.getCount() - 1,
+            "shape_index": shape_index,
+            "page_index": page_index,
+            "shape_count_after": shape_count_after,
         }
+        if is_custom_shape:
+            result["custom_shape_engine"] = _ENHANCED_CUSTOM_SHAPE_ENGINE
+            result["geometry_applied"] = bool(geometry_applied)
+            if geometry_error:
+                result["geometry_error"] = geometry_error
+                result["warning"] = f"Custom shape geometry failed: {geometry_error}"
+
+        return result
 
 
 class EditShape(ToolBase):
@@ -507,7 +993,7 @@ class ConnectShapes(ToolBase):
         draw_shapes = DrawShapes()
         try:
             # position and size are technically ignored since it's a connector, but safe_create_shape expects them
-            shape = draw_shapes.safe_create_shape(
+            shape, _, _ = draw_shapes.safe_create_shape(
                 ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100)
             )
         except DrawError as e:
