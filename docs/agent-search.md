@@ -17,7 +17,7 @@ This document outlines the architecture and implementation of the **web search**
 ### Vendoring Smolagents
 To avoid introducing a heavy external dependency on `smolagents` (which ordinarily pulls in `requests`, `transformers`, `huggingface_hub`, etc.), we vendored only the core modules (`agents.py`, `models.py`, `tools.py`, `default_tools.py`, etc.) into `plugin/contrib/smolagents/`.
 - We removed all HF/Gradio specific code.
-- We modified `agents.py` to load its prompts from a local JSON file (`toolcalling_agent.json`) rather than depending on `pyyaml`.
+- We modified `agents.py` to load its prompts from a bundled Python module (`toolcalling_agent_prompts.py`) rather than depending on `pyyaml`.
 
 ### Zero-Dependency Web Tools
 The original `smolagents` web tools (`DuckDuckGoSearchTool` and `VisitWebpageTool`) rely on `requests`, `beautifulsoup4`, and `markdownify`. We completely rewrote these tools to use only Python's standard library:
@@ -41,7 +41,7 @@ To facilitate the sub-agent without burdening LocalWriter with dependencies, we'
 ### Significant Files
 
 **`plugin/contrib/smolagents/agents.py`**
-This is the core engine of the sub-agent approach. It contains the `ToolCallingAgent` and `MultiStepAgent` classes which orchestrate the ReAct (Reasoning and Acting) loop. These classes are responsible for setting up the system prompts, delegating to the model, parsing the model's desired tool calls, executing those tools in the environment, and feeding the observations back into the loop until a final answer is reached. Modifications here are primarily focused on removing external prompt loading (like `pyyaml`) in favor of bundled JSON.
+This is the core engine of the sub-agent approach. It contains the `ToolCallingAgent` and `MultiStepAgent` classes which orchestrate the ReAct (Reasoning and Acting) loop. These classes are responsible for setting up the system prompts, delegating to the model, parsing the model's desired tool calls, executing those tools in the environment, and feeding the observations back into the loop until a final answer is reached. Modifications here are primarily focused on removing external prompt loading (like `pyyaml`) in favor of bundled Python prompt strings.
 
 **`plugin/contrib/smolagents/tools.py`**
 This file defines the base `Tool` class and the infrastructure for exposing Python functions to the LLM. It contains the logic for inspecting function signatures, generating JSON schemas, and securely mapping the LLM's requested arguments to the actual Python execution. It is vital for ensuring the agent can understand what tools are available and how to call them correctly.
@@ -71,7 +71,7 @@ This is a custom file specific to LocalWriter, acting as the bridge between `smo
 - **Tool Adaptation**: Completely rewrote `DuckDuckGoSearchTool` and `VisitWebpageTool` in `default_tools.py` to use `urllib.request` and standard library parsers, with a realistic Firefox user agent to reduce 403s.
 - **Model Wrapper**: Built `LocalWriterSmolModel` (`core/smol_model.py`) to connect the sub-agent directly to LocalWriter's existing `LlmClient`.
 - **Tool Registration**: Registered the `search_web` task in `core/document_tools.py` executing the ReAct loop inline.
-- **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and a JSON prompt (`toolcalling_agent.json`) using simple placeholders. The search_web path no longer depends on Jinja2.
+- **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and prompts in `toolcalling_agent_prompts.py` using simple placeholders. The search_web path no longer depends on Jinja2.
 - **Optional Rich/logging**: `monitoring.py` and `agents.py` use lightweight stubs when `rich` is absent; the search_web path logs to stderr/stdout only, and our `Console` stub ignores Rich-only kwargs like `style=...`.
 - **Optional heavy deps (PIL/requests/audio)**: `agent_types.py` treats Pillow and requests as optional; image/audio types only require them if actually used. This keeps the vendored package importable on a minimal Python install while search_web (text only) continues to work.
 - **Error handling and timeout**: `tool_search_web` catches all exceptions and returns JSON `{"status": "error", "message": "..."}`; optional config key `search_web_timeout` (default 120 s) wraps the sub-agent in a `ThreadPoolExecutor` so long-running searches do not block the UI indefinitely.

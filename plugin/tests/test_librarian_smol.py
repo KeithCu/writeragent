@@ -1,10 +1,15 @@
 import unittest
 import time
 from unittest.mock import MagicMock, patch
-from plugin.modules.chatbot.librarian import SmolToolAdapter, SwitchToDocumentModeTool, LibrarianOnboardingTool
+from plugin.modules.chatbot.librarian import (
+    SmolToolAdapter,
+    SwitchToDocumentModeTool,
+    LibrarianOnboardingTool,
+    _memory_key_from_tool_arguments,
+)
 from plugin.modules.chatbot.memory import MemoryTool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
-from plugin.contrib.smolagents.memory import ActionStep
+from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.monitoring import Timing
 
 class TestLibrarianSmol(unittest.TestCase):
@@ -78,6 +83,41 @@ class TestLibrarianSmol(unittest.TestCase):
             
             self.assertEqual(res["status"], "switch_mode")
             self.assertEqual(res["result"], "See you in document mode!")
+
+    def test_memory_key_from_tool_arguments(self):
+        self.assertEqual(_memory_key_from_tool_arguments({"key": "name"}), "name")
+        self.assertIsNone(_memory_key_from_tool_arguments({}))
+        self.assertEqual(
+            _memory_key_from_tool_arguments('{"key": "nested.k", "content": "v"}'),
+            "nested.k",
+        )
+
+    def test_upsert_memory_calls_chat_append_callback(self):
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = False
+        chat_append = MagicMock()
+        ctx.chat_append_callback = chat_append
+
+        tc = ToolCall(
+            name="upsert_memory",
+            arguments={"key": "nickname", "content": "Bob"},
+            id="c1",
+        )
+        fa = FinalAnswerStep(output="Hello")
+
+        with patch("plugin.contrib.smolagents.agents.ToolCallingAgent") as mock_agent_class:
+            mock_agent = mock_agent_class.return_value
+            mock_agent.run.return_value = [tc, fa]
+
+            tool = LibrarianOnboardingTool()
+            res = tool.execute(ctx, query="hi")
+
+        self.assertEqual(res.get("status"), "ok")
+        chat_append.assert_called_once()
+        line = chat_append.call_args[0][0]
+        self.assertIn("Memory update", line)
+        self.assertIn("nickname", line)
 
 if __name__ == "__main__":
     unittest.main()

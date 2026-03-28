@@ -87,7 +87,7 @@ class OpenRouterSmolModel(Model):
         for m in messages:
             content = m.content
             if isinstance(content, list):
-                # toolcalling_agent.json uses text-only content; flatten it.
+                # ToolCallingAgent prompts use text-only content; flatten it.
                 text_parts = [c.get("text", "") for c in content if c.get("type") == "text"]
                 text = "\n".join([t for t in text_parts if t])
             else:

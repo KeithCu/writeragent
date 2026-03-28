@@ -198,10 +198,19 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 effects.append(UIEffect(kind="status", text=f"Running: {func_name}"))
                 # web_research: chat shows internal DuckDuckGo `web_search` steps only (see
                 # web_research.py + web_research_chat.py), not a separate outer research banner.
+                if func_name == "upsert_memory":
+                    mem_key = func_args.get("key")
+                    run_line = (
+                        f"[Memory update: key '{mem_key}']\n"
+                        if isinstance(mem_key, str)
+                        else f"[Running tool: {func_name}...]\n"
+                    )
+                else:
+                    run_line = f"[Running tool: {func_name}...]\n"
                 effects.append(
                     UIEffect(
                         kind="append",
-                        text=f"[Running tool: {func_name}...]\n",
+                        text=run_line,
                     )
                 )
                 effects.append(UpdateActivityStateEffect(action="tool_execute", round_num=state.round_num, tool_name=func_name))

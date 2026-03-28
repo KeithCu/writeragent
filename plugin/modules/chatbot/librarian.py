@@ -4,10 +4,27 @@
 # This program is free software.
 
 import logging
+from typing import Any, cast
 
 from plugin.framework.tool_base import ToolBase
 
 log = logging.getLogger(__name__)
+
+
+def _memory_key_from_tool_arguments(arguments: object) -> str | None:
+    """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
+    if isinstance(arguments, dict):
+        k = cast(dict[str, Any], arguments).get("key")
+        return k if isinstance(k, str) else None
+    if isinstance(arguments, str):
+        from plugin.framework.errors import safe_json_loads
+
+        parsed = safe_json_loads(arguments)
+        if isinstance(parsed, dict):
+            k = cast(dict[str, Any], parsed).get("key")
+            return k if isinstance(k, str) else None
+    return None
+
 
 class SmolToolAdapter:
     """Adapts a WriterAgent ToolBase to smolagents.tools.Tool."""
@@ -115,6 +132,7 @@ class LibrarianOnboardingTool(ToolBase):
 
         status_callback = getattr(ctx, "status_callback", None)
         append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
+        chat_append_callback = getattr(ctx, "chat_append_callback", None)
         stop_checker = getattr(ctx, "stop_checker", None)
 
         if history_text:
@@ -180,8 +198,23 @@ TOOLS FOR COMPLETION:
                 if stop_checker and stop_checker():
                     return format_error_payload(ToolExecutionError("Librarian stopped by user.", code="USER_STOPPED"))
                 if isinstance(step, ToolCall):
-                    if append_thinking_callback:
-                        append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+                    if step.name == "upsert_memory":
+                        mem_key = _memory_key_from_tool_arguments(step.arguments)
+                        line = (
+                            f"[Memory update: key '{mem_key}']\n"
+                            if mem_key
+                            else "[Memory update: upsert_memory]\n"
+                        )
+                        if callable(chat_append_callback):
+                            chat_append_callback(line)
+                        elif append_thinking_callback:
+                            append_thinking_callback(
+                                f"Running tool: {step.name} with {step.arguments}\n"
+                            )
+                    elif append_thinking_callback:
+                        append_thinking_callback(
+                            f"Running tool: {step.name} with {step.arguments}\n"
+                        )
                     if status_callback:
                         status_callback(f"{step.name}...")
                 elif isinstance(step, ActionStep):

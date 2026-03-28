@@ -1307,11 +1307,9 @@ class ToolCallingAgent(MultiStepAgent):
     ):
         self.final_answer_tool_name = final_answer_tool_name
         if prompt_templates is None:
-            import json
-            import os
-            prompt_file = os.path.join(os.path.dirname(__file__), "toolcalling_agent.json")
-            with open(prompt_file, "r", encoding="utf-8") as f:
-                prompt_templates = json.load(f)
+            from .toolcalling_agent_prompts import TOOLCALLING_PROMPT_TEMPLATES
+
+            prompt_templates = TOOLCALLING_PROMPT_TEMPLATES
         super().__init__(
             tools=tools,
             model=model,
