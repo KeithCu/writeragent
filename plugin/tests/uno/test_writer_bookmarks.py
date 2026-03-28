@@ -4,6 +4,8 @@ try:
 except ImportError:
     pass
 
+from typing import Any
+
 try:
     from types import SimpleNamespace
 
@@ -15,8 +17,8 @@ try:
 except ImportError:
     setup, teardown, native_test = (lambda f: f), (lambda f: f), (lambda f: f)
 
-_test_doc = None
-_test_ctx = None
+_test_doc: Any = None
+_test_ctx: Any = None
 
 @setup
 def setup_bookmark_tests(ctx):
@@ -66,6 +68,7 @@ def test_ensure_heading_bookmarks_and_map():
     bookmark_svc = BookmarkService(SimpleNamespace(document=doc_svc))
 
     # Initially no bookmarks
+    assert _test_doc is not None
     bms = _test_doc.getBookmarks().getElementNames()
     assert len([b for b in bms if b.startswith("_mcp_")]) == 0
 
@@ -78,6 +81,7 @@ def test_ensure_heading_bookmarks_and_map():
     assert 2 in bookmark_map
 
     # Verify in document
+    assert _test_doc is not None
     bms = _test_doc.getBookmarks().getElementNames()
     mcp_bms = [b for b in bms if b.startswith("_mcp_")]
     assert len(mcp_bms) == 2
@@ -132,6 +136,7 @@ def test_cleanup_mcp_bookmarks():
     assert removed_count == 2
 
     # Verify they are gone from document
+    assert _test_doc is not None
     bms = _test_doc.getBookmarks().getElementNames()
     mcp_bms = [b for b in bms if b.startswith("_mcp_")]
     assert len(mcp_bms) == 0

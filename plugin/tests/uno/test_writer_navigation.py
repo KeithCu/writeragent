@@ -10,7 +10,7 @@ except ImportError:
     import types
     sys.modules['uno'] = types.ModuleType('uno')
     sys.modules['unohelper'] = types.ModuleType('unohelper')
-    sys.modules['unohelper'].Base = BaseStub
+    setattr(sys.modules['unohelper'], 'Base', BaseStub)
     sys.modules['com'] = types.ModuleType('com')
     sys.modules['com.sun'] = types.ModuleType('sun')
     sys.modules['com.sun.star'] = types.ModuleType('star')
@@ -19,12 +19,12 @@ except ImportError:
     class MockListener(object):
         pass
 
-    sys.modules['com.sun.star.awt'].XActionListener = MockListener
+    setattr(sys.modules['com.sun.star.awt'], 'XActionListener', MockListener)
     sys.modules['com.sun.star.datatransfer'] = types.ModuleType('datatransfer')
     sys.modules['com.sun.star.datatransfer.clipboard'] = types.ModuleType('clipboard')
     class MockClipboardListener(object):
         pass
-    sys.modules['com.sun.star.datatransfer.clipboard'].XClipboardListener = MockClipboardListener
+    setattr(sys.modules['com.sun.star.datatransfer.clipboard'], 'XClipboardListener', MockClipboardListener)
 
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
 from plugin.framework.document import (
