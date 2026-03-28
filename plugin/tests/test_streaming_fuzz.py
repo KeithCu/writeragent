@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.async_stream import StreamQueueKind
 from plugin.modules.http.client import LlmClient
 
 def _make_sse_lines(*chunks, done=True):
@@ -188,9 +189,9 @@ class TestStreamingFuzz(unittest.TestCase):
             pass
 
         # Put items in the queue mimicking a thread exception that was put on the queue
-        q.put(("chunk", "hello"))
-        q.put(("chunk", "world"))
-        q.put(("error", ValueError("worker thread crashed due to JSON error")))
+        q.put((StreamQueueKind.CHUNK, "hello"))
+        q.put((StreamQueueKind.CHUNK, "world"))
+        q.put((StreamQueueKind.ERROR, ValueError("worker thread crashed due to JSON error")))
 
         # Test loop recovers
         run_stream_drain_loop(

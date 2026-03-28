@@ -71,7 +71,7 @@ class TestSafeJsonLoads(unittest.TestCase):
         self.assertEqual(safe_json_loads('invalid', default={"error": True}), {"error": True})
         self.assertEqual(safe_json_loads(None, default="default"), "default")
 
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop
 
 class TestAsyncStreamErrorHandling(unittest.TestCase):
     def test_run_stream_drain_loop_error_handler(self):
@@ -81,7 +81,7 @@ class TestAsyncStreamErrorHandling(unittest.TestCase):
         # Simulate a worker thread putting a formatted error
         test_error = ValueError("Simulation error")
         formatted_error = format_error_payload(test_error)
-        q.put(("error", formatted_error))
+        q.put((StreamQueueKind.ERROR, formatted_error))
 
         error_received = []
 

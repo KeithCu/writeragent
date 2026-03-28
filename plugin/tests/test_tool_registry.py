@@ -12,6 +12,8 @@ class MockDoc:
     def supportsService(self, svc):
         if self.doc_type == "writer" and svc == "com.sun.star.text.TextDocument": return True
         if self.doc_type == "calc" and svc == "com.sun.star.sheet.SpreadsheetDocument": return True
+        if self.doc_type == "draw" and svc == "com.sun.star.drawing.DrawingDocument": return True
+        if self.doc_type == "impress" and svc == "com.sun.star.presentation.PresentationDocument": return True
         return False
 
 from plugin.framework.tool_registry import ToolRegistry
@@ -235,6 +237,26 @@ class TestExcludeSpecializedTiers:
         names = [t.name for t in reg.get_tools(doc=MockDoc("writer"), exclude_tiers=())]
         assert "fake_tool" in names
         assert "spec_tool" in names
+
+    def test_create_shape_specialized_hidden_for_writer_not_for_draw(self):
+        class CreateShapeStub(ToolBase):
+            name = "create_shape"
+            description = "stub"
+            parameters = {"type": "object", "properties": {}}
+            tier = "specialized"
+            uno_services = [
+                "com.sun.star.text.TextDocument",
+                "com.sun.star.drawing.DrawingDocument",
+            ]
+
+            def execute(self, ctx, **kwargs):
+                return {"status": "ok"}
+
+        reg = _make_registry(FakeTool(), CreateShapeStub())
+        w = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
+        d = [t.name for t in reg.get_tools(doc=MockDoc("draw"))]
+        assert "create_shape" not in w
+        assert "create_shape" in d
 
 
 class TestLibrarianToolVisibility:

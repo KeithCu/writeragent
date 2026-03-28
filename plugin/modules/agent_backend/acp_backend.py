@@ -29,6 +29,7 @@ from typing import Optional, Dict, Any, List
 
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.modules.agent_backend.acp_connection import ACPConnection
+from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import format_error_payload
 
 log = logging.getLogger(__name__)
@@ -261,25 +262,25 @@ class ACPBackend(AgentBackend):
                             if item.get("type") == "text":
                                 text = item.get("text", "")
                                 log.info(f"Queueing text from session update (list): {text[:50]}...")  # DEBUG
-                                queue.put(("chunk", text))
+                                queue.put((StreamQueueKind.CHUNK, text))
                             elif item.get("type") == "tool_call":
                                 log.info(f"Queueing tool call from session update (list): {item}")  # DEBUG
-                                queue.put(("tool_call", item))
+                                queue.put((StreamQueueKind.TOOL_CALL, item))
                             elif item.get("type") == "tool_result":
                                 log.info(f"Queueing tool result from session update (list): {item}")  # DEBUG
-                                queue.put(("tool_result", item))
+                                queue.put((StreamQueueKind.TOOL_RESULT, item))
                 elif isinstance(content, dict):
                     # Direct dict format: {"type": "text", "text": "..."}
                     if content.get("type") == "text":
                         text = content.get("text", "")
                         log.info(f"Queueing text from session update (dict): {text[:50]}...")  # DEBUG
-                        queue.put(("chunk", text))
+                        queue.put((StreamQueueKind.CHUNK, text))
                     elif content.get("type") == "tool_call":
                         log.info(f"Queueing tool call from session update (dict): {content}")  # DEBUG
-                        queue.put(("tool_call", content))
+                        queue.put((StreamQueueKind.TOOL_CALL, content))
                     elif content.get("type") == "tool_result":
                         log.info(f"Queueing tool result from session update (dict): {content}")  # DEBUG
-                        queue.put(("tool_result", content))
+                        queue.put((StreamQueueKind.TOOL_RESULT, content))
                 else:
                     log.warning(f"Content is neither list nor dict: {type(content)}")  # DEBUG
             else:
@@ -301,25 +302,25 @@ class ACPBackend(AgentBackend):
                             if item.get("type") == "text":
                                 text = item.get("text", "")
                                 log.info(f"Queueing text from agent update (list): {text[:50]}...")  # DEBUG
-                                queue.put(("chunk", text))
+                                queue.put((StreamQueueKind.CHUNK, text))
                             elif item.get("type") == "tool_call":
                                 log.info(f"Queueing tool call from agent update (list): {item}")  # DEBUG
-                                queue.put(("tool_call", item))
+                                queue.put((StreamQueueKind.TOOL_CALL, item))
                             elif item.get("type") == "tool_result":
                                 log.info(f"Queueing tool result from agent update (list): {item}")  # DEBUG
-                                queue.put(("tool_result", item))
+                                queue.put((StreamQueueKind.TOOL_RESULT, item))
                 elif isinstance(content, dict):
                     # Direct dict format: {"type": "text", "text": "..."}
                     if content.get("type") == "text":
                         text = content.get("text", "")
                         log.info(f"Queueing text from agent update (dict): {text[:50]}...")  # DEBUG
-                        queue.put(("chunk", text))
+                        queue.put((StreamQueueKind.CHUNK, text))
                     elif content.get("type") == "tool_call":
                         log.info(f"Queueing tool call from agent update (dict): {content}")  # DEBUG
-                        queue.put(("tool_call", content))
+                        queue.put((StreamQueueKind.TOOL_CALL, content))
                     elif content.get("type") == "tool_result":
                         log.info(f"Queueing tool result from agent update (dict): {content}")  # DEBUG
-                        queue.put(("tool_result", content))
+                        queue.put((StreamQueueKind.TOOL_RESULT, content))
                 else:
                     log.warning(f"Content is neither list nor dict: {type(content)}")  # DEBUG
             else:
@@ -341,12 +342,12 @@ class ACPBackend(AgentBackend):
         self._stop_requested = False
         self._prompt_done.clear()
 
-        queue.put(("status", f"Starting {self.get_display_name()}..."))
+        queue.put((StreamQueueKind.STATUS, f"Starting {self.get_display_name()}..."))
 
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put(("error", format_error_payload(RuntimeError(
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(
                 f"Cannot start {self.get_display_name()} ACP. "
                 f"Is {self.get_binary_name()} installed? Error: {e}"
             ))))
@@ -355,10 +356,10 @@ class ACPBackend(AgentBackend):
         try:
             self._ensure_session(mcp_url=mcp_url, document_url=document_url)
         except Exception as e:
-            queue.put(("error", format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
             return
 
-        queue.put(("status", f"Sending to {self.get_display_name()}..."))
+        queue.put((StreamQueueKind.STATUS, f"Sending to {self.get_display_name()}..."))
 
         # Build prompt content blocks
         prompt_blocks = self._build_prompt_blocks(
@@ -377,7 +378,7 @@ class ACPBackend(AgentBackend):
                 description = params.get("description", "Agent requests permission")
                 tool_call = params.get("toolCall", {})
                 tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
-                queue.put(("approval_required", description, tool_name, tool_call, msg_id))
+                queue.put((StreamQueueKind.APPROVAL_REQUIRED, description, tool_name, tool_call, msg_id))
             elif method in ("notifications/session", "session/update"):
                 update = params.get("update", {})
                 self._handle_session_update(update, queue)
@@ -401,16 +402,16 @@ class ACPBackend(AgentBackend):
                     stop_reason = result.get("stopReason", result.get("stop_reason", ""))
                     log.info(f"Prompt completed: stop_reason={stop_reason}")
 
-            queue.put(("stream_done", None))
+            queue.put((StreamQueueKind.STREAM_DONE, None))
 
         except TimeoutError:
-            queue.put(("error", format_error_payload(RuntimeError(f"{self.get_display_name()} prompt timed out"))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"{self.get_display_name()} prompt timed out"))))
         except Exception as e:
             if self._stop_requested:
-                queue.put(("stopped",))
+                queue.put((StreamQueueKind.STOPPED,))
             else:
                 log.error(f"Prompt error: {e}")
-                queue.put(("error", format_error_payload(e)))
+                queue.put((StreamQueueKind.ERROR, format_error_payload(e)))
         finally:
             if self._conn:
                 self._conn.set_notification_callback(None)

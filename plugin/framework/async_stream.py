@@ -22,9 +22,11 @@ to keep the LibreOffice UI responsive (processEventsToIdle).
 """
 from __future__ import annotations
 
+import json
 import logging
 import queue
 from enum import StrEnum
+from typing import Any, TypeAlias
 
 from plugin.framework.worker_pool import run_in_background
 
@@ -48,6 +50,8 @@ class StreamQueueKind(StrEnum):
     FINAL_DONE = "final_done"
     STOPPED = "stopped"
     ERROR = "error"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
 
 
 class BlockingPumpKind(StrEnum):
@@ -61,6 +65,21 @@ def coerce_stream_queue_kind(raw: StreamQueueKind | str) -> StreamQueueKind:
     if isinstance(raw, StreamQueueKind):
         return raw
     return StreamQueueKind(raw)
+
+
+def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
+    """Serialize ACP tool_call / tool_result payloads for chat display."""
+    try:
+        if isinstance(data, (dict, list)):
+            body = json.dumps(data, ensure_ascii=False)
+        else:
+            body = str(data) if data is not None else ""
+    except Exception:
+        body = str(data)
+    return "\n%s %s\n" % (prefix, body)
+
+
+StreamQueueItem: TypeAlias = tuple[StreamQueueKind, ...]
 
 
 def coerce_blocking_pump_kind(raw: BlockingPumpKind | str) -> BlockingPumpKind:
@@ -99,6 +118,8 @@ def run_stream_drain_loop(
     - (APPROVAL_REQUIRED, ...): HITL; call on_approval_required(item).
     - (STOPPED,): Calls on_stopped().
     - (ERROR, payload): Calls on_error(payload).
+    - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
+    - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """
     thinking_open = [False]
 
@@ -210,6 +231,20 @@ def run_stream_drain_loop(
                                 if current_content:
                                     flush_buffers()
                                 current_thinking.append(data)
+                        elif kind == StreamQueueKind.TOOL_CALL:
+                            flush_buffers()
+                            close_thinking()
+                            apply_chunk_fn(
+                                _format_agent_tool_stream_line("[Tool call]", data),
+                                is_thinking=False,
+                            )
+                        elif kind == StreamQueueKind.TOOL_RESULT:
+                            flush_buffers()
+                            close_thinking()
+                            apply_chunk_fn(
+                                _format_agent_tool_stream_line("[Tool result]", data),
+                                is_thinking=False,
+                            )
                         elif kind == StreamQueueKind.APPROVAL_REQUIRED:
                             flush_buffers()
                             close_thinking()

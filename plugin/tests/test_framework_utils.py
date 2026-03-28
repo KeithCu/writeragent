@@ -5,7 +5,7 @@ import pytest
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.errors import WorkerPoolError
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop
 from plugin.framework.logging import SafeLogger, safe_log_exception
 
 class TestWorkerPoolErrorHandling:
@@ -46,9 +46,9 @@ class TestAsyncStreamErrorHandling:
         on_stream_done = MagicMock()
         on_stopped = MagicMock()
 
-        q.put(("chunk", "hello "))
-        q.put(("thinking", "thinking..."))
-        q.put(("stream_done", "final"))
+        q.put((StreamQueueKind.CHUNK, "hello "))
+        q.put((StreamQueueKind.THINKING, "thinking..."))
+        q.put((StreamQueueKind.STREAM_DONE, "final"))
 
         run_stream_drain_loop(
             q, toolkit, job_done, on_chunk, on_stream_done, on_stopped, on_error
@@ -57,8 +57,7 @@ class TestAsyncStreamErrorHandling:
         assert job_done[0] is True
         on_chunk.assert_any_call("hello ", is_thinking=False)
         on_chunk.assert_any_call("thinking...", is_thinking=True)
-        # on_stream_done is called with the entire item tuple ("stream_done", "final")
-        on_stream_done.assert_called_once_with(("stream_done", "final"))
+        on_stream_done.assert_called_once_with((StreamQueueKind.STREAM_DONE, "final"))
         on_error.assert_not_called()
 
     def test_stream_drain_loop_processing_error(self):
@@ -72,7 +71,7 @@ class TestAsyncStreamErrorHandling:
         def faulty_on_chunk(data, is_thinking):
             raise ValueError("Processing failed")
 
-        q.put(("chunk", "bad data"))
+        q.put((StreamQueueKind.CHUNK, "bad data"))
 
         run_stream_drain_loop(
             q, toolkit, job_done, faulty_on_chunk, MagicMock(), MagicMock(), on_error

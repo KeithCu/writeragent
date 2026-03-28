@@ -78,7 +78,6 @@ class WriterAgentSpecialTracking(ToolWriterSpecialBase):
     specialized_domain = "tracking"
     intent = "review"
     uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "extended"  # Tracking tools are explicitly exposed to the main agent tier
 
 
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):

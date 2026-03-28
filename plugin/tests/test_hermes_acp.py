@@ -17,6 +17,7 @@ from plugin.framework.worker_pool import run_in_background
 
 from plugin.modules.chatbot.send_handlers import _agent_backend_label
 
+from plugin.framework.async_stream import StreamQueueKind
 from plugin.modules.agent_backend.acp_connection import ACPConnection
 from plugin.modules.agent_backend.builtin import BuiltinBackend
 from plugin.modules.agent_backend.hermes_simple import HermesBackend
@@ -169,7 +170,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
         while not q.empty():
             events.append(q.get_nowait())
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], ("chunk", "Hello world"))
+        self.assertEqual(events[0], (StreamQueueKind.CHUNK, "Hello world"))
 
     def test_text_content_dict_queues_chunk(self):
         backend = HermesBackend()
@@ -181,7 +182,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
         events = []
         while not q.empty():
             events.append(q.get_nowait())
-        self.assertEqual(events, [("chunk", "Hello")])
+        self.assertEqual(events, [(StreamQueueKind.CHUNK, "Hello")])
 
     def test_tool_call_in_content_queues_tool_call(self):
         backend = HermesBackend()
@@ -192,7 +193,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
         while not q.empty():
             events.append(q.get_nowait())
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0][0], "tool_call")
+        self.assertEqual(events[0][0], StreamQueueKind.TOOL_CALL)
         self.assertEqual(events[0][1], item)
 
     def test_tool_result_in_content_queues_tool_result(self):
@@ -204,7 +205,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
         while not q.empty():
             events.append(q.get_nowait())
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0], ("tool_result", item))
+        self.assertEqual(events[0], (StreamQueueKind.TOOL_RESULT, item))
 
 
 class TestSend(unittest.TestCase):
@@ -232,7 +233,7 @@ class TestSend(unittest.TestCase):
             events.append(q.get_nowait())
 
         types = [e[0] for e in events]
-        self.assertIn("error", types)
+        self.assertIn(StreamQueueKind.ERROR, types)
 
 
 if __name__ == "__main__":

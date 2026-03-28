@@ -211,10 +211,23 @@ class ToolRegistry:
             tools = filtered_tools
         else:
             if to_exclude:
-                tools = [
-                    t for t in tools
-                    if getattr(t, "tier", None) not in to_exclude
-                ]
+                def _tier_excluded(t):
+                    tier = getattr(t, "tier", None)
+                    if tier not in to_exclude:
+                        return False
+                    # create_shape is specialized for Writer-only default lists; Draw/Impress
+                    # still expose it as a core-style shape tool (shared tool name).
+                    if getattr(t, "name", None) == "create_shape" and tier == "specialized":
+                        if doc is not None and hasattr(doc, "supportsService"):
+                            try:
+                                if not doc.supportsService("com.sun.star.text.TextDocument"):
+                                    return False
+                            except Exception:
+                                pass
+                        return True
+                    return True
+
+                tools = [t for t in tools if not _tier_excluded(t)]
 
         if tier:
             tools = [t for t in tools if t.tier == tier]

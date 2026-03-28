@@ -21,6 +21,7 @@ import os
 from typing import Dict
 
 from plugin.modules.agent_backend.acp_backend import ACPBackend
+from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.config import get_config, get_api_key_for_endpoint
 from plugin.framework.errors import format_error_payload
 
@@ -74,12 +75,12 @@ class VibeBackend(ACPBackend):
         self._stop_requested = False
         self._prompt_done.clear()
 
-        queue.put(("status", f"Starting {self.get_display_name()}..."))
+        queue.put((StreamQueueKind.STATUS, f"Starting {self.get_display_name()}..."))
 
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put(("error", format_error_payload(RuntimeError(
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(
                 f"Cannot start {self.get_display_name()} ACP. "
                 f"Is {self.get_binary_name()} installed? Error: {e}"
             ))))
@@ -88,10 +89,10 @@ class VibeBackend(ACPBackend):
         try:
             self._ensure_session(mcp_url=mcp_url, document_url=document_url)
         except Exception as e:
-            queue.put(("error", format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"Session creation failed: {e}"))))
             return
 
-        queue.put(("status", f"Sending to {self.get_display_name()}..."))
+        queue.put((StreamQueueKind.STATUS, f"Sending to {self.get_display_name()}..."))
 
         # Build prompt content blocks
         prompt_blocks = self._build_prompt_blocks(
@@ -111,7 +112,7 @@ class VibeBackend(ACPBackend):
                 description = params.get("description", "Agent requests permission")
                 tool_call = params.get("toolCall", {})
                 tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
-                queue.put(("approval_required", description, tool_name, tool_call, msg_id))
+                queue.put((StreamQueueKind.APPROVAL_REQUIRED, description, tool_name, tool_call, msg_id))
             elif method in ("notifications/session", "session/update"):
                 update = params.get("update", {})
                 self._handle_session_update(update, queue)
@@ -148,13 +149,13 @@ class VibeBackend(ACPBackend):
                                 if block.get("type") == "text":
                                     text = block.get("text", "")
                                     log.info(f"Queueing text chunk: {text[:50]}...")  # DEBUG: Log text
-                                    queue.put(("chunk", text))
+                                    queue.put((StreamQueueKind.CHUNK, text))
                                 elif block.get("type") == "tool_call":
                                     log.info(f"Queueing tool call: {block}")  # DEBUG: Log tool call
-                                    queue.put(("tool_call", block))
+                                    queue.put((StreamQueueKind.TOOL_CALL, block))
                                 elif block.get("type") == "tool_result":
                                     log.info(f"Queueing tool result: {block}")  # DEBUG: Log tool result
-                                    queue.put(("tool_result", block))
+                                    queue.put((StreamQueueKind.TOOL_RESULT, block))
                     else:
                         log.warning("No contentBlocks found in Vibe response")
                         # Check for other possible response formats
@@ -165,16 +166,16 @@ class VibeBackend(ACPBackend):
                         if "response" in result:
                             log.info(f"Found 'response' field: {result['response']}")
 
-            queue.put(("stream_done", None))
+            queue.put((StreamQueueKind.STREAM_DONE, None))
 
         except TimeoutError:
-            queue.put(("error", format_error_payload(RuntimeError(f"{self.get_display_name()} prompt timed out"))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"{self.get_display_name()} prompt timed out"))))
         except Exception as e:
             if self._stop_requested:
-                queue.put(("stopped",))
+                queue.put((StreamQueueKind.STOPPED,))
             else:
                 log.error(f"Prompt error: {e}")
-                queue.put(("error", format_error_payload(e)))
+                queue.put((StreamQueueKind.ERROR, format_error_payload(e)))
         finally:
             if self._conn:
                 self._conn.set_notification_callback(None)

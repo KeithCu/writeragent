@@ -23,9 +23,8 @@ class AgentBackend:
 
     Inputs: user_message, document_context, document_url (for MCP targeting),
     optional selection_text, optional system_prompt.
-    Outputs: events pushed to queue — ("chunk", text), ("thinking", text),
-    ("status", text), ("stream_done", response), ("tool_done", ...),
-    ("final_done", text), ("error", exc), ("approval_required", ...).
+    Outputs: events pushed to queue — first element is :class:`~plugin.framework.async_stream.StreamQueueKind`
+    (e.g. ``CHUNK``, ``STATUS``, ``STREAM_DONE``, ``TOOL_CALL``, ``TOOL_RESULT``, ``ERROR``, …).
     """
 
     backend_id = "builtin"

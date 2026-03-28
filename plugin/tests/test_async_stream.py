@@ -1,7 +1,13 @@
 import pytest
 import queue
 import time
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import (
+    BlockingPumpKind,
+    StreamQueueKind,
+    coerce_blocking_pump_kind,
+    coerce_stream_queue_kind,
+    run_stream_drain_loop,
+)
 from plugin.framework.worker_pool import run_in_background
 
 class DummyToolkit:
@@ -476,3 +482,47 @@ def test_run_stream_drain_loop_connection_drop():
 
     # Verify that the job was marked as done
     assert job_done[0] is True
+
+
+def test_coerce_stream_queue_kind():
+    assert coerce_stream_queue_kind(StreamQueueKind.CHUNK) is StreamQueueKind.CHUNK
+    assert coerce_stream_queue_kind("chunk") is StreamQueueKind.CHUNK
+    with pytest.raises(ValueError):
+        coerce_stream_queue_kind("not_a_valid_tag")
+
+
+def test_coerce_blocking_pump_kind():
+    assert coerce_blocking_pump_kind(BlockingPumpKind.DONE) is BlockingPumpKind.DONE
+    assert coerce_blocking_pump_kind("done") is BlockingPumpKind.DONE
+    with pytest.raises(ValueError):
+        coerce_blocking_pump_kind("chunk")
+
+
+def test_run_stream_drain_loop_tool_call_and_tool_result():
+    q = queue.Queue()
+    payload_call = {"type": "tool_call", "name": "read_file"}
+    payload_result = {"type": "tool_result", "content": "ok"}
+    q.put((StreamQueueKind.TOOL_CALL, payload_call))
+    q.put((StreamQueueKind.TOOL_RESULT, payload_result))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+
+    job_done = [False]
+    applied = []
+
+    def apply_chunk(t, is_thinking):
+        applied.append((t, is_thinking))
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        apply_chunk,
+        on_stream_done=lambda i: True,
+        on_stopped=lambda: None,
+        on_error=lambda e: None,
+    )
+
+    assert job_done[0] is True
+    assert any("[Tool call]" in t for t, th in applied if not th)
+    assert any("[Tool result]" in t for t, th in applied if not th)
+    assert any(payload_call["name"] in t for t, th in applied if not th)

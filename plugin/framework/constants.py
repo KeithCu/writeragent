@@ -107,6 +107,7 @@ TOOLS:
 - search_in_document: Find text (use return_offsets for character positions if needed for inspection).
 - styles_apply_to_selection: Apply a paragraph style to the selection (use after discovering style names if needed).
 - Images (generate, edit, list, insert): not in this default tool list. Use the chat sidebar "Use Image model" for direct image generation, or delegate_to_specialized_writer_toolset(domain=images, task=...) for image tools via the specialized sub-agent.
+- Floating shapes (create_shape on the draw layer), edit/delete/connect shapes, and track-changes tools: not in this default list; use delegate_to_specialized_writer_toolset(domain=shapes or domain=tracking, task=...).
 
 {TRANSLATION_RULES}
 
