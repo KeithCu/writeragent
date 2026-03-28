@@ -251,7 +251,7 @@ def test_web_research_tool():
                 mock_get.return_value = mock_get_resp
 
                 tool = WebResearchTool()
-                result = tool.execute(ctx, "What is the latest Python release?", "User said hello previously")
+                result = tool.execute(ctx, query="What is the latest Python release?", history_text="User said hello previously")
 
                 assert result["status"] == "ok"
                 assert "3.12.3" in result["result"]
@@ -272,7 +272,7 @@ def test_web_research_tool_stop():
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
                 tool = WebResearchTool()
-                result = tool.execute(ctx, "What is the latest Python release?", "")
+                result = tool.execute(ctx, query="What is the latest Python release?", history_text="")
 
                 assert result["status"] == "error"
                 assert result["message"] == "Web search stopped by user."
