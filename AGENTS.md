@@ -17,6 +17,7 @@ Common touchpoints: [`plugin/main.py`](plugin/main.py) (MainJob, settings apply)
 
 **WriterAgent** is a LibreOffice extension (Python + UNO) for Writer, Calc, and Draw:
 
+- **Build & Dev**: `make build`, `make deploy`. **External tools (ty, pytest)**: `make fix-uno` to link system UNO into `.venv`.
 - **Extend Selection** (Ctrl+Q) / **Edit Selection** (Ctrl+E): model continues or rewrites the selection.
 - **Chat with Document**: sidebar (multi-turn + tool-calling), persistent history (SQLite when available, else JSON under `writeragent_history.db.d/`), menu fallback (Writer: append; Calc: "AI Response" sheet).
 - **Settings**: endpoint, models, keys, timeouts, image provider, MCP, etc. Config: `writeragent.json` in LibreOffice user config. Examples: [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
@@ -248,7 +249,19 @@ Use `WriterAgentException` hierarchy and **`format_error_payload`** ([`plugin/fr
 
 ---
 
-## 20. Debugging
+## 21. Static Type Checking (ty)
+
+The project uses `ty` for static type checking.
+
+- **Dependencies**: Requires `types-unopy` (in `dev` group) for LibreOffice API stubs.
+- **UNO Resolution**: Because the `uno` module is typically provided by the system (not PyPI), you MUST run `make fix-uno` to symlink the system UNO paths into your `.venv`. Otherwise, `ty` will fail to resolve `import uno` or `com.sun.star` types.
+- **Interface Signatures**: When overriding UNO interfaces (e.g., `XActionListener`, `XEventListener`), you must match the argument names in the `.pyi` stubs exactly (e.g., `actionPerformed(self, rEvent)`, `disposing(self, Source)`). Mismatched names will trigger `invalid-method-override` errors.
+- **Base Classes**: Base classes like `ModuleBase` and `ToolBase` use `str | None = None` for attributes that are set dynamically at load time to satisfy type assignment rules.
+- **Casting**: Use `typing.cast` and `isinstance` checks to assist the checker in complex dynamic scenarios (like `streaming_deltas.py` or UNO property maps).
+
+---
+
+## 22. Debugging
 
 - **`make deploy`** vs **`make repack`**: full rebuild/deploy vs re-zip only.
 - New components: [`extension/META-INF/manifest.xml`](extension/META-INF/manifest.xml).

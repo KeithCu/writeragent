@@ -12,6 +12,54 @@ alternate send flows that would otherwise bloat that class:
 import queue
 import logging
 import json
+from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
+
+if TYPE_CHECKING:
+    import threading
+    from plugin.modules.http.client import LlmClient
+    from plugin.modules.chatbot.panel import ChatSession
+    from plugin.modules.chatbot.state_machine import SendHandlerState, EffectInterpreter
+
+class SendHandlerHost(Protocol):
+    ctx: Any
+    client: "LlmClient | None"
+    stop_requested: bool
+    session: "ChatSession"
+    response_control: Any
+    status_control: Any
+    image_model_selector: Any
+    aspect_ratio_selector: Any
+    base_size_input: Any
+    frame: Any
+    audio_wav_path: str | None
+    stop_requested: bool
+    _terminal_status: str
+    _current_agent_backend: Any
+
+    def _set_status(self, text: str) -> None: ...
+    def _append_response(self, text: str, is_thinking: bool = False) -> None: ...
+    def _get_doc_type_str(self, model: Any) -> str: ...
+    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
+    def _run_unified_worker_drain_loop(
+        self,
+        q: "queue.Queue[Any]",
+        worker_fn: Callable[[], None],
+        current_state: "SendHandlerState",
+        interpreter: "EffectInterpreter",
+        show_thinking: bool = True,
+        on_stopped_callback: Callable[[], None] | None = None,
+        on_approval_callback: Callable[[Any], None] | None = None
+    ) -> None: ...
+    def _get_mcp_url(self) -> str | None: ...
+
+class TypedEvent(Protocol):
+    approved: bool
+    query_override: str | None
+    def wait(self, timeout: float | None = None) -> bool: ...
+    def set(self) -> None: ...
+    def is_set(self) -> bool: ...
+
+T = TypeVar("T", bound="SendHandlersMixin")
 
 from plugin.framework.errors import safe_json_loads
 from plugin.modules.chatbot.state_machine import (
@@ -24,7 +72,7 @@ from plugin.modules.chatbot.state_machine import (
 log = logging.getLogger(__name__)
 
 class SendHandlersMixin:
-    def _transcribe_audio(self, wav_path, stt_model):
+    def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread."""
         from plugin.framework.async_stream import run_blocking_in_thread
         from plugin.framework.i18n import _
@@ -59,15 +107,15 @@ class SendHandlersMixin:
             raise e
 
     def _run_unified_worker_drain_loop(
-        self,
-        q,
-        worker_fn,
-        current_state,
-        interpreter,
-        show_thinking=True,
-        on_stopped_callback=None,
-        on_approval_callback=None
-    ):
+        self: SendHandlerHost,
+        q: "queue.Queue[Any]",
+        worker_fn: Callable[[], None],
+        current_state: "SendHandlerState",
+        interpreter: "EffectInterpreter",
+        show_thinking: bool = True,
+        on_stopped_callback: Callable[[], None] | None = None,
+        on_approval_callback: Callable[[Any], None] | None = None
+    ) -> None:
         from plugin.framework.worker_pool import run_in_background
         from plugin.framework.async_stream import run_stream_drain_loop
         from plugin.framework.i18n import _
@@ -133,7 +181,7 @@ class SendHandlersMixin:
             on_approval_required=on_approval_callback,
         )
 
-    def _do_send_direct_image(self, query_text, model):
+    def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="image", status="ready")
 
@@ -144,7 +192,10 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _execute_direct_image_effect(self, query_text, model, current_state, interpreter):
+    def _execute_direct_image_effect(
+        self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
+    ) -> None:
+        from plugin.framework.dialogs import get_control_text
         q = queue.Queue()
         job_done = [False]
 
@@ -249,7 +300,7 @@ class SendHandlersMixin:
         if self._terminal_status != "Error":
             self._terminal_status = "Ready"
 
-    def _do_send_via_agent_backend(self, query_text, model, doc_type_str):
+    def _do_send_via_agent_backend(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend (Aider, Hermes). No fallback to built-in on failure."""
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="agent", status="ready")
@@ -263,7 +314,9 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _execute_agent_backend_effect(self, query_text, model, doc_type_str, current_state, interpreter):
+    def _execute_agent_backend_effect(
+        self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
+    ) -> None:
         from plugin.framework.config import get_config
         from plugin.framework.document import get_document_context_for_chat
         from plugin.modules.agent_backend import get_backend
@@ -419,7 +472,7 @@ class SendHandlersMixin:
             self._terminal_status = "Ready"
         self._current_agent_backend = None
 
-    def _run_librarian(self, query_text, model):
+    def _run_librarian(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready") # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
@@ -437,7 +490,7 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _run_web_research(self, query_text, model):
+    def _run_web_research(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the web_research tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
         current_state = SendHandlerState(handler_type="web", status="ready")
@@ -451,7 +504,9 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _execute_web_research_effect(self, query_text, model, current_state, interpreter):
+    def _execute_web_research_effect(
+        self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
+    ) -> None:
         is_librarian = getattr(self, "_active_run_librarian", False)
         if hasattr(self, "_active_run_librarian"):
             delattr(self, "_active_run_librarian")
@@ -502,18 +557,19 @@ class SendHandlersMixin:
                 def approval_cb(query_for_engine, tool_name, args):
                     import threading
                     event = threading.Event()
-                    event.approved = False
-                    event.query_override = None
+                    # Use setattr/getattr to avoid static attribute errors on Event
+                    setattr(event, "approved", False)
+                    setattr(event, "query_override", None)
                     q.put(("approval_required", query_for_engine, tool_name, event))
                     event.wait()
-                    if not event.approved:
+                    if not getattr(event, "approved", False):
                         # If the user rejects the search query, do not let the LLM
                         # keep going without the data it requested. Instead, immediately
                         # halt the entire tool call loop, acting exactly as if the
                         # user clicked the explicit 'Stop' button in the UI.
                         q.put(("stopped",))
                     return (
-                        bool(event.approved),
+                        bool(getattr(event, "approved", False)),
                         getattr(event, "query_override", None),
                     )
 
@@ -626,7 +682,7 @@ class SendHandlersMixin:
             on_approval_callback=on_approval_required
         )
 
-    def _get_mcp_url(self):
+    def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP server URL from config."""
         try:
             from plugin.framework.config import get_config
