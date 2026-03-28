@@ -82,11 +82,9 @@ Bypasses document context/tools for that send; calls `web_research`. **`panel_fa
 
 ### Tools by document type
 
-Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolBaseDummy`** until rebased. **Specialized tier** (`ToolWriterSpecialBase` in [`base.py`](plugin/modules/writer/base.py)): tables (e.g. `ToolWriterTableBase`), styles, layout (frames), shapes/charts in doc, indexes, fields, bookmarks, embedded — omitted from default chat/MCP tool lists via `exclude_tiers` in [`tool_registry.py`](plugin/framework/tool_registry.py).
+Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolBaseDummy`** until rebased. **Specialized tier** (`ToolWriterSpecialBase` in [`base.py`](plugin/modules/writer/base.py)): styles, layout (frames), shapes/charts in doc, indexes, fields, bookmarks, embedded — omitted from default chat/MCP tool lists via `exclude_tiers` in [`tool_registry.py`](plugin/framework/tool_registry.py).
 
 **Testing specialized tools**: Tests should retrieve tools via `plugin.main.get_tools().get("tool_name")` rather than direct internal imports. This avoids regressions when tools are moved between specialized modules and allows bypassing tier-based filtering.
-
-**Writer CreateTable**: Refactored to use the unified target model (`target`, `old_content`) consistent with `ApplyDocumentContent`. Supports `beginning`, `end`, `selection`, and `search` (replace) targets.
 
 **Shape Enhancements**: Shape tools for Draw/Impress (`create_shape`, `edit_shape`) have been enhanced to support generic shape types (e.g. `connector` or direct UNO class names) and rich formatting properties like `fill_color`, `line_color`, `line_width`, `font_size`, `font_name`, and `rotation_angle`. The `shapes_connect` and `shapes_group` tools are also fully implemented in Draw and inherited by Writer via `ToolWriterShapeBase`.
 

@@ -87,11 +87,12 @@ You have a procedural skills system (skills_list, skill_view, skill_manage).
 After completing a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, ask to save the approach as a skill using skill_manage.
 If you used a skill and found it outdated/wrong, patch it immediately using skill_manage."""
 
+#FIXME, One day the specialized domain list should be auto-generated.
 WRITER_SPECIALIZED_DELEGATION = """SPECIALIZED WRITER (nested tools):
-The default tool list hides deep Writer features (tables, text frames, in-document charts,
+The default tool list hides deep Writer features (text frames, in-document charts,
 images on the drawing layer, TOC/index refresh, field refresh, bookmarks, OLE, etc.).
 When the user needs those, call delegate_to_specialized_writer_toolset with:
-domain one of: tables, styles, layout, embedded, shapes, charts, indexes, fields, bookmarks —
+domain one of: styles, layout, embedded, shapes, charts, indexes, fields, bookmarks —
 and a clear task string. The sub-agent only sees tools for that domain."""
 
 DEFAULT_CHAT_SYSTEM_PROMPT = f"""{CORE_DIRECTIVES}

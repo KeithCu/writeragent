@@ -38,11 +38,6 @@ class ToolWriterSpecialBase(ToolBase):
 
 # --- Domain-Specific Base Classes ---
 
-class ToolWriterTableBase(ToolWriterSpecialBase):
-    specialized_domain = "tables"
-    intent = "edit"
-    uno_services = ["com.sun.star.text.TextDocument"]
-
 
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain = "styles"

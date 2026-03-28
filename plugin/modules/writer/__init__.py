@@ -30,7 +30,6 @@ class WriterModule(ModuleBase):
         from . import (
             base,
             specialized,
-            tables,
             styles,
             shapes,
             charts,

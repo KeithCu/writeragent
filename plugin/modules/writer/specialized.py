@@ -30,7 +30,6 @@ USE_SUB_AGENT = True
 
 # Available domains matching the specialized_domain attributes of subclasses
 _AVAILABLE_DOMAINS = [
-    "tables",
     "styles",
     "layout",
     "embedded",
