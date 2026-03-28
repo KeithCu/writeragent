@@ -329,7 +329,11 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Auto-translate missing strings with AI")
     parser.add_argument("--execute", action="store_true", help="Perform actual updates")
-    parser.add_argument("--preview", action="store_true", help="Show mock translation on screen (Dry run)")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Print localization status table only (does not modify .po files)",
+    )
     parser.add_argument("--batch-size", type=int, default=10, help="Batch size (default: 10)")
     parser.add_argument(
         "--jobs",
@@ -346,15 +350,21 @@ def main():
     parser.add_argument(
         "--skip-initial-status",
         action="store_true",
-        help="Do not print the localization table at start (e.g. second phase after --preview in make auto-translate)",
+        help="Do not print the localization table at start (e.g. second phase of make auto-translate after status preview)",
     )
     args = parser.parse_args()
 
     if not args.skip_initial_status:
         print_status_report()
 
-    if not args.execute and not args.preview:
-        print("Dry run active. Run with `--execute` to perform updates, or `--preview` for a test output.")
+    if args.preview:
+        return
+
+    if not args.execute:
+        print(
+            "Dry run active. Run with `--execute` to perform updates, "
+            "or `--preview` to show localization status only."
+        )
         return
 
     pot_file = load_pot_file()
@@ -375,9 +385,7 @@ def main():
         work_items.append((lang, f_path, missing))
 
     if not work_items:
-        if args.preview:
-            print("\n=== [PREVIEW DONE] (No files edited) ===\n")
-        elif not args.skip_initial_status:
+        if not args.skip_initial_status:
             print("\n=== All locales up to date. ===\n")
         return
 
@@ -388,16 +396,6 @@ def main():
             batch = missing[i : i + batch_size]
             texts = [item["msgid"] for item in batch]
             tasks.append((f_path, lang, texts))
-
-    if args.preview:
-        for lang, f_path, missing in work_items:
-            log.info(f"[PREVIEW] Showing mock translated 1 batch for {lang}")
-            for item in missing[:batch_size]:
-                t = item["msgid"]
-                mock = f"[{lang}_translated] {t}"
-                print(f"{t} - {mock}")
-        print("\n=== [PREVIEW DONE] (No files edited) ===\n")
-        return
 
     aggregated: Dict[str, Dict[str, str]] = defaultdict(dict)
     total_tasks = len(tasks)

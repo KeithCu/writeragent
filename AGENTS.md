@@ -204,7 +204,7 @@ make deploy   # or: unopkg remove org.extension.writeragent
 make test     # pytest + in-LO runner (skips if no soffice)
 ```
 
-Also: `make build-no-recording`, `make release` (runs `make test` first, then builds a smaller bundle without bundled plugin tests; strips debug menu). **Translations**: overview → [`docs/localization.md`](docs/localization.md). `make build` runs `preview-translations` (refresh `writeragent.pot` + `translate_missing.py --preview`), then `compile-translations`. Full template + PO merge: `make extract-strings` (runs `xgettext`, YAML merge, then **`merge-translations`**: `msgmerge --update` each `writeragent.po` + `msgattrib --no-obsolete`). Optional AI fill: `translate_missing.py` / `make auto-translate` when `OPENROUTER_API_KEY` is set. Contributor steps → [`plugin/locales/README.md`](plugin/locales/README.md).
+Also: `make build-no-recording`, `make release` (runs `make test` first, then builds a smaller bundle without bundled plugin tests; strips debug menu). **Translations**: overview → [`docs/localization.md`](docs/localization.md). `make build` runs `preview-translations` (refresh `writeragent.pot` + `translate_missing.py --preview` for the localization status table only), then `compile-translations`. Full template + PO merge: `make extract-strings` (runs `xgettext`, YAML merge, then **`merge-translations`**: `msgmerge --update` each `writeragent.po` + `msgattrib --no-obsolete`). Optional AI fill: `translate_missing.py` / `make auto-translate` when `OPENROUTER_API_KEY` is set. Contributor steps → [`plugin/locales/README.md`](plugin/locales/README.md).
 
 Restart LibreOffice after deploy.
 
