@@ -25,14 +25,12 @@ def test_get_ctx_fallback():
     # Make sure 'uno' is not in sys.modules to simulate ImportError
     original_uno = sys.modules.pop('uno', None)
 
-    # Some test runners (like our uno directory) might create a stub uno module
-    # without getComponentContext. We should test how get_ctx behaves when
-    # uno is completely removed.
-    try:
-        import uno
-        del sys.modules['uno']
-    except ImportError:
-        pass
+    # The issue is that the `get_ctx` function might still find `uno` in `sys.modules` if
+    # `uno` is imported somewhere else during the test run, or if the fallback context
+    # is returned instead. We should mock the `__import__` built-in or ensure the local
+    # scope's import raises ImportError. We can patch `sys.modules` but `get_ctx` might
+    # re-import it. To reliably simulate an environment without `uno`, we can map it to None.
+    sys.modules['uno'] = None
 
     try:
         mock_fallback = MagicMock()
@@ -42,8 +40,10 @@ def test_get_ctx_fallback():
     finally:
         # cleanup
         set_fallback_ctx(None)
-        if original_uno:
+        if original_uno is not None:
             sys.modules['uno'] = original_uno
+        else:
+            sys.modules.pop('uno', None)
 
 def test_get_ctx_fallback_uno_returns_none():
     mock_uno = MagicMock()

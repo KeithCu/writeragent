@@ -177,6 +177,8 @@ class AsyncProcess:
                 pass
 
     def _wait_for_exit(self):
+        if self.process is None:
+            return
         rc = self.process.wait()
         log.debug("Process %s exited with rc=%s", self.args[0] if getattr(self.args, '__len__', lambda: 0)() > 0 else self.args, rc)
         if self.on_exit_cb:

@@ -123,7 +123,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     dlg.getControl("btn_tab_image").addActionListener(TabListener(dlg, 2))
     
     try:
-        from plugin._manifest import MODULES
+        from plugin._manifest import MODULES  # type: ignore
         
         inline_targets = {}
         for m in MODULES:
@@ -213,9 +213,9 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 except Exception as e:
                                     log.error("EndpointCombinedListener error updating dropdowns: %s", e, exc_info=True)
 
-                            def itemStateChanged(self, ev):
+                            def itemStateChanged(self, rEvent):
                                 try:
-                                    idx = getattr(ev, "Selected", -1)
+                                    idx = getattr(rEvent, "Selected", -1)
                                     if idx < 0: return
                                     item_text = self._ctrl.getItem(idx)
                                     if item_text:
@@ -225,7 +225,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 except Exception as e:
                                     log.error("EndpointCombinedListener error in itemStateChanged: %s", e, exc_info=True)
 
-                            def textChanged(self, ev):
+                            def textChanged(self, rEvent):
                                 try:
                                     self.update_dropdowns()
                                 except Exception as e:
@@ -373,7 +373,7 @@ def show_eval_dashboard(ctx):
                 self.toolkit = toolkit
                 self.is_running = False
 
-            def on_action_performed(self, ev):
+            def on_action_performed(self, rEvent):
                 if self.is_running: return
                 self.is_running = True
                 try:
@@ -412,7 +412,7 @@ def show_eval_dashboard(ctx):
         
         class CloseListener(BaseActionListener):
             def __init__(self, dialog): self.dialog = dialog
-            def on_action_performed(self, ev): self.dialog.endDialog(0)
+            def on_action_performed(self, rEvent): self.dialog.endDialog(0)
         dlg.getControl("btn_close").addActionListener(CloseListener(dlg))
 
         dlg.execute()

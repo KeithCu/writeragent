@@ -79,7 +79,8 @@ class ACPConnection:
         self._running = False
         if self._proc:
             try:
-                self._proc.stdin.close()
+                if self._proc.stdin:
+                    self._proc.stdin.close()
             except Exception:
                 pass
             try:
@@ -122,8 +123,9 @@ class ACPConnection:
         log.debug(f"→ {method} (id={req_id})")
 
         try:
-            self._proc.stdin.write(line.encode("utf-8"))
-            self._proc.stdin.flush()
+            if self._proc and self._proc.stdin:
+                self._proc.stdin.write(line.encode("utf-8"))
+                self._proc.stdin.flush()
         except (BrokenPipeError, OSError) as e:
             with self._lock:
                 self._pending.pop(req_id, None)
@@ -156,8 +158,9 @@ class ACPConnection:
         }
         line = json.dumps(msg) + "\n"
         try:
-            self._proc.stdin.write(line.encode("utf-8"))
-            self._proc.stdin.flush()
+            if self._proc and self._proc.stdin:
+                self._proc.stdin.write(line.encode("utf-8"))
+                self._proc.stdin.flush()
         except Exception:
             pass
 
@@ -176,8 +179,9 @@ class ACPConnection:
             
         line = json.dumps(msg) + "\n"
         try:
-            self._proc.stdin.write(line.encode("utf-8"))
-            self._proc.stdin.flush()
+            if self._proc and self._proc.stdin:
+                self._proc.stdin.write(line.encode("utf-8"))
+                self._proc.stdin.flush()
         except Exception as e:
             log.error(f"Failed to send response: {e}")
 
@@ -190,6 +194,8 @@ class ACPConnection:
         log.info("Reader loop started")
         while self._running and self._proc and self._proc.poll() is None:
             try:
+                if self._proc.stdout is None:
+                    break
                 line = self._proc.stdout.readline()
                 if not line:
                     break
