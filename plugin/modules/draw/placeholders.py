@@ -129,7 +129,7 @@ def _list_placeholders(page):
             except Exception:
                 pass
         # Detect role from class
-        cls = entry.get("class", "").lower()
+        cls = str(entry.get("class", "")).lower()
         for role, patterns in _PLACEHOLDER_ROLES.items():
             for p in patterns:
                 if p.lower() in cls:

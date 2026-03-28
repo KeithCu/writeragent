@@ -406,8 +406,9 @@ class MCPProtocolHandler:
             for effect in effects:
                 if isinstance(effect, ParseRequestEffect):
                     log.debug(f"*** tools/call: {state.tool_name}, event_bus={self.event_bus} ***")
-                    if getattr(self, "event_bus", None) is not None:
-                        self.event_bus.emit(
+                    event_bus = getattr(self, "event_bus", None)
+                    if event_bus is not None:
+                        event_bus.emit(
                             "mcp:request",
                             tool=state.tool_name,
                             args=state.arguments,
@@ -453,9 +454,10 @@ class MCPProtocolHandler:
                         ))
 
                 elif isinstance(effect, StreamResponseEffect):
-                    if getattr(self, "event_bus", None) is not None:
+                    event_bus = getattr(self, "event_bus", None)
+                    if event_bus is not None:
                         snippet = str(effect.result)[:100] if effect.result else ""
-                        self.event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
+                        event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
 
                     final_result = {
                         "content": [
@@ -508,8 +510,10 @@ class MCPProtocolHandler:
 
         from plugin.framework.errors import WriterAgentException, format_error_payload
         try:
-            if method in ("tools/list", "tools/call"):
-                result = handler(params, document_url=document_url)
+            if method == "tools/list":
+                result = self._mcp_tools_list(params, document_url=document_url)
+            elif method == "tools/call":
+                result = self._mcp_tools_call(params, document_url=document_url)
             else:
                 result = handler(params)
             log.debug(f"*** MCP RESULT: {str(result)[:100]} ***")
@@ -669,11 +673,16 @@ class MCPProtocolHandler:
     def _debug_trigger(self, command):
         from plugin.main import get_services
         if command == "settings":
-            from plugin.framework.settings_dialog import show_settings
-            from plugin._manifest import MODULES
+            from plugin.framework.legacy_ui import settings_box
             config_svc = get_services().config
+            ctx = None
+            try:
+                import uno
+                ctx = uno.getComponentContext()
+            except ImportError:
+                pass
             self.queue_executor.execute(
-                show_settings, None, config_svc, MODULES,
+                settings_box, ctx,
                 timeout=120.0)
             return "Settings dialog shown"
         return {"triggered": command, "note": "Use menu for UI commands"}

@@ -63,11 +63,12 @@ class TreeService(ServiceBase):
         if key in self._tree_cache:
             return self._tree_cache[key]
 
+        from typing import Any
         text = doc.getText()
         enum = text.createEnumeration()
-        root = {"level": 0, "text": "root", "para_index": -1,
+        root: dict[str, Any] = {"level": 0, "text": "root", "para_index": -1,
                 "children": [], "body_paragraphs": 0}
-        stack = [root]
+        stack: list[dict[str, Any]] = [root]
         para_index = 0
 
         while enum.hasMoreElements():

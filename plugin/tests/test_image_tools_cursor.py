@@ -21,8 +21,8 @@ def _install_uno_mocks():
 
     sys.modules["com.sun.star.text"] = types.ModuleType("com.sun.star.text")
     anchor_mod = types.ModuleType("com.sun.star.text.TextContentAnchorType")
-    anchor_mod.AS_CHARACTER = 1
-    anchor_mod.AT_FRAME = 3
+    setattr(anchor_mod, "AS_CHARACTER", 1)
+    setattr(anchor_mod, "AT_FRAME", 3)
     sys.modules["com.sun.star.text.TextContentAnchorType"] = anchor_mod
 
     awt_mod = types.ModuleType("com.sun.star.awt")
@@ -37,8 +37,8 @@ def _install_uno_mocks():
             self.X = x
             self.Y = y
 
-    awt_mod.Size = Size
-    awt_mod.Point = Point
+    setattr(awt_mod, "Size", Size)
+    setattr(awt_mod, "Point", Point)
     sys.modules["com.sun.star.awt"] = awt_mod
 
     beans_mod = types.ModuleType("com.sun.star.beans")
@@ -48,7 +48,7 @@ def _install_uno_mocks():
             self.Name = Name
             self.Value = Value
 
-    beans_mod.PropertyValue = PropertyValue
+    setattr(beans_mod, "PropertyValue", PropertyValue)
     sys.modules["com.sun.star.beans"] = beans_mod
 
 

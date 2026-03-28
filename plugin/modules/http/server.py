@@ -127,8 +127,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Expose-Headers",
                          "Mcp-Session-Id")
 
-    def log_message(self, fmt, *args):
-        log.info("%s - %s", self.client_address[0], fmt % args)
+    def log_message(self, format: str, *args: object) -> None:
+        log.info("%s - %s", self.client_address[0], format % args)
 
 
 class HttpServer:
@@ -157,16 +157,20 @@ class HttpServer:
             (self.host, self.port), GenericRequestHandler)
 
         if self.use_ssl:
-            from plugin.modules.http.ssl_certs import ensure_certs, create_ssl_context
+            # TLS server mode requires explicit certificates.
+            # Local generation of certificates has been removed from ssl_helpers.
             if self.ssl_cert and self.ssl_key:
                 cert_path, key_path = self.ssl_cert, self.ssl_key
                 log.info("TLS using custom certs: %s", cert_path)
+                import ssl
+                ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+                if self._server:
+                    self._server.socket = ssl_ctx.wrap_socket(
+                        self._server.socket, server_side=True)
             else:
-                cert_path, key_path = ensure_certs()
-                log.info("TLS using auto-generated certs: %s", cert_path)
-            ssl_ctx = create_ssl_context(cert_path, key_path)
-            self._server.socket = ssl_ctx.wrap_socket(
-                self._server.socket, server_side=True)
+                log.warning("use_ssl is True but no certificates provided. Disabling TLS.")
+                self.use_ssl = False
 
         self._running = True
         self._thread = run_in_background(
@@ -188,7 +192,8 @@ class HttpServer:
 
     def _run(self):
         try:
-            self._server.serve_forever()
+            if self._server:
+                self._server.serve_forever()
         except Exception as e:
             if self._running:
                 log.error("HTTP server error: %s", type(e).__name__)

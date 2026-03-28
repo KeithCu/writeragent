@@ -36,26 +36,23 @@ class MockXTransferable:
 class MockXControlContainer:
     pass
 
-class MockModule:
-    pass
-
-mock_unohelper = MockModule()
-mock_unohelper.Base = MockBase
+mock_unohelper = types.ModuleType("unohelper")
+setattr(mock_unohelper, "Base", MockBase)
 
 mock_lang = _star_module("com.sun.star.lang")
-mock_lang.XEventListener = MockXEventListener
+setattr(mock_lang, "XEventListener", MockXEventListener)
 
 mock_awt = _star_module("com.sun.star.awt")
-mock_awt.XActionListener = MockXActionListener
-mock_awt.XItemListener = MockXItemListener
-mock_awt.XTextListener = MockXTextListener
-mock_awt.XWindowListener = MockXWindowListener
-mock_awt.XControlContainer = MockXControlContainer
+setattr(mock_awt, "XActionListener", MockXActionListener)
+setattr(mock_awt, "XItemListener", MockXItemListener)
+setattr(mock_awt, "XTextListener", MockXTextListener)
+setattr(mock_awt, "XWindowListener", MockXWindowListener)
+setattr(mock_awt, "XControlContainer", MockXControlContainer)
 
 mock_datatransfer = _star_module("com.sun.star.datatransfer")
-mock_datatransfer.XTransferable = MockXTransferable
+setattr(mock_datatransfer, "XTransferable", MockXTransferable)
 
-sys.modules["uno"] = MockModule()
+sys.modules["uno"] = types.ModuleType("uno")
 sys.modules["unohelper"] = mock_unohelper
 for _pkg in ("com", "com.sun", "com.sun.star"):
     sys.modules[_pkg] = _star_module(_pkg)
