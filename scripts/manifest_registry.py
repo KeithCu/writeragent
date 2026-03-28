@@ -609,3 +609,23 @@ def patch_description_xml(extension_dir):
         f.write(content)
     print("  Generated description.xml with version %s" % EXTENSION_VERSION)
 
+
+def generate_update_xml(root_dir):
+    """Generate update.xml from .tpl in the project root with version from plugin/version.py."""
+    from plugin.version import EXTENSION_VERSION
+
+    tpl_path = os.path.join(root_dir, "plugin", "update.xml.tpl")
+    update_path = os.path.join(root_dir, "update.xml")
+
+    if not os.path.exists(tpl_path):
+        # Optional: update.xml might not be present in every project setup
+        return
+
+    with open(tpl_path) as f:
+        content = f.read()
+
+    content = content.replace("{{VERSION}}", EXTENSION_VERSION)
+
+    with open(update_path, "w") as f:
+        f.write(content)
+    print("  Generated update.xml with version %s" % EXTENSION_VERSION)

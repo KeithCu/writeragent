@@ -22,5 +22,8 @@
   </icon>
 
   
+  <update-information>
+    <src xlink:href="https://raw.githubusercontent.com/KeithCu/writeragent/refs/heads/master/update.xml" />
+  </update-information>
 
 </description>

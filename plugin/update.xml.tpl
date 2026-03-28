@@ -3,7 +3,7 @@
              xmlns:d="http://openoffice.org/extensions/description/2006"
              xmlns:xlink="http://www.w3.org/1999/xlink">
     <identifier value="org.extension.writeragent" />
-    <version value="0.7.1" />
+    <version value="{{VERSION}}" />
     <update-download>
         <src xlink:href="https://github.com/KeithCu/writeragent/releases/latest/download/writeragent.oxt" />
     </update-download>

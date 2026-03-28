@@ -180,6 +180,7 @@ from manifest_registry import (
     generate_settings_dialog_tabs,
     generate_manifest_xml,
     patch_description_xml,
+    generate_update_xml,
 )
 
 def main():
@@ -260,6 +261,7 @@ def main():
 
     # 8. Patch version
     patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
+    generate_update_xml(PROJECT_ROOT)
 
     print("Done.")
     return 0
