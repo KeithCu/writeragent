@@ -81,5 +81,6 @@ class DetectErrors(ToolBase):
                 },
             }
         else:
-            result = error_detector.detect_and_explain(range_str=rn)
+            import typing
+            result = error_detector.detect_and_explain(range_str=typing.cast(str, rn))
             return {"status": "ok", "result": result}

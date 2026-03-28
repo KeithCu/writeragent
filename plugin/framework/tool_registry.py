@@ -195,7 +195,8 @@ class ToolRegistry:
         if exclude_tiers is _UNSET_EXCLUDE_TIERS:
             to_exclude = _DEFAULT_EXCLUDE_TIERS
         else:
-            to_exclude = frozenset(exclude_tiers) if exclude_tiers else frozenset()
+            import typing
+            to_exclude = frozenset(typing.cast(typing.Iterable[typing.Any], exclude_tiers)) if exclude_tiers else frozenset()
 
         if active_domain:
             # If an active domain is set, restrict the list ONLY to the specialized tools

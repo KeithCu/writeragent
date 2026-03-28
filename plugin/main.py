@@ -36,7 +36,10 @@ if _vendor_dir not in sys.path:
     sys.path.insert(0, _vendor_dir)
 
 import unohelper
-import officehelper
+try:
+    import officehelper  # type: ignore
+except ImportError:
+    pass
 
 from plugin.framework.logging import init_logging
 import uno
@@ -448,9 +451,10 @@ def _collect_icon_commands():
         return {}
 
     result = {}
+    import typing
     for m in MODULES:
         mod_name = m["name"]
-        action_icons = m.get("action_icons", {})
+        action_icons = typing.cast(typing.Dict[str, str], m.get("action_icons", {}))
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
             # Ask the module for dynamic icon (may override the default)

@@ -74,7 +74,7 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
         msgbox(ctx, title, _(err_msg))
         return
 
-    client = LlmClient(api_config)
+    client = LlmClient(api_config, ctx)
     task_index = [0]
 
     def run_next_cell():

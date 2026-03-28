@@ -87,7 +87,10 @@ class GenerateImage(ToolBase):
     is_mutation = True
     long_running = True
 
-    def execute(self, ctx, prompt, **args):
+    import typing
+
+    def execute(self, ctx: typing.Any, **args: typing.Any) -> typing.Any:
+        prompt = args.get("prompt", "")
         from plugin.framework.config import get_config_dict, as_bool, get_text_model, update_lru_history
 
         status_callback = getattr(ctx, "status_callback", None)

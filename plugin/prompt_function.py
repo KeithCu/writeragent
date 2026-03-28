@@ -34,7 +34,10 @@ import unohelper
 
 # from com.sun.star.lang import XServiceInfo
 # from com.sun.star.sheet import XAddIn
-from org.extension.writeragent.PromptFunction import XPromptFunction
+try:
+    from org.extension.writeragent.PromptFunction import XPromptFunction  # type: ignore
+except ImportError:
+    class XPromptFunction: pass
 from plugin.framework.config import get_config, get_api_config
 from plugin.modules.http.client import LlmClient
 

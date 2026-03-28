@@ -311,10 +311,12 @@ def run_all_tests(ctx: Any) -> str:
                     # Prevent sys.modules mocking from polluting later native tests.
                     if restore_snapshot is not None:
                         for k, v in restore_snapshot.items():
+                            import types
                             if v is _MISSING:
                                 sys.modules.pop(k, None)
                             else:
-                                sys.modules[k] = v
+                                import typing
+                                sys.modules[k] = typing.cast(types.ModuleType, v)
 
     for suite in suites:
         total_passed += int(suite.get("passed", 0) or 0)
@@ -339,7 +341,7 @@ def main() -> int:
     can still be imported inside LibreOffice without pulling them in.
     """
     try:
-        import officehelper  # type: ignore[import]
+        import officehelper  # type: ignore
     except ImportError:
         print("ERROR: officehelper module is not available; run with LibreOffice's Python.", flush=True)
         return 1
