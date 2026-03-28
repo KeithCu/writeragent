@@ -86,6 +86,8 @@ Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolB
 
 **Testing specialized tools**: Tests should retrieve tools via `plugin.main.get_tools().get("tool_name")` rather than direct internal imports. This avoids regressions when tools are moved between specialized modules and allows bypassing tier-based filtering.
 
+**Writer CreateTable**: Refactored to use the unified target model (`target`, `old_content`) consistent with `ApplyDocumentContent`. Supports `beginning`, `end`, `selection`, and `search` (replace) targets.
+
 **Shape Enhancements**: Shape tools for Draw/Impress (`create_shape`, `edit_shape`) have been enhanced to support generic shape types (e.g. `connector` or direct UNO class names) and rich formatting properties like `fill_color`, `line_color`, `line_width`, `font_size`, `font_name`, and `rotation_angle`. The `shapes_connect` and `shapes_group` tools are also fully implemented in Draw and inherited by Writer via `ToolWriterShapeBase`.
 
 **Writer Fields Specialized Tools**: Text fields in LibreOffice are implemented using `doc.createInstance("com.sun.star.text.textfield.<TYPE>")` (like `PageNumber`, `DateTime`). See `plugin/modules/writer/fields.py` for tools to insert, list, and delete fields natively using property reflection.

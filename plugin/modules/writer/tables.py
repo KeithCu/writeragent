@@ -23,6 +23,28 @@ from plugin.modules.writer.base import ToolWriterTableBase as ToolBase
 log = logging.getLogger("writeragent.writer")
 
 
+def _col_letter(col_idx):
+    """Convert 0-based column index to Excel-style letter (A, B, ... Z, AA, ...)."""
+    letter = ""
+    while col_idx >= 0:
+        letter = chr(col_idx % 26 + ord('A')) + letter
+        col_idx = col_idx // 26 - 1
+    return letter
+
+
+def _parse_cell(cell_ref):
+    """Parse Excel-style cell reference (e.g., 'A1') to (row_idx, col_idx)."""
+    import re
+    match = re.match(r"([A-Z]+)([0-9]+)", cell_ref.upper())
+    if not match:
+        return None
+    col_str, row_str = match.groups()
+    col_idx = 0
+    for char in col_str:
+        col_idx = col_idx * 26 + (ord(char) - ord('A') + 1)
+    return int(row_str) - 1, col_idx - 1
+
+
 class ListTables(ToolBase):
     """List all text tables in the document."""
 
@@ -197,7 +219,8 @@ class WriteTableCells(ToolBase):
                 try:
                     cell_obj = table.getCellByName(cell_ref)
                     try:
-                        cell_obj.setValue(float(value))
+                        # value is object; cast or convert to str to satisfy float() signature
+                        cell_obj.setValue(float(str(value)))
                     except (ValueError, TypeError):
                         cell_obj.setString(str(value))
                     cells_written += 1
@@ -220,13 +243,13 @@ class WriteTableCells(ToolBase):
 
 
 class CreateTable(ToolBase):
-    """Create a new table at a paragraph position."""
+    """Create a new table at a target position."""
 
     name = "create_table"
     description = (
-        "Create a new table at a paragraph position. "
-        "The table is inserted relative to the target paragraph. "
-        "Provide either a locator string or a paragraph_index."
+        "Create a new table at a target position. "
+        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
+        "Use target='search' with old_content to find and replace text with the table."
     )
     parameters = {
         "type": "object",
@@ -239,23 +262,15 @@ class CreateTable(ToolBase):
                 "type": "integer",
                 "description": "Number of columns.",
             },
-            "paragraph_index": {
-                "type": "integer",
-                "description": "Paragraph index for insertion point.",
+            "target": {
+                "type": "string",
+                "enum": ["beginning", "end", "selection", "search"],
+                "description": "Where to apply the content.",
             },
-            "locator": {
+            "old_content": {
                 "type": "string",
                 "description": (
-                    "Unified locator for insertion point "
-                    "(e.g. 'bookmark:NAME', 'heading_text:Title')."
-                ),
-            },
-            "position": {
-                "type": "string",
-                "enum": ["before", "after"],
-                "description": (
-                    "Insert before or after the target paragraph "
-                    "(default: after)."
+                    "Text to find and replace with the table if target = 'search'."
                 ),
             },
         },
@@ -264,48 +279,77 @@ class CreateTable(ToolBase):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        rows = kwargs.get("rows")
-        cols = kwargs.get("cols")
+        try:
+            rows = int(kwargs.get("rows", 0))
+            cols = int(kwargs.get("cols", 0))
+        except (TypeError, ValueError):
+            return self._tool_error("rows and cols must be integers.")
+
         if rows < 1 or cols < 1:
             return self._tool_error("rows and cols must be >= 1.")
 
-        paragraph_index = kwargs.get("paragraph_index")
-        locator = kwargs.get("locator")
-        position = kwargs.get("position", "after")
+        target_type = kwargs.get("target")
+        old_content = kwargs.get("old_content")
+
+        if not target_type and old_content is not None:
+            target_type = "search"
+        if not target_type:
+            target_type = "selection"  # Default to selection if neither provided
 
         doc = ctx.doc
-        doc_svc = ctx.services.document
+        doc_text = doc.getText()
+        cursor = doc_text.createTextCursor()
 
-        # Resolve locator to paragraph index
-        if locator is not None and paragraph_index is None:
-            resolved = doc_svc.resolve_locator(doc, locator)
-            paragraph_index = resolved.get("para_index")
-
-        if paragraph_index is None:
-            return {
-                "status": "error",
-                "message": "Provide locator or paragraph_index.",
-            }
-
-        # Find the target paragraph element
-        target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
-        if target is None:
-            return {
-                "status": "error",
-                "message": "Paragraph %d not found." % paragraph_index,
-            }
+        if target_type == "beginning":
+            cursor.gotoStart(False)
+        elif target_type == "end":
+            cursor.gotoEnd(False)
+        elif target_type == "selection":
+            try:
+                controller = doc.getCurrentController()
+                sel = controller.getSelection()
+                if sel and sel.getCount() > 0:
+                    rng = sel.getByIndex(0)
+                    rng.setString("")
+                    cursor.gotoRange(rng.getStart(), False)
+                else:
+                    vc = controller.getViewCursor()
+                    cursor.gotoRange(vc.getStart(), False)
+            except Exception:
+                cursor.gotoEnd(False)
+        elif target_type == "search":
+            if not old_content:
+                return self._tool_error("target='search' requires old_content.")
+            
+            # Find the target range
+            sd = doc.createSearchDescriptor()
+            sd.SearchString = old_content
+            sd.SearchRegularExpression = False
+            sd.SearchCaseSensitive = True
+            
+            found = doc.findFirst(sd)
+            if found is None:
+                # Try fallback for multi-paragraph or less strict match
+                from plugin.modules.writer.content import _find_range_by_offset
+                found = _find_range_by_offset(doc, old_content)
+                
+            if found is None:
+                return self._tool_error("old_content not found: %s" % old_content)
+            
+            # Replace target with empty string then get cursor
+            found.setString("")
+            cursor.gotoRange(found.getStart(), False)
+        else:
+            return self._tool_error("Unknown target type: %s" % target_type)
 
         # Create and insert the table
         table = doc.createInstance("com.sun.star.text.TextTable")
         table.initialize(rows, cols)
 
-        doc_text = doc.getText()
-        if position == "before":
-            cursor = doc_text.createTextCursorByRange(target.getStart())
-        else:
-            cursor = doc_text.createTextCursorByRange(target.getEnd())
-
-        doc_text.insertTextContent(cursor, table, False)
+        try:
+            doc_text.insertTextContent(cursor, table, False)
+        except Exception as e:
+            return self._tool_error("Failed to insert table: %s" % e)
 
         table_name = table.getName()
 
@@ -314,6 +358,7 @@ class CreateTable(ToolBase):
             "table_name": table_name,
             "rows": rows,
             "cols": cols,
+            "target": target_type,
         }
 
 
@@ -797,7 +842,8 @@ class WriteTableRow(ToolBase):
                 continue
             val = values[c]
             try:
-                cell_obj.setValue(float(val))
+                # val is object; cast or convert to str to satisfy float() signature
+                cell_obj.setValue(float(str(val)))
             except (ValueError, TypeError):
                 cell_obj.setString(str(val))
             written += 1
