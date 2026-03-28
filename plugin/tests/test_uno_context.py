@@ -1,5 +1,6 @@
+import builtins
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.framework.uno_context import set_fallback_ctx, get_ctx
 
@@ -22,28 +23,22 @@ def test_get_ctx_with_uno():
 
 
 def test_get_ctx_fallback():
-    # Make sure 'uno' is not in sys.modules to simulate ImportError
-    original_uno = sys.modules.pop('uno', None)
+    # Popping sys.modules["uno"] does not simulate missing pyuno: the next
+    # `import uno` inside get_ctx() reloads from disk. Block import instead.
+    mock_fallback = MagicMock()
+    set_fallback_ctx(mock_fallback)
+    orig_import = builtins.__import__
 
-    # Some test runners (like our uno directory) might create a stub uno module
-    # without getComponentContext. We should test how get_ctx behaves when
-    # uno is completely removed.
+    def failing_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "uno":
+            raise ImportError("simulated missing uno")
+        return orig_import(name, globals, locals, fromlist, level)
+
     try:
-        import uno
-        del sys.modules['uno']
-    except ImportError:
-        pass
-
-    try:
-        mock_fallback = MagicMock()
-        set_fallback_ctx(mock_fallback)
-
-        assert get_ctx() == mock_fallback
+        with patch.object(builtins, "__import__", failing_import):
+            assert get_ctx() == mock_fallback
     finally:
-        # cleanup
         set_fallback_ctx(None)
-        if original_uno:
-            sys.modules['uno'] = original_uno
 
 def test_get_ctx_fallback_uno_returns_none():
     mock_uno = MagicMock()

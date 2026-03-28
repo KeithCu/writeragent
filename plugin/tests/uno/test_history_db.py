@@ -207,6 +207,7 @@ def test_session_id_stability():
 
     # 1. First run: Should generate a stable ID based on URL (hash) since no property exists
     panel._setup_sessions(model, "some instructions")
+    assert panel.session is not None
     first_session_id = panel.session.session_id
 
     assert first_session_id is not None
@@ -221,6 +222,7 @@ def test_session_id_stability():
     panel._setup_sessions(model, "different instructions")
 
     # It should reuse the ID stored in UserDefinedProperties, ignoring the new URL
+    assert panel.session is not None
     second_session_id = panel.session.session_id
     assert second_session_id == first_session_id
 
@@ -228,6 +230,7 @@ def test_session_id_stability():
     unsaved_model = MockDocumentModel("")
     panel._setup_sessions(unsaved_model, "")
 
+    assert panel.session is not None
     third_session_id = panel.session.session_id
     # It should generate a UUID
     assert third_session_id is not None

@@ -22,7 +22,7 @@ from typing import Any
 
 try:
     import PIL.Image as _PIL_Image
-except ModuleNotFoundError:
+except ImportError:
     _PIL_Image = None
 
 from .utils import _is_package_available
