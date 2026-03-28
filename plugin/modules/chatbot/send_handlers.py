@@ -281,28 +281,16 @@ class SendHandlersMixin:
 
                 import json
 
-                from plugin.framework.config import get_config
-                from plugin.framework.queue_executor import execute_on_main_thread
-
-                # Worker thread must not call UNO-backed tools; execute_safe enforces main thread.
-                main_thread_timeout = float(
-                    int(get_config(self.ctx, "request_timeout") or 120)
-                )
-
-                def _run_generate_image():
-                    return get_tools().execute(
-                        "generate_image",
-                        tctx,
-                        **{
-                            "prompt": query_text,
-                            "aspect_ratio": mapped_aspect,
-                            "base_size": base_size_val,
-                            "image_model": image_model_text,
-                        },
-                    )
-
-                res = execute_on_main_thread(
-                    _run_generate_image, timeout=main_thread_timeout
+                # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
+                res = get_tools().execute(
+                    "generate_image",
+                    tctx,
+                    **{
+                        "prompt": query_text,
+                        "aspect_ratio": mapped_aspect,
+                        "base_size": base_size_val,
+                        "image_model": image_model_text,
+                    },
                 )
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})

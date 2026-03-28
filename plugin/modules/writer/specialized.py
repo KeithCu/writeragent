@@ -174,10 +174,22 @@ class DelegateToSpecializedWriter(ToolBase):
 
                 def forward(self, *args, **kwargs):
                     from plugin.framework.queue_executor import execute_on_main_thread
-                    log.debug("Specialized agent executing tool '%s' on main thread", self.name)
-                    # Convert arguments and execute via the writer tool on the main thread
-                    # to prevent deadlocking or blocking the background agent thread.
-                    res = execute_on_main_thread(self.writer_tool.execute_safe, self.ctx, **kwargs)
+
+                    tool = self.writer_tool
+                    if getattr(tool, "is_async", lambda: False)():
+                        log.debug(
+                            "Specialized agent executing async tool '%s' on worker",
+                            self.name,
+                        )
+                        res = tool.execute_safe(self.ctx, **kwargs)
+                    else:
+                        log.debug(
+                            "Specialized agent executing tool '%s' on main thread",
+                            self.name,
+                        )
+                        res = execute_on_main_thread(
+                            tool.execute_safe, self.ctx, **kwargs
+                        )
                     log.debug("Specialized agent tool '%s' finished", self.name)
                     return res
 
