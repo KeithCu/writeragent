@@ -163,7 +163,11 @@ class DrawShapes:
                 )
 
             # Create shape (document MSF — same as DrawBridge.create_shape)
-            full_type = f"com.sun.star.drawing.{shape_type}"
+            if shape_type.startswith("com.sun.star."):
+                full_type = shape_type
+            else:
+                full_type = f"com.sun.star.drawing.{shape_type}"
+
             shape = doc.createInstance(full_type)
             if shape is None:
                 raise DrawError(
@@ -287,8 +291,7 @@ class CreateShape(ToolBase):
         "properties": {
             "shape_type": {
                 "type": "string",
-                "enum": ["rectangle", "ellipse", "text", "line", "connector"],
-                "description": "Type of shape",
+                "description": "Type of shape. Use simple names like 'rectangle', 'ellipse', 'text', 'line', 'connector', or CustomShape types like 'octagon', 'star5', 'smiley', 'heart'. Or provide full UNO class names like 'PolyPolygonShape'.",
             },
             "x": {"type": "integer", "description": "X position (100ths of mm)"},
             "y": {"type": "integer", "description": "Y position (100ths of mm)"},
@@ -325,14 +328,24 @@ class CreateShape(ToolBase):
             "connector": "ConnectorShape",
         }
         shape_type_raw = kwargs["shape_type"]
-        uno_type = type_map.get(shape_type_raw, shape_type_raw)
-        # If it doesn't look like a class name (no dots), it's probably unsupported
-        if "." not in uno_type and uno_type not in type_map.values():
-             return self._tool_error(f"Unsupported shape type: {shape_type_raw}")
 
         page = bridge.get_active_page()
         position = Point(kwargs["x"], kwargs["y"])
         size = Size(kwargs["width"], kwargs["height"])
+
+        is_custom_shape = False
+        custom_shape_type = ""
+
+        # Determine UNO type
+        if shape_type_raw in type_map:
+            uno_type = type_map[shape_type_raw]
+        elif "." in shape_type_raw or shape_type_raw.endswith("Shape"):
+            uno_type = shape_type_raw
+        else:
+            # Fallback to CustomShape for things like 'octagon', 'smiley', 'heart'
+            uno_type = "CustomShape"
+            is_custom_shape = True
+            custom_shape_type = shape_type_raw
 
         draw_shapes = DrawShapes()
 
@@ -340,6 +353,18 @@ class CreateShape(ToolBase):
             shape = draw_shapes.safe_create_shape(
                 ctx.doc, page, uno_type, position, size
             )
+
+            if is_custom_shape:
+                from com.sun.star.beans import PropertyValue
+                prop = PropertyValue()
+                prop.Name = "Type"
+                prop.Value = custom_shape_type
+                try:
+                    shape.setPropertyValue("CustomShapeGeometry", (prop,))
+                except Exception as ex:
+                    # Ignore if the specific CustomShape Type fails to apply,
+                    # LibreOffice will just draw a default shape or nothing.
+                    pass
         except DrawError as e:
             return self._tool_error(e.message)
 
