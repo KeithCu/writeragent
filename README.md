@@ -30,7 +30,6 @@ Please note, the prompts to free models are often saved and used for training pu
 Another option is [Together.AI](https://www.together.ai/), which also has a variety of high-performance and intelligent cost-effective models with a generous, private,  free tier.
 
 
-
 ### 2. Chat with Document (Writer, Calc, and Draw)
 The main way to interact with your document. While you can ask it anything, **its primary job is to edit your document**, not just answer questions.
 *   **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly.
@@ -113,7 +112,8 @@ Integrated cross-platform audio recording directly in the chat sidebar.
 *   **Flexible Deployment**: Optional build support (see `Makefile`) allows for deployment in environments where audio dependencies are not needed.
 
 ### Showcase
-Examples built with **`=PROMPT()`** and the chat sidebar:
+Hermes-Agent with Claude Opus 4.6 and the Web Research sub-agent:
+![Hermes-Agent / Opus-4.6 Akihabara](Showcase/HermesAkihabara.png)
 
 Opus 4.6 one-shotted this Arch Linux resume:
 ![Opus 4.6 Resume](Showcase/Opus46Resume.png)
