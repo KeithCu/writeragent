@@ -36,11 +36,12 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.modules.chatbot.history_db import get_chat_history
 
 # Recording available only if audio_recorder (and contrib/audio) is present
+from typing import Any
 try:
     from plugin.modules.chatbot.audio_recorder import AudioRecorder  # noqa: F401
     HAS_RECORDING = True
 except ImportError:
-    AudioRecorder = None  # type: ignore[misc, assignment]
+    AudioRecorder: Any = None  # type: ignore[misc, assignment]
     HAS_RECORDING = False
 
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)
@@ -88,7 +89,7 @@ class ChatSession:
         if content:
             msg["content"] = content
         else:
-            msg["content"] = None
+            msg["content"] = ""
         if tool_calls:
             msg["tool_calls"] = tool_calls
         self.messages.append(msg)
@@ -167,10 +168,10 @@ class QueryTextListener(BaseTextListener):
         # We now keep a reference to the main SendButtonListener which holds the state
         self.send_listener = send_listener
 
-    def on_text_changed(self, ev):
-        model = getattr(ev.Source, "Model", None)
+    def on_text_changed(self, rEvent):
+        model = getattr(rEvent.Source, "Model", None)
         if not model:
-            model = ev.Source.getModel()
+            model = rEvent.Source.getModel()
         text = model.Text.strip()
 
         # Dispatch event to the state machine
@@ -209,10 +210,22 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
         self._fixed_send_width = None
+        self._active_q: Any = None
+        self._active_client: Any = None
+        self._active_max_tokens: Any = None
+        self._active_tools: Any = None
+        self._active_execute_tool_fn: Any = None
+        self._active_max_tool_rounds: Any = None
+        self._active_query_text: Any = None
+        self._active_model: Any = None
+        self._active_async_tools: Any = None
+        self._active_supports_status: Any = None
+        self._active_round_num: Any = None
+        self._active_pending_tools: Any = None
         self._approval_event = None
         self._approval_ui_backup = None
         self._approval_query_for_engine = None
-        self.audio_recorder = AudioRecorder() if HAS_RECORDING else None
+        self.audio_recorder = AudioRecorder() if HAS_RECORDING and AudioRecorder is not None else None
         self.queue_executor = QueueExecutor()
 
         send_initial = SendButtonState(
@@ -265,8 +278,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.session = session
         self.client = None # Force client recreation if needed, though they usually share same config
 
-    def begin_inline_web_approval(self, query_for_engine, tool_name, event_obj):
-        """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event_obj`` when user chooses.
+    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
+        """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
 
         Approval mode only mutates UNO control labels/enabled flags here and restores them from
         ``_approval_ui_backup`` in ``_finish_inline_web_approval``. It does **not** update
@@ -277,14 +290,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         from plugin.framework.i18n import _
         from plugin.modules.chatbot.web_research_chat import web_research_engine_chat_block
 
-        if event_obj is None:
-            log.warning("begin_inline_web_approval: no event_obj")
+        if event is None:
+            log.warning("begin_inline_web_approval: no event")
             return
         if getattr(self, "_approval_event", None) is not None:
             log.warning("begin_inline_web_approval: superseding pending approval")
             self._finish_inline_web_approval(False)
-        self._approval_event = event_obj
-        self._approval_query_for_engine = query_for_engine
+        self._approval_event = event
+        self._approval_query_for_engine = query
         self._approval_ui_backup = {}
         try:
             if self.send_control and self.send_control.getModel():
@@ -345,7 +358,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Same block as non-approval path (see web_research_engine_chat_block), with approval header.
         self._append_response(
             web_research_engine_chat_block(
-                query_for_engine or "",
+                query or "",
                 approval_required=True,
             )
         )
@@ -628,7 +641,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.debug("SendButtonListener: unhandled effect type %s", type(effect).__name__)
 
 
-    def on_action_performed(self, evt):
+    def on_action_performed(self, rEvent):
         from plugin.framework.i18n import _
         if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
             if self.send_control.getModel().Label == _("Accept"):
@@ -794,7 +807,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         # Regular Chat with Tools or Streams
-        self._do_send_chat_with_tools(query_text, model, doc_type_str.lower())
+        # Cast to Any to satisfy ty since SendButtonListener mixes in multiple protocol hosts
+        getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_str.lower())
 
     # _do_send_direct_image is provided by SendHandlersMixin.
 
@@ -809,16 +823,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     # _run_web_research is provided by SendHandlersMixin.
 
 
+    def _get_mcp_url(self) -> str | None:
+        return None
 
-    # _spawn_llm_worker is provided by ToolCallingMixin.
+    @property
+    def _sm_state(self) -> Any:
+        return self.sidebar_state.tool_loop
 
-    # _spawn_final_stream is provided by ToolCallingMixin.
+    @_sm_state.setter
+    def _sm_state(self, value: Any) -> None:
+        import dataclasses
+        self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
-    # _start_tool_calling_async is provided by ToolCallingMixin.
 
-    # _start_simple_stream_async is provided by ToolCallingMixin.
 
-    def disposing(self, evt):
+    def disposing(self, Source):
         try:
             from plugin.framework.event_bus import global_event_bus
             global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
@@ -837,7 +856,7 @@ class StopButtonListener(BaseActionListener):
     def __init__(self, send_listener):
         self.send_listener = send_listener
 
-    def on_action_performed(self, evt):
+    def on_action_performed(self, rEvent):
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             from plugin.framework.i18n import _
             if (
@@ -884,7 +903,7 @@ class ClearButtonListener(BaseActionListener):
         if greeting is not None:
             self.greeting = greeting
 
-    def on_action_performed(self, evt):
+    def on_action_performed(self, rEvent):
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return

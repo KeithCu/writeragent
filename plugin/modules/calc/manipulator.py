@@ -217,7 +217,13 @@ class CellManipulator:
     ):
         """Apply common style properties to a cell or range object."""
         if bold is not None:
-            from com.sun.star.awt.FontWeight import BOLD, NORMAL
+            import sys
+            FW = sys.modules.get('com.sun.star.awt.FontWeight', None)
+            if FW is None:
+                from com.sun.star.awt import FontWeight  # type: ignore[unresolved-import]
+                BOLD, NORMAL = FontWeight.BOLD, FontWeight.NORMAL
+            else:
+                BOLD, NORMAL = getattr(FW, 'BOLD'), getattr(FW, 'NORMAL')
             obj.setPropertyValue("CharWeight", BOLD if bold else NORMAL)
 
         if italic is not None:
@@ -266,7 +272,7 @@ class CellManipulator:
         from com.sun.star.table import BorderLine
 
         line = BorderLine()
-        line.Color = color
+        setattr(line, "Color", color)
         line.OuterLineWidth = 50  # 1/100 mm; 50 == 0.5 mm
 
         obj.setPropertyValue("TopBorder", line)
@@ -410,16 +416,16 @@ class CellManipulator:
     def set_cell_style(
         self,
         address_or_range: str,
-        bold: bool = None,
-        italic: bool = None,
-        bg_color: int = None,
-        font_color: int = None,
-        font_size: float = None,
-        h_align: str = None,
-        v_align: str = None,
-        wrap_text: bool = None,
-        border_color: int = None,
-        number_format: str = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        bg_color: int | None = None,
+        font_color: int | None = None,
+        font_size: float | None = None,
+        h_align: str | None = None,
+        v_align: str | None = None,
+        wrap_text: bool | None = None,
+        border_color: int | None = None,
+        number_format: str | None = None,
     ):
         """Apply style to a cell or range.
 

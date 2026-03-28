@@ -993,7 +993,7 @@ class ToolCallingMixin:
             stop_checker=lambda: self.stop_requested,
         )
 
-    def begin_inline_web_approval(self, description, tool_name, event_obj):
+    def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Override on ``SendButtonListener`` for real UI. Default: auto-approve (tests / no panel)."""
         if event_obj is not None:
             event_obj.approved = True
