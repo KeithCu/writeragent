@@ -18,7 +18,7 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool_base import ToolBaseDummy
 
 
 class ListSections(ToolBaseDummy):

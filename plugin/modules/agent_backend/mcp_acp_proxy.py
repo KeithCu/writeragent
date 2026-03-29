@@ -20,10 +20,9 @@ This backend allows external ACP clients (like Mistral Vibe) to connect
 to WriterAgent's MCP server by acting as an ACP-to-MCP protocol bridge.
 """
 
-import json
 import logging
-import requests
 import threading
+import requests
 from typing import Optional, Dict, Any, List
 
 from plugin.modules.agent_backend.base import AgentBackend

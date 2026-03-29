@@ -1,6 +1,3 @@
-import json
-import queue
-import sys
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.async_stream import StreamQueueKind, coerce_stream_queue_kind

@@ -1,4 +1,3 @@
-import json
 import ssl
 import socket
 import http.client

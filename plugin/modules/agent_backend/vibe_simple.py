@@ -17,7 +17,6 @@
 """Mistral Vibe agent backend using the shared ACPBackend base class."""
 
 import logging
-import os
 from typing import Dict
 
 from plugin.modules.agent_backend.acp_backend import ACPBackend

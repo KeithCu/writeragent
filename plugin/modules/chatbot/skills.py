@@ -1,5 +1,3 @@
-import os
-import json
 import logging
 import re
 import shutil

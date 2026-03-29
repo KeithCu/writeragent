@@ -23,7 +23,6 @@ UNO imports are deferred to method bodies.
 
 import csv
 import io
-import json
 import logging
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, safe_json_loads

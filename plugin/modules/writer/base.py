@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Base classes for specialized Writer toolsets."""
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool_base import ToolBase
 
 
 class ToolWriterSpecialBase(ToolBase):

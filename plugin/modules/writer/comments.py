@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool_base import ToolBaseDummy
 from plugin.modules.writer.ops import find_paragraph_for_range
 
 log = logging.getLogger("writeragent.writer")

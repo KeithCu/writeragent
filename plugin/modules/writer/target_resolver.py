@@ -1,4 +1,3 @@
-import html as html_mod
 import re as re_mod
 import logging
 log = logging.getLogger("writeragent.writer")
