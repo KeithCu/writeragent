@@ -423,6 +423,6 @@ poc-deploy: poc-install
 
 check: ty
 
-ty:
+ty: manifest
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
 	$(PYTHON) -m ty check --exclude plugin/contrib/

@@ -4,8 +4,6 @@ from typing import List
 
 from plugin.framework.utils import get_plugin_dir
 
-log = logging.getLogger(__name__)
-
 
 class ModuleLoader:
     """
@@ -18,8 +16,11 @@ class ModuleLoader:
         try:
             from plugin._manifest import MODULES
             return MODULES
-        except ImportError:
-            return []
+        except ImportError as e:
+            raise RuntimeError(
+                "plugin._manifest is missing or invalid (gitignored; run "
+                "`make manifest` or `python3 scripts/generate_manifest.py`)."
+            ) from e
 
     @staticmethod
     def topo_sort(modules: List[dict]) -> List[dict]:

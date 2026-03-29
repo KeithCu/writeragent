@@ -17,7 +17,7 @@ Common touchpoints: [`plugin/main.py`](plugin/main.py) (MainJob, settings apply)
 
 **WriterAgent** is a LibreOffice extension (Python + UNO) for Writer, Calc, and Draw:
 
-- **Build & Dev**: `make build`, `make deploy`. **External tools (ty, pytest)**: `make fix-uno` to link system UNO into `.venv`.
+- **Build & Dev**: `make build`, `make deploy`. **`plugin/_manifest.py`** is gitignored; `make ty` / `make check` depend on **`make manifest`** so type-check and builds get a generated manifest on clean checkouts. If the file is still absent, [`plugin/framework/module_loader.py`](plugin/framework/module_loader.py) `load_manifest()` raises **`RuntimeError`** (no silent empty module list). **External tools (ty, pytest)**: `make fix-uno` to link system UNO into `.venv`.
 - **Extend Selection** (Ctrl+Q) / **Edit Selection** (Ctrl+E): model continues or rewrites the selection.
 - **Chat with Document**: sidebar (multi-turn + tool-calling), persistent history (SQLite when available, else JSON under `writeragent_history.db.d/`), menu fallback (Writer: append; Calc: "AI Response" sheet).
 - **Settings**: endpoint, models, keys, timeouts, image provider, MCP, etc. Config: `writeragent.json` in LibreOffice user config. Examples: [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
