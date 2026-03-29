@@ -21,7 +21,7 @@ Common touchpoints: [`plugin/main.py`](plugin/main.py) (MainJob, settings apply)
 - **Extend Selection** (Ctrl+Q) / **Edit Selection** (Ctrl+E): model continues or rewrites the selection.
 - **Chat with Document**: sidebar (multi-turn + tool-calling), persistent history (SQLite when available, else JSON under `writeragent_history.db.d/`), menu fallback (Writer: append; Calc: "AI Response" sheet).
 - **Settings**: endpoint, models, keys, timeouts, image provider, MCP, etc. Config: `writeragent.json` in LibreOffice user config. Examples: [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
-- **Experimental memory/skills** (file-backed `USER.md` / `MEMORY.md`, skills as `skills/<name>/SKILL.md`): [`plugin/modules/chatbot/memory.py`](plugin/modules/chatbot/memory.py), [`plugin/modules/chatbot/skills.py`](plugin/modules/chatbot/skills.py); tool registration commented out in [`plugin/modules/chatbot/__init__.py`](plugin/modules/chatbot/__init__.py). Writer prompt includes `MEMORY_GUIDANCE` / `SKILLS_GUIDANCE` in [`plugin/framework/constants.py`](plugin/framework/constants.py). Full description: [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md) (Hermes reference: automatic memory-in-prompt, frozen snapshot, periodic background review agent; WriterAgent injection not enabled).
+- **Experimental memory/skills** (file-backed `USER.md` / `MEMORY.md`, skills as `skills/<name>/SKILL.md`): [`plugin/modules/chatbot/memory.py`](plugin/modules/chatbot/memory.py), [`plugin/modules/chatbot/skills.py`](plugin/modules/chatbot/skills.py) (both stores raise **`ConfigError`** if the UNO user config directory cannot be resolved); tool registration commented out in [`plugin/modules/chatbot/__init__.py`](plugin/modules/chatbot/__init__.py). Writer prompt includes `MEMORY_GUIDANCE` / `SKILLS_GUIDANCE` in [`plugin/framework/constants.py`](plugin/framework/constants.py). Full description: [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md) (Hermes reference: automatic memory-in-prompt, frozen snapshot, periodic background review agent; WriterAgent injection not enabled).
 - **Images**: unified `generate_image` tool; `source_image='selection'` for edit. Contract: `ImageProvider.generate()` → `(paths_list, error_message_str)`. See [`plugin/framework/image_utils.py`](plugin/framework/image_utils.py), [docs/features/image-generation.md](docs/features/image-generation.md), [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 - **Calc** `=PROMPT()`: [`plugin/prompt_function.py`](plugin/prompt_function.py).
 - **MCP** (opt-in): localhost HTTP; document targeting via `X-Document-URL`. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md), [docs/mcp-protocol.md](docs/mcp-protocol.md).
@@ -274,6 +274,68 @@ The project uses `ty` for static type checking. Background on the cleanup, confi
     - **Iterator Casting**: Use `cast(Iterable, agent.run(...))` for complex generators that `ty` cannot automatically infer as iterable.
     - **None/Check Normalization**: Explicitly check for `None` before casting or converting (e.g., `int(val) if val is not None else 0`).
 - **Interface Signatures**: When overriding UNO interfaces (e.g., `XActionListener`, `XEventListener`), you must match the argument names in the `.pyi` stubs exactly (e.g., `actionPerformed(self, rEvent)`, `disposing(self, Source)`). Mismatched names will trigger `invalid-method-override` errors.
+
+---
+
+## TEMP: Pyright cleanup handoff (remove this section when `make pyright` is green or notes are folded into §21)
+
+> **Purpose**: Patterns that kept recurring while chipping away at Pyright errors (`make pyright`; manifest runs first). Delete this entire `## TEMP` block once the backlog is gone or distilled into permanent bullets above.
+
+### Handoff — what to do next
+
+- **Snapshot** (check out with **`make pyright`**): on the order of **~32 errors** and **~19 warnings**. Warnings are mostly **`reportMissingModuleSource`** for **`com.sun.star.*`**; usually safe to ignore if runtime UNO works unless you add targeted ignores.
+- **High-impact order** (tackle top-down in **`make pyright` output):
+  1. **HTTP / MCP** — [`http/__init__.py`](plugin/modules/http/__init__.py) vs **`ModuleBase`** return types; optional **`None`** on context objects ([`mcp_protocol.py`](plugin/modules/http/mcp_protocol.py), [`server.py`](plugin/modules/http/server.py)).
+  2. **Draw** — [`bridge.py`](plugin/modules/draw/bridge.py), [`shapes.py`](plugin/modules/draw/shapes.py): **`None`** on draw-page collections.
+  3. **Long tail** — [`writer/images.py`](plugin/modules/writer/images.py) config **`int()`**, [`prompt_function.py`](plugin/prompt_function.py), [`testing_runner.py`](plugin/testing_runner.py), [`writer/search.py`](plugin/modules/writer/search.py).
+- **Cross-check**: **`make ty`** after substantive edits; Pyright fixes do not always match **`ty`**.
+- **urllib + Pyright**: do not **`import urllib.error`** (or similar) **inside** a function that also uses **`urllib.request`** / **`urllib.parse`** on **`urllib.*`** — Pyright narrows the **`urllib`** package. Prefer **module-level** **`from urllib.request import Request, urlopen`**, **`from urllib.parse import urlparse`**, **`import urllib.error`**.
+
+### Commands and scope
+
+- **`make pyright`** — same manifest generation as other checks; reports **`plugin/`** only per **`pyproject.toml`** (contrib + plugin tests excluded). Warnings include `reportMissingModuleSource` for `com.sun.star.*` imports; those are usually ignorable if runtime UNO is fine.
+- Pyright is **stricter than `ty`/`mypy` in spots** (e.g. `dict` value types, `list` invariance, `Literal` overrides). Fixing Pyright may not change `make ty` and vice versa.
+
+### Base classes and overrides (high leverage)
+
+- **`ToolBase`**: `execute(...) -> dict[str, Any]`, `execute_safe(...) -> dict[str, Any]`, `is_async() -> bool` — avoids dozens of false `execute` / `is_async` override mismatches.
+- **`AgentBackend`**: `is_available(...) -> bool` — base was inferred as `Literal[True]` when body only returned `True`.
+- **UNO interface overrides**: Stub **parameter names** must match **`types-unopy`** per interface (e.g. **`XWindowListener`** uses **`e`**, not `rEvent`). Check the `.pyi` for that interface before renaming.
+
+### `dict` / payload typing
+
+- If Pyright infers **`dict[str, str]`** from initial keys, assigning nested **`dict`** or **`Any`** values to keys fails. Fix: annotate **`payload: dict[str, Any]`** (see **`format_error_payload`**) or **`cast(dict[str, Any], result)`** when mutating a generic dict from **`get`** / tool results (see **`tool_registry`** merge into **`details`**).
+
+### Config and JSON-y values
+
+- **`get_config`** / dynamic config values are often typed as wide unions. Before **`int(...)`**, **`float(...)`**, or **`.upper()`**: narrow with **`isinstance(x, str)`** (and e.g. **`float(str(x))`** when the key is known to be numeric in config). Prefer **`get_config_int`** / **`get_config_str`** ([`config.py`](plugin/framework/config.py)) for chat and similar paths. See **`extension_update_check`**, **`logging.init_logging`** (`log_level`).
+
+### Optional imports and stores
+
+- **`sqlite3`**: When guarded by **`HAS_SQLITE`**, Pyright still types the module as possibly **`None`**. Pattern: **`assert sqlite3 is not None`** immediately before **`sqlite3.connect`** / **`except sqlite3.Error`** in code paths that only run when SQLite is available (**`history_db`**).
+- **`user_config_dir(ctx)`** may be typed **`str | None`**. Stores that need a filesystem root should **`raise ConfigError(...)`** if **`None`** (**`MemoryStore`**, **`SkillsStore`**) rather than passing **`None`** into **`os.path.join`** / **`Path`**.
+
+### Third-party / agent loops
+
+- **smolagents `ActionStep`**: **`model_output`** is not always **`str`** (e.g. list segments). Use **`isinstance(mo, str)`** before **`.strip()`**, else **`str(mo).strip()`**. For **`model_output_message`**, use **`getattr(step, "model_output_message", None)`**, then **`mom is not None`** and safe **`content`** handling the same way (**calc/chatbot/writer `specialized`**, **librarian**, **web_research**).
+- **`list` invariance** vs smolagents APIs: **`cast(list[ChatMessage | dict[str, Any]], messages)`** (or **`Sequence`** upstream if the API allows) when passing **`list[ChatMessage]`** into a parameter typed as **`list[ChatMessage | dict[...]]`** (**`smol_model`**).
+
+### FSM / chat sidebar
+
+- **`EffectInterpreter.current_state`**: declare **`SendHandlerState | None`** so assignments from **`send_handlers`** are valid.
+
+### UNO service manager / `None` (already applied in-tree)
+
+- Pattern: **`getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())`**, **`assert ctx is not None`** / **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** where Pyright does not narrow **`getattr`**. **`get_package_info`** uses **`getattr(ctx, "getValueByName", None)`** and returns **`None`** if missing. Applied in **`uno_context.get_desktop`**, **`dialogs._load_xdl`**, **`image_tools`** (graphic export), **`queue_executor`**, **`main._load_icon_graphic`**, **`main._update_menu_icons`**. **`main._open_dialog_safely`** binds **`ctx_getter = get_ctx`** before **`try`** for the error path.
+- **Tool registry**: **`get_tools() -> ToolRegistry`** with **`assert _tools is not None`** after bootstrap ([`main.py`](plugin/main.py)).
+- **Optional bootstrap modules**: **`officehelper: ModuleType | None`** with **`import officehelper as _officehelper_module`** in **`try`** / **`except ImportError`** (satisfies **`ty`** and Pyright); standalone **`main()`** exits clearly if bootstrap is required but missing.
+- **UNO stubs vs runtime**: where the API allows null dispatch but stubs do not, **`# pyright: ignore[reportIncompatibleMethodOverride]`** on the overriding method (see **`DispatchHandler.queryDispatch` / `queryDispatches`**).
+- **HTTP user-facing errors**: **`http/errors.format_error_message`** uses **`getattr`** + safe **`int(...)`** for status codes; **`URLError`** vs **`OSError`** for connection messages (no **`e.reason`** on plain **`OSError`**).
+
+### Known larger clusters (see “Handoff” above for order)
+
+- **`ModuleBase`** subclasses (**`http/__init__.py`**) return type vs base (**`None`** vs **`str | None`**).
+- Remaining Draw / MCP / images / prompt_function / testing_runner items in the snapshot list above.
 
 ---
 

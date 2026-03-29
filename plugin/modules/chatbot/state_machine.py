@@ -112,7 +112,7 @@ SendHandlerEffect = SpawnAudioWorkerEffect | SpawnDirectImageEffect | SpawnAgent
 class EffectInterpreter:
     def __init__(self, handler_mixin):
         self.handler = handler_mixin
-        self.current_state = None
+        self.current_state: SendHandlerState | None = None
 
     def interpret(self, effect: SendHandlerEffect):
         match effect:

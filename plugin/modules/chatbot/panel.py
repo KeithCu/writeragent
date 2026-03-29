@@ -38,7 +38,10 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.modules.chatbot.history_db import get_chat_history
 
 # Recording available only if audio_recorder (and contrib/audio) is present
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from plugin.modules.http.client import LlmClient
 
 _AudioRecorderCls: type[Any] | None
 try:
@@ -189,6 +192,9 @@ class QueryTextListener(BaseTextListener):
 
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
+
+    client: LlmClient | None
+    initial_doc_type: str | None
 
     def __init__(self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_research_checkbox=None, ensure_path_fn=None, clear_control=None):
         self.ctx = ctx

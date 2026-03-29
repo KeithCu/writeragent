@@ -20,6 +20,7 @@ import shutil
 import logging
 import uno
 from pathlib import Path
+from typing import Any, cast
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from com.sun.star.awt import Size, Point
 from com.sun.star.beans import PropertyValue
@@ -268,7 +269,8 @@ def get_selected_image_base64(model, ctx=None):
         # For type checking compatibility since ctx might be Any:
         # We know ctx has ServiceManager or getServiceManager
         sm = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
-        gp = sm.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
+        assert sm is not None
+        gp = cast(Any, sm).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
         
         with tempfile.NamedTemporaryFile(suffix=".png") as tmp:
             tmp_url = uno.systemPathToFileUrl(tmp.name)

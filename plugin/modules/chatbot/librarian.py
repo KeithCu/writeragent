@@ -223,9 +223,13 @@ TOOLS FOR COMPLETION:
                     if append_thinking_callback:
                         msg = f"Step {step.step_number}:\n"
                         if step.model_output:
-                            msg += f"{step.model_output.strip()}\n"
-                        elif getattr(step, "model_output_message", None) and step.model_output_message.content:
-                            msg += f"{str(step.model_output_message.content).strip()}\n"
+                            mo = step.model_output
+                            msg += f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n"
+                        else:
+                            mom = getattr(step, "model_output_message", None)
+                            if mom is not None and getattr(mom, "content", None):
+                                mc = mom.content
+                                msg += f"{(mc.strip() if isinstance(mc, str) else str(mc).strip())}\n"
 
                         if step.observations:
                             msg += f"Observation: {str(step.observations).strip()}\n"

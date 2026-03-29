@@ -16,7 +16,7 @@ import logging
 import queue
 import threading
 import uuid
-from typing import Callable, Any
+from typing import Any, Callable, cast
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
@@ -55,7 +55,8 @@ class QueueExecutor:
                 ctx = uno.getComponentContext()
                 # Use getattr to satisfy type checkers that may not know ctx has ServiceManager
                 smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
-                self._async_callback_service = smgr.createInstanceWithContext(
+                assert smgr is not None
+                self._async_callback_service = cast(Any, smgr).createInstanceWithContext(
                     "com.sun.star.awt.AsyncCallback", ctx)
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance returned None")

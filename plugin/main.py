@@ -35,12 +35,15 @@ if _vendor_dir not in sys.path:
     sys.path.insert(0, _vendor_dir)
 
 import unohelper
+from types import ModuleType
+
+officehelper: ModuleType | None = None
 try:
-    import officehelper
+    import officehelper as _officehelper_module
+
+    officehelper = _officehelper_module
 except ImportError:
     pass
-
-from typing import Any
 
 from plugin.framework.logging import init_logging
 import uno
@@ -50,6 +53,8 @@ from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
 from plugin.framework.uno_context import get_active_document, get_extension_url
+from plugin.framework.tool_registry import ToolRegistry
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
@@ -72,7 +77,7 @@ def register_action_handler(module_name, action_name, handler_func):
     _ACTION_HANDLERS[key] = handler_func
 
 
-_tools = None
+_tools: ToolRegistry | None = None
 _modules = []
 _init_lock = threading.Lock()
 _initialized = False
@@ -104,10 +109,11 @@ def get_services():
         bootstrap()
     return _services
 
-def get_tools():
+def get_tools() -> ToolRegistry:
     global _tools
     if _tools is None:
         bootstrap()
+    assert _tools is not None
     return _tools
 
 def bootstrap(ctx=None):
@@ -274,9 +280,11 @@ def _show_tests_unavailable(test_name: str) -> None:
 def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
     """Safely open a dialog with standardized error handling."""
     from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+    from plugin.framework.uno_context import get_ctx
+
+    ctx_getter = get_ctx
     try:
-        from plugin.framework.uno_context import get_ctx
-        dialog_func(get_ctx(), *args, **kwargs)
+        dialog_func(ctx_getter(), *args, **kwargs)
     except DocumentDisposedError:
         log.debug("Dialog opening aborted: document disposed")
     except UnoObjectError as e:
@@ -286,7 +294,7 @@ def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
         # Show user-friendly error message
         from plugin.framework.dialogs import msgbox
         from plugin.framework.i18n import _
-        msgbox(get_ctx(), _("Error"), _(f"{error_msg}: {str(e)}"))
+        msgbox(ctx_getter(), _("Error"), _(f"{error_msg}: {str(e)}"))
 
 def _run_test_suite(test_func, doc_checker, test_name):
     """Helper to run a test suite in a blocking thread and show the result."""
@@ -499,7 +507,8 @@ def _load_icon_graphic(module_name, icon_filename, ctx=None):
         if ctx is None:
             ctx = uno.getComponentContext()
         smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
-        gp = smgr.createInstanceWithContext(
+        assert smgr is not None
+        gp = cast(Any, smgr).createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx)
         ext_url = get_extension_url(ctx)
         if not ext_url:
@@ -545,8 +554,9 @@ def _update_menu_icons():
             return
 
         smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
+        assert smgr is not None
 
-        supplier = smgr.createInstanceWithContext(
+        supplier = cast(Any, smgr).createInstanceWithContext(
             "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
         for mod_id in _IMAGE_MANAGER_MODULES:
             try:
@@ -686,6 +696,9 @@ def main():
         # Using locals()/globals() bypasses static analyzer checks for XSCRIPTCONTEXT
         ctx = globals()["XSCRIPTCONTEXT"]
     except KeyError:
+        if officehelper is None:
+            print("ERROR: officehelper is not available (ImportError).")
+            sys.exit(1)
         ctx = officehelper.bootstrap()
         if ctx is None:
             print("ERROR: Could not bootstrap default Office.")
@@ -729,13 +742,13 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
 
     # ── XDispatchProvider ────────────────────────────────────────
 
-    def queryDispatch(self, URL, TargetFrameName, SearchFlags):
+    def queryDispatch(self, URL, TargetFrameName, SearchFlags):  # pyright: ignore[reportIncompatibleMethodOverride]
         url = URL
         if url.Protocol == "org.extension.writeragent:":
             return self
         return None
 
-    def queryDispatches(self, Requests):
+    def queryDispatches(self, Requests):  # pyright: ignore[reportIncompatibleMethodOverride]
         requests = Requests
         return [self.queryDispatch(r.FeatureURL, r.FrameName,
                                    r.SearchFlags) for r in requests]

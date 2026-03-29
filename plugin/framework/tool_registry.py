@@ -20,7 +20,7 @@
 import logging
 import threading
 import queue
-from typing import Any
+from typing import Any, cast
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
@@ -394,7 +394,7 @@ class ToolRegistry:
                     for k, v in common_details.items():
                         if k not in merged:
                             merged[k] = v
-                    result["details"] = merged
+                    cast(dict[str, Any], result)["details"] = merged
 
             if bus:
                 # only emit completed if result was not an error (optional, but follows general pattern)

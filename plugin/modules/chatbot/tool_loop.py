@@ -11,7 +11,7 @@ import inspect
 import dataclasses
 import json
 import queue
-from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar, Sequence, cast
 
 if TYPE_CHECKING:
     import threading
@@ -32,6 +32,8 @@ from plugin.modules.http.errors import (
 from plugin.framework.config import (
     get_api_config,
     get_config,
+    get_config_int,
+    get_config_str,
     get_current_endpoint,
     get_stt_model,
     get_text_model,
@@ -192,17 +194,19 @@ class ToolCallingMixin:
                 #
                 # and then pass `services=services` into ToolContext below.
 
-                approval_callback = None
-                chat_append_callback = None
+                approval_cb: Any = None
+                chat_append_cb: Any = None
                 if name == "web_research":
-                    def chat_append_callback(text):
+                    def _web_append(text):
                         aq = getattr(self, "_active_q", None)
                         if aq is not None:
                             aq.put((StreamQueueKind.CHUNK, text))
 
+                    chat_append_cb = _web_append
+
                     try:
                         if as_bool(get_config(ctx, "chatbot.prompt_for_web_research")):
-                            def approval_callback(query_for_engine, tool_name, args):
+                            def _web_approval(query_for_engine, tool_name, args):
                                 q = getattr(self, "_active_q", None)
                                 if q is None:
                                     log.warning(
@@ -228,6 +232,8 @@ class ToolCallingMixin:
                                     bool(getattr(event, "approved", False)),
                                     getattr(event, "query_override", None),
                                 )
+
+                            approval_cb = _web_approval
                     except Exception as ex:
                         log.warning("tool_loop: web_research approval setup failed: %s", ex)
 
@@ -240,8 +246,8 @@ class ToolCallingMixin:
                     status_callback=status_callback,
                     append_thinking_callback=append_thinking_callback,
                     stop_checker=stop_checker,
-                    approval_callback=approval_callback,
-                    chat_append_callback=chat_append_callback
+                    approval_callback=approval_cb,
+                    chat_append_callback=chat_append_cb
                     if name == "web_research"
                     else None,
                     set_active_domain_callback=set_active_domain,
@@ -279,7 +285,7 @@ class ToolCallingMixin:
             self._terminal_status = "Error"
             return
 
-        extra_instructions = get_config(self.ctx, "additional_instructions") or ""
+        extra_instructions = get_config_str(self.ctx, "additional_instructions", "")
         self.session.messages[0]["content"] = get_chat_system_prompt_for_document(
             model, extra_instructions, ctx=self.ctx
         )
@@ -301,8 +307,8 @@ class ToolCallingMixin:
                 set_image_model(self.ctx, selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
 
-        max_context = int(get_config(self.ctx, "chat_context_length"))
-        max_tokens = int(get_config(self.ctx, "chat_max_tokens"))
+        max_context = get_config_int(self.ctx, "chat_context_length", 8000)
+        max_tokens = get_config_int(self.ctx, "chat_max_tokens", 16384)
         log.debug(
             "_do_send: config loaded: max_tokens=%d, max_context=%d"
             % (max_tokens, max_context)
@@ -540,38 +546,30 @@ class ToolCallingMixin:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif kind == StreamQueueKind.TOOL_DONE:
             mutates = False
-            try:
-                from plugin.main import get_tools as _get_tools_registry
-                tool = _get_tools_registry().get(item[2])
-                if tool and tool.detects_mutation():
-                    mutates = True
-            except Exception as e:
+            raw = item if isinstance(item, (tuple, list)) else ()
+            s = cast(Sequence[Any], raw)
+            ln = len(s)
+            if ln > 4:
                 try:
-                    from com.sun.star.lang import DisposedException
-                    from com.sun.star.uno import RuntimeException, Exception as UnoException
-                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                        log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
-                except ImportError:
-                    pass
-            except Exception as e:
-                try:
-                    from com.sun.star.lang import DisposedException
-                    from com.sun.star.uno import RuntimeException, Exception as UnoException
-                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                        log.debug("_execute_effect 'update_document_context' failed (likely disposed): %s", e)
-                    else:
-                        log.debug("_execute_effect 'update_document_context' exception: %s", e)
-                except ImportError:
-                    log.debug("_execute_effect 'update_document_context' exception: %s", e)
-            except OSError as e:
-                log.debug("Failed to remove audio_wav_path during CleanupAudioEffect: %s", e)
+                    from plugin.main import get_tools as _get_tools_registry
+                    tool = _get_tools_registry().get(s[2])
+                    if tool and tool.detects_mutation():
+                        mutates = True
+                except Exception as e:
+                    try:
+                        from com.sun.star.lang import DisposedException
+                        from com.sun.star.uno import RuntimeException, Exception as UnoException
+                        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                            log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
+                    except ImportError:
+                        pass
             return ToolLoopEvent(
                 kind=EventKind.TOOL_RESULT,
                 data={
-                    "call_id": item[1],
-                    "func_name": item[2],
-                    "func_args_str": item[3],
-                    "result": item[4],
+                    "call_id": s[1] if ln > 1 else None,
+                    "func_name": s[2] if ln > 2 else None,
+                    "func_args_str": s[3] if ln > 3 else None,
+                    "result": s[4] if ln > 4 else None,
                     "mutates_document": mutates
                 }
             )
@@ -593,7 +591,7 @@ class ToolCallingMixin:
             try:
                 doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
                 if doc:
-                    max_ctx = get_config(self.ctx, "chat_context_length") or 8000
+                    max_ctx = get_config_int(self.ctx, "chat_context_length", 8000)
                     doc_text = get_document_context_for_chat(
                         doc,
                         max_ctx,

@@ -27,6 +27,7 @@ storing a ctx reference from ``initialize()``.
 """
 
 import logging
+from typing import Any, cast
 
 log = logging.getLogger("writeragent.context")
 
@@ -61,8 +62,10 @@ from plugin.framework.errors import check_disposed, safe_call, UnoObjectError
 def get_desktop(ctx=None):
     """Return the UNO Desktop instance."""
     ctx = ctx or get_ctx()
-    smgr = ctx.getServiceManager()
-    return smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    assert ctx is not None
+    smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
+    assert smgr is not None
+    return cast(Any, smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
 
 
 def get_active_document(ctx=None):
@@ -82,7 +85,11 @@ def get_active_document(ctx=None):
 def get_package_info(ctx=None):
     """Return the PackageInformationProvider singleton."""
     ctx = ctx or get_ctx()
-    return ctx.getValueByName("/singletons/com.sun.star.deployment.PackageInformationProvider")
+    assert ctx is not None
+    gvn = getattr(ctx, "getValueByName", None)
+    if gvn is None:
+        return None
+    return gvn("/singletons/com.sun.star.deployment.PackageInformationProvider")
 
 
 def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):

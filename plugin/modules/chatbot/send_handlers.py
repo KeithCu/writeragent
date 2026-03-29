@@ -343,7 +343,7 @@ class SendHandlersMixin:
     def _execute_agent_backend_effect(
         self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
     ) -> None:
-        from plugin.framework.config import get_config
+        from plugin.framework.config import get_config, get_config_int
         from plugin.framework.document import get_document_context_for_chat
         from plugin.modules.agent_backend import get_backend
 
@@ -357,7 +357,7 @@ class SendHandlersMixin:
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to get document URL for agent backend (likely disposed): %s", e)
 
-        max_context = int(get_config(self.ctx, "chat_context_length"))
+        max_context = get_config_int(self.ctx, "chat_context_length", 8000)
         try:
             doc_context = get_document_context_for_chat(
                 model,

@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.config import user_config_dir
+from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +25,8 @@ def _parse_frontmatter(content: str):
 class SkillsStore:
     def __init__(self, ctx):
         self.config_dir = user_config_dir(ctx)
+        if self.config_dir is None:
+            raise ConfigError("UNO context is required to resolve skills directory")
         self.skills_dir = Path(self.config_dir) / "skills"
         self.skills_dir.mkdir(parents=True, exist_ok=True)
 

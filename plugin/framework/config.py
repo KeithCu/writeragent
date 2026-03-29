@@ -453,6 +453,16 @@ def get_config_int(ctx, key, default=0):
         return default if default is not None else 0
 
 
+def get_config_str(ctx, key, default=""):
+    """Return a config value as str (for free-text keys like additional_instructions)."""
+    v = get_config(ctx, key)
+    if v is None:
+        return default
+    if isinstance(v, str):
+        return v
+    return str(v)
+
+
 def get_config_dict(ctx):
     """Return the full config as a dict. Returns {} if missing or on error."""
     return _get_validated_config_dict(ctx)

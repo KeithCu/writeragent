@@ -39,6 +39,7 @@ XDL dialog loading (used by ModuleBase helpers)::
 
 import logging
 import threading
+from typing import Any, cast
 import unohelper
 from plugin.framework.listeners import BaseActionListener
 from plugin.framework.worker_pool import run_in_background
@@ -673,10 +674,12 @@ def _load_xdl(relative_path):
     from plugin.framework.uno_context import get_ctx
 
     ctx = get_ctx()
-    smgr = ctx.getServiceManager()
+    assert ctx is not None
+    smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
+    assert smgr is not None
     base = get_extension_url()
     url = base + "/" + relative_path
-    dp = smgr.createInstanceWithContext(
+    dp = cast(Any, smgr).createInstanceWithContext(
         "com.sun.star.awt.DialogProvider2", ctx)
     return dp.createDialog(url)
 

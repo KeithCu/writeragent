@@ -13,8 +13,14 @@ def format_error_message(e):
     if isinstance(e, ssl.SSLError):
         return _("TLS/SSL Error: {0}").format(msg)
     if isinstance(e, (urllib.error.HTTPError, http.client.HTTPResponse)):
-        code = e.code if hasattr(e, "code") else e.status
-        reason = e.reason if hasattr(e, "reason") else ""
+        code_candidate = getattr(e, "code", None)
+        if code_candidate is None:
+            code_candidate = getattr(e, "status", None)
+        try:
+            code = int(code_candidate) if code_candidate is not None else 0
+        except (TypeError, ValueError):
+            code = 0
+        reason = str(getattr(e, "reason", "") or "")
         if code == 401:
             return _("Invalid API Key. Please check your settings.")
         if code == 403:
@@ -28,8 +34,11 @@ def format_error_message(e):
     if isinstance(e, socket.timeout) or "timed out" in msg.lower():
         return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
 
-    if isinstance(e, (urllib.error.URLError, socket.error)):
-        reason = str(e.reason) if hasattr(e, "reason") else str(e)
+    if isinstance(e, (urllib.error.URLError, OSError)):
+        if isinstance(e, urllib.error.URLError):
+            reason = str(getattr(e, "reason", None) or e)
+        else:
+            reason = str(e)
         if "Connection refused" in reason or "111" in reason:
             return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
         if "getaddrinfo failed" in reason:

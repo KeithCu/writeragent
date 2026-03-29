@@ -81,6 +81,7 @@ class SQLite3History:
         self._init_db()
 
     def _init_db(self):
+        assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS message_store (
@@ -93,6 +94,7 @@ class SQLite3History:
             conn.commit()
 
     def add_message(self, role, content, tool_calls=None):
+        assert sqlite3 is not None
         msg_dict = message_to_dict(role, content, tool_calls)
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -103,6 +105,7 @@ class SQLite3History:
             log.info(f"SQLite3: Added message for session {self.session_id}")
 
     def get_messages(self):
+        assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 "SELECT message FROM message_store WHERE session_id = ? ORDER BY id ASC",
@@ -113,6 +116,7 @@ class SQLite3History:
             return msgs
 
     def clear(self):
+        assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
             conn.commit()
@@ -174,6 +178,7 @@ def get_chat_history(session_id, db_path=None):
     if not HAS_SQLITE:
         log.warning("SQLite not available; using JSON fallback for chat history")
         return JSONHistory(session_id, db_path)
+    assert sqlite3 is not None
     try:
         log.info(f"Using SQLite for chat history at {db_path}")
         return SQLite3History(session_id, db_path)

@@ -156,7 +156,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     def createAccessible(self, ParentAccessible):
         return self.PanelWindow
 
-    def getHeightForWidth(self, nWidth: int):
+    def getHeightForWidth(self, nWidth: int):  # pyright: ignore[reportIncompatibleMethodOverride]
         width = nWidth
         # LayoutSize(Minimum, Maximum, Preferred) — IDL field order.
         # Maximum=-1 means unbounded; the sidebar gives all remaining height
@@ -251,7 +251,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Event bus listener for config changes."""
         self._refresh_controls_from_config()
 
-    def getRealInterface(self):
+    def getRealInterface(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         log.debug("=== getRealInterface called ===")
         if not self.toolpanel:
             try:

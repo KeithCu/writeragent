@@ -1,7 +1,8 @@
 import json
 import logging
-import urllib.request
-import urllib.parse
+import urllib.error
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 from plugin.framework.errors import NetworkError
 from plugin.framework.utils import get_url_hostname
@@ -17,7 +18,6 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     data: optional bytes for POST. headers: optional dict (used only if url is str).
     Returns response data: decoded JSON if parse_json else raw bytes. Raises on error.
     """
-    import urllib.error
     if headers is None:
         headers = {}
 
@@ -32,7 +32,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         headers["X-Title"] = APP_TITLE
 
     if isinstance(url, str):
-        req = urllib.request.Request(url, data=data, headers=headers)
+        req = Request(url, data=data, headers=headers)
     else:
         req = url
 
@@ -47,12 +47,12 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         pass
 
     full_url = getattr(req, "full_url", url)
-    parsed = urllib.parse.urlparse(str(full_url))
+    parsed = urlparse(str(full_url))
     host = get_url_hostname(str(full_url))
     is_local_https = parsed.scheme.lower() == "https" and _is_local_host(host)
     def _read_with_context(context):
         log.debug(f"About to open URL: {getattr(req, 'full_url', url)}")
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
+        with urlopen(req, timeout=timeout, context=context) as resp:
             log.debug(f"URL opened, status={resp.getcode()}. Heading to read...")
             raw = resp.read()
             log.debug(f"Read {len(raw)} bytes")
