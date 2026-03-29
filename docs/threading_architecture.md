@@ -35,7 +35,7 @@ When interacting with external CLI-based agent tools (like Hermes), WriterAgent 
     *   **Threads:** It spawns `_reader_thread` (monitoring `stdout`) and `_stderr_thread` (draining `stderr`) so that the main application isn't blocked reading from pipes.
     *   **Synchronization:** Uses `threading.Lock` to protect internal state (like the process reference). It uses `threading.Event` (`_reader_ready`, `_response_done`) to signal when the backend is ready to accept input or has finished generating a response.
 *   **`hermes_proxy.py`:** Implements the Actor Context Protocol (ACP) over standard streams.
-    *   **Threads:** Spawns a dedicated daemon thread `hermes-acp-reader` to continuously parse JSON-RPC messages from the subprocess stdout.
+    *   **Threads:** Spawns a dedicated daemon thread to continuously parse JSON-RPC messages from the subprocess stdout (ACP over stdio).
     *   **Synchronization:** Uses a `threading.Lock` to protect the `_pending` requests dictionary. Each outbound request creates a `threading.Event` which the caller waits on until the reader thread receives the corresponding response and sets the event.
 
 ### 4. Chatbot Streaming and Tool Execution (`plugin/modules/chatbot/`)

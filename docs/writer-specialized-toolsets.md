@@ -231,6 +231,7 @@ flowchart LR
 | `ToolWriterIndexBase` | `indexes` |
 | `ToolWriterFieldBase` | `fields` |
 | `ToolWriterBookmarkBase` | `bookmarks` |
+| `ToolWriterImageBase` | `images` |
 
 `ToolWriterSpecialBase` sets `tier = "specialized"`.
 
@@ -271,7 +272,7 @@ Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users
 | Styles (list/info) | `plugin/modules/writer/styles.py` | `ToolWriterStyleBase` for list/info; `styles_apply_to_selection` extended |
 | Layout (frames) | `plugin/modules/writer/frames.py` | `ToolWriterLayoutBase`; nelson `frames.py` lineage noted in file |
 | Shapes / draw bridge | `plugin/modules/writer/shapes.py` | `ToolWriterShapeBase`; bridges Draw tools for Writer |
-| Images (AI / selection) | `plugin/modules/writer/images.py` | `ToolWriterShapeBase` (same domain as drawing for delegation) |
+| Images (AI / selection) | `plugin/modules/writer/images.py` | `ToolWriterImageBase` / `ToolCalcImageBase`, `specialized_domain` `images`; `generate_image` is registered (not `ToolBaseDummy`) but omitted from default chat schemas |
 | Charts in Writer | `plugin/modules/writer/charts.py` | `ToolWriterChartBase`; reuses Calc chart tool classes with Writer `uno_services` |
 | Indexes | `plugin/modules/writer/indexes.py` | `ToolWriterIndexBase` |
 | Fields | `plugin/modules/writer/fields.py` | `ToolWriterFieldBase` |
