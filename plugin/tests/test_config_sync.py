@@ -18,9 +18,9 @@ sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 from plugin.framework.config import (
     get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint,
-    add_config_listener, notify_config_changed, _config_listeners,
     update_lru_history, get_config
 )
+from plugin.framework.event_bus import global_event_bus
 
 class TestConfigSync(unittest.TestCase):
     def setUp(self):
@@ -36,34 +36,33 @@ class TestConfigSync(unittest.TestCase):
             
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
-        self.notify_patcher = patch('plugin.framework.config.notify_config_changed')
         
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
-        self.mock_notify = self.notify_patcher.start()
 
     def tearDown(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
-        self.notify_patcher.stop()
 
     def test_set_image_model_aihorde(self):
         self.config_data["image_provider"] = "aihorde"
-        set_image_model(self.ctx, "new-horde-model")
-        
-        self.assertEqual(self.config_data.get("aihorde_model"), "new-horde-model")
-        self.assertIsNone(self.config_data.get("image_model"))
-        self.mock_notify.assert_called_once_with(self.ctx)
+        with patch.object(global_event_bus, 'emit') as mock_emit:
+            set_image_model(self.ctx, "new-horde-model")
+
+            self.assertEqual(self.config_data.get("aihorde_model"), "new-horde-model")
+            self.assertIsNone(self.config_data.get("image_model"))
+            mock_emit.assert_called_once_with("config:changed", ctx=self.ctx)
 
     def test_set_image_model_endpoint(self):
         self.config_data["image_provider"] = "endpoint"
-        with patch('plugin.framework.config.update_lru_history') as mock_lru:
+        with patch('plugin.framework.config.update_lru_history') as mock_lru, \
+             patch.object(global_event_bus, 'emit') as mock_emit:
             set_image_model(self.ctx, "new-endpoint-model")
             
             self.assertEqual(self.config_data.get("image_model"), "new-endpoint-model")
             self.assertIsNone(self.config_data.get("aihorde_model"))
             mock_lru.assert_called_once_with(self.ctx, "new-endpoint-model", "image_model_lru", "")
-            self.mock_notify.assert_called_once_with(self.ctx)
+            mock_emit.assert_called_once_with("config:changed", ctx=self.ctx)
 
     def test_update_lru_history_scoping(self):
         # Test with endpoint
@@ -114,37 +113,27 @@ class TestConfigSync(unittest.TestCase):
         set_api_key_for_endpoint(self.ctx, "http://localhost:11434/", "updated-key")
         self.assertEqual(self.config_data.get("api_keys_by_endpoint", {}).get("http://localhost:11434"), "updated-key")
 
-    def test_add_config_listener_and_notify(self):
-        # Temporarily clear listeners to isolate the test
-        original_listeners = list(_config_listeners)
-        _config_listeners.clear()
+    def test_event_bus_listener_and_emit(self):
+        called = []
+        def my_callback(ctx=None, **kwargs):
+            called.append(ctx)
+
+        global_event_bus.subscribe("config:changed", my_callback)
         try:
-            called = []
-            def my_callback(ctx):
-                called.append(ctx)
+            global_event_bus.emit("config:changed", ctx=self.ctx)
+            self.assertEqual(len(called), 1)
+            self.assertEqual(called[0], self.ctx)
 
-            add_config_listener(my_callback)
+            # Test exception swallowing (already tested in event_bus tests, but good to verify integration)
+            def bad_callback(**kwargs):
+                raise ValueError("Simulated error")
+            global_event_bus.subscribe("config:changed", bad_callback)
 
-            # Since notify_config_changed is mocked in setUp, we need to temporarily stop the patch
-            # to test its actual implementation
-            self.notify_patcher.stop()
-            try:
-                notify_config_changed(self.ctx)
-                self.assertEqual(len(called), 1)
-                self.assertEqual(called[0], self.ctx)
-
-                # Test exception swallowing
-                def bad_callback(ctx):
-                    raise ValueError("Simulated error")
-                add_config_listener(bad_callback)
-
-                notify_config_changed(self.ctx)
-                self.assertEqual(len(called), 2) # First callback still gets called again
-            finally:
-                self.mock_notify = self.notify_patcher.start()
+            global_event_bus.emit("config:changed", ctx=self.ctx)
+            self.assertEqual(len(called), 2) # First callback still gets called again
         finally:
-            _config_listeners.clear()
-            _config_listeners.extend(original_listeners)
+            global_event_bus.unsubscribe("config:changed", my_callback)
+            global_event_bus.unsubscribe("config:changed", bad_callback)
 
 
 class TestConfigSyncFileIO(unittest.TestCase):

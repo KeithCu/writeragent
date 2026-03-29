@@ -264,13 +264,8 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     self._update_backend_indicator(root_window)
 
     # 6. Global Config Listener
-    from plugin.framework.config import add_config_listener
-    _self_ref = weakref.ref(self)
-    def on_config_changed(ctx):
-        panel = _self_ref()
-        if panel is not None:
-            panel._refresh_controls_from_config()
-    add_config_listener(on_config_changed)
+    from plugin.framework.event_bus import global_event_bus
+    global_event_bus.subscribe("config:changed", self._on_config_changed, weak=True)
 
     # Weekly extension update check: run once per process, late (after sidebar UI is wired)
     # so logging is initialized and AsyncCallback/msgbox are reliable.

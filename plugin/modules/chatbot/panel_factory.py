@@ -247,6 +247,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.m_panelRootWindow = None
         self.session = None  # Created in _wireControls
 
+    def _on_config_changed(self, **kwargs):
+        """Event bus listener for config changes."""
+        self._refresh_controls_from_config()
+
     def getRealInterface(self):
         log.debug("=== getRealInterface called ===")
         if not self.toolpanel:

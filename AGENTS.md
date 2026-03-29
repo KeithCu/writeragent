@@ -61,7 +61,7 @@ UNO split (no monolithic `uno_helpers.py`): context helpers → [`plugin/framewo
 **Scope**: Sidebar + menu chat for **Writer and Calc** (same deck). Draw supported for chat/tools per product code paths.
 
 - **Theming**: Native VCL (light/dark); no custom color probing.
-- **Config sync**: `add_config_listener` / `notify_config_changed` in [`plugin/framework/config.py`](plugin/framework/config.py); weakref on listeners.
+- **Config sync**: `global_event_bus.subscribe("config:changed", ...)` and `global_event_bus.emit("config:changed", ...)` using [`plugin/framework/event_bus.py`](plugin/framework/event_bus.py).
 - **Lifecycle**: Send disabled / Stop enabled at start of `actionPerformed`; restored in **`finally`** after `_do_send()` returns. `_set_button_states` uses per-control try/except. `_send_busy` mirrors that window.
 - **FSM** ([`plugin/framework/state.py`](plugin/framework/state.py)): Pure `next_state(state, event) → FsmTransition`; **no** UNO/I/O/logging/`EventBus` inside transitions. Effects run in panel/mixins/MCP. Composite: [`sidebar_state.py`](plugin/modules/chatbot/sidebar_state.py) (`send`, `tool_loop`, mirrored `audio`). `ToolCallingMixin` clears the tool-loop slice in **`finally`** after drain. **`EventBus`**: loose notifications only (e.g. config, `mcp:request`), not the FSM driver. Other `*_state.py` modules under `chatbot/` and `http/mcp_state.py` for domains.
 - **Panel**: [`panel_factory.py`](plugin/modules/chatbot/panel_factory.py) + `ChatPanelDialog.xdl`; **`setVisible(True)`** after `createContainerWindow()`. Resize: [`panel_resize.py`](plugin/modules/chatbot/panel_resize.py), wired from [`panel_wiring.py`](plugin/modules/chatbot/panel_wiring.py).

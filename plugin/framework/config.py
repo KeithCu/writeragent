@@ -26,6 +26,7 @@ import logging
 import dataclasses
 import time
 from typing import Dict, Any, Optional, TYPE_CHECKING
+from plugin.framework.event_bus import global_event_bus
 try:
     import uno
     import unohelper
@@ -488,6 +489,8 @@ def set_config(ctx, key, value):
         _cached_config_mtime = 0
         _cached_config_mtime_last_checked = 0.0
 
+        global_event_bus.emit("config:changed", ctx=ctx)
+
     except OSError as e:
         log.error("Error writing to %s: %s", config_file_path, e)
         raise ConfigError(f"Failed to save config: {e}", "CONFIG_SAVE_ERROR") from e
@@ -519,31 +522,13 @@ def remove_config(ctx, key):
         _cached_config_mtime = 0
         _cached_config_mtime_last_checked = 0.0
 
+        global_event_bus.emit("config:changed", ctx=ctx)
+
     except OSError as e:
         log.error("Error writing to %s: %s", config_file_path, e)
         raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
 
 
-# Listeners are called when config is changed (e.g. after Settings dialog).
-# Sidebar uses weakref in its callback so panels can be GC'd without unregistering.
-# FIXME: These duplicated pieces of functionality (add_config_listener / notify_config_changed)
-# could be combined into the shared EventBus. This custom pub/sub code can be removed
-# and changed to use EventBus. When that happens, update dependent UI code and remove the test code.
-_config_listeners = []
-
-
-def add_config_listener(callback):
-    """Register a callable(ctx) to be invoked when config changes (e.g. after Settings OK)."""
-    _config_listeners.append(callback)
-
-
-def notify_config_changed(ctx):
-    """Call all registered listeners so UI (e.g. sidebar) can refresh from config."""
-    for cb in list(_config_listeners):
-        try:
-            cb(ctx)
-        except Exception as e:
-            log.warning("notify_config_changed: listener %s failed: %s", cb, e)
 
 
 def as_bool(value):
@@ -913,8 +898,8 @@ def set_image_model(ctx, val, update_lru=True):
         set_config(ctx, "image_model", val_str)
         if update_lru:
             update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
-    
-    notify_config_changed(ctx)
+
+    global_event_bus.emit("config:changed", ctx=ctx)
 
 
 def get_text_model_options(services):
@@ -1140,18 +1125,23 @@ class ConfigService(ServiceBase):
                 ctx = get_ctx()
                 endpoint = get_current_endpoint(ctx)
                 set_api_key_for_endpoint(ctx, endpoint, value or "")
-                if self._events and value != old_value:
-                    self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+                if value != old_value:
+                    bus = self._events or global_event_bus
+                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
                 return
             elif field == "horde_model":
-                set_image_model(get_ctx(), value or "", update_lru=True)
-                if self._events and value != old_value:
-                    self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+                ctx = get_ctx()
+                set_image_model(ctx, value or "", update_lru=True)
+                if value != old_value:
+                    bus = self._events or global_event_bus
+                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
                 return
             elif field == "horde_api_key":
-                set_config(get_ctx(), "aihorde_api_key", value)
-                if self._events and value != old_value:
-                    self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+                ctx = get_ctx()
+                set_config(ctx, "aihorde_api_key", value)
+                if value != old_value:
+                    bus = self._events or global_event_bus
+                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
                 return
 
             if field in AI_SIMPLE_FIELDS:
@@ -1174,12 +1164,14 @@ class ConfigService(ServiceBase):
                     # Direct 1:1 mapping to top-level key.
                     set_config(ctx, field, value)
 
-                if self._events and value != old_value:
-                    self._events.emit(
+                if value != old_value:
+                    bus = self._events or global_event_bus
+                    bus.emit(
                         "config:changed",
                         key=key,
                         value=value,
                         old_value=old_value,
+                        ctx=ctx
                     )
                 return
 
@@ -1200,11 +1192,15 @@ class ConfigService(ServiceBase):
                     json.dump(data, f)
             except OSError as e:
                 log.error("ConfigService.set config file save error: %s", e)
-        else:
-            set_config(get_ctx(), key, value)
 
-        if self._events and value != old_value:
-            self._events.emit("config:changed", key=key, value=value, old_value=old_value)
+            ctx = None # No UNO context in file-based test mode
+        else:
+            ctx = get_ctx()
+            set_config(ctx, key, value)
+
+        if value != old_value:
+            bus = self._events or global_event_bus
+            bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
 
     def set_batch(self, changes, old_values=None):
         """Set multiple config values at once. Returns dict of changed keys.

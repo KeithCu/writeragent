@@ -145,6 +145,12 @@ def bootstrap(ctx=None):
         _tools = ToolRegistry(_services)
         _services.register("tools", _tools)
 
+        # Wire config service to events
+        config_svc = _services.get("config")
+        events_svc = _services.get("events")
+        if config_svc and events_svc:
+            config_svc.set_events(events_svc)
+
         # Initialize i18n
         from plugin.framework.i18n import init_i18n
         init_i18n(ctx)

@@ -14,7 +14,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from plugin.framework.config import get_config, set_config, get_current_endpoint, as_bool, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, notify_config_changed
+from plugin.framework.config import get_config, set_config, get_current_endpoint, as_bool, endpoint_from_selector_text, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint
+from plugin.framework.event_bus import global_event_bus
 
 import logging
 from plugin.framework.i18n import _
@@ -197,7 +198,7 @@ def apply_settings_result(ctx, result):
     if "api_key" in result:
         set_api_key_for_endpoint(ctx, current_endpoint, result["api_key"])
 
-    notify_config_changed(ctx)
+    global_event_bus.emit("config:changed", ctx=ctx)
 
 
 def _call_options_provider(ctx, provider_path):
