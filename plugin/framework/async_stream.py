@@ -37,7 +37,7 @@ from plugin.framework.errors import format_error_payload
 
 
 class StreamQueueKind(StrEnum):
-    """First element of stream queue tuples; string values match legacy tags."""
+    """First element of stream queue tuples (producers must use these enum members)."""
 
     CHUNK = "chunk"
     THINKING = "thinking"
@@ -59,12 +59,6 @@ class BlockingPumpKind(StrEnum):
 
     DONE = "done"
     ERROR = "error"
-
-
-def coerce_stream_queue_kind(raw: StreamQueueKind | str) -> StreamQueueKind:
-    if isinstance(raw, StreamQueueKind):
-        return raw
-    return StreamQueueKind(raw)
 
 
 def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
@@ -106,7 +100,7 @@ def run_stream_drain_loop(
     and dispatches to callbacks. Keeps UI responsive via processEventsToIdle().
     Includes comprehensive error handling to prevent UI thread crashes.
 
-    Supported queue items (kind, *args); kind is :class:`StreamQueueKind` or the same legacy string:
+    Supported queue items (kind, *args); kind must be :class:`StreamQueueKind`:
     - (CHUNK, text): Applied via apply_chunk_fn(text, is_thinking=False).
     - (THINKING, text): Applied via apply_chunk_fn(text, is_thinking=True).
     - (STATUS, text): Passed to on_status_fn(text).
@@ -190,15 +184,18 @@ def run_stream_drain_loop(
                     data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
 
                     try:
-                        try:
-                            kind = coerce_stream_queue_kind(raw_kind)
-                        except (ValueError, TypeError) as ek:
+                        if not isinstance(raw_kind, StreamQueueKind):
+                            ek = TypeError(
+                                "stream queue item kind must be StreamQueueKind, got %s"
+                                % (type(raw_kind).__name__,)
+                            )
                             log.error("Invalid stream queue tag: %s", ek)
                             flush_buffers()
                             close_thinking()
                             on_error(format_error_payload(ek))
                             job_done[0] = True
                             break
+                        kind = raw_kind
 
                         if kind == StreamQueueKind.CHUNK:
                             if current_thinking:

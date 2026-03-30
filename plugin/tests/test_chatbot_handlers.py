@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.async_stream import StreamQueueKind, coerce_stream_queue_kind
+from plugin.framework.async_stream import StreamQueueKind
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.web_research import WebResearchTool
 from plugin.tests.testing_utils import MockContext, MockDocument
@@ -76,7 +76,7 @@ def test_do_send_direct_image():
                 def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
                     while not q.empty():
                         item = q.get()
-                        k = coerce_stream_queue_kind(item[0])
+                        k = item[0]
                         if k == StreamQueueKind.CHUNK:
                             apply_chunk(item[1])
                         elif k == StreamQueueKind.STREAM_DONE:
@@ -145,7 +145,7 @@ def test_do_send_direct_image_error():
                 def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
                     while not q.empty():
                         item = q.get()
-                        k = coerce_stream_queue_kind(item[0])
+                        k = item[0]
                         if k == StreamQueueKind.CHUNK:
                             apply_chunk(item[1])
                         elif k == StreamQueueKind.STREAM_DONE:
@@ -317,7 +317,7 @@ def test_run_web_research_invalid_json():
                 def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, ctx, stop_checker, **kwargs):
                     while not q.empty():
                         item = q.get()
-                        k = coerce_stream_queue_kind(item[0])
+                        k = item[0]
                         if k == StreamQueueKind.CHUNK:
                             apply_chunk(item[1])
                         elif k == StreamQueueKind.STREAM_DONE:

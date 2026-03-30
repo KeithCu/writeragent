@@ -5,7 +5,6 @@ from plugin.framework.async_stream import (
     BlockingPumpKind,
     StreamQueueKind,
     coerce_blocking_pump_kind,
-    coerce_stream_queue_kind,
     run_stream_drain_loop,
 )
 from plugin.framework.worker_pool import run_in_background
@@ -16,8 +15,8 @@ class DummyToolkit:
 
 def test_run_stream_drain_loop_basic():
     q = queue.Queue()
-    q.put(("chunk", "hello"))
-    q.put(("stream_done", None))
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
 
     toolkit = DummyToolkit()
     job_done = [False]
@@ -42,8 +41,8 @@ def test_run_stream_drain_loop_basic():
 
 def test_run_stream_drain_loop_thinking():
     q = queue.Queue()
-    q.put(("thinking", "hmmm"))
-    q.put(("stream_done", None))
+    q.put((StreamQueueKind.THINKING, "hmmm"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
 
     toolkit = DummyToolkit()
     job_done = [False]
@@ -64,7 +63,7 @@ def test_run_stream_drain_loop_thinking():
 
 def test_run_stream_drain_loop_error():
     q = queue.Queue()
-    q.put(("error", ValueError("test error")))
+    q.put((StreamQueueKind.ERROR, ValueError("test error")))
 
     toolkit = DummyToolkit()
     job_done = [False]
@@ -85,9 +84,9 @@ def test_run_stream_drain_loop_error():
 
 def test_run_stream_drain_loop_stop_checker_mid_batch():
     q = queue.Queue()
-    q.put(("chunk", "first "))
-    q.put(("chunk", "second "))
-    q.put(("chunk", "third "))
+    q.put((StreamQueueKind.CHUNK, "first "))
+    q.put((StreamQueueKind.CHUNK, "second "))
+    q.put((StreamQueueKind.CHUNK, "third "))
 
     toolkit = DummyToolkit()
     job_done = [False]
@@ -108,9 +107,9 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
 
     # To prevent the while loop in run_stream_drain_loop from hanging, we need to return True for stop_checker on the first run after setting `stop_flag` to True.
     # But since there is no `stream_done` at the end of the batch, the loop would just block on `q.get()`.
-    # Actually `q.put(("stream_done", None))` might not be executed when `stop_checker` flips mid stream.
+    # Actually `q.put((StreamQueueKind.STREAM_DONE, None))` might not be executed when `stop_checker` flips mid stream.
     # We should add a `stream_done` to break the loop normally if `stop_checker` somehow didn't stop the loop.
-    q.put(("stream_done", None))
+    q.put((StreamQueueKind.STREAM_DONE, None))
 
     run_stream_drain_loop(
         q, toolkit, job_done, apply_chunk,
@@ -128,7 +127,7 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
 
 def test_run_stream_drain_loop_callback_raises():
     q = queue.Queue()
-    q.put(("chunk", "hello"))
+    q.put((StreamQueueKind.CHUNK, "hello"))
 
     toolkit = DummyToolkit()
     job_done = [False]
@@ -151,8 +150,8 @@ def test_run_stream_drain_loop_callback_raises():
 
 def test_run_stream_drain_loop_tool_done_continue():
     q = queue.Queue()
-    q.put(("tool_done", "call_123", "web_search", '{"q": "answer"}', '{"status": "ok"}'))
-    q.put(("chunk", "next chunk"))
+    q.put((StreamQueueKind.TOOL_DONE, "call_123", "web_search", '{"q": "answer"}', '{"status": "ok"}'))
+    q.put((StreamQueueKind.CHUNK, "next chunk"))
 
     toolkit = None
     job_done = [False]
@@ -163,17 +162,17 @@ def test_run_stream_drain_loop_tool_done_continue():
         applied.append((t, is_thinking))
 
     def on_stream_done(item):
-        if item[0] == "tool_done":
+        if item[0] == StreamQueueKind.TOOL_DONE:
             tools_done.append(item)
             return False # Continue the loop!
-        elif item[0] == "stream_done":
+        elif item[0] == StreamQueueKind.STREAM_DONE:
             return True
         return False
 
     def noop(*args, **kwargs):
         pass
 
-    q.put(("stream_done", None))
+    q.put((StreamQueueKind.STREAM_DONE, None))
 
     run_stream_drain_loop(
         q, toolkit, job_done, apply_chunk,
@@ -188,7 +187,7 @@ def test_run_stream_drain_loop_tool_done_continue():
 
 def test_run_stream_drain_loop_stopped():
     q = queue.Queue()
-    q.put(("stopped",))
+    q.put((StreamQueueKind.STOPPED,))
 
     toolkit = DummyToolkit()
     job_done = [False]
@@ -235,8 +234,8 @@ def test_run_blocking_in_thread_error():
 
 def test_run_stream_drain_loop_toolkit_none():
     q = queue.Queue()
-    q.put(("chunk", "hello"))
-    q.put(("stream_done", None))
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
 
     job_done = [False]
 
@@ -262,8 +261,8 @@ def test_run_stream_drain_loop_toolkit_none():
 
 def test_run_stream_drain_loop_tool_thinking():
     q = queue.Queue()
-    q.put(("tool_thinking", "Searching google..."))
-    q.put(("stream_done", None))
+    q.put((StreamQueueKind.TOOL_THINKING, "Searching google..."))
+    q.put((StreamQueueKind.STREAM_DONE, None))
 
     job_done = [False]
 
@@ -288,8 +287,8 @@ def test_run_stream_drain_loop_tool_thinking():
 
     # With show_search_thinking=False, it should NOT apply the chunk
     q2 = queue.Queue()
-    q2.put(("tool_thinking", "Searching bing..."))
-    q2.put(("stream_done", None))
+    q2.put((StreamQueueKind.TOOL_THINKING, "Searching bing..."))
+    q2.put((StreamQueueKind.STREAM_DONE, None))
 
     job_done2 = [False]
     applied2 = []
@@ -308,14 +307,14 @@ def test_run_stream_drain_loop_tool_thinking():
 def test_run_stream_drain_loop_complex_interleaving():
     # Test a realistic stream involving thinking, chunking, status, tool_done, and final_done
     q = queue.Queue()
-    q.put(("status", "Searching..."))
-    q.put(("thinking", "I need to check the web."))
-    q.put(("thinking", " Looking up..."))
-    q.put(("chunk", "Based on my research, "))
-    q.put(("status", "Writing..."))
-    q.put(("chunk", "the answer is 42."))
-    q.put(("tool_done", "call_123", "web_search", '{"q": "answer"}', '{"status": "ok"}'))
-    q.put(("final_done", " That is all."))
+    q.put((StreamQueueKind.STATUS, "Searching..."))
+    q.put((StreamQueueKind.THINKING, "I need to check the web."))
+    q.put((StreamQueueKind.THINKING, " Looking up..."))
+    q.put((StreamQueueKind.CHUNK, "Based on my research, "))
+    q.put((StreamQueueKind.STATUS, "Writing..."))
+    q.put((StreamQueueKind.CHUNK, "the answer is 42."))
+    q.put((StreamQueueKind.TOOL_DONE, "call_123", "web_search", '{"q": "answer"}', '{"status": "ok"}'))
+    q.put((StreamQueueKind.FINAL_DONE, " That is all."))
 
     toolkit = None
     job_done = [False]
@@ -332,10 +331,10 @@ def test_run_stream_drain_loop_complex_interleaving():
 
     def stream_done(item):
         kind = item[0] if isinstance(item, tuple) else item
-        if kind == "tool_done":
+        if kind == StreamQueueKind.TOOL_DONE:
             tools_done.append(item)
             return True # stop the loop for testing purposes
-        if kind == "final_done":
+        if kind == StreamQueueKind.FINAL_DONE:
             applied.append((item[1], False))
             return True
         return False
@@ -377,8 +376,8 @@ def test_run_stream_drain_loop_complex_interleaving():
 
 def test_run_stream_drain_loop_next_tool_and_approval():
     q = queue.Queue()
-    q.put(("approval_required", "Do you allow file access?", "read_file", '{"path": "test.txt"}', "req_1"))
-    q.put(("next_tool",))
+    q.put((StreamQueueKind.APPROVAL_REQUIRED, "Do you allow file access?", "read_file", '{"path": "test.txt"}', "req_1"))
+    q.put((StreamQueueKind.NEXT_TOOL,))
 
     toolkit = None
     job_done = [False]
@@ -392,7 +391,7 @@ def test_run_stream_drain_loop_next_tool_and_approval():
 
     def stream_done(item):
         stream_done_items.append(item)
-        if item[0] == "next_tool":
+        if item[0] == StreamQueueKind.NEXT_TOOL:
             return True
         return False
 
@@ -410,10 +409,16 @@ def test_run_stream_drain_loop_next_tool_and_approval():
 
     assert job_done[0] is True
     assert len(stream_done_items) == 1
-    assert stream_done_items[0] == ("next_tool",)
+    assert stream_done_items[0] == (StreamQueueKind.NEXT_TOOL,)
 
     assert len(approvals) == 1
-    assert approvals[0] == ("approval_required", "Do you allow file access?", "read_file", '{"path": "test.txt"}', "req_1")
+    assert approvals[0] == (
+        StreamQueueKind.APPROVAL_REQUIRED,
+        "Do you allow file access?",
+        "read_file",
+        '{"path": "test.txt"}',
+        "req_1",
+    )
 
 
 def test_run_stream_drain_loop_connection_drop():
@@ -443,14 +448,14 @@ def test_run_stream_drain_loop_connection_drop():
     # Simulate a background thread that yields some chunks then raises an error
     def worker():
         try:
-            q.put(("chunk", "Hello "))
+            q.put((StreamQueueKind.CHUNK, "Hello "))
             time.sleep(0.01)
-            q.put(("chunk", "world"))
+            q.put((StreamQueueKind.CHUNK, "world"))
             time.sleep(0.01)
             # Simulate a connection drop halfway
             raise ConnectionError("Connection dropped unexpectedly")
         except Exception as e:
-            q.put(("error", e))
+            q.put((StreamQueueKind.ERROR, e))
 
     t = run_in_background(worker, daemon=False)
 
@@ -484,11 +489,27 @@ def test_run_stream_drain_loop_connection_drop():
     assert job_done[0] is True
 
 
-def test_coerce_stream_queue_kind():
-    assert coerce_stream_queue_kind(StreamQueueKind.CHUNK) is StreamQueueKind.CHUNK
-    assert coerce_stream_queue_kind("chunk") is StreamQueueKind.CHUNK
-    with pytest.raises(ValueError):
-        coerce_stream_queue_kind("not_a_valid_tag")
+def test_run_stream_drain_loop_rejects_string_kind():
+    """First tuple element must be StreamQueueKind, not a bare str matching the value."""
+    q = queue.Queue()
+    q.put(("chunk", "bad"))
+    job_done = [False]
+    errors = []
+
+    def on_error(e):
+        errors.append(e)
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda t, is_thinking: None,
+        on_stream_done=lambda i: True,
+        on_stopped=lambda: None,
+        on_error=on_error,
+    )
+    assert job_done[0] is True
+    assert len(errors) == 1
 
 
 def test_coerce_blocking_pump_kind():

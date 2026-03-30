@@ -43,6 +43,8 @@ sys.modules['com.sun.star.lang'] = com_mock
 sys.modules['com.sun.star.task'] = com_mock
 sys.modules['com.sun.star.frame'] = com_mock
 
+from plugin.framework.async_stream import StreamQueueKind  # noqa: E402
+
 # Now import the actual ToolCallingMixin class from the module
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin  # noqa: E402
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState  # noqa: E402
@@ -111,7 +113,7 @@ def test_stream_done_no_tools(mock_get_config, mock_drain_loop):
 
     results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        res = on_stream_done(('stream_done', {"content": "Hello World", "tool_calls": []}))
+        res = on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "Hello World", "tool_calls": []}))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -143,7 +145,7 @@ def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        res = on_stream_done(('stream_done', {"content": "Let me check.", "tool_calls": tool_calls}))
+        res = on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "Let me check.", "tool_calls": tool_calls}))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -160,10 +162,10 @@ def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
 
     panel._append_response.assert_called_with("\n")
 
-    # It should have enqueued the ('next_tool',) command to dispatch the first tool
+    # It should have enqueued NEXT_TOOL to dispatch the first tool
     assert not captured_q.empty()
     queued_item = captured_q.get()
-    assert queued_item == ("next_tool",)
+    assert queued_item == (StreamQueueKind.NEXT_TOOL,)
 
 
 @patch('plugin.modules.chatbot.tool_loop.run_stream_drain_loop')
@@ -173,7 +175,7 @@ def test_next_tool_advances_round(mock_get_config, mock_drain_loop):
 
     results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        res = on_stream_done(('next_tool',))
+        res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -201,12 +203,12 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": None, "tool_calls": tool_calls}))
         
         item = q.get()
-        assert item == ("next_tool",)
+        assert item == (StreamQueueKind.NEXT_TOOL,)
         
-        res = on_stream_done(('next_tool',))
+        res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -229,7 +231,7 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     assert not captured_q.empty()
     queued_item = captured_q.get()
 
-    assert queued_item[0] == "tool_done"
+    assert queued_item[0] == StreamQueueKind.TOOL_DONE
     assert queued_item[1] == "call_abc"
     assert queued_item[2] == "apply_document_content"
     assert queued_item[4] == '{"success": true}'
@@ -252,13 +254,13 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
         nonlocal captured_q
         captured_q = q
         
-        on_stream_done(('stream_done', {"content": "Calling tools", "tool_calls": tool_calls}))
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "Calling tools", "tool_calls": tool_calls}))
         assert len(session.messages) == 1
         
         item = q.get()
-        assert item == ("next_tool",)
+        assert item == (StreamQueueKind.NEXT_TOOL,)
         
-        res1 = on_stream_done(('next_tool',))
+        res1 = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res1)
         
         tool_done_item1 = q.get()
@@ -266,7 +268,7 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
         results.append(res2)
         
         item = q.get()
-        res3 = on_stream_done(('next_tool',))
+        res3 = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res3)
         
         tool_done_item2 = q.get()
@@ -304,12 +306,12 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
     ]
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": None, "tool_calls": tool_calls}))
         item = q.get()
-        assert item == ("next_tool",)
+        assert item == (StreamQueueKind.NEXT_TOOL,)
         
         panel.stop_requested = True
-        res = on_stream_done(('next_tool',))
+        res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -344,9 +346,9 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         nonlocal captured_q
         captured_q = q
-        on_stream_done(('stream_done', {"content": None, "tool_calls": tool_calls}))
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": None, "tool_calls": tool_calls}))
         item = q.get()
-        res = on_stream_done(('next_tool',))
+        res = on_stream_done((StreamQueueKind.NEXT_TOOL,))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -370,7 +372,7 @@ def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mo
 
     # Check the queue for tool_done and verify fallback values
     tool_done_item = captured_q.get()
-    assert tool_done_item[0] == "tool_done"
+    assert tool_done_item[0] == StreamQueueKind.TOOL_DONE
     assert tool_done_item[1] == ""  # Missing ID fallback
     assert tool_done_item[2] == "unknown" # Missing name fallback
     assert tool_done_item[3] == "not-valid-json" # Should be the original string
@@ -385,24 +387,24 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
         tool_calls_1 = [{"id": "call_1", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
-        on_stream_done(('stream_done', {"content": "step 1", "tool_calls": tool_calls_1}))
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "step 1", "tool_calls": tool_calls_1}))
         q.get()  # next_tool
-        on_stream_done(('next_tool',))
+        on_stream_done((StreamQueueKind.NEXT_TOOL,))
         
         # Simulate tool execution result
-        on_stream_done(('tool_done', "call_1", "dummy", "{}", '{"ok": true}', False))
+        on_stream_done((StreamQueueKind.TOOL_DONE, "call_1", "dummy", "{}", '{"ok": true}', False))
         q.get()  # next_tool
-        on_stream_done(('next_tool',))
+        on_stream_done((StreamQueueKind.NEXT_TOOL,))
         
         # Round 1
         tool_calls_2 = [{"id": "call_2", "type": "function", "function": {"name": "dummy", "arguments": "{}"}}]
-        on_stream_done(('stream_done', {"content": "step 2", "tool_calls": tool_calls_2}))
+        on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "step 2", "tool_calls": tool_calls_2}))
         q.get()  # next_tool
-        on_stream_done(('next_tool',))
+        on_stream_done((StreamQueueKind.NEXT_TOOL,))
         
-        on_stream_done(('tool_done', "call_2", "dummy", "{}", '{"ok": true}', False))
+        on_stream_done((StreamQueueKind.TOOL_DONE, "call_2", "dummy", "{}", '{"ok": true}', False))
         q.get()  # next_tool
-        on_stream_done(('next_tool',))
+        on_stream_done((StreamQueueKind.NEXT_TOOL,))
 
     mock_drain_loop.side_effect = mock_drain_impl
     execute_tool_mock = Mock()
@@ -420,7 +422,7 @@ def test_final_done_handling(mock_get_config, mock_drain_loop):
 
     results = []
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        res = on_stream_done(('final_done', 'This is the final word.'))
+        res = on_stream_done((StreamQueueKind.FINAL_DONE, 'This is the final word.'))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl
@@ -442,7 +444,7 @@ def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
     exc = Exception("Network failure")
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
-        res = on_stream_done(('error', exc))
+        res = on_stream_done((StreamQueueKind.ERROR, exc))
         results.append(res)
 
     mock_drain_loop.side_effect = mock_drain_impl

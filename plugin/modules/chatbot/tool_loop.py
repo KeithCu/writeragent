@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from plugin.modules.chatbot.panel import ChatSession
 
 from plugin.framework.async_stream import (
-    coerce_stream_queue_kind,
     run_stream_completion_async,
     run_stream_drain_loop,
     StreamQueueKind,
@@ -531,10 +530,9 @@ class ToolCallingMixin:
     def _create_event_from_stream_item(self: ToolLoopHost, item: Any) -> ToolLoopEvent | None:
         """Factory method to convert a raw stream item tuple into a ToolLoopEvent."""
         raw_kind = item[0] if isinstance(item, (tuple, list)) else item
-        try:
-            kind = coerce_stream_queue_kind(raw_kind)
-        except (ValueError, TypeError):
+        if not isinstance(raw_kind, StreamQueueKind):
             return None
+        kind = raw_kind
         data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
 
         if kind == StreamQueueKind.STREAM_DONE:
@@ -725,10 +723,7 @@ class ToolCallingMixin:
 
     def _handle_stream_completion(self: ToolLoopHost, item: Any) -> bool:
         raw_kind = item[0] if isinstance(item, (tuple, list)) else item
-        try:
-            kind = coerce_stream_queue_kind(raw_kind)
-        except (ValueError, TypeError):
-            kind = None
+        kind = raw_kind if isinstance(raw_kind, StreamQueueKind) else None
         if kind == StreamQueueKind.NEXT_TOOL and self.stop_requested and not self._sm_state.is_stopped:
             # Synchronize stop state into the state machine
             self._sm_state = dataclasses.replace(self._sm_state, is_stopped=True)
