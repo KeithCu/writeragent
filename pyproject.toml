@@ -38,6 +38,7 @@ dev = [
     "types-requests",
     "types-unopy",
     "pyright>=1.1.408",
+    "bandit[toml]>=1.8.0",
 ]
 
 [tool.mypy]
@@ -67,6 +68,12 @@ ignore_errors = true
 module = "sounddevice"
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]
+
+[tool.bandit]
+# Same scope as ty/mypy/pyright: extension code only (see Makefile `bandit` target).
+exclude_dirs = ["plugin/contrib", "plugin/tests"]
+# urllib is used intentionally for HTTP (see modules/http); B314 is ET on trusted small update.xml.
+skips = ["B310", "B314"]
 
 [tool.ty.src]
 # Optional: explicitly set what to include (defaults to common patterns)

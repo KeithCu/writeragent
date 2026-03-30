@@ -95,7 +95,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright
+        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright bandit
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -141,12 +141,12 @@ help:
 	@echo "  make check-setup            Verify dev stack (Python, LO, make, ...)"
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
-	@echo "  make test                   Run ty, mypy, pyright, then pytest + in-process LO tests (types before tests)"
-	@echo "  make test-run               Pytest + LO tests only (skip typecheck; for quick reruns)"
+	@echo "  make test                   Run ty, mypy, pyright, bandit, then pytest + in-process LO tests"
+	@echo "  make test-run               Pytest + LO tests only (skip typecheck/bandit; for quick reruns)"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
 	@echo "  make check                  Quick gate: ty only (also used implicitly before fast workflows)"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
-	@echo "  make mypy / make pyright    Single-tool runs (see docs/type-checking.md)"
+	@echo "  make mypy / make pyright / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
 	@echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────────
@@ -392,6 +392,7 @@ test-run:
 
 test:
 	@$(MAKE) typecheck
+	@$(MAKE) bandit
 	@$(MAKE) test-run
 
 # ── POC extension ───────────────────────────────────────────────────────────
@@ -448,3 +449,6 @@ mypy: manifest
 pyright: manifest
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
 	$(PYTHON) -m pyright
+
+bandit:
+	$(PYTHON) -m bandit -r plugin -c pyproject.toml --severity-level medium
