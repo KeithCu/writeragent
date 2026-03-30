@@ -395,24 +395,19 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
             logging.getLogger(__name__).warning("get_document_context_for_chat Writer error: %s", e)
             return "[Unable to read Writer document context. The document may be locked or initializing.]"
 
-        # Context Extensions (Memory, User Profile, Skills)
+        # Context Extensions (Memory, User Profile)
         # UNCOMMENT TO ENABLE:
         # try:
         #     if ctx:
         #         from plugin.modules.chatbot.memory import MemoryStore
-        #         from plugin.modules.chatbot.skills import SkillsStore
         #         m_store = MemoryStore(ctx)
         #         memory_text = m_store.read("memory")
         #         user_text = m_store.read("user")
-        #         s_store = SkillsStore(ctx)
-        #         skills = s_store.find_all_skills()
         #         ext_ctx = ""
         #         if user_text:
         #             ext_ctx += f"\n[USER PROFILE]\n{user_text}\n"
         #         if memory_text:
         #             ext_ctx += f"\n[AGENT MEMORY]\n{memory_text}\n"
-        #         if skills:
-        #             ext_ctx += f"\n[AVAILABLE SKILLS]\n" + ", ".join(s['name'] for s in skills) + "\n"
         #         if ext_ctx:
         #             full = ext_ctx + "\n" + full
         #             doc_len = len(full)

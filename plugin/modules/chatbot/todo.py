@@ -19,7 +19,7 @@ from plugin.contrib.todo_store import TodoStore, todo_tool, VALID_STATUSES
 class TodoTool(ToolBase):
     \"\"\"Session-local task list for complex multi-step work.
 
-    This mirrors hermes-agent's `todo` tool so that planning skills and
+    This mirrors hermes-agent's `todo` tool so that planning tools and
     prompts can be reused. Use it to break large tasks into smaller steps,
     track progress, and avoid losing context across long conversations.
     \"\"\"

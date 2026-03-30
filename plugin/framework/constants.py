@@ -82,11 +82,6 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
-SKILLS_GUIDANCE = """SKILLS:
-You have a procedural skills system (skills_list, skill_view, skill_manage).
-After completing a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, ask to save the approach as a skill using skill_manage.
-If you used a skill and found it outdated/wrong, patch it immediately using skill_manage."""
-
 #FIXME, One day the specialized domain list should be auto-generated.
 WRITER_SPECIALIZED_DELEGATION = """SPECIALIZED WRITER (nested tools):
 The default tool list hides deep Writer features (text frames, in-document charts,
@@ -116,7 +111,6 @@ TOOLS:
 {FORMATTING_RULES}
 
 # {MEMORY_GUIDANCE}
-# {SKILLS_GUIDANCE}
 """
 # NOTE: Experimental planning/todo guidance (commented out).
 # When the hermes-style `todo` tool is enabled, you can append guidance like:

@@ -21,7 +21,7 @@ Common touchpoints: [`plugin/main.py`](plugin/main.py) (MainJob, settings apply)
 - **Extend Selection** (Ctrl+Q) / **Edit Selection** (Ctrl+E): model continues or rewrites the selection.
 - **Chat with Document**: sidebar (multi-turn + tool-calling), persistent history (SQLite when available, else JSON under `writeragent_history.db.d/`), menu fallback (Writer: append; Calc: "AI Response" sheet).
 - **Settings**: endpoint, models, keys, timeouts, image provider, MCP, etc. Config: `writeragent.json` in LibreOffice user config. Examples: [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
-- **Experimental memory/skills** (file-backed `USER.md` / `MEMORY.md`, skills as `skills/<name>/SKILL.md`): [`plugin/modules/chatbot/memory.py`](plugin/modules/chatbot/memory.py), [`plugin/modules/chatbot/skills.py`](plugin/modules/chatbot/skills.py) (both stores raise **`ConfigError`** if the UNO user config directory cannot be resolved); tool registration commented out in [`plugin/modules/chatbot/__init__.py`](plugin/modules/chatbot/__init__.py). Writer prompt includes `MEMORY_GUIDANCE` / `SKILLS_GUIDANCE` in [`plugin/framework/constants.py`](plugin/framework/constants.py). Full description: [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md) (Hermes reference: automatic memory-in-prompt, frozen snapshot, periodic background review agent; WriterAgent injection not enabled).
+- **Experimental memory** (file-backed `USER.md` / `MEMORY.md`): [`plugin/modules/chatbot/memory.py`](plugin/modules/chatbot/memory.py) (store raises **`ConfigError`** if the UNO user config directory cannot be resolved). Writer prompt includes `MEMORY_GUIDANCE` in [`plugin/framework/constants.py`](plugin/framework/constants.py). Full description: [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md) (Hermes reference: automatic memory-in-prompt, frozen snapshot, periodic background review agent; WriterAgent injection not enabled).
 - **Images**: unified `generate_image` tool; `source_image='selection'` for edit. Contract: `ImageProvider.generate()` → `(paths_list, error_message_str)`. See [`plugin/framework/image_utils.py`](plugin/framework/image_utils.py), [docs/features/image-generation.md](docs/features/image-generation.md), [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 - **Calc** `=PROMPT()`: [`plugin/prompt_function.py`](plugin/prompt_function.py).
 - **MCP** (opt-in): localhost HTTP; document targeting via `X-Document-URL`. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md), [docs/mcp-protocol.md](docs/mcp-protocol.md).
@@ -222,7 +222,7 @@ Restart LibreOffice after deploy.
 ## 16. Optional / experimental / roadmap
 
 - **Future refactors**: centralized config read/write path in `config.py`; doc-type registry for `_do_send` in `panel_factory.py`.
-- **Experimental memory/skills**: [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md) (tools not registered until chatbot `auto_discover` is enabled).
+- **Experimental memory**: [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md) (tools not registered until chatbot `auto_discover` is enabled).
 - **Experimental todo** ([`plugin/contrib/todo_store.py`](plugin/contrib/todo_store.py), [`plugin/modules/chatbot/tools/todo.py`](plugin/modules/chatbot/tools/todo.py)): not registered; enable by uncommenting tool, wiring `TodoStore` on `ToolContext.services`, prompt note in `constants.py`.
 - **Roadmap** (high level): richer context, safer confirm workflows, Draw/Impress completeness, local-first, optional MCP handoff to external agents.
 
