@@ -74,12 +74,8 @@ def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
 
 
 StreamQueueItem: TypeAlias = tuple[StreamQueueKind, ...]
+BlockingPumpQueueItem: TypeAlias = tuple[BlockingPumpKind, Any]
 
-
-def coerce_blocking_pump_kind(raw: BlockingPumpKind | str) -> BlockingPumpKind:
-    if isinstance(raw, BlockingPumpKind):
-        return raw
-    return BlockingPumpKind(raw)
 
 def run_stream_drain_loop(
     q,
@@ -449,11 +445,14 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
     """
     Run a blocking function in a background thread while pumping UNO events
     on the main thread to keep the UI responsive.
-    
+
+    The internal queue uses :class:`BlockingPumpKind` as the first tuple
+    element only (same contract as :class:`StreamQueueKind` for the stream drain).
+
     Returns the result of the function or raises the exception encountered.
     """
-    q = queue.Queue()
-    
+    q: "queue.Queue[BlockingPumpQueueItem]" = queue.Queue()
+
     def worker():
         try:
             result = func(*args, **kwargs)
@@ -476,7 +475,13 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
             # Check for result without long block
             item = q.get(timeout=0.1)
             kind, data = item
-            kind = coerce_blocking_pump_kind(kind)
+            if not isinstance(kind, BlockingPumpKind):
+                ek = TypeError(
+                    "blocking pump queue item kind must be BlockingPumpKind, got %s"
+                    % (type(kind).__name__,)
+                )
+                log.error("Invalid blocking pump tag: %s", ek)
+                raise ek
             if kind == BlockingPumpKind.DONE:
                 return data
             if kind == BlockingPumpKind.ERROR:

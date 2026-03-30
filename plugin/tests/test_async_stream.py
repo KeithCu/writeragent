@@ -1,12 +1,7 @@
 import pytest
 import queue
 import time
-from plugin.framework.async_stream import (
-    BlockingPumpKind,
-    StreamQueueKind,
-    coerce_blocking_pump_kind,
-    run_stream_drain_loop,
-)
+from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 
 class DummyToolkit:
@@ -510,13 +505,6 @@ def test_run_stream_drain_loop_rejects_string_kind():
     )
     assert job_done[0] is True
     assert len(errors) == 1
-
-
-def test_coerce_blocking_pump_kind():
-    assert coerce_blocking_pump_kind(BlockingPumpKind.DONE) is BlockingPumpKind.DONE
-    assert coerce_blocking_pump_kind("done") is BlockingPumpKind.DONE
-    with pytest.raises(ValueError):
-        coerce_blocking_pump_kind("chunk")
 
 
 def test_run_stream_drain_loop_tool_call_and_tool_result():
