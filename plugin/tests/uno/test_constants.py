@@ -50,7 +50,9 @@ def test_get_greeting_for_document_draw():
 def test_get_chat_system_prompt_for_document_writer():
     model = MagicMock()
     model.supportsService.return_value = False
-    assert get_chat_system_prompt_for_document(model) == DEFAULT_CHAT_SYSTEM_PROMPT
+    prompt = get_chat_system_prompt_for_document(model)
+    from plugin.framework.constants import DEFAULT_CHAT_SYSTEM_PROMPT
+    assert prompt == DEFAULT_CHAT_SYSTEM_PROMPT
     assert get_chat_system_prompt_for_document(model, "extra") == DEFAULT_CHAT_SYSTEM_PROMPT + "\n\nextra"
 
 def test_get_chat_system_prompt_for_document_calc():

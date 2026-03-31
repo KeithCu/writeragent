@@ -28,20 +28,6 @@ log = logging.getLogger("writeragent.writer")
 # in-place tool-switching approach (False).
 USE_SUB_AGENT = True
 
-# Available domains matching the specialized_domain attributes of subclasses
-_AVAILABLE_DOMAINS = [
-    "styles",
-    "layout",
-    "embedded",
-    "shapes",
-    "charts",
-    "indexes",
-    "fields",
-    "bookmarks",
-    "tracking",
-    "images",
-]
-
 
 class DelegateToSpecializedWriter(ToolBase):
     """Gateway tool to delegate tasks to specialized Writer toolsets.
@@ -58,24 +44,34 @@ class DelegateToSpecializedWriter(ToolBase):
         "bookmarks, track changes (tracking), or in-document image work "
         "(domain=images: generate, list, insert, replace images, etc.)."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "domain": {
-                "type": "string",
-                "enum": _AVAILABLE_DOMAINS,
-                "description": "The specialized domain to activate.",
+
+    def __init__(self):
+        super().__init__()
+        from plugin.modules.writer.base import ToolWriterSpecialBase
+        domains = []
+        for cls in ToolWriterSpecialBase.__subclasses__():
+            if getattr(cls, "specialized_domain", None):
+                domains.append(cls.specialized_domain)
+
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "enum": domains,
+                    "description": "The specialized domain to activate.",
+                },
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "A detailed description of the task for the specialized "
+                        "agent to accomplish."
+                    ),
+                },
             },
-            "task": {
-                "type": "string",
-                "description": (
-                    "A detailed description of the task for the specialized "
-                    "agent to accomplish."
-                ),
-            },
-        },
-        "required": ["domain", "task"],
-    }
+            "required": ["domain", "task"],
+        }
+
     uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"  # Available to the main agent
     is_mutation = True

@@ -82,18 +82,17 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
-#FIXME, One day the specialized domain list should be auto-generated.
-WRITER_SPECIALIZED_DELEGATION = """SPECIALIZED WRITER (nested tools):
+WRITER_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED WRITER (nested tools):
 The default tool list hides deep Writer features (text frames, in-document charts,
 images on the drawing layer, TOC/index refresh, field refresh, bookmarks, OLE, etc.).
 When the user needs those, call delegate_to_specialized_writer_toolset with:
-domain one of: styles, layout, embedded, shapes, charts, indexes, fields, bookmarks, tracking, images —
+domain one of: {domains} —
 and a clear task string. The sub-agent only sees tools for that domain.
 For AI image generation/editing tools (generate_image, list_images, …), use domain=images."""
 
-DEFAULT_CHAT_SYSTEM_PROMPT = f"""{CORE_DIRECTIVES}
+DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""{CORE_DIRECTIVES}
 
-{WRITER_SPECIALIZED_DELEGATION}
+{{specialized_delegation}}
 
 TOOLS:
 - apply_document_content: Write HTML. Provide content and old_content. Special old_content: '' or '_BEGIN_' = beginning, '_END_' = end, '_SELECTION_' = selection; else find-and-replace. Full-doc replace: old_content=full doc, content=new doc.
@@ -112,6 +111,9 @@ TOOLS:
 
 # {MEMORY_GUIDANCE}
 """
+
+# We dynamically set this later when calling get_chat_system_prompt_for_document
+DEFAULT_CHAT_SYSTEM_PROMPT = ""
 # NOTE: Experimental planning/todo guidance (commented out).
 # When the hermes-style `todo` tool is enabled, you can append guidance like:
 #
@@ -218,7 +220,21 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     elif is_draw(model):
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
     else:
-        base = DEFAULT_CHAT_SYSTEM_PROMPT
+        # Generate domain list dynamically
+        from plugin.modules.writer.base import ToolWriterSpecialBase
+        domains = []
+        for cls in ToolWriterSpecialBase.__subclasses__():
+            if cls.specialized_domain:
+                domains.append(cls.specialized_domain)
+        domains_str = ", ".join(domains)
+
+        delegation = WRITER_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
+        base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+
+        # update the static variable once it's lazily generated so tests and imports works
+        global DEFAULT_CHAT_SYSTEM_PROMPT
+        if not DEFAULT_CHAT_SYSTEM_PROMPT:
+            DEFAULT_CHAT_SYSTEM_PROMPT = base
 
     if ctx:
         try:

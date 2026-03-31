@@ -28,11 +28,6 @@ log = logging.getLogger("writeragent.calc")
 # in-place tool-switching approach (False).
 USE_SUB_AGENT = True
 
-# Available domains matching the specialized_domain attributes of subclasses
-_AVAILABLE_DOMAINS = [
-    "images",
-]
-
 
 class DelegateToSpecializedCalc(ToolBase):
     """Gateway tool to delegate tasks to specialized Calc toolsets.
@@ -46,24 +41,34 @@ class DelegateToSpecializedCalc(ToolBase):
         "Delegates a specialized task to a sub-agent with a focused toolset. "
         "Use this for complex Calc operations like manipulating images."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "domain": {
-                "type": "string",
-                "enum": _AVAILABLE_DOMAINS,
-                "description": "The specialized domain to activate.",
+
+    def __init__(self):
+        super().__init__()
+        from plugin.modules.calc.base import ToolCalcSpecialBase
+        domains = []
+        for cls in ToolCalcSpecialBase.__subclasses__():
+            if getattr(cls, "specialized_domain", None):
+                domains.append(cls.specialized_domain)
+
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "enum": domains,
+                    "description": "The specialized domain to activate.",
+                },
+                "task": {
+                    "type": "string",
+                    "description": (
+                        "A detailed description of the task for the specialized "
+                        "agent to accomplish."
+                    ),
+                },
             },
-            "task": {
-                "type": "string",
-                "description": (
-                    "A detailed description of the task for the specialized "
-                    "agent to accomplish."
-                ),
-            },
-        },
-        "required": ["domain", "task"],
-    }
+            "required": ["domain", "task"],
+        }
+
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"  # Available to the main agent
     is_mutation = True
