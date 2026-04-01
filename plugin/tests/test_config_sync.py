@@ -209,6 +209,10 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config(self.ctx, "calc_prompt_max_tokens"), 70)
         self.assertEqual(get_config(self.ctx, "chat_direct_image"), False)
 
+        # LRU list keys missing from JSON default to [] (including endpoint-scoped keys)
+        self.assertEqual(get_config(self.ctx, "prompt_lru"), [])
+        self.assertEqual(get_config(self.ctx, "model_lru@http://127.0.0.1:5000"), [])
+
         # Test that unknown keys now raise ConfigError (strict schema enforcement)
         # Unknown string key -> raises
         with self.assertRaises(ConfigError):

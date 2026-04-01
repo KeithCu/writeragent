@@ -53,8 +53,29 @@ CONFIG_FILENAME = "writeragent.json"
 
 # MCP server: mcp_enabled (bool, default False), mcp_port (int, default 8765)
 
-# Max items for all LRU lists (model_lru, prompt_lru, image_model_lru, endpoint_lru).
+# Max items for all LRU lists; base names also listed in _LRU_LIST_CONFIG_KEY_PREFIXES for get_config defaults.
 LRU_MAX_ITEMS = 10
+
+# Keys used by populate_combobox_with_lru / update_lru_history (including endpoint-scoped "name@url").
+_LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset(
+    {
+        "model_lru",
+        "prompt_lru",
+        "image_model_lru",
+        "audio_model_lru",
+        "endpoint_lru",
+        "image_base_size_lru",
+    }
+)
+
+
+def _is_lru_list_config_key(key: str) -> bool:
+    if key in _LRU_LIST_CONFIG_KEY_PREFIXES:
+        return True
+    for prefix in _LRU_LIST_CONFIG_KEY_PREFIXES:
+        if key.startswith(prefix + "@"):
+            return True
+    return False
 
 # Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; api.py adds /v1 (or /api for OpenWebUI).
 # Uncomment any FOSS-focused line below once the base URL is verified OpenAI-compatible.
@@ -328,6 +349,9 @@ def _resolve_default(key):
     val = _get_schema_default(key)
     if val is not None:
         return val
+
+    if _is_lru_list_config_key(key):
+        return []
 
     # Get from default config object
     default_config = WriterAgentConfig()
