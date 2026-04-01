@@ -23,6 +23,7 @@ track_changes_reject_all, and track_changes_show.
 """
 
 import logging
+from typing import Any
 
 from plugin.modules.writer.base import WriterAgentSpecialTracking
 
@@ -107,7 +108,7 @@ class TrackChangesList(WriterAgentSpecialTracking):
             index = 0
             while enum.hasMoreElements():
                 redline = enum.nextElement()
-                entry = {"index": index}
+                entry: dict[str, Any] = {"index": index}
                 for prop in (
                     "RedlineType", "RedlineAuthor",
                     "RedlineComment", "RedlineIdentifier",
