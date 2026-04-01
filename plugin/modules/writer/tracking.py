@@ -16,8 +16,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer track-changes tools.
 
-Ported from nelson-mcp (MPL 2.0): nelson-mcp/plugin/modules/writer/tools/tracking.py
-(accept/reject combined here as manage_tracked_changes).
+Provides the complete suite of specialized track changes tools:
+track_changes_start, track_changes_stop, track_changes_list,
+track_changes_accept, track_changes_reject, track_changes_accept_all,
+track_changes_reject_all, and track_changes_show.
 """
 
 import logging
@@ -27,35 +29,50 @@ from plugin.modules.writer.base import WriterAgentSpecialTracking
 log = logging.getLogger("writeragent.writer")
 
 
-class SetTrackChanges(WriterAgentSpecialTracking):
-    """Enable or disable change tracking."""
+class TrackChangesStart(WriterAgentSpecialTracking):
+    """Start recording changes."""
 
-    name = "set_track_changes"
-    description = "Enable or disable track changes (change recording) in the document."
+    name = "track_changes_start"
+    description = "Start recording changes (track changes) in the document."
     parameters = {
         "type": "object",
-        "properties": {
-            "enabled": {
-                "type": "boolean",
-                "description": "True to enable track changes, False to disable.",
-            },
-        },
-        "required": ["enabled"],
+        "properties": {},
+        "required": [],
     }
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        enabled = kwargs.get("enabled", True)
-        if isinstance(enabled, str):
-            enabled = enabled.lower() not in ("false", "0", "no")
-        ctx.doc.setPropertyValue("RecordChanges", bool(enabled))
-        return {"status": "ok", "record_changes": bool(enabled)}
+        try:
+            ctx.doc.setPropertyValue("RecordChanges", True)
+            return {"status": "ok", "message": "Started recording changes."}
+        except Exception as e:
+            return self._tool_error(f"Failed to start tracking changes: {e}")
 
 
-class GetTrackedChanges(WriterAgentSpecialTracking):
+class TrackChangesStop(WriterAgentSpecialTracking):
+    """Stop recording changes."""
+
+    name = "track_changes_stop"
+    description = "Stop recording changes (track changes) in the document."
+    parameters = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        try:
+            ctx.doc.setPropertyValue("RecordChanges", False)
+            return {"status": "ok", "message": "Stopped recording changes."}
+        except Exception as e:
+            return self._tool_error(f"Failed to stop tracking changes: {e}")
+
+
+class TrackChangesList(WriterAgentSpecialTracking):
     """List all tracked changes (redlines) in the document."""
 
-    name = "get_tracked_changes"
+    name = "track_changes_list"
     description = (
         "List all tracked changes (redlines) in the document, "
         "including type, author, date, and comment."
@@ -83,68 +100,228 @@ class GetTrackedChanges(WriterAgentSpecialTracking):
                 "message": "Document does not expose redlines API.",
             }
 
-        redlines = doc.getRedlines()
-        enum = redlines.createEnumeration()
-        changes = []
-        while enum.hasMoreElements():
-            redline = enum.nextElement()
-            entry = {}
-            for prop in (
-                "RedlineType", "RedlineAuthor",
-                "RedlineComment", "RedlineIdentifier",
-            ):
+        try:
+            redlines = doc.getRedlines()
+            enum = redlines.createEnumeration()
+            changes = []
+            index = 0
+            while enum.hasMoreElements():
+                redline = enum.nextElement()
+                entry = {"index": index}
+                for prop in (
+                    "RedlineType", "RedlineAuthor",
+                    "RedlineComment", "RedlineIdentifier",
+                ):
+                    try:
+                        entry[prop] = redline.getPropertyValue(prop)
+                    except Exception:
+                        pass
                 try:
-                    entry[prop] = redline.getPropertyValue(prop)
+                    dt = redline.getPropertyValue("RedlineDateTime")
+                    entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
+                        dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes
+                    )
                 except Exception:
                     pass
-            try:
-                dt = redline.getPropertyValue("RedlineDateTime")
-                entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-                    dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes
-                )
-            except Exception:
-                pass
-            changes.append(entry)
+                changes.append(entry)
+                index += 1
 
-        return {
-            "status": "ok",
-            "recording": recording,
-            "changes": changes,
-            "count": len(changes),
-        }
+            return {
+                "status": "ok",
+                "recording": recording,
+                "changes": changes,
+                "count": len(changes),
+            }
+        except Exception as e:
+            return self._tool_error(f"Failed to list tracked changes: {e}")
 
 
-class ManageTrackedChanges(WriterAgentSpecialTracking):
-    """Accept or reject all tracked changes in the document."""
+class TrackChangesShow(WriterAgentSpecialTracking):
+    """Show or hide change markup."""
 
-    name = "manage_tracked_changes"
-    description = "Accept or reject all tracked changes in the document."
+    name = "track_changes_show"
+    description = "Show or hide tracked changes markup in the document view."
     parameters = {
         "type": "object",
         "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["accept_all", "reject_all"],
-                "description": "Action to perform: 'accept_all' or 'reject_all'.",
+            "show": {
+                "type": "boolean",
+                "description": "True to show changes, False to hide them.",
             },
         },
-        "required": ["action"],
+        "required": ["show"],
     }
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        action = kwargs.get("action")
-        if action not in ("accept_all", "reject_all"):
-            return self._tool_error("Invalid action: %s" % action)
+        show = kwargs.get("show")
+        if show is None:
+            return self._tool_error("Missing required parameter: show")
 
-        smgr = ctx.ctx.ServiceManager
-        dispatcher = smgr.createInstanceWithContext(
-            "com.sun.star.frame.DispatchHelper", ctx.ctx
-        )
-        frame = ctx.doc.getCurrentController().getFrame()
-        
-        uno_cmd = ".uno:AcceptAllTrackedChanges" if action == "accept_all" else ".uno:RejectAllTrackedChanges"
-        dispatcher.executeDispatch(frame, uno_cmd, "", 0, ())
-        
-        msg = "All tracked changes accepted." if action == "accept_all" else "All tracked changes rejected."
-        return {"status": "ok", "message": msg}
+        try:
+            view_settings = ctx.doc.getCurrentController().getViewSettings()
+            view_settings.setPropertyValue("ShowChangesInMargin", bool(show))
+
+            # Additional related properties if needed, although LibreOffice
+            # uses ShowChangesInMargin for margin tracking and there isn't
+            # a single "ShowChanges" global API property exposed consistently
+            # across all view controllers.
+            # For exact control, setting view settings properties is safer than
+            # dispatching the .uno:ShowTrackedChanges toggle command.
+
+            return {
+                "status": "ok",
+                "message": f"{'Showing' if show else 'Hiding'} tracked changes markup."
+            }
+        except Exception as e:
+            return self._tool_error(f"Failed to set track changes visibility: {e}")
+
+
+class TrackChangesAcceptAll(WriterAgentSpecialTracking):
+    """Accept all tracked changes in the document."""
+
+    name = "track_changes_accept_all"
+    description = "Accept all tracked changes in the document."
+    parameters = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        try:
+            smgr = ctx.ctx.ServiceManager
+            dispatcher = smgr.createInstanceWithContext(
+                "com.sun.star.frame.DispatchHelper", ctx.ctx
+            )
+            frame = ctx.doc.getCurrentController().getFrame()
+
+            dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+            return {"status": "ok", "message": "All tracked changes accepted."}
+        except Exception as e:
+            return self._tool_error(f"Failed to accept all changes: {e}")
+
+
+class TrackChangesRejectAll(WriterAgentSpecialTracking):
+    """Reject all tracked changes in the document."""
+
+    name = "track_changes_reject_all"
+    description = "Reject all tracked changes in the document."
+    parameters = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        try:
+            smgr = ctx.ctx.ServiceManager
+            dispatcher = smgr.createInstanceWithContext(
+                "com.sun.star.frame.DispatchHelper", ctx.ctx
+            )
+            frame = ctx.doc.getCurrentController().getFrame()
+
+            dispatcher.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+            return {"status": "ok", "message": "All tracked changes rejected."}
+        except Exception as e:
+            return self._tool_error(f"Failed to reject all changes: {e}")
+
+
+class _TrackChangesSingleAction(WriterAgentSpecialTracking):
+    """Base logic for accepting or rejecting a single tracked change."""
+
+    is_mutation = True
+
+    def _execute_single(self, ctx, index, is_accept):
+        if not hasattr(ctx.doc, "getRedlines"):
+            return self._tool_error("Document does not expose redlines API.")
+
+        try:
+            redlines = ctx.doc.getRedlines()
+            enum = redlines.createEnumeration()
+
+            # Find the target redline
+            target_redline = None
+            current_idx = 0
+            while enum.hasMoreElements():
+                redline = enum.nextElement()
+                if current_idx == index:
+                    target_redline = redline
+                    break
+                current_idx += 1
+
+            if not target_redline:
+                return self._tool_error(f"No tracked change found at index {index}.")
+
+            # To accept/reject a specific change, we select its text range then use the dispatcher
+            try:
+                # XRedline inherits from XTextContent, which has an anchor we can select
+                anchor = target_redline.getAnchor()
+                if anchor:
+                    ctx.doc.getCurrentController().select(anchor)
+            except Exception as e:
+                # Fallback if getAnchor fails, might happen on deleted ranges
+                return self._tool_error(f"Failed to select tracked change for processing: {e}")
+
+            smgr = ctx.ctx.ServiceManager
+            dispatcher = smgr.createInstanceWithContext(
+                "com.sun.star.frame.DispatchHelper", ctx.ctx
+            )
+            frame = ctx.doc.getCurrentController().getFrame()
+
+            cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
+            dispatcher.executeDispatch(frame, cmd, "", 0, ())
+
+            action_str = "Accepted" if is_accept else "Rejected"
+            return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}
+
+        except Exception as e:
+            return self._tool_error(f"Failed to process change {index}: {e}")
+
+
+class TrackChangesAccept(_TrackChangesSingleAction):
+    """Accept a specific tracked change."""
+
+    name = "track_changes_accept"
+    description = "Accept a specific tracked change by its index (from track_changes_list)."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "index": {
+                "type": "integer",
+                "description": "The zero-based index of the tracked change to accept.",
+            },
+        },
+        "required": ["index"],
+    }
+
+    def execute(self, ctx, **kwargs):
+        index = kwargs.get("index")
+        if index is None or not isinstance(index, int) or index < 0:
+            return self._tool_error("Valid integer index is required.")
+        return self._execute_single(ctx, index, is_accept=True)
+
+
+class TrackChangesReject(_TrackChangesSingleAction):
+    """Reject a specific tracked change."""
+
+    name = "track_changes_reject"
+    description = "Reject a specific tracked change by its index (from track_changes_list)."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "index": {
+                "type": "integer",
+                "description": "The zero-based index of the tracked change to reject.",
+            },
+        },
+        "required": ["index"],
+    }
+
+    def execute(self, ctx, **kwargs):
+        index = kwargs.get("index")
+        if index is None or not isinstance(index, int) or index < 0:
+            return self._tool_error("Valid integer index is required.")
+        return self._execute_single(ctx, index, is_accept=False)

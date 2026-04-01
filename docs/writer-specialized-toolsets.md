@@ -341,9 +341,9 @@ The following items align with a fuller UNO/DevGuide coverage map; they are **no
 - **Limits:** Tune `max_steps` / timeouts for the sub-agent; add telemetry on which domains are used.
 - **Documentation:** Keep [`AGENTS.md`](../../AGENTS.md) in sync when behavior or entry points change.
 
-### 5.10 Track changes (planned specialized toolset)
+### 5.10 Track changes (specialized toolset)
 
-**Status:** Not implemented. Treat this like other **specialized** domains: keep **record / review / accept-reject** operations off the default Writer tool list, and expose them only after `delegate_to_specialized_writer_toolset` enters a **track_changes** (or **review**) domain—same progressive-disclosure story as fields, indexes, tables, etc.
+**Status:** Implemented (`plugin/modules/writer/tracking.py`). Treat this like other **specialized** domains: keep **record / review / accept-reject** operations off the default Writer tool list, and expose them only after `delegate_to_specialized_writer_toolset` enters a **track_changes** (or **review**) domain—same progressive-disclosure story as fields, indexes, tables, etc.
 
 **Product fit:** Lets the model turn recording on before bulk edits, list or filter changes by author/type, accept or reject individually or in bulk, and toggle markup visibility—without bloating every chat turn with long schemas.
 
@@ -366,7 +366,7 @@ The following items align with a fuller UNO/DevGuide coverage map; they are **no
 | `XChange` | `accept()` | Accept this change. |
 | `XChange` | `reject()` | Reject this change. |
 
-When implementing, align service names and includes with the installed LibreOffice SDK (e.g. `com.sun.star.text.*` track-changes interfaces) and add smoke tests against a doc with known revisions.
+For specific UNO API implementation details used by WriterAgent, see [Writer Tracking API Reference](./writer-tracking-api-reference.md).
 
 ---
 

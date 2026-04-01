@@ -1,0 +1,186 @@
+import sys
+import types
+from unittest.mock import MagicMock
+
+# Mock UNO modules before any imports
+sys.modules['uno'] = MagicMock()
+sys.modules['unohelper'] = MagicMock()
+sys.modules['com.sun.star.text'] = types.ModuleType('com.sun.star.text')
+sys.modules['com.sun.star.util'] = types.ModuleType('com.sun.star.util')
+sys.modules['com.sun.star.document'] = types.ModuleType('com.sun.star.document')
+sys.modules['com.sun.star.frame'] = types.ModuleType('com.sun.star.frame')
+sys.modules['com.sun.star.beans'] = types.ModuleType('com.sun.star.beans')
+
+from plugin.modules.writer.tracking import (
+    TrackChangesStart,
+    TrackChangesStop,
+    TrackChangesList,
+    TrackChangesShow,
+    TrackChangesAcceptAll,
+    TrackChangesRejectAll,
+    TrackChangesAccept,
+    TrackChangesReject,
+)
+
+def _create_mock_ctx():
+    ctx = MagicMock()
+
+    doc = MagicMock()
+    # Mocking hasattr for getRedlines
+    doc.hasattr.side_effect = lambda name: name == "getRedlines"
+
+    # Mock property value getter/setter
+    props = {"RecordChanges": False}
+    def _set_prop(name, val):
+        props[name] = val
+    def _get_prop(name):
+        return props[name]
+    doc.setPropertyValue.side_effect = _set_prop
+    doc.getPropertyValue.side_effect = _get_prop
+
+    ctx.doc = doc
+
+    # Mock dispatcher and frame for accept/reject tests
+    dispatcher = MagicMock()
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = dispatcher
+    ctx.ctx.ServiceManager = smgr
+
+    frame = MagicMock()
+    controller = MagicMock()
+    controller.getFrame.return_value = frame
+
+    view_settings = MagicMock()
+    controller.getViewSettings.return_value = view_settings
+
+    doc.getCurrentController.return_value = controller
+
+    return ctx, dispatcher, frame, view_settings
+
+def test_track_changes_start():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesStart()
+
+    res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert "Started" in res["message"]
+    assert ctx.doc.getPropertyValue("RecordChanges") is True
+
+def test_track_changes_stop():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesStop()
+
+    res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert "Stopped" in res["message"]
+    assert ctx.doc.getPropertyValue("RecordChanges") is False
+
+def test_track_changes_list():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesList()
+
+    # Mock redlines
+    redline_mock = MagicMock()
+    def _get_redline_prop(prop):
+        if prop == "RedlineDateTime":
+            dt = MagicMock()
+            dt.Year = 2024
+            dt.Month = 2
+            dt.Day = 15
+            dt.Hours = 10
+            dt.Minutes = 30
+            return dt
+        return {
+            "RedlineType": "Insert",
+            "RedlineAuthor": "Test Author",
+            "RedlineComment": "Test Comment",
+            "RedlineIdentifier": "id_1"
+        }.get(prop)
+    redline_mock.getPropertyValue.side_effect = _get_redline_prop
+
+    enum_mock = MagicMock()
+    enum_mock.hasMoreElements.side_effect = [True, False]
+    enum_mock.nextElement.return_value = redline_mock
+
+    ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+
+    res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert len(res["changes"]) == 1
+
+    change = res["changes"][0]
+    assert change["index"] == 0
+    assert change["RedlineType"] == "Insert"
+    assert change["RedlineAuthor"] == "Test Author"
+    assert change["date"] == "2024-02-15 10:30"
+
+def test_track_changes_show():
+    ctx, _, _, view_settings = _create_mock_ctx()
+    tool = TrackChangesShow()
+
+    # Missing arg
+    res_err = tool.execute(ctx)
+    assert res_err["status"] == "error"
+    assert "Missing required parameter" in res_err["message"]
+
+    # valid
+    res = tool.execute(ctx, show=True)
+    assert res["status"] == "ok"
+    view_settings.setPropertyValue.assert_called_with("ShowChangesInMargin", True)
+
+def test_track_changes_accept_all():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = TrackChangesAcceptAll()
+
+    res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+def test_track_changes_reject_all():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = TrackChangesRejectAll()
+
+    res = tool.execute(ctx)
+    assert res["status"] == "ok"
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+
+def test_track_changes_accept():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = TrackChangesAccept()
+
+    # Mock redlines
+    redline_mock = MagicMock()
+    anchor_mock = MagicMock()
+    redline_mock.getAnchor.return_value = anchor_mock
+
+    enum_mock = MagicMock()
+    enum_mock.hasMoreElements.side_effect = [True, False]
+    enum_mock.nextElement.return_value = redline_mock
+
+    ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+
+    res = tool.execute(ctx, index=0)
+    assert res["status"] == "ok"
+    ctx.doc.getCurrentController().select.assert_called_with(anchor_mock)
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
+
+def test_track_changes_reject():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = TrackChangesReject()
+
+    # Mock redlines
+    redline_mock = MagicMock()
+    anchor_mock = MagicMock()
+    redline_mock.getAnchor.return_value = anchor_mock
+
+    enum_mock = MagicMock()
+    enum_mock.hasMoreElements.side_effect = [True, False]
+    enum_mock.nextElement.return_value = redline_mock
+
+    ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+
+    res = tool.execute(ctx, index=0)
+    assert res["status"] == "ok"
+    ctx.doc.getCurrentController().select.assert_called_with(anchor_mock)
+    dispatcher.executeDispatch.assert_called_with(frame, ".uno:RejectTrackedChange", "", 0, ())
