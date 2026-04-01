@@ -20,10 +20,16 @@ Provides the complete suite of specialized track changes tools:
 track_changes_start, track_changes_stop, track_changes_list,
 track_changes_accept, track_changes_reject, track_changes_accept_all,
 track_changes_reject_all, and track_changes_show.
+
+Also includes tools for managing document comments (Annotations).
 """
 
+import datetime
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, cast, Any
+
+if TYPE_CHECKING:
+    from com.sun.star.text import TextDocument, XTextDocument
 
 from plugin.modules.writer.base import WriterAgentSpecialTracking
 
@@ -162,16 +168,16 @@ class TrackChangesShow(WriterAgentSpecialTracking):
         try:
             view_settings = ctx.doc.getCurrentController().getViewSettings()
             view_settings.setPropertyValue("ShowChangesInMargin", bool(show))
-
-            # Additional related properties if needed, although LibreOffice
-            # uses ShowChangesInMargin for margin tracking and there isn't
-            # a single "ShowChanges" global API property exposed consistently
+            
+            # Additional related properties if needed, although LibreOffice 
+            # uses ShowChangesInMargin for margin tracking and there isn't 
+            # a single "ShowChanges" global API property exposed consistently 
             # across all view controllers.
-            # For exact control, setting view settings properties is safer than
+            # For exact control, setting view settings properties is safer than 
             # dispatching the .uno:ShowTrackedChanges toggle command.
-
+            
             return {
-                "status": "ok",
+                "status": "ok", 
                 "message": f"{'Showing' if show else 'Hiding'} tracked changes markup."
             }
         except Exception as e:
@@ -197,7 +203,7 @@ class TrackChangesAcceptAll(WriterAgentSpecialTracking):
                 "com.sun.star.frame.DispatchHelper", ctx.ctx
             )
             frame = ctx.doc.getCurrentController().getFrame()
-
+            
             dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
             return {"status": "ok", "message": "All tracked changes accepted."}
         except Exception as e:
@@ -223,7 +229,7 @@ class TrackChangesRejectAll(WriterAgentSpecialTracking):
                 "com.sun.star.frame.DispatchHelper", ctx.ctx
             )
             frame = ctx.doc.getCurrentController().getFrame()
-
+            
             dispatcher.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
             return {"status": "ok", "message": "All tracked changes rejected."}
         except Exception as e:
@@ -232,17 +238,17 @@ class TrackChangesRejectAll(WriterAgentSpecialTracking):
 
 class _TrackChangesSingleAction(WriterAgentSpecialTracking):
     """Base logic for accepting or rejecting a single tracked change."""
-
+    
     is_mutation = True
 
     def _execute_single(self, ctx, index, is_accept):
         if not hasattr(ctx.doc, "getRedlines"):
             return self._tool_error("Document does not expose redlines API.")
-
+            
         try:
             redlines = ctx.doc.getRedlines()
             enum = redlines.createEnumeration()
-
+            
             # Find the target redline
             target_redline = None
             current_idx = 0
@@ -252,7 +258,7 @@ class _TrackChangesSingleAction(WriterAgentSpecialTracking):
                     target_redline = redline
                     break
                 current_idx += 1
-
+                
             if not target_redline:
                 return self._tool_error(f"No tracked change found at index {index}.")
 
@@ -271,13 +277,13 @@ class _TrackChangesSingleAction(WriterAgentSpecialTracking):
                 "com.sun.star.frame.DispatchHelper", ctx.ctx
             )
             frame = ctx.doc.getCurrentController().getFrame()
-
+            
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
             dispatcher.executeDispatch(frame, cmd, "", 0, ())
-
+            
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}
-
+            
         except Exception as e:
             return self._tool_error(f"Failed to process change {index}: {e}")
 
@@ -302,7 +308,7 @@ class TrackChangesAccept(_TrackChangesSingleAction):
         index = kwargs.get("index")
         if index is None or not isinstance(index, int) or index < 0:
             return self._tool_error("Valid integer index is required.")
-        return self._execute_single(ctx, index, is_accept=True)
+        return self._execute_single(ctx, int(index), is_accept=True)
 
 
 class TrackChangesReject(_TrackChangesSingleAction):
@@ -325,4 +331,159 @@ class TrackChangesReject(_TrackChangesSingleAction):
         index = kwargs.get("index")
         if index is None or not isinstance(index, int) or index < 0:
             return self._tool_error("Valid integer index is required.")
-        return self._execute_single(ctx, index, is_accept=False)
+        return self._execute_single(ctx, int(index), is_accept=False)
+
+
+# --- Comments (Annotations) ---
+
+class TrackChangesCommentInsert(WriterAgentSpecialTracking):
+    """Insert a comment (Annotation) at the current selection."""
+
+    name = "track_changes_comment_insert"
+    description = "Insert a comment (annotation) at the current cursor selection."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "content": {
+                "type": "string",
+                "description": "The text content of the comment.",
+            },
+            "author": {
+                "type": "string",
+                "description": "The author's name for the comment (e.g., 'WriterAgent').",
+            },
+        },
+        "required": ["content", "author"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        content = kwargs.get("content")
+        author = kwargs.get("author", "WriterAgent")
+        
+        if not content:
+            return self._tool_error("Comment content is required.")
+
+        try:
+            doc = ctx.doc
+            annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
+            annotation.setPropertyValue("Content", str(content))
+            annotation.setPropertyValue("Author", str(author))
+            
+            # Use current system date
+            now = datetime.datetime.now()
+            from com.sun.star.util import Date
+            dt = Date()
+            dt.Year = now.year
+            dt.Month = now.month
+            dt.Day = now.day
+            annotation.setPropertyValue("Date", dt)
+            
+            # Insert at current view cursor
+            view_cursor = doc.getCurrentController().getViewCursor()
+            text = view_cursor.getText()
+            
+            text.insertTextContent(view_cursor, annotation, True)
+            
+            return {
+                "status": "ok", 
+                "message": "Comment inserted successfully."
+            }
+        except Exception as e:
+            return self._tool_error(f"Failed to insert comment: {e}")
+
+
+class TrackChangesCommentList(WriterAgentSpecialTracking):
+    """List all comments (Annotations) in the document."""
+
+    name = "track_changes_comment_list"
+    description = "List all comments (annotations) currently in the document."
+    parameters = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    def execute(self, ctx, **kwargs):
+        try:
+            doc = ctx.doc
+            fields = doc.getTextFields()
+            enum = fields.createEnumeration()
+            
+            comments = []
+            index = 0
+            while enum.hasMoreElements():
+                field = enum.nextElement()
+                if field.supportsService("com.sun.star.text.textfield.Annotation"):
+                    entry = {
+                        "index": index,
+                        "author": field.getPropertyValue("Author"),
+                        "content": field.getPropertyValue("Content"),
+                    }
+                    try:
+                        dt = field.getPropertyValue("Date")
+                        entry["date"] = f"{dt.Year:04d}-{dt.Month:02d}-{dt.Day:02d}"
+                    except Exception:
+                        pass
+                    
+                    comments.append(entry)
+                    index += 1
+
+            return {
+                "status": "ok",
+                "comments": comments,
+                "count": len(comments),
+            }
+        except Exception as e:
+            return self._tool_error(f"Failed to list comments: {e}")
+
+
+class TrackChangesCommentDelete(WriterAgentSpecialTracking):
+    """Delete a specific comment by its index."""
+
+    name = "track_changes_comment_delete"
+    description = "Delete a specific comment (annotation) by its index (from track_changes_comment_list)."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "index": {
+                "type": "integer",
+                "description": "The zero-based index of the comment to delete.",
+            },
+        },
+        "required": ["index"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        index = kwargs.get("index")
+        if index is None or not isinstance(index, int) or index < 0:
+            return self._tool_error("Valid integer index is required.")
+
+        try:
+            doc = ctx.doc
+            fields = doc.getTextFields()
+            enum = fields.createEnumeration()
+            
+            current_idx = 0
+            target_field = None
+            
+            while enum.hasMoreElements():
+                field = enum.nextElement()
+                if field.supportsService("com.sun.star.text.textfield.Annotation"):
+                    if current_idx == int(index):
+                        target_field = field
+                        break
+                    current_idx += 1
+            
+            if not target_field:
+                return self._tool_error(f"No comment found at index {index}.")
+            
+            target_field.dispose()
+            
+            return {
+                "status": "ok",
+                "message": f"Comment at index {index} deleted successfully."
+            }
+        except Exception as e:
+            return self._tool_error(f"Failed to delete comment: {e}")

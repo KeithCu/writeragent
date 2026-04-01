@@ -99,7 +99,7 @@ Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolB
 
 **Writer Fields Specialized Tools**: Text fields in LibreOffice are implemented using `doc.createInstance("com.sun.star.text.textfield.<TYPE>")` (like `PageNumber`, `DateTime`). See `plugin/modules/writer/fields.py` for tools to insert, list, and delete fields natively using property reflection.
 
-**Writer Track Changes Specialized Tools**: Track changes (redlines) tools are implemented in `plugin/modules/writer/tracking.py` using `XRedlinesSupplier` to enumerate changes, `RecordChanges` document property to start/stop tracking, and UNO dispatch commands (`.uno:AcceptTrackedChange`, etc.) against the selected text for accepting and rejecting modifications.
+**Writer Track Changes Specialized Tools**: Track changes (redlines) tools are implemented in `plugin/modules/writer/tracking.py` using `XRedlinesSupplier` to enumerate changes, `RecordChanges` document property to start/stop tracking, and UNO dispatch commands (`.uno:AcceptTrackedChange`, etc.) against the selected text for accepting and rejecting modifications. Also includes tools to manage document comments (`Annotation` text fields) via `doc.createInstance("com.sun.star.text.textfield.Annotation")`.
 
 **Tool Compatibility**: `ToolRegistry` prioritizes `uno_services` matches (strict), but falls back to `doc_types` if no service match is found. This ensures tools remain accessible in test environments or across slightly different LibreOffice flavors.
 

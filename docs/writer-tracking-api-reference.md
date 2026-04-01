@@ -31,6 +31,22 @@ When enumerating the collection returned by `getRedlines()`, each element repres
 - `RedlineComment` (string): An optional comment attached to the tracked change.
 - `RedlineIdentifier` (string): An internal identifier for the redline.
 
+## Comments / Annotations
+
+In LibreOffice Writer, "Comments" are internally referred to as `Annotation` text fields. Because they are often used during the review process, they are grouped with the tracking toolset.
+
+### Inserting an Annotation
+1. Instantiate the `com.sun.star.text.textfield.Annotation` service via `doc.createInstance()`.
+2. Set properties:
+   - `Author` (string): The author's name.
+   - `Content` (string): The comment text.
+   - `Date` (com.sun.star.util.Date): The date the comment was made.
+3. Attach the field to a `TextRange` (e.g., the current view cursor's selection) using `doc.getText().insertTextContent(cursor, annotation, True)`. (Or simply `insertTextContent` on the specific text range it should anchor to).
+
+### Managing Annotations
+- **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment.
+- **Deleting:** Find the specific Annotation text field, and call its `dispose()` method.
+
 ## Dispatch Commands (.uno:)
 
 Because the standard UNO `XRedline` objects in Python don't consistently expose direct `accept()` and `reject()` methods that are easily callable without complex text cursor manipulation, LibreOffice's Dispatch API is the most robust way to accept and reject changes, as well as toggle their visibility.
