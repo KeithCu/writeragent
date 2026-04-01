@@ -36,7 +36,7 @@ class ListBookmarks(ToolWriterBookmarkBase):
                 anchor_text = bm.getAnchor().getString()
                 result.append({
                     "name": name,
-                    "preview": anchor_text[:100] if anchor_text else "",
+                    "text": anchor_text[:100] if anchor_text else "",
                 })
             return {"status": "ok", "bookmarks": result, "count": len(result)}
         except Exception as e:
@@ -56,3 +56,189 @@ class CleanupBookmarks(ToolWriterBookmarkBase):
         bm_svc = ctx.services.writer_bookmarks
         removed = bm_svc.cleanup_mcp_bookmarks(ctx.doc)
         return {"status": "ok", "removed": removed}
+
+
+class CreateBookmark(ToolWriterBookmarkBase):
+    name = "create_bookmark"
+    description = (
+        "Create a new bookmark at the current cursor or selection in Writer. "
+        "If text is selected, the bookmark will span the selection."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The unique name for the new bookmark.",
+            }
+        },
+        "required": ["name"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        doc = ctx.doc
+        name = kwargs.get("name")
+        if not name:
+            return self._tool_error("Bookmark name is required.")
+
+        try:
+            if not hasattr(doc, "getBookmarks"):
+                return self._tool_error("Document does not support bookmarks.")
+
+            bookmarks = doc.getBookmarks()
+            if bookmarks.hasByName(name):
+                return self._tool_error(f"A bookmark named '{name}' already exists.")
+
+            ctrl = doc.getCurrentController()
+            if not ctrl:
+                return self._tool_error("No current controller found.")
+
+            view_cursor = ctrl.getViewCursor()
+            if not view_cursor:
+                return self._tool_error("No view cursor found.")
+
+            text = view_cursor.getText()
+            if not text:
+                return self._tool_error("Cannot get text from current cursor position.")
+
+            bookmark = doc.createInstance("com.sun.star.text.Bookmark")
+            bookmark.Name = name
+
+            # insertTextContent signature: (XTextRange xRange, XTextContent xContent, boolean bAbsorb)
+            # If bAbsorb is True, the text content replaces or spans the current selection.
+            # If False, it's inserted as a point. We'll use True so if there's a selection, it's spanned.
+            text.insertTextContent(view_cursor, bookmark, True)
+
+            return {"status": "ok", "message": f"Bookmark '{name}' created."}
+        except Exception as e:
+            return self._tool_error(f"Failed to create bookmark: {str(e)}")
+
+
+class DeleteBookmark(ToolWriterBookmarkBase):
+    name = "delete_bookmark"
+    description = "Delete an existing bookmark by its name."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The name of the bookmark to delete.",
+            }
+        },
+        "required": ["name"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        doc = ctx.doc
+        name = kwargs.get("name")
+        if not name:
+            return self._tool_error("Bookmark name is required.")
+
+        try:
+            if not hasattr(doc, "getBookmarks"):
+                return self._tool_error("Document does not support bookmarks.")
+
+            bookmarks = doc.getBookmarks()
+            if not bookmarks.hasByName(name):
+                return self._tool_error(f"Bookmark '{name}' not found.")
+
+            bm = bookmarks.getByName(name)
+            anchor = bm.getAnchor()
+            text = anchor.getText()
+
+            text.removeTextContent(bm)
+
+            return {"status": "ok", "message": f"Bookmark '{name}' deleted."}
+        except Exception as e:
+            return self._tool_error(f"Failed to delete bookmark: {str(e)}")
+
+
+class RenameBookmark(ToolWriterBookmarkBase):
+    name = "rename_bookmark"
+    description = "Rename an existing bookmark."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "old_name": {
+                "type": "string",
+                "description": "The current name of the bookmark.",
+            },
+            "new_name": {
+                "type": "string",
+                "description": "The new name for the bookmark.",
+            }
+        },
+        "required": ["old_name", "new_name"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        doc = ctx.doc
+        old_name = kwargs.get("old_name")
+        new_name = kwargs.get("new_name")
+
+        if not old_name or not new_name:
+            return self._tool_error("Both old_name and new_name are required.")
+
+        try:
+            if not hasattr(doc, "getBookmarks"):
+                return self._tool_error("Document does not support bookmarks.")
+
+            bookmarks = doc.getBookmarks()
+            if not bookmarks.hasByName(old_name):
+                return self._tool_error(f"Bookmark '{old_name}' not found.")
+
+            if bookmarks.hasByName(new_name):
+                return self._tool_error(f"A bookmark named '{new_name}' already exists.")
+
+            bm = bookmarks.getByName(old_name)
+            bm.setName(new_name)
+
+            return {"status": "ok", "message": f"Bookmark renamed from '{old_name}' to '{new_name}'."}
+        except Exception as e:
+            return self._tool_error(f"Failed to rename bookmark: {str(e)}")
+
+
+class GetBookmark(ToolWriterBookmarkBase):
+    name = "get_bookmark"
+    description = "Get details about a specific bookmark, including the text it spans."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The name of the bookmark.",
+            }
+        },
+        "required": ["name"],
+    }
+
+    def execute(self, ctx, **kwargs):
+        doc = ctx.doc
+        name = kwargs.get("name")
+        if not name:
+            return self._tool_error("Bookmark name is required.")
+
+        try:
+            if not hasattr(doc, "getBookmarks"):
+                return self._tool_error("Document does not support bookmarks.")
+
+            bookmarks = doc.getBookmarks()
+            if not bookmarks.hasByName(name):
+                return self._tool_error(f"Bookmark '{name}' not found.")
+
+            bm = bookmarks.getByName(name)
+            anchor = bm.getAnchor()
+            text_content = anchor.getString()
+
+            return {
+                "status": "ok",
+                "bookmark": {
+                    "name": name,
+                    "text": text_content,
+                }
+            }
+        except Exception as e:
+            return self._tool_error(f"Failed to get bookmark details: {str(e)}")
