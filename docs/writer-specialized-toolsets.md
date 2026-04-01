@@ -216,31 +216,7 @@ flowchart LR
 
 **Execution:** `ToolRegistry.execute` is unchanged; any registered name can still be invoked if the caller passes it.
 
-### 3.2 Writer domain bases and control tool
-
-**File:** [`plugin/modules/writer/base.py`](../../plugin/modules/writer/base.py)
-
-| Class | `specialized_domain` | Status |
-|--------|----------------------|---------|
-| `ToolWriterTableBase` | `tables` | ❌ Not implemented (tables edited via HTML) |
-| `ToolWriterStyleBase` | `styles` | ✅ Implemented |
-| `ToolWriterLayoutBase` | `layout` | ✅ Implemented |
-| `ToolWriterTextFramesBase` | `textframes` | ✅ Implemented |
-| `ToolWriterEmbeddedBase` | `embedded` | ✅ Implemented |
-| `ToolWriterImageBase` | `images` | ✅ Implemented |
-| `ToolWriterShapeBase` | `shapes` | ✅ Implemented |
-| `ToolWriterChartBase` | `charts` | ✅ Implemented |
-| `ToolWriterIndexBase` | `indexes` | ✅ Implemented |
-| `ToolWriterFieldBase` | `fields` | ✅ Implemented |
-| `WriterAgentSpecialTracking` | `tracking` | ✅ Implemented |
-| `ToolWriterBookmarkBase` | `bookmarks` | ✅ Implemented |
-| `ToolWriterFootnoteBase` | `footnotes` | ✅ Implemented |
-
-`ToolWriterSpecialBase` sets `tier = "specialized".
-
-`SpecializedWorkflowFinished` is a normal `ToolBase` with `tier = "specialized_control"`: visible **only** to the sub-agent (default list excludes it), and used to signal completion with a `summary`.
-
-### 3.3 Gateway: delegate to sub-agent
+### 3.2 Gateway: delegate to sub-agent
 
 **File:** [`plugin/modules/writer/specialized.py`](../../plugin/modules/writer/specialized.py)
 
@@ -252,13 +228,13 @@ flowchart LR
   - Filter to `ToolWriterSpecialBase` with matching `specialized_domain`, plus `specialized_workflow_finished`.
 - Depending on the `USE_SUB_AGENT` toggle, it either uses `ToolCallingAgent` + `WriterAgentSmolModel` to execute the task autonomously, or calls `ctx.set_active_domain_callback(domain)` to switch the context for the main model.
 
-### 3.4 System prompt guidance
+### 3.3 System prompt guidance
 
 **File:** [`plugin/framework/constants.py`](../../plugin/framework/constants.py)
 
 Block `WRITER_SPECIALIZED_DELEGATION` is prepended into `DEFAULT_CHAT_SYSTEM_PROMPT` so the main Writer model is told **when** to call the gateway and **which** domain strings are valid.
 
-### 3.5 Exceptions: tools that stay on the main list
+### 3.4 Exceptions: tools that stay on the main list
 
 Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users do not need delegation for common actions, for example:
 
@@ -266,28 +242,6 @@ Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users
 - **Paragraph style apply:** [`plugin/modules/writer/styles.py`](../../plugin/modules/writer/styles.py) — `styles_apply_to_selection` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended".
 
 **Style discovery** (`list_styles`, `get_style_info`) remains under `ToolWriterStyleBase` (specialized) so the main list does not duplicate large style catalog traffic; the prompt steers toward delegation or other discovery when needed.
-
-### 3.6 Module layout (illustrative)
-
-| Area | Typical module(s) | Domain / tier notes | Status |
-|------|-------------------|---------------------|---------|
-| Tables | N/A | Tables edited via HTML | ❌ Not implemented |
-| Styles (list/info) | `plugin/modules/writer/styles.py` | `ToolWriterStyleBase` for list/info; `styles_apply_to_selection` extended | ✅ Implemented |
-| Layout (frames) | `plugin/modules/writer/layout.py` | `ToolWriterLayoutBase`; nelson `frames.py` lineage noted in file | ✅ Implemented |
-| Text Frames | `plugin/modules/writer/textframes.py` | `ToolWriterTextFramesBase` | ✅ Implemented |
-| Shapes / draw bridge | `plugin/modules/writer/shapes.py` | `ToolWriterShapeBase`; bridges Draw tools for Writer | ✅ Implemented |
-| Images (AI / selection) | `plugin/modules/writer/images.py` | `ToolWriterImageBase` / `ToolCalcImageBase`, `specialized_domain` `images`; `generate_image` is registered (not `ToolBaseDummy`) but omitted from default chat schemas | ✅ Implemented |
-| Charts in Writer | `plugin/modules/writer/charts.py` | `ToolWriterChartBase`; reuses Calc chart tool classes with Writer `uno_services` | ✅ Implemented |
-| Indexes | `plugin/modules/writer/indexes.py` | `ToolWriterIndexBase` | ✅ Implemented |
-| Fields | `plugin/modules/writer/fields.py` | `ToolWriterFieldBase` | ✅ Implemented |
-| Embedded OLE | `plugin/modules/writer/embedded.py` | `ToolWriterEmbeddedBase` | ✅ Implemented |
-| Bookmarks | `plugin/modules/writer/bookmark_tools.py` | `ToolWriterBookmarkBase`; nelson `writer_nav` bookmark lineage | ✅ Implemented |
-| Footnotes/Endnotes | `plugin/modules/writer/footnotes.py` | `ToolWriterFootnoteBase` | ✅ Implemented |
-| Structural navigation | `plugin/modules/writer/structural.py` | Mostly `ToolBaseDummy` / navigate tools; index/field refresh moved to domains above | ❌ Not implemented |
-
-Writer module bootstrap: [`plugin/modules/writer/__init__.py`](../../plugin/modules/writer/__init__.py) imports key submodules so discovery and side-effect imports run in a sensible order.
-
----
 
 ## 4. Testing and operations
 
@@ -297,209 +251,58 @@ Writer module bootstrap: [`plugin/modules/writer/__init__.py`](../../plugin/modu
 
 ---
 
-## 5. Current Implementation Status
+## 5. Implementation status and feature coverage
 
-### 5.1 ✅ Implemented Domains
+### 5.1 Domain, modules, and extended LO surface
 
-**Styles Domain** (`plugin/modules/writer/styles.py`)
-- ✅ `ListStyles` - List all styles in the document
-- ✅ `GetStyleInfo` - Get detailed information about a specific style
-- ✅ `StylesApply` - Apply a style to the current selection (extended tier, available in main chat)
+**WriterAgent** modules/tools (columns 1–3) and **broader LibreOffice** gaps not covered by the agent (column 4). Core/advanced narrative lists remain in §5.5–5.6.
 
-**Layout Domain** (`plugin/modules/writer/layout.py`)
-- ✅ `GetPageStyleProperties` - Get page style dimensions, margins, headers/footers
-- ✅ `SetPageStyleProperties` - Set page style properties
-- ✅ `GetHeaderFooterText` - Get header/footer text content
-- ✅ `SetHeaderFooterText` - Set header/footer text content
-- ✅ `GetPageColumns` - Get page column configuration
-- ✅ `SetPageColumns` - Set page column configuration
-- ✅ `InsertPageBreak` - Insert a page break at cursor position
+| Domain / area | WriterAgent status | Module & tools | Extended LO API (gaps) |
+|---------------|--------------------|----------------|-------------------------|
+| **Styles** | ✅ Implemented | `styles.py`: ListStyles, GetStyleInfo; StylesApply (extended tier, main chat) | Advanced typography: ligatures/special chars, kerning/tracking, OpenType features, font embedding |
+| **Layout** | ✅ Implemented | `layout.py`: Get/SetPageStyleProperties, Get/SetHeaderFooterText, Get/SetPageColumns, InsertPageBreak | Custom page layouts; page backgrounds (see Watermark row) |
+| **Text frames** | ✅ Implemented | `textframes.py`: ListTextFrames, GetTextFrameInfo, SetTextFrameProperties | — |
+| **Embedded OLE** | ✅ Implemented | `embedded.py`: EmbeddedInsert, EmbeddedEdit | — |
+| **Images** | ✅ Implemented | `images.py`: GenerateImage (async), List/Get/SetImage*, DownloadImage, Insert/Delete/ReplaceImage | Advanced image editing |
+| **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape, GetDrawSummary, ListWriterImages, ConnectShapes, GroupShapes (Draw lineage) | — |
+| **Charts** | ✅ Implemented | `charts.py`: List/Get/Create/Edit/DeleteChart (Calc lineage) | — |
+| **Indexes** | ✅ Implemented | `indexes.py`: IndexesUpdateAll, RefreshIndexesAlias, IndexesList, IndexesCreate, IndexesAddMark | — |
+| **Fields** | ✅ Implemented | `fields.py`: FieldsUpdateAll, UpdateFieldsAlias, FieldsList, FieldsDelete, FieldsInsert | User-defined variables, conditional text, DB fields overlap LO; distinct from **Forms** (business) row |
+| **Tracking** | ✅ Implemented | `tracking.py`: TrackChangesStart/Stop/List/Show, Accept/Reject (all or single), comment insert/list/delete | Document comparison; version control / integration (not agent) |
+| **Bookmarks** | ✅ Implemented | `bookmark_tools.py`: List/Cleanup/Create/Delete/Rename/GetBookmark | — |
+| **Footnotes / endnotes** | ✅ Implemented | `footnotes.py`: Insert, List, Edit, Delete, SettingsGet/Update | — |
+| **Tables** | ❌ Not implemented | No `tables.py`; tables edited via HTML | UNO table ops TBD if needed beyond HTML |
+| **Structural navigation** | ❌ Not implemented | `structural.py` mostly ToolBaseDummy | Technical docs: cross-refs, callouts, revision marks, change bars (not agent) |
+| **Forms** | ❌ Not implemented | No module | Form design (text, checkbox, radio, dropdown); field properties; validation; submission; DB integration |
+| **Mail merge** | ❌ Not implemented | No module | Data sources (CSV/DB/sheets); merge fields; execution; labels; envelopes; email merge |
+| **Bibliography** | ❌ Not implemented | No module | Bib DB; citation styles; insertion/formatting; bibliography generation; reference managers |
+| **Watermark** | ❌ Not implemented | No module | Text/image watermarks; page backgrounds; positioning/transparency |
+| **AutoText** | ❌ Not implemented | No module | — |
+| **TOC enhancement** | ❌ Not implemented | Basic TOC via indexes; richer multi-level/style TBD | — |
+| **Document automation** | ❌ Not in agent | — | Macros/scripting (Basic/Python/JS); event handling; custom functions; add-ins/extensions |
+| **Security** | ❌ Not in agent | — | Digital signatures; encryption; password protection; redaction |
+| **Document management** | ❌ Not in agent | — | Properties/metadata; version history; document comparison; assembly |
+| **Math & scientific** | ❌ Not in agent | — | Equation editor; math/chemical formulas; graph plotting |
+| **Real-time collaboration** | ❌ Not in agent | — | Co-authoring; shared access; change notification; conflict resolution |
+| **External integration** | ❌ Not in agent | — | Database connectivity; web services; cloud storage; API access |
+| **Customization** | ❌ Not in agent | — | Custom toolbars/menus; keyboard shortcuts; UI customization; extension development |
 
-**Text Frames Domain** (`plugin/modules/writer/textframes.py`)
-- ✅ `ListTextFrames` - List all text frames in the document
-- ✅ `GetTextFrameInfo` - Get detailed information about a text frame
-- ✅ `SetTextFrameProperties` - Set text frame properties (position, size, etc.)
+`ToolWriterTableBase` / `tables` is the only **domain base** without a dedicated UNO table toolset (HTML path). Rows above combine specialized domains, planned gaps, and LO-wide areas not covered by WriterAgent tools.
 
-**Embedded Objects Domain** (`plugin/modules/writer/embedded.py`)
-- ✅ `EmbeddedInsert` - Insert an embedded OLE object
-- ✅ `EmbeddedEdit` - Edit an existing embedded object
+### 5.2 Core infrastructure
 
-**Images Domain** (`plugin/modules/writer/images.py`)
-- ✅ `GenerateImage` - Generate an image using AI (async)
-- ✅ `ListImages` - List all images in the document
-- ✅ `GetImageInfo` - Get detailed information about an image
-- ✅ `SetImageProperties` - Set image properties
-- ✅ `DownloadImage` - Download an image to file
-- ✅ `InsertImage` - Insert an image at cursor position
-- ✅ `DeleteImage` - Delete an image
-- ✅ `ReplaceImage` - Replace an existing image
-
-**Shapes Domain** (`plugin/modules/writer/shapes.py`)
-- ✅ `CreateShape` - Create a new shape (inherits from Draw)
-- ✅ `EditShape` - Edit an existing shape (inherits from Draw)
-- ✅ `DeleteShape` - Delete a shape (inherits from Draw)
-- ✅ `GetDrawSummary` - Get summary of all shapes (inherits from Draw)
-- ✅ `ListWriterImages` - List images in Writer document
-- ✅ `ConnectShapes` - Connect two shapes (inherits from Draw)
-- ✅ `GroupShapes` - Group multiple shapes (inherits from Draw)
-
-**Charts Domain** (`plugin/modules/writer/charts.py`)
-- ✅ `ListCharts` - List all charts in the document (inherits from Calc)
-- ✅ `GetChartInfo` - Get detailed chart information (inherits from Calc)
-- ✅ `CreateChart` - Create a new chart (inherits from Calc)
-- ✅ `EditChart` - Edit an existing chart (inherits from Calc)
-- ✅ `DeleteChart` - Delete a chart (inherits from Calc)
-
-**Indexes Domain** (`plugin/modules/writer/indexes.py`)
-- ✅ `IndexesUpdateAll` - Update all indexes in the document
-- ✅ `RefreshIndexesAlias` - Alias for indexes_update_all
-- ✅ `IndexesList` - List all indexes in the document
-- ✅ `IndexesCreate` - Create a new index
-- ✅ `IndexesAddMark` - Add an index mark
-
-**Fields Domain** (`plugin/modules/writer/fields.py`)
-- ✅ `FieldsUpdateAll` - Update all fields in the document
-- ✅ `UpdateFieldsAlias` - Alias for fields_update_all
-- ✅ `FieldsList` - List all fields in the document
-- ✅ `FieldsDelete` - Delete a field
-- ✅ `FieldsInsert` - Insert a new field
-
-**Tracking Domain** (`plugin/modules/writer/tracking.py`)
-- ✅ `TrackChangesStart` - Start recording changes
-- ✅ `TrackChangesStop` - Stop recording changes
-- ✅ `TrackChangesList` - List all tracked changes
-- ✅ `TrackChangesShow` - Show/hide change markup
-- ✅ `TrackChangesAcceptAll` - Accept all changes
-- ✅ `TrackChangesRejectAll` - Reject all changes
-- ✅ `TrackChangesAccept` - Accept a specific change
-- ✅ `TrackChangesReject` - Reject a specific change
-- ✅ `TrackChangesCommentInsert` - Insert a comment
-- ✅ `TrackChangesCommentList` - List all comments
-- ✅ `TrackChangesCommentDelete` - Delete a comment
-
-**Bookmarks Domain** (`plugin/modules/writer/bookmark_tools.py`)
-- ✅ `ListBookmarks` - List all bookmarks
-- ✅ `CleanupBookmarks` - Remove _mcp* bookmarks
-- ✅ `CreateBookmark` - Create a new bookmark
-- ✅ `DeleteBookmark` - Delete a bookmark
-- ✅ `RenameBookmark` - Rename a bookmark
-- ✅ `GetBookmark` - Get bookmark information
-
-**Footnotes Domain** (`plugin/modules/writer/footnotes.py`)
-- ✅ `FootnotesInsert` - Insert a footnote or endnote
-- ✅ `FootnotesList` - List all footnotes/endnotes
-- ✅ `FootnotesEdit` - Edit a footnote/endnote
-- ✅ `FootnotesDelete` - Delete a footnote/endnote
-- ✅ `FootnotesSettingsGet` - Get footnote/endnote settings
-- ✅ `FootnotesSettingsUpdate` - Update footnote/endnote settings
-
-### 5.2 ❌ Not Implemented / Future Work
-
-**Tables Domain**
-- ❌ No dedicated tables.py module (tables edited via HTML)
-- Consider implementing if specific table operations are needed beyond HTML editing
-
-**Structural Navigation Domain**
-- ❌ `plugin/modules/writer/structural.py` contains mostly `ToolBaseDummy` tools
-- Future: Implement proper structural navigation tools
-
-**Forms Domain**
-- ❌ No forms module implemented
-- Future: Form field management, form design tools
-
-**Mail Merge Domain**
-- ❌ No mail merge module implemented
-- Future: Data source management, merge field insertion, mail merge execution
-
-**Bibliography Domain**
-- ❌ No bibliography module implemented
-- Future: Bibliographic entry management, citation insertion, bibliography generation
-
-**Watermark Domain**
-- ❌ No watermark module implemented
-- Future: Watermark insertion, removal, customization
-
-**AutoText Domain**
-- ❌ No auto-text module implemented
-- Future: AutoText entry management, insertion
-
-**Table of Contents Enhancement**
-- ❌ Basic TOC tools exist in indexes domain
-- Future: Enhanced TOC customization, multi-level TOC management
-
----
-
-## 6. Future work
-
-The following items align with a fuller UNO/DevGuide coverage map; they are **not** all implemented today. Prioritize by product need.
-
-### 6.1 Forms (high value for business documents)
-- Implement form field tools: text fields, checkboxes, dropdowns, radio buttons
-- Form design and layout tools
-- Data source binding and management
-- Form protection and validation
-
-### 6.2 Mail Merge (high value for business documents)
-- Data source connection and management
-- Merge field insertion and editing
-- Mail merge execution and output options
-- Address block and greeting line tools
-
-### 6.3 Bibliography (high value for academic documents)
-- Bibliographic database management
-- Citation insertion and formatting
-- Bibliography generation and updating
-- Citation style management
-
-### 6.4 Watermark (medium value)
-- Watermark insertion, removal, and customization
-- Text and image watermarks
-- Positioning and transparency controls
-
-### 6.5 AutoText (medium value)
-- AutoText entry creation, editing, and deletion
-- AutoText insertion and management
-- Category organization
-
-### 6.6 Enhanced Table of Contents
-- Multi-level TOC customization
-- TOC style management
-- TOC field editing and updating
-- TOC entry formatting controls
+- **Tier filtering:** `exclude_tiers` default in `ToolRegistry.get_tools` / `get_schemas` hides specialized tools from default chat/MCP lists.
+- **Domain grouping:** `ToolWriter*Base.specialized_domain` + `tier = "specialized"`.
+- **Gateway:** `delegate_to_specialized_writer_toolset` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
+- **Prompt:** `WRITER_SPECIALIZED_DELEGATION` in `constants.py` teaches when to delegate.
+- **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
 
 ### 6.7 Cross-cutting Enhancements
 
 - **MCP / API opt-in:** Config or query parameter to list `specialized` tools on `tools/list` for power users or external agents that do not use `delegate_to_specialized_writer_toolset`.
-- **Review domain:** Optional `delegate` domain for **track changes** + comment workflows if the main list should shrink further; see [§5.10 Track changes (planned specialized toolset)](#510-track-changes-planned-specialized-toolset) for UNO entry points.
+- **Review domain:** Optional `delegate` domain for **track changes** + comment workflows if the main list should shrink further; see [§6.8 Track changes](#68-track-changes-specialized-toolset) for UNO entry points.
 - **Limits:** Tune `max_steps` / timeouts for the sub-agent; add telemetry on which domains are used.
 - **Documentation:** Keep [`AGENTS.md`](../../AGENTS.md) in sync when behavior or entry points change.
-
-### 6.8 Track changes (specialized toolset)
-
-**Status:** ✅ Implemented (`plugin/modules/writer/tracking.py`). Treat this like other **specialized** domains: keep **record / review / accept-reject** operations off the default Writer tool list, and expose them only after `delegate_to_specialized_writer_toolset` enters a **track_changes** (or **review**) domain—same progressive-disclosure story as fields, indexes, tables, etc.
-
-**Product fit:** Lets the model turn recording on before bulk edits, list or filter changes by author/type, accept or reject individually or in bulk, and toggle markup visibility—without bloating every chat turn with long schemas.
-
-**UNO reference (LibreOffice Writer):** Obtain `XTrackChanges` from the document model (query the text document for the appropriate interface; exact `queryInterface` path follows your LO version and DevGuide). Use the supplier/enumeration pattern to walk changes.
-
-| Interface / type | Method | Role |
-|------------------|--------|------|
-| `XTrackChanges` | `setRecordChanges(boolean)` | Start/stop recording changes. |
-| `XTrackChanges` | `getRecordChanges()` | Query whether recording is active. |
-| `XTrackChanges` | `setShowChanges(boolean)` | Show or hide revision markup. |
-| `XTrackChanges` | `getShowChanges()` | Query whether markup is visible. |
-| `XTrackChanges` | `acceptAllChanges()` | Accept every tracked change. |
-| `XTrackChanges` | `rejectAllChanges()` | Reject every tracked change. |
-| `XTrackChangesSupplier` | `getChanges()` | Obtain an `XChanges` collection. |
-| `XChanges` | `createEnumeration()` | Enumerate `XChange` objects. |
-| `XChange` | `getAuthor()` | Author of the change. |
-| `XChange` | `getDate()` | Timestamp of the change. |
-| `XChange` | `getChangeType()` | Type: **INSERT**, **DELETE**, **FORMAT**, **MOVE**, etc. |
-| `XChange` | `getTextRange()` | Affected text range. |
-| `XChange` | `accept()` | Accept this change. |
-| `XChange` | `reject()` | Reject this change. |
-
-For specific UNO API implementation details used by WriterAgent, see [Writer Tracking API Reference](./writer-tracking-api-reference.md).
 
 ---
 
@@ -514,47 +317,18 @@ For specific UNO API implementation details used by WriterAgent, see [Writer Tra
 | Prompt teaching | `WRITER_SPECIALIZED_DELEGATION` in `constants.py` |
 | Execution by name | Unchanged `execute()` — tier only affects **listing**, not **dispatch** |
 
-This design trades a second LLM hop (delegation) for a **cleaner main conversation** and **safer tool choice**, while preserving a path to **full** Writer automation per domain.
+This design trades a second LLM hop (delegation) for a **cleaner main conversation** and **safer tool choice**, while preserving a path to **full** Writer automation per domain. Implementation status, infrastructure, priorities, phased roadmap, and the LO API coverage map are consolidated in [§5 Implementation status and feature coverage](#5-implementation-status-and-feature-coverage).
 
-### 7.1 What's Been Implemented
+---
 
-✅ **Core Infrastructure:**
-- Tier-based tool filtering in ToolRegistry
-- Domain-based specialization with base classes
-- Gateway tool with sub-agent delegation
-- System prompt guidance for when to delegate
+## 8. References
 
-✅ **Implemented Domains (11/12):**
-- Styles (list/info + apply on main list)
-- Layout (page styles, margins, headers/footers, columns, breaks)
-- Text Frames (list, get info, set properties)
-- Embedded Objects (insert, edit)
-- Images (generate, list, insert, replace, etc.)
-- Shapes (create, edit, delete, connect, group)
-- Charts (list, create, edit, delete - inherits from Calc)
-- Indexes (update, list, create, add marks)
-- Fields (update, list, delete, insert)
-- Tracking (full change tracking and comments)
-- Bookmarks (list, create, delete, rename)
-- Footnotes/Endnotes (insert, list, edit, delete, settings)
+For complete LibreOffice Writer UNO API documentation:
+- [Official LibreOffice API Reference](https://api.libreoffice.org/)
+- [LibreOffice Developer's Guide](https://wiki.documentfoundation.org/Documentation/DevGuide)
+- [LibreOffice Development Tools](https://help.libreoffice.org/latest/en-US/text/shared/guide/dev_tools.html)
+- [NOA-libre: UNO API wrappers](https://github.com/LibreOffice/noa-libre)
 
-❌ **Not Implemented (1/12):**
-- Tables (by design - edited via HTML)
-
-### 7.2 What's Next (Prioritized)
-
-**High Priority (Business/Academic Use Cases):**
-1. **Forms** - Form field management for business documents
-2. **Mail Merge** - Data-driven document generation
-3. **Bibliography** - Academic citation management
-4. **Enhanced UI Settings** - More granular control over tool visibility and behavior
-
-**Medium Priority:**
-5. **Watermark** - Document branding and security
-6. **AutoText** - Reusable content snippets
-7. **Structural Navigation** - Proper implementation beyond stubs
-
-**Low Priority:**
-8. **Table of Contents Enhancement** - Beyond basic index tools
-
-The current implementation provides comprehensive coverage of Writer's core UNO capabilities through specialized domains, with clear paths for future expansion based on user needs and use cases.
+For recent feature additions:
+- [LibreOffice 26.2 Release Notes](https://www.howtogeek.com/libreoffices-first-big-update-for-2026-has-arrived/)
+- [LibreOffice 26.2 New Features](https://9to5linux.com/libreoffice-26-2-open-source-office-suite-officially-released-this-is-whats-new)
