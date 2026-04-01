@@ -51,6 +51,11 @@ class ToolWriterLayoutBase(ToolWriterSpecialBase):
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
+class ToolWriterTextFramesBase(ToolWriterSpecialBase):
+    specialized_domain = "textframes"
+    intent = "edit"
+    uno_services = ["com.sun.star.text.TextDocument"]
+
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     specialized_domain = "embedded"
     intent = "edit"
