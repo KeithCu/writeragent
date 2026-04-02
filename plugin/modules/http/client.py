@@ -33,7 +33,7 @@ REPEATED_STREAMING_CHUNK_LIMIT = 20
 from plugin.framework.streaming_deltas import accumulate_delta
 from plugin.framework.constants import APP_REFERER, APP_TITLE
 
-from plugin.framework.logging import init_logging
+from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError, safe_json_loads
 from plugin.framework.utils import get_url_hostname, get_url_path_and_query
@@ -227,7 +227,7 @@ class LlmClient:
         json_data = json.dumps(data).encode("utf-8")
         path = get_url_path_and_query(url)
 
-        log.debug("Request data: %s" % json.dumps(data, indent=2))
+        log.debug("Request data: %s" % json.dumps(redact_sensitive_payload_for_log(data), indent=2))
         return "POST", path, json_data, self._headers()
 
     def extract_content_from_response(self, chunk):
@@ -315,7 +315,8 @@ class LlmClient:
             "=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream)
         )
         log.debug("URL: %s" % url)
-        log.debug("Messages: %s" % json.dumps(messages, indent=2))
+
+        log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
         
         path = get_url_path_and_query(url)
             
@@ -348,7 +349,8 @@ class LlmClient:
         init_logging(self.ctx)
         log.debug("=== Image Request ===")
         log.debug("URL: %s" % url)
-        log.debug("Data: %s" % json.dumps(data, indent=2))
+
+        log.debug("Data: %s" % json.dumps(redact_sensitive_payload_for_log(data), indent=2))
         
         path = get_url_path_and_query(url)
             

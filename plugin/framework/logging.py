@@ -14,7 +14,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Simple file logging for WriterAgent. Single debug log + optional agent log; paths set via init_logging(ctx)."""
+"""Simple file logging for WriterAgent. Single debug log + optional agent log; paths set via init_logging(ctx).
+
+Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON).
+"""
 import os
 import sys
 import json
@@ -22,6 +25,8 @@ import time
 import traceback
 import threading
 import logging
+from copy import deepcopy
+from typing import Any
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.errors import ConfigError
@@ -47,6 +52,43 @@ DEBUG_LOG_FILENAME = "writeragent_debug.log"
 AGENT_LOG_FILENAME = "writeragent_agent.log"
 FALLBACK_DEBUG = os.path.join(os.path.expanduser("~"), "writeragent_debug.log")
 FALLBACK_AGENT = os.path.join(os.path.expanduser("~"), "localwriter_agent.log")
+
+LOG_REDACT_AUDIO_PLACEHOLDER = "<audio base64 data truncated, length=%d>"
+LOG_REDACT_IMAGE_PLACEHOLDER = "<image base64 data truncated, length=%d>"
+
+
+def _redact_sensitive_inplace(o: Any) -> None:
+    """Strip large base64 from nested API-shaped JSON (chat multimodal parts, image requests/responses)."""
+    if isinstance(o, dict):
+        if o.get("type") == "input_audio":
+            ia = o.get("input_audio")
+            if isinstance(ia, dict) and isinstance(ia.get("data"), str):
+                ia["data"] = LOG_REDACT_AUDIO_PLACEHOLDER % len(ia["data"])
+        if o.get("type") == "image_url":
+            iu = o.get("image_url")
+            if isinstance(iu, dict) and isinstance(iu.get("url"), str) and iu["url"].startswith("data:image"):
+                iu["url"] = LOG_REDACT_IMAGE_PLACEHOLDER % len(iu["url"])
+        iu_top = o.get("image_url")
+        if isinstance(iu_top, str) and iu_top.startswith("data:image"):
+            o["image_url"] = LOG_REDACT_IMAGE_PLACEHOLDER % len(iu_top)
+        bj = o.get("b64_json")
+        if isinstance(bj, str):
+            o["b64_json"] = LOG_REDACT_IMAGE_PLACEHOLDER % len(bj)
+        u = o.get("url")
+        if isinstance(u, str) and u.startswith("data:image"):
+            o["url"] = LOG_REDACT_IMAGE_PLACEHOLDER % len(u)
+        for v in o.values():
+            _redact_sensitive_inplace(v)
+    elif isinstance(o, list):
+        for item in o:
+            _redact_sensitive_inplace(item)
+
+
+def redact_sensitive_payload_for_log(obj: Any) -> Any:
+    """Deep copy of a request/response payload with audio and image base64 replaced for safe debug logging."""
+    out = deepcopy(obj)
+    _redact_sensitive_inplace(out)
+    return out
 
 
 def init_logging(ctx):

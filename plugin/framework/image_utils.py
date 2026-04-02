@@ -23,6 +23,7 @@ import base64
 from plugin.modules.http.client import LlmClient
 from plugin.modules.http.requests import sync_request
 from plugin.modules.http.errors import _format_http_error_response
+from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.contrib.aihordeclient import AiHordeClient
 from plugin.framework.config import (
     get_config_bool, get_config_int, get_config_float, get_config_str
@@ -33,20 +34,6 @@ log = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 TRIM_IMAGES_IN_LOG = True
-
-def _trim_images(d):
-    if isinstance(d, dict):
-        new_d = {}
-        for k, v in d.items():
-            if k in ("b64_json", "url") and isinstance(v, str):
-                if k == "b64_json" or (k == "url" and v.startswith("data:image")):
-                    new_d[k] = "<IMAGE bytes trimmed to not ruin the log file>"
-                    continue
-            new_d[k] = _trim_images(v)
-        return new_d
-    elif isinstance(d, list):
-        return [_trim_images(item) for item in d]
-    return d
 
 class ImageProvider:
     def generate(self, prompt, **kwargs):
@@ -145,7 +132,7 @@ class EndpointImageProvider(ImageProvider):
                     return [], err_msg
 
                 result = json.loads(http_resp.read().decode("utf-8"))
-                log_result = _trim_images(result) if TRIM_IMAGES_IN_LOG else result
+                log_result = redact_sensitive_payload_for_log(result) if TRIM_IMAGES_IN_LOG else result
                 log.debug("=== Image Response: %s" % json.dumps(log_result, indent=2))
 
                 # Standard OpenAI format: {"data": [{"url": "...", "b64_json": "..."}]}

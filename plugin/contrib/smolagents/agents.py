@@ -14,11 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import importlib
 import json
-import os
 import sys
-import tempfile
 import textwrap
 import time
 import uuid
@@ -29,18 +26,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from dataclasses import dataclass
 from logging import getLogger
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Type, TypeAlias, TypedDict, Union
-
-try:
-    import yaml
-except ImportError:
-    yaml = None  # type: ignore[assignment]
-
-try:
-    from huggingface_hub import create_repo, metadata_update, snapshot_download, upload_folder
-except ImportError:
-    create_repo = metadata_update = snapshot_download = upload_folder = None  # type: ignore[assignment]
+from typing import TYPE_CHECKING, Any, Literal, Type, TypedDict
 
 class _StubText:
     def __init__(self, content="", style=None): self.content = content
@@ -66,7 +52,6 @@ if TYPE_CHECKING:
 
 from .agent_types import AgentAudio, AgentImage, handle_agent_output_types
 from .default_tools import TOOL_MAPPING, FinalAnswerTool
-from .local_python_executor import BASE_BUILTIN_MODULES, LocalPythonExecutor, PythonExecutor, fix_final_answer_code
 from .memory import (
     ActionStep,
     AgentMemory,
@@ -80,8 +65,6 @@ from .memory import (
     ToolCall,
 )
 from .models import (
-    CODEAGENT_RESPONSE_FORMAT,
-    MODEL_REGISTRY,
     ChatMessage,
     ChatMessageStreamDelta,
     ChatMessageToolCall,
@@ -97,10 +80,6 @@ from .monitoring import (
     Monitor,
     TokenUsage,
 )
-try:
-    from .remote_executors import BlaxelExecutor, DockerExecutor, E2BExecutor, ModalExecutor, WasmExecutor
-except ImportError:
-    BlaxelExecutor = DockerExecutor = E2BExecutor = ModalExecutor = WasmExecutor = None  # type: ignore[assignment]
 from .tools import BaseTool, Tool, validate_tool_arguments
 from .utils import (
     AgentError,
@@ -110,11 +89,7 @@ from .utils import (
     AgentParsingError,
     AgentToolCallError,
     AgentToolExecutionError,
-    create_agent_gradio_app_template,
-    extract_code_from_text,
     is_valid_name,
-    make_init_file,
-    parse_code_blobs,
     truncate_content,
 )
 
@@ -317,18 +292,6 @@ class RunResult:
         }
 
 
-StreamEvent: TypeAlias = Union[
-    ChatMessageStreamDelta,
-    ChatMessageToolCall,
-    ActionOutput,
-    ToolCall,
-    ToolOutput,
-    PlanningStep,
-    ActionStep,
-    FinalAnswerStep,
-]
-
-
 class MultiStepAgent(ABC):
     """
     Agent class that solves the given task step by step, using the ReAct framework:
@@ -351,7 +314,7 @@ class MultiStepAgent(ABC):
         final_answer_checks (`list[Callable]`, *optional*): List of validation functions to run before accepting a final answer.
             Each function should:
             - Take the final answer, the agent's memory, and the agent itself as arguments.
-            - Return a boolean indicating whether the final answer is valid.
+            - Return a boolean indicating whether the final answer is vali d.
         return_full_result (`bool`, default `False`): Whether to return the full [`RunResult`] object or just the final answer output from the agent run.
     """
 
@@ -456,13 +419,7 @@ class MultiStepAgent(ABC):
         )
         self.tools = {tool.name: tool for tool in tools}
         if add_base_tools:
-            self.tools.update(
-                {
-                    name: cls()
-                    for name, cls in TOOL_MAPPING.items()
-                    if name != "python_interpreter" or self.__class__.__name__ == "ToolCallingAgent"
-                }
-            )
+            self.tools.update({name: cls() for name, cls in TOOL_MAPPING.items()})
         # Register the final answer tool under its configured name.
         fa_tool_name = getattr(self, "final_answer_tool_name", "final_answer")
         if fa_tool_name not in self.tools:
@@ -529,9 +486,9 @@ class MultiStepAgent(ABC):
 
         Example:
         ```py
-        from smolagents import CodeAgent
-        agent = CodeAgent(tools=[])
-        agent.run("What is the result of 2 power 3.7384?")
+        from plugin.contrib.smolagents.agents import ToolCallingAgent
+        agent = ToolCallingAgent(tools=[], model=model)
+        agent.run("Summarize the task.")
         ```
         """
         max_steps = max_steps or self.max_steps
@@ -555,10 +512,6 @@ You have been provided with these additional arguments, that you can access dire
             title=self.name if hasattr(self, "name") else None,
         )
         self.memory.steps.append(TaskStep(task=self.task, task_images=images))
-
-        if getattr(self, "python_executor", None):
-            self.python_executor.send_variables(variables=self.state)
-            self.python_executor.send_tools({**self.tools, **self.managed_agents})
 
         if stream:
             # The steps are returned as they are executed through a generator to iterate on.
@@ -847,34 +800,6 @@ You have been provided with these additional arguments, that you can access dire
         """
         raise NotImplementedError("This method should be implemented in child classes")
 
-    def step(self, memory_step: ActionStep) -> Any:
-        """
-        Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
-        Returns either None if the step is not final, or the final answer.
-        """
-        return list(self._step_stream(memory_step))[-1]
-
-    def extract_action(self, model_output: str, split_token: str) -> tuple[str, str]:
-        """
-        Parse action from the LLM output
-
-        Args:
-            model_output (`str`): Output of the LLM
-            split_token (`str`): Separator for the action. Should match the example in the system prompt.
-        """
-        try:
-            split = model_output.split(split_token)
-            rationale, action = (
-                split[-2],
-                split[-1],
-            )  # NOTE: using indexes starting from the end solves for when you have more than one split_token in the output
-        except Exception:
-            raise AgentParsingError(
-                f"No '{split_token}' token provided in your output.\nYour output:\n{model_output}\n. Be sure to include an action, prefaced with '{split_token}'!",
-                self.logger,
-            )
-        return rationale.strip(), action.strip()
-
     def provide_final_answer(self, task: str) -> ChatMessage:
         """
         Provide the final answer to the task, based on the logs of the agent's interactions.
@@ -920,19 +845,6 @@ You have been provided with these additional arguments, that you can access dire
                 content=[{"type": "text", "text": f"Error in generating final LLM output: {e}"}],
             )
 
-    def visualize(self):
-        """Creates a rich tree visualization of the agent's structure."""
-        self.logger.visualize_agent_tree(self)
-
-    def replay(self, detailed: bool = False):
-        """Prints a pretty replay of the agent's steps.
-
-        Args:
-            detailed (bool, optional): If True, also displays the memory at each step. Defaults to False.
-                Careful: will increase log length exponentially. Use only for debugging.
-        """
-        self.memory.replay(self.logger, detailed=detailed)
-
     def __call__(self, task: str, **kwargs):
         """Adds additional prompting for the managed agent, runs it, and wraps the output.
         This method is called only by a managed agent.
@@ -956,328 +868,6 @@ You have been provided with these additional arguments, that you can access dire
                 answer += "\n" + truncate_content(str(content)) + "\n---"
             answer += "\n</summary_of_work>"
         return answer
-
-    def save(self, output_dir: str | Path, relative_path: str | None = None):
-        """
-        Saves the relevant code files for your agent. This will copy the code of your agent in `output_dir` as well as autogenerate:
-
-        - a `tools` folder containing the logic for each of the tools under `tools/{tool_name}.py`.
-        - a `managed_agents` folder containing the logic for each of the managed agents.
-        - an `agent.json` file containing a dictionary representing your agent.
-        - a `prompt.yaml` file containing the prompt templates used by your agent.
-        - an `app.py` file providing a UI for your agent when it is exported to a Space with `agent.push_to_hub()`
-        - a `requirements.txt` containing the names of the modules used by your tool (as detected when inspecting its
-          code)
-
-        Args:
-            output_dir (`str` or `Path`): The folder in which you want to save your agent.
-        """
-        make_init_file(output_dir)
-
-        # Recursively save managed agents
-        if self.managed_agents:
-            make_init_file(os.path.join(output_dir, "managed_agents"))
-            for agent_name, agent in self.managed_agents.items():
-                agent_suffix = f"managed_agents.{agent_name}"
-                if relative_path:
-                    agent_suffix = relative_path + "." + agent_suffix
-                agent.save(os.path.join(output_dir, "managed_agents", agent_name), relative_path=agent_suffix)
-
-        class_name = self.__class__.__name__
-
-        # Save tools to different .py files
-        for tool in self.tools.values():
-            make_init_file(os.path.join(output_dir, "tools"))
-            tool.save(os.path.join(output_dir, "tools"), tool_file_name=tool.name, make_gradio_app=False)
-
-        # Save prompts to yaml
-        yaml_prompts = yaml.safe_dump(
-            self.prompt_templates,
-            default_style="|",  # This forces block literals for all strings
-            default_flow_style=False,
-            width=float("inf"),
-            sort_keys=False,
-            allow_unicode=True,
-            indent=2,
-        )
-
-        with open(os.path.join(output_dir, "prompts.yaml"), "w", encoding="utf-8") as f:
-            f.write(yaml_prompts)
-
-        # Save agent dictionary to json
-        agent_dict = self.to_dict()
-        agent_dict["tools"] = [tool.name for tool in self.tools.values()]
-        agent_dict["managed_agents"] = {agent.name: agent.__class__.__name__ for agent in self.managed_agents.values()}
-        with open(os.path.join(output_dir, "agent.json"), "w", encoding="utf-8") as f:
-            json.dump(agent_dict, f, indent=4)
-
-        # Save requirements
-        with open(os.path.join(output_dir, "requirements.txt"), "w", encoding="utf-8") as f:
-            f.writelines(f"{r}\n" for r in agent_dict["requirements"])
-
-        # Make agent.py file with Gradio UI
-        agent_name = f"agent_{self.name}" if getattr(self, "name", None) else "agent"
-        managed_agent_relative_path = relative_path + "." if relative_path is not None else ""
-        app_template = create_agent_gradio_app_template()
-
-        # Render the app.py file from Jinja2 template
-        app_text = app_template.render(
-            {
-                "agent_name": agent_name,
-                "class_name": class_name,
-                "agent_dict": agent_dict,
-                "tools": self.tools,
-                "managed_agents": self.managed_agents,
-                "managed_agent_relative_path": managed_agent_relative_path,
-            }
-        )
-
-        with open(os.path.join(output_dir, "app.py"), "w", encoding="utf-8") as f:
-            f.write(app_text + "\n")  # Append newline at the end
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the agent to a dictionary representation.
-
-        Returns:
-            `dict`: Dictionary representation of the agent.
-        """
-        # TODO: handle serializing step_callbacks and final_answer_checks
-        for attr in ["final_answer_checks", "step_callbacks"]:
-            if getattr(self, attr, None):
-                self.logger.log(f"This agent has {attr}: they will be ignored by this method.", LogLevel.INFO)
-
-        tool_dicts = [tool.to_dict() for tool in self.tools.values()]
-        tool_requirements = {req for tool in self.tools.values() for req in tool.to_dict()["requirements"]}
-        managed_agents_requirements = {
-            req for managed_agent in self.managed_agents.values() for req in managed_agent.to_dict()["requirements"]
-        }
-        requirements = tool_requirements | managed_agents_requirements
-        if hasattr(self, "authorized_imports"):
-            requirements.update(
-                {package.split(".")[0] for package in self.authorized_imports if package not in BASE_BUILTIN_MODULES}
-            )
-
-        agent_dict = {
-            "class": self.__class__.__name__,
-            "tools": tool_dicts,
-            "model": {
-                "class": self.model.__class__.__name__,
-                "data": self.model.to_dict(),
-            },
-            "managed_agents": [managed_agent.to_dict() for managed_agent in self.managed_agents.values()],
-            "prompt_templates": self.prompt_templates,
-            "max_steps": self.max_steps,
-            "verbosity_level": int(self.logger.level),
-            "planning_interval": self.planning_interval,
-            "name": self.name,
-            "description": self.description,
-            "requirements": sorted(requirements),
-        }
-        return agent_dict
-
-    @classmethod
-    def from_dict(cls, agent_dict: dict[str, Any], **kwargs) -> "MultiStepAgent":
-        """Create agent from a dictionary representation.
-
-        Args:
-            agent_dict (`dict[str, Any]`): Dictionary representation of the agent.
-            **kwargs: Additional keyword arguments that will override agent_dict values.
-
-        Returns:
-            `MultiStepAgent`: Instance of the agent class.
-        """
-        # Load model
-        model_info = agent_dict["model"]
-        model_class = MODEL_REGISTRY.get(model_info["class"])
-        if model_class is None:
-            raise ValueError(
-                f"Unknown model class '{model_info['class']}'. "
-                f"Supported models: {', '.join(sorted(MODEL_REGISTRY.keys()))}"
-            )
-        model = model_class.from_dict(model_info["data"])
-        # Load tools
-        tools = []
-        for tool_info in agent_dict["tools"]:
-            tools.append(Tool.from_code(tool_info["code"]))
-        # Load managed agents
-        managed_agents = []
-        for managed_agent_dict in agent_dict["managed_agents"]:
-            agent_class = AGENT_REGISTRY.get(managed_agent_dict["class"])
-            if agent_class is None:
-                raise ValueError(
-                    f"Unknown agent class '{managed_agent_dict['class']}'. "
-                    f"Supported agents: {', '.join(sorted(AGENT_REGISTRY.keys()))}"
-                )
-            managed_agent = agent_class.from_dict(managed_agent_dict, **kwargs)
-            managed_agents.append(managed_agent)
-        # Extract base agent parameters
-        agent_args = {
-            "model": model,
-            "tools": tools,
-            "managed_agents": managed_agents,
-            "prompt_templates": agent_dict.get("prompt_templates"),
-            "max_steps": agent_dict.get("max_steps"),
-            "verbosity_level": agent_dict.get("verbosity_level"),
-            "planning_interval": agent_dict.get("planning_interval"),
-            "name": agent_dict.get("name"),
-            "description": agent_dict.get("description"),
-        }
-        # Filter out None values to use defaults from __init__
-        agent_args = {k: v for k, v in agent_args.items() if v is not None}
-        # Update with any additional kwargs
-        agent_args.update(kwargs)
-        # Create agent instance
-        return cls(**agent_args)
-
-    @classmethod
-    def from_hub(
-        cls,
-        repo_id: str,
-        token: str | None = None,
-        trust_remote_code: bool = False,
-        **kwargs,
-    ):
-        """
-        Loads an agent defined on the Hub.
-
-        <Tip warning={true}>
-
-        Loading a tool from the Hub means that you'll download the tool and execute it locally.
-        ALWAYS inspect the tool you're downloading before loading it within your runtime, as you would do when
-        installing a package using pip/npm/apt.
-
-        </Tip>
-
-        Args:
-            repo_id (`str`):
-                The name of the repo on the Hub where your tool is defined.
-            token (`str`, *optional*):
-                The token to identify you on hf.co. If unset, will use the token generated when running
-                `huggingface-cli login` (stored in `~/.huggingface`).
-            trust_remote_code(`bool`, *optional*, defaults to False):
-                This flags marks that you understand the risk of running remote code and that you trust this tool.
-                If not setting this to True, loading the tool from Hub will fail.
-            kwargs (additional keyword arguments, *optional*):
-                Additional keyword arguments that will be split in two: all arguments relevant to the Hub (such as
-                `cache_dir`, `revision`, `subfolder`) will be used when downloading the files for your agent, and the
-                others will be passed along to its init.
-        """
-        if not trust_remote_code:
-            raise ValueError(
-                "Loading an agent from Hub requires to acknowledge you trust its code: to do so, pass `trust_remote_code=True`."
-            )
-
-        # Get the agent's Hub folder.
-        download_kwargs = {"token": token, "repo_type": "space"} | {
-            key: kwargs.pop(key)
-            for key in [
-                "cache_dir",
-                "force_download",
-                "proxies",
-                "revision",
-                "local_files_only",
-            ]
-            if key in kwargs
-        }
-
-        download_folder = Path(snapshot_download(repo_id=repo_id, **download_kwargs))
-        return cls.from_folder(download_folder, **kwargs)
-
-    @classmethod
-    def from_folder(cls, folder: str | Path, **kwargs):
-        """Loads an agent from a local folder.
-
-        Args:
-            folder (`str` or `Path`): The folder where the agent is saved.
-            **kwargs: Additional keyword arguments that will be passed to the agent's init.
-        """
-        # Load agent.json
-        folder = Path(folder)
-        agent_dict = json.loads((folder / "agent.json").read_text())
-        # Handle HfApiModel -> InferenceClientModel rename for old agents
-        if agent_dict.get("model", {}).get("class") == "HfApiModel":
-            agent_dict["model"]["class"] = "InferenceClientModel"
-            logger.warning(
-                "The agent you're loading uses the deprecated 'HfApiModel' class: it was automatically updated to 'InferenceClientModel'."
-            )
-        # Load managed agents from their respective folders, recursively
-        managed_agents = []
-        for managed_agent_name, managed_agent_class_name in agent_dict["managed_agents"].items():
-            agent_cls = AGENT_REGISTRY.get(managed_agent_class_name)
-            if agent_cls is None:
-                raise ValueError(
-                    f"Unknown agent class '{managed_agent_class_name}'. "
-                    f"Supported agents: {', '.join(sorted(AGENT_REGISTRY.keys()))}"
-                )
-            managed_agents.append(agent_cls.from_folder(folder / "managed_agents" / managed_agent_name))
-        agent_dict["managed_agents"] = {}
-
-        # Load tools
-        tools = []
-        for tool_name in agent_dict["tools"]:
-            tool_code = (folder / "tools" / f"{tool_name}.py").read_text()
-            tools.append({"name": tool_name, "code": tool_code})
-        agent_dict["tools"] = tools
-
-        # Add managed agents to kwargs to override the empty list in from_dict
-        if managed_agents:
-            kwargs["managed_agents"] = managed_agents
-
-        return cls.from_dict(agent_dict, **kwargs)
-
-    def push_to_hub(
-        self,
-        repo_id: str,
-        commit_message: str = "Upload agent",
-        private: bool | None = None,
-        token: bool | str | None = None,
-        create_pr: bool = False,
-    ) -> str:
-        """
-        Upload the agent to the Hub.
-
-        Parameters:
-            repo_id (`str`):
-                The name of the repository you want to push to. It should contain your organization name when
-                pushing to a given organization.
-            commit_message (`str`, *optional*, defaults to `"Upload agent"`):
-                Message to commit while pushing.
-            private (`bool`, *optional*, defaults to `None`):
-                Whether to make the repo private. If `None`, the repo will be public unless the organization's default is private. This value is ignored if the repo already exists.
-            token (`bool` or `str`, *optional*):
-                The token to use as HTTP bearer authorization for remote files. If unset, will use the token generated
-                when running `huggingface-cli login` (stored in `~/.huggingface`).
-            create_pr (`bool`, *optional*, defaults to `False`):
-                Whether to create a PR with the uploaded files or directly commit.
-        """
-        repo_url = create_repo(
-            repo_id=repo_id,
-            token=token,
-            private=private,
-            exist_ok=True,
-            repo_type="space",
-            space_sdk="gradio",
-        )
-        repo_id = repo_url.repo_id
-        metadata_update(
-            repo_id,
-            {"tags": ["smolagents", "agent"]},
-            repo_type="space",
-            token=token,
-            overwrite=True,
-        )
-
-        with tempfile.TemporaryDirectory() as work_dir:
-            self.save(work_dir)
-            logger.info(f"Uploading the following files to {repo_id}: {','.join(os.listdir(work_dir))}")
-            return upload_folder(
-                repo_id=repo_id,
-                commit_message=commit_message,
-                folder_path=work_dir,
-                token=token,
-                create_pr=create_pr,
-                repo_type="space",
-            )
 
 
 class ToolCallingAgent(MultiStepAgent):
@@ -1601,312 +1191,3 @@ class ToolCallingAgent(MultiStepAgent):
                     "Please try again or use another tool"
                 )
             raise AgentToolExecutionError(error_msg, self.logger) from e
-
-
-class CodeAgent(MultiStepAgent):
-    """
-    In this agent, the tool calls will be formulated by the LLM in code format, then parsed and executed.
-
-    Args:
-        tools (`list[Tool]`): [`Tool`]s that the agent can use.
-        model (`Model`): Model that will generate the agent's actions.
-        prompt_templates ([`~agents.PromptTemplates`], *optional*): Prompt templates.
-        additional_authorized_imports (`list[str]`, *optional*): Additional authorized imports for the agent.
-        planning_interval (`int`, *optional*): Interval at which the agent will run a planning step.
-        executor ([`PythonExecutor`], *optional*): Custom Python code executor. If not provided, a default executor will be created based on `executor_type`.
-        executor_type (`Literal["local", "blaxel", "e2b", "modal", "docker", "wasm"]`, default `"local"`): Type of code executor.
-        executor_kwargs (`dict`, *optional*): Additional arguments to pass to initialize the executor.
-        max_print_outputs_length (`int`, *optional*): Maximum length of the print outputs.
-        stream_outputs (`bool`, *optional*, default `False`): Whether to stream outputs during execution.
-        use_structured_outputs_internally (`bool`, default `False`): Whether to use structured generation at each action step: improves performance for many models.
-
-            <Added version="1.17.0"/>
-        code_block_tags (`tuple[str, str]` | `Literal["markdown"]`, *optional*): Opening and closing tags for code blocks (regex strings). Pass a custom tuple, or pass 'markdown' to use ("```(?:python|py)", "\\n```"), leave empty to use ("<code>", "</code>").
-        **kwargs: Additional keyword arguments.
-    """
-
-    def __init__(
-        self,
-        tools: list[Tool],
-        model: Model,
-        prompt_templates: PromptTemplates | None = None,
-        additional_authorized_imports: list[str] | None = None,
-        planning_interval: int | None = None,
-        executor: PythonExecutor = None,
-        executor_type: Literal["local", "blaxel", "e2b", "modal", "docker", "wasm"] = "local",
-        executor_kwargs: dict[str, Any] | None = None,
-        max_print_outputs_length: int | None = None,
-        stream_outputs: bool = False,
-        use_structured_outputs_internally: bool = False,
-        code_block_tags: str | tuple[str, str] | None = None,
-        **kwargs,
-    ):
-        self.additional_authorized_imports = additional_authorized_imports if additional_authorized_imports else []
-        self.authorized_imports = sorted(set(BASE_BUILTIN_MODULES) | set(self.additional_authorized_imports))
-        self.max_print_outputs_length = max_print_outputs_length
-        self._use_structured_outputs_internally = use_structured_outputs_internally
-        if prompt_templates is None:
-            try:
-                import yaml
-                if self._use_structured_outputs_internally:
-                    prompt_templates = yaml.safe_load(
-                        importlib.resources.files("smolagents.prompts").joinpath("structured_code_agent.yaml").read_text()
-                    )
-                else:
-                    prompt_templates = yaml.safe_load(
-                        importlib.resources.files("smolagents.prompts").joinpath("code_agent.yaml").read_text()
-                    )
-            except ImportError:
-                prompt_templates = {}
-
-        if isinstance(code_block_tags, str) and not code_block_tags == "markdown":
-            raise ValueError("Only 'markdown' is supported for a string argument to `code_block_tags`.")
-        self.code_block_tags = (
-            code_block_tags
-            if isinstance(code_block_tags, tuple)
-            else ("```python", "```")
-            if code_block_tags == "markdown"
-            else ("<code>", "</code>")
-        )
-
-        super().__init__(
-            tools=tools,
-            model=model,
-            prompt_templates=prompt_templates,
-            planning_interval=planning_interval,
-            **kwargs,
-        )
-        self.stream_outputs = stream_outputs
-        if self.stream_outputs and not hasattr(self.model, "generate_stream"):
-            raise ValueError(
-                "`stream_outputs` is set to True, but the model class implements no `generate_stream` method."
-            )
-        if "*" in self.additional_authorized_imports:
-            self.logger.log(
-                "Caution: you set an authorization for all imports, meaning your agent can decide to import any package it deems necessary. This might raise issues if the package is not installed in your environment.",
-                level=LogLevel.INFO,
-            )
-        self.executor_type = executor_type
-        self.executor_kwargs: dict[str, Any] = executor_kwargs or {}
-        self.python_executor = executor or self.create_python_executor()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.cleanup()
-
-    def cleanup(self):
-        """Clean up resources used by the agent, such as the remote Python executor."""
-        if hasattr(self.python_executor, "cleanup"):
-            self.python_executor.cleanup()
-
-    def create_python_executor(self) -> PythonExecutor:
-        if self.executor_type not in {"local", "blaxel", "e2b", "modal", "docker", "wasm"}:
-            raise ValueError(f"Unsupported executor type: {self.executor_type}")
-
-        if self.executor_type == "local":
-            return LocalPythonExecutor(
-                self.additional_authorized_imports,
-                **{"max_print_outputs_length": self.max_print_outputs_length} | self.executor_kwargs,
-            )
-        else:
-            if self.managed_agents:
-                raise ValueError("Managed agents are not yet supported with remote code execution.")
-            remote_executors = {
-                "blaxel": BlaxelExecutor,
-                "e2b": E2BExecutor,
-                "docker": DockerExecutor,
-                "wasm": WasmExecutor,
-                "modal": ModalExecutor,
-            }
-            return remote_executors[self.executor_type](
-                self.additional_authorized_imports, self.logger, **self.executor_kwargs
-            )
-
-    def initialize_system_prompt(self) -> str:
-        system_prompt = populate_template(
-            self.prompt_templates["system_prompt"],
-            variables={
-                "tools": self.tools,
-                "managed_agents": self.managed_agents,
-                "authorized_imports": (
-                    "You can import from any package you want."
-                    if "*" in self.authorized_imports
-                    else str(self.authorized_imports)
-                ),
-                "custom_instructions": self.instructions,
-                "code_block_opening_tag": self.code_block_tags[0],
-                "code_block_closing_tag": self.code_block_tags[1],
-            },
-        )
-        return system_prompt
-
-    def _step_stream(
-        self, memory_step: ActionStep
-    ) -> Generator[ChatMessageStreamDelta | ToolCall | ToolOutput | ActionOutput]:
-        """
-        Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
-        Yields ChatMessageStreamDelta during the run if streaming is enabled.
-        At the end, yields either None if the step is not final, or the final answer.
-        """
-        memory_messages = self.write_memory_to_messages()
-
-        input_messages = memory_messages.copy()
-        ### Generate model output ###
-        memory_step.model_input_messages = input_messages
-        stop_sequences = ["Observation:", "Calling tools:"]
-        if self.code_block_tags[1] not in self.code_block_tags[0]:
-            # If the closing tag is contained in the opening tag, adding it as a stop sequence would cut short any code generation
-            stop_sequences.append(self.code_block_tags[1])
-        try:
-            additional_args: dict[str, Any] = {}
-            if self._use_structured_outputs_internally:
-                additional_args["response_format"] = CODEAGENT_RESPONSE_FORMAT
-            if self.stream_outputs:
-                output_stream = self.model.generate_stream(
-                    input_messages,
-                    stop_sequences=stop_sequences,
-                    **additional_args,
-                )
-                chat_message_stream_deltas: list[ChatMessageStreamDelta] = []
-                for event in output_stream:
-                    chat_message_stream_deltas.append(event)
-                    yield event
-                chat_message = agglomerate_stream_deltas(chat_message_stream_deltas)
-                memory_step.model_output_message = chat_message
-                output_text = chat_message.content
-            else:
-                chat_message: ChatMessage = self.model.generate(
-                    input_messages,
-                    stop_sequences=stop_sequences,
-                    **additional_args,
-                )
-                memory_step.model_output_message = chat_message
-                output_text = chat_message.content
-                self.logger.log_markdown(
-                    content=output_text or "",
-                    title="Output message of the LLM:",
-                    level=LogLevel.DEBUG,
-                )
-
-            if not self._use_structured_outputs_internally:
-                # This adds the end code sequence (i.e. the closing code block tag) to the history.
-                # This will nudge subsequent LLM calls to finish with this end code sequence, thus efficiently stopping generation.
-                if output_text and not output_text.strip().endswith(self.code_block_tags[1]):
-                    output_text += self.code_block_tags[1]
-                    memory_step.model_output_message.content = output_text
-
-            memory_step.token_usage = chat_message.token_usage
-            memory_step.model_output = output_text
-        except Exception as e:
-            raise AgentGenerationError(f"Error in generating model output:\n{e}", self.logger) from e
-
-        ### Parse output ###
-        try:
-            if self._use_structured_outputs_internally:
-                code_action = json.loads(output_text)["code"]
-                code_action = extract_code_from_text(code_action, self.code_block_tags) or code_action
-            else:
-                code_action = parse_code_blobs(output_text, self.code_block_tags)
-            code_action = fix_final_answer_code(code_action)
-            memory_step.code_action = code_action
-        except Exception as e:
-            error_msg = f"Error in code parsing:\n{e}\nMake sure to provide correct code blobs."
-            raise AgentParsingError(error_msg, self.logger)
-
-        tool_call = ToolCall(
-            name="python_interpreter",
-            arguments=code_action,
-            id=f"call_{len(self.memory.steps)}",
-        )
-        yield tool_call
-        memory_step.tool_calls = [tool_call]
-
-        ### Execute action ###
-        self.logger.log_code(title="Executing parsed code:", content=code_action, level=LogLevel.INFO)
-        try:
-            code_output = self.python_executor(code_action)
-            execution_outputs_console = []
-            if len(code_output.logs) > 0:
-                execution_outputs_console += [
-                    "Execution logs:",
-                    code_output.logs,
-                ]
-            observation = "Execution logs:\n" + code_output.logs
-        except Exception as e:
-            if hasattr(self.python_executor, "state") and "_print_outputs" in self.python_executor.state:
-                execution_logs = str(self.python_executor.state["_print_outputs"])
-                if len(execution_logs) > 0:
-                    execution_outputs_console = [
-                        "Execution logs:",
-                        execution_logs,
-                    ]
-                    memory_step.observations = "Execution logs:\n" + execution_logs
-                    self.logger.log("\n".join(map(str, execution_outputs_console)), level=LogLevel.INFO)
-            error_msg = str(e)
-            if "Import of " in error_msg and " is not allowed" in error_msg:
-                self.logger.log(
-                    "[bold red]Warning to user: Code execution failed due to an unauthorized import - Consider passing said import under `additional_authorized_imports` when initializing your CodeAgent.",
-                    level=LogLevel.INFO,
-                )
-            raise AgentExecutionError(error_msg, self.logger)
-
-        truncated_output = truncate_content(str(code_output.output))
-        observation += "Last output from code snippet:\n" + truncated_output
-        memory_step.observations = observation
-
-        if not code_output.is_final_answer:
-            execution_outputs_console += [f"Out: {truncated_output}"]
-        self.logger.log("\n".join(map(str, execution_outputs_console)), level=LogLevel.INFO)
-        memory_step.action_output = code_output.output
-        yield ActionOutput(output=code_output.output, is_final_answer=code_output.is_final_answer)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the agent to a dictionary representation.
-
-        Returns:
-            `dict`: Dictionary representation of the agent.
-        """
-        agent_dict = super().to_dict()
-        agent_dict["authorized_imports"] = self.authorized_imports
-        agent_dict["executor_type"] = self.executor_type
-        agent_dict["executor_kwargs"] = self.executor_kwargs
-        agent_dict["max_print_outputs_length"] = self.max_print_outputs_length
-        return agent_dict
-
-    @classmethod
-    def from_dict(cls, agent_dict: dict[str, Any], **kwargs) -> "CodeAgent":
-        """Create CodeAgent from a dictionary representation.
-
-        Args:
-            agent_dict (`dict[str, Any]`): Dictionary representation of the agent.
-            **kwargs: Additional keyword arguments that will override agent_dict values.
-
-        Returns:
-            `CodeAgent`: Instance of the CodeAgent class.
-        """
-        # Add CodeAgent-specific parameters to kwargs
-        code_agent_kwargs = {
-            "additional_authorized_imports": agent_dict.get("authorized_imports"),
-            "executor_type": agent_dict.get("executor_type"),
-            "executor_kwargs": agent_dict.get("executor_kwargs"),
-            "max_print_outputs_length": agent_dict.get("max_print_outputs_length"),
-            "code_block_tags": agent_dict.get("code_block_tags"),
-        }
-        # Filter out None values
-        code_agent_kwargs = {k: v for k, v in code_agent_kwargs.items() if v is not None}
-        # Update with any additional kwargs
-        code_agent_kwargs.update(kwargs)
-        # Call the parent class's from_dict method
-        return super().from_dict(agent_dict, **code_agent_kwargs)
-
-
-# Agent Registry for secure deserialization
-# This registry maps agent class names to their actual classes.
-# Only classes listed here can be instantiated during deserialization (from_dict/from_folder).
-# This prevents arbitrary code execution via importlib-based dynamic loading.
-AGENT_REGISTRY = {
-    "ToolCallingAgent": ToolCallingAgent,
-    "CodeAgent": CodeAgent,
-}
