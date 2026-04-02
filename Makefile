@@ -95,7 +95,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright bandit
+        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright bandit ty-run mypy-run pyright-run
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -381,10 +381,10 @@ check-ext:
 # We try to detect one that has the 'uno' module available, falling back to 'python' if none found.
 LO_PYTHON ?= $(shell python3 -c "import uno" 2>/dev/null && echo python3 || (python -c "import uno" 2>/dev/null && echo python || echo python))
 
-typecheck:
-	@$(MAKE) ty
-	@$(MAKE) mypy
-	@$(MAKE) pyright
+typecheck: manifest
+	@$(MAKE) ty-run
+	@$(MAKE) mypy-run
+	@$(MAKE) pyright-run
 
 test-run:
 	$(PYTHON) -m pytest plugin/tests
@@ -438,15 +438,19 @@ poc-deploy: poc-install
 
 check: ty
 
-ty: manifest
+ty: manifest ty-run
+mypy: manifest mypy-run
+pyright: manifest pyright-run
+
+ty-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
 	$(PYTHON) -m ty check --exclude plugin/contrib/
 
-mypy: manifest
+mypy-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
 	$(PYTHON) -m mypy
 
-pyright: manifest
+pyright-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
 	$(PYTHON) -m pyright
 
