@@ -317,6 +317,8 @@ class LlmClient:
         log.debug("URL: %s" % url)
 
         log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
+        if tools:
+            log.debug("Tools: %s" % json.dumps(redact_sensitive_payload_for_log(tools), indent=2))
         
         path = get_url_path_and_query(url)
             

@@ -52,8 +52,10 @@ TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate 
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - search_in_document (with return_offsets if needed) is for inspection/navigation; use apply_document_content with old_content for replacements.
-- If a tool call fails, verify content and target are provided (use target='beginning' / 'end' / 'selection' for insert-only)."""
-
+- If a tool call fails, verify content and target are provided (use target='beginning' / 'end' / 'selection' for insert-only).
+- When asked to review or give feedback or suggestions on a document, use the add_comment method to add your input to specific places in the document. Use for both positive and negative feedback.
+- When asked to improve or fix a sentence or paragraph or small document, re-write it rather than adding comments.
+"""
 # Shared Calc instruction blocks
 CALC_WORKFLOW = """WORKFLOW:
 1. Understand what the user wants.
@@ -87,8 +89,6 @@ TOOLS:
 - get_document_content: Read document (full/selection/range) as HTML.
 - search_in_document: Find text (use return_offsets for character positions if needed for inspection).
 - styles_apply_to_selection: Apply a paragraph style to the selection (use after discovering style names if needed).
-- Images (generate, edit, list, insert): not in this default tool list. Use delegate_to_specialized_writer_toolset(domain=images, task=...) for image tools via the specialized sub-agent.
-- Floating shapes (create_shape on the draw layer), edit/delete/connect shapes, and track-changes tools: not in this default list; use delegate_to_specialized_writer_toolset(domain=shapes or domain=tracking, task=...).
 
 {TRANSLATION_RULES}
 

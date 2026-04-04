@@ -16,7 +16,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer comment / annotation tools."""
 
+import datetime
 import logging
+import uno
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.writer.base import ToolWriterCommentBase
@@ -84,15 +86,11 @@ class ListComments(ToolWriterCommentBase):
 
 
 class AddComment(ToolBase):
-    """Add a comment anchored to a paragraph."""
+    """Add a comment anchored to a search string."""
 
     name = "add_comment"
     intent = "review"
-    description = (
-        "Add a comment/annotation. Anchor via search_text, locator, "
-        "or paragraph_index. Use your AI name as author for multi-agent "
-        "collaboration."
-    )
+    description = "Add a comment/annotation. Anchor the comment to text matching search_text."
     parameters = {
         "type": "object",
         "properties": {
@@ -104,23 +102,8 @@ class AddComment(ToolBase):
                 "type": "string",
                 "description": "Anchor the comment to text containing this string.",
             },
-            "locator": {
-                "type": "string",
-                "description": (
-                    "Locator: 'paragraph:N', 'bookmark:_mcp_x', "
-                    "'heading_text:Title', etc."
-                ),
-            },
-            "paragraph_index": {
-                "type": "integer",
-                "description": "Paragraph index to anchor to (0-based).",
-            },
-            "author": {
-                "type": "string",
-                "description": "Author name shown on the comment. Default: AI.",
-            },
         },
-        "required": ["content"],
+        "required": ["content", "search_text"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
@@ -128,47 +111,32 @@ class AddComment(ToolBase):
     def execute(self, ctx, **kwargs):
         content = kwargs.get("content", "")
         search_text = kwargs.get("search_text")
-        locator = kwargs.get("locator")
-        para_index = kwargs.get("paragraph_index")
-        author = kwargs.get("author", "AI")
+        author = "WriterAgent"
+
+        if not search_text:
+            return self._tool_error("Provide search_text.")
 
         doc = ctx.doc
         doc_text = doc.getText()
 
         # Determine anchor position
-        anchor_range = None
-
-        if search_text:
-            sd = doc.createSearchDescriptor()
-            sd.SearchString = search_text
-            sd.SearchRegularExpression = False
-            found = doc.findFirst(sd)
-            if found is None:
-                return {
-                    "status": "not_found",
-                    "message": "Text '%s' not found." % search_text,
-                }
-            anchor_range = found.getStart()
-        elif locator is not None or para_index is not None:
-            if locator is not None and para_index is None:
-                doc_svc = ctx.services.document
-                resolved = doc_svc.resolve_locator(doc, locator)
-                para_index = resolved.get("para_index")
-            if para_index is not None:
-                doc_svc = ctx.services.document
-                para_ranges = doc_svc.get_paragraph_ranges(doc)
-                if 0 <= para_index < len(para_ranges):
-                    anchor_range = para_ranges[para_index].getStart()
-                else:
-                    return self._tool_error("Paragraph %d out of range." % para_index)
-        else:
-            return self._tool_error("Provide search_text, locator, or paragraph_index.")
+        sd = doc.createSearchDescriptor()
+        sd.SearchString = search_text
+        sd.SearchRegularExpression = False
+        found = doc.findFirst(sd)
+        if found is None:
+            return {
+                "status": "not_found",
+                "message": "Text '%s' not found." % search_text,
+            }
+        anchor_range = found.getStart()
 
         annotation = doc.createInstance(
             "com.sun.star.text.textfield.Annotation"
         )
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
+        _set_annotation_date(annotation)
         cursor = doc_text.createTextCursorByRange(anchor_range)
         doc_text.insertTextContent(cursor, annotation, False)
 
@@ -315,6 +283,7 @@ class ResolveComment(ToolWriterCommentBase):
             reply.setPropertyValue("ParentName", comment_name)
             reply.setPropertyValue("Content", resolution)
             reply.setPropertyValue("Author", author)
+            _set_annotation_date(reply)
             anchor = target.getAnchor()
             cursor = doc_text.createTextCursorByRange(anchor.getStart())
             doc_text.insertTextContent(cursor, reply, False)
@@ -470,6 +439,7 @@ class Workflow(ToolWriterCommentBase):
             annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
             annotation.setPropertyValue("Author", "MCP-WORKFLOW")
             annotation.setPropertyValue("Content", content)
+            _set_annotation_date(annotation)
             cursor = doc_text.createTextCursor()
             cursor.gotoStart(False)
             doc_text.insertTextContent(cursor, annotation, False)
@@ -512,6 +482,30 @@ class Workflow(ToolWriterCommentBase):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+def _set_annotation_date(annotation):
+    """Set DateTimeValue (and Date) to now for a new annotation."""
+    now = datetime.datetime.now()
+    try:
+        dt = uno.createUnoStruct("com.sun.star.util.DateTime")
+        dt.Year = now.year  # type: ignore
+        dt.Month = now.month  # type: ignore
+        dt.Day = now.day  # type: ignore
+        dt.Hours = now.hour  # type: ignore
+        dt.Minutes = now.minute  # type: ignore
+        dt.Seconds = now.second  # type: ignore
+        annotation.setPropertyValue("DateTimeValue", dt)
+    except Exception:
+        pass
+    try:
+        d = uno.createUnoStruct("com.sun.star.util.Date")
+        d.Year = now.year  # type: ignore
+        d.Month = now.month  # type: ignore
+        d.Day = now.day  # type: ignore
+        annotation.setPropertyValue("Date", d)
+    except Exception:
+        pass
+
 
 def _read_annotation(field, para_ranges, text_obj):
     """Extract annotation properties into a plain dict."""
