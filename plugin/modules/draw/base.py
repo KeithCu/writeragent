@@ -14,17 +14,27 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Draw module — tools for Draw/Impress document manipulation."""
+"""Base classes for specialized Draw toolsets."""
 
-from plugin.framework.module_base import ModuleBase
+from typing import ClassVar
 
-# Import submodules to ensure tools are registered via auto_discover_package
-from plugin.modules.draw import specialized
+from plugin.framework.tool_base import ToolBase
 
-class DrawModule(ModuleBase):
-    """Registers Draw/Impress tools for shapes, pages/slides."""
 
-    def initialize(self, services):
-        self.services = services
+class ToolDrawSpecialBase(ToolBase):
+    """Base class for all specialized Draw tools.
 
-        services.tools.auto_discover_package(__name__)
+    Tools deriving from this base are NOT exposed directly to the main
+    agent's general toolset. Instead, they are exposed only to the
+    specialized sub-agent when the user delegates a task to that specific
+    domain.
+    """
+
+    tier = "specialized"
+    specialized_domain: ClassVar[str | None] = None
+
+
+# --- Domain-Specific Base Classes ---
+
+class ToolDrawWebResearchBase(ToolDrawSpecialBase):
+    specialized_domain = "web_research"

@@ -175,6 +175,8 @@ def test_web_research_tool():
     # Setup mock context
     ctx = MagicMock()
     ctx.ctx = MockContext()
+    # Mock get_config logic inside web_research to avoid KeyError
+    from unittest.mock import patch
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
@@ -251,8 +253,12 @@ def test_web_research_tool():
                 mock_get_resp.text = "<html><body><h1>Python 3.12.3 is available!</h1></body></html>"
                 mock_get.return_value = mock_get_resp
 
-                tool = WebResearchTool()
-                result = tool.execute(ctx, query="What is the latest Python release?", history_text="User said hello previously")
+                from plugin.modules.writer.specialized import DelegateToSpecializedWriter
+                tool = DelegateToSpecializedWriter()
+                with patch("plugin.framework.config.get_config", return_value="false"):
+                    with patch("plugin.framework.config.get_config_int", return_value=10):
+                        with patch("plugin.framework.config.get_api_config", return_value={"chat_max_tokens": 2048}):
+                            result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
                 assert result["status"] == "ok"
                 assert "3.12.3" in result["result"]
@@ -266,14 +272,19 @@ def test_web_research_tool():
 def test_web_research_tool_stop():
     ctx = MagicMock()
     ctx.ctx = MockContext()
+    from unittest.mock import patch
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
     ctx.stop_checker = lambda: True  # Stop immediately
 
     with patch("plugin.framework.smol_model.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
-                tool = WebResearchTool()
-                result = tool.execute(ctx, query="What is the latest Python release?", history_text="")
+                from plugin.modules.writer.specialized import DelegateToSpecializedWriter
+                tool = DelegateToSpecializedWriter()
+                with patch("plugin.framework.config.get_config", return_value="false"):
+                    with patch("plugin.framework.config.get_config_int", return_value=10):
+                        with patch("plugin.framework.config.get_api_config", return_value={"chat_max_tokens": 2048}):
+                            result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
                 assert result["status"] == "error"
                 assert result["message"] == "Web search stopped by user."

@@ -104,6 +104,10 @@ class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
+class ToolWriterWebResearchBase(ToolWriterSpecialBase):
+    specialized_domain = "web_research"
+
+
 # class SpecializedWorkflowFinished(ToolBase):
 #     """Tool called by the sub-agent to indicate it has completed its task."""
 #

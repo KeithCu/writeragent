@@ -40,3 +40,7 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain = "images"
     intent = "media"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
+class ToolCalcWebResearchBase(ToolCalcSpecialBase):
+    specialized_domain = "web_research"

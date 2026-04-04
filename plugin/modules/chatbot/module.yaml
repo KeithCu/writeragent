@@ -2,7 +2,6 @@ name: chatbot
 title: Sidebar
 requires: [document, config, events, http_routes]
 tools:
-  - plugin.modules.chatbot.web_research:WebResearchTool
 
 actions:
   extend_selection:

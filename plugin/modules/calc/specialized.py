@@ -94,6 +94,11 @@ class DelegateToSpecializedCalc(ToolBase):
         append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
         stop_checker = getattr(ctx, "stop_checker", None)
 
+        if domain == "web_research":
+            from plugin.modules.chatbot.web_research import WebResearchTool
+            tool = WebResearchTool()
+            return tool.execute(ctx, query=task)
+
         if not USE_SUB_AGENT:
             # Tell the main LLM loop to switch tools for the next round
             if getattr(ctx, "set_active_domain_callback", None):

@@ -17,6 +17,9 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase
+from plugin.modules.writer.base import ToolWriterWebResearchBase
+from plugin.modules.calc.base import ToolCalcWebResearchBase
+from plugin.modules.draw.base import ToolDrawWebResearchBase
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +62,8 @@ def _norm_research_query(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip()).casefold()
 
 
-class WebResearchTool(ToolBase):
+# Use multiple inheritance so the domain is auto-discovered by the sub-agent delegates.
+class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDrawWebResearchBase):  # type: ignore[misc]
     name = "web_research"
     description = "Search the web to answer questions or find information."
     parameters = {
@@ -76,7 +80,7 @@ class WebResearchTool(ToolBase):
         },
         "required": ["query"]
     }
-    tier = "agent"
+    tier = "specialized"  # Make it a specialized tool so it doesn't appear in the main chat prompt
     is_mutation = False
     long_running = True
 
