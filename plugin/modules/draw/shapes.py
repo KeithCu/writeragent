@@ -146,13 +146,27 @@ def _log_shape_uno_snapshot(phase: str, shape) -> None:
 
 
 def _log_custom_shape_geometry_dump(shape, phase: str) -> None:
-    """Truncated ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
+    """Detailed ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
     try:
         g = shape.getPropertyValue("CustomShapeGeometry")
-        s = repr(g)
-        if len(s) > 500:
-            s = s[:500] + "…"
-        log.debug("create_shape geometry_dump [%s]: %s", phase, s)
+        
+        details = []
+        if g is not None:
+            # `g` is typically a tuple of PropertyValue
+            for p in g:
+                val = p.Value
+                if isinstance(val, tuple):
+                    # might be nested property values like in Path
+                    nested = []
+                    for np in val:
+                        if hasattr(np, "Name") and hasattr(np, "Value"):
+                            nested.append(f"{np.Name}:{np.Value}")
+                        else:
+                            nested.append(repr(np))
+                    val = "{" + ", ".join(nested) + "}"
+                details.append(f"{p.Name}={val}")
+        
+        log.debug("create_shape geometry_dump [%s] FULL: %s", phase, " | ".join(details))
     except Exception as ex:
         log.debug("create_shape geometry_dump [%s]: %s", phase, ex)
 
@@ -226,6 +240,8 @@ def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
         shape.setPropertyValue("AnchorPageNo", anchor_no)
         shape.setPropertyValue("HoriOrient", 0)
         shape.setPropertyValue("VertOrient", 0)
+        shape.setPropertyValue("HoriOrientRelation", 8)  # PAGE_PRINT_AREA
+        shape.setPropertyValue("VertOrientRelation", 8)  # PAGE_PRINT_AREA
         log.debug(
             "create_shape writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0",
             anchor_no,
@@ -399,13 +415,14 @@ def _page_index_for(bridge, page):
 def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bool, str | None]:
     """Set EnhancedCustomShape engine and geometry ``Type`` so names like ``octagon`` render."""
     from com.sun.star.beans import PropertyValue
-
+    import uno
     prop = PropertyValue()
     prop.Name = "Type"
     prop.Value = custom_shape_type
     try:
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
-        shape.setPropertyValue("CustomShapeGeometry", (prop,))
+        prop_seq = uno.Any("[]com.sun.star.beans.PropertyValue", (prop,))  # type: ignore
+        uno.invoke(shape, "setPropertyValue", ("CustomShapeGeometry", prop_seq))
         log.debug(
             "create_shape enhanced_geometry: ok type=%r engine=%r",
             custom_shape_type,
@@ -569,22 +586,12 @@ class DrawShapes:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(
                     shape, custom_shape_type
                 )
-                if geometry_applied:
-                    log.debug(
-                        "create_shape safe_create: enhanced geometry applied before page.add type=%r",
-                        custom_shape_type,
-                    )
-                else:
+                if not geometry_applied:
                     log.warning(
                         "create_shape safe_create: enhanced geometry failed before add type=%s err=%s",
                         custom_shape_type,
                         geometry_error,
                     )
-            else:
-                log.debug(
-                    "create_shape safe_create: builtin path (e.g. RectangleShape) full_type=%s — no EnhancedCustomShape step",
-                    full_type,
-                )
 
             _try_writer_anchor_shape_before_add(doc, shape)
 
@@ -677,6 +684,18 @@ def _apply_shape_properties(shape, kwargs):
     if kwargs.get("line_width") is not None and hasattr(shape, "LineWidth"):
         try:
             shape.setPropertyValue("LineWidth", int(kwargs["line_width"]))
+        except Exception:
+            pass
+
+    # Line Style (ensure border is visible when colored or sized)
+    if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
+        try:
+            import sys
+            line_enum = sys.modules.get("com.sun.star.drawing.LineStyle")
+            if not line_enum:
+                import uno
+                from com.sun.star.drawing import LineStyle as line_enum
+            shape.setPropertyValue("LineStyle", line_enum.SOLID)
         except Exception:
             pass
 
@@ -819,39 +838,23 @@ class CreateShape(ToolBase):
                 uno_type,
                 position,
                 size,
-                custom_shape_type=custom_shape_type if is_custom_shape else None,
+                custom_shape_type=None,  # Do not apply geometry before anchoring to avoid Writer clearing bugs
             )
             if is_custom_shape and geometry_applied:
                 _log_shape_uno_snapshot("after_custom_geometry", shape)
-            if is_custom_shape:
-                _log_custom_shape_geometry_dump(shape, "after_safe_create")
         except DrawError as e:
             return self._tool_error(e.message)
 
-        # Writer often clears CustomShapeGeometry on page.add; readback is () until re-applied.
-        if (
-            ctx.doc is not None
-            and ctx.doc.supportsService("com.sun.star.text.TextDocument")
-            and is_custom_shape
-            and custom_shape_type
-        ):
-            geom_empty = True
-            try:
-                g = shape.getPropertyValue("CustomShapeGeometry")
-                geom_empty = g is None or len(tuple(g)) == 0
-            except Exception:
-                geom_empty = True
-            if geom_empty:
-                log.warning(
-                    "create_shape: Writer CustomShapeGeometry empty after add; re-applying enhanced geometry"
-                )
-                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(
-                    shape, custom_shape_type
-                )
-
-        _apply_shape_properties(shape, kwargs)
         _try_writer_at_page_shape_finalize(ctx.doc, bridge, page, shape)
         _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
+
+        # Apply geometry securely AFTER anchoring
+        if is_custom_shape and custom_shape_type:
+            geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
+            if not geometry_applied:
+                log.warning("create_shape: Failed to apply EnhancedCustomShapeGeometry post-anchor")
+
+        _apply_shape_properties(shape, kwargs)
         _try_writer_invalidate_and_pump(ctx.doc)
         _try_writer_select_created_shape(ctx.doc, shape)
         _log_shape_uno_snapshot("after_formatting", shape)
