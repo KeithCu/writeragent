@@ -63,7 +63,7 @@ def _norm_research_query(s: str) -> str:
 
 
 # Use multiple inheritance so the domain is auto-discovered by the sub-agent delegates.
-class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDrawWebResearchBase):
+class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDrawWebResearchBase):  # type: ignore[misc]
     name = "web_research"
     description = "Search the web to answer questions or find information."
     parameters = {
