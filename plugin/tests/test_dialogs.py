@@ -3,31 +3,11 @@ import sys
 import types
 from unittest.mock import MagicMock, patch
 
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
-def _star_module(name):
-    """Minimal module object so ``from com.sun.star.awt import X`` works under importlib."""
-    m = types.ModuleType(name)
-    m.__path__ = []
-    return m
-
-# Provide complete mock for the com.sun.star hierarchy to satisfy LibreOffice imports
-# We use simple object classes instead of MagicMock for base classes to avoid metaclass conflicts
-class MockBase:
-    pass
-
+# Mocks specific to UI and dialogs missing from setup_uno_mocks
 class MockXEventListener:
-    pass
-
-class MockXActionListener:
-    pass
-
-class MockXItemListener:
-    pass
-
-class MockXTextListener:
-    pass
-
-class MockXWindowListener:
     pass
 
 class MockXTransferable:
@@ -36,29 +16,14 @@ class MockXTransferable:
 class MockXControlContainer:
     pass
 
-mock_unohelper = types.ModuleType("unohelper")
-setattr(mock_unohelper, "Base", MockBase)
+class MockXItemListener:
+    pass
 
-mock_lang = _star_module("com.sun.star.lang")
-setattr(mock_lang, "XEventListener", MockXEventListener)
+setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
+setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer)
+setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
+setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
 
-mock_awt = _star_module("com.sun.star.awt")
-setattr(mock_awt, "XActionListener", MockXActionListener)
-setattr(mock_awt, "XItemListener", MockXItemListener)
-setattr(mock_awt, "XTextListener", MockXTextListener)
-setattr(mock_awt, "XWindowListener", MockXWindowListener)
-setattr(mock_awt, "XControlContainer", MockXControlContainer)
-
-mock_datatransfer = _star_module("com.sun.star.datatransfer")
-setattr(mock_datatransfer, "XTransferable", MockXTransferable)
-
-sys.modules["uno"] = types.ModuleType("uno")
-sys.modules["unohelper"] = mock_unohelper
-for _pkg in ("com", "com.sun", "com.sun.star"):
-    sys.modules[_pkg] = _star_module(_pkg)
-sys.modules["com.sun.star.awt"] = mock_awt
-sys.modules["com.sun.star.lang"] = mock_lang
-sys.modules["com.sun.star.datatransfer"] = mock_datatransfer
 
 # Important: We need to mock `_` inside `plugin.framework.dialogs` directly,
 # since it uses `from plugin.framework.i18n import _` inside some functions.
@@ -84,11 +49,11 @@ def _restore_com_sun_star_for_dialog_tests():
     ``XControlContainer``, which breaks ``from com.sun.star.awt import
     XControlContainer`` in ``dialogs._xcc`` depending on collection order.
     """
-    for name in ("com", "com.sun", "com.sun.star"):
-        sys.modules[name] = _star_module(name)
-    sys.modules["com.sun.star.awt"] = mock_awt
-    sys.modules["com.sun.star.lang"] = mock_lang
-    sys.modules["com.sun.star.datatransfer"] = mock_datatransfer
+    setup_uno_mocks()
+    setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
+    setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer)
+    setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
+    setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
     yield
 
 

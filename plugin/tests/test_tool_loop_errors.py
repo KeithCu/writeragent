@@ -3,12 +3,8 @@ import json
 import logging
 from unittest.mock import MagicMock, patch
 
-# Provide mock for uno since we are running outside LibreOffice
-import sys
-class MockUno:
-    pass
-sys.modules['uno'] = MockUno()
-sys.modules['unohelper'] = MockUno()
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
 from plugin.framework.errors import (
     ToolExecutionError,

@@ -6,12 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Mock uno and unohelper
-sys.modules['uno'] = MagicMock()
-mock_unohelper = MagicMock()
-class MockUnoBase: pass
-mock_unohelper.Base = MockUnoBase
-sys.modules['unohelper'] = mock_unohelper
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))

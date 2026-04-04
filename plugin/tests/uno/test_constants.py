@@ -1,21 +1,8 @@
 import sys
 from unittest.mock import MagicMock
 
-# Mock uno and unohelper so document.py can be imported
-class MockBase(object):
-    pass
-
-class MockXActionListener(object):
-    pass
-
-sys.modules['uno'] = MagicMock()
-sys.modules['unohelper'] = MagicMock()
-sys.modules['unohelper'].Base = MockBase
-sys.modules['com'] = MagicMock()
-sys.modules['com.sun'] = MagicMock()
-sys.modules['com.sun.star'] = MagicMock()
-sys.modules['com.sun.star.awt'] = MagicMock()
-sys.modules['com.sun.star.awt'].XActionListener = MockXActionListener
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
 from plugin.framework.constants import (
     get_greeting_for_document,

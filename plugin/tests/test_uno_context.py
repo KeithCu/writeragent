@@ -2,6 +2,9 @@ import builtins
 import sys
 from unittest.mock import MagicMock, patch
 
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
+
 from plugin.framework.uno_context import set_fallback_ctx, get_ctx
 
 def test_get_ctx_with_uno():

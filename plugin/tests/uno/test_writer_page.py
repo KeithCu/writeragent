@@ -2,24 +2,12 @@ import pytest
 from typing import Any
 from unittest.mock import MagicMock
 
-# Mock UNO imports required for testing page tools outside of LibreOffice environment
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
+
+# Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
 import sys
-import types
-sys.modules['uno'] = MagicMock()
-sys.modules['unohelper'] = MagicMock()
-sys.modules['com'] = MagicMock()
-
-com_sun_star = types.ModuleType('com.sun.star')
-sys.modules['com.sun.star'] = com_sun_star
-com_sun_star_text = types.ModuleType('com.sun.star.text')
-sys.modules['com.sun.star.text'] = com_sun_star_text
-com_sun_star_style = types.ModuleType('com.sun.star.style')
-sys.modules['com.sun.star.style'] = com_sun_star_style
-
-# Mock the BreakType module itself
-com_sun_star_style_breaktype = types.ModuleType('com.sun.star.style.BreakType')
-sys.modules['com.sun.star.style.BreakType'] = com_sun_star_style_breaktype
-setattr(com_sun_star_style_breaktype, "PAGE_BEFORE", 4)
+setattr(sys.modules['com.sun.star.style.BreakType'], "PAGE_BEFORE", 4)
 
 
 from plugin.modules.writer.page import (

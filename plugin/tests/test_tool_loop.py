@@ -3,45 +3,30 @@
 import sys
 from unittest.mock import Mock, MagicMock, patch
 
-# Mock uno for the sandbox before importing anything that depends on it
-# To avoid metaclass conflicts when UNO base classes are inherited,
-# we define simple Python class stubs instead of MagicMocks.
-class UnoHelperBaseStub(object):
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
+
+# Define exact structure for awt to avoid metaclass inheritance issues not covered by setup_uno_mocks
+class XTopWindowListener(object):
+    pass
+class XWindowListener(object):
+    pass
+class XFocusListener(object):
+    pass
+class XKeyListener(object):
+    pass
+class XMouseListener(object):
+    pass
+class XTextListener(object):
     pass
 
-sys.modules['uno'] = MagicMock()
+setattr(sys.modules['com.sun.star.awt'], 'XTopWindowListener', XTopWindowListener)
+setattr(sys.modules['com.sun.star.awt'], 'XWindowListener', XWindowListener)
+setattr(sys.modules['com.sun.star.awt'], 'XFocusListener', XFocusListener)
+setattr(sys.modules['com.sun.star.awt'], 'XKeyListener', XKeyListener)
+setattr(sys.modules['com.sun.star.awt'], 'XMouseListener', XMouseListener)
+setattr(sys.modules['com.sun.star.awt'], 'XTextListener', XTextListener)
 
-unohelper_mock = MagicMock()
-unohelper_mock.Base = UnoHelperBaseStub
-sys.modules['unohelper'] = unohelper_mock
-
-com_mock = MagicMock()
-sys.modules['com'] = com_mock
-sys.modules['com.sun'] = com_mock
-sys.modules['com.sun.star'] = com_mock
-
-# Define exact structure for awt to avoid metaclass inheritance issues
-class AwtMock:
-    class XActionListener(object):
-        pass
-    class XTopWindowListener(object):
-        pass
-    class XWindowListener(object):
-        pass
-    class XFocusListener(object):
-        pass
-    class XKeyListener(object):
-        pass
-    class XMouseListener(object):
-        pass
-    class XTextListener(object):
-        pass
-
-sys.modules['com.sun.star.awt'] = AwtMock()
-sys.modules['com.sun.star.beans'] = com_mock
-sys.modules['com.sun.star.lang'] = com_mock
-sys.modules['com.sun.star.task'] = com_mock
-sys.modules['com.sun.star.frame'] = com_mock
 
 from plugin.framework.async_stream import StreamQueueKind  # noqa: E402
 

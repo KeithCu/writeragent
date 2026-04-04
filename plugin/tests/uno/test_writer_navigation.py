@@ -1,32 +1,9 @@
 import unittest
 import sys
 
-# Mock uno for the pure python tests in this file specifically to allow import without native runner
-try:
-    import uno
-except ImportError:
-    class BaseStub:
-        pass
-    import types
-    sys.modules['uno'] = types.ModuleType('uno')
-    sys.modules['unohelper'] = types.ModuleType('unohelper')
-    setattr(sys.modules['unohelper'], 'Base', BaseStub)
-    sys.modules['com'] = types.ModuleType('com')
-    sys.modules['com.sun'] = types.ModuleType('sun')
-    sys.modules['com.sun.star'] = types.ModuleType('star')
-    sys.modules['com.sun.star.awt'] = types.ModuleType('awt')
+from plugin.tests.testing_utils import setup_uno_mocks, ElementStub, WriterDocStub
+setup_uno_mocks()
 
-    class MockListener(object):
-        pass
-
-    setattr(sys.modules['com.sun.star.awt'], 'XActionListener', MockListener)
-    sys.modules['com.sun.star.datatransfer'] = types.ModuleType('datatransfer')
-    sys.modules['com.sun.star.datatransfer.clipboard'] = types.ModuleType('clipboard')
-    class MockClipboardListener(object):
-        pass
-    setattr(sys.modules['com.sun.star.datatransfer.clipboard'], 'XClipboardListener', MockClipboardListener)
-
-from plugin.tests.testing_utils import ElementStub, WriterDocStub
 from plugin.framework.document import (
     build_heading_tree,
     resolve_locator,
