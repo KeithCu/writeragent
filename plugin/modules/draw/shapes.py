@@ -420,9 +420,10 @@ def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bo
     prop.Name = "Type"
     prop.Value = custom_shape_type
     try:
+        import typing
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
         prop_seq = uno.Any("[]com.sun.star.beans.PropertyValue", (prop,))  # type: ignore
-        uno.invoke(shape, "setPropertyValue", ("CustomShapeGeometry", prop_seq))
+        uno.invoke(shape, "setPropertyValue", typing.cast(typing.Any, ("CustomShapeGeometry", prop_seq)))
         log.debug(
             "create_shape enhanced_geometry: ok type=%r engine=%r",
             custom_shape_type,

@@ -1,6 +1,6 @@
 # WriterAgent Roadmap 🗺️
 
-**Last Updated**: 2024-03-25
+**Last Updated**: 2026-04-04
 **Status**: Active Development
 
 This document outlines the planned features, improvements, and technical debt to address in WriterAgent. Items are organized by priority and domain.
@@ -76,37 +76,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 📋 Medium Priority Features
 
-### 4. **Librarian Agentic Onboarding** 🤖
-**Files**: `plugin/modules/chatbot/librarian.py` (new)
-**Status**: Design complete, not started
-
-- [ ] Create knowledge goal system
-- [ ] Implement agent mind architecture
-- [ ] Add system prompt enhancements
-- [ ] Integrate with memory system
-- [ ] Test conversation flows
-- [ ] Add skip/opt-out options
-
-**Dependencies**: None
-**Blockers**: None
-**Testing**: Need user testing for natural conversation
-
-### 5. **Track Changes Domain** 🔄
-**Files**: `plugin/modules/writer/tracking.py` (new domain)
-**Status**: Not started
-
-- [ ] Create `ToolWriterTrackingBase` with `specialized_domain = "tracking"`
-- [ ] Implement change recording (start/stop)
-- [ ] Add change listing and filtering
-- [ ] Implement accept/reject operations
-- [ ] Add bulk operations
-- [ ] Handle change visibility toggling
-
-**Dependencies**: UNO track changes documentation
-**Blockers**: Complex change enumeration
-**Testing**: Need documents with tracked changes
-
-### 6. **Enhanced Style Management** 🎭
+### 4. **Enhanced Style Management** 🎭
 **Files**: `plugin/modules/writer/styles.py`
 **Status**: Partial implementation exists
 
@@ -124,7 +94,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 🛠️ Technical Improvements
 
-### 7. **Test Infrastructure Consolidation** 🧪
+### 5. **Test Infrastructure Consolidation** 🧪
 **Files**: `plugin/tests/testing_utils.py`
 **Status**: Identified opportunity
 
@@ -141,7 +111,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Dependencies**: None
 **Blockers**: None
 
-### 8. **Error Handling Standardization** ⚠️
+### 6. **Error Handling Standardization** ⚠️
 **Files**: `plugin/framework/errors.py`
 **Status**: Needs review
 
@@ -155,7 +125,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Dependencies**: None
 **Blockers**: None
 
-### 9. **Performance Optimization** ⚡
+### 7. **Performance Optimization** ⚡
 **Files**: Various
 **Status**: Ongoing
 
@@ -173,7 +143,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 📚 Documentation Tasks
 
-### 10. **API Documentation** 📖
+### 8. **API Documentation** 📖
 **Files**: `docs/api/` (new directory)
 **Status**: Not started
 
@@ -186,7 +156,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Dependencies**: None
 **Blockers**: None
 
-### 11. **Developer Guide** 👨‍💻
+### 9. **Developer Guide** 👨‍💻
 **Files**: `docs/development.md`
 **Status**: Partial
 
@@ -199,7 +169,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Dependencies**: None
 **Blockers**: None
 
-### 12. **User Guide** 📚
+### 10. **User Guide** 📚
 **Files**: `docs/user-guide.md`
 **Status**: Not started
 
@@ -216,7 +186,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 🐛 Known Issues & Technical Debt
 
-### 13. **Tool Registry Improvements** 🔧
+### 11. **Tool Registry Improvements** 🔧
 **Files**: `plugin/framework/tool_registry.py`
 **Status**: Technical debt
 
@@ -228,7 +198,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Impact**: Better tool management
 **Priority**: Medium
 
-### 14. **Memory System Enhancements** 🧠
+### 12. **Memory System Enhancements** 🧠
 **Files**: `plugin/modules/chatbot/memory.py`
 **Status**: Functional but limited
 
@@ -240,7 +210,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Impact**: More robust personalization
 **Priority**: Medium
 
-### 15. **Configuration System Review** ⚙️
+### 13. **Configuration System Review** ⚙️
 **Files**: `plugin/framework/config.py`
 **Status**: Needs modernization
 
@@ -256,7 +226,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 🌐 Integration & Ecosystem
 
-### 16. **MCP Protocol Enhancements** 📡
+### 14. **MCP Protocol Enhancements** 📡
 **Files**: `plugin/modules/http/mcp_protocol.py`
 **Status**: Functional but expandable
 
@@ -268,7 +238,7 @@ This document outlines the planned features, improvements, and technical debt to
 **Impact**: More powerful remote control
 **Priority**: Medium
 
-### 17. **External Tool Integration** 🔌
+### 15. **External Tool Integration** 🔌
 **Files**: Various
 **Status**: Future
 
@@ -284,7 +254,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 🎯 Future Research & Exploration
 
-### 18. **Agent Personality System** 🤖
+### 16. **Agent Personality System** 🤖
 **Status**: Conceptual
 
 - [ ] Research personality models
@@ -294,7 +264,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 **Potential Impact**: More engaging user experience
 
-### 19. **Voice Interface** 🎤
+### 17. **Voice Interface** 🎤
 **Status**: Future
 
 - [ ] Research speech recognition
@@ -304,7 +274,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 **Potential Impact**: Hands-free operation
 
-### 20. **Collaborative Features** 👥
+### 18. **Collaborative Features** 👥
 **Status**: Future
 
 - [ ] Research real-time collaboration
@@ -318,7 +288,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 📊 Metrics & Analytics
 
-### 21. **Usage Tracking** 📈
+### 19. **Usage Tracking** 📈
 **Status**: Not started
 
 - [ ] Design privacy-compliant tracking
@@ -328,7 +298,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 **Priority**: Low (privacy considerations)
 
-### 22. **User Feedback System** 💬
+### 20. **User Feedback System** 💬
 **Status**: Future
 
 - [ ] Design feedback collection
@@ -342,7 +312,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 🎓 Learning & Growth
 
-### 23. **UNO API Documentation** 📚
+### 21. **UNO API Documentation** 📚
 **Status**: Ongoing
 
 - [ ] Document key UNO services
@@ -352,7 +322,7 @@ This document outlines the planned features, improvements, and technical debt to
 
 **Impact**: Faster development
 
-### 24. **Code Quality Initiatives** ✨
+### 22. **Code Quality Initiatives** ✨
 **Status**: Ongoing
 
 - [ ] Add more type hints
@@ -366,27 +336,27 @@ This document outlines the planned features, improvements, and technical debt to
 
 ## 🗂️ Backlog (Nice to Have)
 
-### 25. **Theme System** 🎨
+### 23. **Theme System** 🎨
 - [ ] Implement UI theming
 - [ ] Add color scheme support
 - [ ] Create theme editor
 
-### 26. **Template System** 📑
+### 24. **Template System** 📑
 - [ ] Design document templates
 - [ ] Implement template storage
 - [ ] Add template sharing
 
-### 27. **Advanced Search** 🔍
+### 25. **Advanced Search** 🔍
 - [ ] Implement full-text search
 - [ ] Add regex support
 - [ ] Create search history
 
-### 28. **Batch Operations** ⚡
+### 26. **Batch Operations** ⚡
 - [ ] Add batch processing
 - [ ] Implement queue system
 - [ ] Add progress tracking
 
-### 29. **Offline Mode** ✈️
+### 27. **Offline Mode** ✈️
 - [ ] Design offline capabilities
 - [ ] Implement local caching
 - [ ] Add sync mechanism
@@ -405,8 +375,6 @@ This document outlines the planned features, improvements, and technical debt to
 
 ### Next 4 Weeks (Sprint 2)
 - Complete Fields and Indexes domains
-- Implement Librarian agentic onboarding
-- Start Track Changes domain
 - Continue test improvements
 
 ### Next 8 Weeks (Sprint 3)
@@ -426,7 +394,6 @@ This document outlines the planned features, improvements, and technical debt to
 - Code quality initiatives
 
 ### Mentored Projects
-- Librarian agentic onboarding
 - Shape API enhancements
 - Fields domain completion
 
@@ -469,6 +436,8 @@ WriterAgent aims to be the most powerful, flexible, and user-friendly document a
 - ✅ Shape API enhancements (rich formatting, connectors, groups)
 - ✅ Fields domain (full field type support, master/dependent system)
 - ✅ Indexes domain (TOC creation, marks, comprehensive management)
+- ✅ Librarian agentic onboarding ([`plugin/modules/chatbot/librarian.py`](../plugin/modules/chatbot/librarian.py))
+- ✅ Track Changes domain ([`plugin/modules/writer/tracking.py`](../plugin/modules/writer/tracking.py))
 - ✅ Tool switching architecture
 - ✅ Specialized domain system
 - ✅ Calc tool integration
@@ -476,15 +445,11 @@ WriterAgent aims to be the most powerful, flexible, and user-friendly document a
 - ✅ Memory management simplification
 
 **Active Development**:
-- Librarian agentic onboarding
 - Test infrastructure consolidation
 - Documentation enhancement
-- Track Changes domain
 
 **Up Next**:
 - Test infrastructure consolidation
-- Librarian agentic onboarding
-- Track Changes domain
 - Documentation enhancement
 
 Every item on this roadmap brings us closer to that vision. 🚀

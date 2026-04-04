@@ -143,7 +143,6 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 total_failed += 1
                 suite_log.append(f"FAIL: {test_func.__name__} (Exception: {e})")
                 suite_log.append(traceback.format_exc())
-            suite_log.append(traceback.format_exc())
 
     except Exception as e:
         total_failed += 1

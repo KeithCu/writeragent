@@ -16,4 +16,4 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Single source of truth for extension version."""
 
-EXTENSION_VERSION = "0.7.2"
+EXTENSION_VERSION = "0.7.3"
