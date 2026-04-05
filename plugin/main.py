@@ -196,7 +196,6 @@ def _register_core_handlers():
 
     def _open_settings():
         _open_dialog_safely(settings_box, "Failed to open settings")
-        _start_mcp_server(get_ctx())
 
     register_action_handler("main", "settings", _open_settings)
 
@@ -616,7 +615,7 @@ def _do_mcp_status(ctx):
 def try_ensure_mcp_timer(ctx):
     """Legacy entry point from sidebar to ensure server is running.
     The new framework main_thread executes drains natively without timers."""
-    _start_mcp_server(ctx)
+    pass
 
 
 # Bootstrapper replaces the previous monolithic MainJob.

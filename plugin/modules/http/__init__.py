@@ -60,7 +60,8 @@ class HttpModule(ModuleBase):
             services.events.subscribe("config:changed", self._on_config_changed)
 
     def start_background(self, services):
-        if services.config.proxy_for(self.name).get("enabled"):
+        # We start automatically if MCP is enabled.
+        if services.config.proxy_for(self.name).get("mcp_enabled"):
             self._start_server(services)
 
     def _on_config_changed(self, **data):
@@ -69,19 +70,19 @@ class HttpModule(ModuleBase):
             return
         cfg = self._services.config.proxy_for(self.name)
 
-        if key == "http.enabled":
-            enabled = cfg.get("enabled")
-            if enabled and not self._server:
-                self._start_server(self._services)
-            elif not enabled and self._server:
-                self._stop_server()
-        elif key == "http.mcp_enabled":
+        if key == "http.mcp_enabled":
             enabled = cfg.get("mcp_enabled")
             log.info("Config changed: http.mcp_enabled=%s", enabled)
             if enabled and not self._mcp_routes_registered:
                 self._register_mcp_routes(self._services)
             elif not enabled and self._mcp_routes_registered:
                 self._unregister_mcp_routes(self._services)
+
+            # Start/stop server based on MCP enabled toggle
+            if enabled and not self._server:
+                self._start_server(self._services)
+            elif not enabled and self._server:
+                self._stop_server()
 
     def _start_server(self, services):
         from plugin.modules.http.server import HttpServer
@@ -177,8 +178,8 @@ class HttpModule(ModuleBase):
         from plugin.framework.i18n import _
         if action == "toggle_server":
             if self._server and self._server.is_running():
-                return _("Stop HTTP Server")
-            return _("Start HTTP Server")
+                return _("Stop MCP Server")
+            return _("Start MCP Server")
         return None
 
     def get_menu_icon(self, action):
@@ -197,19 +198,19 @@ class HttpModule(ModuleBase):
 
         ctx = get_ctx()
         if self._server and self._server.is_running():
-            log.info("Stopping HTTP server via toggle")
+            log.info("Stopping MCP server via toggle")
             self._stop_server()
-            msgbox(ctx, "WriterAgent", _("HTTP server stopped"))
+            msgbox(ctx, "WriterAgent", _("MCP server stopped"))
         else:
-            log.info("Starting HTTP server via toggle")
+            log.info("Starting MCP server via toggle")
             self._start_server(self._services)
             if self._server and self._server.is_running():
                 status = self._server.get_status()
                 msgbox(ctx, "WriterAgent",
-                       _("HTTP server started") + "\n{0}".format(status.get("url", "")))
+                       _("MCP server started") + "\n{0}".format(status.get("url", "")))
             else:
                 msgbox(ctx, "WriterAgent",
-                       _("HTTP server failed to start") + "\n" + _("Check ~/localwriter.log"))
+                       _("MCP server failed to start") + "\n" + _("Check ~/localwriter.log"))
 
     def _action_server_status(self):
         from plugin.framework.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
@@ -218,18 +219,18 @@ class HttpModule(ModuleBase):
 
         ctx = get_ctx()
         if not self._server:
-            msgbox(ctx, "WriterAgent", _("HTTP server is not running"))
+            msgbox(ctx, "WriterAgent", _("MCP server is not running"))
             return
 
         status = self._server.get_status()
         running = status.get("running", False)
         if not running:
-            msgbox(ctx, "WriterAgent", _("HTTP server not running"))
+            msgbox(ctx, "WriterAgent", _("MCP server not running"))
             return
 
         url = status.get("url", "?")
         routes = status.get("routes", 0)
-        msg = _("HTTP server running") + "\n" + _("Routes: {0}").format(routes)
+        msg = _("MCP server running") + "\n" + _("Routes: {0}").format(routes)
 
         try:
             assert ctx is not None
