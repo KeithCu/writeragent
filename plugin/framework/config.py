@@ -20,6 +20,8 @@ Configuration logic for WriterAgent.
 Reads/writes writeragent.json in LibreOffice's user config directory.
 """
 import os
+import ipaddress
+import urllib.parse
 from plugin.framework.utils import get_plugin_dir
 import json
 import logging
@@ -726,9 +728,37 @@ def set_native_audio_support(ctx, model_id, endpoint, supported):
 
 _model_fetch_cache: dict[str, list[str] | None] = {}
 
+
+def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
+    """True if endpoint looks like a complete http(s) URL with a real host (skip mid-typing e.g. 'http:/')."""
+    if not endpoint or not isinstance(endpoint, str):
+        return False
+    try:
+        p = urllib.parse.urlparse(endpoint.strip())
+    except ValueError:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = p.hostname
+    if not host:
+        return False
+    h = host.lower()
+    if h == "localhost":
+        return True
+    if "." in h:
+        return True
+    try:
+        ipaddress.ip_address(h)
+        return True
+    except ValueError:
+        return False
+
+
 def fetch_available_models(endpoint):
     """Fetch available models from endpoint/v1/models. Returns list of IDs or None on error."""
     if not endpoint:
+        return None
+    if not endpoint_url_suitable_for_v1_models_fetch(endpoint):
         return None
     url = f"{endpoint.rstrip('/')}/v1/models"
     if url in _model_fetch_cache:

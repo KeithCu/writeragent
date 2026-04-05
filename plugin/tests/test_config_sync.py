@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 from plugin.framework.config import (
     get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint,
-    update_lru_history, get_config
+    update_lru_history, get_config, endpoint_url_suitable_for_v1_models_fetch,
 )
 from plugin.framework.event_bus import global_event_bus
 
@@ -134,6 +134,21 @@ class TestConfigSync(unittest.TestCase):
         finally:
             global_event_bus.unsubscribe("config:changed", my_callback)
             global_event_bus.unsubscribe("config:changed", bad_callback)
+
+
+class TestEndpointUrlSuitableForModelFetch(unittest.TestCase):
+    def test_incomplete_or_invalid_urls_rejected(self):
+        self.assertFalse(endpoint_url_suitable_for_v1_models_fetch(""))
+        self.assertFalse(endpoint_url_suitable_for_v1_models_fetch("http:/"))
+        self.assertFalse(endpoint_url_suitable_for_v1_models_fetch("http://"))
+        self.assertFalse(endpoint_url_suitable_for_v1_models_fetch("ftp://api.openai.com"))
+        self.assertFalse(endpoint_url_suitable_for_v1_models_fetch("not-a-url"))
+
+    def test_complete_urls_accepted(self):
+        self.assertTrue(endpoint_url_suitable_for_v1_models_fetch("http://localhost:1234"))
+        self.assertTrue(endpoint_url_suitable_for_v1_models_fetch("https://api.openai.com/v1"))
+        self.assertTrue(endpoint_url_suitable_for_v1_models_fetch("http://127.0.0.1:11434"))
+        self.assertTrue(endpoint_url_suitable_for_v1_models_fetch("http://[::1]:8080"))
 
 
 class TestConfigSyncFileIO(unittest.TestCase):
