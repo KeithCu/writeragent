@@ -46,7 +46,10 @@ class DelegateToSpecializedDraw(ToolBase):
             "required": ["domain", "task"],
         }
 
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     tier = "core"  # Available to the main agent
     is_mutation = True
     long_running = True
