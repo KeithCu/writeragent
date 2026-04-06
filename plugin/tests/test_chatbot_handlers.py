@@ -206,10 +206,12 @@ def test_web_research_tool():
             return ChatMessage(role=MessageRole.ASSISTANT, content="", tool_calls=[tc])
 
         elif call_count[0] == 2:
-            # Look at messages to see what happened
-            # The last message should be the tool response
-            last_msg = messages[-1]
-            assert last_msg.role == MessageRole.TOOL_RESPONSE
+            # WebResearchToolCallingAgent appends a USER step-budget line after memory.
+            assert messages[-1].role == MessageRole.USER
+            assert "Step budget" in str(messages[-1].content)
+            tool_responses = [m for m in messages if m.role == MessageRole.TOOL_RESPONSE]
+            assert tool_responses
+            assert tool_responses[-1].role == MessageRole.TOOL_RESPONSE
 
             # Call visit_webpage tool
             tc = ChatMessageToolCall(
@@ -256,7 +258,12 @@ def test_web_research_tool():
                 from plugin.modules.writer.specialized import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
                 with patch("plugin.framework.config.get_config", return_value="false"):
-                    with patch("plugin.framework.config.get_config_int", return_value=10):
+                    def _cfg_int(ctx, key):
+                        if key == "web_cache_max_mb":
+                            return 0  # disable SQLite cache (avoids db path issues in tests)
+                        return 10
+
+                    with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
                         with patch("plugin.framework.config.get_api_config", return_value={"chat_max_tokens": 2048}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 

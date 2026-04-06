@@ -16,12 +16,31 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 
+from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.contrib.smolagents.models import ChatMessage, MessageRole
+
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.writer.base import ToolWriterWebResearchBase
 from plugin.modules.calc.base import ToolCalcWebResearchBase
 from plugin.modules.draw.base import ToolDrawWebResearchBase
 
 log = logging.getLogger(__name__)
+
+
+class WebResearchToolCallingAgent(ToolCallingAgent):
+    """ToolCallingAgent that injects used/remaining step counts before each model call."""
+
+    def augment_messages_for_step(self, messages: list[ChatMessage]) -> list[ChatMessage]:
+        used = self.step_number - 1
+        remaining_including_this = self.max_steps - self.step_number + 1
+        text = (
+            f"Step budget: {used} step(s) used so far; "
+            f"{remaining_including_this} step(s) remaining (including this turn), "
+            f"maximum {self.max_steps}."
+        )
+        return messages + [
+            ChatMessage(role=MessageRole.USER, content=[{"type": "text", "text": text}])
+        ]
 
 
 def _web_search_query_from_arguments(arguments) -> str:
@@ -99,7 +118,6 @@ class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDr
             from plugin.framework.config import get_api_config, get_config_int, user_config_dir
             from plugin.modules.http.client import LlmClient
             from plugin.framework.smol_model import WriterAgentSmolModel
-            from plugin.contrib.smolagents.agents import ToolCallingAgent
             from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
             from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
         except (ImportError, ValueError, TypeError) as e:
@@ -136,8 +154,27 @@ class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDr
                 status_callback=status_callback,
             )
 
-            instructions = "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query."
-            agent = ToolCallingAgent(
+            base_intro = (
+                "You are a research assistant. Use the conversation context provided below "
+                "to resolve any ambiguity in the user's query."
+            )
+            tool_steps_budget = max_steps - 1
+            if max_steps <= 1:
+                budget_text = (
+                    f"Step limit: only {max_steps} step total—you must call final_answer immediately "
+                    "with your best answer from context (no web_search or visit_webpage)."
+                )
+            else:
+                budget_text = (
+                    f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
+                    "including final_answer). "
+                    f"Use at most {tool_steps_budget} step(s) for web_search and visit_webpage; "
+                    "reserve your last step for the final_answer tool so the run finishes before the hard limit. "
+                    "If you have enough evidence earlier, call final_answer sooner."
+                )
+            instructions = f"{base_intro}\n\n{budget_text}"
+
+            agent = WebResearchToolCallingAgent(
                 tools=[
                     DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days),
                     VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days),

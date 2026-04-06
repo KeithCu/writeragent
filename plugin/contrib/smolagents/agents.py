@@ -943,6 +943,10 @@ class ToolCallingAgent(MultiStepAgent):
             examples_block=examples_block,
         )
 
+    def augment_messages_for_step(self, messages: list[ChatMessage]) -> list[ChatMessage]:
+        """Override in subclasses to inject per-step context before the model is called."""
+        return messages
+
     def _step_stream(
         self, memory_step: ActionStep
     ) -> Generator[ChatMessageStreamDelta | ToolCall | ToolOutput | ActionOutput]:
@@ -951,7 +955,7 @@ class ToolCallingAgent(MultiStepAgent):
         Yields ChatMessageStreamDelta during the run if streaming is enabled.
         At the end, yields either None if the step is not final, or the final answer.
         """
-        memory_messages = self.write_memory_to_messages()
+        memory_messages = self.augment_messages_for_step(self.write_memory_to_messages())
 
         input_messages = memory_messages.copy()
 
