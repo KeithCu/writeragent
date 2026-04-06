@@ -33,7 +33,10 @@ class AddSlide(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -57,7 +60,10 @@ class DeleteSlide(ToolBase):
         },
         "required": ["index"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

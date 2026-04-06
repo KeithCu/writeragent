@@ -198,7 +198,19 @@ class ToolCallingMixin:
 
                 approval_cb: Any = None
                 chat_append_cb: Any = None
-                if name == "web_research":
+                safe_args = args if isinstance(args, dict) else {}
+                # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
+                # they must receive the same HITL wiring as the outer web_research tool.
+                needs_web_research_ui = name == "web_research" or (
+                    name
+                    in (
+                        "delegate_to_specialized_writer_toolset",
+                        "delegate_to_specialized_calc_toolset",
+                        "delegate_to_specialized_draw_toolset",
+                    )
+                    and str(safe_args.get("domain") or "") == "web_research"
+                )
+                if needs_web_research_ui:
                     def _web_append(text):
                         aq = getattr(self, "_active_q", None)
                         if aq is not None:
@@ -250,7 +262,7 @@ class ToolCallingMixin:
                     stop_checker=stop_checker,
                     approval_callback=approval_cb,
                     chat_append_callback=chat_append_cb
-                    if name == "web_research"
+                    if needs_web_research_ui
                     else None,
                     set_active_domain_callback=set_active_domain,
                 )
