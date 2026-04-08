@@ -128,6 +128,7 @@ class TreeService(ServiceBase):
         enum = text.createEnumeration()
         idx = 0
         preview_parts = []
+        current_len = 0
         found_heading = (heading_para_index == -1)
 
         while enum.hasMoreElements():
@@ -149,7 +150,8 @@ class TreeService(ServiceBase):
                 para_text = element.getString().strip()
                 if para_text:
                     preview_parts.append(para_text)
-                    if sum(len(p) for p in preview_parts) >= max_chars:
+                    current_len += len(para_text)
+                    if current_len >= max_chars:
                         break
             idx += 1
 
