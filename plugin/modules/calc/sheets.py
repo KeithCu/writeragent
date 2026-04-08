@@ -24,14 +24,14 @@ appropriate helper class per call using ``ctx.doc``.
 import logging
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
-from plugin.framework.tool_base import ToolBase
+from plugin.modules.calc.base import ToolCalcSheetBase
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 
 logger = logging.getLogger("writeragent.calc")
 
 
-class ListSheets(ToolBase):
+class ListSheets(ToolCalcSheetBase):
     """List all sheet names in the workbook."""
 
     name = "list_sheets"
@@ -40,8 +40,6 @@ class ListSheets(ToolBase):
         "type": "object",
         "properties": {},
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "core"
     is_mutation = False
 
     def execute(self, ctx, **kwargs):
@@ -59,7 +57,7 @@ class ListSheets(ToolBase):
             logger.error("Sheet listing error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
 
-class SwitchSheet(ToolBase):
+class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
     name = "switch_sheet"
@@ -75,7 +73,6 @@ class SwitchSheet(ToolBase):
         },
         "required": ["sheet_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -97,7 +94,7 @@ class SwitchSheet(ToolBase):
             logger.error("Sheet switch error (%s): %s", sheet_name, str(e))
             raise ToolExecutionError(str(e)) from e
 
-class CreateSheet(ToolBase):
+class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
     name = "create_sheet"
@@ -120,7 +117,6 @@ class CreateSheet(ToolBase):
         },
         "required": ["sheet_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -141,7 +137,7 @@ class CreateSheet(ToolBase):
             logger.error("Sheet creation error (%s): %s", sheet_name, str(e))
             raise ToolExecutionError(str(e)) from e
 
-class GetSheetSummary(ToolBase):
+class GetSheetSummary(ToolCalcSheetBase):
     """Return a summary of a sheet."""
 
     name = "get_sheet_summary"
@@ -159,8 +155,6 @@ class GetSheetSummary(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "core"
     is_mutation = False
 
     def execute(self, ctx, **kwargs):

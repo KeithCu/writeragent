@@ -8,7 +8,7 @@
 from plugin.framework.errors import UnoObjectError
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.modules.calc.base import ToolCalcCommentBase
 from plugin.modules.calc.address_utils import (
     index_to_column,
     parse_range_string,
@@ -40,7 +40,7 @@ def _parse_cell_ref(cell_ref):
     return col, row
 
 
-class ListCellComments(ToolBase):
+class ListCellComments(ToolCalcCommentBase):
     """List all cell comments/annotations in a sheet."""
 
     name = "list_cell_comments"
@@ -59,7 +59,6 @@ class ListCellComments(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -83,7 +82,7 @@ class ListCellComments(ToolBase):
             "sheet": sheet.getName(),
         }
 
-class AddCellComment(ToolBase):
+class AddCellComment(ToolCalcCommentBase):
     """Add a comment to a cell."""
 
     name = "add_cell_comment"
@@ -109,7 +108,6 @@ class AddCellComment(ToolBase):
         },
         "required": ["cell", "text"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -145,7 +143,7 @@ class AddCellComment(ToolBase):
             "sheet": sheet.getName(),
         }
 
-class DeleteCellComment(ToolBase):
+class DeleteCellComment(ToolCalcCommentBase):
     """Delete a comment from a cell."""
 
     name = "delete_cell_comment"
@@ -165,7 +163,6 @@ class DeleteCellComment(ToolBase):
         },
         "required": ["cell"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
