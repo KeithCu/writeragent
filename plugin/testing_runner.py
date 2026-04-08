@@ -108,9 +108,9 @@ def run_module_suite(ctx, module, name, doc_model=None):
             try:
                 sig = inspect.signature(setup_func)
                 expects_ctx = any(
-                    p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                    p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
                     for p in sig.parameters.values()
-                ) or any(p.kind == p.VAR_POSITIONAL for p in sig.parameters.values())
+                )
             except Exception:
                 expects_ctx = True
             if expects_ctx:
@@ -157,10 +157,8 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 try:
                     sig = inspect.signature(teardown_func)
                     expects_ctx = any(
-                        p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                        p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
                         for p in sig.parameters.values()
-                    ) or any(
-                        p.kind == p.VAR_POSITIONAL for p in sig.parameters.values()
                     )
                 except Exception:
                     expects_ctx = True
