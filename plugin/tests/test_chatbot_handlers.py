@@ -261,10 +261,12 @@ def test_web_research_tool():
                     def _cfg_int(ctx, key):
                         if key == "web_cache_max_mb":
                             return 0  # disable SQLite cache (avoids db path issues in tests)
+                        if key == "chat_max_tokens":
+                            return 2048
                         return 10
 
                     with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
-                        with patch("plugin.framework.config.get_api_config", return_value={"chat_max_tokens": 2048}):
+                        with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
                 assert result["status"] == "ok"
@@ -289,8 +291,15 @@ def test_web_research_tool_stop():
                 from plugin.modules.writer.specialized import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
                 with patch("plugin.framework.config.get_config", return_value="false"):
-                    with patch("plugin.framework.config.get_config_int", return_value=10):
-                        with patch("plugin.framework.config.get_api_config", return_value={"chat_max_tokens": 2048}):
+                    def _cfg_int_stop(ctx, key):
+                        if key == "web_cache_max_mb":
+                            return 0
+                        if key == "chat_max_tokens":
+                            return 2048
+                        return 10
+
+                    with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int_stop):
+                        with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
                 assert result["status"] == "error"

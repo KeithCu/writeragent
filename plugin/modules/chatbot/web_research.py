@@ -139,8 +139,7 @@ class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDr
                 status_callback("Sub-agent starting web search: " + str(query or ""))
 
             config = get_api_config(ctx.ctx)
-            max_tokens = int(config.get("chat_max_tokens", 2048))
-            from plugin.framework.config import get_config_int
+            max_tokens = get_config_int(ctx.ctx, "chat_max_tokens")
             max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")
 
             udir = user_config_dir(ctx.ctx)

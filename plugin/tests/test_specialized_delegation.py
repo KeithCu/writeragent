@@ -93,20 +93,39 @@ def test_specialized_delegation_in_place_mode(registry, mock_ctx):
 
 
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+from plugin.framework.config import get_config_int as _real_get_config_int
 
+def _mock_get_config_int_for_sub_agent(ctx, key):
+    if key == "chat_max_tokens":
+        return 2048
+    if key == "chat_max_tool_rounds":
+        return 25
+    return _real_get_config_int(ctx, key)
+
+
+@patch(
+    "plugin.framework.config.get_config_int",
+    side_effect=_mock_get_config_int_for_sub_agent,
+)
 @patch("plugin.modules.writer.specialized.get_api_config", create=True)
 @patch("plugin.contrib.smolagents.agents.ToolCallingAgent")
 @patch("plugin.framework.smol_model.WriterAgentSmolModel")
 @patch("plugin.modules.http.client.LlmClient")
 def test_specialized_delegation_sub_agent_mode(
-    mock_llm, mock_smol_model, mock_agent_class, mock_get_config, registry, mock_ctx
+    mock_llm,
+    mock_smol_model,
+    mock_agent_class,
+    mock_get_config,
+    _mock_get_config_int,
+    registry,
+    mock_ctx,
 ):
     # Enable sub-agent mode
     import plugin.modules.writer.specialized
     plugin.modules.writer.specialized.USE_SUB_AGENT = True
 
     mock_ctx.ctx = MagicMock()
-    mock_get_config.return_value = {"chat_max_tokens": 2048}
+    mock_get_config.return_value = {}
 
     active_domain = "initial_value"
 

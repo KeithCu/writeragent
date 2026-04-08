@@ -85,7 +85,7 @@ class DelegateToSpecializedWriter(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.framework.errors import format_error_payload, ToolExecutionError
-        from plugin.framework.config import get_api_config
+        from plugin.framework.config import get_api_config, get_config_int
         from plugin.modules.http.client import LlmClient
         from plugin.framework.smol_model import WriterAgentSmolModel
         from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -199,7 +199,7 @@ class DelegateToSpecializedWriter(ToolBase):
             smol_tools = [WrappedSmolTool(t, ctx) for t in domain_tools]
 
             config = get_api_config(ctx.ctx)
-            max_tokens = int(config.get("chat_max_tokens", 2048))
+            max_tokens = get_config_int(ctx.ctx, "chat_max_tokens")
 
             # Using the same model configuration as the main chat
             smol_model = WriterAgentSmolModel(
@@ -213,7 +213,6 @@ class DelegateToSpecializedWriter(ToolBase):
                 f"Use them to fulfill the user's request."
             )
 
-            from plugin.framework.config import get_config_int
             max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")
 
             from typing import cast, Iterable

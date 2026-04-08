@@ -121,7 +121,7 @@ class LibrarianOnboardingTool(ToolBase):
         from plugin.framework.errors import format_error_payload, ToolExecutionError
 
         try:
-            from plugin.framework.config import get_api_config
+            from plugin.framework.config import get_api_config, get_config_int
             from plugin.modules.http.client import LlmClient
             from plugin.framework.smol_model import WriterAgentSmolModel
             from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -145,7 +145,7 @@ class LibrarianOnboardingTool(ToolBase):
                 status_callback("Librarian is thinking...")
 
             config = get_api_config(ctx.ctx)
-            max_tokens = int(config.get("chat_max_tokens", 2048))
+            max_tokens = get_config_int(ctx.ctx, "chat_max_tokens")
 
             smol_model = WriterAgentSmolModel(
                 LlmClient(config, ctx.ctx), max_tokens=max_tokens,
