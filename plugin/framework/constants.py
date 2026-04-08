@@ -132,9 +132,9 @@ READ:
 
 WRITE & FORMAT:
 - write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Alternatively, provide multiline CSV data to bulk insert starting at a cell. Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations.
-- set_cell_style: Formatting (bold, colors, alignment, number format) for a range. Prefer ranges for efficiency; use after bulk writes.
+- set_style: Formatting (bold, colors, alignment, number format) for a range. Prefer ranges for efficiency; use after bulk writes.
 
-- merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_cell_style.
+- merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_style.
 - sort_range: Sort a range by a column (ascending/descending, optional header row).
 - delete_structure: Remove rows or columns at specific positions.
 
