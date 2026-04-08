@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 19:20-0400\n"
+"POT-Creation-Date: 2026-04-07 23:00-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -80,8 +80,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Parece que «{}» tem problemas, verifique novamente, crie um novo ou junte-se "
-"ao Discord para pedir ajuda"
+"Parece que «{}» tem problemas, verifique novamente, crie um novo ou junte-se"
+" ao Discord para pedir ajuda"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
@@ -241,7 +241,7 @@ msgstr "Consulta de pesquisa:"
 
 #: plugin/framework/dialogs.py:169 plugin/framework/dialogs.py:342
 #: plugin/framework/dialogs.py:414 plugin/framework/dialogs.py:502
-#: plugin/modules/http/__init__.py:252 plugin/xdl_strings.py:39
+#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "OK"
 
@@ -262,7 +262,7 @@ msgid "Copy URL"
 msgstr "Copiar URL"
 
 #: plugin/framework/dialogs.py:486 plugin/framework/dialogs.py:514
-#: plugin/main.py:401
+#: plugin/main.py:404
 msgid "About WriterAgent"
 msgstr "Sobre o WriterAgent"
 
@@ -289,19 +289,19 @@ msgstr "WriterAgent {0}"
 msgid "{resource_type} not found: {identifier}"
 msgstr "\"{resource_type} não encontrado: {identifier}\""
 
-#: plugin/framework/legacy_ui.py:310 plugin/main.py:392
+#: plugin/framework/legacy_ui.py:460 plugin/main.py:395
 #: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Configurações"
 
-#: plugin/framework/legacy_ui.py:362 plugin/modules/chatbot/panel.py:765
+#: plugin/framework/legacy_ui.py:512 plugin/modules/chatbot/panel.py:765
 #: plugin/modules/chatbot/send_handlers.py:379
 #: plugin/modules/chatbot/send_handlers.py:389
-#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:297
+#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:300
 msgid "Error"
 msgstr "Erro"
 
-#: plugin/framework/legacy_ui.py:362
+#: plugin/framework/legacy_ui.py:512
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "Falha ao abrir Configurações: {0}"
@@ -319,12 +319,13 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Posso editar ou traduzir o seu documento instantaneamente com formatação "
-"profissional e cores. Experimente!"
+"IA: Posso editar ou traduzir o seu documento instantaneamente com formatação"
+" profissional e cores. Experimente!"
 
 #: plugin/framework/constants.py:184
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Posso ajudá-lo com fórmulas, análise de dados e gráficos coloridos. "
 "Experimente!"
@@ -356,9 +357,9 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Uma versão mais recente do WriterAgent (%s) está disponível. Use Ferramentas "
-"→ Gerenciador de Extensões para verificar atualizações e instalar a extensão "
-"mais recente."
+"Uma versão mais recente do WriterAgent (%s) está disponível. Use Ferramentas"
+" → Gerenciador de Extensões para verificar atualizações e instalar a "
+"extensão mais recente."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -395,9 +396,11 @@ msgstr ""
 "Solicitação' em Configurações."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Conexão Recusada. O seu servidor local de IA (Ollama/LM Studio) está rodando?"
+"Conexão Recusada. O seu servidor local de IA (Ollama/LM Studio) está "
+"rodando?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -434,52 +437,52 @@ msgstr ""
 "O modelo está repetindo o mesmo trecho (loop infinito). Tente novamente ou "
 "use um modelo diferente."
 
-#: plugin/modules/http/__init__.py:180
-msgid "Stop HTTP Server"
-msgstr "Parar Servidor HTTP"
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "Parar Servidor MCP"
 
-#: plugin/modules/http/__init__.py:181
-msgid "Start HTTP Server"
-msgstr "Iniciar Servidor HTTP"
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "Iniciar Servidor MCP"
 
-#: plugin/modules/http/__init__.py:202
-msgid "HTTP server stopped"
-msgstr "Servidor HTTP parado"
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "Servidor MCP parado"
 
-#: plugin/modules/http/__init__.py:209
-msgid "HTTP server started"
-msgstr "Servidor HTTP iniciado"
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "Servidor MCP iniciado"
 
-#: plugin/modules/http/__init__.py:212
-msgid "HTTP server failed to start"
-msgstr "Falha ao iniciar o servidor HTTP"
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "Falha ao iniciar o servidor MCP"
 
-#: plugin/modules/http/__init__.py:212
+#: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
 msgstr "Verifique ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:221
-msgid "HTTP server is not running"
-msgstr "Servidor HTTP não está rodando"
+#: plugin/modules/http/__init__.py:288
+msgid "MCP server is not running"
+msgstr "O servidor MCP não está em execução"
 
-#: plugin/modules/http/__init__.py:227
-msgid "HTTP server not running"
-msgstr "Servidor HTTP não em execução"
+#: plugin/modules/http/__init__.py:294
+msgid "MCP server not running"
+msgstr "Servidor MCP não em execução"
 
-#: plugin/modules/http/__init__.py:232
-msgid "HTTP server running"
-msgstr "Servidor HTTP em execução"
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "Servidor MCP em execução"
 
-#: plugin/modules/http/__init__.py:232
+#: plugin/modules/http/__init__.py:299
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Rotas: {0}"
 
-#: plugin/modules/http/__init__.py:243
+#: plugin/modules/http/__init__.py:310
 msgid "Server Status"
 msgstr "Status do Servidor"
 
-#: plugin/modules/http/__init__.py:264
+#: plugin/modules/http/__init__.py:331
 #, python-brace-format
 msgid "URL: {0}"
 msgstr "URL: {0}"
@@ -505,8 +508,8 @@ msgstr "WriterAgent: Estender Seleção (Calc)"
 #: plugin/modules/writer/specialized.py:113
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Chamada de ferramenta alterada para '{0}'. Você está em um modo de conjunto "
@@ -626,7 +629,7 @@ msgstr "Solicitação de pesquisa:"
 msgid "Context for the research agent:"
 msgstr "Contexto para o agente de pesquisa:"
 
-#: plugin/modules/chatbot/web_research.py:302
+#: plugin/modules/chatbot/web_research.py:339
 msgid "Web research completed."
 msgstr "Pesquisa na web concluída."
 
@@ -660,7 +663,8 @@ msgstr "[Backend do agente '{0}' não encontrado.]"
 
 #: plugin/modules/chatbot/send_handlers.py:394
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend do agente '{0}' não está disponível. Verifique Configurações "
 "(caminho, instalação).]"
@@ -726,53 +730,53 @@ msgstr "Integrado"
 msgid "Backend"
 msgstr "Back-end"
 
-#: plugin/main.py:314
+#: plugin/main.py:317
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} passou(s), {2} falhou(ram)."
 
-#: plugin/main.py:317
+#: plugin/main.py:320
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "Falha ao executar os testes: {0}"
 
-#: plugin/main.py:390
+#: plugin/main.py:393
 msgid "Extend Selection"
 msgstr "Estender Seleção"
 
-#: plugin/main.py:391
+#: plugin/main.py:394
 msgid "Edit Selection"
 msgstr "Editar Seleção"
 
-#: plugin/main.py:393
+#: plugin/main.py:396
 msgid "Toggle MCP Server"
 msgstr "Alternar Servidor MCP"
 
-#: plugin/main.py:394
+#: plugin/main.py:397
 msgid "MCP Server Status"
 msgstr "Status do Servidor MCP"
 
-#: plugin/main.py:396
+#: plugin/main.py:399
 msgid "Run format tests"
 msgstr "Executar testes de formato"
 
-#: plugin/main.py:397
+#: plugin/main.py:400
 msgid "Run calc tests"
 msgstr "Executar testes do calc"
 
-#: plugin/main.py:398
+#: plugin/main.py:401
 msgid "Run Calc API integration tests"
 msgstr "Executar testes de integração da API do Calc"
 
-#: plugin/main.py:399
+#: plugin/main.py:402
 msgid "Run draw tests"
 msgstr "Executar testes do draw"
 
-#: plugin/main.py:400
+#: plugin/main.py:403
 msgid "Evaluation Dashboard"
 msgstr "Painel de Avaliação"
 
-#: plugin/main.py:777
+#: plugin/main.py:780
 msgid "Dispatch Error"
 msgstr "Erro de Despacho"
 
@@ -988,11 +992,11 @@ msgid "Path / URL"
 msgstr "Caminho / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Caminho para o CLI do backend (ex. aider) ou URL do servidor ACP (ex. http://"
-"localhost:8000 para Hermes). Vazio = tentar padrão."
+"Caminho para o CLI do backend (ex. aider) ou URL do servidor ACP (ex. "
+"http://localhost:8000 para Hermes). Vazio = tentar padrão."
 
 msgid "Extra arguments"
 msgstr "Argumentos extras"

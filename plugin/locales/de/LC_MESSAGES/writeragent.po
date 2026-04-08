@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 19:20-0400\n"
+"POT-Creation-Date: 2026-04-07 23:00-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -60,8 +60,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch "
-"einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
+"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch"
+" einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
 "antwortet, kontaktieren Sie uns bitte über Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -162,8 +162,8 @@ msgstr " oder versuchen Sie es später noch einmal."
 msgid ""
 "There are no workers available with these settings. Please try again later."
 msgstr ""
-"Mit diesen Einstellungen sind keine Worker verfügbar. Bitte versuchen Sie es "
-"später noch einmal."
+"Mit diesen Einstellungen sind keine Worker verfügbar. Bitte versuchen Sie es"
+" später noch einmal."
 
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get an Api key for free at "
@@ -242,7 +242,7 @@ msgstr "Suchanfrage:"
 
 #: plugin/framework/dialogs.py:169 plugin/framework/dialogs.py:342
 #: plugin/framework/dialogs.py:414 plugin/framework/dialogs.py:502
-#: plugin/modules/http/__init__.py:252 plugin/xdl_strings.py:39
+#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "OK"
 
@@ -263,7 +263,7 @@ msgid "Copy URL"
 msgstr "URL kopieren"
 
 #: plugin/framework/dialogs.py:486 plugin/framework/dialogs.py:514
-#: plugin/main.py:401
+#: plugin/main.py:404
 msgid "About WriterAgent"
 msgstr "Über WriterAgent"
 
@@ -290,19 +290,19 @@ msgstr "WriterAgent {0}"
 msgid "{resource_type} not found: {identifier}"
 msgstr "\"{resource_type} nicht gefunden: {identifier}\""
 
-#: plugin/framework/legacy_ui.py:310 plugin/main.py:392
+#: plugin/framework/legacy_ui.py:460 plugin/main.py:395
 #: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Einstellungen"
 
-#: plugin/framework/legacy_ui.py:362 plugin/modules/chatbot/panel.py:765
+#: plugin/framework/legacy_ui.py:512 plugin/modules/chatbot/panel.py:765
 #: plugin/modules/chatbot/send_handlers.py:379
 #: plugin/modules/chatbot/send_handlers.py:389
-#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:297
+#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:300
 msgid "Error"
 msgstr "Fehler"
 
-#: plugin/framework/legacy_ui.py:362
+#: plugin/framework/legacy_ui.py:512
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "Konnte Einstellungen nicht öffnen: {0}"
@@ -325,7 +325,8 @@ msgstr ""
 
 #: plugin/framework/constants.py:184
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "KI: Ich kann Ihnen bei Formeln, Datenanalysen und farbigen Diagrammen "
 "helfen. Probieren Sie es aus!"
@@ -398,7 +399,8 @@ msgstr ""
 "den Einstellungen zu erhöhen."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Verbindung abgelehnt. Läuft Ihr lokaler KI-Server (Ollama/LM Studio)?"
 
 #: plugin/modules/http/errors.py:45
@@ -436,52 +438,52 @@ msgstr ""
 "Das Modell wiederholt denselben Block (Endlosschleife). Versuchen Sie es "
 "erneut oder verwenden Sie ein anderes Modell."
 
-#: plugin/modules/http/__init__.py:180
-msgid "Stop HTTP Server"
-msgstr "HTTP-Server stoppen"
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "MCP-Server stoppen"
 
-#: plugin/modules/http/__init__.py:181
-msgid "Start HTTP Server"
-msgstr "HTTP-Server starten"
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "MCP-Server starten"
 
-#: plugin/modules/http/__init__.py:202
-msgid "HTTP server stopped"
-msgstr "HTTP-Server gestoppt"
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "MCP-Server gestoppt"
 
-#: plugin/modules/http/__init__.py:209
-msgid "HTTP server started"
-msgstr "HTTP-Server gestartet"
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "MCP-Server gestartet"
 
-#: plugin/modules/http/__init__.py:212
-msgid "HTTP server failed to start"
-msgstr "HTTP-Server konnte nicht gestartet werden"
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "MCP-Server konnte nicht gestartet werden"
 
-#: plugin/modules/http/__init__.py:212
+#: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
 msgstr "Überprüfen Sie ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:221
-msgid "HTTP server is not running"
-msgstr "HTTP-Server läuft nicht"
+#: plugin/modules/http/__init__.py:288
+msgid "MCP server is not running"
+msgstr "MCP-Server läuft nicht"
 
-#: plugin/modules/http/__init__.py:227
-msgid "HTTP server not running"
-msgstr "HTTP-Server läuft nicht"
+#: plugin/modules/http/__init__.py:294
+msgid "MCP server not running"
+msgstr "MCP-Server läuft nicht"
 
-#: plugin/modules/http/__init__.py:232
-msgid "HTTP server running"
-msgstr "HTTP-Server läuft"
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "MCP-Server läuft"
 
-#: plugin/modules/http/__init__.py:232
+#: plugin/modules/http/__init__.py:299
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Routen: {0}"
 
-#: plugin/modules/http/__init__.py:243
+#: plugin/modules/http/__init__.py:310
 msgid "Server Status"
 msgstr "Server-Status"
 
-#: plugin/modules/http/__init__.py:264
+#: plugin/modules/http/__init__.py:331
 #, python-brace-format
 msgid "URL: {0}"
 msgstr "URL: {0}"
@@ -507,8 +509,8 @@ msgstr "WriterAgent: Auswahl erweitern (Calc)"
 #: plugin/modules/writer/specialized.py:113
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tool-Aufruf auf '{0}' umgeschaltet. Sie befinden sich im spezialisierten "
@@ -577,8 +579,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden "
-"Sie einen Fehler.]"
+"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden"
+" Sie einen Fehler.]"
 
 #: plugin/modules/chatbot/panel.py:718
 #, python-brace-format
@@ -627,7 +629,7 @@ msgstr "Rechercheanfrage:"
 msgid "Context for the research agent:"
 msgstr "Kontext für den Recherche-Agenten:"
 
-#: plugin/modules/chatbot/web_research.py:302
+#: plugin/modules/chatbot/web_research.py:339
 msgid "Web research completed."
 msgstr "Web-Recherche abgeschlossen."
 
@@ -661,7 +663,8 @@ msgstr "[Agent-Backend '{0}' nicht gefunden.]"
 
 #: plugin/modules/chatbot/send_handlers.py:394
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-Backend '{0}' ist nicht verfügbar. Einstellungen prüfen (Pfad, "
 "Installation).]"
@@ -727,53 +730,53 @@ msgstr "Eingebaut"
 msgid "Backend"
 msgstr "Backend"
 
-#: plugin/main.py:314
+#: plugin/main.py:317
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} bestanden, {2} fehlgeschlagen."
 
-#: plugin/main.py:317
+#: plugin/main.py:320
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "Tests konnten nicht ausgeführt werden: {0}"
 
-#: plugin/main.py:390
+#: plugin/main.py:393
 msgid "Extend Selection"
 msgstr "Auswahl erweitern"
 
-#: plugin/main.py:391
+#: plugin/main.py:394
 msgid "Edit Selection"
 msgstr "Auswahl bearbeiten"
 
-#: plugin/main.py:393
+#: plugin/main.py:396
 msgid "Toggle MCP Server"
 msgstr "MCP-Server umschalten"
 
-#: plugin/main.py:394
+#: plugin/main.py:397
 msgid "MCP Server Status"
 msgstr "MCP-Server-Status"
 
-#: plugin/main.py:396
+#: plugin/main.py:399
 msgid "Run format tests"
 msgstr "Formattests ausführen"
 
-#: plugin/main.py:397
+#: plugin/main.py:400
 msgid "Run calc tests"
 msgstr "Calc-Tests ausführen"
 
-#: plugin/main.py:398
+#: plugin/main.py:401
 msgid "Run Calc API integration tests"
 msgstr "Calc-API-Integrationstests ausführen"
 
-#: plugin/main.py:399
+#: plugin/main.py:402
 msgid "Run draw tests"
 msgstr "Draw-Tests ausführen"
 
-#: plugin/main.py:400
+#: plugin/main.py:403
 msgid "Evaluation Dashboard"
 msgstr "Evaluations-Dashboard"
 
-#: plugin/main.py:777
+#: plugin/main.py:780
 msgid "Dispatch Error"
 msgstr "Dispatch-Fehler"
 
@@ -989,11 +992,11 @@ msgid "Path / URL"
 msgstr "Pfad / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. http://"
-"localhost:8000 für Hermes). Leer = Standard versuchen."
+"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. "
+"http://localhost:8000 für Hermes). Leer = Standard versuchen."
 
 msgid "Extra arguments"
 msgstr "Zusätzliche Argumente"

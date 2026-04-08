@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 19:20-0400\n"
+"POT-Creation-Date: 2026-04-07 23:00-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -41,9 +41,7 @@ msgstr "{} の賞賛をいただきます"
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"«{}» は有効な API キーではありません。再確認するか、新しい API キーを作成して"
-"ください"
+msgstr "«{}» は有効な API キーではありません。再確認するか、新しい API キーを作成してください"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -51,8 +49,7 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"現時点ではリクエストを処理できません。後でもう一度お試しください。  この問題"
-"が長期間発生する場合は、Discord 経由でお知らせください。"
+"現時点ではリクエストを処理できません。後でもう一度お試しください。  この問題が長期間発生する場合は、Discord 経由でお知らせください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
@@ -63,24 +60,20 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde はメンテナンス モードです。後でもう一度お試しください。試してもサービス"
-"が何時間も応答しない場合は、Discord 経由でご連絡ください。"
+"Horde はメンテナンス モードです。後でもう一度お試しください。試してもサービスが何時間も応答しない場合は、Discord 経由でご連絡ください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
-msgstr ""
-"リクエストが多すぎます。完了するまで待って、後でもう一度お試しください。"
+msgstr "リクエストが多すぎます。完了するまで待って、後でもう一度お試しください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
 msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
-msgstr ""
-"«{}» に問題があるようです。再確認するか、新しいものを作成するか、Discord に参"
-"加して助けを求めてください"
+msgstr "«{}» に問題があるようです。再確認するか、新しいものを作成するか、Discord に参加して助けを求めてください"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
@@ -88,9 +81,7 @@ msgstr "エラーが発生しましたが、それでも次のとおりです。
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"有効ではありません。もう一度お試しください。  リクエストに時間がかかりすぎま"
-"した"
+msgstr "有効ではありません。もう一度お試しください。  リクエストに時間がかかりすぎました"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
@@ -103,9 +94,7 @@ msgstr "大群が接触しました"
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"画像を要求しようとしたとき、Horde が遅すぎました。後でもう一度試してくださ"
-"い。"
+msgstr "画像を要求しようとしたとき、Horde が遅すぎました。後でもう一度試してください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -162,8 +151,7 @@ msgstr "または、後でもう一度試してください。"
 #: plugin/contrib/aihordeclient/__init__.py:993
 msgid ""
 "There are no workers available with these settings. Please try again later."
-msgstr ""
-"これらの設定で使用できるワーカーはありません。後でもう一度試してください。"
+msgstr "これらの設定で使用できるワーカーはありません。後でもう一度試してください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get an Api key for free at "
@@ -203,9 +191,7 @@ msgstr "画像をダウンロード中"
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
-msgstr ""
-"設定を下げるか、別のモデルを選択する必要があるか、検閲を受けている可能性があ"
-"ります。大群のメッセージ"
+msgstr "設定を下げるか、別のモデルを選択する必要があるか、検閲を受けている可能性があります。大群のメッセージ"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
@@ -241,7 +227,7 @@ msgstr "検索クエリ："
 
 #: plugin/framework/dialogs.py:169 plugin/framework/dialogs.py:342
 #: plugin/framework/dialogs.py:414 plugin/framework/dialogs.py:502
-#: plugin/modules/http/__init__.py:252 plugin/xdl_strings.py:39
+#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "わかりました"
 
@@ -262,7 +248,7 @@ msgid "Copy URL"
 msgstr "URLをコピー"
 
 #: plugin/framework/dialogs.py:486 plugin/framework/dialogs.py:514
-#: plugin/main.py:401
+#: plugin/main.py:404
 msgid "About WriterAgent"
 msgstr "WriterAgentについて"
 
@@ -289,19 +275,19 @@ msgstr "ライターエージェント {0}"
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} が見つかりません: {identifier}"
 
-#: plugin/framework/legacy_ui.py:310 plugin/main.py:392
+#: plugin/framework/legacy_ui.py:460 plugin/main.py:395
 #: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "設定"
 
-#: plugin/framework/legacy_ui.py:362 plugin/modules/chatbot/panel.py:765
+#: plugin/framework/legacy_ui.py:512 plugin/modules/chatbot/panel.py:765
 #: plugin/modules/chatbot/send_handlers.py:379
 #: plugin/modules/chatbot/send_handlers.py:389
-#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:297
+#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:300
 msgid "Error"
 msgstr "エラー"
 
-#: plugin/framework/legacy_ui.py:362
+#: plugin/framework/legacy_ui.py:512
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "設定を開くのに失敗しました: {0}"
@@ -318,32 +304,25 @@ msgstr "Temperatureは1.0以下である必要があります"
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
-msgstr ""
-"AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻"
-"訳できます。ぜひお試しください！"
+msgstr "AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻訳できます。ぜひお試しください！"
 
 #: plugin/framework/constants.py:184
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
-msgstr ""
-"AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しくだ"
-"さい！"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr "AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しください！"
 
 #: plugin/framework/constants.py:185
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
-msgstr ""
-"AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いしま"
-"す。ぜひお試しください！"
+msgstr "AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いします。ぜひお試しください！"
 
 #: plugin/framework/constants.py:186
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答え"
-"たり、ウェブページを要約したりできます。お話ししましょう。"
+msgstr "AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答えたり、ウェブページを要約したりできます。お話ししましょう。"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
@@ -355,8 +334,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager を使用"
-"して更新を確認し、最新の拡張機能をインストールしてください。"
+"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager "
+"を使用して更新を確認し、最新の拡張機能をインストールしてください。"
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -369,14 +348,11 @@ msgstr "API キーが無効です。設定を確認してください。"
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr ""
-"API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可"
-"能性があります。"
+msgstr "API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可能性があります。"
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr ""
-"エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
+msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
@@ -390,14 +366,12 @@ msgstr "HTTP エラー {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr ""
-"リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やして"
-"みてください。"
+msgstr "リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やしてみてください。"
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr ""
-"接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -430,56 +404,54 @@ msgstr "ストリームが finish_reason=error で終了しました"
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
-msgstr ""
-"モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただく"
-"か、別のモデルをご使用ください。"
+msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
 
-#: plugin/modules/http/__init__.py:180
-msgid "Stop HTTP Server"
-msgstr "HTTPサーバーを停止する"
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "MCPサーバーを停止"
 
-#: plugin/modules/http/__init__.py:181
-msgid "Start HTTP Server"
-msgstr "HTTPサーバーの起動"
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "MCPサーバーを起動"
 
-#: plugin/modules/http/__init__.py:202
-msgid "HTTP server stopped"
-msgstr "HTTPサーバーが停止しました"
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "MCPサーバーが停止しました"
 
-#: plugin/modules/http/__init__.py:209
-msgid "HTTP server started"
-msgstr "HTTPサーバーが開始されました"
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "MCPサーバーが起動しました"
 
-#: plugin/modules/http/__init__.py:212
-msgid "HTTP server failed to start"
-msgstr "HTTPサーバーの開始に失敗しました"
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "MCPサーバーの起動に失敗しました"
 
-#: plugin/modules/http/__init__.py:212
+#: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
 msgstr "~/localwriter.log を確認してください"
 
-#: plugin/modules/http/__init__.py:221
-msgid "HTTP server is not running"
-msgstr "HTTPサーバーが実行されていません"
+#: plugin/modules/http/__init__.py:288
+msgid "MCP server is not running"
+msgstr "MCPサーバーは実行されていません"
 
-#: plugin/modules/http/__init__.py:227
-msgid "HTTP server not running"
-msgstr "HTTPサーバーが実行されていません"
+#: plugin/modules/http/__init__.py:294
+msgid "MCP server not running"
+msgstr "MCPサーバー実行中ではありません"
 
-#: plugin/modules/http/__init__.py:232
-msgid "HTTP server running"
-msgstr "HTTPサーバーが実行中です"
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "MCPサーバー実行中"
 
-#: plugin/modules/http/__init__.py:232
+#: plugin/modules/http/__init__.py:299
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "ルート: {0}"
 
-#: plugin/modules/http/__init__.py:243
+#: plugin/modules/http/__init__.py:310
 msgid "Server Status"
 msgstr "サーバーステータス"
 
-#: plugin/modules/http/__init__.py:264
+#: plugin/modules/http/__init__.py:331
 #, python-brace-format
 msgid "URL: {0}"
 msgstr "URL: {0}"
@@ -505,13 +477,12 @@ msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 #: plugin/modules/writer/specialized.py:113
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っていま"
-"す。完了したら 'specialized_workflow_finished' を呼び出して、APIのフルセット"
-"を復元してください。"
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
+"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
 
 #: plugin/modules/writer/legacy.py:46 plugin/modules/writer/legacy.py:57
 #: plugin/modules/chatbot/selection.py:80
@@ -566,35 +537,28 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、"
-"または Draw) が見つかりません。]"
+"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
 
 #: plugin/modules/chatbot/panel.py:711
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
-msgstr ""
-"[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報"
-"告してください。]"
+msgstr "[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報告してください。]"
 
 #: plugin/modules/chatbot/panel.py:718
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr ""
-"[内部エラー: {0} のドキュメント タイプを識別できませんでした。ぜひご報告くだ"
-"さい！】"
+msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ぜひご報告ください！】"
 
 #: plugin/modules/chatbot/panel.py:762
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr ""
-"[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデル"
-"を選択してください。]"
+msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
@@ -625,7 +589,7 @@ msgstr "調査リクエスト："
 msgid "Context for the research agent:"
 msgstr "調査エージェントのコンテキスト："
 
-#: plugin/modules/chatbot/web_research.py:302
+#: plugin/modules/chatbot/web_research.py:339
 msgid "Web research completed."
 msgstr "ウェブリサーチが完了しました。"
 
@@ -659,10 +623,9 @@ msgstr "[エージェントバックエンド '{0}' が見つかりません。]
 
 #: plugin/modules/chatbot/send_handlers.py:394
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）"
-"を確認してください。]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
 
 #: plugin/modules/chatbot/send_handlers.py:640
 #: plugin/modules/chatbot/send_handlers.py:648
@@ -725,53 +688,53 @@ msgstr "ビルトイン"
 msgid "Backend"
 msgstr "バックエンド"
 
-#: plugin/main.py:314
+#: plugin/main.py:317
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} 合格、{2} 失敗。"
 
-#: plugin/main.py:317
+#: plugin/main.py:320
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "テストの実行に失敗しました: {0}"
 
-#: plugin/main.py:390
+#: plugin/main.py:393
 msgid "Extend Selection"
 msgstr "選択範囲を拡張"
 
-#: plugin/main.py:391
+#: plugin/main.py:394
 msgid "Edit Selection"
 msgstr "選択範囲を編集"
 
-#: plugin/main.py:393
+#: plugin/main.py:396
 msgid "Toggle MCP Server"
 msgstr "MCPサーバーの切り替え"
 
-#: plugin/main.py:394
+#: plugin/main.py:397
 msgid "MCP Server Status"
 msgstr "MCP サーバーのステータス"
 
-#: plugin/main.py:396
+#: plugin/main.py:399
 msgid "Run format tests"
 msgstr "フォーマットテストを実行する"
 
-#: plugin/main.py:397
+#: plugin/main.py:400
 msgid "Run calc tests"
 msgstr "計算テストを実行する"
 
-#: plugin/main.py:398
+#: plugin/main.py:401
 msgid "Run Calc API integration tests"
 msgstr "Calc API 統合テストを実行する"
 
-#: plugin/main.py:399
+#: plugin/main.py:402
 msgid "Run draw tests"
 msgstr "描画テストを実行する"
 
-#: plugin/main.py:400
+#: plugin/main.py:403
 msgid "Evaluation Dashboard"
 msgstr "評価ダッシュボード"
 
-#: plugin/main.py:777
+#: plugin/main.py:780
 msgid "Dispatch Error"
 msgstr "発送エラー"
 
@@ -987,11 +950,11 @@ msgid "Path / URL"
 msgstr "パス / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の"
-"場合は http://localhost:8000)。空の場合はデフォルトを試行します。"
+"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の場合は "
+"http://localhost:8000)。空の場合はデフォルトを試行します。"
 
 msgid "Extra arguments"
 msgstr "追加引数"
@@ -1005,9 +968,7 @@ msgstr "ACP エージェント名"
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
-msgstr ""
-"ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自"
-"動検出します。"
+msgstr "ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自動検出します。"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc 表計算ツール"

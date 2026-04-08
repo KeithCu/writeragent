@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-04 19:20-0400\n"
+"POT-Creation-Date: 2026-04-07 23:00-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -62,8 +62,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo "
-"has intentado y el servicio no responde durante horas, por favor contacta "
+"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo"
+" has intentado y el servicio no responde durante horas, por favor contacta "
 "vía Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -163,8 +163,8 @@ msgstr " o inténtalo de nuevo más tarde."
 msgid ""
 "There are no workers available with these settings. Please try again later."
 msgstr ""
-"No hay trabajadores disponibles con esta configuración. Por favor, inténtalo "
-"de nuevo más tarde."
+"No hay trabajadores disponibles con esta configuración. Por favor, inténtalo"
+" de nuevo más tarde."
 
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get an Api key for free at "
@@ -242,7 +242,7 @@ msgstr "Consulta de búsqueda:"
 
 #: plugin/framework/dialogs.py:169 plugin/framework/dialogs.py:342
 #: plugin/framework/dialogs.py:414 plugin/framework/dialogs.py:502
-#: plugin/modules/http/__init__.py:252 plugin/xdl_strings.py:39
+#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "Aceptar"
 
@@ -263,7 +263,7 @@ msgid "Copy URL"
 msgstr "Copiar URL"
 
 #: plugin/framework/dialogs.py:486 plugin/framework/dialogs.py:514
-#: plugin/main.py:401
+#: plugin/main.py:404
 msgid "About WriterAgent"
 msgstr "Acerca de WriterAgent"
 
@@ -290,19 +290,19 @@ msgstr "Agente Escritor {0}"
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} no encontrado: {identifier}"
 
-#: plugin/framework/legacy_ui.py:310 plugin/main.py:392
+#: plugin/framework/legacy_ui.py:460 plugin/main.py:395
 #: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Configuración"
 
-#: plugin/framework/legacy_ui.py:362 plugin/modules/chatbot/panel.py:765
+#: plugin/framework/legacy_ui.py:512 plugin/modules/chatbot/panel.py:765
 #: plugin/modules/chatbot/send_handlers.py:379
 #: plugin/modules/chatbot/send_handlers.py:389
-#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:297
+#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:300
 msgid "Error"
 msgstr "Error"
 
-#: plugin/framework/legacy_ui.py:362
+#: plugin/framework/legacy_ui.py:512
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "Error al abrir Configuración: {0}"
@@ -320,12 +320,13 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Puedo editar o traducir tu documento al instante con formato profesional "
-"y color. ¡Pruébame!"
+"IA: Puedo editar o traducir tu documento al instante con formato profesional"
+" y color. ¡Pruébame!"
 
 #: plugin/framework/constants.py:184
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puedo ayudarte con fórmulas, análisis de datos y gráficos coloridos. "
 "¡Pruébame!"
@@ -395,7 +396,8 @@ msgstr ""
 "solicitud' en la Configuración."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Conexión Rechazada. ¿Está tu servidor local de IA (Ollama/LM Studio) en "
 "ejecución?"
@@ -435,52 +437,52 @@ msgstr ""
 "El modelo está repitiendo el mismo fragmento (bucle infinito). Inténtalo de "
 "nuevo o usa un modelo diferente."
 
-#: plugin/modules/http/__init__.py:180
-msgid "Stop HTTP Server"
-msgstr "Detener Servidor HTTP"
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "Detener servidor MCP"
 
-#: plugin/modules/http/__init__.py:181
-msgid "Start HTTP Server"
-msgstr "Iniciar Servidor HTTP"
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "Iniciar servidor MCP"
 
-#: plugin/modules/http/__init__.py:202
-msgid "HTTP server stopped"
-msgstr "Servidor HTTP detenido"
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "Servidor MCP detenido"
 
-#: plugin/modules/http/__init__.py:209
-msgid "HTTP server started"
-msgstr "Servidor HTTP iniciado"
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "Servidor MCP iniciado"
 
-#: plugin/modules/http/__init__.py:212
-msgid "HTTP server failed to start"
-msgstr "Error al iniciar el servidor HTTP"
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "El servidor MCP falló al iniciarse"
 
-#: plugin/modules/http/__init__.py:212
+#: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
 msgstr "Revisa ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:221
-msgid "HTTP server is not running"
-msgstr "El servidor HTTP no se está ejecutando"
+#: plugin/modules/http/__init__.py:288
+msgid "MCP server is not running"
+msgstr "El servidor MCP no está en ejecución"
 
-#: plugin/modules/http/__init__.py:227
-msgid "HTTP server not running"
-msgstr "Servidor HTTP no se está ejecutando"
+#: plugin/modules/http/__init__.py:294
+msgid "MCP server not running"
+msgstr "Servidor MCP no en ejecución"
 
-#: plugin/modules/http/__init__.py:232
-msgid "HTTP server running"
-msgstr "Servidor HTTP en ejecución"
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "Servidor MCP en ejecución"
 
-#: plugin/modules/http/__init__.py:232
+#: plugin/modules/http/__init__.py:299
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Rutas: {0}"
 
-#: plugin/modules/http/__init__.py:243
+#: plugin/modules/http/__init__.py:310
 msgid "Server Status"
 msgstr "Estado del Servidor"
 
-#: plugin/modules/http/__init__.py:264
+#: plugin/modules/http/__init__.py:331
 #, python-brace-format
 msgid "URL: {0}"
 msgstr "URL: {0}"
@@ -506,8 +508,8 @@ msgstr "WriterAgent: Ampliar Selección (Calc)"
 #: plugin/modules/writer/specialized.py:113
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Llamada de herramienta cambiada a '{0}'. Estás en un modo de conjunto de "
@@ -567,8 +569,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw) "
-"en la ventana activa.]"
+"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw)"
+" en la ventana activa.]"
 
 #: plugin/modules/chatbot/panel.py:711
 #, python-brace-format
@@ -626,7 +628,7 @@ msgstr "Solicitud de investigación:"
 msgid "Context for the research agent:"
 msgstr "Contexto para el agente de investigación:"
 
-#: plugin/modules/chatbot/web_research.py:302
+#: plugin/modules/chatbot/web_research.py:339
 msgid "Web research completed."
 msgstr "Investigación web completada."
 
@@ -660,7 +662,8 @@ msgstr "[Backend de agente '{0}' no encontrado.]"
 
 #: plugin/modules/chatbot/send_handlers.py:394
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend de agente '{0}' no está disponible. Verifica Configuración (ruta, "
 "instalación).]"
@@ -726,53 +729,53 @@ msgstr "Integrado"
 msgid "Backend"
 msgstr "Backend"
 
-#: plugin/main.py:314
+#: plugin/main.py:317
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} aprobados, {2} fallidos."
 
-#: plugin/main.py:317
+#: plugin/main.py:320
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "Las pruebas fallaron en su ejecución: {0}"
 
-#: plugin/main.py:390
+#: plugin/main.py:393
 msgid "Extend Selection"
 msgstr "Ampliar selección"
 
-#: plugin/main.py:391
+#: plugin/main.py:394
 msgid "Edit Selection"
 msgstr "Editar selección"
 
-#: plugin/main.py:393
+#: plugin/main.py:396
 msgid "Toggle MCP Server"
 msgstr "Alternar Servidor MCP"
 
-#: plugin/main.py:394
+#: plugin/main.py:397
 msgid "MCP Server Status"
 msgstr "Estado del Servidor MCP"
 
-#: plugin/main.py:396
+#: plugin/main.py:399
 msgid "Run format tests"
 msgstr "Ejecutar pruebas de formato"
 
-#: plugin/main.py:397
+#: plugin/main.py:400
 msgid "Run calc tests"
 msgstr "Ejecutar pruebas de calc"
 
-#: plugin/main.py:398
+#: plugin/main.py:401
 msgid "Run Calc API integration tests"
 msgstr "Ejecutar pruebas de integración de la API de Calc"
 
-#: plugin/main.py:399
+#: plugin/main.py:402
 msgid "Run draw tests"
 msgstr "Ejecutar pruebas de draw"
 
-#: plugin/main.py:400
+#: plugin/main.py:403
 msgid "Evaluation Dashboard"
 msgstr "Panel de Evaluación"
 
-#: plugin/main.py:777
+#: plugin/main.py:780
 msgid "Dispatch Error"
 msgstr "Error de despacho"
 
@@ -988,11 +991,11 @@ msgid "Path / URL"
 msgstr "Ruta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. http://"
-"localhost:8000 para Hermes). Vacío = intentar por defecto."
+"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. "
+"http://localhost:8000 para Hermes). Vacío = intentar por defecto."
 
 msgid "Extra arguments"
 msgstr "Argumentos adicionales"
@@ -1008,8 +1011,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el "
-"primer agente."
+"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el"
+" primer agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Herramientas de hoja de cálculo de Calc"
