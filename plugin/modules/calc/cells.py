@@ -164,7 +164,7 @@ class WriteCellRange(ToolBase):
 class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
-    name = "set_cell_style"
+    name = "set_style"
     intent = "edit"
     description = (
         "Applies style and formatting to the specified cell(s) or "
@@ -287,7 +287,7 @@ class MergeCells(ToolBase):
     description = (
         "Merges the specified cell range(s). Typically used for main "
         "headers. Write text with write_formula_range and style with "
-        "set_cell_style after merging. Supports lists for non-contiguous "
+        "set_style after merging. Supports lists for non-contiguous "
         "areas."
     )
     parameters = {

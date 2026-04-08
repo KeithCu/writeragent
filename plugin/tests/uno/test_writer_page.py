@@ -1,5 +1,3 @@
-import pytest
-from typing import Any
 from unittest.mock import MagicMock
 
 # Mock UNO imports required for testing page tools outside of LibreOffice environment
@@ -29,14 +27,16 @@ from plugin.modules.writer.page import (
     SetHeaderFooterText,
     GetPageColumns,
     SetPageColumns,
-    InsertPageBreak
+    InsertPageBreak,
 )
+from plugin.testing_runner import native_test
 
 class MockToolContext:
     def __init__(self, doc):
         self.doc = doc
         self.services = MagicMock()
 
+@native_test
 def test_get_page_style_properties():
     # Setup mock doc
     doc = MagicMock()
@@ -87,6 +87,7 @@ def test_get_page_style_properties():
     assert res["properties"]["header_is_on"] is True
     assert res["properties"]["footer_is_on"] is False
 
+@native_test
 def test_set_page_style_properties():
     doc = MagicMock()
     families = MagicMock()
@@ -110,6 +111,7 @@ def test_set_page_style_properties():
     style.setPropertyValue.assert_any_call("IsLandscape", True)
     style.setPropertyValue.assert_any_call("HeaderIsOn", False)
 
+@native_test
 def test_set_header_footer_text():
     doc = MagicMock()
     families = MagicMock()
@@ -134,6 +136,7 @@ def test_set_header_footer_text():
     style.setPropertyValue.assert_called_with("HeaderIsOn", True)
     header_text_obj.setString.assert_called_with("My Header Content")
 
+@native_test
 def test_set_page_columns():
     doc = MagicMock()
     families = MagicMock()
@@ -164,6 +167,7 @@ def test_set_page_columns():
     text_columns.setColumns.assert_called_with((col1, col2))
     style.setPropertyValue.assert_called_with("TextColumns", text_columns)
 
+@native_test
 def test_insert_page_break():
     doc = MagicMock()
     controller = MagicMock()

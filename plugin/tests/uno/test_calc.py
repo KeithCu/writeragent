@@ -131,7 +131,7 @@ def test_write_formula_range():
 @native_test
 def test_set_cell_style_and_details():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
-    _execute_calc_tool("set_cell_style", {"range_name": "A1", "bold": True, "bg_color": "yellow"})
+    _execute_calc_tool("set_style", {"range_name": "A1", "bold": True, "bg_color": "yellow"})
     cell = active_sheet.getCellByPosition(0, 0)
     from com.sun.star.awt.FontWeight import BOLD
     assert cell.getPropertyValue("CharWeight") == BOLD, "Bold not set"
@@ -398,7 +398,7 @@ def test_consistent_error_payloads():
     # assert len(res_range["message"]) > 0, "Error message should not be empty"
 
     # 2. Invalid color string (standardized tool error: status/code/message/details)
-    res_color = _execute_calc_tool("set_cell_style", {"range_name": "A1", "bg_color": "not_a_real_color"})
+    res_color = _execute_calc_tool("set_style", {"range_name": "A1", "bg_color": "not_a_real_color"})
     assert res_color.get("status") == "error", f"Expected error for invalid color, got {res_color.get('status')}"
     assert "message" in res_color, f"Expected 'message' key in payload: {res_color}"
     assert isinstance(res_color["message"], str), "Error message should be a string"
