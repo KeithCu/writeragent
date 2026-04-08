@@ -20,6 +20,7 @@ from plugin.framework.module_base import ModuleBase
 
 # Import submodules to ensure tools are registered via auto_discover_package
 from plugin.modules.draw import specialized
+from plugin.modules.draw import tree
 
 class DrawModule(ModuleBase):
     """Registers Draw/Impress tools for shapes, pages/slides."""

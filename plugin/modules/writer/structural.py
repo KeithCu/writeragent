@@ -18,7 +18,7 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
-from plugin.framework.tool_base import ToolBaseDummy
+from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 
 
 class ListSections(ToolBaseDummy):
@@ -63,23 +63,24 @@ class GotoPage(ToolBaseDummy):
         vc.jumpToPage(kwargs["page"])
         return {"status": "ok", "page": vc.getPage()}
 
-class GetPageObjects(ToolBaseDummy):
+class GetPageObjects(ToolBase):
     name = "get_page_objects"
-    intent = "navigate"
+    intent = "read"
     description = (
-        "Get images, tables, and frames on a specific page. "
+        "Get images, tables, frames, and Draw shapes visible on a specific physical page. "
         "Provide page number, locator, or paragraph_index."
     )
     parameters = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "Page number"},
+            "page": {"type": "integer", "description": "1-based page number to analyze"},
             "locator": {"type": "string", "description": "Locator to determine page"},
             "paragraph_index": {"type": "integer", "description": "Paragraph index to determine page"},
         },
         "required": [],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
+    tier = "core"
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -108,12 +109,13 @@ class GetPageObjects(ToolBaseDummy):
         saved = doc.getText().createTextCursorByRange(vc.getStart())
         doc.lockControllers()
         try:
-            objects = self._scan_page(doc, vc, page)
+            objects = self._scan_page(ctx, doc, vc, page)
         finally:
             vc.gotoRange(saved, False)
             doc.unlockControllers()
         return {"status": "ok", "page": page, **objects}
-    def _scan_page(self, doc, vc, page):
+
+    def _scan_page(self, ctx, doc, vc, page):
         images = []
         if hasattr(doc, "getGraphicObjects"):
             for name in doc.getGraphicObjects().getElementNames():
@@ -162,7 +164,59 @@ class GetPageObjects(ToolBaseDummy):
                 except Exception:
                     pass
 
-        return {"images": images, "tables": tables, "frames": frames}
+        shapes = []
+        if hasattr(doc, "getDrawPage"):
+            draw_page = doc.getDrawPage()
+            from com.sun.star.text.TextContentAnchorType import AT_PAGE, AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER
+            doc_svc = ctx.services.document
+            para_ranges = doc_svc.get_paragraph_ranges(doc)
+            text_obj = doc.getText()
+
+            # Find starting and ending paragraphs for the physical page
+            if vc.jumpToPage(page):
+                vc.jumpToStartOfPage()
+                page_start = text_obj.createTextCursorByRange(vc.getStart())
+                vc.jumpToEndOfPage()
+                page_end = text_obj.createTextCursorByRange(vc.getEnd())
+
+                start_idx = doc_svc.find_paragraph_for_range(page_start.getStart(), para_ranges, text_obj)
+                end_idx = doc_svc.find_paragraph_for_range(page_end.getEnd(), para_ranges, text_obj)
+
+                for i in range(draw_page.getCount()):
+                    shape = draw_page.getByIndex(i)
+                    include_shape = False
+                    anchor = shape.getAnchor()
+
+                    try:
+                        anchor_type = shape.getPropertyValue("AnchorType")
+
+                        if anchor_type == AT_PAGE:
+                            shape_page_no = shape.getPropertyValue("AnchorPageNo")
+                            if shape_page_no == page:
+                                include_shape = True
+                        elif anchor_type in (AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER) and anchor:
+                            shape_para_idx = doc_svc.find_paragraph_for_range(anchor.getStart(), para_ranges, text_obj)
+                            if start_idx <= shape_para_idx <= end_idx:
+                                include_shape = True
+                    except Exception:
+                        pass
+
+                    if include_shape:
+                        shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
+                        shape_info = {
+                            "type": shape_type,
+                            "name": getattr(shape, "Name", ""),
+                            "text": shape.getString().strip() if hasattr(shape, "getString") else "",
+                        }
+                        try:
+                            pos = shape.getPosition()
+                            size = shape.getSize()
+                            shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
+                        except Exception:
+                            pass
+                        shapes.append(shape_info)
+
+        return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
 
 
 class ReadSection(ToolBaseDummy):

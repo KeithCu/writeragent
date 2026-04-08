@@ -235,3 +235,35 @@ def test_master_slides():
     data = json.loads(result)
     assert data.get("status") == "ok", f"get_slide_master verify failed: {result}"
     assert data.get("master_name") == first_master_name, f"Master name mismatch: {data.get('master_name')}"
+
+
+@native_test
+def test_get_draw_tree():
+    try:
+        import pytest
+        if _test_doc is None:
+            pytest.skip("Requires LibreOffice document from native runner")
+    except ImportError:
+        pass
+
+    # Ensure there is at least one shape to build a tree with
+    _exec_tool("create_shape", {
+        "shape_type": "rectangle",
+        "x": 1000, "y": 1000, "width": 5000, "height": 3000,
+        "text": "Tree Shape",
+        "bg_color": "#FF0000"
+    })
+
+    result = _exec_tool("get_draw_tree", {"page_index": 0})
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"get_draw_tree failed: {result}"
+    tree = data.get("tree", [])
+    assert len(tree) > 0, "Draw tree is empty"
+
+    # Check if the shape we just created is in the tree
+    found = False
+    for node in tree:
+        if node.get("text") == "Tree Shape":
+            found = True
+            break
+    assert found, "Created shape not found in draw tree"
