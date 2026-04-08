@@ -52,14 +52,6 @@ It's better than a standard Google search box because it understands natural lan
 *   **Complex Tasks**: "Write a long and pretty summary of After the Software Wars, according to Wikipedia."
 *   **Real-time Data**: Ask it to find the current price of a specific item and it can update your document with current data.
 
-#### How it works (technical)
-WriterAgent can delegate “research on the open web” to a small autonomous sub-agent built with a vendored subset of Hugging Face’s **smolagents**:
-
-*   **ToolCallingAgent + tools**: We vendor `ToolCallingAgent` and lightweight tools `DuckDuckGoSearchTool` and `VisitWebpageTool` in `plugin/contrib/smolagents/`. They use only standard library networking (`urllib.request`) and parsing (`html.parser`), plus a realistic Firefox user agent string for fewer 403s.
-*   **`search_web` tool (Writer Chat)**: In `core/document_tools.py` we expose a `search_web` tool that the main chat agent can call. It spins up a ToolCallingAgent with those web tools and runs a ReAct loop (search → visit → synthesize) until it calls the `final_answer` tool, then returns `{"status": "ok", "result": "<answer>"}` back to the main agent.
-*   **Same model & endpoint as chat**: Inside LibreOffice, the sub-agent uses `WriterAgentSmolModel`, which wraps WriterAgent’s existing `LlmClient` and therefore respects your configured endpoint, model, API key, temperature, etc.
-*   **Sidebar “Web search” checkbox**: In the Chat with Document sidebar, a per-message **Web search** checkbox lets you bypass document-aware chat for that turn and directly invoke the `search_web` sub-agent. The answer is streamed into the response area (labeled `AI (web): ...`) without editing the document. When the checkbox is off, the AI can still call `search_web` autonomously as a normal tool when it decides web research is needed.
-
 ### 4. Extend & Edit Selection (Writer)
 Two Writer shortcuts act on the current selection:
 
