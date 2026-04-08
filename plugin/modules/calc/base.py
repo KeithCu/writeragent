@@ -44,3 +44,21 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
 
 class ToolCalcWebResearchBase(ToolCalcSpecialBase):
     specialized_domain = "web_research"
+
+
+class ToolCalcCommentBase(ToolCalcSpecialBase):
+    specialized_domain = "comments"
+    intent = "review"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
+class ToolCalcConditionalBase(ToolCalcSpecialBase):
+    specialized_domain = "conditional_formatting"
+    intent = "edit"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
+class ToolCalcSheetBase(ToolCalcSpecialBase):
+    specialized_domain = "sheets"
+    intent = "edit"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]

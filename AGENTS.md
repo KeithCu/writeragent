@@ -129,6 +129,7 @@ Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolB
 ## 5. Calc (plugin)
 
 Tools go through `tool_registry` / `ToolContext`. Modular tools: `cells.py`, `formulas.py`, `sheets.py`; `tools.py` builds `CALC_TOOLS` and forwards execution. **Gemini/OpenRouter**: no union types in JSON schemas; use `"type": "array"` + `items` for ranges; execute layers accept a single string as one-element list.
+**Specialized Calc Toolsets**: Operations like managing cell comments, conditional formatting, sheet management, and image management have been moved from the main toolset to specialized domains (`comments`, `conditional_formatting`, `sheets`, `images`). To access these tools, the main agent must use `delegate_to_specialized_calc_toolset(domain=...)`. These tools inherit from `ToolCalcSpecialBase` and are filtered out of the core tool list.
 
 ---
 

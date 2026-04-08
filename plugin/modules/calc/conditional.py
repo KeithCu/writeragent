@@ -20,7 +20,7 @@
 import logging
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
-from plugin.framework.tool_base import ToolBase
+from plugin.modules.calc.base import ToolCalcConditionalBase
 from plugin.modules.calc.bridge import CalcBridge
 
 logger = logging.getLogger("writeragent.calc")
@@ -54,7 +54,7 @@ def _entry_to_dict(entry, idx):
     return result
 
 
-class ListConditionalFormats(ToolBase):
+class ListConditionalFormats(ToolCalcConditionalBase):
     """List conditional formatting rules on a cell range."""
 
     name = "list_conditional_formats"
@@ -73,7 +73,6 @@ class ListConditionalFormats(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
@@ -108,7 +107,7 @@ class ListConditionalFormats(ToolBase):
             logger.error("List conditional formats error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
 
-class AddConditionalFormat(ToolBase):
+class AddConditionalFormat(ToolCalcConditionalBase):
     """Add a conditional formatting rule to a cell range."""
 
     name = "add_conditional_format"
@@ -156,7 +155,6 @@ class AddConditionalFormat(ToolBase):
         },
         "required": ["range_name", "operator", "formula1", "style_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -227,7 +225,7 @@ class AddConditionalFormat(ToolBase):
             logger.error("Add conditional format error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
 
-class RemoveConditionalFormats(ToolBase):
+class RemoveConditionalFormats(ToolCalcConditionalBase):
     """Remove or clear conditional formatting rules from a cell range."""
 
     name = "remove_conditional_formats"
@@ -250,7 +248,6 @@ class RemoveConditionalFormats(ToolBase):
         },
         "required": ["range_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
