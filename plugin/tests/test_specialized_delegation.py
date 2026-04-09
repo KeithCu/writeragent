@@ -10,10 +10,11 @@ sys.modules['unohelper'].Base = MockBase
 sys.modules['com.sun.star.text'] = MagicMock()
 sys.modules['com.sun.star.awt'] = MagicMock()
 
-from plugin.framework.tool_registry import ToolRegistry
-from plugin.framework.tool_context import ToolContext
+from plugin.framework.tool_registry import ToolRegistry, _is_specialized_domain_tool
 from plugin.modules.writer.base import ToolWriterSpecialBase, SpecializedWorkflowFinished
 from plugin.modules.writer.specialized import DelegateToSpecializedWriter
+from plugin.modules.calc.base import ToolCalcSpecialBase
+from plugin.modules.draw.base import ToolDrawSpecialBase
 
 
 class DummyTableTool(ToolWriterSpecialBase):
@@ -24,6 +25,30 @@ class DummyTableTool(ToolWriterSpecialBase):
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "message": "Table created"}
+
+
+class DummyCalcSpecialTool(ToolCalcSpecialBase):
+    name = "dummy_calc_images_tool"
+    description = "A dummy Calc specialized tool."
+    parameters = {"type": "object", "properties": {}, "required": []}
+    specialized_domain = "images"
+
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok", "message": "ok"}
+
+
+class DummyDrawSpecialTool(ToolDrawSpecialBase):
+    name = "dummy_draw_special_tool"
+    description = "A dummy Draw specialized tool."
+    parameters = {"type": "object", "properties": {}, "required": []}
+    specialized_domain = "draw_test_domain"
+
+    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok", "message": "ok"}
 
 
 @pytest.fixture
@@ -176,3 +201,43 @@ def test_specialized_delegation_sub_agent_mode(
     smol_tool_names = [t.name for t in smol_tools]
     assert "dummy_table_tool" in smol_tool_names
     assert "specialized_workflow_finished" not in smol_tool_names
+
+
+def test_is_specialized_domain_tool_helper():
+    t = DummyTableTool()
+    assert _is_specialized_domain_tool(t, "tables") is True
+    assert _is_specialized_domain_tool(t, "images") is False
+    c = DummyCalcSpecialTool()
+    assert _is_specialized_domain_tool(c, "images") is True
+    d = DummyDrawSpecialTool()
+    assert _is_specialized_domain_tool(d, "draw_test_domain") is True
+
+
+def test_active_domain_schemas_include_calc_and_draw(registry):
+    """Calc/Draw specialized tools must appear when active_domain matches (in-place mode)."""
+    registry.register(DummyCalcSpecialTool())
+    registry.register(DummyDrawSpecialTool())
+
+    mock_sheet = MagicMock()
+
+    def supports(svc):
+        return svc == "com.sun.star.sheet.SpreadsheetDocument"
+
+    mock_sheet.supportsService = supports
+
+    schemas = registry.get_schemas("openai", doc=mock_sheet, active_domain="images")
+    names = [s["function"]["name"] for s in schemas]
+    assert "dummy_calc_images_tool" in names
+    assert "specialized_workflow_finished" in names
+
+    mock_draw = MagicMock()
+
+    def supports_draw(svc):
+        return svc == "com.sun.star.drawing.DrawingDocument"
+
+    mock_draw.supportsService = supports_draw
+
+    schemas_d = registry.get_schemas("openai", doc=mock_draw, active_domain="draw_test_domain")
+    names_d = [s["function"]["name"] for s in schemas_d]
+    assert "dummy_draw_special_tool" in names_d
+    assert "specialized_workflow_finished" in names_d

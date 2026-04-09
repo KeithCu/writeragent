@@ -29,6 +29,17 @@ from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger("writeragent.tools")
 
+
+def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
+    """True if *t* is a Writer/Calc/Draw specialized tool for *active_domain*."""
+    if getattr(t, "specialized_domain", None) != active_domain:
+        return False
+    from plugin.modules.writer.base import ToolWriterSpecialBase
+    from plugin.modules.calc.base import ToolCalcSpecialBase
+    from plugin.modules.draw.base import ToolDrawSpecialBase
+
+    return isinstance(t, (ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase))
+
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control"})
 _UNSET_EXCLUDE_TIERS = object()
@@ -192,7 +203,6 @@ class ToolRegistry:
 
         # If we have an active domain, we want to include its tools (and the finish tool),
         # even if they are in the excluded tiers.
-        from plugin.modules.writer.base import ToolWriterSpecialBase
 
         if exclude_tiers is _UNSET_EXCLUDE_TIERS:
             to_exclude = _DEFAULT_EXCLUDE_TIERS
@@ -205,7 +215,7 @@ class ToolRegistry:
             # for that domain and the finish tool. Do not include normal core/extended tools.
             filtered_tools = []
             for t in tools:
-                if isinstance(t, ToolWriterSpecialBase) and t.specialized_domain == active_domain:
+                if _is_specialized_domain_tool(t, active_domain):
                     filtered_tools.append(t)
                 #FIXME, these strings should be calculated or handled another way
                 elif getattr(t, "name", "") in ["final_answer", "specialized_workflow_finished", "reply_to_user"]:

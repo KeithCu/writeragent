@@ -118,6 +118,7 @@ class ToolLoopHost(Protocol):
     def _on_tool_loop_approval_required(self, item: Any) -> None: ...
     def _execute_effect(self, effect: Any) -> bool: ...
     def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
+    def _refresh_active_tools_for_session(self) -> None: ...
     def _is_400_input_validation(self, err: Any) -> bool: ...
 
 
@@ -463,6 +464,26 @@ class ToolCallingMixin:
 
         log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
+    def _refresh_active_tools_for_session(self: ToolLoopHost) -> None:
+        """Recompute OpenAI tool schemas from ``session.active_specialized_domain``.
+
+        In-place specialized delegation updates the session after ``delegate`` or
+        ``specialized_workflow_finished``; each LLM round must see the matching list.
+        """
+        try:
+            from plugin.main import get_tools
+
+            active_domain = (
+                getattr(self.session, "active_specialized_domain", None)
+                if hasattr(self, "session") and self.session
+                else None
+            )
+            self._active_tools = get_tools().get_schemas(
+                "openai", doc=self._active_model, active_domain=active_domain
+            )
+        except Exception as e:
+            log.warning("Failed to refresh active tools: %s", e)
+
     def _spawn_llm_worker(self: ToolLoopHost, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None:
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
@@ -636,6 +657,7 @@ class ToolCallingMixin:
                 self.session.add_tool_result(effect.call_id, effect.content)
 
         elif isinstance(effect, SpawnLLMWorkerEffect):
+            self._refresh_active_tools_for_session()
             self._spawn_llm_worker(
                 self._active_q,
                 self._active_client,
@@ -929,6 +951,7 @@ class ToolCallingMixin:
             thinking_open = [False]
 
             # --- Kick off the first LLM stream ---
+            self._refresh_active_tools_for_session()
             self._spawn_llm_worker(
                 self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text
             )
