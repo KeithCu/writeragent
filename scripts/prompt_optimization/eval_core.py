@@ -290,9 +290,11 @@ def run_eval_on_examples(
                 j_formatting = None
                 j_naturalness = None
                 
-                # Use judge if configured and the task is non-trivial OR has gold standard/rubric
+                # Use judge only for non-trivial tasks. Gold/rubric are passed when judging but must
+                # not force an LLM call: gold_standards.json loads gold for every example and would
+                # otherwise make every task judge-scored.
                 is_non_trivial_task = getattr(ex, "is_non_trivial", False)
-                use_judge = judge_lm and (is_non_trivial_task or gold or rubric)
+                use_judge = bool(judge_lm) and is_non_trivial_task
 
                 if use_judge:
                     if not quiet:

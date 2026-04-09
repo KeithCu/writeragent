@@ -131,43 +131,81 @@ LOGICAL_REWRITING = {
 # ---------------------------------------------------------------------------
 # 6. Format Preservation (replace text)
 # ---------------------------------------------------------------------------
-HEADER_TEXT = "John Doe - Project Lead"
+HEADER_TEXT = """John Doe - Project Lead
+
+Contact person: John Doe (legacy ID JD-001). Do not change this legal name on this line."""
 
 FORMAT_PRESERVATION = {
     "document_content": HEADER_TEXT,
-    "user_question": "Replace 'John Doe' with 'Jane Smith' in the header.",
+    "user_question": (
+        "Replace 'John Doe' with 'Jane Smith' only in the first line (the role title). "
+        "Leave the second line exactly as written, including the name on that line."
+    ),
     "task_id": "format_preservation",
-    "expected_contains": ["Jane Smith"],
-    "reject_contains": ["John Doe"],
+    "expected_contains": [
+        "Jane Smith - Project Lead",
+        "Contact person: John Doe (legacy ID JD-001)",
+    ],
+    "reject_contains": [
+        "John Doe - Project Lead",
+        "Jane Smith (legacy ID JD-001)",
+    ],
     "category": "structural",
 }
 
 # ---------------------------------------------------------------------------
 # 7. Style Application (heading)
 # ---------------------------------------------------------------------------
-INTRO_TEXT = "Introduction\n\nThis document describes the system."
+INTRO_TEXT = """Project Overview (draft)
+
+Introduction
+
+This section explains the scope. Do not promote Background or Summary to the same heading level.
+
+Background
+
+Earlier work used a monolith.
+
+Summary
+
+We will refactor in phases."""
 
 STYLE_APPLICATION = {
     "document_content": INTRO_TEXT,
-    "user_question": "Make 'Introduction' a Heading 1.",
+    "user_question": (
+        "Apply Heading 1 only to the standalone section title 'Introduction' (the line between "
+        "the parenthetical header and the explanatory paragraph). Leave Background and Summary "
+        "as normal body text, not H1."
+    ),
     "task_id": "style_application",
-    "expected_contains": ["Introduction"],
+    "expected_contains": ["<h1>Introduction</h1>", "Background", "Summary"],
+    "reject_contains": ["<h1>Background", "<h1>Summary"],
     "category": "structural",
 }
 
 # ---------------------------------------------------------------------------
 # 8. Bullet consistency
 # ---------------------------------------------------------------------------
-BULLET_LIST = """- First item
-- Second item
-- Third item
+BULLET_LIST = """* First thing
+- Second thing  
+3) Third thing
+• Fourth thing
 """
 
 BULLET_CONSISTENCY = {
     "document_content": BULLET_LIST,
-    "user_question": "Ensure all bullet points in this list end with a period.",
+    "user_question": (
+        "Normalize this list: use hyphen bullets (-), one item per line, trim stray spaces, "
+        "and end each bullet line with a period."
+    ),
     "task_id": "bullet_consistency",
-    "expected_contains": ["First item.", "Second item.", "Third item."],
+    "expected_contains": [
+        "- First thing.",
+        "- Second thing.",
+        "- Third thing.",
+        "- Fourth thing.",
+    ],
+    "reject_contains": ["* First", "3) Third", "• Fourth"],
     "category": "structural",
 }
 
