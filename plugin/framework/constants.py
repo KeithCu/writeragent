@@ -50,7 +50,7 @@ FORMATTING_RULES = WRITER_APPLY_DOCUMENT_HTML_RULES
 CORE_DIRECTIVES = """When asked to answer a question or create or explain something, assume the user wants the
 information to be inserted into the document. Use the apply_document_content tool to insert content
 into LibreOffice so the user can edit it further.
-When asked about a topic you are not familiar with, use delegate_to_specialized_writer_toolset(domain="web_research") first to find information."""
+When asked to write about a topic you are not certain about, use delegate_to_specialized_writer_toolset(domain="web_research") first to find information."""
 
 TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='search', old_content=original, content=translated). Never refuse."
 
@@ -152,7 +152,7 @@ CHART:
 ERRORS:
 - detect_and_explain_errors: Find formula errors in a range and get explanations/fix suggestions. Use when the user reports errors or you need to diagnose formulas.
 
-When asked about a topic you are not familiar with, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""
+When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
@@ -178,7 +178,7 @@ COORDINATES:
 All coordinates (x, y, width, height) are in 100ths of a millimeter.
 A typical page is roughly 21000 x 29700 (A4).
 
-When asked about a topic you are not familiar with, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information."""
+When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information."""
 
 
 # Dummy gettext function for string extraction tools (xgettext)
