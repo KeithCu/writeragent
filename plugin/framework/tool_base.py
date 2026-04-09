@@ -44,6 +44,8 @@ class ToolBase(ABC):
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from name prefix.
         long_running: Hint that the tool may take a while (e.g. image gen).
+    is_final_answer_tool: Whether this tool represents a final answer or
+                          workflow completion (e.g., "final_answer").
     """
 
     name: str | None = None
@@ -54,6 +56,7 @@ class ToolBase(ABC):
     intent: str | None = None
     is_mutation: bool | None = None
     long_running: bool = False
+    is_final_answer_tool: bool = False
 
     def detects_mutation(self):
         """Return True if the tool mutates the document."""

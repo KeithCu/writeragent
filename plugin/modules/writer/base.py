@@ -147,6 +147,7 @@ class SpecializedWorkflowFinished(ToolBase):
 
     name = "specialized_workflow_finished"
     description = "Provides a final answer to the given task and exits the specialized toolset mode."
+    is_final_answer_tool = True
     parameters = {
         "type": "object",
         "properties": {
