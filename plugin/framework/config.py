@@ -84,7 +84,6 @@ def _is_lru_list_config_key(key: str) -> bool:
 ENDPOINT_PRESETS = [
     ("Local (Ollama)", "http://localhost:11434"),
     ("Local (LM Studio)", "http://localhost:1234"),
-    ("Local (GPT4All)", "http://localhost:4891"),
     ("OpenRouter", "https://openrouter.ai/api"),
     ("Mistral", "https://api.mistral.ai"),
     ("Together AI", "https://api.together.xyz"),

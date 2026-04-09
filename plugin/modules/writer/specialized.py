@@ -40,6 +40,7 @@ class DelegateToSpecializedWriter(ToolBase):
         "textframes (list_text_frames, get_text_frame_info, set_text_frame_properties), "
         "embedded objects, shapes, indexes, "
         "bookmarks, track changes (tracking), footnotes/endnotes (domain=footnotes), "
+        "form templates and controls (domain=forms), "
         "or in-document image work (domain=images: generate, list, insert, replace images, etc.)."
     )
 

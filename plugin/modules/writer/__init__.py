@@ -39,6 +39,7 @@ class WriterModule(ModuleBase):
             footnotes,
             embedded,
             tracking,
+            forms,
         )
 
         # Order matters: tree needs bookmarks, proximity/index need tree

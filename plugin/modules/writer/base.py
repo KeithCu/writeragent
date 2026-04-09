@@ -104,6 +104,12 @@ class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
+class ToolWriterFormBase(ToolWriterSpecialBase):
+    specialized_domain = "forms"
+    intent = "edit"
+    uno_services = ["com.sun.star.text.TextDocument"]
+
+
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):
     specialized_domain = "web_research"
 
