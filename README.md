@@ -34,14 +34,28 @@ Please note, the prompts to free models are often saved and used for training pu
 Another option is [Together.AI](https://www.together.ai/), which also has a variety of high-performance and intelligent cost-effective models with a generous, private,  free tier.
 
 
-### 2. Chat with Document (Writer, Calc, and Draw)
+### 2. Chat with Document & Architecture
 The main way to interact with your document. While you can ask it anything, **its primary job is to edit your document**, not just answer questions.
+
+#### Features & Performance
 *   **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly.
-*   **Persistent Chat History**: Previous conversations are automatically saved and restored when you reopen a document. History is stored in a local SQLite database in the user config directory when available; if SQLite is not available (e.g. some bundled Python builds), a JSON fallback is used.
-*   **Librarian onboarding agent (memory-aware)**: For new users without a config/Memories/USER.md, the sidebar starts with a Librarian / Welcome sub-agent that chats with the user to learn preferences: name, favorite color, etc. When the Librarian (or main agent) decides something is worth remembering, it uses the `upsert_memory` tool. The memories are passed into requests automatically. When the Librarian / new user are done chatting and want to work, it switches control to the main document assistant for the current session and future ones.
-*   **Robust Session Tracking**: Chat history is linked directly to the document using an internal metadata ID (saved in the file). This means your conversation follows the document even if you rename it or move it to a different folder.
-*   **Performance**: Features built-in connection management with persistent HTTPS connections for fast response times.
-*   **Multilingual**: WriterAgent ships with the interface translated into Spanish, French, Portuguese, Russian, German, Japanese, Italian, and Polish.
+*   **Responsive Streaming**: Unlike simple extensions that freeze when waiting for an AI response, WriterAgent uses a background thread and queue system. This keeps the LibreOffice UI alive and responsive while text and tool calls stream in and are executed.
+*   **Interleaved Multi-Step Tools**: The engine natively supports interleaved reasoning tokens, content streaming, and complex multi-turn tool calling. This allows for sophisticated AI behavior that handles multi-step tasks while keeping the user informed in real-time.
+*   **High-Throughput (200+ tps)**: Optimized for speed, the system can easily handle 200 tokens per second with zero UI stutter.
+*   **Persistent Chat History**: Previous conversations are automatically saved and restored when you reopen a document. History is stored in a local SQLite database in the user config directory.
+*   **Isolated Task Contexts**: Each open document in LibreOffice gets its own independent AI sidebar. The AI stays aware of the specific document it's attached to, preventing "cross-talk" when working on multiple projects.
+*   **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name, tone, etc.) and uses the `upsert_memory` tool to store them.
+*   **Robust Session Tracking**: Chat history is linked directly to the document using an internal metadata ID, ensuring your conversation follows the document even if renamed or moved.
+*   **Multilingual & HiDPI**: Ships with the interface translated into 9 languages (Spanish, French, Portuguese, Russian, German, Japanese, Italian, Polish, and English) and optimized for modern high-resolution displays using device-independent units.
+
+#### Showcase
+Hermes-Agent with Claude Opus 4.6 and the Web Research sub-agent:
+![Hermes-Agent / Opus-4.6 Akihabara](Showcase/HermesAkihabara.png)
+
+Opus 4.6 one-shotted this Arch Linux resume:
+![Opus 4.6 Resume](Showcase/Opus46Resume.png)
+Sonnet 4.6 one-shotted this "pretty spreadsheet"
+![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)
 
 
 ### 3. Web Research & Fact-Checking (Local & Private)
@@ -59,81 +73,51 @@ Two Writer shortcuts act on the current selection:
 *   **Edit selection** (`Ctrl+E`): Prompt the model to rewrite your selection according to specific instructions (e.g., "make this more formal", "translate to Spanish").
 
 ### 5. HTML Richness & Compatibility (Writer)
-When you ask the AI to fix a typo or change a name, the result can keep the formatting you already had: highlights, bold, colors, font size, and so on. We prioritize **HTML** for document edits because it provides a richer formatting model and better backward compatibility than Markdown (which was only added to LibreOffice in version 26.2, February 2026). By using HTML, WriterAgent remains functional on slightly older versions of LibreOffice while providing the AI with a standardized way to describe complex layouts.
+When you ask the AI to fix a typo or change a name, the result can keep the formatting you already had: highlights, bold, colors, font size, and so on.
 
-*   **Auto-detection**: If the AI returns plain text, we use a format-preserving path that keeps your existing background colors and highlights. If it returns HTML (or Markdown), we use the native import path.
-*   **Format-preserving replacement (auto-detected)**: When the AI sends back plain text (e.g., "Michael" instead of "Micheal"), WriterAgent automatically preserves every per-character property (colors, fonts, sizes). This means the AI doesn't need to understand LibreOffice's internal formatting to keep your document looking consistent.
-
-### Ongoing Challenge: Styles vs. Custom Formatting
-One of the unique challenges of building an AI assistant for a rich word processor, unlike a plain-text code editor, is the multiple ways of applying formatting, both directly and through character and paragraph styles. Eventually, we will encourage models to output properly classed HTML that maps to your LibreOffice template, ensuring documents remain maintainable and consistently branded. For more details, see [LLM_STYLES.md](LLM_STYLES.md).
-
-### Ongoing work: splitting the Writer tool API (specialized toolsets)
-
-A related challenge is **scale**: LibreOffice Writer exposes an enormous UNO surface (fields, indexes, tables, frames, embedded objects, shapes, charts, track changes, and more). If **every** operation is advertised to the model on **every** turn, context grows fast, tool choice gets noisier, and providers with **strict JSON schemas** struggle as definitions multiply.
-
-Active development explores **progressive disclosure**:
-
-- **Specialized sub-agent (delegation)** — The main chat keeps a **small default** tool surface; some turns hand off to a **nested** LLM run with a **different** tool set, then fold the result back into the same sidebar session. **Writer:** the **main** model calls **`delegate_to_specialized_writer_toolset`** with a **`domain`** (e.g. `tables`, `styles`, `layout`, `fields`, `indexes`, …) and a **`task`** string. The nested run only sees tools for that domain plus **`specialized_workflow_finished`**; when done, the **nested** model calls **`specialized_workflow_finished`** with a **`summary`** so control returns to the main conversation. **Web research:** the **Web search** checkbox is the **same kind of pattern**—a **research** sub-agent with its own tools (not the default Writer/Calc surface), then back to the main chat. Both are “sub-agent” flows; they differ in *domain* (Writer specialization vs. research), not in the high-level idea.
-- **Swapping tools per send or mode** — Same *pairing of ideas* (**enter specialized** → **work** → **explicit return**) but **without** a nested model: each HTTP request could attach only the domain tools (and a “done” tool) while the **same** thread keeps full history—e.g. names mirroring **`delegate_to_specialized_writer_toolset`** / **`specialized_workflow_finished`** even if implemented as a fresh **`tools`** array per turn instead of an inner agent. **Caveat**: the model still sees the whole transcript, so it may mix up which tools were valid when; clear tool text helps. **This is not** how **Web research** or **`delegate_to_specialized_writer_toolset`** work today; those are the specialized sub-agent pattern above.
-
-Design tradeoffs—**skinny vs fat** tool schemas, tiering, and future domains like **track changes**—are written up in **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md)**. That document is the reference for *why* we are breaking APIs apart and *how* the pieces are intended to fit together.
-
-### 6. Image generation and AI Horde integration
-Image generation and editing are integrated and complete. You can generate images from the chat (via tools or “Use Image model”) and edit selected images (Img2Img). Two backends are supported: **AI Horde** (Stable Diffusion, SDXL, etc., with its own API key and queue) and **same endpoint as chat** (uses your configured endpoint and a separate image model). Settings are in **WriterAgent > Settings** under the **Image Settings** tab, with shared options (size, insert behavior, prompt translation) and a clearly separated **AI Horde only** section.
-
-### 7. MCP Server (optional, external AI clients)
-When enabled in **WriterAgent > Settings** (Chat/Text page), an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop via a proxy, or any script).
-*   **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the WriterAgent chat sidebar, providing full visibility into how external agents are interacting with your document.
-*   **Targeting**: Clients target a document by sending the **`X-Document-URL`** header (or use the active document).
-*   **Control**: Use **WriterAgent > Toggle MCP Server** and **MCP Server Status** to control and check the server. See [MCP_PROTOCOL.md](MCP_PROTOCOL.md) for endpoints, usage, and future work.
-
-### 8. Agent backends (Hermes)
-You can plug in **external agent backends** so that Chat with Document uses an external process (e.g. Hermes or others) instead of the built-in LLM. When enabled, the sidebar sends your message and document context to the selected backend; the backend uses WriterAgent’s MCP server as its tool layer, so edits still apply to your document. This is aimed at power users who want to use a dedicated coding or planning agent while keeping the document in LibreOffice.
-
-*   **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: WriterAgent features a robust, native integration with the **Hermes Agent** using the emerging **Agent Communication Protocol (ACP)** via **stdio JSON-RPC** transport. By communicating directly over stdin/stdout pipes, WriterAgent spawns Hermes locally as a subprocess—no background web servers or network ports required. Hermes natively uses LocalWriter's MCP tools to read paragraphs, analyze spreadsheets, and autonomously execute complex multi-turn document edits.
-*   **Settings**: In **WriterAgent > Settings**, open the **Agent backends** tab. Enable **Use external agent backend** and choose **Hermes** (or **Built-in** to use the normal in-process chat). You can set optional paths and arguments per backend.
-*   **Sidebar**: When an external backend is selected, a small label in the chat panel shows which backend is active. The LLM model selector, Image generation, and Web research tools are automatically disabled to prevent conflicts. Send and Stop behave as usual.
-*   **Document targeting**: The proxy ensures every MCP request from the external agent targets the correct document (via the `X-Document-URL` header), so multiple open documents are handled correctly.
-*   **HITL (approve/reject)**: If a backend requests approval for a tool call, a dialog appears with Approve and Reject; your choice is sent back so the agent can continue. Stub backends do not use this yet.
-
-### 9. Calc `=PROMPT()` function
-A cell formula to call the model directly from within your spreadsheet:
-`=PROMPT(message, [system_prompt], [model], [max_tokens])`
-
-### 10. Audio Support & Voice Recording
-Integrated cross-platform audio recording directly in the chat sidebar.
-*   **One-Click Recording**: Start and stop recording directly from the chat panel.
-*   **Multi-Platform**: Robust recording support on Linux, Windows, and macOS.
-*   **Talk to Your Document**: Recorded audio is handled intelligently—it will be sent directly to native audio LLMs or automatically transcribed via an STT engine before being sent as text, depending on your model's capabilities.
-*   **Flexible Deployment**: Optional build support (see `Makefile`) allows for deployment in environments where audio dependencies are not needed.
-
-### Showcase
-Hermes-Agent with Claude Opus 4.6 and the Web Research sub-agent:
-![Hermes-Agent / Opus-4.6 Akihabara](Showcase/HermesAkihabara.png)
-
-Opus 4.6 one-shotted this Arch Linux resume:
-![Opus 4.6 Resume](Showcase/Opus46Resume.png)
-Sonnet 4.6 one-shotted this "pretty spreadsheet"
-![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)
-
-## WriterAgent Architecture
-
-WriterAgent isn't just a wrapper; it's built for performance and deep integration with LibreOffice:
-
-*   **Responsive Streaming Architecture**: Unlike simple extensions that freeze when waiting for an AI response, WriterAgent uses a background thread and queue system. This keeps the LibreOffice UI alive and responsive while text and tool calls stream in and are executed.
-*   **Interleaved Streaming & Multi-Step Tools**: The engine natively supports interleaved reasoning tokens, content streaming, and complex multi-turn tool calling. This allows for sophisticated AI behavior that handles multi-step tasks while keeping the user informed in real-time.
-*   **High-Throughput Performance (200+ tps)**: Optimized for speed, the system can easily handle 200 tokens per second with zero UI stutter.
 *   **HTML-First Document Interaction**: While some models may still attempt to use Markdown, WriterAgent is optimized for HTML. This ensures higher fidelity for complex structures like tables and lists, and ensures the extension works robustly on versions of LibreOffice preceding the 26.2 release.
 *   **Native Formatting Persistence**: For structured content (HTML), WriterAgent injects AI-generated text using the import filter, mapping tags to native styles. For plain-text replacements (e.g. typo fixes), we preserve your existing per-character formatting so highlights, bold, and colors stay intact.
-*   **Isolated Task Contexts**: Each open document in LibreOffice gets its own independent AI sidebar. The AI stays aware of the specific document it's attached to, preventing "cross-talk" when working on multiple projects.
-*   **Hybrid AI Orchestrator Model**: WriterAgent is moving towards a "hybrid orchestrator" architecture. While it has an embedded chat sidebar for direct document interaction, it also exposes its entire toolset (Writer, Calc, Draw) via an opt-in **MCP Server**. This allows you to delegate complex, system-wide coding or research tasks to specialized external agents (like `claude-code`) while maintaining the document as the single source of truth.
-*   **Expanded Writer Tool Set**: The sidebar exposes a rich set of Writer operations:
-    *   **Styles**: The AI can discover paragraph and character style names (including localized names) before applying them, ensuring it uses styles that actually exist.
-    *   **Comments**: The AI can read, add, and remove inline comments, enabling full review workflows.
-    *   **Track Changes**: The AI can make edits in tracked-changes mode so every modification is visible and reversible.
-    *   **Tables**: The AI can enumerate named tables, read their full contents as a 2D grid, and write individual cells using standard cell references.
-*   **HiDPI Compatible UI**: All dialogs and sidebar panels are defined via XDL and optimized for modern high-resolution displays using device-independent units.
-* We use **AI-assisted tooling** to keep coverage 100% as the UI evolves. **Spot a bad, awkward, or missing translation?** Please [open an issue](https://github.com/KeithCu/writeragent/issues) so we can fix it—or contribute directly, the files are in [plugin/locales](https://github.com/KeithCu/writeragent/tree/master/plugin/locales).
+*   **Auto-detection**: If the AI returns plain text, we use a format-preserving path that keeps your existing background colors and highlights. If it returns HTML (or Markdown), we use the native import path.
+*   **Format-preserving replacement (auto-detected)**: When the AI sends back plain text, WriterAgent automatically preserves every per-character property (colors, fonts, sizes).
+
+### Ongoing Challenge: Styles vs. Custom Formatting
+One of the unique challenges of building an AI assistant for a rich word processor, unlike a plain-text code editor, is the multiple ways of applying formatting. Eventually, we will encourage models to output properly classed HTML that maps to your LibreOffice template. See [LLM_STYLES.md](LLM_STYLES.md).
+
+### 6. Specialized Toolsets & Expanded API
+LibreOffice Writer exposes an enormous UNO surface (fields, indexes, tables, frames, embedded objects, shapes, charts, track changes, and more). If **every** operation is advertised to the model on every turn, choice gets noisier and providers struggle.
+
+The sidebar exposes a rich set of Writer operations:
+*   **Styles**: The AI can discover paragraph and character style names (including localized names).
+*   **Comments**: The AI can read, add, and remove inline comments.
+*   **Track Changes**: The AI can make edits in tracked-changes mode.
+*   **Tables**: The AI can enumerate named tables and read/write full content cells.
+
+Active development explores **progressive disclosure**:
+- **Specialized sub-agent (delegation)** — The main chat keeps a small default tool surface; some turns hand off to a nested LLM run with a different tool set (e.g. `tables`, `styles`, `layout`, `fields`, `indexes`).
+- **Swapping tools per send or mode** — Attaching only domain tools while keeping full history.
+
+See **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md)** for architecture details.
+
+### 7. Image Generation and AI Horde Integration
+Image generation and editing are integrated and complete. You can generate images from the chat (via tools or “Use Image model”) and edit selected images (Img2Img). Two backends are supported: **AI Horde** (Stable Diffusion, SDXL, etc., with its own API key and queue) and **same endpoint as chat** (uses your configured endpoint and a separate image model). Settings are in **WriterAgent > Settings** under the **Image Settings** tab, with shared options (size, insert behavior, prompt translation) and a clearly separated **AI Horde only** section.
+
+### 8. MCP Server (Optional)
+When enabled in **WriterAgent > Settings**, an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop, etc.).
+
+*   **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the sidebar.
+*   **Targeting**: Clients target a document via the **`X-Document-URL`** header.
+*   **Hybrid AI Orchestrator Model**: This exposes the entire toolset to external agents while maintaining the document as the single source of truth.
+
+### 9. Agent Backends
+You can plug in **external agent backends** so that Chat with Document uses an external process (e.g. Hermes or others) instead of the built-in LLM.
+
+*   **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: Spawns Hermes locally as a subprocess using the Agent Communication Protocol (ACP) via stdio.
+*   **HITL (Approve/Reject)**: If a backend requests approval for a tool call, a dialog appears for the user.
+
+### 10. Calc =PROMPT() Function
+### 11. Audio Support & Voice Recording
+Integrated cross-platform audio recording directly in the sidebar.
+
 
 ## Credits & Collaboration
 
@@ -265,6 +249,9 @@ make test
 make help
 ```
 
+![Architecture Diagram](Showcase/Sonnet46ArchDiagram.jpg)
+
+
 ## License
 WriterAgent is released under the **GNU General Public License v3 (or later)**. See `LICENSE` for the full text.
 
@@ -276,6 +263,3 @@ Copyright (c) 2025-2026 quazardous (config, registries, build system)
 Copyright (c) 2026 LibreCalc AI Assistant (Calc integration features, originally MIT)
 Copyright (c) 2026 KeithCu (modifications and relicensing)
 
-*Architecture diagram created by Sonnet 4.6.*
-
-![Architecture](Showcase/Sonnet46ArchDiagram.jpg)
