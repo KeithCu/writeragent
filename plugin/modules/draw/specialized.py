@@ -4,8 +4,6 @@ from plugin.framework.tool_base import ToolBase
 
 log = logging.getLogger("writeragent.draw")
 
-USE_SUB_AGENT = True
-
 class DelegateToSpecializedDraw(ToolBase):
     """Gateway tool to delegate tasks to specialized Draw toolsets.
 

@@ -20,13 +20,9 @@ import logging
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.writer.base import ToolWriterSpecialBase
+from plugin.framework.constants import USE_SUB_AGENT
 
 log = logging.getLogger("writeragent.writer")
-
-
-# Global variable to toggle between the sub-agent approach (True) and the
-# in-place tool-switching approach (False).
-USE_SUB_AGENT = True
 
 
 class DelegateToSpecializedWriter(ToolBase):

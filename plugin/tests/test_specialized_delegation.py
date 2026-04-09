@@ -70,8 +70,8 @@ def mock_ctx(registry):
 
 def test_specialized_delegation_in_place_mode(registry, mock_ctx):
     # Enable in-place switching mode
-    import plugin.modules.writer.specialized
-    plugin.modules.writer.specialized.USE_SUB_AGENT = False
+    import plugin.framework.constants
+    plugin.framework.constants.USE_SUB_AGENT = False
 
     active_domain = None
 
@@ -146,8 +146,8 @@ def test_specialized_delegation_sub_agent_mode(
     mock_ctx,
 ):
     # Enable sub-agent mode
-    import plugin.modules.writer.specialized
-    plugin.modules.writer.specialized.USE_SUB_AGENT = True
+    import plugin.framework.constants
+    plugin.framework.constants.USE_SUB_AGENT = True
 
     mock_ctx.ctx = MagicMock()
     mock_get_config.return_value = {}

@@ -20,6 +20,11 @@ APP_REFERER = "https://github.com/keithcu/WriterAgent"
 APP_TITLE = "WriterAgent"
 USER_AGENT = f"{APP_TITLE} ({APP_REFERER})"
 
+# Toggle for specialized delegation approach.
+# Approach A: The Sub-Agent Model (True) - Spins up a separate agent.
+# Approach B: In-Place Tool Switching (False) - Switches the main model's tools.
+USE_SUB_AGENT = True
+
 # Browser-style user agent for a small, whitelisted set of sites
 # (e.g. DuckDuckGo and Wikipedia) that expect a real browser UA.
 BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"

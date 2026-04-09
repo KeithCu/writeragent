@@ -127,7 +127,7 @@ class ToolWriterWebResearchBase(ToolWriterSpecialBase):
 #
 #     def execute(self, ctx, **kwargs):
 #         # Allow the main LLM loop to exit specialized mode
-#         from plugin.modules.writer.specialized import USE_SUB_AGENT
+#         from plugin.framework.constants import USE_SUB_AGENT
 #         if not USE_SUB_AGENT:
 #             if getattr(ctx, "set_active_domain_callback", None):
 #                 ctx.set_active_domain_callback(None)
@@ -161,7 +161,7 @@ class SpecializedWorkflowFinished(ToolBase):
 
     def execute(self, ctx, **kwargs):
         # Allow the main LLM loop to exit specialized mode
-        from plugin.modules.writer.specialized import USE_SUB_AGENT
+        from plugin.framework.constants import USE_SUB_AGENT
         if not USE_SUB_AGENT:
             if getattr(ctx, "set_active_domain_callback", None):
                 ctx.set_active_domain_callback(None)
