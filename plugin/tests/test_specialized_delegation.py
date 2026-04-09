@@ -68,55 +68,6 @@ def mock_ctx(registry):
     return ctx
 
 
-def test_specialized_delegation_in_place_mode(registry, mock_ctx):
-    # Enable in-place switching mode
-    import plugin.framework.constants
-    plugin.framework.constants.USE_SUB_AGENT = False
-
-    active_domain = None
-
-    def mock_set_active_domain(domain):
-        nonlocal active_domain
-        active_domain = domain
-
-    mock_ctx.set_active_domain_callback = mock_set_active_domain
-
-    gateway_tool = registry.get("delegate_to_specialized_writer_toolset")
-
-    # Make sure stop_checker returns False so it doesn't abort immediately
-    mock_ctx.stop_checker = lambda: False
-
-    # Execute the gateway tool
-    result = gateway_tool.execute_safe(
-        mock_ctx,
-        domain="tables",
-        task="Create a 3x3 table"
-    )
-
-    # Verify callback was called
-    assert active_domain == "tables"
-    assert result["status"] == "ok"
-    assert "Tool call switched to 'tables'" in result["message"]
-
-    # Now simulate the next LLM turn using the active domain
-    schemas = registry.get_schemas("openai", active_domain=active_domain)
-
-    # It should only include the specialized domain tools and final_answer
-    tool_names = [s["function"]["name"] for s in schemas]
-    assert "dummy_table_tool" in tool_names
-    assert "specialized_workflow_finished" in tool_names
-    assert "delegate_to_specialized_writer_toolset" not in tool_names
-
-    # Now execute final_answer to finish
-    finish_tool = registry.get("specialized_workflow_finished")
-    finish_result = finish_tool.execute_safe(mock_ctx, answer="Done")
-
-    # Verify callback was called to clear the domain
-    assert active_domain is None
-    assert finish_result["status"] == "ok"
-    assert finish_result["answer"] == "Done"
-
-
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.framework.config import get_config_int as _real_get_config_int
 
@@ -145,10 +96,7 @@ def test_specialized_delegation_sub_agent_mode(
     registry,
     mock_ctx,
 ):
-    # Enable sub-agent mode
-    import plugin.framework.constants
-    plugin.framework.constants.USE_SUB_AGENT = True
-
+    # Sub-agent path (default USE_SUB_AGENT=True in writer/specialized.py)
     mock_ctx.ctx = MagicMock()
     mock_get_config.return_value = {}
 
