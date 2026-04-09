@@ -16,9 +16,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Shared type definitions for WriterAgent."""
-
+from enum import IntFlag
 from typing import Any, Literal, TypedDict
+
+# Model capabilities bitmasks (compatible with OnlyOfficeAI values)
+class ModelCapability(IntFlag):
+    NONE = 0
+    CHAT = 1
+    IMAGE = 2
+    EMBEDDINGS = 4
+    AUDIO = 8
+    MODERATIONS = 16
+    REALTIME = 32
+    CODE = 64
+    VISION = 128
+    TOOLS = 256
 
 # Status values for tool execution results
 StatusValue = Literal["ok", "error"]

@@ -1,20 +1,21 @@
 def iterate_sse(stream):
     """
     Iterate over SSE (Server-Sent Events) data payloads from a stream of lines (bytes).
-    Yields the payload string (everything after 'data:').
+    Yields the payload string. Supports standard 'data:' prefix and raw JSON lines.
     """
     for line in stream:
         line_str = line.strip()
         if not line_str or line_str.startswith(b":"):
             continue
 
-        if not line_str.startswith(b"data:"):
-            continue
-
-        # Payload is everything after the first ":"
-        idx = line_str.find(b":") + 1
-        payload = line_str[idx:].decode("utf-8").strip()
-        yield payload
+        if line_str.startswith(b"data:"):
+            # Payload is everything after the first ":"
+            idx = line_str.find(b":") + 1
+            payload = line_str[idx:].decode("utf-8").strip()
+            yield payload
+        elif line_str.startswith(b"{"):
+            # Raw JSON line (common in some streaming formats like Google Gemini raw stream)
+            yield line_str.decode("utf-8").strip()
 
 
 def _extract_thinking_from_delta(chunk_delta):

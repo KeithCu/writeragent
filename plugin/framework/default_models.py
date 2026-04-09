@@ -5,6 +5,7 @@ available for providers listed as keys in the ``ids`` dict.
 """
 
 from typing import Any
+from plugin.framework.types import ModelCapability
 
 
 def resolve_model_id(model: dict[str, Any], provider):
@@ -32,12 +33,33 @@ def get_provider_defaults(provider):
         effective_id = resolve_model_id(model, provider)
         if not effective_id:
             continue
-        if model.get("default_text") and "text_model" not in defaults:
+        
+        # Capability check using bitmasks
+        caps = model.get("capability", ModelCapability.NONE)
+        
+        if (caps & ModelCapability.CHAT) and "text_model" not in defaults:
+            if model.get("default_text"):
+                defaults["text_model"] = effective_id
+        if (caps & ModelCapability.IMAGE) and "image_model" not in defaults:
+            if model.get("default_image"):
+                defaults["image_model"] = effective_id
+        if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
+            if model.get("default_audio"):
+                defaults["stt_model"] = effective_id
+    
+    # Fallback to first available if no explicit default was flagged
+    for model in DEFAULT_MODELS:
+        effective_id = resolve_model_id(model, provider)
+        if not effective_id:
+            continue
+        caps = model.get("capability", ModelCapability.NONE)
+        if (caps & ModelCapability.CHAT) and "text_model" not in defaults:
             defaults["text_model"] = effective_id
-        if model.get("default_image") and "image_model" not in defaults:
+        if (caps & ModelCapability.IMAGE) and "image_model" not in defaults:
             defaults["image_model"] = effective_id
-        if model.get("default_audio") and "stt_model" not in defaults:
+        if (caps & ModelCapability.AUDIO) and "stt_model" not in defaults:
             defaults["stt_model"] = effective_id
+            
     return defaults
 
 
@@ -45,120 +67,84 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     # ---- Text models (cross-provider) ------------------------------------
 
     {
+        "display_name": "DeepSeek V3",
+        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
+        "context_length": 64000,
+        "ids": {
+            "deepseek": "deepseek-chat",
+            "openrouter": "deepseek/deepseek-chat",
+        },
+        "default_text": True,
+    },
+    {
+        "display_name": "Llama 3.3 70B",
+        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
+        "context_length": 128000,
+        "ids": {
+            "groq": "llama-3.3-70b-versatile",
+            "openrouter": "meta-llama/llama-3.3-70b-instruct",
+            "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        },
+        "default_text": True,
+    },
+    {
         "display_name": "Mistral Large 3",
-        "capability": "text",
-        "context_length": 256000,
+        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
+        "context_length": 128000,
         "ids": {
             "openrouter": "mistralai/mistral-large-latest",
             "mistral": "mistral-large-latest",
         },
-        "default_text": True,
-    },
-    {
-        "display_name": "GPT-OSS 120B",
-        "capability": "text",
-        "context_length": 128000,
-        "ids": {
-            "openrouter": "openai/gpt-oss-120b",
-            "openai": "gpt-oss-120b",
-        },
-        "default_text": True,
     },
 
-    # ---- Text models (single provider) -----------------------------------
+    # ---- Specialized / Vision Models -----------------------------------
 
     {
-        "display_name": "Devstral 2",
-        "capability": "text",
-        "context_length": 128000,
-        "ids": {"mistral": "devstral-latest"},
-    },
-
-    {
-        "display_name": "Gemini 3.1 Flash Lite Preview",
-        "capability": "text,image,audio",
+        "display_name": "Gemini 3.1 Flash Preview",
+        "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.AUDIO | ModelCapability.TOOLS,
         "context_length": 1000000,
-        "ids": {"openrouter": "google/gemini-3.1-flash-lite-preview"},
+        "ids": {
+            "google": "gemini-3.1-flash-preview",
+            "openrouter": "google/gemini-3.1-flash-lite-preview",
+        },
         "default_audio": True,
+    },
+    {
+        "display_name": "Claude 3.5 Sonnet",
+        "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS,
+        "context_length": 200000,
+        "ids": {
+            "anthropic": "claude-3-5-sonnet-20241022",
+            "openrouter": "anthropic/claude-3.5-sonnet",
+        },
     },
 
     # ---- Image-only models -----------------------------------------------
 
     {
         "display_name": "FLUX.2 Pro",
-        "capability": "image",
+        "capability": ModelCapability.IMAGE,
         "ids": {"together": "black-forest-labs/FLUX.2-pro"},
         "default_image": True,
     },
     {
-        "display_name": "Flash Image 2.5",
-        "capability": "image",
-        "ids": {"together": "google/flash-image-2.5"},
-    },
-    {
-        "display_name": "Qwen Image",
-        "capability": "image",
-        "ids": {"together": "Qwen/Qwen-Image"},
-        "default_image": True,
-    },
-    {
-        "display_name": "Gemini 3 Flash Preview",
-        "capability": "image",
-        "context_length": 1000000,
-        "ids": {"openrouter": "google/gemini-3-flash-preview"},
-        "default_text": True,
-    },
-    {
-        "display_name": "Gemini 4.1 Fast",
-        "capability": "image",
-        "context_length": 1000000,
-        "ids": {"openrouter": "x-ai/grok-4.1-fast"},
-        "default_text": True,
-    },
-    {
-        "display_name": "Qwen 3.5 27B",
-        "capability": "image",
-        "context_length": 1000000,
-        "ids": {"openrouter": "qwen/qwen3.5-27b"},
-        "default_text": True,
-    },
-    {
-        "display_name": "Qwen3.5 397B A17b",
-        "capability": "image",
-        "context_length": 1000000,
-        "ids": {"together": "Qwen/Qwen3.5-397B-A17B"},
-        "default_text": True,
-    },
-    {
-        "display_name": "NVIDIA Nemotron 3 Super 120B A12B",
-        "capability": "image",
-        "context_length": 1000000,
-        "ids": {"openrouter": "nvidia/nemotron-3-super-120b-a12b:free"},
-        "default_text": True,
-    },
-    {
         "display_name": "Pixtral Large",
-        "capability": "image",
+        "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.IMAGE,
         "context_length": 128000,
         "ids": {
             "openrouter": "mistralai/pixtral-large-latest",
             "mistral": "pixtral-large-latest",
         },
-        "default_image": True,
     },
+
     # ---- Audio/STT models ------------------------------------------------
     {
         "display_name": "Whisper Large v3",
-        "capability": "audio",
+        "capability": ModelCapability.AUDIO,
         "ids": {
             "together": "openai/whisper-large-v3",
+            "groq": "whisper-large-v3",
         },
-        "default_audio": True,
-    },
-    {
-        "display_name": "Voxtral Mini",
-        "capability": "audio",
-        "ids": {"mistral": "voxtral-mini-2602"},
         "default_audio": True,
     },
 ]

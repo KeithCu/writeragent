@@ -83,16 +83,18 @@ def _is_lru_list_config_key(key: str) -> bool:
 # Uncomment any FOSS-focused line below once the base URL is verified OpenAI-compatible.
 ENDPOINT_PRESETS = [
     ("Local (Ollama)", "http://localhost:11434"),
+    ("Local (LM Studio)", "http://localhost:1234"),
+    ("Local (GPT4All)", "http://localhost:4891"),
     ("OpenRouter", "https://openrouter.ai/api"),
     ("Mistral", "https://api.mistral.ai"),
     ("Together AI", "https://api.together.xyz"),
-    # ("Hugging Face", "https://api-inference.huggingface.co"),  # verify OpenAI-compatible base URL
-    # ("Groq", "https://api.groq.com/openai"),
-    # ("Fireworks AI", "https://api.fireworks.ai/inference"),
-    # ("Anyscale", "https://api.anyscale.com"),
-    # ("Replicate", "https://api.replicate.com/v1"),  # verify base URL / compatibility
-    # ("Modal", "https://your-workspace--endpoint.modal.run/v1"),  # per-deployment URL
-    # ("RunPod", "https://api.runpod.ai/v2"),  # verify; often per-endpoint
+    ("Groq", "https://api.groq.com/openai"),
+    ("DeepSeek", "https://api.deepseek.com"),
+    ("Cerebras", "https://api.cerebras.ai/v1"),
+    ("Perplexity", "https://api.perplexity.ai"),
+    ("X.ai (Grok)", "https://api.x.ai/v1"),
+    ("Anthropic", "https://api.anthropic.com/v1"),
+    ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
 ]
 
 # Simple AI settings fields that the Tools → Options \"AI\" page should map
@@ -667,18 +669,35 @@ def get_provider_from_endpoint(endpoint):
         return "mistral"
     if "api.openai.com" in url:
         return "openai"
+    if "api.groq.com" in url:
+        return "groq"
+    if "api.cerebras.ai" in url:
+        return "cerebras"
+    if "api.perplexity.ai" in url:
+        return "perplexity"
+    if "api.x.ai" in url:
+        return "xai"
+    if "api.anthropic.com" in url:
+        return "anthropic"
+    if "generativelanguage.googleapis.com" in url:
+        return "google"
+    if "localhost:1234" in url:
+        return "lmstudio"
+    if "localhost:4891" in url:
+        return "gpt4all"
     return None
 
 
 def get_model_capability(ctx, model_id, endpoint):
-    """Check the model catalog for capabilities (text, image, audio)."""
+    """Check the model catalog for capabilities bitmask."""
+    from plugin.framework.types import ModelCapability
     provider = get_provider_from_endpoint(endpoint)
     # Check DEFAULT_MODELS for this ID/provider
     for m in DEFAULT_MODELS:
         effective_id = resolve_model_id(m, provider)
         if effective_id == model_id:
-            return m.get("capability", "text")
-    return ""
+            return m.get("capability", ModelCapability.CHAT)
+    return ModelCapability.NONE
 
 
 def has_native_audio(ctx, model_id, endpoint):
@@ -698,7 +717,8 @@ def has_native_audio(ctx, model_id, endpoint):
 
     # 2. Catalog check
     caps = get_model_capability(ctx, model_id, endpoint)
-    if "audio" in caps.split(","):
+    from plugin.framework.types import ModelCapability
+    if isinstance(caps, int) and (caps & ModelCapability.AUDIO):
         return True
         
     # 3. Heuristics (Regex/Keywords) for known audio-native families

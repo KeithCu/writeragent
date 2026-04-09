@@ -25,6 +25,7 @@ import urllib.parse
 import http.client
 import socket
 import datetime
+from typing import Any, Dict, Optional, List
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
@@ -134,40 +135,40 @@ class LlmClient:
     def _api_path(self):
         return "/api" if self.config.get("is_openwebui") else "/v1"
 
+
     def _headers(self):
         """
         Build HTTP headers for API requests, including provider-aware auth.
-
-        Auth resolution is delegated to plugin.framework.auth so different
-        endpoints (OpenRouter, Together, local, etc.) can attach API keys
-        correctly based on the configured endpoint. On any auth resolution
-        error we fall back to the legacy Bearer logic so misconfiguration
-        degrades gracefully.
         """
         h = {"Content-Type": "application/json"}
-
-        try:
-            auth_info = resolve_auth_for_config(self.config)
+        auth_info = self._resolve_auth()
+        if auth_info:
             auth_headers = build_auth_headers(auth_info)
             h.update(auth_headers)
-        except AuthError as e:
-            # Fall back to the previous behavior: simple Bearer header from config.
-            log.error(f"Auth resolution error ({e.provider or 'unknown'}, level=logging.ERROR): {e}")
-            api_key = self.config.get("api_key", "")
-            if api_key:
-                h["Authorization"] = "Bearer %s" % api_key
+            
+        # Legacy fallback for simple/manual endpoints: if an api_key exists and no 
+        # auth header was added (e.g. style='none' or unknown provider), add Bearer.
+        api_key = self.config.get("api_key", "").strip()
+        if api_key and "Authorization" not in h and "x-api-key" not in h:
+            h["Authorization"] = f"Bearer {api_key}"
 
-        # Backwards-compatible behavior for simple/local endpoints:
-        # if the user configured an api_key but provider-specific auth did not
-        # attach an Authorization header, add the legacy Bearer header.
-        api_key = self.config.get("api_key", "")
-        if api_key and "Authorization" not in h:
-            h["Authorization"] = "Bearer %s" % api_key
-
+        # identification
         h["HTTP-Referer"] = APP_REFERER
         h["X-Title"] = APP_TITLE
-
         return h
+
+    def _resolve_auth(self):
+        """Resolve auth info from config."""
+        try:
+            return resolve_auth_for_config(self.config)
+        except AuthError as e:
+            log.error(f"Auth resolution error: {e}")
+            return {}
+
+    def _get_provider(self):
+        """Get the provider ID from resolved auth."""
+        auth_info = self._resolve_auth()
+        return auth_info.get("provider", "custom")
 
     def _timeout(self):
         return self.config.get("request_timeout", 120)
@@ -190,48 +191,67 @@ class LlmClient:
         return True
 
     def make_api_request(self, prompt, system_prompt="", max_tokens=70):
-        """Build a streaming chat completions request (always chat, no completions path)."""
-        try:
-            max_tokens = int(max_tokens)
-        except (TypeError, ValueError):
-            max_tokens = 70
-
-        endpoint = self._endpoint()
-        api_path = self._api_path()
-        url = endpoint + api_path + "/chat/completions"
-        model = self.config.get("model", "")
-        temperature = self.config.get("temperature", 0.5)
-
-        init_logging(self.ctx)
-        log.debug("=== API Request Debug ===")
-        log.debug("Endpoint: %s" % endpoint)
-        log.debug("Model: %s" % model)
-        log.debug("Max Tokens: %s" % max_tokens)
-
+        """Build a streaming chat completions request (legacy/simple wrapper)."""
         messages = []
         if system_prompt:
-            today = datetime.date.today().strftime("%A, %Y-%m-%d")
-            full_system_prompt = f"Today's date is {today}.\n\n{system_prompt}"
-            messages.append({"role": "system", "content": full_system_prompt})
+            messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        data = {
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "top_p": 0.9,
-            "stream": True,
-        }
-        if model:
-            data["model"] = model
-
-        json_data = json.dumps(data).encode("utf-8")
-        path = get_url_path_and_query(url)
-
-        log.debug("Request data: %s" % json.dumps(redact_sensitive_payload_for_log(data), indent=2))
-        return "POST", path, json_data, self._headers()
+        return self.make_chat_request(messages, max_tokens=max_tokens, stream=True)
 
     def extract_content_from_response(self, chunk):
-        """Extract text content and optional thinking from chat completions response chunk."""
+        """Extract text content and optional thinking from response chunk (provider-aware)."""
+        provider = self._get_provider()
+        
+        # 1. Anthropic native
+        if provider == "anthropic":
+            # https://docs.anthropic.com/en/api/messages-streaming
+            msg_type = chunk.get("type", "")
+            content = ""
+            finish_reason = None
+            thinking = None
+            delta: dict[str, Any] = {}
+            
+            if msg_type == "content_block_delta":
+                d = chunk.get("delta", {})
+                if d.get("type") == "text_delta":
+                    content = d.get("text") or ""
+            elif msg_type == "message":
+                # SYNC response
+                content_parts = chunk.get("content", [])
+                content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
+                finish_reason = chunk.get("stop_reason")
+                # Handle tools
+                tool_calls = []
+                for p in content_parts:
+                    if p.get("type") == "tool_use":
+                        tool_calls.append({
+                            "id": p["id"],
+                            "type": "function",
+                            "function": {"name": p["name"], "arguments": json.dumps(p["input"])}
+                        })
+                delta = {"role": "assistant", "content": content}
+                if tool_calls:
+                    delta["tool_calls"] = tool_calls
+            elif msg_type == "message_delta":
+                finish_reason = chunk.get("delta", {}).get("stop_reason")
+            elif msg_type == "message_stop":
+                 finish_reason = "stop"
+            return content, finish_reason, thinking, delta
+
+        # 2. Google Gemini native
+        if provider == "google":
+            # candidates[0].content.parts[0].text
+            candidates = chunk.get("candidates", [])
+            choice = candidates[0] if candidates else {}
+            content = ""
+            parts = choice.get("content", {}).get("parts", [])
+            if parts:
+                content = parts[0].get("text") or ""
+            finish_reason = choice.get("finishReason")
+            usage = chunk.get("usageMetadata", {}) # usage metadata at chunk level
+            return content, finish_reason, None, {"usage": usage}
+
+        # 3. OpenAI / compatible default
         choices = chunk.get("choices", [])
         choice = choices[0] if choices else {}
         delta = choice.get("delta", {})
@@ -251,18 +271,97 @@ class LlmClient:
         return content, finish_reason, thinking, delta
 
     def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None):
-        """Build a chat completions request from a full messages array."""
+        """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
         except (TypeError, ValueError):
             max_tokens = 512
 
+        auth_info = self._resolve_auth()
+        provider = auth_info.get("provider", "custom")
         endpoint = self._endpoint()
-        api_path = self._api_path()
-        url = endpoint + api_path + "/chat/completions"
         model_name = model or self.config.get("model", "")
         temperature = self.config.get("temperature", 0.5)
 
+        # 1. Anthropic Native Shim
+        if provider == "anthropic":
+            url = f"{endpoint}/v1/messages"
+            system_msg = ""
+            converted = []
+            for m in messages:
+                if m.get("role") == "system":
+                    system_msg = m.get("content", "")
+                else:
+                    converted.append({"role": m["role"], "content": m["content"]})
+            
+            data: dict[str, Any] = {
+                "model": model_name or "claude-3-5-sonnet-20241022",
+                "messages": converted,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": stream,
+            }
+            if system_msg:
+                data["system"] = system_msg
+            if tools:
+                # Anthropic tool format
+                data["tools"] = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
+
+            log.debug("=== Anthropic Native Request (stream=%s) ===" % stream)
+            log.debug("URL: %s" % url)
+            log.debug("Model: %s" % data["model"])
+            log.debug("Note: Anthropic shim implemented, needs verification with live key.")
+            
+            path = get_url_path_and_query(url)
+            return "POST", path, json.dumps(data).encode("utf-8"), self._headers()
+
+        # 2. Google Native Shim
+        if provider == "google":
+            # Google Gemini: v1beta/models/{model}:streamGenerateContent?key={key}
+            key = auth_info.get("api_key", "")
+            m_id = model_name
+            if not m_id:
+                 m_id = "gemini-1.5-flash"
+            if not m_id.startswith("models/"):
+                 m_id = f"models/{m_id}"
+            action = ":streamGenerateContent" if stream else ":generateContent"
+            url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
+            
+            contents = []
+            system_instruction = None
+            for m in messages:
+                role = m["role"]
+                if role == "assistant":
+                    role = "model"
+                if role == "system":
+                    system_instruction = {"parts": [{"text": m["content"]}]}
+                else:
+                    contents.append({"role": role, "parts": [{"text": m["content"]}]})
+            
+            data: dict[str, Any] = {
+                "contents": contents,
+                "generationConfig": {
+                    "maxOutputTokens": max_tokens,
+                    "temperature": temperature,
+                }
+            }
+            if system_instruction:
+                data["system_instruction"] = system_instruction
+            if tools:
+                 # TODO: Google tools format
+                 pass
+
+            log.debug("=== Google Gemini Native Request (stream=%s) ===" % stream)
+            log.debug("URL: %s (redacted key)" % url.split("?")[0])
+            log.debug("Note: Google shim implemented, needs verification with live key.")
+            
+            path = get_url_path_and_query(url)
+            return "POST", path, json.dumps(data).encode("utf-8"), self._headers()
+
+        # 3. Default OpenAI-Compatible Path
+        api_path = self._api_path()
+        url = endpoint + api_path + "/chat/completions"
+        
         data = {
             "messages": messages,
             "max_tokens": max_tokens,
@@ -272,8 +371,6 @@ class LlmClient:
         }
 
         # Inject date into the first system message if present, or add one.
-        # This is idempotent: if the first system message already starts with
-        # the date line, we do not prepend it again.
         today = datetime.date.today().strftime("%A, %Y-%m-%d")
         date_msg = f"Today's date is {today}."
 
@@ -285,12 +382,7 @@ class LlmClient:
 
         if system_msg:
             old_content = system_msg.get("content")
-            # Some models/tools can provide structured (non-string) system content
-            # (e.g. multimodal content parts). In that case, skip date injection
-            # to avoid calling string methods on non-strings.
-            if not isinstance(old_content, str):
-                old_content = None
-            if old_content is not None:
+            if isinstance(old_content, str):
                 if not (
                     old_content.startswith(date_msg)
                     or old_content.startswith("Today's date is ")
@@ -317,11 +409,8 @@ class LlmClient:
         log.debug("URL: %s" % url)
 
         log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
-        if tools:
-            log.debug("Tools: %s" % json.dumps(redact_sensitive_payload_for_log(tools), indent=2))
         
         path = get_url_path_and_query(url)
-            
         return "POST", path, json_data, self._headers()
             
     def make_image_request(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
@@ -493,6 +582,12 @@ class LlmClient:
                 content_finished = False
                 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                 last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
+                
+                provider = self._get_provider()
+                # Google Gemini stream is a JSON array of objects, not SSE.
+                # Actually, iterate_sse might fail if it's not 'data: ...'.
+                # For now, we assume it's SSE-like or we add custom iteration.
+                
                 for payload in iterate_sse(response):
                     
                     if payload == "[DONE]":
@@ -500,8 +595,9 @@ class LlmClient:
                         content_finished = True
                         continue
                     
-                    chunk = safe_json_loads(payload, default=None)
-                    if chunk is None:
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
                         if payload and payload != "{}":
                             log.error("streaming_loop: JSON decode error in payload: %s" % payload)
                         continue
@@ -754,18 +850,28 @@ class LlmClient:
 
             if result is None:
                 result = {}
-            choice = result.get("choices", [{}])[0] if result.get("choices") else {}
-            if choice is None:
-                choice = {}
-            message = choice.get("message") or result.get("message") or {}
-            _normalize_delta(message)
-            last_finish_reason = choice.get("finish_reason") or result.get("done_reason")
+            
+            # Use unified extraction for shims/native providers
+            provider = self._get_provider()
+            if provider in ("anthropic", "google"):
+                content, last_finish_reason, _, message = self.extract_content_from_response(result)
+                tool_calls = message.get("tool_calls")
+                usage = message.get("usage") or result.get("usage", {})
+                images = message.get("images") or []
+            else:
+                # OpenAI / local default path
+                choice = result.get("choices", [{}])[0] if result.get("choices") else {}
+                if choice is None:
+                    choice = {}
+                message = choice.get("message") or result.get("message") or {}
+                _normalize_delta(message)
+                last_finish_reason = choice.get("finish_reason") or result.get("done_reason")
 
-            raw_content = message.get("content")
-            content = _normalize_message_content(raw_content)
-            images = message.get("images") or []
-            tool_calls = message.get("tool_calls")
-            usage = result.get("usage", {})
+                raw_content = message.get("content")
+                content = _normalize_message_content(raw_content)
+                images = message.get("images") or []
+                tool_calls = message.get("tool_calls")
+                usage = result.get("usage", {})
 
         # Shared post-processing
         if last_finish_reason == "stop" and tool_calls:

@@ -76,6 +76,47 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         header_style="bearer",
         host_matches=("api.deepseek.com",),
     ),
+    "groq": ProviderConfig(
+        id="groq",
+        name="Groq",
+        header_style="bearer",
+        host_matches=("api.groq.com",),
+    ),
+    "cerebras": ProviderConfig(
+        id="cerebras",
+        name="Cerebras",
+        header_style="bearer",
+        host_matches=("api.cerebras.ai",),
+    ),
+    "perplexity": ProviderConfig(
+        id="perplexity",
+        name="Perplexity",
+        header_style="bearer",
+        host_matches=("api.perplexity.ai",),
+    ),
+    "xai": ProviderConfig(
+        id="xai",
+        name="X.ai (Grok)",
+        header_style="bearer",
+        host_matches=("api.x.ai",),
+    ),
+    # FIXME: Add native shims for Anthropic (Messages API) and Google (GenerativeLanguage)
+    # in LlmClient to skip OpenRouter/proxies when using direct keys.
+    "anthropic": ProviderConfig(
+        id="anthropic",
+        name="Anthropic Claude",
+        header_style="x-api-key",
+        host_matches=("api.anthropic.com",),
+        extra_headers={"anthropic-version": "2023-06-01"},
+    ),
+    "google": ProviderConfig(
+        id="google",
+        name="Google Gemini",
+        # Google often uses ?key=KEY in URL, handled in client.py, but we set style=none 
+        # for headers to avoid Bearer interference.
+        header_style="none",
+        host_matches=("generativelanguage.googleapis.com",),
+    ),
     "ollama": ProviderConfig(
         id="ollama",
         name="Ollama",
