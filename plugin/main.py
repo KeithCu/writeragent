@@ -152,6 +152,10 @@ def bootstrap(ctx=None):
         _tools = ToolRegistry(_services)
         _services.register("tools", _tools)
 
+        # 4b. Main Thread Execution Service
+        from plugin.framework.queue_executor import default_executor
+        _services.register("main_thread", default_executor)
+
         # Wire config service to events
         config_svc = _services.get("config")
         events_svc = _services.get("events")
@@ -178,9 +182,9 @@ def bootstrap(ctx=None):
         events_svc = _services.get("events")
         if events_svc:
             # Subscribe to menu:update for dynamic menu text + icons
-            from plugin.framework.queue_executor import QueueExecutor
+            main_thread = _services.get("main_thread")
             events_svc.subscribe("menu:update",
-                                 lambda **kw: QueueExecutor().execute(notify_menu_update))
+                                 lambda **kw: main_thread.execute(notify_menu_update) if main_thread else notify_menu_update())
 
         # Pre-load icons into ImageManager so first menu display has them
         from plugin.framework.worker_pool import run_in_background

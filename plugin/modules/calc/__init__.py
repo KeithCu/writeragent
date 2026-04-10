@@ -36,4 +36,5 @@ class CalcModule(ModuleBase):
 
         services.tools.auto_discover_package(__name__)
 
+from . import forms  # noqa: F401 — re-exports writer.forms tools for package clarity
 from . import specialized

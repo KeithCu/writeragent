@@ -41,6 +41,15 @@ def mcp_server():
     # Mock event bus
     services.events = MagicMock()
 
+    # Mock main thread executor for testing (execute synchronously)
+    main_thread = MagicMock()
+    def mock_execute(fn, *args, **kwargs):
+        kwargs.pop("timeout", None)
+        return fn(*args, **kwargs)
+    main_thread.execute.side_effect = mock_execute
+    services.main_thread = main_thread
+    services.get.side_effect = lambda name: getattr(services, name, None)
+
     # Get a dynamic port
     port = get_free_port()
 

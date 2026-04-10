@@ -19,6 +19,7 @@
 from typing import ClassVar
 
 from plugin.framework.tool_base import ToolBase
+from plugin.modules.calc.base import ToolCalcSpecialBase
 
 
 class ToolWriterSpecialBase(ToolBase):
@@ -110,8 +111,11 @@ class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
-class ToolWriterFormBase(ToolWriterSpecialBase):
-    specialized_domain = "forms"
+class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase):
+    """Form tools for Writer and Calc (single ``specialized_domain``; union ``uno_services`` on concrete tools)."""
+
+    # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
+    specialized_domain: ClassVar[str | None] = "forms"
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 

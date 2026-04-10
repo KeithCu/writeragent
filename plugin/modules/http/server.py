@@ -82,8 +82,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                     return  # _read_body already sent error response
                 query = get_url_query_dict(self.path)
                 if route.main_thread:
-                    from plugin.framework.queue_executor import QueueExecutor
-                    result: Any = QueueExecutor().execute(
+                    from plugin.framework.queue_executor import default_executor
+                    result: Any = default_executor.execute(
                         route.handler, body, self.headers, query)
                     status, data = cast(tuple[int, Any], result)
                 else:

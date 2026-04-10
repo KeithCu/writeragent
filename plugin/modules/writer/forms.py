@@ -14,19 +14,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-Form tools for Writer documents, adapted from OnlyOfficeAI patterns.
-Original source: onlyofficeai/scripts/helpers/helpers.js (generateForm)
+Form tools for Writer and Calc (shared registration: dual specialized bases + union uno_services).
+Adapted from OnlyOfficeAI patterns. Original source: onlyofficeai/scripts/helpers/helpers.js (generateForm)
 """
 
 import logging
-import uno
 import re
 from com.sun.star.awt import Point, Size
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
 from plugin.modules.writer.base import ToolWriterFormBase
-from plugin.framework.errors import safe_uno_call, format_error_payload, ToolExecutionError
+from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 
 log = logging.getLogger("writeragent.writer.forms")
+
+# One registration per tool name; union services for Writer + Calc (see AGENTS.md shared tools).
+_FORM_DOC_SERVICES = [
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+]
 
 _CONTROL_TYPE_MAP = {
     "checkbox": "com.sun.star.form.component.CheckBox",
@@ -45,13 +52,70 @@ def _get_readable_type(model):
     return "unknown"
 
 
+def _is_spreadsheet_doc(doc) -> bool:
+    if doc is None:
+        return False
+    try:
+        return bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"))
+    except Exception:
+        return False
+
+
+def _get_form_draw_page(doc):
+    """Writer: document draw page. Calc: active sheet draw page (indices are per active sheet)."""
+    if _is_spreadsheet_doc(doc):
+        from plugin.modules.calc.bridge import CalcBridge
+
+        sheet = CalcBridge(doc).get_active_sheet()
+        return sheet.getDrawPage()
+    return doc.getDrawPage()
+
+
+def _next_stacked_position_on_draw_page(dp, default_width: int, default_height: int) -> Point:
+    """Place new controls below existing shapes on a draw page (1/100 mm)."""
+    margin_x = 5000
+    gap = 400
+    max_bottom = 800
+    for i in range(dp.getCount()):
+        try:
+            s = dp.getByIndex(i)
+            pos = s.getPosition()
+            sz = s.getSize()
+            max_bottom = max(max_bottom, pos.Y + sz.Height)
+        except Exception:
+            continue
+    return Point(margin_x, max_bottom + gap)
+
+
+def _append_text_to_calc_active_area(doc, text: str) -> None:
+    controller = doc.getCurrentController()
+    sheet = controller.ActiveSheet
+    selection = controller.getSelection()
+    if selection is not None and hasattr(selection, "getRangeAddress"):
+        addr = selection.getRangeAddress()
+        cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+    else:
+        cell = sheet.getCellByPosition(0, 0)
+    prev = cell.getString() or ""
+    cell.setString(prev + (text or ""))
+
+
+def _plain_text_for_calc_html_fragment(html: str) -> str:
+    """Rough strip of HTML for inserting generated form labels into a cell."""
+    t = re.sub(r"(?is)<script.*?>.*?</script>", "", html)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
 class CreateFormControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
     name = "create_form_control"
+    uno_services = _FORM_DOC_SERVICES
     description = (
-        "Creates a single interactive form control (checkbox, text field, radio button, date field, or combobox) "
-        "at the current cursor position. Controls are anchored 'As Character' to flow with the text."
+        "Creates a single interactive form control (checkbox, text field, radio button, date field, combobox, or button). "
+        "In Writer: anchored 'As Character' at the cursor. In Calc: placed on the active sheet draw page (stacked below existing shapes)."
     )
     parameters = {
         "type": "object",
@@ -156,20 +220,22 @@ class CreateFormControl(ToolWriterFormBase):
             shape.setSize(Size(w, h))
             
             shape.Control = model
-            
-            # Anchor 'As Character' so it flows with text
-            from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
-            shape.setPropertyValue("AnchorType", AS_CHARACTER)
-            
-            # Insert into document at current selection
-            text = doc.getText()
-            selection = doc.getCurrentController().getSelection()
-            if selection and selection.getCount() > 0:
-                anchor = selection.getByIndex(0)
+
+            if _is_spreadsheet_doc(doc):
+                dp = _get_form_draw_page(doc)
+                pos = _next_stacked_position_on_draw_page(dp, w, h)
+                shape.setPosition(pos)
+                dp.add(shape)
             else:
-                anchor = doc.getCurrentController().getViewCursor()
-            
-            text.insertTextContent(anchor, shape, False)
+                # Anchor 'As Character' so it flows with text
+                shape.setPropertyValue("AnchorType", AS_CHARACTER)
+                text = doc.getText()
+                selection = doc.getCurrentController().getSelection()
+                if selection and selection.getCount() > 0:
+                    anchor = selection.getByIndex(0)
+                else:
+                    anchor = doc.getCurrentController().getViewCursor()
+                text.insertTextContent(anchor, shape, False)
             
             return {
                 "status": "ok",
@@ -185,6 +251,7 @@ class CreateForm(ToolWriterFormBase):
     """Fat API: Creates multiple form controls at once."""
     
     name = "create_form"
+    uno_services = _FORM_DOC_SERVICES
     description = (
         "Creates multiple form controls at once from a list of field definitions. "
         "Useful for generating a complete form section in one call."
@@ -231,16 +298,21 @@ class CreateForm(ToolWriterFormBase):
         }
     
     def _insert_space(self, ctx):
-        vc = ctx.doc.getCurrentController().getViewCursor()
-        ctx.doc.getText().insertString(vc, " ", False)
+        doc = ctx.doc
+        if _is_spreadsheet_doc(doc):
+            _append_text_to_calc_active_area(doc, " ")
+            return
+        vc = doc.getCurrentController().getViewCursor()
+        doc.getText().insertString(vc, " ", False)
 
 class GenerateForm(ToolWriterFormBase):
     """Thin API: Generates a form from a description using a specialized internal prompt."""
     
     name = "generate_form"
+    uno_services = _FORM_DOC_SERVICES
     description = (
-        "Generates a complete document with interactive form fields based on a description. "
-        "This tool uses an internal processing engine to layout the form correctly."
+        "Generates a document or sheet layout with interactive form fields from a description. "
+        "Writer: HTML inserted at the cursor. Calc: plain text is inserted into the active cell area; fields go on the active sheet draw page."
     )
     parameters = {
         "type": "object",
@@ -316,11 +388,15 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         }
 
     def _insert_text(self, ctx, text):
+        doc = ctx.doc
+        if _is_spreadsheet_doc(doc):
+            plain = _plain_text_for_calc_html_fragment(text)
+            if plain:
+                _append_text_to_calc_active_area(doc, plain + " ")
+            return
         from plugin.modules.writer.ops import insert_html_at_cursor
-        # ViewCursor does not implement XDocumentInsertable (insertDocumentFromURL)
-        # So we create a TextCursor at the same range.
-        vc = ctx.doc.getCurrentController().getViewCursor()
-        cursor = ctx.doc.getText().createTextCursorByRange(vc)
+        vc = doc.getCurrentController().getViewCursor()
+        cursor = doc.getText().createTextCursorByRange(vc)
         insert_html_at_cursor(cursor, text)
 
     def _parse_field_tag(self, tag):
@@ -336,7 +412,11 @@ class ListFormControls(ToolWriterFormBase):
     """Lists all interactive form controls in the document."""
 
     name = "list_form_controls"
-    description = "Lists all interactive form controls (checkboxes, text fields, etc.) in the document with their indices and current values."
+    uno_services = _FORM_DOC_SERVICES
+    description = (
+        "Lists interactive form controls (checkboxes, text fields, etc.) with indices and values. "
+        "Writer: document draw page. Calc: active sheet draw page only."
+    )
     parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
@@ -344,7 +424,7 @@ class ListFormControls(ToolWriterFormBase):
 
     def _execute_main(self, ctx, **kwargs):
         doc = ctx.doc
-        dp = doc.getDrawPage()
+        dp = _get_form_draw_page(doc)
         controls = []
         
         for i in range(dp.getCount()):
@@ -373,17 +453,24 @@ class ListFormControls(ToolWriterFormBase):
                 
                 controls.append(info)
         
-        return {
+        out: dict = {
             "status": "ok",
             "controls": controls,
-            "count": len(controls)
+            "count": len(controls),
         }
+        if _is_spreadsheet_doc(doc):
+            out["note"] = "Indices are ControlShapes on the active sheet draw page only."
+        return out
 
 class EditFormControl(ToolWriterFormBase):
     """Modifies properties of an existing form control."""
 
     name = "edit_form_control"
-    description = "Modifies an existing form control by its index. You can update its label, name, text value, items, or geometry."
+    uno_services = _FORM_DOC_SERVICES
+    description = (
+        "Modifies an existing form control by index (from list_form_controls). "
+        "Calc: index is on the active sheet draw page."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -405,7 +492,7 @@ class EditFormControl(ToolWriterFormBase):
 
     def _execute_main(self, ctx, **kwargs):
         doc = ctx.doc
-        dp = doc.getDrawPage()
+        dp = _get_form_draw_page(doc)
         idx = kwargs["shape_index"]
         
         if idx < 0 or idx >= dp.getCount():
@@ -446,7 +533,8 @@ class DeleteFormControl(ToolWriterFormBase):
     """Deletes a form control by its index."""
 
     name = "delete_form_control"
-    description = "Deletes a form control from the document using its shape index."
+    uno_services = _FORM_DOC_SERVICES
+    description = "Deletes a form control by shape index (Calc: active sheet draw page)."
     parameters = {
         "type": "object",
         "properties": {
@@ -460,7 +548,7 @@ class DeleteFormControl(ToolWriterFormBase):
 
     def _execute_main(self, ctx, **kwargs):
         doc = ctx.doc
-        dp = doc.getDrawPage()
+        dp = _get_form_draw_page(doc)
         idx = kwargs["shape_index"]
         
         if idx < 0 or idx >= dp.getCount():
