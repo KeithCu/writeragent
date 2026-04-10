@@ -189,8 +189,6 @@ This framework allows us to differentiate between "Flash" models that prioritize
 
 **Fine-tuning.** An interesting direction is to **fine-tune a model** specifically for this tool set and task distribution: the same correctness could potentially be achieved with fewer reasoning steps and fewer tokens, improving both latency and Value (C²/$). The existing eval and dataset are a natural training signal (correct vs incorrect tool use, minimal vs verbose traces).
 
-**Tool set and model size.** WriterAgent already exposes a rich but curated subset of Writer/Calc/Draw operations (styles, comments, tables, markdown apply, etc.), not the full OpenDocument/UNO surface. An open question is whether we should or can **expose more of the full UNO tool set** for capable models, while keeping a **smaller subset** for smaller or cheaper models that might be confused or wasteful with too many options. That would allow “right-sized” backends: minimal tools for fast local models, full power for frontier models when the user needs it.
-
 ## Getting started
 
 ### Installation
