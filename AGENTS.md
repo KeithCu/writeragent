@@ -131,7 +131,9 @@ Paragraph tools in [`content.py`](plugin/modules/writer/content.py) are **`ToolB
 ## 5. Calc (plugin)
 
 Tools go through `tool_registry` / `ToolContext`. Modular tools: `cells.py`, `formulas.py`, `sheets.py`; `tools.py` builds `CALC_TOOLS` and forwards execution. **Gemini/OpenRouter**: no union types in JSON schemas; use `"type": "array"` + `items` for ranges; execute layers accept a single string as one-element list.
-**Specialized Calc Toolsets**: Operations like managing cell comments, conditional formatting, sheet management, and image management have been moved from the main toolset to specialized domains (`comments`, `conditional_formatting`, `sheets`, `images`). To access these tools, the main agent must use `delegate_to_specialized_calc_toolset(domain=...)`. These tools inherit from `ToolCalcSpecialBase` and are filtered out of the core tool list.
+**Specialized Calc Toolsets**: Operations like managing cell comments, conditional formatting, sheet management, image management, and **pivot tables (DataPilot)** live in specialized domains (`comments`, `conditional_formatting`, `sheets`, `images`, `pivot_tables`). To access these tools, the main agent must use `delegate_to_specialized_calc_toolset(domain=...)`. These tools inherit from `ToolCalcSpecialBase` and are filtered out of the core tool list. Pivot tools: [`plugin/modules/calc/pivot.py`](plugin/modules/calc/pivot.py) (`ToolCalcPivotBase`).
+
+**Future (Calc pivot / analysis, not implemented)**: Pivot *charts* (chart objects tied to DataPilot), natural-language-only pivot layout without explicit source header names (would need an LLM mapping step, similar to OnlyOffice’s `insertPivotTable` parse), and Excel-style rich auto-filter operators are still out of scope. The same list is recorded at the top of [`plugin/modules/calc/pivot.py`](plugin/modules/calc/pivot.py) so it is not lost.
 
 ---
 

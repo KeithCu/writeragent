@@ -553,6 +553,47 @@ def test_calc_conditional_formatting():
 
 
 @native_test
+def test_calc_pivot_table():
+    sn = _test_doc.getSheets().getByIndex(0).getName()
+    res_write = _execute_calc_tool("write_formula_range", {
+        "range_name": "A1:B6",
+        "formula_or_values": [
+            ["Month", "Sales"],
+            ["Jan", "100"],
+            ["Feb", "150"],
+            ["Mar", "200"],
+            ["Apr", "250"],
+            ["May", "300"],
+        ],
+    })
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+
+    res = _execute_calc_tool("create_pivot_table", {
+        "pivot_table_name": "WA_PivotTest",
+        "source_range": "A1:B6",
+        "source_sheet_name": sn,
+        "destination_sheet_name": sn,
+        "destination_cell": "D1",
+        "row_fields": ["Month"],
+        "column_fields": [],
+        "data_fields": ["Sales"],
+        "page_fields": [],
+    })
+    assert res.get("status") == "ok", f"create_pivot_table failed: {res}"
+
+    res_list = _execute_calc_tool("list_pivot_tables", {"sheet_name": sn})
+    assert res_list.get("status") == "ok", f"list_pivot_tables failed: {res_list}"
+    names = [p.get("name") for p in res_list.get("pivot_tables", [])]
+    assert "WA_PivotTest" in names, f"Expected WA_PivotTest in {names}"
+
+    res_ref = _execute_calc_tool("refresh_pivot_table", {
+        "pivot_table_name": "WA_PivotTest",
+        "sheet_name": sn,
+    })
+    assert res_ref.get("status") == "ok", f"refresh_pivot_table failed: {res_ref}"
+
+
+@native_test
 def test_charts_creation_and_listing():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
 
