@@ -32,10 +32,13 @@ def setup_draw_tests(ctx):
     _test_ctx = ctx
 
     desktop = get_desktop(ctx)
-    from com.sun.star.beans import PropertyValue
-    hidden_prop = PropertyValue()
-    hidden_prop.Name = "Hidden"
-    hidden_prop.Value = True
+    import uno
+
+    hidden_prop = uno.createUnoStruct(
+        "com.sun.star.beans.PropertyValue",
+        Name="Hidden",
+        Value=True,
+    )
 
     _test_doc = desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, (hidden_prop,))
     assert _test_doc is not None, "Could not create Draw document"

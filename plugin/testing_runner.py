@@ -249,32 +249,13 @@ def run_all_tests(ctx: Any) -> str:
 
     if os.path.isdir(tests_dir):
         # Discover and run all test modules in the tests/uno directory
-        # Some "native" test modules are actually designed for plain Python and
-        # temporarily replace sys.modules entries like `com.sun.star.*` with
-        # MagicMocks. Since this runner imports multiple test modules into the
-        # same interpreter, those mocks must not leak across module boundaries.
-        _SYS_MODULE_KEYS_TO_RESTORE = [
-            # UNO / bridge related (used by multiple uno test modules)
-            "uno",
-            "unohelper",
-            # UNO "com.sun.star.*" namespaces
-            "com",
-            "com.sun",
-            "com.sun.star",
-            "com.sun.star.awt",
-            "com.sun.star.ui",
-            "com.sun.star.ui.UIElementType",
-            "com.sun.star.task",
-            # Some test modules also mock the project "core.*" modules.
-            "core",
-            "core.logging",
-            "core.async_stream",
-            "core.config",
-            "core.api",
-            "core.document",
-            "core.document_tools",
-            "core.constants",
-        ]
+        # Some "native" test modules are also imported under plain pytest and call
+        # setup_uno_mocks(), which replaces sys.modules entries for `uno`,
+        # `com.sun.star.*`, etc. Since this runner loads multiple test modules into
+        # the same interpreter, snapshot/restore every key that path touches
+        # (see plugin.tests.testing_utils.NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS).
+        from plugin.tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
+
         _MISSING = object()
 
         for filename in sorted(os.listdir(tests_dir)):
@@ -285,7 +266,8 @@ def run_all_tests(ctx: Any) -> str:
                 restore_snapshot: Dict[str, Any] | None = None
                 try:
                     restore_snapshot = {
-                        k: sys.modules.get(k, _MISSING) for k in _SYS_MODULE_KEYS_TO_RESTORE
+                        k: sys.modules.get(k, _MISSING)
+                        for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
                     }
                     spec = importlib.util.spec_from_file_location(f"plugin.tests.uno.{module_name}", module_path)
                     if spec is None or spec.loader is None:
@@ -314,12 +296,10 @@ def run_all_tests(ctx: Any) -> str:
                     # Prevent sys.modules mocking from polluting later native tests.
                     if restore_snapshot is not None:
                         for k, v in restore_snapshot.items():
-                            import types
                             if v is _MISSING:
                                 sys.modules.pop(k, None)
                             else:
-                                import typing
-                                sys.modules[k] = typing.cast(types.ModuleType, v)
+                                sys.modules[k] = v
 
     for suite in suites:
         total_passed += int(suite.get("passed", 0) or 0)

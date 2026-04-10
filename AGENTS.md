@@ -218,6 +218,8 @@ Also: `make build-no-recording`, `make release` (runs **`make test`** first—**
 
 Restart LibreOffice after deploy.
 
+**In-process LO tests** (`$(LO_PYTHON) -m plugin.testing_runner`): [`plugin/testing_runner.py`](plugin/testing_runner.py) snapshots/restores `sys.modules` keys in [`plugin/tests/testing_utils.py`](plugin/tests/testing_utils.py) `NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS` between each `plugin/tests/uno/` module so pytest-oriented `setup_uno_mocks()` state does not leak. When real PyUNO is loaded, `setup_uno_mocks()` returns immediately (it must not replace `uno` with `MagicMock`).
+
 ---
 
 ## 15. MCP server (essentials)

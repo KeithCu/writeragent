@@ -41,10 +41,12 @@ class MockCtx:
 def setup_form_management_tests(ctx):
     global _test_doc
     desktop = get_desktop(ctx)
-    from com.sun.star.beans import PropertyValue
-    hidden_prop = PropertyValue()
-    hidden_prop.Name = "Hidden"
-    hidden_prop.Value = True
+
+    hidden_prop = uno.createUnoStruct(
+        "com.sun.star.beans.PropertyValue",
+        Name="Hidden",
+        Value=True,
+    )
     _test_doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
     assert _test_doc is not None, "Could not create test writer document"
 
