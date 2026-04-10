@@ -44,6 +44,9 @@ The main way to interact with your document. While you can ask it anything, **it
 *   **High-Throughput (200+ tps)**: Optimized for speed, the system can easily handle 200 tokens per second with zero UI stutter.
 *   **Persistent Chat History**: Previous conversations are automatically saved and restored when you reopen a document. History is stored in a local SQLite database in the user config directory.
 *   **Isolated Task Contexts**: Each open document in LibreOffice gets its own independent AI sidebar. The AI stays aware of the specific document it's attached to, preventing "cross-talk" when working on multiple projects.
+*   **Audio Recording**: Integrated cross-platform voice support directly in the sidebar.
+*   **Image Generation**: Generate from chat or edit selected images (Img2Img) using AI Horde or your configured endpoint.
+*   **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
 *   **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name, tone, etc.) and uses the `upsert_memory` tool to store them.
 *   **Robust Session Tracking**: Chat history is linked directly to the document using an internal metadata ID, ensuring your conversation follows the document even if renamed or moved.
 *   **Multilingual & HiDPI**: Ships with the interface translated into 9 languages (Spanish, French, Portuguese, Russian, German, Japanese, Italian, Polish, and English) and optimized for modern high-resolution displays using device-independent units.
@@ -98,26 +101,18 @@ Active development explores **progressive disclosure**:
 
 See **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md)** for architecture details.
 
-### 7. Image Generation and AI Horde Integration
-Image generation and editing are integrated and complete. You can generate images from the chat (via tools or “Use Image model”) and edit selected images (Img2Img). Two backends are supported: **AI Horde** (Stable Diffusion, SDXL, etc., with its own API key and queue) and **same endpoint as chat** (uses your configured endpoint and a separate image model). Settings are in **WriterAgent > Settings** under the **Image Settings** tab, with shared options (size, insert behavior, prompt translation) and a clearly separated **AI Horde only** section.
-
-### 8. MCP Server (Optional)
+### 7. MCP Server (Optional)
 When enabled in **WriterAgent > Settings**, an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop, etc.).
 
 *   **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the sidebar.
 *   **Targeting**: Clients target a document via the **`X-Document-URL`** header.
 *   **Hybrid AI Orchestrator Model**: This exposes the entire toolset to external agents while maintaining the document as the single source of truth.
 
-### 9. Agent Backends
+### 8. Agent Backends
 You can plug in **external agent backends** so that Chat with Document uses an external process (e.g. Hermes or others) instead of the built-in LLM.
 
 *   **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: Spawns Hermes locally as a subprocess using the Agent Communication Protocol (ACP) via stdio.
 *   **HITL (Approve/Reject)**: If a backend requests approval for a tool call, a dialog appears for the user.
-
-### 10. Calc =PROMPT() Function
-### 11. Audio Support & Voice Recording
-Integrated cross-platform audio recording directly in the sidebar.
-
 
 ## Credits & Collaboration
 
