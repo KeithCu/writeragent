@@ -258,12 +258,11 @@ def test_writer_structural_and_tree_service():
     # but the API call itself should succeed
     assert isinstance(bm_res["bookmarks"], list), "ListBookmarks should return a list"
 
-    # list_sections is ToolBaseDummy until structural tools are re-homed (not registered).
     list_sec_tool = registry.get("list_sections")
-    if list_sec_tool is not None:
-        sec_res = list_sec_tool.execute(mock_ctx)
-        assert sec_res["status"] == "ok", f"ListSections failed: {sec_res}"
-        assert isinstance(sec_res["sections"], list), "ListSections should return a list"
+    assert list_sec_tool is not None, "list_sections (structural domain) should be registered"
+    sec_res = list_sec_tool.execute(mock_ctx)
+    assert sec_res["status"] == "ok", f"ListSections failed: {sec_res}"
+    assert isinstance(sec_res["sections"], list), "ListSections should return a list"
 
 
 @native_test

@@ -271,9 +271,9 @@ Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users
 | **Tracking** | ✅ Implemented | `tracking.py`: TrackChangesStart/Stop/List/Show, Accept/Reject (all or single), comment insert/list/delete | Document comparison; version control / integration (not agent) |
 | **Bookmarks** | ✅ Implemented | `bookmark_tools.py`: List/Cleanup/Create/Delete/Rename/GetBookmark | — |
 | **Footnotes / endnotes** | ✅ Implemented | `footnotes.py`: Insert, List, Edit, Delete, SettingsGet/Update | — |
-| **Tables** | ❌ Not implemented | No `tables.py`; tables edited via HTML | UNO table ops TBD if needed beyond HTML |
-| **Structural navigation** | ❌ Not implemented | `structural.py` mostly ToolBaseDummy | Technical docs: cross-refs, callouts, revision marks, change bars (not agent) |
-| **Forms** | ❌ Not implemented | No module | Form design (text, checkbox, radio, dropdown); field properties; validation; submission; DB integration |
+| **Tables** | ✅ Implemented | Tables edited via HTML | UNO table ops TBD if needed beyond HTML |
+| **Structural navigation** | ✅ Implemented | `structural.py` (`list_sections`, `goto_page`, `read_section`), `navigation.py` (`navigate_heading`, `get_surroundings`), `outline.py` (`get_heading_children`); delegate `domain=structural`. `get_document_tree` / `get_page_objects` stay core. | Technical docs: cross-refs, callouts, revision marks, change bars (not agent) |
+| **Forms** | ✅ Partially implemented | 'forms.py' | remaining: DB integration |
 | **Mail merge** | ❌ Not implemented | No module | Data sources (CSV/DB/sheets); merge fields; execution; labels; envelopes; email merge |
 | **Bibliography** | ❌ Not implemented | No module | Bib DB; citation styles; insertion/formatting; bibliography generation; reference managers |
 | **Watermark** | ❌ Not implemented | No module | Text/image watermarks; page backgrounds; positioning/transparency |

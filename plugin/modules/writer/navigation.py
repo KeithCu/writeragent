@@ -16,10 +16,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Navigation tools: navigate_heading, get_surroundings."""
 
-from plugin.framework.tool_base import ToolBaseDummy
+from plugin.modules.writer.base import ToolWriterStructuralBase
 
 
-class NavigateHeading(ToolBaseDummy):
+class NavigateHeading(ToolWriterStructuralBase):
     name = "navigate_heading"
     intent = "navigate"
     description = (
@@ -61,7 +61,7 @@ class NavigateHeading(ToolBaseDummy):
             return self._tool_error(str(e))
 
 
-class GetSurroundings(ToolBaseDummy):
+class GetSurroundings(ToolWriterStructuralBase):
     name = "get_surroundings"
     intent = "navigate"
     description = (

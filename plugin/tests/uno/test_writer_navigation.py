@@ -77,7 +77,7 @@ class TestWriterNavigation(unittest.TestCase):
 try:
     from plugin.testing_runner import setup, teardown, native_test
     from plugin.framework.uno_context import get_desktop
-    from plugin.modules.writer.navigation import NavigateHeading, GetSurroundings  # ToolBaseDummy: not exposed
+    from plugin.modules.writer.navigation import NavigateHeading, GetSurroundings
 except ImportError:
     setup, teardown, native_test = (lambda f: f), (lambda f: f), (lambda f: f)
 
@@ -149,7 +149,6 @@ class MockServices:
         from plugin.modules.writer.proximity import ProximityService
         from plugin.modules.writer.bookmarks import BookmarkService
         from plugin.modules.writer.tree import TreeService
-        from plugin.modules.writer.structural import ListSections
 
         self.events = EventBus()
         # DocumentService does not take constructor arguments; it uses the
@@ -164,17 +163,36 @@ class MockServices:
         self.writer_bookmarks = s.writer_bookmarks
         self.writer_tree = s.writer_tree
         self.writer_proximity = s.writer_proximity
-        self.writer_structural = ListSections()  # Simplified mock structural logic
 
 @native_test
 def test_navigate_heading():
-    import pytest
-    pytest.skip("navigate_heading tool currently not exposed to LLM/MCP API")
+    try:
+        import pytest
+        if _test_doc is None or _test_ctx is None:
+            pytest.skip("Requires LibreOffice document from native runner")
+    except ImportError:
+        pass
+
+    mock_ctx = MockContext(_test_doc, _test_ctx)
+    tool = NavigateHeading()
+    res = tool.execute(mock_ctx, locator="paragraph:0", direction="next")
+    assert res.get("status") == "ok", res
+    assert res.get("heading", {}).get("text") == "Section 1.1"
 
 @native_test
 def test_get_surroundings():
-    import pytest
-    pytest.skip("get_surroundings tool currently not exposed to LLM/MCP API")
+    try:
+        import pytest
+        if _test_doc is None or _test_ctx is None:
+            pytest.skip("Requires LibreOffice document from native runner")
+    except ImportError:
+        pass
+
+    mock_ctx = MockContext(_test_doc, _test_ctx)
+    tool = GetSurroundings()
+    res = tool.execute(mock_ctx, locator="paragraph:2", radius=3)
+    assert res.get("status") == "ok", res
+    assert "paragraphs" in res
 
 if __name__ == "__main__":
     unittest.main()

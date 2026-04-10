@@ -18,10 +18,12 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool_base import ToolBase
+
+from plugin.modules.writer.base import ToolWriterStructuralBase
 
 
-class ListSections(ToolBaseDummy):
+class ListSections(ToolWriterStructuralBase):
     name = "list_sections"
     intent = "navigate"
     description = "List all named sections in the document."
@@ -44,7 +46,7 @@ class ListSections(ToolBaseDummy):
             })
         return {"status": "ok", "sections": sections, "count": len(sections)}
 
-class GotoPage(ToolBaseDummy):
+class GotoPage(ToolWriterStructuralBase):
     name = "goto_page"
     intent = "navigate"
     description = "Navigate the view cursor to a specific page."
@@ -219,7 +221,7 @@ class GetPageObjects(ToolBase):
         return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
 
 
-class ReadSection(ToolBaseDummy):
+class ReadSection(ToolWriterStructuralBase):
     """Read the content of a named text section."""
 
     name = "read_section"

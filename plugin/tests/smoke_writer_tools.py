@@ -5,6 +5,13 @@ import unittest
 from plugin.main import get_tools
 
 
+class _WriterDocStub:
+    """Minimal UNO-like doc for registry filtering (supportsService)."""
+
+    def supportsService(self, svc):
+        return svc == "com.sun.star.text.TextDocument"
+
+
 class TestWriterToolsSmoke(unittest.TestCase):
     def test_registration(self):
         registry = get_tools()
@@ -34,6 +41,21 @@ class TestWriterToolsSmoke(unittest.TestCase):
         self.assertNotIn("check_stop_conditions", writer_tools)
         # Specialized table tools are not in the default chat tool list
         self.assertNotIn("list_tables", writer_tools)
+        self.assertNotIn("navigate_heading", writer_tools)
+
+    def test_structural_domain_includes_navigation_tools(self):
+        registry = get_tools()
+        doc = _WriterDocStub()
+        names = {t.name for t in registry.get_tools(doc=doc, active_domain="structural")}
+        for name in (
+            "navigate_heading",
+            "get_surroundings",
+            "list_sections",
+            "goto_page",
+            "read_section",
+            "get_heading_children",
+        ):
+            self.assertIn(name, names, f"expected structural tool {name!r}")
 
     def test_schemas(self):
         registry = get_tools()

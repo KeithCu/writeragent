@@ -98,6 +98,12 @@ class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
+class ToolWriterStructuralBase(ToolWriterSpecialBase):
+    specialized_domain = "structural"
+    intent = "navigate"
+    uno_services = ["com.sun.star.text.TextDocument"]
+
+
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain = "footnotes"
     intent = "edit"
