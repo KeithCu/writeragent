@@ -2,22 +2,8 @@ import sys
 import types
 from unittest.mock import MagicMock
 
-# Mock UNO modules before any imports
-sys.modules['uno'] = MagicMock()
-sys.modules['unohelper'] = MagicMock()
-sys.modules['com.sun.star.text'] = types.ModuleType('com.sun.star.text')
-sys.modules['com.sun.star.util'] = types.ModuleType('com.sun.star.util')
-sys.modules['com.sun.star.document'] = types.ModuleType('com.sun.star.document')
-sys.modules['com.sun.star.frame'] = types.ModuleType('com.sun.star.frame')
-sys.modules['com.sun.star.beans'] = types.ModuleType('com.sun.star.beans')
-
-# Create a mock Date class
-class MockDate:
-    Year = 2024
-    Month = 1
-    Day = 1
-
-setattr(sys.modules['com.sun.star.util'], "Date", MockDate)
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
 from plugin.modules.writer.tracking import (
     TrackChangesStart,

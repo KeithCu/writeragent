@@ -1,11 +1,8 @@
 import sys
 from unittest.mock import MagicMock
 
-class MockBase: pass
-sys.modules['uno'] = MagicMock()
-sys.modules['unohelper'] = MagicMock()
-sys.modules['unohelper.Base'] = MockBase
-sys.modules['com.sun.star.text'] = MagicMock()
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
 import pytest
 from plugin.modules.writer.indexes import IndexesList, IndexesCreate, IndexesAddMark

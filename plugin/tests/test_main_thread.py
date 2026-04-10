@@ -3,6 +3,9 @@ import queue
 import pytest
 from unittest.mock import patch, MagicMock
 
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
+
 from plugin.framework.worker_pool import run_in_background
 
 from plugin.framework.queue_executor import (

@@ -2,13 +2,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 import sys
 
-# Mock uno and dependencies for headless testing
-class MockBase: pass
-sys.modules['uno'] = MagicMock()
-sys.modules['unohelper'] = MagicMock()
-sys.modules['unohelper'].Base = MockBase
-sys.modules['com.sun.star.text'] = MagicMock()
-sys.modules['com.sun.star.awt'] = MagicMock()
+from plugin.tests.testing_utils import setup_uno_mocks
+setup_uno_mocks()
 
 from plugin.framework.tool_registry import ToolRegistry, _is_specialized_domain_tool
 from plugin.modules.writer.base import ToolWriterSpecialBase, SpecializedWorkflowFinished
