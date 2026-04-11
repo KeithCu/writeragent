@@ -554,6 +554,37 @@ def test_calc_conditional_formatting():
     rules_final = res_list_final.get("rules", [])
     assert len(rules_final) == 1, f"Expected 1 rule remaining after removing by index, found {len(rules_final)}"
 
+    # 8. BETWEEN + list round-trip (extended operator uses operator_code in list when available)
+    _execute_calc_tool("remove_conditional_formats", {"range_name": "C20:C22"})
+    _execute_calc_tool("write_formula_range", {"range_name": "C20:C22", "formula_or_values": [[5], [10], [15]]})
+    res_between = _execute_calc_tool("add_conditional_format", {
+        "range_name": "C20:C22",
+        "operator": "BETWEEN",
+        "formula1": "6",
+        "formula2": "12",
+        "style_name": "Result",
+    })
+    assert res_between.get("status") == "ok", f"BETWEEN add failed: {res_between}"
+    res_lb = _execute_calc_tool("list_conditional_formats", {"range_name": "C20:C22"})
+    br = res_lb.get("rules", [])
+    assert len(br) == 1 and br[0].get("operator") == "BETWEEN", br
+    assert br[0].get("formula1") == "6" and br[0].get("formula2") == "12", br[0]
+
+    # 9. DUPLICATE (LibreOffice ConditionOperator2) — empty formula1
+    _execute_calc_tool("remove_conditional_formats", {"range_name": "E20:E22"})
+    _execute_calc_tool("write_formula_range", {"range_name": "E20:E22", "formula_or_values": [[1], [1], [2]]})
+    res_dup = _execute_calc_tool("add_conditional_format", {
+        "range_name": "E20:E22",
+        "operator": "DUPLICATE",
+        "style_name": "Result",
+    })
+    assert res_dup.get("status") == "ok", f"DUPLICATE add failed: {res_dup}"
+    res_ld = _execute_calc_tool("list_conditional_formats", {"range_name": "E20:E22"})
+    dr = res_ld.get("rules", [])
+    assert len(dr) == 1, dr
+    assert dr[0].get("operator") == "DUPLICATE", dr[0]
+    assert dr[0].get("operator_code") == 10, dr[0]
+
 
 @native_test
 def test_calc_pivot_table():

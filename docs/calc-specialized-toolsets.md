@@ -38,7 +38,7 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 | **Charts** | ✅ Implemented | `charts.py`: ListCharts, Create/Edit/DeleteChart (shared with Writer) | Medium-fat API (`create_chart`) |
 | **Named Ranges** | ✅ Implemented | `named_ranges.py`: ListNamedRanges, Create/Edit/DeleteNamedRange | — |
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
-| **Conditional Formatting** | ✅ Implemented | `formatting.py`: SetConditionalFormatting, GetConditionalFormattingRules | Specialized tier |
+| **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../plugin/modules/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](calc-conditional-formatting.md) | Specialized tier |
 | **Pivot Tables** | ✅ Implemented | `pivot.py`: CreatePivotTable, RefreshPivotTable, GetPivotTableData | Specialized tier |
 | **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
 | **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |

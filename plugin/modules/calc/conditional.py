@@ -17,41 +17,83 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Calc conditional formatting tools."""
 
-import logging
+from __future__ import annotations
 
+import logging
+from typing import Any
+
+from plugin.framework.calc_conditional_constants import condition_operator_code_to_name
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.modules.calc.base import ToolCalcConditionalBase
 from plugin.modules.calc.bridge import CalcBridge
 
 logger = logging.getLogger("writeragent.calc")
 
-def _entry_to_dict(entry, idx):
+
+def _query_interface(obj: Any, typename: str) -> Any:
+    """PyUNO requires ``uno.getTypeByName`` for ``queryInterface``; imported IDL classes fail."""
+    import uno
+
+    return obj.queryInterface(uno.getTypeByName(typename))
+
+
+def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     """Convert a conditional entry to a readable dict."""
-    result = {"index": idx}
+    result: dict[str, Any] = {"index": idx}
+    op_name: str | None = None
+    op_code: int | None = None
     try:
-        op = entry.getOperator()
-        # UNO enum handling
-        op_name = str(op.value) if hasattr(op, "value") else str(op)
-        result["operator"] = op_name
+        xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
+        if xc2 is not None:
+            op_code = int(xc2.getConditionOperator())
+            op_name = condition_operator_code_to_name(op_code)
     except Exception:
         pass
+    if op_name is None:
+        try:
+            op = entry.getOperator()
+            op_name = str(op.value) if hasattr(op, "value") else str(op)
+        except Exception:
+            pass
+    if op_name:
+        result["operator"] = op_name
+    if op_code is not None:
+        result["operator_code"] = op_code
     try:
         f1 = entry.getFormula1()
-        if f1: result["formula1"] = f1
+        if f1:
+            result["formula1"] = f1
     except Exception:
         pass
     try:
         f2 = entry.getFormula2()
-        if f2 and f2 != "0": result["formula2"] = f2
+        if f2 and f2 != "0":
+            result["formula2"] = f2
     except Exception:
         pass
     try:
         sn = entry.getStyleName()
-        if sn: result["style_name"] = sn
+        if sn:
+            result["style_name"] = sn
     except Exception:
         pass
 
     return result
+
+
+def _ensure_table_conditional_format(ctx: Any, cell_range: Any) -> Any:
+    """Return ``TableConditionalFormat`` for *cell_range*, creating it if missing."""
+    formats = cell_range.getPropertyValue("ConditionalFormat")
+    if formats is not None:
+        return formats
+    sm = ctx.ctx.getServiceManager()
+    if sm is None:
+        raise UnoObjectError("Cannot create conditional format: no service manager.")
+    created = sm.createInstanceWithContext("com.sun.star.sheet.TableConditionalFormat", ctx.ctx)
+    if created is None:
+        raise UnoObjectError("Failed to create com.sun.star.sheet.TableConditionalFormat.")
+    cell_range.setPropertyValue("ConditionalFormat", created)
+    return created
 
 
 class ListConditionalFormats(ToolCalcConditionalBase):
@@ -61,7 +103,8 @@ class ListConditionalFormats(ToolCalcConditionalBase):
     intent = "navigate"
     description = (
         "List conditional formatting rules on a Calc cell range. "
-        "Returns operator, formulas, and applied cell style for each rule."
+        "Returns operator, formulas, and applied cell style for each rule. "
+        "Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
     )
     parameters = {
         "type": "object",
@@ -107,6 +150,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
             logger.error("List conditional formats error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
 
+
 class AddConditionalFormat(ToolCalcConditionalBase):
     """Add a conditional formatting rule to a cell range."""
 
@@ -116,7 +160,10 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
         "Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, "
-        "LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA."
+        "LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. "
+        "DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; "
+        "formula1 may be omitted or empty for those. "
+        "Use formula2 for BETWEEN and NOT_BETWEEN."
     )
     parameters = {
         "type": "object",
@@ -128,22 +175,31 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             "operator": {
                 "type": "string",
                 "enum": [
-                    "EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL",
-                    "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA",
+                    "EQUAL",
+                    "NOT_EQUAL",
+                    "GREATER",
+                    "GREATER_EQUAL",
+                    "LESS",
+                    "LESS_EQUAL",
+                    "BETWEEN",
+                    "NOT_BETWEEN",
+                    "FORMULA",
+                    "DUPLICATE",
+                    "NOT_DUPLICATE",
                 ],
                 "description": "Condition operator.",
             },
             "formula1": {
                 "type": "string",
                 "description": (
-                    "First formula/value. For FORMULA operator, this is the "
-                    "condition formula (e.g. 'A1>100'). For value operators, "
-                    "the comparison value (e.g. '50')."
+                    "First formula/value. For FORMULA, the condition (e.g. 'A1>100'). "
+                    "For value comparisons, the threshold (e.g. '50'). "
+                    "Omit or leave empty for DUPLICATE / NOT_DUPLICATE."
                 ),
             },
             "formula2": {
                 "type": "string",
-                "description": "Second formula/value (only for BETWEEN/NOT_BETWEEN).",
+                "description": "Second value (required for BETWEEN and NOT_BETWEEN).",
             },
             "style_name": {
                 "type": "string",
@@ -153,7 +209,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
                 ),
             },
         },
-        "required": ["range_name", "operator", "formula1", "style_name"],
+        "required": ["range_name", "operator", "style_name"],
     }
     is_mutation = True
 
@@ -161,28 +217,57 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         bridge = CalcBridge(ctx.doc)
         range_str = kwargs["range_name"]
         operator = kwargs["operator"]
-        formula1 = kwargs["formula1"]
         style_name = kwargs["style_name"]
-        formula2 = kwargs.get("formula2", "")
+        formula1 = kwargs.get("formula1") or ""
+        formula2 = kwargs.get("formula2") or ""
 
         try:
             from com.sun.star.beans import PropertyValue
             from com.sun.star.sheet.ConditionOperator import (
-                NONE, EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL,
-                LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA,
+                BETWEEN,
+                EQUAL,
+                FORMULA,
+                GREATER,
+                GREATER_EQUAL,
+                LESS,
+                LESS_EQUAL,
+                NONE,
+                NOT_BETWEEN,
+                NOT_EQUAL,
             )
 
+            try:
+                from com.sun.star.sheet import ConditionOperator2 as CO2
+
+                dup_a = int(CO2.DUPLICATE)
+                dup_b = int(CO2.NOT_DUPLICATE)
+            except Exception:
+                dup_a, dup_b = 10, 11
+
+            op_upper = operator.upper()
             op_map = {
-                "NONE": NONE, "EQUAL": EQUAL, "NOT_EQUAL": NOT_EQUAL,
-                "GREATER": GREATER, "GREATER_EQUAL": GREATER_EQUAL,
-                "LESS": LESS, "LESS_EQUAL": LESS_EQUAL,
-                "BETWEEN": BETWEEN, "NOT_BETWEEN": NOT_BETWEEN,
+                "NONE": NONE,
+                "EQUAL": EQUAL,
+                "NOT_EQUAL": NOT_EQUAL,
+                "GREATER": GREATER,
+                "GREATER_EQUAL": GREATER_EQUAL,
+                "LESS": LESS,
+                "LESS_EQUAL": LESS_EQUAL,
+                "BETWEEN": BETWEEN,
+                "NOT_BETWEEN": NOT_BETWEEN,
                 "FORMULA": FORMULA,
+                "DUPLICATE": dup_a,
+                "NOT_DUPLICATE": dup_b,
             }
 
-            op_val = op_map.get(operator.upper())
+            op_val = op_map.get(op_upper)
             if op_val is None:
                 raise UnoObjectError(f"Unknown condition operator: {operator}")
+
+            if op_upper in ("BETWEEN", "NOT_BETWEEN") and not formula2.strip():
+                raise UnoObjectError("formula2 is required for BETWEEN and NOT_BETWEEN.")
+            if op_upper not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
+                raise UnoObjectError("formula1 is required for this operator.")
 
             sheet = bridge.get_active_sheet()
             cell_range = bridge.get_cell_range(sheet, range_str)
@@ -209,7 +294,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             pv.Value = style_name
             props.append(pv)
 
-            formats = cell_range.getPropertyValue("ConditionalFormat")
+            formats = _ensure_table_conditional_format(ctx, cell_range)
             formats.addNew(tuple(props))
             cell_range.setPropertyValue("ConditionalFormat", formats)
 
@@ -224,6 +309,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         except Exception as e:
             logger.error("Add conditional format error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
+
 
 class RemoveConditionalFormats(ToolCalcConditionalBase):
     """Remove or clear conditional formatting rules from a cell range."""
@@ -261,16 +347,17 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
             formats = cell_range.getPropertyValue("ConditionalFormat")
 
             if index is not None:
-                if formats and 0 <= index < formats.getCount():
+                if formats is None or formats.getCount() == 0:
+                    return self._tool_error(f"No conditional formats on {range_str}.")
+                if 0 <= index < formats.getCount():
                     formats.removeByIndex(index)
                     cell_range.setPropertyValue("ConditionalFormat", formats)
                     return {"status": "ok", "range_name": range_str, "removed_index": index}
-                else:
-                    return self._tool_error(f"Rule index {index} not found on {range_str}.")
-            else:
+                return self._tool_error(f"Rule index {index} not found on {range_str}.")
+            if formats is not None:
                 formats.clear()
                 cell_range.setPropertyValue("ConditionalFormat", formats)
-                return {"status": "ok", "range_name": range_str, "cleared": True}
+            return {"status": "ok", "range_name": range_str, "cleared": True}
 
         except Exception as e:
             logger.error("Remove conditional formats error: %s", str(e))
