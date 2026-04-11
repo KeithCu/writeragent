@@ -79,11 +79,24 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
+# Brief hint for gateway tool JSON schemas (full rules: WRITER_SPECIALIZED_DELEGATION_TEMPLATE).
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
+    "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). "
+    "Be specific enough to use that power—vague tasks leave choices underspecified."
+)
+
+# Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED WRITER (nested tools):
 The default tool list hides deep Writer features.
 When the user needs those, call delegate_to_specialized_writer_toolset with:
 domain one of: {domains} —
-and a clear task string. The sub-agent only sees tools for that domain."""
+and a `task` string that fully specifies what the sub-agent must do. The sub-agent only sees tools for that domain, but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for the sub-agent).
+
+Rules for `task`:
+- Treat it as a complete natural-language specification, not a summary. Enumerate what must be true (types, layout, numbers, colors, style names, anchors, text). If the user was vague, state explicit defaults in the task rather than leaving them undefined.
+- Prefer **concrete, capability-rich** instructions over "minimal" or "basic" when the user is open to it: name specific variants (e.g. exact shape presets, styles, or operations) so the sub-agent can use the full API instead of picking a boring default.
+- Example (domain=shapes): `create_shape` can use on the order of **400+** distinct preset `shape_type` strings in LibreOffice's Enhanced Custom Shape catalog (flowchart-*, stars, callouts, symbols, arrows, etc.), plus standard `com.sun.star.drawing.*Shape` UNO types—so you can ask for a particular catalog name and styling rather than only "a rectangle."
+"""
 
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""{CORE_DIRECTIVES}
 

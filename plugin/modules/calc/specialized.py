@@ -20,7 +20,7 @@ import logging
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.base import ToolCalcSpecialBase
-from plugin.framework.constants import USE_SUB_AGENT
+from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
 
 log = logging.getLogger("writeragent.calc")
 
@@ -56,10 +56,7 @@ class DelegateToSpecializedCalc(ToolBase):
                 },
                 "task": {
                     "type": "string",
-                    "description": (
-                        "A detailed description of the task for the specialized "
-                        "agent to accomplish."
-                    ),
+                    "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
                 },
             },
             "required": ["domain", "task"],

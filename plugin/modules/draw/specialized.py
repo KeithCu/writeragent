@@ -1,6 +1,7 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase
+from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT
 
 log = logging.getLogger("writeragent.draw")
 
@@ -35,10 +36,7 @@ class DelegateToSpecializedDraw(ToolBase):
                 },
                 "task": {
                     "type": "string",
-                    "description": (
-                        "A detailed description of the task for the specialized "
-                        "agent to accomplish."
-                    ),
+                    "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
                 },
             },
             "required": ["domain", "task"],
