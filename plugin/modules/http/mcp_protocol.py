@@ -728,7 +728,7 @@ class MCPProtocolHandler:
         if content_length == 0:
             return {}
         raw = handler.rfile.read(content_length).decode("utf-8")
-        data = safe_json_loads(raw, default=None)
+        data = safe_json_loads(raw, default=None, strict=True)
         if data is None and raw.strip():
             log.warning("Invalid JSON body: %s", raw[:200])
             from plugin.framework.errors import AgentParsingError, format_error_payload

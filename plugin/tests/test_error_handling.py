@@ -54,9 +54,25 @@ class TestSafeJsonLoads(unittest.TestCase):
         self.assertEqual(safe_json_loads('"string"'), "string")
         self.assertEqual(safe_json_loads('123'), 123)
 
+    def test_safe_json_loads_repair_truncated(self):
+        # Truncated JSON should now be repaired and succeed
+        self.assertEqual(safe_json_loads('{"key": "value"'), {"key": "value"})
+        self.assertEqual(safe_json_loads('[1, 2'), [1, 2])
+        self.assertEqual(safe_json_loads('{"a": {"b": 1'), {"a": {"b": 1}})
+
+    def test_safe_json_loads_repair_trailing_comma(self):
+        self.assertEqual(safe_json_loads('{"key": "value",}'), {"key": "value"})
+        self.assertEqual(safe_json_loads('[1, 2, ]'), [1, 2])
+
+    def test_safe_json_loads_literal_eval(self):
+        # Python literal notation (single quotes) should succeed via literal_eval
+        self.assertEqual(safe_json_loads("{'key': 'value'}"), {"key": "value"})
+        self.assertEqual(safe_json_loads("[True, False, None]"), [True, False, None])
+
     def test_safe_json_loads_invalid(self):
-        self.assertIsNone(safe_json_loads('{"key": "value"'))
-        self.assertIsNone(safe_json_loads('invalid'))
+        # Still returns None for completely unparseable garbage
+        self.assertIsNone(safe_json_loads('not json at all'))
+        self.assertIsNone(safe_json_loads('<<< completely broken garbage >>>'))
 
     def test_safe_json_loads_wrong_type(self):
         self.assertIsNone(safe_json_loads(None))

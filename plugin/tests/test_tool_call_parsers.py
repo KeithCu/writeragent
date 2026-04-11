@@ -18,8 +18,11 @@ def test_hermes_parser_unclosed():
     text = '<tool_call>{"name": "test_tool", "arguments": {"cmd": "ls"}'
     content, tool_calls = parser.parse(text)
     
-    # Hermes returns None on JSONDecodeError from unclosed JSON
-    assert tool_calls is None
+    # Hermes parser now uses safe_json_loads which repairs truncated JSON
+    assert tool_calls is not None
+    assert len(tool_calls) == 1
+    assert tool_calls[0]["function"]["name"] == "test_tool"
+    assert tool_calls[0]["function"]["arguments"] == '{"cmd": "ls"}'
 
 def test_hermes_parser_normalization():
     parser = get_parser("hermes")

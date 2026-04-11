@@ -120,8 +120,8 @@ Some classes in [`content.py`](plugin/modules/writer/content.py) (e.g. **`CloneH
 **Chat config keys**: `chat_context_length`, `chat_max_tokens`, `additional_instructions`.
 
 ### HTML / Writer edits
-
 - `get_document_content` / `apply_document_content`: see [`format_support.py`](plugin/modules/writer/format_support.py). **`apply_document_content`** accepts `content` as JSON array of HTML strings; also coerces a JSON-encoded string of an array when providers double-encode.
+- **Robust JSON Parsing**: Tool call parsers use `safe_json_loads` (in [`plugin/framework/errors.py`](plugin/framework/errors.py)), which integrates robust repair logic: it attempts standard `json.loads`, then `strict=False` parsing (to handle control chars), followed by a custom `repair_json` step (merging truncated JSON braces and brackets), and finally an `ast.literal_eval` fallback for Python-style literal syntax (inspired by patterns in the `hermes-agent` project).
 - **Format preservation**: Prefer **plain-text** `content` in `apply_document_content` when you want to keep character formatting; avoid HTML-wrapped strings on that path (see **Format preservation** under §11).
 
 ### Unified prompts

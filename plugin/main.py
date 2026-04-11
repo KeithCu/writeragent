@@ -30,9 +30,21 @@ if _plugin_dir not in sys.path:
 
 
 # Add the vendor directory so cross-platform audio wheels (sounddevice, cffi) can be found
-_vendor_dir = os.path.join(_plugin_dir, "vendor")
-if _vendor_dir not in sys.path:
-    sys.path.insert(0, _vendor_dir)
+# Root vendor/: used during development/tests.
+_root_dir = os.path.dirname(_plugin_dir)
+_vendor_root = os.path.join(_root_dir, "vendor")
+if os.path.isdir(_vendor_root) and _vendor_root not in sys.path:
+    sys.path.insert(0, _vendor_root)
+
+# plugin/lib/: used in the bundled .oxt (see scripts/build_oxt.py)
+_lib_dir = os.path.join(_plugin_dir, "lib")
+if os.path.isdir(_lib_dir) and _lib_dir not in sys.path:
+    sys.path.insert(0, _lib_dir)
+
+# plugin/vendor/: legacy/future audio wheels path; kept for fallback
+_vendor_plugin = os.path.join(_plugin_dir, "vendor")
+if os.path.isdir(_vendor_plugin) and _vendor_plugin not in sys.path:
+    sys.path.insert(0, _vendor_plugin)
 
 import unohelper
 from types import ModuleType

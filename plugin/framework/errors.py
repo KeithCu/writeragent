@@ -21,6 +21,8 @@ All custom exceptions should inherit from WriterAgentException.
 
 
 import json
+import ast
+import re
 from typing import Any
 
 from plugin.framework.types import ToolResult, ToolError
@@ -193,24 +195,94 @@ def format_error_payload(e: Exception) -> dict[str, Any]:
     }
 
 
-def safe_json_loads(text: Any, default: Any = None) -> Any:
-    """Safely parse a JSON string into a Python object.
+def repair_json(text: str) -> str:
+    """Attempt to repair common JSON syntax errors from LLMs using json-repair.
+
+    Handles:
+    1. Truncated JSON (missing closing braces/brackets)
+    2. Trailing commas
+    3. Unquoted keys
+    4. Single quotes vs double quotes
+    5. Missing values
+
+    Returns:
+        The repaired JSON string.
+    """
+    if not isinstance(text, str):
+        return text
+
+    repaired = text.strip()
+    if not repaired:
+        return repaired
+
+    import json_repair
+    return str(json_repair.repair_json(repaired))
+
+
+def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any:
+    """Safely parse a JSON string into a Python object with optional robust repair logic.
+
+    Attempts:
+    1. Standard json.loads
+    2. json.loads with strict=False (handles raw control chars, per hermes-agent)
+    3. repair_json + json.loads (LLM/Robust mode only)
+    4. ast.literal_eval as final fallback (LLM/Robust mode only)
 
     Args:
         text: The string to parse.
         default: The value to return if parsing fails. Defaults to None.
+        strict: If True, only use standard JSON parsing (no repair). Defaults to False.
 
     Returns:
         The parsed Python object or the default value if an error occurs.
     """
     if not isinstance(text, (str, bytes, bytearray)):
         return default
-    try:
-        parsed = json.loads(text)
-        return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
-        # Catch RecursionError to prevent DoS from deeply nested structures
+
+    # Ensure we are working with a string for repair logic
+    raw_text = text.decode("utf-8", errors="replace") if isinstance(text, (bytes, bytearray)) else text
+    stripped = raw_text.strip()
+    if not stripped:
         return default
+
+    # 1. Standard attempt
+    try:
+        parsed = json.loads(stripped)
+        return parsed if parsed is not None else default
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    # 2. strict=False attempt (handles bare control characters)
+    try:
+        parsed = json.loads(stripped, strict=False)
+        return parsed if parsed is not None else default
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    # In strict mode, we stop here.
+    if strict:
+        return default
+
+    # 3. ast.literal_eval fallback (handles single quotes and Python-isms)
+    # Inspired by hermes-agent/environments/tool_call_parsers/qwen3_coder_parser.py
+    try:
+        # literal_eval handles 'True', 'False', 'None' out of the box.
+        # It also handles single quotes and tuple-like syntax.
+        parsed = ast.literal_eval(stripped)
+        return parsed if parsed is not None else default
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        pass
+
+    # 4. Repair attempt for truncated or malformed JSON
+    try:
+        repaired = repair_json(stripped)
+        if repaired != stripped:
+            parsed = json.loads(repaired, strict=False)
+            return parsed if parsed is not None else default
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    return default
 
 
 def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
@@ -233,7 +305,8 @@ def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
         return default
 
     # 1. Try standard JSON first (handles numbers, double-quoted strings, bools, null)
-    data = safe_json_loads(stripped, default=None)
+    # Use strict=True as literal_eval fallback is handled separately below for booleans/strings.
+    data = safe_json_loads(stripped, default=None, strict=True)
     if data is not None:
         return data
 

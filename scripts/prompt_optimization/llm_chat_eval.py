@@ -96,6 +96,7 @@ def _build_api_config(
         "model": model,
         "is_openwebui": False,
         "is_openrouter": "openrouter.ai" in ep.lower(),
+        "is_together": "together.xyz" in ep.lower(),
         "request_timeout": request_timeout,
         "chat_max_tool_rounds": max_tool_rounds,
     }
