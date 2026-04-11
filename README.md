@@ -23,7 +23,7 @@ WriterAgent provides powerful AI-driven capabilities integrated directly into yo
 Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between them in less than 2 seconds, maintaining full control over where your data goes.
 
 
-## For the GPU-poor: OpenRouter Free Models
+## For the GPU-poor
 
 If you don't have a powerful GPU, or an API key for LLMs, we encourage you to sign up for a service provider like [OpenRouter](https://openrouter.ai/collections/free-models) to access their extensive collection of free AI models. As they state on their platform:
 
@@ -34,13 +34,13 @@ Please note, the prompts to free models are often saved and used for training pu
 Another option is [Together.AI](https://www.together.ai/), which also has a variety of high-performance and intelligent cost-effective models with a generous, private,  free tier.
 
 
-### 2. Chat with Document & Architecture
-The main way to interact with your document. While you can ask it anything, **its primary job is to edit your document**, not just answer questions.
+### 2. Intelligent Document Interaction
+More than just a chatbot, this is a "Document Agent." It doesn't just read your text; it understands the structure—headings, bookmarks, cell ranges, and styles. **Its primary job is to act on your behalf**, performing complex edits that would otherwise take dozens of manual clicks.
 
 #### Features & Performance
 *   **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly. Chat history is automatically saved and restored using an ID, ensuring the conversation follows the document even if renamed or moved.
 *   **Responsive streaming & interleaved tools**: A background thread and queue keep the LibreOffice UI responsive  while reasoning, text, and multi-turn tool calls stream and execute.
-*   **Nested tool-calling API**: The full LibreOffice API would overwhelm any model, and bloat context, so the tool-calling is broken up into a simple API with commonly used-tools, and specialized toolsets that model can request to switch into. Via this design, the extension currently supports: rich text and page layout, shapes, charts, bookmarks, fields, footnotes, forms, comments, and track-changes. See See **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md) and [Calc specialized toolsets](docs/calc-specialized-toolsets.md)** for details and current status.
+*   **Nested tool-calling API**: The full LibreOffice API would overwhelm any model, and bloat context, so the tool-calling is broken up into a simple API with commonly used-tools, and specialized toolsets that model can request to switch into. Via this design, the extension currently supports: rich text and page layout, shapes, charts, bookmarks, fields, footnotes, forms, comments, and track-changes. See **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md) and [Calc specialized toolsets](docs/calc-specialized-toolsets.md)** for details and current status.
 *   **Audio Recording**: Integrated cross-platform voice support directly in the sidebar.
 *   **Image Generation**: Generate from chat or edit selected images (Img2Img) using AI Horde or your configured endpoint.
 *   **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
@@ -72,13 +72,12 @@ Two Writer shortcuts act on the current selection:
 *   **Extend selection** (`Ctrl+Q`): The model continues the selected text. Ideal for drafting emails, stories, or generating lists.
 *   **Edit selection** (`Ctrl+E`): Prompt the model to rewrite your selection according to specific instructions (e.g., "make this more formal", "translate to Spanish").
 
-### 5. HTML Richness & Compatibility (Writer)
-When you ask the AI to fix a typo or change a name, the result can keep the formatting you already had: highlights, bold, colors, font size, and so on.
+### 5. High-Fidelity Editing & Formatting
+WriterAgent is "format-aware." Unlike simpler plugins that strip away your hard work, our engine is designed to respect your document's visual integrity.
 
-*   **HTML-First Document Interaction**: While some models may still attempt to use Markdown, WriterAgent is optimized for HTML. This ensures higher fidelity for complex structures like tables and lists, and ensures the extension works robustly on versions of LibreOffice preceding the 26.2 release.
-*   **Native Formatting Persistence**: For structured content (HTML), WriterAgent injects AI-generated text using the import filter, mapping tags to native styles. For plain-text replacements (e.g. typo fixes), we preserve your existing per-character formatting so highlights, bold, and colors stay intact.
-*   **Auto-detection**: If the AI returns plain text, we use a format-preserving path that keeps your existing background colors and highlights. If it returns HTML (or Markdown), we use the native import path.
-*   **Format-preserving replacement (auto-detected)**: When the AI sends back plain text, WriterAgent automatically preserves every per-character property (colors, fonts, sizes).
+*   **Format Preservation**: When fixing typos or rephrasing, WriterAgent uses a "surgical" replacement method. It preserves your existing bold, italics, highlights, and font sizes—even if the AI sends back plain text.
+*   **HTML-First Architecture**: For complex elements like tables, nested lists, and colored layouts, we use a robust HTML import layer. This ensures that what the AI "sees" and what it "writes" matches the professional standards of LibreOffice.
+*   **Legacy Support**: Optimized to work perfectly even on older versions of LibreOffice (pre-26.2) where native Markdown support is unavailable.
 
 ### Ongoing Challenge: Styles vs. Custom Formatting
 One of the unique challenges of building an AI assistant for a rich word processor, unlike a plain-text code editor, is the multiple ways of applying formatting. Eventually, we will encourage models to output properly classed HTML that maps to your LibreOffice template. See [LLM_STYLES.md](LLM_STYLES.md).
@@ -95,6 +94,15 @@ You can plug in **external agent backends** so that Chat with Document uses an e
 
 *   **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: Spawns Hermes locally as a subprocess using the Agent Communication Protocol (ACP) via stdio.
 *   **HITL (Approve/Reject)**: If a backend requests approval for a tool call, a dialog appears for the user.
+
+## Built for Professional Reliability
+
+WriterAgent is engineered like a standalone application, prioritizing stability and predictable behavior.
+
+*   **Engineered with Finite State Machines**: Complex AI interactions are managed by a Finite State Machine (FSM). This architectural choice breaks down the extension's behavior into small, isolated, and highly testable units of logic. This ensures that multi-turn tool calling is predictable and robust, even as the codebase grows.
+*   **Modern Software Standards**: We utilize advanced static type checking (Mypy/Pyright) and a comprehensive automated test suite to catch bugs during development. This rigor ensures a level of stability rare for office extensions.
+
+![State Machine Architecture](Showcase/full_super_unified_complete.png)
 
 ## Credits & Collaboration
 
@@ -121,6 +129,9 @@ To handle complex spreadsheet tasks, WriterAgent is optimized for high-throughpu
 *   **Optimized Ranges**: Formatting and number formats are applied at the range level, minimizing UNO calls and ensuring the UI remains fluid even during heavy document analysis.
 
 ## Recent Progress & Benchmarks (Apr 2026)
+
+<details>
+<summary><b>Click to expand: LLM Evaluation Suite & Efficiency Rankings</b></summary>
 
 We have recently integrated an internal **LLM Evaluation Suite** directly into the LibreOffice UI. This allows users and developers to benchmark models across 10 (so far) real-world tasks in Writer, Calc, and Draw, tracking both accuracy and **Intelligence-per-Dollar (IpD)**. By fetching real-time pricing from OpenRouter, the system calculates the exact cost of every AI turn and ranks backends by **Value (C²/$)**—average correctness squared, divided by average dollars per run (higher is better).
 
@@ -169,6 +180,7 @@ This benchmarking framework is used to tune system prompts and select the best-p
 This framework allows us to differentiate between "Flash" models that prioritize speed and "Frontier" models that possess the "taste" and refinement needed for professional documents.
 
 **Fine-tuning.** An interesting direction is to **fine-tune a model** specifically for this tool set and task distribution: the same correctness could potentially be achieved with fewer reasoning steps and fewer tokens, improving both latency and Value (C²/$). The existing eval and dataset are a natural training signal (correct vs incorrect tool use, minimal vs verbose traces).
+</details>
 
 ## Getting started
 
