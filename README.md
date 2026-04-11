@@ -107,7 +107,7 @@ You can plug in **external agent backends** so that Chat with Document uses an e
 
 WriterAgent is engineered like a standalone application, prioritizing stability.
 
-- **Engineered with Finite State Machines**: Complex AI interactions are managed by a Finite State Machine (FSM). This architectural choice breaks down the extension's behavior into small, isolated, and highly testable units of logic. This ensures that multi-turn tool calling is predictable and robust, even as the codebase grows. See [Formal Verification](docs/formal_verification.md).
+- **Engineered with Finite State Machines**: Complex AI interactions are managed by a Finite State Machine (FSM). This architecture breaks down the extension's behavior into small, isolated, and testable units of logic. This ensures that multi-turn tool calling is predictable and robust, even as the codebase grows. See [Formal Verification](docs/formal_verification.md).
 - **Modern Software Standards**: Advanced static type checking and a comprehensive test suite.
 
 ![State Machine Architecture](Showcase/full_super_unified_complete.png)
