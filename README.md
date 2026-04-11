@@ -120,48 +120,47 @@ To handle complex spreadsheet tasks, WriterAgent is optimized for high-throughpu
 *   **High-Volume Insertion**: The `write_formula_range` tool allows the AI to generate and inject large CSV datasets instantly. This is orders of magnitude faster than inserting data cell-by-cell; we found that providing these batch tools encourages the AI to perform far more ambitious spreadsheet automation and data analysis.
 *   **Optimized Ranges**: Formatting and number formats are applied at the range level, minimizing UNO calls and ensuring the UI remains fluid even during heavy document analysis.
 
-## Recent Progress & Benchmarks (Feb 2026)
+## Recent Progress & Benchmarks (Apr 2026)
 
-We have recently integrated an internal **LLM Evaluation Suite** directly into the LibreOffice UI. This allows users and developers to benchmark models across 10 (so far) real-world tasks in Writer, Calc, and Draw, tracking both accuracy and **Intelligence-per-Dollar (IpD)**. By fetching real-time pricing from OpenRouter, the system calculates the exact cost of every AI turn and ranks backends by their value-to-performance ratio.
+We have recently integrated an internal **LLM Evaluation Suite** directly into the LibreOffice UI. This allows users and developers to benchmark models across 10 (so far) real-world tasks in Writer, Calc, and Draw, tracking both accuracy and **Intelligence-per-Dollar (IpD)**. By fetching real-time pricing from OpenRouter, the system calculates the exact cost of every AI turn and ranks backends by **Value (C²/$)**—average correctness squared, divided by average dollars per run (higher is better).
 
-**Top 10 models by Value (C²/$)** (Writer eval set; (avg correctness)² ÷ total cost; higher = better quality/value ratio):
+### Intelligence per dollar (higher is better)
 
-| Rank | Model | Value (C²/$) | Avg Correctness | Tokens/Run | Cost ($) |
-|------|--------|----------|-----------------|------------|----------|
-| 1 | openai/gpt-oss-120b | 263.8 | 0.920 | 50,198 | 0.0032 |
-| 2 | google/gemini-3-flash-preview | 141.0 | 0.940 | 50,179 | 0.0063 |
-| 3 | openai/gpt-4o-mini | 70.5 | 0.790 | 47,540 | 0.0089 |
-| 4 | nvidia/nemotron-3-nano-30b-a3b | 60.6 | 0.560 | 50,243 | 0.0052 |
-| 5 | x-ai/grok-4.1-fast | 46.5 | 0.980 | 66,929 | 0.0207 |
-| 6 | nex-agi/deepseek-v3.1-nex-n1 | 39.4 | 0.915 | 64,222 | 0.0213 |
-| 7 | minimax/minimax-m2.1 | 39.2 | 0.983 | 62,394 | 0.0246 |
-| 8 | mistralai/devstral-2512 | 27.9 | 0.910 | 57,150 | 0.0297 |
-| 9 | z-ai/glm-4.7 | 26.9 | 0.953 | 63,035 | 0.0337 |
-| 10 | qwen/qwen3.5-27b | 26.5 | 0.993 | 52,210 | 0.0371 |
-| 11 | openai/gpt-5-nano | 26.4 | 0.825 | 99,576 | 0.0258 |
-| 12 | allenai/olmo-3.1-32b-instruct | 20.8 | 0.570 | 68,317 | 0.0156 |
-| 13 | qwen/qwen3.5-122b-a10b | 14.9 | 0.932 | 62,424 | 0.0583 |
-| 14 | qwen/qwen3.5-35b-a3b | 13.1 | 0.980 | 80,773 | 0.0734 |
-| 15 | anthropic/claude-haiku-4.5 | 11.3 | 0.993 | 60,730 | 0.0874 |
-| 16 | nvidia/nemotron-3-super-120b-a12b:free | 9.3 | 0.770 | 138,870 | 0.0639 |
-| 17 | anthropic/claude-sonnet-4.6 | 4.3 | 1.000 | 54,890 | 0.2351 |
+| Rank | Model | Avg correctness | Avg score | Avg tokens | Avg cost ($) | Value (C²/$) |
+|------|-------|-----------------|-----------|------------|--------------|-------------|
+| 1 | openai/gpt-oss-120b | 0.980 | 0.942 | 3767.1 | 0.00025 | 3827.240 |
+| 2 | google/gemini-3-flash-preview | 0.890 | 0.860 | 2957.2 | 0.00035 | 2234.257 |
+| 3 | qwen/qwen3.5-9b | 0.730 | 0.691 | 4645.0 | 0.00050 | 1068.806 |
+| 4 | nvidia/nemotron-3-nano-30b-a3b | 0.922 | 0.851 | 7195.5 | 0.00082 | 1037.536 |
+| 5 | mistralai/devstral-2512 | 0.980 | 0.950 | 3000.8 | 0.00154 | 623.434 |
+| 6 | inception/mercury-2 | 0.948 | 0.896 | 5150.9 | 0.00160 | 562.405 |
+| 7 | minimax/minimax-m2.7 | 0.990 | 0.943 | 4671.9 | 0.00191 | 512.581 |
+| 8 | deepseek/deepseek-v3.2 | 0.985 | 0.909 | 7575.4 | 0.00206 | 470.222 |
+| 9 | qwen/qwen3.5-35b-a3b | 0.990 | 0.933 | 5671.1 | 0.00220 | 445.760 |
+| 10 | x-ai/grok-4.1-fast | 0.950 | 0.886 | 6431.9 | 0.00204 | 442.733 |
+| 11 | qwen/qwen3.5-27b | 0.993 | 0.942 | 5049.9 | 0.00259 | 380.538 |
+| 12 | qwen/qwen3.5-122b-a10b | 0.990 | 0.950 | 3958.8 | 0.00308 | 318.312 |
+| 13 | nvidia/nemotron-3-super-120b-a12b:free | 0.757 | 0.696 | 6388.4 | 0.00181 | 317.859 |
+| 14 | allenai/olmo-3.1-32b-instruct | 0.323 | 0.306 | 1912.4 | 0.00046 | 226.704 |
+| 15 | z-ai/glm-5.1 | 0.890 | 0.843 | 4677.8 | 0.00524 | 151.141 |
+
 ---
 
-### Key Benchmarking Insights (Feb 2026)
+### Key Benchmarking Insights (Apr 2026)
 
-Our recent transition to **Quadratic Utility Scoring ($Value = C^2/USD$)** and hardened, realistic datasets has revealed several counter-intuitive truths about AI document engineering:
+**Quadratic utility** (Value = C² ÷ average USD per run) on hardened, realistic Writer tasks highlights a few patterns that raw “accuracy only” tables can hide:
 
-#### 1. The "Verbosity Tax" (Example: Qwen 35B vs 122B)
-List prices don't tell the whole story. **Qwen 35B-A3B** (Rank 14) has a list price ~37% lower than the flagship **Qwen 122B-A10B** (Rank 13). However, because the 35B model is far more "chatty" (using 80,773 tokens vs 62,424 for the same tasks), it actually **costs 25% more** to complete the benchmark. This "Verbosity Tax" easily wipes out the perceived savings of smaller models.
+#### 1. Verbosity vs. average cost (Qwen 35B vs 122B)
+**Qwen 3.5-35B-A3B** (rank 9) uses more tokens per run on average (**~5,671**) than **Qwen 3.5-122B-A10B** (rank 12, **~3,959**), but its lower **average cost per run** (**~\$0.00220** vs **~\$0.00308**) still yields a higher **Value (C²/$)** (**~446** vs **~318**). Token count alone does not determine dollar efficiency; list pricing and usage patterns interact.
 
-#### 2. The "Quality Premium"
-By squaring the correctness score ($C^2$), we ensure that "cheap but broken" models like **Nemotron** (#4) no longer dominate the leaderboard. A model that fails ~45% of professional office tasks is accurately penalized as a liability, allowing smarter, more reliable models like **GPT-4o-mini** to leapfrog them in value.
+#### 2. C² punishes unreliable “cheap” runs
+**OLMo 3.1 32B Instruct** (rank 14) shows **~0.32** average correctness—squaring it crushes value despite a low **~\$0.00046** average cost. **Nemotron 3 Super 120B (free)** (rank 13) sits at **~0.76** correctness with mediocre value, a reminder that “free” or inexpensive is not enough when quality collapses.
 
-#### 3. The Value "Elite": Gemini 3 Flash
-**Google Gemini 3 Flash** (Rank 2) is currently the "best all-rounder" for WriterAgent. It maintains near-perfect accuracy (**0.940**) while remaining cheap enough to yield a value of **141.0**—nearly twice that of the nearest competitor in its tier.
+#### 3. Value leader: GPT-OSS 120B
+**openai/gpt-oss-120b** (rank 1) pairs **~0.98** average correctness with a very low **~\$0.00025** average cost per run, for **Value (C²/$) ≈ 3827**. **Google Gemini 3 Flash** (rank 2) remains a strong second (**~0.89** correctness, **Value ≈ 2234**) on this snapshot.
 
-#### 4. The "Budget Sonnet": Qwen 27B
-While **Claude Sonnet 4.6** (Rank 16) is our only perfect 1.000 accuracy model, **Qwen 3.5-27B** (Rank 10) achieved an incredible **0.993** accuracy at less than 1/6th the cost. If you need flawless document engineering on a budget, the dense Qwen 27B is currently the "Gold Standard" of high-intensity mid-range models.
+#### 4. Near-ceiling accuracy in the mid-pack
+**Qwen 3.5-27B** (rank 11) reaches **~0.993** average correctness—among the highest in the table—while **x-ai/grok-4.1-fast** (rank 10) sits at **~0.95** with similar average cost. Both are useful “accuracy-first” options when the ranking metric is dominated by models with even lower **$/run** at the top.
 
 This benchmarking framework is used to tune system prompts and select the best-performing models for local-first office automation. Details: [scripts/prompt_optimization/README.md](scripts/prompt_optimization/README.md).
 
