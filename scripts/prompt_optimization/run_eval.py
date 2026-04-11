@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
 Run the Writer assistant on the dataset (no optimization).
+
+Uses LlmClient + the same multi-round tool loop as sidebar chat (not DSPy ReAct).
+Default document backend is in-memory HTML; use --backend lo for headless Writer.
+
 Shows per-example: task_id, expected/reject checks, correctness, tokens, score, and doc snippet.
 
 Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   cd scripts/prompt_optimization
   python run_eval.py                    # run all examples
+  python run_eval.py --backend lo       # use LibreOffice instead of string simulator
   python run_eval.py --example table_from_mess   # run one task_id
   python run_eval.py -n 2               # run first 2 examples only
   python run_eval.py -v                 # verbose: print every tool call
@@ -28,11 +33,8 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import dspy
-
 from dataset import ALL_EXAMPLES, to_dspy_examples
-from program import build_program
-from eval_core import run_eval_on_examples, summarize_results
+from eval_core import run_eval_on_examples_llm, summarize_results
 import tools_lo
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
@@ -60,6 +62,15 @@ def main():
     p.add_argument("--compare-with", metavar="JSON", help="Compare: run with current prompt, then with prompt from JSON file, report both scores.")
     p.add_argument("--debug-usage", action="store_true", help="Print raw get_lm_usage() when tokens=0 to debug token extraction.")
     p.add_argument("--no-bust-cache", action="store_true", help="Disable cache-busting (default: enabled for accurate token counts with OpenRouter).")
+    p.add_argument(
+        "--backend",
+        choices=("string", "lo"),
+        default="string",
+        help=(
+            "Document backend: 'string' (in-memory HTML, default, no LibreOffice) or "
+            "'lo' (headless Writer via tools_lo)."
+        ),
+    )
     args = p.parse_args()
 
     api_key = args.api_key
@@ -71,9 +82,7 @@ def main():
     if not api_key and "openrouter" in api_base.lower():
         print("Warning: OPENROUTER_API_KEY (or OPENAI_API_KEY) not set.", file=sys.stderr)
 
-    print(f"Model: {model} @ {api_base}\n")
-    lm = dspy.LM(model=model, api_key=api_key, api_base=api_base, model_type="chat")
-    dspy.configure(lm=lm)
+    print(f"Model: {model} @ {api_base}  backend={args.backend}\n")
 
     examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
     if args.example:
@@ -89,7 +98,8 @@ def main():
     print(f"Running {n} example(s). Each can take 15–60+ seconds (multiple API calls). Total often 2–10 min.\n")
     sys.stdout.flush()
 
-    tools_lo.LOBackend.start()
+    if args.backend == "lo":
+        tools_lo.LOBackend.start()
     try:
         if args.compare_with:
             # Compare mode: run both prompts and report
@@ -106,12 +116,15 @@ def main():
                 return 1
 
             print("=" * 60)
-            print("PROMPT A: Current (from core/constants.py)")
+            print("PROMPT A: Current (get_writer_eval_chat_system_prompt)")
             print("=" * 60)
-            program_a = build_program(instruction=None, tool_names=None)
-            results_a = run_eval_on_examples(
-                program_a,
+            results_a = run_eval_on_examples_llm(
                 examples,
+                endpoint=api_base,
+                api_key=api_key,
+                model=model,
+                instruction=None,
+                backend=args.backend,
                 verbose=args.verbose,
                 debug_usage=args.debug_usage,
                 bust_cache=not args.no_bust_cache,
@@ -121,10 +134,13 @@ def main():
             print("=" * 60)
             print(f"PROMPT B: From {compare_path.name}")
             print("=" * 60)
-            program_b = build_program(instruction=alt_instruction, tool_names=None)
-            results_b = run_eval_on_examples(
-                program_b,
+            results_b = run_eval_on_examples_llm(
                 examples,
+                endpoint=api_base,
+                api_key=api_key,
+                model=model,
+                instruction=alt_instruction,
+                backend=args.backend,
                 verbose=args.verbose,
                 debug_usage=args.debug_usage,
                 bust_cache=not args.no_bust_cache,
@@ -150,10 +166,13 @@ def main():
                 print("  -> Tie")
             return 0
 
-        program = build_program(instruction=None, tool_names=None)
-        results = run_eval_on_examples(
-            program,
+        results = run_eval_on_examples_llm(
             examples,
+            endpoint=api_base,
+            api_key=api_key,
+            model=model,
+            instruction=None,
+            backend=args.backend,
             verbose=args.verbose,
             debug_usage=args.debug_usage,
             bust_cache=not args.no_bust_cache,
@@ -166,7 +185,8 @@ def main():
             )
         return 0
     finally:
-        tools_lo.LOBackend.stop()
+        if args.backend == "lo":
+            tools_lo.LOBackend.stop()
 
 
 if __name__ == "__main__":

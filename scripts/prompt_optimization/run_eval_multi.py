@@ -2,14 +2,15 @@
 """
 Run the Writer assistant across multiple models and compare intelligence per dollar.
 
-This reuses the same dataset, program, and metric as run_eval.py, but iterates
-over a set of model configurations (see model_configs.py) and estimates cost
-using list prices (USD per 1M tokens).
+This reuses the same dataset and metric as run_eval.py (LlmClient tool loop;
+default in-memory `--backend string`), but iterates over model configurations
+(see model_configs.py) and estimates cost using list prices (USD per 1M tokens).
 
 Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   cd scripts/prompt_optimization
   python run_eval_multi.py
+  python run_eval_multi.py --backend lo  # LibreOffice instead of string simulator
   python run_eval_multi.py --models openai/gpt-oss-120b,openai/gpt-4o-mini
   python run_eval_multi.py -n 2
   python run_eval_multi.py -j 8   # 8 models in parallel (default)
@@ -27,9 +28,8 @@ from typing import Any, Iterable, Sequence
 import dspy
 
 from dataset import ALL_EXAMPLES, to_dspy_examples
-from eval_core import ExampleEval
+from eval_core import ExampleEval, run_eval_on_examples_llm
 from model_configs import MODEL_BY_ID, ModelConfig, get_default_models
-from program import build_program
 import tools_lo as _tools_lo
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,6 +54,13 @@ def _get_lm(model_id: str, api_key: str, api_base: str) -> dspy.LM:
     if "openrouter" in api_base.lower() and not model.startswith("openrouter/"):
         model = "openrouter/" + model
     return dspy.LM(model=model, api_key=api_key, api_base=api_base, model_type="chat")
+
+
+def _normalize_openrouter_model(model_id: str, api_base: str) -> str:
+    m = model_id
+    if "openrouter" in api_base.lower() and not m.startswith("openrouter/"):
+        m = "openrouter/" + m
+    return m
 
 
 def _estimate_cost_usd(
@@ -128,13 +135,13 @@ def _run_one_model(
     bust_cache: bool,
     judge_model_id: str | None = None,
     gold_model_id: str | None = None,
+    backend: str = "string",
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
     import dspy
     from dataset import ALL_EXAMPLES, to_dspy_examples
-    from eval_core import run_eval_on_examples, summarize_results
+    from eval_core import summarize_results
     from model_configs import MODEL_BY_ID
-    from program import build_program
 
     _tools_lo.VERBOSE = verbose
     examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
@@ -143,30 +150,30 @@ def _run_one_model(
     if n is not None:
         examples = examples[:n]
     cfg = MODEL_BY_ID[model_id]
-    model = model_id
-    lm = _get_lm(model_id, api_key, api_base)
-    
+    model = _normalize_openrouter_model(model_id, api_base)
+
     judge_lm = None
     if judge_model_id:
         judge_lm = _get_lm(judge_model_id, api_key, api_base)
-    
+
     gold_lm = None
     if gold_model_id:
         gold_lm = _get_lm(gold_model_id, api_key, api_base)
 
-    # Use context instead of configure() so worker threads don't touch global dspy.settings
-    with dspy.settings.context(lm=lm, cache=False, track_usage=True):
-        program = build_program(instruction=None, tool_names=None)
-        results = run_eval_on_examples(
-            program,
-            examples,
-            verbose=verbose,
-            debug_usage=debug_usage,
-            bust_cache=bust_cache,
-            quiet=False,
-            judge_lm=judge_lm,
-            gold_lm=gold_lm,
-        )
+    results = run_eval_on_examples_llm(
+        examples,
+        endpoint=api_base,
+        api_key=api_key,
+        model=model,
+        instruction=None,
+        backend=backend,
+        verbose=verbose,
+        debug_usage=debug_usage,
+        bust_cache=bust_cache,
+        quiet=False,
+        judge_lm=judge_lm,
+        gold_lm=gold_lm,
+    )
     summary = summarize_results(results)
     total_cost = _estimate_cost_usd(results, cfg)
     avg_cost_per_example = total_cost / len(results) if results else 0.0
@@ -243,7 +250,7 @@ def main() -> int:
         "--example",
         "-e",
         metavar="TASK_ID",
-        help="Run only this task_id (e.g. table_from_mess).",
+        help="Run only this task_id (e.g. table_from_mess). Recommended with --generate-golds (one teacher call per run).",
     )
     p.add_argument(
         "-n",
@@ -288,7 +295,19 @@ def main() -> int:
     p.add_argument(
         "--generate-golds",
         action="store_true",
-        help="One-time generation of gold standard answers using the gold-model. Saves to gold_standards.json.",
+        help=(
+            "Generate gold answers with --gold-model (default Sonnet; costly with tool-calling). "
+            "Writes/merges gold_standards.json. By default only one example per run — use -e TASK_ID or -n 1; "
+            "for several in one invocation pass --yes-multi-gold."
+        ),
+    )
+    p.add_argument(
+        "--yes-multi-gold",
+        action="store_true",
+        help=(
+            "With --generate-golds, allow more than one dataset example in this process "
+            "(multiple teacher API calls). Omit this to force single-example runs."
+        ),
     )
     p.add_argument(
         "--jobs",
@@ -296,6 +315,15 @@ def main() -> int:
         type=int,
         default=8,
         help="Number of models to run in parallel (default: 8). Use 1 for sequential (verbose) run.",
+    )
+    p.add_argument(
+        "--backend",
+        choices=("string", "lo"),
+        default="string",
+        help=(
+            "Document backend: 'string' (in-memory HTML, default) or "
+            "'lo' (headless Writer)."
+        ),
     )
     args = p.parse_args()
 
@@ -342,24 +370,55 @@ def main() -> int:
     # One-time gold generation logic
     if args.generate_golds:
         import json
+
+        from llm_chat_eval import run_llm_chat_eval
+        from plugin.framework.constants import get_writer_eval_chat_system_prompt
+
+        if len(examples) > 1 and not args.yes_multi_gold:
+            print(
+                "Refusing: --generate-golds would run multiple examples (multiple costly --gold-model calls). "
+                "Run one task: add -e <task_id> or -n 1, or pass --yes-multi-gold to generate many in one go.",
+                file=sys.stderr,
+            )
+            return 1
         print(f"Generating gold standards for {len(examples)} examples using {args.gold_model}...")
-        gold_lm = _get_lm(args.gold_model, api_key, api_base)
-        # We use a dummy program but configure it with the gold LM
-        program = build_program(instruction=None, tool_names=None)
-        
-        # We can't use run_eval_on_examples directly easily because we want to save them
-        # so let's just do a simple loop here.
-        gold_map = {}
-        with dspy.settings.context(lm=gold_lm, cache=False):
+        gm = _normalize_openrouter_model(args.gold_model, api_base)
+        inst = get_writer_eval_chat_system_prompt()
+
+        gold_map: dict[str, str] = {}
+        if args.backend == "lo":
+            _tools_lo.LOBackend.start()
+        try:
             for i, ex in enumerate(examples):
                 tid = getattr(ex, "task_id", f"example_{i}")
                 print(f"  [{i+1}/{len(examples)}] Generating gold for {tid}...")
-                pred = program(document_content=ex.document_content, user_question=ex.user_question)
-                gold_map[tid] = getattr(pred, "final_document", "")
-        
+                html, _, gerr = run_llm_chat_eval(
+                    system_prompt=inst,
+                    document_content=ex.document_content,
+                    user_question=ex.user_question,
+                    endpoint=api_base,
+                    api_key=api_key,
+                    model=gm,
+                    backend=args.backend,
+                    verbose=args.verbose,
+                )
+                if gerr:
+                    print(f"  Warning: gold error for {tid}: {gerr}", file=sys.stderr)
+                gold_map[tid] = html
+        finally:
+            if args.backend == "lo":
+                _tools_lo.LOBackend.stop()
+
         out_p = SCRIPT_DIR / "gold_standards.json"
-        out_p.write_text(json.dumps(gold_map, indent=2), encoding="utf-8")
-        print(f"\nDone! Saved {len(gold_map)} gold standards to {out_p}")
+        merged: dict[str, str] = {}
+        if out_p.exists():
+            try:
+                merged = json.loads(out_p.read_text(encoding="utf-8"))
+            except Exception:
+                merged = {}
+        merged.update(gold_map)
+        out_p.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        print(f"\nDone! Saved {len(gold_map)} gold standard(s) to {out_p} (merged with existing keys).")
         return 0
 
     jobs = max(1, args.jobs)
@@ -370,9 +429,9 @@ def main() -> int:
     )
     sys.stdout.flush()
 
-    _tools_lo.LOBackend.start()
+    if args.backend == "lo":
+        _tools_lo.LOBackend.start()
     try:
-        model_summaries: list[dict[str, Any]] = []
         if jobs <= 1:
             # Sequential: verbose per-model and per-example output
             for model_id in model_ids:
@@ -396,6 +455,7 @@ def main() -> int:
                     not args.no_bust_cache,
                     args.judge,
                     args.gold_model,
+                    args.backend,
                 )
                 model_summaries.append(res["summary"])
                 
@@ -428,6 +488,7 @@ def main() -> int:
                         not args.no_bust_cache,
                         args.judge,
                         args.gold_model,
+                        args.backend,
                     ): model_id
                     for model_id in model_ids
                 }
@@ -468,7 +529,8 @@ def main() -> int:
                         if out_path:
                             _write_results(out_path, model_summaries)
     finally:
-        _tools_lo.LOBackend.stop()
+        if args.backend == "lo":
+            _tools_lo.LOBackend.stop()
 
     # Print sorted summary
     if not model_summaries:

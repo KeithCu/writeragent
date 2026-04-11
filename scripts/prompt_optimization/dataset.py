@@ -11,11 +11,6 @@ repo_root = Path(__file__).resolve().parent.parent.parent
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-try:
-    from core.constants import FORMAT_RULES
-except Exception:
-    FORMAT_RULES = ""
-
 # ---------------------------------------------------------------------------
 # 1. Table from mess (cleanup and make pretty)
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """
-DSPy program for Writer prompt optimization.
-Uses mock tools and an in-memory document; the system prompt is the instruction we optimize.
+DSPy program for Writer prompt optimization (MIPROv2 / run_optimize.py only).
+
+Benchmarks use LlmClient + llm_chat_eval (run_eval.py); this module stays ReAct + tools_lo.
 """
 from __future__ import annotations
 
@@ -14,12 +15,10 @@ if str(repo_root) not in sys.path:
 import dspy
 from tools_lo import set_document, get_content_as_html, get_tools_subset
 
-# Default instruction (Writer system prompt). MIPROv2 will propose alternatives.
-try:
-    from core.constants import DEFAULT_CHAT_SYSTEM_PROMPT
-except Exception:
-    DEFAULT_CHAT_SYSTEM_PROMPT = """You are a LibreOffice document assistant.
-Use get_document_content to read and apply_document_content to write. Do not explain, just do the task using tools."""
+from plugin.framework.constants import get_writer_eval_chat_system_prompt
+
+# Same rules/HTML contract as Writer chat; tools limited to tools_lo (see get_writer_eval_chat_system_prompt).
+DEFAULT_CHAT_SYSTEM_PROMPT = get_writer_eval_chat_system_prompt()
 
 
 class WriterAssistant(dspy.Module):

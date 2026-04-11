@@ -294,6 +294,7 @@ class SendHandlersMixin:
                 res = get_tools().execute(
                     "generate_image",
                     tctx,
+                    bypass_thread_guard=False,
                     **{
                         "prompt": query_text,
                         "aspect_ratio": mapped_aspect,
@@ -621,6 +622,7 @@ class SendHandlersMixin:
                     res = get_tools().execute(
                         "librarian_onboarding",
                         tctx,
+                        bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text}
                     )
                     result = json.dumps(res) if isinstance(res, dict) else str(res)
@@ -658,6 +660,7 @@ class SendHandlersMixin:
                     res = get_tools().execute(
                         "web_research",
                         tctx,
+                        bypass_thread_guard=False,
                         **{"query": query_text, "history_text": history_text}
                     )
                     result = json.dumps(res) if isinstance(res, dict) else str(res)

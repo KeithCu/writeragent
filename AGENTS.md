@@ -51,6 +51,8 @@ writeragent/
 └── writeragent.json.example
 ```
 
+**Prompt optimization / benchmarks** ([`scripts/prompt_optimization/`](scripts/prompt_optimization/README.md)): `run_eval.py` and `run_eval_multi.py` use **`LlmClient`** + multi-round tool loop ([`llm_chat_eval.py`](scripts/prompt_optimization/llm_chat_eval.py)) with the same three tool names as chat; default document backend is **in-memory HTML** (`--backend string`, [`string_eval_tools.py`](scripts/prompt_optimization/string_eval_tools.py)). Use **`--backend lo`** for headless Writer + [`tools_lo.py`](scripts/prompt_optimization/tools_lo.py). **`program.py`** / **`run_optimize.py`** stay **DSPy ReAct** for MIPROv2 prompt experiments. `run_eval_multi.py --generate-golds` defaults to **one dataset example per invocation** unless `--yes-multi-gold`. Eval system prompt: [`get_writer_eval_chat_system_prompt()`](plugin/framework/constants.py). LO eval tools call [`ToolRegistry.execute(..., bypass_thread_guard=True)`](plugin/framework/tool_registry.py) because UNO runs on the harness worker thread, not Python’s main thread.
+
 UNO split (no monolithic `uno_helpers.py`): context helpers → [`plugin/framework/uno_context.py`](plugin/framework/uno_context.py); document helpers → [`plugin/framework/document.py`](plugin/framework/document.py); dialog control helpers (`get_optional`, checkbox helpers, `TabListener`) → [`plugin/framework/dialogs.py`](plugin/framework/dialogs.py).
 
 ---

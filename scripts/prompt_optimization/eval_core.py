@@ -7,13 +7,20 @@ This centralizes correctness / token accounting so both run_eval.py and
 multi-model scripts can reuse the same logic.
 """
 
+import sys
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable, List, Tuple
 
 import dspy
 
 from metric import TOKEN_PENALTY_LAMBDA
 from program import build_program
+
+_PO = Path(__file__).resolve().parent
+if str(_PO) not in sys.path:
+    sys.path.insert(0, str(_PO))
 
 
 class JudgeSignature(dspy.Signature):
@@ -373,6 +380,199 @@ def run_eval_on_examples(
                 )
             if not quiet:
                 print()
+    return results
+
+
+def run_eval_on_examples_llm(
+    examples: Iterable[Any],
+    *,
+    endpoint: str,
+    api_key: str,
+    model: str,
+    instruction: str | None = None,
+    backend: str = "string",
+    max_tool_rounds: int = 25,
+    verbose: bool = False,
+    debug_usage: bool = False,
+    bust_cache: bool = True,
+    quiet: bool = False,
+    judge_lm: dspy.LM | None = None,
+    gold_lm: dspy.LM | None = None,
+) -> List[ExampleEval]:
+    """
+    Run benchmarks with ``LlmClient`` + tool loop (same tool names as production chat).
+
+    - ``backend`` ``string``: in-memory HTML via ``StringDocState`` (default, no LibreOffice).
+    - ``backend`` ``lo``: headless Writer + ``tools_lo`` (start/stop LO outside this function).
+    """
+    from plugin.framework.constants import get_writer_eval_chat_system_prompt
+
+    from llm_chat_eval import run_llm_chat_eval
+
+    base_instruction = instruction or get_writer_eval_chat_system_prompt()
+    results: list[ExampleEval] = []
+    examples = list(examples)
+    n = len(examples)
+
+    for i, ex in enumerate(examples):
+        task_id = getattr(ex, "task_id", "") or f"example_{i}"
+        category = getattr(ex, "category", "structural")
+        doc = getattr(ex, "document_content", "")
+        question = getattr(ex, "user_question", "")
+        rubric = getattr(ex, "rubric", "")
+        gold = getattr(ex, "gold_document", "")
+
+        if not quiet:
+            print(f"--- [{i+1}/{n}] {task_id} ---")
+            print(f"  Q: {question[:80]}{'...' if len(question) > 80 else ''}")
+            print("  Calling model (LlmClient tool loop)...", flush=True)
+
+        if gold_lm and not gold:
+            gm = getattr(gold_lm, "model", None) or ""
+            if gm:
+                if not quiet:
+                    print(f"  Generating gold standard with {gm}...")
+                inst_g = base_instruction
+                if bust_cache:
+                    inst_g = f"{inst_g}\n\n[Eval gold: {uuid.uuid4().hex[:8]}]"
+                gold, _ug, gerr = run_llm_chat_eval(
+                    system_prompt=inst_g,
+                    document_content=doc,
+                    user_question=question,
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    model=gm,
+                    backend=backend,  # type: ignore[arg-type]
+                    max_tool_rounds=max_tool_rounds,
+                    bust_cache=False,
+                    verbose=verbose,
+                )
+                if gerr and not quiet:
+                    print(f"  Gold generation error: {gerr}")
+                if not quiet:
+                    print(f"  Gold generated ({len(gold)} chars).")
+
+        inst = base_instruction
+        if bust_cache:
+            inst = f"{inst}\n\n[Eval: {uuid.uuid4().hex[:8]}]"
+
+        final = ""
+        error: str | None = None
+        prompt_tok = completion_tok = total_tok = 0
+        try:
+            final, usage, error = run_llm_chat_eval(
+                system_prompt=inst,
+                document_content=doc,
+                user_question=question,
+                endpoint=endpoint,
+                api_key=api_key,
+                model=model,
+                backend=backend,  # type: ignore[arg-type]
+                max_tool_rounds=max_tool_rounds,
+                bust_cache=False,
+                verbose=verbose,
+            )
+            prompt_tok = int(usage.get("prompt_tokens", 0))
+            completion_tok = int(usage.get("completion_tokens", 0))
+            total_tok = int(usage.get("total_tokens", 0))
+            if total_tok == 0 and (prompt_tok or completion_tok):
+                total_tok = prompt_tok + completion_tok
+            if debug_usage and total_tok == 0 and not quiet:
+                print(f"  [debug] usage dict was: {usage!r}", flush=True)
+
+            correctness, missing, found_reject = _correctness_breakdown(ex, final)
+
+            j_score = None
+            j_reasoning = None
+            j_accuracy = None
+            j_formatting = None
+            j_naturalness = None
+            is_non_trivial_task = getattr(ex, "is_non_trivial", False)
+            use_judge = bool(judge_lm) and is_non_trivial_task
+
+            if use_judge:
+                if not quiet:
+                    print("  Calling judge...", flush=True)
+                j_score, j_result = score_with_judge(
+                    judge_lm,
+                    document_content=doc,
+                    user_question=question,
+                    model_answer=final,
+                    gold_answer=gold or "N/A",
+                    rubric=rubric or "N/A",
+                    task_category=category,
+                )
+                j_reasoning = getattr(j_result, "thought_process", None)
+                j_accuracy = getattr(j_result, "accuracy_score", None)
+                j_formatting = getattr(j_result, "formatting_score", None)
+                j_naturalness = getattr(j_result, "naturalness_score", None)
+                if not quiet:
+                    print(
+                        f"  judge_score={j_score:.2f} [{category}] "
+                        f"(Acc:{j_accuracy} Fmt:{j_formatting} Nat:{j_naturalness})"
+                    )
+                    print(f"  judge_reasoning: {j_reasoning}")
+                effective_correctness = j_score
+            else:
+                effective_correctness = correctness
+
+            penalty = TOKEN_PENALTY_LAMBDA * (total_tok / 1000.0)
+            metric_score = max(0.0, effective_correctness - penalty)
+            snippet = (final[:300] + "...") if len(final) > 300 else final
+
+            if not quiet:
+                print(
+                    f"  correctness={effective_correctness:.2f}  tokens={total_tok}  score={metric_score:.3f}"
+                )
+                print(f"  doc snippet: {snippet!r}")
+
+            results.append(
+                ExampleEval(
+                    task_id=task_id,
+                    correctness=effective_correctness,
+                    missing_expected=missing,
+                    found_reject=found_reject,
+                    metric_score=metric_score,
+                    prompt_tokens=prompt_tok,
+                    completion_tokens=completion_tok,
+                    total_tokens=total_tok,
+                    final_document=final,
+                    judge_score=j_score,
+                    judge_reasoning=j_reasoning,
+                    judge_accuracy=float(j_accuracy)
+                    if j_accuracy and str(j_accuracy) != "N/A"
+                    else None,
+                    judge_formatting=float(j_formatting)
+                    if j_formatting and str(j_formatting) != "N/A"
+                    else None,
+                    judge_naturalness=float(j_naturalness)
+                    if j_naturalness and str(j_naturalness) != "N/A"
+                    else None,
+                    task_category=category,
+                    gold_document=gold,
+                    error=error,
+                )
+            )
+        except Exception as e:
+            error = str(e)
+            if not quiet:
+                print(f"  ERROR: {error}")
+            results.append(
+                ExampleEval(
+                    task_id=task_id,
+                    correctness=0.0,
+                    missing_expected=[],
+                    found_reject=[],
+                    metric_score=0.0,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    total_tokens=0,
+                    final_document="",
+                    error=error,
+                )
+            )
+        if not quiet:
+            print()
     return results
 
 

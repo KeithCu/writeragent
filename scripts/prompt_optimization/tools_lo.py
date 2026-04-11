@@ -207,7 +207,12 @@ def get_content_as_html() -> str:
             doc = LOBackend.acquire_document()
             from plugin.main import get_tools
             ctx = _tool_ctx(doc)
-            res = get_tools().execute("get_document_content", ctx, scope="full")
+            res = get_tools().execute(
+                "get_document_content",
+                ctx,
+                scope="full",
+                bypass_thread_guard=True,
+            )
             if isinstance(res, dict) and res.get("status") == "ok":
                 return res.get("content", "") or ""
             return ""
@@ -215,29 +220,38 @@ def get_content_as_html() -> str:
             return ""
     return LOBackend.call(_do)
 
-def get_document_content(scope="full", max_chars=None, start=None, end=None) -> str:
+def get_document_content(scope="full", max_chars=None, start=None, end=None, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
         from plugin.main import get_tools
         params = {"scope": scope}
-        if max_chars is not None: params["max_chars"] = max_chars
-        if start is not None: params["start"] = start
-        if end is not None: params["end"] = end
-        
+        if max_chars is not None:
+            params["max_chars"] = max_chars
+        if start is not None:
+            params["start"] = start
+        if end is not None:
+            params["end"] = end
+        for k, v in kwargs.items():
+            if v is not None:
+                params[k] = v
+
         ctx = _tool_ctx(doc)
-        res = get_tools().execute("get_document_content", ctx, **params)
+        res = get_tools().execute("get_document_content", ctx, bypass_thread_guard=True, **params)
         return json.dumps(res, ensure_ascii=False)
     return LOBackend.call(_do)
 
-def apply_document_content(content: str, old_content: str = "", all_matches: bool = False) -> str:
+def apply_document_content(content: str, old_content: str = "", all_matches: bool = False, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
         from plugin.main import get_tools
         params = {"content": content, "old_content": old_content}
         if all_matches:
             params["all_matches"] = True
+        for k, v in kwargs.items():
+            if v is not None:
+                params[k] = v
         ctx = _tool_ctx(doc)
-        res = get_tools().execute("apply_document_content", ctx, **params)
+        res = get_tools().execute("apply_document_content", ctx, bypass_thread_guard=True, **params)
         return json.dumps(res, ensure_ascii=False)
     return LOBackend.call(_do)
 

@@ -106,6 +106,44 @@ TOOLS:
 
 # We dynamically set this later when calling get_chat_system_prompt_for_document
 DEFAULT_CHAT_SYSTEM_PROMPT = ""
+
+
+def get_writer_eval_chat_system_prompt() -> str:
+    """Writer chat-style system prompt for offline DSPy eval (`scripts/prompt_optimization`).
+
+    Reuses the same HTML / apply_document_content rules as production chat
+    (`FORMATTING_RULES`, `TRANSLATION_RULES`) but describes only tools implemented in the
+    eval harness: ``get_document_content``, ``apply_document_content``, ``find_text``.
+    Omits web research, specialized delegation, memory, and tools not wired in ``tools_lo``.
+    """
+    eval_scope = (
+        "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. "
+        "Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, "
+        "styles_apply_to_selection, or add_comment."
+    )
+    eval_tool_patterns = """TOOL USAGE PATTERNS (eval harness):
+- Use find_text to locate passages; use apply_document_content (often with old_content) to replace HTML.
+- Re-read with get_document_content after substantive edits if needed."""
+    core_eval = """When asked to answer a question or create or explain something, assume the user wants the
+information to be inserted into the document. Use the apply_document_content tool to insert content
+into LibreOffice so the user can edit it further."""
+    return f"""{core_eval}
+
+{eval_scope}
+
+TOOLS (eval harness):
+- apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
+- get_document_content: Read document (full/selection/range) as HTML.
+- find_text: Find text in the document (JSON ranges).
+
+{TRANSLATION_RULES}
+
+{eval_tool_patterns}
+
+{FORMATTING_RULES}
+"""
+
+
 # NOTE: Experimental planning/todo guidance (commented out).
 # When the hermes-style `todo` tool is enabled, you can append guidance like:
 #

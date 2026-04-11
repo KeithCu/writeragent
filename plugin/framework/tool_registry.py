@@ -315,12 +315,22 @@ class ToolRegistry:
 
         return result
 
-    def execute(self, tool_name, ctx, **kwargs) -> dict[str, Any]:
+    def execute(
+        self,
+        tool_name,
+        ctx,
+        *,
+        bypass_thread_guard: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         """Execute a tool by name.
 
         Args:
             tool_name: Registered tool name.
             ctx:       ToolContext for this invocation.
+            bypass_thread_guard: If True, call ``tool.execute`` directly (no main-thread check).
+                Used only by ``scripts/prompt_optimization/tools_lo`` where UNO runs on a dedicated
+                LibreOffice worker thread (not Python's ``main_thread()``).
             **kwargs:  Tool arguments.
 
         Returns:
@@ -389,8 +399,9 @@ class ToolRegistry:
                 bus.emit("tool:executing", name=tool_name, caller=ctx.caller)
 
             # Execution with simple isolation and timeout
+            runner = tool.execute if bypass_thread_guard else tool.execute_safe
             result = self._execute_with_timeout(
-                tool.execute_safe,
+                runner,
                 timeout=self._get_tool_timeout(tool),
                 ctx=ctx,
                 **kwargs
