@@ -40,7 +40,7 @@ More than just a chatbot, this is a "Document Agent." It doesn't just read your 
 #### Features & Performance
 
 - **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly. Chat history is automatically saved and restored using an ID, ensuring the conversation follows the document even if renamed or moved.
-- **Responsive streaming & interleaved tools**: A background thread and queue keep the LibreOffice UI responsive  while reasoning, text, and multi-turn tool calls stream and execute.
+- **Responsive streaming & interleaved tools**: A background thread and queue keep the LibreOffice UI responsive  while reasoning, text, and multi-turn tool calls stream and execute. Uses **[Hermes](https://github.com/NousResearch/hermes-agent)** JSON and tool-call parsing logic for robustness against model misbehaviors.
 - **Nested tool-calling API**: The full LibreOffice API would overwhelm any model, and bloat context, so the tool-calling is broken up into a simple API with commonly used-tools, and specialized toolsets that LLMs can request to switch into. Via this design, the extension currently supports: rich text and page layout, shapes, charts, bookmarks, fields, footnotes, forms, comments, and track-changes. See **[docs/writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md) and [Calc specialized toolsets**](docs/calc-specialized-toolsets.md) for details and current status.
 - **Audio Recording**: Integrated cross-platform voice support directly in the sidebar.
 - **Image Generation**: Generate from chat or edit selected images (Img2Img) using AI Horde or your configured endpoint.
@@ -109,6 +109,7 @@ WriterAgent is engineered like a standalone application, prioritizing stability.
 
 - **Engineered with Finite State Machines**: Complex AI interactions are managed by a Finite State Machine (FSM). This architecture breaks down the extension's behavior into small, isolated, and testable units of logic. This ensures that multi-turn tool calling is predictable and robust, even as the codebase grows. See [Formal Verification](docs/formal_verification.md).
 - **Modern Software Standards**: Advanced static type checking and a comprehensive test suite.
+- **Robust Parsing & JSON Repair**: Utilizes a multi-stage parsing pipeline inspired by **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** and the vendored **[json-repair](https://github.com/mangiucas/json-repair)** library. This enables the agent to successfully parse tool calls even when models make slight syntax errors (like missing quotes or truncated braces) or output Python-style literals (single quotes, `None`, `True`/`False`).
 
 ![State Machine Architecture](Showcase/full_super_unified_complete.png)
 
@@ -126,7 +127,7 @@ Their work on an embedded MCP (Model Context Protocol) server for LibreOffice wa
 
 **[Hermes Agent](https://github.com/NousResearch/hermes-agent)**
 
-Their client-side tool call parsers (from `environments/tool_call_parsers/`) provide the core logic adapted in our `plugin/contrib/tool_call_parsers/` sub-module, allowing local inference models (Hermes, Mistral, Llama, DeepSeek) to trigger structured tool loops via raw text streams.
+Their client-side tool call parsers and robust JSON repair strategies (adapted from `environments/tool_call_parsers/` and `cron/jobs.py`) provide the foundation for our `plugin/contrib/tool_call_parsers/` module. This allows local inference models to trigger structured tool loops even when they slightly deviate from strict JSON syntax.
 
 ## Performance & Batch Optimizations
 
