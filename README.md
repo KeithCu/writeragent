@@ -46,6 +46,7 @@ The main way to interact with your document. While you can ask it anything, **it
 *   **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
 *   **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name, tone, etc.) and uses the `upsert_memory` tool to store them.
 *   **Multilingual & HiDPI**: Ships with the interface translated into 9 languages (Spanish, French, Portuguese, Russian, German, Japanese, Italian, Polish, and English) and optimized for modern high-resolution displays using device-independent units.
+*   **LibreOffice Resource**: Many models know LibreOffice well, so you can ask questions like: *What is the page gutter feature?*
 
 #### Showcase
 Hermes-Agent with Claude Opus 4.6 and the Web Research sub-agent:
