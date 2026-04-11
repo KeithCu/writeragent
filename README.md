@@ -45,7 +45,7 @@ More than just a chatbot, this is a "Document Agent." It doesn't just read your 
 - **Audio Recording**: Integrated cross-platform voice support directly in the sidebar.
 - **Image Generation**: Generate from chat or edit selected images (Img2Img) using AI Horde or your configured endpoint.
 - **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
-- **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name, tone, etc.) and uses the `upsert_memory` tool to store them.
+- **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name and favorite colors) and give tips. The librarian and general chat agent use the `upsert_memory` tool to store user preferences.
 - **Multilingual & HiDPI**: Ships with the interface translated into 9 languages (Spanish, French, Portuguese, Russian, German, Japanese, Italian, Polish, and English) and optimized for modern high-resolution displays using device-independent units.
 - **LibreOffice Resource**: Many models know LibreOffice well, so you can ask questions like: *What is the page gutter feature?*
 
