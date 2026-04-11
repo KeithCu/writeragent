@@ -97,10 +97,10 @@ You can plug in **external agent backends** so that Chat with Document uses an e
 
 ## Built for Professional Reliability
 
-WriterAgent is engineered like a standalone application, prioritizing stability and predictable behavior.
+WriterAgent is engineered like a standalone application, prioritizing stability.
 
 *   **Engineered with Finite State Machines**: Complex AI interactions are managed by a Finite State Machine (FSM). This architectural choice breaks down the extension's behavior into small, isolated, and highly testable units of logic. This ensures that multi-turn tool calling is predictable and robust, even as the codebase grows.
-*   **Modern Software Standards**: We utilize advanced static type checking (Mypy/Pyright) and a comprehensive automated test suite to catch bugs during development. This rigor ensures a level of stability rare for office extensions.
+*   **Modern Software Standards**: Advanced static type checking and a comprehensive test suite.
 
 ![State Machine Architecture](Showcase/full_super_unified_complete.png)
 
