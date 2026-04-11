@@ -472,6 +472,8 @@ def run_eval_on_examples_llm(
                 bust_cache=False,
                 verbose=verbose,
             )
+            if error and not quiet:
+                print(f"  API/run error: {error}", flush=True)
             prompt_tok = int(usage.get("prompt_tokens", 0))
             completion_tok = int(usage.get("completion_tokens", 0))
             total_tok = int(usage.get("total_tokens", 0))

@@ -80,6 +80,17 @@ def build_eval_tool_schemas() -> list[dict[str, Any]]:
     ]
 
 
+def normalize_endpoint_base_url(endpoint: str) -> str:
+    """Strip a trailing ``/v1`` so ``LlmClient`` (which appends ``/v1/chat/completions``) does not double up.
+
+    Scripts often default to ``https://openrouter.ai/api/v1`` while production config uses
+    ``https://openrouter.ai/api``; both should resolve to the same chat URL after ``_api_path()``."""
+    ep = (endpoint or "").strip().rstrip("/")
+    if ep.lower().endswith("/v1"):
+        ep = ep[:-3].rstrip("/")
+    return ep
+
+
 def _build_api_config(
     *,
     endpoint: str,
@@ -88,7 +99,7 @@ def _build_api_config(
     max_tool_rounds: int,
     request_timeout: int = 120,
 ) -> dict[str, Any]:
-    ep = endpoint.rstrip("/")
+    ep = normalize_endpoint_base_url(endpoint)
     return {
         "endpoint": ep,
         "api_key": api_key,
@@ -216,6 +227,13 @@ def run_llm_chat_eval(
 
             content = (resp.get("content") or "") or ""
             tool_calls = resp.get("tool_calls")
+            if verbose:
+                n_tc = len(tool_calls) if tool_calls else 0
+                print(
+                    f"  [LlmChat] round={_round + 1} content_len={len(content)} "
+                    f"tool_calls={n_tc} usage={resp.get('usage')!r}",
+                    flush=True,
+                )
 
             asst_msg: dict[str, Any] = {"role": "assistant", "content": content}
             if tool_calls:
@@ -232,7 +250,16 @@ def run_llm_chat_eval(
                 raw_args = fn.get("arguments", "") if isinstance(fn, dict) else ""
                 if isinstance(name, str) and name:
                     if backend == "string":
+                        if verbose:
+                            print(
+                                f"  [Tool] {name} args={raw_args[:500]!r}"
+                                f"{'...' if len(raw_args or '') > 500 else ''}",
+                                flush=True,
+                            )
                         result = dispatch_string_tool(state, name, raw_args or "{}")
+                        if verbose:
+                            rp = result if len(result) <= 400 else result[:400] + "..."
+                            print(f"  [Tool->] {rp!r}", flush=True)
                     else:
                         result = _dispatch_lo_tool(name, raw_args or "{}", verbose=verbose)
                 else:

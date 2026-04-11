@@ -56,10 +56,11 @@ def _get_lm(model_id: str, api_key: str, api_base: str) -> dspy.LM:
     return dspy.LM(model=model, api_key=api_key, api_base=api_base, model_type="chat")
 
 
-def _normalize_openrouter_model(model_id: str, api_base: str) -> str:
+def _model_id_for_llm_client(model_id: str) -> str:
+    """Strip ``openrouter/`` for ``LlmClient`` (OpenRouter HTTP API uses ``provider/model``)."""
     m = model_id
-    if "openrouter" in api_base.lower() and not m.startswith("openrouter/"):
-        m = "openrouter/" + m
+    if m.startswith("openrouter/"):
+        m = m[len("openrouter/") :]
     return m
 
 
@@ -150,7 +151,7 @@ def _run_one_model(
     if n is not None:
         examples = examples[:n]
     cfg = MODEL_BY_ID[model_id]
-    model = _normalize_openrouter_model(model_id, api_base)
+    model = _model_id_for_llm_client(model_id)
 
     judge_lm = None
     if judge_model_id:
@@ -382,7 +383,7 @@ def main() -> int:
             )
             return 1
         print(f"Generating gold standards for {len(examples)} examples using {args.gold_model}...")
-        gm = _normalize_openrouter_model(args.gold_model, api_base)
+        gm = _model_id_for_llm_client(args.gold_model)
         inst = get_writer_eval_chat_system_prompt()
 
         gold_map: dict[str, str] = {}

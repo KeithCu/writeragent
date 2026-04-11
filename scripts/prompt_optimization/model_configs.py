@@ -56,24 +56,24 @@ MODELS: list[ModelConfig] = [
         ),
     ),
     ModelConfig(
-        openrouter_id="z-ai/glm-5",
-        display_name="Z.ai: GLM 5",
+        openrouter_id="z-ai/glm-5.1",
+        display_name="Z.ai: GLM 5.1",
         context_window_tokens=203_000,
-        input_cost_per_million=0.30,
-        output_cost_per_million=1.40,
+        input_cost_per_million=0.95,
+        output_cost_per_million=3.15,
         notes=(
             "Latest flagship GLM with enhanced programming capabilities and "
             "more stable multi-step reasoning / agent execution."
         ),
     ),
     ModelConfig(
-        openrouter_id="minimax/minimax-m2.5",
-        display_name="MiniMax: MiniMax M2.5",
+        openrouter_id="minimax/minimax-m2.7",
+        display_name="MiniMax: MiniMax M2.7",
         context_window_tokens=197_000,
-        input_cost_per_million=0.27,
-        output_cost_per_million=0.95,
+        input_cost_per_million=0.30,
+        output_cost_per_million=1.20,
         notes=(
-            "Released Feb 12, 2026; 2.12T tokens; flagship model optimized for "
+            "Released Mar 18, 2026; 2.12T tokens; flagship model optimized for "
             "office workflows (Word, Excel, PPT); scores 80.2% on SWE-Bench "
             "Verified; strong planning and agentic capabilities."
         ),
@@ -153,17 +153,6 @@ MODELS: list[ModelConfig] = [
         ),
     ),
     ModelConfig(
-        openrouter_id="nvidia/llama-3.3-nemotron-super-49b-v1.5",
-        display_name="NVIDIA: Llama 3.3 Nemotron Super 49B V1.5",
-        context_window_tokens=131_072,
-        input_cost_per_million=0.10,
-        output_cost_per_million=0.40,
-        notes=(
-            "49B reasoning/chat model derived from Llama-3.3-70B-Instruct; "
-            "128K context; optimized for agentic workflows, RAG, and tool use."
-        ),
-    ),
-    ModelConfig(
         openrouter_id="mistralai/devstral-2512",
         display_name="Mistral: Devstral 2 2512",
         context_window_tokens=262_144,
@@ -172,11 +161,11 @@ MODELS: list[ModelConfig] = [
         notes="Released Dec 9, 2025; 262K context.",
     ),
     ModelConfig(
-        openrouter_id="nex-agi/deepseek-v3.1-nex-n1",
-        display_name="Nex AGI: DeepSeek V3.1 Nex N1",
+        openrouter_id="deepseek/deepseek-v3.2",
+        display_name="DeepSeek V3.2",
         context_window_tokens=131_072,
-        input_cost_per_million=0.27,
-        output_cost_per_million=1.00,
+        input_cost_per_million=0.26,
+        output_cost_per_million=0.38,
         notes="Released Dec 8, 2025; 131K context.",
     ),
     ModelConfig(

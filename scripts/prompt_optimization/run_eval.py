@@ -76,8 +76,9 @@ def main():
     api_key = args.api_key
     api_base = args.api_base
     model = args.model
-    if "openrouter" in api_base.lower() and not model.startswith("openrouter/"):
-        model = "openrouter/" + model
+    # OpenRouter's /v1/chat/completions expects provider/model (no openrouter/ prefix).
+    if model.startswith("openrouter/"):
+        model = model[len("openrouter/") :]
 
     if not api_key and "openrouter" in api_base.lower():
         print("Warning: OPENROUTER_API_KEY (or OPENAI_API_KEY) not set.", file=sys.stderr)
