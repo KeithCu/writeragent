@@ -266,6 +266,8 @@ class WriterAgentConfig:
                 )
                 self._extra_config[k] = ""
 
+        self.endpoint = normalize_endpoint_url(str(self.endpoint or ""))
+
         # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
         try:

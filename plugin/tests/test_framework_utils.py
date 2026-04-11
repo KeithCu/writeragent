@@ -7,6 +7,22 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.errors import WorkerPoolError
 from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop
 from plugin.framework.logging import SafeLogger, safe_log_exception
+from plugin.framework.utils import normalize_endpoint_url
+
+class TestNormalizeEndpointUrl:
+    def test_strips_trailing_v1(self):
+        assert normalize_endpoint_url("https://api.example.com/v1") == "https://api.example.com"
+        assert normalize_endpoint_url("https://api.example.com/v1/") == "https://api.example.com"
+        assert normalize_endpoint_url("https://openrouter.ai/api/v1") == "https://openrouter.ai/api"
+
+    def test_preserves_v1beta_and_similar(self):
+        u = "https://generativelanguage.googleapis.com/v1beta/openai"
+        assert normalize_endpoint_url(u) == u
+
+    def test_empty_and_whitespace(self):
+        assert normalize_endpoint_url("") == ""
+        assert normalize_endpoint_url("  ") == ""
+
 
 class TestWorkerPoolErrorHandling:
     def test_run_in_background_success(self):

@@ -6,10 +6,17 @@ def get_plugin_dir():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def normalize_endpoint_url(url):
-    """Strip and rstrip slash for consistent storage."""
+    """Strip whitespace, trailing slashes, and a trailing ``/v1`` segment for consistent storage.
+
+    OpenAI-compatible clients append ``/v1/...``; bases pasted with ``/v1`` would otherwise
+    become ``/v1/v1/...``. Paths like ``.../v1beta/...`` are unchanged (they do not end with ``/v1``).
+    """
     if not url or not isinstance(url, str):
         return ""
-    return url.strip().rstrip("/")
+    ep = url.strip().rstrip("/")
+    if ep.lower().endswith("/v1"):
+        ep = ep[:-3].rstrip("/")
+    return ep
 
 def get_url_hostname(url):
     """Extract hostname safely."""

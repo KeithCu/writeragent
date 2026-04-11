@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from plugin.framework.errors import safe_json_loads
+from plugin.framework.utils import normalize_endpoint_url
 from plugin.framework.schema_convert import to_openai_schema
 from plugin.modules.http.client import LlmClient
 from plugin.modules.writer.content import ApplyDocumentContent, GetDocumentContent
@@ -80,17 +81,6 @@ def build_eval_tool_schemas() -> list[dict[str, Any]]:
     ]
 
 
-def normalize_endpoint_base_url(endpoint: str) -> str:
-    """Strip a trailing ``/v1`` so ``LlmClient`` (which appends ``/v1/chat/completions``) does not double up.
-
-    Scripts often default to ``https://openrouter.ai/api/v1`` while production config uses
-    ``https://openrouter.ai/api``; both should resolve to the same chat URL after ``_api_path()``."""
-    ep = (endpoint or "").strip().rstrip("/")
-    if ep.lower().endswith("/v1"):
-        ep = ep[:-3].rstrip("/")
-    return ep
-
-
 def _build_api_config(
     *,
     endpoint: str,
@@ -99,7 +89,7 @@ def _build_api_config(
     max_tool_rounds: int,
     request_timeout: int = 120,
 ) -> dict[str, Any]:
-    ep = normalize_endpoint_base_url(endpoint)
+    ep = normalize_endpoint_url(endpoint)
     return {
         "endpoint": ep,
         "api_key": api_key,

@@ -163,7 +163,7 @@ class TestI18n(unittest.TestCase):
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
         out = _build_validated_config_export(data, cfg)
-        self.assertEqual(out["endpoint"], "http://example.com/v1")
+        self.assertEqual(out["endpoint"], "http://example.com")
         self.assertEqual(out["chat_max_tokens"], 2048)
 
     def test_config_validate_chat_max_tool_rounds_empty_string(self):
