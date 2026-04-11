@@ -38,3 +38,11 @@ class ToolDrawSpecialBase(ToolBase):
 
 class ToolDrawWebResearchBase(ToolDrawSpecialBase):
     specialized_domain = "web_research"
+
+
+class ToolDrawChartBase(ToolDrawSpecialBase):
+    specialized_domain = "charts"
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]

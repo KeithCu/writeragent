@@ -15,75 +15,306 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Calc chart management tools: list, info, create, edit, delete."""
+from typing import Any, cast
+"""Calc chart management tools: list, info, create, edit, delete.
+Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
+"""
 
 import logging
-
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.address_utils import parse_address
 from plugin.modules.calc.bridge import CalcBridge
+import uno
+import time
+
+def supportsService(obj, service_name: str) -> bool:
+    """Helper to check if a UNO object supports a service."""
+    if obj is None or not hasattr(obj, "supportsService"):
+        return False
+    try:
+        return obj.supportsService(service_name)
+    except Exception:
+        return False
+
 
 logger = logging.getLogger("writeragent.calc")
 
+# Chart CLSID: classic OLE chart (Calc sheet charts, Writer TextEmbeddedObject)
+CHART_CLSID = "12dcae36-07da-43c1-9c17-56a938c64445"
+# Draw/Impress OLE2Shape: add shape to page first, then set CLSID (OOo wiki sample)
+CHART_CLSID_DRAW_OLE = "12dcae26-281f-416f-a234-c3086127382e"
+
+
+def _is_chart_clsid(clsid: str) -> bool:
+    if not clsid:
+        return False
+    c = clsid.lower().strip("{}")
+    return c in (CHART_CLSID.lower(), CHART_CLSID_DRAW_OLE.lower())
+
+
+def _chart_document_from_host(host: Any):
+    """Chart model from a sheet chart, Writer embed, or Draw/Impress OLE2 shape."""
+    if host is None:
+        return None
+    try:
+        if hasattr(host, "getEmbeddedObject"):
+            ed = host.getEmbeddedObject()
+            if ed:
+                return ed
+    except Exception:
+        pass
+    return getattr(host, "Model", None)
+
+CHART_SERVICE_MAP = {
+    "bar": "com.sun.star.chart.BarDiagram",
+    "column": "com.sun.star.chart.BarDiagram",
+    "line": "com.sun.star.chart.LineDiagram",
+    "pie": "com.sun.star.chart.PieDiagram",
+    "scatter": "com.sun.star.chart.XYDiagram",
+    "area": "com.sun.star.chart.AreaDiagram",
+    "donut": "com.sun.star.chart.DonutDiagram",
+    "net": "com.sun.star.chart.NetDiagram",
+    "stock": "com.sun.star.chart.StockDiagram",
+    "bubble": "com.sun.star.chart.BubbleDiagram",
+}
+
+
+def _axis_title_shape_string(shape, value: str | None) -> str | None:
+    """Read or write axis title text on a diagram title shape (ChartAxis*Supplier)."""
+    if shape is None:
+        return None
+    if value is not None:
+        if hasattr(shape, "String"):
+            shape.String = value
+        return value
+    if hasattr(shape, "String"):
+        return shape.String
+    return None
+
+
+def _process_events():
+    """Give LO a moment to process UI events and update object names/states."""
+    try:
+        from plugin.framework.uno_context import get_ctx
+        ctx = cast(Any, get_ctx())
+        smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
+        if smgr:
+            toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+            if toolkit:
+                toolkit.processEventsToIdle()
+    except Exception:
+        pass
+
+
+# Shared parameters for Create and Edit
+CHART_PROPERTIES = {
+    "data_range": {
+        "type": "string",
+        "description": "Cell range for chart data (Calc only, e.g. 'A1:B10').",
+    },
+    "chart_type": {
+        "type": "string",
+        "enum": list(CHART_SERVICE_MAP.keys()),
+        "description": "Type of chart to create.",
+    },
+    "title": {
+        "type": "string",
+        "description": "Chart title.",
+    },
+    "is_3d": {"type": "boolean", "description": "Enable 3D mode."},
+    "stacked": {"type": "boolean", "description": "Stacked data series."},
+    "percent": {"type": "boolean", "description": "Percentage stacked."},
+    "x_axis_title": {"type": "string"},
+    "y_axis_title": {"type": "string"},
+    "legend_position": {
+        "type": "string",
+        "enum": ["none", "top", "bottom", "left", "right"],
+    },
+    "has_legend": {"type": "boolean"},
+    "subtitle": {"type": "string"},
+    "position": {
+        "type": "string",
+        "description": "Cell address (Calc) or anchoring position (Writer/Draw).",
+    },
+}
+
+
+def _apply_chart_styling(chart_doc, **kwargs):
+    """Apply enhanced styling properties to a chart document."""
+    diagram = chart_doc.getDiagram()
+    if not diagram:
+        return
+
+    # 1. 3D Mode
+    is_3d = kwargs.get("is_3d")
+    if is_3d is not None and hasattr(diagram, "Dim3D"):
+        diagram.Dim3D = is_3d
+
+    # 2. Stacking
+    stacked = kwargs.get("stacked")
+    if stacked is not None and hasattr(diagram, "Stacked"):
+        diagram.Stacked = stacked
+
+    percent = kwargs.get("percent")
+    if percent is not None and hasattr(diagram, "Percent"):
+        diagram.Percent = percent
+
+    # 3. Bar/Column Orientation
+    chart_type = kwargs.get("chart_type")
+    if chart_type in ["bar", "column"] and hasattr(diagram, "Vertical"):
+        diagram.Vertical = (chart_type == "bar")
+
+    # 4. Titles
+    title = kwargs.get("title")
+    if title is not None:
+        chart_doc.HasMainTitle = True
+        chart_doc.getTitle().String = title
+
+    subtitle = kwargs.get("subtitle")
+    if subtitle is not None:
+        chart_doc.HasSubTitle = True
+        chart_doc.getSubTitle().String = subtitle
+
+    x_axis_title = kwargs.get("x_axis_title")
+    if x_axis_title is not None and hasattr(diagram, "HasXAxisTitle"):
+        diagram.HasXAxisTitle = True
+        try:
+            _axis_title_shape_string(diagram.getXAxisTitle(), x_axis_title)
+        except Exception:
+            logger.debug("Setting X axis title failed", exc_info=True)
+
+    y_axis_title = kwargs.get("y_axis_title")
+    if y_axis_title is not None and hasattr(diagram, "HasYAxisTitle"):
+        diagram.HasYAxisTitle = True
+        try:
+            _axis_title_shape_string(diagram.getYAxisTitle(), y_axis_title)
+        except Exception:
+            logger.debug("Setting Y axis title failed", exc_info=True)
+
+    # 5. Legend
+    has_legend = kwargs.get("has_legend")
+    if has_legend is not None:
+        chart_doc.HasLegend = has_legend
+
+    legend_pos = kwargs.get("legend_position")
+    if legend_pos and chart_doc.HasLegend:
+        try:
+            import uno
+            pos_map = {
+                "top": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.TOP"),
+                "bottom": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.BOTTOM"),
+                "left": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.LEFT"),
+                "right": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.RIGHT"),
+            }
+            if legend_pos in pos_map:
+                chart_doc.getLegend().Alignment = pos_map[legend_pos]
+        except (ImportError, AttributeError):
+            logger.debug("ChartLegendAlignment enum not available")
+
+
+def _resolve_chart(doc, chart_name):
+    """Resolve a chart object by name across Calc, Writer, or Draw."""
+    if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
+        bridge = CalcBridge(doc)
+        sheet = bridge.get_active_sheet()
+        charts = sheet.getCharts()
+        if charts.hasByName(chart_name):
+            return charts.getByName(chart_name)
+    elif supportsService(doc, "com.sun.star.text.TextDocument"):
+        objects = doc.getEmbeddedObjects()
+        if objects.hasByName(chart_name):
+            return objects.getByName(chart_name)
+    elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or \
+         supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
+        # Iterate all pages and shapes
+        for i in range(doc.getDrawPages().getCount()):
+            page = doc.getDrawPages().getByIndex(i)
+            for j in range(page.getCount()):
+                shape = page.getByIndex(j)
+                if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                    if shape.Name == chart_name:
+                        return shape
+    return None
+
 
 class ListCharts(ToolBase):
-    """List all charts on a Calc sheet."""
+    """List all charts on a sheet, document, or slide."""
 
     name = "list_charts"
     intent = "navigate"
     description = (
-        "List all charts on the active Calc sheet with name, title, and legend status."
+        "List all charts in the current context (active sheet, document, or slide) "
+        "with name, title, and type."
     )
     parameters = {
         "type": "object",
         "properties": {},
         "required": [],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services = [
+        "com.sun.star.sheet.SpreadsheetDocument",
+        "com.sun.star.text.TextDocument",
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
 
     def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
-        try:
+        doc = ctx.doc
+        result = []
+
+        if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
+            bridge = CalcBridge(doc)
             sheet = bridge.get_active_sheet()
             charts = sheet.getCharts()
-            result = []
             for name in charts.getElementNames():
                 chart_obj = charts.getByName(name)
-                entry = {"name": name}
-                try:
-                    chart_doc = chart_obj.getEmbeddedObject()
-                    if chart_doc:
-                        try:
-                            entry["has_legend"] = chart_doc.HasLegend
-                        except Exception as e:
-                            logger.debug("list_charts HasLegend error: %s", e)
-                            entry["has_legend"] = False
-                        try:
-                            entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                        except Exception as e:
-                            logger.debug("list_charts getTitle error: %s", e)
-                            entry["title"] = ""
-                except Exception as e:
-                    logger.debug("list_charts getEmbeddedObject error: %s", e)
-                result.append(entry)
+                result.append(self._get_summary(chart_obj, name))
 
-            return {
-                "status": "ok",
-                "charts": result,
-                "count": len(result),
-            }
-        except Exception as e:
-            logger.error("List charts error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
+        elif supportsService(doc, "com.sun.star.text.TextDocument"):
+            objects = doc.getEmbeddedObjects()
+            for name in objects.getElementNames():
+                obj = objects.getByName(name)
+                # CLSID check for Chart
+                if _is_chart_clsid(obj.CLSID):
+                    result.append(self._get_summary(obj, name))
+
+        elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or \
+             supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
+            for i in range(doc.getDrawPages().getCount()):
+                page = doc.getDrawPages().getByIndex(i)
+                for j in range(page.getCount()):
+                    shape = page.getByIndex(j)
+                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                        if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
+                            result.append(self._get_summary(shape, shape.Name or f"Chart_{i}_{j}"))
+
+        return {
+            "status": "ok",
+            "charts": result,
+            "count": len(result),
+        }
+
+    def _get_summary(self, chart_obj, name):
+        entry = {"name": name}
+        try:
+            chart_doc = _chart_document_from_host(chart_obj)
+            if chart_doc:
+                entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
+                entry["diagram_type"] = chart_doc.getDiagram().getDiagramType()
+        except Exception:
+            pass
+        return entry
+
+
 class GetChartInfo(ToolBase):
     """Get detailed info about a chart."""
 
     name = "get_chart_info"
     intent = "navigate"
     description = (
-        "Get detailed info about a Calc chart: type, title, "
-        "data ranges, legend, and diagram properties."
+        "Get detailed info about a chart: type, title, ranges (if Calc), "
+        "axis titles, and legend properties."
     )
     parameters = {
         "type": "object",
@@ -95,240 +326,285 @@ class GetChartInfo(ToolBase):
         },
         "required": ["chart_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services = ListCharts.uno_services
 
     def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
+        doc = ctx.doc
         chart_name = kwargs["chart_name"]
+        chart_obj = _resolve_chart(doc, chart_name)
 
-        try:
-            sheet = bridge.get_active_sheet()
-            charts = sheet.getCharts()
-            if not charts.hasByName(chart_name):
-                return self._tool_error(f"Chart '{chart_name}' not found.")
+        if not chart_obj:
+            return self._tool_error(f"Chart '{chart_name}' not found.")
 
-            chart_obj = charts.getByName(chart_name)
-            info = {"name": chart_name, "sheet": sheet.getName()}
+        info = {"name": chart_name, "status": "ok"}
 
+        # Data ranges (Calc only)
+        if hasattr(chart_obj, "getRanges"):
+            bridge = CalcBridge(doc)
             try:
-                ranges = chart_obj.getRanges()
-                info["data_ranges"] = [bridge._range_to_str(r) for r in ranges]
-            except Exception as e:
-                logger.debug("get_chart_info getRanges error: %s", e)
+                info["data_ranges"] = [bridge._range_to_str(r) for r in chart_obj.getRanges()]
+            except Exception:
                 info["data_ranges"] = []
 
-            chart_doc = chart_obj.getEmbeddedObject()
+        try:
+            chart_doc = _chart_document_from_host(chart_obj)
             if chart_doc:
-                try:
-                    info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
-                except Exception as e:
-                    logger.debug("get_chart_info getTitle error: %s", e)
-                    info["title"] = ""
-                try:
-                    info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
-                except Exception as e:
-                    logger.debug("get_chart_info getSubTitle error: %s", e)
-                    info["subtitle"] = ""
-                try:
-                    info["has_legend"] = chart_doc.HasLegend
-                except Exception as e:
-                    logger.debug("get_chart_info HasLegend error: %s", e)
-                    info["has_legend"] = None
-                try:
-                    diagram = chart_doc.getDiagram()
+                info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
+                info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
+                info["has_legend"] = chart_doc.HasLegend
+                
+                diagram = chart_doc.getDiagram()
+                if diagram:
                     info["diagram_type"] = diagram.getDiagramType()
-                except Exception as e:
-                    logger.debug("get_chart_info getDiagramType error: %s", e)
-                    info["diagram_type"] = ""
+                    info["is_3d"] = getattr(diagram, "Dim3D", None)
+                    info["stacked"] = getattr(diagram, "Stacked", None)
+                    info["percent"] = getattr(diagram, "Percent", None)
 
-            info["status"] = "ok"
-            return info
+                    if hasattr(diagram, "HasXAxisTitle") and diagram.HasXAxisTitle:
+                        try:
+                            xs = _axis_title_shape_string(diagram.getXAxisTitle(), None)
+                            if xs is not None:
+                                info["x_axis_title"] = xs
+                        except Exception:
+                            pass
+                    if hasattr(diagram, "HasYAxisTitle") and diagram.HasYAxisTitle:
+                        try:
+                            ys = _axis_title_shape_string(diagram.getYAxisTitle(), None)
+                            if ys is not None:
+                                info["y_axis_title"] = ys
+                        except Exception:
+                            pass
+
         except Exception as e:
-            logger.error("Get chart info error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
+            logger.debug("get_chart_info error: %s", e)
+
+        return info
+
+
 class CreateChart(ToolBase):
-    """Create a new chart from a data range."""
+    """Create a new chart."""
 
     name = "create_chart"
     intent = "edit"
     description = (
-        "Creates a chart on the active sheet from the specified data range."
+        "Creates a chart in the current context. In Calc, data_range is required. "
+        "In Writer/Impress, a chart is inserted at the cursor or on the active slide."
     )
     parameters = {
         "type": "object",
-        "properties": {
-            "data_range": {
-                "type": "string",
-                "description": "Cell range for chart data (e.g. 'A1:B10').",
-            },
-            "chart_type": {
-                "type": "string",
-                "enum": ["bar", "column", "line", "pie", "scatter"],
-                "description": "Type of chart to create.",
-            },
-            "title": {
-                "type": "string",
-                "description": "Chart title (optional).",
-            },
-            "position": {
-                "type": "string",
-                "description": "Cell address for chart placement (e.g. 'E1').",
-            },
-            "has_header": {
-                "type": "boolean",
-                "description": "Whether first row/column is a label (default: true).",
-            },
-        },
-        "required": ["data_range", "chart_type"],
+        "properties": CHART_PROPERTIES,
+        "required": ["chart_type"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services = ListCharts.uno_services
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
-        data_range = kwargs["data_range"]
+        doc = ctx.doc
         chart_type = kwargs["chart_type"]
-        title = kwargs.get("title")
-        position = kwargs.get("position")
-        has_header = kwargs.get("has_header", True)
+        chart_service = CHART_SERVICE_MAP.get(chart_type, CHART_SERVICE_MAP["column"])
+
+        rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 
         try:
-            sheet = bridge.get_active_sheet()
-            cell_range = bridge.get_cell_range(sheet, data_range)
-            range_address = cell_range.getRangeAddress()
-
-            if position:
-                col, row = parse_address(position)
-                pos_cell = bridge.get_cell(sheet, col, row)
-                pos_x = pos_cell.Position.X
-                pos_y = pos_cell.Position.Y
-            else:
-                pos_x = 10000
-                pos_y = 1000
-
-            from com.sun.star.awt import Rectangle
-
-            rect = Rectangle()
-            rect.X = pos_x
-            rect.Y = pos_y
-            rect.Width = 12000
-            rect.Height = 8000
-
-            charts = sheet.getCharts()
-            chart_name = f"Chart_{len(charts)}"
-
-            type_map = {
-                "bar": "com.sun.star.chart.BarDiagram",
-                "column": "com.sun.star.chart.BarDiagram",
-                "line": "com.sun.star.chart.LineDiagram",
-                "pie": "com.sun.star.chart.PieDiagram",
-                "scatter": "com.sun.star.chart.XYDiagram",
-            }
-            chart_service = type_map.get(chart_type, "com.sun.star.chart.BarDiagram")
-
-            charts.addNewByName(
-                chart_name, rect, (range_address,), has_header, has_header,
-            )
-
-            chart_obj = charts.getByName(chart_name)
-            chart_doc = chart_obj.getEmbeddedObject()
-            diagram = chart_doc.createInstance(chart_service)
-            chart_doc.setDiagram(diagram)
-
-            if chart_type == "bar" and hasattr(diagram, "Vertical"):
-                diagram.Vertical = True
-            elif chart_type == "column" and hasattr(diagram, "Vertical"):
-                diagram.Vertical = False
-
-            if title:
-                chart_doc.setPropertyValue("HasMainTitle", True)
-                chart_title = chart_doc.getTitle()
-                chart_title.setPropertyValue("String", title)
-
-            logger.info("Chart created: %s (%s)", chart_name, chart_type)
-            result = f"{chart_type} type chart created as '{chart_name}'."
-            return {"status": "ok", "message": result}
+            if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
+                return self._create_calc_chart(ctx, rect, chart_service, **kwargs)
+            elif supportsService(doc, "com.sun.star.text.TextDocument"):
+                return self._create_writer_chart(ctx, rect, chart_service, **kwargs)
+            elif supportsService(doc, "com.sun.star.presentation.PresentationDocument") or \
+                 supportsService(doc, "com.sun.star.drawing.DrawingDocument"):
+                return self._create_draw_chart(ctx, rect, chart_service, **kwargs)
+            
+            return self._tool_error("Unsupported document type for chart creation.")
         except Exception as e:
-            logger.error("Chart creation error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
+            msg = f"{type(e).__name__}: {str(e)}"
+            logger.error("Chart creation error: %s", msg)
+            raise ToolExecutionError(f"Tool execution failed: {msg}") from e
+
+    def _create_calc_chart(self, ctx, rect, service, **kwargs):
+        bridge = CalcBridge(ctx.doc)
+        data_range = kwargs.get("data_range")
+        if not data_range:
+            return self._tool_error("data_range is required for Calc charts.")
+
+        sheet = bridge.get_active_sheet()
+        cell_range = bridge.get_cell_range(sheet, data_range)
+        addr = cell_range.getRangeAddress()
+
+        logger.debug("Creating Calc chart: name=Chart_N, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", 
+                     rect.X, rect.Y, rect.Width, rect.Height,
+                     addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+
+        charts = sheet.getCharts()
+        name = f"Chart_{len(charts)}"
+        
+        # Ensure name is unique
+        try:
+            while charts.hasByName(name):
+                name = f"{name}_new"
+        except Exception:
+            pass
+
+        charts.addNewByName(name, rect, (addr,), True, True)
+        
+        chart_obj = charts.getByName(name)
+        chart_doc = _chart_document_from_host(chart_obj)
+        if not chart_doc:
+            return self._tool_error("Cannot access chart content.")
+        chart_doc.setDiagram(chart_doc.createInstance(service))
+        
+        _apply_chart_styling(chart_doc, **kwargs)
+        _process_events()
+        return {"status": "ok", "message": f"Chart '{name}' created in Calc.", "chart_name": name}
+
+    def _create_writer_chart(self, ctx, rect, service, **kwargs):
+        doc = ctx.doc
+        text = doc.getText()
+        cursor = doc.getCurrentController().getViewCursor()
+        
+        name = f"Chart_{len(doc.getEmbeddedObjects())}"
+        chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        chart_obj.CLSID = CHART_CLSID
+        chart_obj.Name = name
+        
+        text.insertTextContent(cursor, chart_obj, False)
+
+        chart_doc = chart_obj.getEmbeddedObject()
+        if chart_doc:
+            chart_doc.setDiagram(chart_doc.createInstance(service))
+            _apply_chart_styling(chart_doc, **kwargs)
+
+        # Registry name (list_charts / hasByName) may differ from chart_obj.Name; resolve after embed is live
+        chart_name = name
+        try:
+            is_same = getattr(uno, "isSame", None)
+        except Exception:
+            is_same = None
+        objects = doc.getEmbeddedObjects()
+        for n in objects.getElementNames():
+            try:
+                o = objects.getByName(n)
+                if o is chart_obj:
+                    chart_name = n
+                    break
+                try:
+                    if o == chart_obj:
+                        chart_name = n
+                        break
+                except Exception:
+                    pass
+                if callable(is_same) and is_same(o, chart_obj):
+                    chart_name = n
+                    break
+            except Exception:
+                pass
+        if chart_name == name:
+            by_clsid = []
+            for n in objects.getElementNames():
+                try:
+                    o = objects.getByName(n)
+                    if _is_chart_clsid(getattr(o, "CLSID", "") or ""):
+                        by_clsid.append(n)
+                except Exception:
+                    pass
+            if len(by_clsid) == 1:
+                chart_name = by_clsid[0]
+            elif len(by_clsid) > 1:
+                chart_name = by_clsid[-1]
+        # If the registry still only exposes a single name (e.g. Object1 vs Chart_0), use it
+        try:
+            enms = list(objects.getElementNames())
+            if len(enms) == 1 and chart_name == name:
+                chart_name = enms[0]
+        except Exception:
+            pass
+
+        return {"status": "ok", "message": f"Chart '{chart_name}' inserted in Writer.", "chart_name": chart_name}
+
+    def _create_draw_chart(self, ctx, rect, service, **kwargs):
+        doc = ctx.doc
+        controller = doc.getCurrentController()
+        page = None
+        if controller is not None and hasattr(controller, "getCurrentPage"):
+            try:
+                page = controller.getCurrentPage()
+            except Exception:
+                page = None
+        if page is None and doc.getDrawPages().getCount() > 0:
+            page = doc.getDrawPages().getByIndex(0)
+        if page is None:
+            return self._tool_error("No draw page or slide to insert chart.")
+
+        # Draw/Impress: add OLE2 shape first, then CLSID (chart2 OLE GUID); chart lives on .Model
+        shape = doc.createInstance("com.sun.star.drawing.OLE2Shape")
+        page.add(shape)
+        try:
+            shape.setSize(uno.createUnoStruct("com.sun.star.awt.Size", Width=rect.Width, Height=rect.Height))
+            shape.setPosition(uno.createUnoStruct("com.sun.star.awt.Point", X=rect.X, Y=rect.Y))
+        except Exception as e:
+            logger.debug("Failed to set Draw shape size/pos: %s", e)
+        shape.CLSID = CHART_CLSID_DRAW_OLE
+
+        name = f"Chart_{page.getCount()}"
+        shape.Name = name
+
+        chart_doc = _chart_document_from_host(shape)
+        if chart_doc:
+            chart_doc.setDiagram(chart_doc.createInstance(service))
+            _apply_chart_styling(chart_doc, **kwargs)
+
+        _process_events()
+        return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "chart_name": name}
+
+
 class EditChart(ToolBase):
     """Modify chart properties."""
 
     name = "edit_chart"
     intent = "edit"
     description = (
-        "Edit a Calc chart: update title, subtitle, or legend visibility."
+        "Edit a chart's properties: title, 3D mode, stacking, legend, axes, etc."
     )
     parameters = {
         "type": "object",
         "properties": {
-            "chart_name": {
-                "type": "string",
-                "description": "Chart name (from list_charts).",
-            },
-            "title": {
-                "type": "string",
-                "description": "New chart title.",
-            },
-            "subtitle": {
-                "type": "string",
-                "description": "New chart subtitle.",
-            },
-            "has_legend": {
-                "type": "boolean",
-                "description": "Show or hide legend.",
-            },
+            **CHART_PROPERTIES,
+            "chart_name": {"type": "string", "description": "Name of the chart to edit."},
         },
         "required": ["chart_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services = ListCharts.uno_services
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
+        doc = ctx.doc
         chart_name = kwargs["chart_name"]
-        title = kwargs.get("title")
-        subtitle = kwargs.get("subtitle")
-        has_legend = kwargs.get("has_legend")
+        chart_obj = _resolve_chart(doc, chart_name)
 
-        try:
-            sheet = bridge.get_active_sheet()
-            charts = sheet.getCharts()
-            if not charts.hasByName(chart_name):
-                raise UnoObjectError(f"Chart '{chart_name}' not found.")
+        if not chart_obj:
+            return self._tool_error(f"Chart '{chart_name}' not found.")
 
-            chart_obj = charts.getByName(chart_name)
-            chart_doc = chart_obj.getEmbeddedObject()
-            if chart_doc is None:
-                raise RuntimeError("Cannot access chart document.")
+        chart_doc = _chart_document_from_host(chart_obj)
+        if not chart_doc:
+            return self._tool_error("Cannot access chart content.")
 
-            updated = []
-            if title is not None:
-                chart_doc.HasMainTitle = True
-                title_obj = chart_doc.getTitle()
-                title_obj.String = title
-                updated.append("title")
+        # If chart_type is provided, update the diagram first
+        chart_type = kwargs.get("chart_type")
+        if chart_type:
+            service = CHART_SERVICE_MAP.get(chart_type)
+            if service:
+                chart_doc.setDiagram(chart_doc.createInstance(service))
 
-            if subtitle is not None:
-                chart_doc.HasSubTitle = True
-                sub_obj = chart_doc.getSubTitle()
-                sub_obj.String = subtitle
-                updated.append("subtitle")
+        _apply_chart_styling(chart_doc, **kwargs)
+        
+        return {"status": "ok", "chart_name": chart_name, "message": "Chart updated."}
 
-            if has_legend is not None:
-                chart_doc.HasLegend = has_legend
-                updated.append("has_legend")
 
-            return {"status": "ok", "chart_name": chart_name, "updated": updated}
-        except Exception as e:
-            logger.error("Edit chart error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
 class DeleteChart(ToolBase):
-    """Delete a chart from a Calc sheet."""
+    """Delete a chart."""
 
     name = "delete_chart"
     intent = "edit"
-    description = "Delete a chart from a Calc sheet by name."
+    description = "Delete a chart by name."
     parameters = {
         "type": "object",
         "properties": {
@@ -339,20 +615,34 @@ class DeleteChart(ToolBase):
         },
         "required": ["chart_name"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services = ListCharts.uno_services
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        bridge = CalcBridge(ctx.doc)
+        doc = ctx.doc
         chart_name = kwargs["chart_name"]
-
-        try:
+        
+        if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
+            bridge = CalcBridge(doc)
             sheet = bridge.get_active_sheet()
             charts = sheet.getCharts()
             if not charts.hasByName(chart_name):
                 return self._tool_error(f"Chart '{chart_name}' not found.")
             charts.removeByName(chart_name)
-            return {"status": "ok", "deleted": chart_name}
-        except Exception as e:
-            logger.error("Delete chart error: %s", str(e))
-            raise ToolExecutionError(str(e)) from e
+        elif supportsService(doc, "com.sun.star.text.TextDocument"):
+            objects = doc.getEmbeddedObjects()
+            if not objects.hasByName(chart_name):
+                return self._tool_error(f"Chart '{chart_name}' not found.")
+            objects.removeByName(chart_name)
+        else:
+            # Draw/Impress: find shape and remove from page
+            for i in range(doc.getDrawPages().getCount()):
+                page = doc.getDrawPages().getByIndex(i)
+                for j in range(page.getCount()):
+                    shape = page.getByIndex(j)
+                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape" and shape.Name == chart_name:
+                        page.remove(shape)
+                        return {"status": "ok", "deleted": chart_name}
+            return self._tool_error(f"Chart '{chart_name}' not found.")
+
+        return {"status": "ok", "deleted": chart_name}

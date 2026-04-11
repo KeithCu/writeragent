@@ -5,6 +5,12 @@
 > [!IMPORTANT]
 > **AI Assistants: You MUST update this file after making (nontrivial) changes to the project.** This ensures the next assistant has up-to-date context without manual handoff.
 
+> [!IMPORTANT]
+> **Testing Requirement: When adding a feature or fixing a bug, you MUST add test code.**
+> - Use **unit tests** (in `plugin/tests/`) for logic that can be mocked.
+> - Use **UNO tests** (in `plugin/tests/uno/`) to verify that code calling into LibreOffice works correctly in a real environment.
+> - Run **`make test`** to ensure full coverage and prevent regressions.
+
 ---
 
 ## Quick orientation
@@ -213,6 +219,8 @@ make build
 make deploy   # or: unopkg remove org.extension.writeragent
 make test     # ty + mypy + pyright + bandit, then pytest + in-LO runner (skips if no soffice)
 ```
+
+**Testing policy**: Every new feature or bug fix must include corresponding tests. Prefer native UNO tests when the change affects document interaction (Writer, Calc, Draw).
 
 Also: `make build-no-recording`, `make release` (runs **`make test`** first—**`ty` + mypy + pyright + bandit**, then pytest + LO tests—then builds a smaller bundle without bundled plugin tests; strips debug menu). **Translations**: overview → [`docs/localization.md`](docs/localization.md). `make build` runs `preview-translations` (refresh `writeragent.pot` + `translate_missing.py --preview` for the localization status table only), then `compile-translations`. Full template + PO merge: `make extract-strings` (runs `xgettext`, YAML merge, then **`merge-translations`**: `msgmerge --update` each `writeragent.po` + `msgattrib --no-obsolete`). Optional AI fill: `translate_missing.py` / `make auto-translate` when `OPENROUTER_API_KEY` is set. Contributor steps → [`plugin/locales/README.md`](plugin/locales/README.md).
 

@@ -14,52 +14,48 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer charting tools leveraging Calc's chart implementation.
-
-These operate on the active Writer context but use the same UNO paths as Calc chart
-tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only module.
-"""
+"""Draw charting tools leveraging shared chart implementation."""
 
 import logging
-from plugin.modules.writer.base import ToolWriterChartBase
-from plugin.modules.calc.charts import ListCharts as CalcListCharts
-from plugin.modules.calc.charts import GetChartInfo as CalcGetChartInfo
-from plugin.modules.calc.charts import CreateChart as CalcCreateChart
-from plugin.modules.calc.charts import EditChart as CalcEditChart
-from plugin.modules.calc.charts import DeleteChart as CalcDeleteChart
+from plugin.modules.draw.base import ToolDrawChartBase
+from plugin.modules.calc.charts import (
+    ListCharts as CalcListCharts,
+    GetChartInfo as CalcGetChartInfo,
+    CreateChart as CalcCreateChart,
+    EditChart as CalcEditChart,
+    DeleteChart as CalcDeleteChart,
+)
 
-log = logging.getLogger("writeragent.writer")
+log = logging.getLogger("writeragent.draw")
 
-# Union services: Writer wrappers share tool names with Calc; last registration wins,
-# so both must be listed or spreadsheets fail ToolRegistry.execute compatibility.
 _ALL_CHART_DOCS = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
     "com.sun.star.drawing.DrawingDocument",
     "com.sun.star.presentation.PresentationDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+    "com.sun.star.text.TextDocument",
 ]
 
 
-class ListCharts(CalcListCharts, ToolWriterChartBase):
+class ListCharts(CalcListCharts, ToolDrawChartBase):
     name = "list_charts"
     uno_services = _ALL_CHART_DOCS
 
 
-class GetChartInfo(CalcGetChartInfo, ToolWriterChartBase):
+class GetChartInfo(CalcGetChartInfo, ToolDrawChartBase):
     name = "get_chart_info"
     uno_services = _ALL_CHART_DOCS
 
 
-class CreateChart(CalcCreateChart, ToolWriterChartBase):
+class CreateChart(CalcCreateChart, ToolDrawChartBase):
     name = "create_chart"
     uno_services = _ALL_CHART_DOCS
 
 
-class EditChart(CalcEditChart, ToolWriterChartBase):
+class EditChart(CalcEditChart, ToolDrawChartBase):
     name = "edit_chart"
     uno_services = _ALL_CHART_DOCS
 
 
-class DeleteChart(CalcDeleteChart, ToolWriterChartBase):
+class DeleteChart(CalcDeleteChart, ToolDrawChartBase):
     name = "delete_chart"
     uno_services = _ALL_CHART_DOCS
