@@ -53,6 +53,7 @@ from plugin.modules.http.stream_normalizer import (
     _normalize_delta,
 )
 from plugin.modules.http.requests import sync_request
+from plugin.framework.openrouter_chat_extra import merge_openrouter_chat_extra
 
 log = logging.getLogger(__name__)
 
@@ -400,6 +401,11 @@ class LlmClient:
             data["tools"] = tools
             data["tool_choice"] = "auto"
             data["parallel_tool_calls"] = False
+
+        if self.config.get("is_openrouter"):
+            extra = self.config.get("openrouter_chat_extra")
+            if isinstance(extra, dict) and extra:
+                merge_openrouter_chat_extra(data, extra)
 
         json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)

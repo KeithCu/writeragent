@@ -17,6 +17,7 @@
 import logging
 from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
+from plugin.framework.listeners import BaseActionListener
 from plugin.framework.dialogs import (
     TabListener,
     is_checkbox_control,
@@ -39,6 +40,19 @@ from plugin.modules.chatbot.history_db import HAS_SQLITE
 import uno
 
 log = logging.getLogger(__name__)
+
+
+class EditWriterAgentConfigListener(BaseActionListener):
+    """Open writeragent.json in an external editor (Settings dialog)."""
+
+    def __init__(self, ctx):
+        self._ctx = ctx
+
+    def on_action_performed(self, rEvent):
+        from plugin.framework.external_editor import open_writeragent_json_in_editor
+
+        open_writeragent_json_in_editor(self._ctx)
+
 
 def input_box(ctx, message, title="", default="", x=None, y=None):
     """ Shows input dialog (EditInputDialog.xdl). Returns (result_text, extra_prompt) if OK, else ("", ""). """
@@ -145,7 +159,13 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 
     dlg.getControl("btn_tab_chat").addActionListener(TabListener(dlg, 1))
     dlg.getControl("btn_tab_image").addActionListener(TabListener(dlg, 2))
-    
+    try:
+        _ec = dlg.getControl("btn_edit_config_json")
+        if _ec:
+            _ec.addActionListener(EditWriterAgentConfigListener(ctx))
+    except Exception:
+        pass
+
     try:
         from plugin._manifest import MODULES
         

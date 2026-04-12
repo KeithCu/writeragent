@@ -236,6 +236,10 @@ class WriterAgentConfig:
     calc_prompt_max_tokens: int = 70
     extend_selection_max_tokens: int = 1000
     edit_selection_max_new_tokens: int = 1000
+    # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
+    is_openrouter: bool = False
+    # Merged into POST …/chat/completions JSON when OpenRouter is active; see AGENTS.md.
+    openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -342,6 +346,10 @@ class WriterAgentConfig:
         if not isinstance(self.image_cfg_scale, (int, float)) or self.image_cfg_scale < 0:
             log.warning("Invalid image_cfg_scale %s, falling back to 7.5", self.image_cfg_scale)
             self.image_cfg_scale = 7.5
+
+        if not isinstance(self.openrouter_chat_extra, dict):
+            log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
+            self.openrouter_chat_extra = {}
 
         return self
 
@@ -1141,7 +1149,7 @@ def get_api_config(ctx):
         or "open-webui" in endpoint.lower()
         or "openwebui" in endpoint.lower()
     )
-    is_openrouter = "openrouter.ai" in endpoint.lower()
+    is_openrouter = "openrouter.ai" in endpoint.lower() or as_bool(get_config(ctx, "is_openrouter"))
     api_key = get_api_key_for_endpoint(ctx, endpoint)
 
     api_config = {
@@ -1158,6 +1166,11 @@ def get_api_config(ctx):
     temp = get_config_float(ctx, "temperature")
     if temp >= 0:
         api_config["temperature"] = temp
+
+    if is_openrouter:
+        ore = get_config(ctx, "openrouter_chat_extra")
+        if isinstance(ore, dict) and ore:
+            api_config["openrouter_chat_extra"] = ore
 
     return api_config
 

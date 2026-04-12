@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
 <dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
-  dlg:id="SettingsDialog" dlg:left="100" dlg:top="50" dlg:width="440" dlg:height="200"
+  dlg:id="SettingsDialog" dlg:left="100" dlg:top="50" dlg:width="440" dlg:height="218"
   dlg:closeable="true" dlg:moveable="true" dlg:resizeable="false" dlg:title="Settings"
   dlg:page="1">
  <dlg:bulletinboard>
@@ -44,6 +44,8 @@
   <!-- Row 8: Additional Instructions -->
   <dlg:text dlg:id="label_additional_instructions" dlg:page="1" dlg:left="8" dlg:top="138" dlg:width="150" dlg:height="10" dlg:value="Additional Instructions:" dlg:align="left"/>
   <dlg:combobox dlg:id="additional_instructions" dlg:page="1" dlg:left="165" dlg:top="136" dlg:width="265" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
+
+  <dlg:button dlg:id="btn_edit_config_json" dlg:page="1" dlg:left="8" dlg:top="154" dlg:width="240" dlg:height="14" dlg:tabstop="true" dlg:value="Edit config file (JSON)…"/>
 
   <!-- === Page 2: Image Settings === -->
   <!-- Section 1: shared (all providers). Section 2: AI Horde only (below fixedline). -->
@@ -89,6 +91,6 @@
 
 
   <!-- OK Button (always visible, at bottom of dialog with small margin) -->
-  <dlg:button dlg:id="btn_ok" dlg:left="170" dlg:top="176" dlg:width="100" dlg:height="18" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
+  <dlg:button dlg:id="btn_ok" dlg:left="170" dlg:top="188" dlg:width="100" dlg:height="18" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
  </dlg:bulletinboard>
 </dlg:window>
