@@ -42,7 +42,7 @@ class WriterAgentException(Exception):
 
         from plugin.framework.i18n import _
         super().__init__(message)
-        self.message = _(message)
+        self.message = _(str(message))
         self.code = code
         self.details = details or {}
         # Keep legacy attribute name too (some callers reference `.context`).

@@ -193,7 +193,7 @@ Use [`run_in_background`](plugin/framework/worker_pool.py) instead of raw `threa
   ```
 - **Optional controls**: `get_optional`, checkbox helpers from **`plugin/framework/dialogs.py`**.
 - **ListBox/ComboBox**: populate **`StringItemList`**, not only `.Text`.
-- **translate_dialog**: walk `XControlContainer` with `queryInterface`; fallback `ElementNames` — see [`dialogs.py`](plugin/framework/dialogs.py). **`legacy_ui.py`**: do not pass saved config values through `gettext` (empty string → PO header garbage).
+- **translate_dialog**: walk `XControlContainer` with `queryInterface`; fallback `ElementNames` — see [`dialogs.py`](plugin/framework/dialogs.py). **`legacy_ui.py`**: do not pass saved config values through `gettext` (empty string → PO header garbage). **`plugin/framework/i18n.py` `_(msg)`**: *msg* must be `str` (`TypeError` otherwise). `WriterAgentException` stringifies before calling `_()`.
 - **`legacy_ui.input_box`** (`EditInputDialog.xdl`, Extend/Edit Selection, etc.): when `execute()` returns false (ESC or window close — there is no separate Cancel button), **do not** call `XComponent.dispose()` on the dialog; the toolkit may already have torn it down, and a second dispose can segfault the office (nothing reaches Python logs).
 
 ### Format preservation

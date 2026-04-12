@@ -22,13 +22,14 @@ Uses standard Python gettext to localize strings dynamically.
 import os
 import gettext
 import logging
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from plugin.framework.utils import get_plugin_dir
 
 log = logging.getLogger("writeragent.i18n")
 
-_translation = None
+# Set by init_i18n(); always non-None after init_i18n() returns.
+_translation: Optional[gettext.NullTranslations] = None
 
 
 # When UNO cannot supply ooLocale (tests, early init), use English catalogs.
@@ -65,12 +66,16 @@ def get_lo_locale(ctx=None):
     return _DEFAULT_LOCALE
 
 
-def init_i18n(ctx=None):
-    """Initialize gettext translation based on LibreOffice locale."""
+def init_i18n(ctx=None) -> None:
+    """Load gettext for the current locale.
+
+    Always sets :data:`_translation` before return (``NullTranslations`` on any
+    failure so callers never see ``None`` after a successful call).
+    """
     global _translation
 
     if _translation is not None:
-        return  # Already initialized
+        return
 
     try:
         locale = get_lo_locale(ctx)
@@ -101,27 +106,20 @@ def init_i18n(ctx=None):
             "i18n init: translation_type=%s",
             type(_translation).__name__,
         )
-    except (OSError, FileNotFoundError, IOError) as e:
+    except Exception as e:
         log.debug("Failed to initialize i18n: %s. Falling back to default gettext.", e)
         _translation = gettext.NullTranslations()
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
 
 
-def _(message):
-    """Translate a message string using the initialized gettext translation.
+def _(message: str) -> str:
+    """Translate English msgid *message* via gettext. Must be :class:`str`."""
+    if not isinstance(message, str):
+        raise TypeError("gettext msgid must be str")
 
-    If i18n is not initialized or the translation is missing, the original
-    message is returned.
-    """
     global _translation
     if _translation is None:
         init_i18n()
-    
-    if _translation is None:
-        return str(message)
 
-    # Ensure message is a string before passing to gettext
-    if not isinstance(message, str):
-        return str(message)
-
+    assert _translation is not None
     return _translation.gettext(message)

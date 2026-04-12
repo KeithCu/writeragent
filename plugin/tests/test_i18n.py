@@ -19,10 +19,15 @@ class TestI18n(unittest.TestCase):
         i18n_module._translation = None
 
     def test_i18n_fallback(self):
-        """Test that gettext with no catalog returns msgid (and non-str is coerced)."""
+        """With NullTranslations, msgid passes through unchanged."""
         i18n_module._translation = NullTranslations()
         self.assertEqual(_("ThisIsAnUntranslatedString999"), "ThisIsAnUntranslatedString999")
-        self.assertEqual(_(123), "123")  # Test non-string behavior
+
+    def test_i18n_msgid_must_be_str(self):
+        i18n_module._translation = NullTranslations()
+        for bad in (123, ["a"], ("a",), None):
+            with self.assertRaises(TypeError, msg=repr(bad)):
+                _(bad)
 
     def test_locale_detection_uno(self):
         """Test locale detection uses LibreOffice ooLocale via UNO."""
