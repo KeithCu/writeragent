@@ -25,7 +25,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 
 from plugin.modules.agent_backend.base import AgentBackend
 from plugin.modules.agent_backend.acp_connection import ACPConnection

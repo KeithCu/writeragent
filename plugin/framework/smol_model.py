@@ -38,7 +38,7 @@ class WriterAgentSmolModel(Model):
 
     def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
         completion_kwargs = self._prepare_completion_kwargs(
-            messages=cast(list[ChatMessage | dict[str, Any]], messages),
+            messages=cast("list[ChatMessage | dict[str, Any]]", messages),
             stop_sequences=stop_sequences,
             tools_to_call_from=tools_to_call_from,
             **kwargs,
@@ -99,6 +99,6 @@ class WriterAgentSmolModel(Model):
         )
         if token_usage:
             import typing
-            msg.token_usage = typing.cast(typing.Any, token_usage)
+            msg.token_usage = typing.cast("typing.Any", token_usage)
         return msg
 

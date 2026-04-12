@@ -21,9 +21,7 @@ from __future__ import annotations
 # License: Apache 2.0 (https://github.com/openai/openai-python/blob/main/LICENSE)
 # Minimal local helpers (is_dict, is_list) added so we have no dependency on the SDK.
 
-from typing import TYPE_CHECKING, cast, Any
-if TYPE_CHECKING:
-    from typing_extensions import TypeGuard
+from typing import cast, Any
 
 
 def _is_dict(x: object) -> bool:
@@ -70,14 +68,14 @@ def accumulate_delta(
         ):
             acc_value += delta_value
         elif isinstance(acc_value, dict) and isinstance(delta_value, dict):
-            acc_value = accumulate_delta(cast(dict[object, object], acc_value), cast(dict[object, object], delta_value))
+            acc_value = accumulate_delta(cast("dict[object, object]", acc_value), cast("dict[object, object]", delta_value))
         elif isinstance(acc_value, list) and isinstance(delta_value, list):
             # for lists of non-dictionary items we'll only ever get new entries
             # in the array, existing entries will never be changed
             if all(
                 isinstance(x, (str, int, float)) for x in acc_value
             ):
-                cast(list[Any], acc_value).extend(delta_value)
+                cast("list[Any]", acc_value).extend(delta_value)
                 continue
 
             for delta_entry in delta_value:
@@ -87,7 +85,7 @@ def accumulate_delta(
                     )
 
                 try:
-                    index = cast(dict[str, Any], delta_entry)["index"]
+                    index = cast("dict[str, Any]", delta_entry)["index"]
                 except KeyError as exc:
                     raise RuntimeError(
                         f"Expected list delta entry to have an `index` key; {delta_entry}"
@@ -99,16 +97,16 @@ def accumulate_delta(
                     )
 
                 try:
-                    acc_entry = cast(list[Any], acc_value)[index]
+                    acc_entry = cast("list[Any]", acc_value)[index]
                 except IndexError:
-                    cast(list[Any], acc_value).insert(index, delta_entry)
+                    cast("list[Any]", acc_value).insert(index, delta_entry)
                 else:
                     if not isinstance(acc_entry, dict):
                         raise TypeError("not handled yet")
 
-                    cast(list[Any], acc_value)[index] = accumulate_delta(
-                        cast(dict[object, object], acc_entry), 
-                        cast(dict[object, object], delta_entry)
+                    cast("list[Any]", acc_value)[index] = accumulate_delta(
+                        cast("dict[object, object]", acc_entry), 
+                        cast("dict[object, object]", delta_entry)
                     )
 
         acc[key] = acc_value

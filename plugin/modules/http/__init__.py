@@ -300,10 +300,10 @@ class HttpModule(ModuleBase):
 
         try:
             assert ctx is not None
-            ctx_any = cast(Any, ctx)
+            ctx_any = cast("Any", ctx)
             smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
             assert smgr is not None
-            sm_any = cast(Any, smgr)
+            sm_any = cast("Any", smgr)
 
             dlg_model = sm_any.createInstanceWithContext(
                 "com.sun.star.awt.UnoControlDialogModel", ctx_any)

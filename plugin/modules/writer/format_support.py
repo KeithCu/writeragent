@@ -115,7 +115,7 @@ def _file_url(path):
 def _create_property_value(name, value):
     """Create a ``com.sun.star.beans.PropertyValue``."""
     from typing import Any, cast
-    p = cast(Any, uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
+    p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
     p.Name = name
     p.Value = value
     return p
@@ -256,7 +256,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
     """Export a character range to content via a hidden temp document."""
     temp_doc = None
     try:
-        smgr = ctx.getServiceManager()
+        ctx.getServiceManager()
         desktop = get_desktop(ctx)
         load_props = (_create_property_value("Hidden", True),)
         temp_doc = desktop.loadComponentFromURL(

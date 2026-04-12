@@ -17,12 +17,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 import uno
-import time
 from enum import Enum, auto
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 from plugin.framework.uno_context import get_active_document as get_active_doc
-from plugin.framework.errors import UnoObjectError, DocumentDisposedError, check_disposed, safe_call, safe_uno_call
+from plugin.framework.errors import UnoObjectError, check_disposed, safe_call, safe_uno_call
 
 
 class DocumentType(Enum):

@@ -80,7 +80,7 @@ def get_settings_field_specs(ctx):
                 ctrl_id = f"{prefix}__{field_name}"
                 config_key = f"{m_name}.{field_name}"
                 
-                default = str(schema.get("default", ""))
+                str(schema.get("default", ""))
                 val = get_config(ctx, config_key)
                 opts = schema.get("options", [])
 
@@ -101,7 +101,6 @@ def get_settings_field_specs(ctx):
                     except (ImportError, AttributeError, TypeError, ValueError) as e:
                         log.error(f"Failed to resolve options_provider {provider_path}: {e}")
                     except Exception as e:
-                        from plugin.framework.errors import ConfigError
                         log.error(f"ConfigError in options_provider {provider_path}: {e}")
                 elif schema.get("options"):
                     field["options"] = schema["options"]

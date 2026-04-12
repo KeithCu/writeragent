@@ -284,10 +284,6 @@ class CellManipulator:
     def safe_get_cell_value(self, sheet, cell_address):
         """Safely get cell value with comprehensive error handling."""
         try:
-            import com.sun.star.table.CellContentType
-        except ImportError:
-            pass  # Handled or mocked in tests
-        try:
             # Validate sheet
             if not sheet:
                 raise CalcError(
@@ -307,7 +303,7 @@ class CellManipulator:
             # Get cell
             try:
                 cell = sheet.getCellRangeByName(cell_address)
-            except Exception as e:
+            except Exception:
                 cell = None
             if not cell:
                 raise CalcError(

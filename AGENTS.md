@@ -23,7 +23,7 @@ Common touchpoints: [`plugin/main.py`](plugin/main.py) (MainJob, settings apply)
 
 **WriterAgent** is a LibreOffice extension (Python + UNO) for Writer, Calc, and Draw:
 
-- **Build & Dev**: `make build` (runs **`ty`** then bundle), `make deploy`. **`plugin/_manifest.py`** is gitignored; **`make ty`**, **`make check`** (ty only), **`make typecheck`** (ty + mypy + pyright), and **`make test`** all use **`make manifest`** where applicable so clean checkouts get a generated manifest before type-check. If the file is still absent, [`plugin/framework/module_loader.py`](plugin/framework/module_loader.py) `load_manifest()` raises **`RuntimeError`** (no silent empty module list). **External tools**: `make fix-uno` to link system UNO into `.venv`. **Typecheckers**: **`make check`** / **`make build`** → **`ty`** only; **`make typecheck`** → **`ty` + mypy + pyright**; **`make test`** → typecheck, then **`bandit`** on **`plugin/`** (excludes **`plugin/contrib`** and **`plugin/tests`**, see **`[tool.bandit]`** in **`pyproject.toml`**), then pytest + LO tests; **`make release`** runs **`make test`** first. Details: [`docs/type-checking.md`](docs/type-checking.md).
+- **Build & Dev**: `make build` (runs **`ty`** then **`ruff`** on **`plugin/`**, then bundle), `make deploy`. **`plugin/_manifest.py`** is gitignored; **`make ty`**, **`make check`** (ty only), **`make ruff`** (Ruff lint + flake8-type-checking **`TC`** rules; see **`[tool.ruff]`** in **`pyproject.toml`**), **`make typecheck`** (ty + mypy + pyright), and **`make test`** all use **`make manifest`** where applicable so clean checkouts get a generated manifest before type-check. If the file is still absent, [`plugin/framework/module_loader.py`](plugin/framework/module_loader.py) `load_manifest()` raises **`RuntimeError`** (no silent empty module list). **External tools**: `make fix-uno` to link system UNO into `.venv`. **Typecheckers**: **`make check`** → **`ty`** only; **`make build`** → **`ty`** + **`ruff`**; **`make typecheck`** → **`ty` + mypy + pyright**; **`make test`** → typecheck, then **`bandit`** on **`plugin/`** (excludes **`plugin/contrib`** and **`plugin/tests`**, see **`[tool.bandit]`** in **`pyproject.toml`**), then pytest + LO tests; **`make release`** runs **`make test`** first. Details: [`docs/type-checking.md`](docs/type-checking.md).
 - **Extend Selection** (Ctrl+Q) / **Edit Selection** (Ctrl+E): model continues or rewrites the selection.
 - **Chat with Document**: sidebar (multi-turn + tool-calling), persistent history (SQLite when available, else JSON under `writeragent_history.db.d/`), menu fallback (Writer: append; Calc: "AI Response" sheet).
 - **Settings**: endpoint, models, keys, timeouts, image provider, MCP, etc. Config: `writeragent.json` in LibreOffice user config. Examples: [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
@@ -219,12 +219,12 @@ Same directory as `writeragent.json` (else `~/writeragent_debug.log`). **Image e
 ```bash
 make build
 make deploy   # or: unopkg remove org.extension.writeragent
-make test     # ty + mypy + pyright + bandit, then pytest + in-LO runner (skips if no soffice)
+make test     # ty + mypy + pyright + bandit, then pytest + in-LO runner (skips if no soffice); use make ruff / make build for Ruff
 ```
 
 **Testing policy**: Every new feature or bug fix must include corresponding tests. Prefer native UNO tests when the change affects document interaction (Writer, Calc, Draw).
 
-Also: `make build-no-recording`, `make release` (runs **`make test`** first—**`ty` + mypy + pyright + bandit**, then pytest + LO tests—then builds a smaller bundle without bundled plugin tests; strips debug menu). **Translations**: overview → [`docs/localization.md`](docs/localization.md). `make build` runs `preview-translations` (refresh `writeragent.pot` + `translate_missing.py --preview` for the localization status table only), then `compile-translations`. Full template + PO merge: `make extract-strings` (runs `xgettext`, YAML merge, then **`merge-translations`**: `msgmerge --update` each `writeragent.po` + `msgattrib --no-obsolete`). Optional AI fill: `translate_missing.py` / `make auto-translate` when `OPENROUTER_API_KEY` is set. Contributor steps → [`plugin/locales/README.md`](plugin/locales/README.md).
+Also: `make build-no-recording`, `make release` (runs **`make test`** first—**`ty` + mypy + pyright + bandit**, then pytest + LO tests—then builds a smaller bundle without bundled plugin tests; strips debug menu). **`make build`** and **`make build-no-recording`** also run **`ruff check plugin`** (not part of **`make test`**). **Translations**: overview → [`docs/localization.md`](docs/localization.md). `make build` runs `preview-translations` (refresh `writeragent.pot` + `translate_missing.py --preview` for the localization status table only), then `compile-translations`. Full template + PO merge: `make extract-strings` (runs `xgettext`, YAML merge, then **`merge-translations`**: `msgmerge --update` each `writeragent.po` + `msgattrib --no-obsolete`). Optional AI fill: `translate_missing.py` / `make auto-translate` when `OPENROUTER_API_KEY` is set. Contributor steps → [`plugin/locales/README.md`](plugin/locales/README.md).
 
 Restart LibreOffice after deploy.
 
@@ -281,7 +281,7 @@ Use `WriterAgentException` hierarchy and **`format_error_payload`** ([`plugin/fr
 
 ## 20. Static Type Checking (ty)
 
-Primary workflow and patterns: [`docs/type-checking.md`](docs/type-checking.md). **`make check`** / **`make build`** → **`ty`** only; **`make typecheck`** → **`ty` + mypy + pyright**; **`make test`** adds **`bandit`** then pytest (see §1). **`types-unopy`** (dev) for UNO stubs. Run **`make fix-uno`** so `import uno` / `com.sun.star` resolve in `.venv`.
+Primary workflow and patterns: [`docs/type-checking.md`](docs/type-checking.md). **`make check`** → **`ty`** only; **`make build`** → **`ty`** + **`ruff`**; **`make typecheck`** → **`ty` + mypy + pyright**; **`make test`** adds **`bandit`** then pytest (see §1). **`types-unopy`** (dev) for UNO stubs. Run **`make fix-uno`** so `import uno` / `com.sun.star` resolve in `.venv`.
 
 **Common fixes**: use **`Protocol`** for mixin hosts (`self: ToolLoopHost`); `TYPE_CHECKING` for heavy imports; `cast(Any, …)` / `cast(Iterable, …)` where stubs are thin; explicit `None` checks before narrowing. **UNO interface overrides**: match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or `ty`/pyright report `invalid-method-override`.
 

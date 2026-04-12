@@ -79,7 +79,7 @@ class AudioRecorder:
         if isinstance(effect, InitializeDeviceEffect):
             try:
                 import sounddevice as sd  # type: ignore[import-untyped]
-            except OSError as e:
+            except OSError:
                 self._apply_event(ErrorOccurredEvent(
                     "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"
                 ))
@@ -111,12 +111,12 @@ class AudioRecorder:
                 # Signal readiness
                 self._apply_event(DeviceReadyEvent())
 
-            except AssertionError as e:
+            except AssertionError:
                 # Some PortAudio backends raise AssertionError (e.g. structVersion mismatch)
                 self._apply_event(ErrorOccurredEvent(
                     "Audio recording is not available on this system (PortAudio backend error)."
                 ))
-            except OSError as e:
+            except OSError:
                 # Preserve the existing PortAudio missing-library hint
                 self._apply_event(ErrorOccurredEvent(
                     "Audio recording requires PortAudio. On Linux, please run: sudo apt-get install libportaudio2"

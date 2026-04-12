@@ -38,7 +38,6 @@ XDL dialog loading (used by ModuleBase helpers)::
 """
 
 import logging
-import threading
 from typing import Any, cast
 import unohelper
 from plugin.framework.listeners import BaseActionListener
@@ -74,7 +73,7 @@ def msgbox(ctx, title, message):
         box = toolkit.createMessageBox(
             window, 1, 1, _(title), _(message))  # INFOBOX, OK button
         box.execute()
-    except Exception as e:
+    except Exception:
         log.exception("MSGBOX fallback - %s: %s", title, message)
 
 
@@ -120,7 +119,6 @@ def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
         return result in (1, 2)
     except Exception as e:
         log.exception("Approval dialog failed")
-        from plugin.framework.errors import UnoObjectError
         if "com.sun.star" in str(type(e)):
             log.debug("Approval dialog UNO failure: %s", e)
         return False
@@ -326,8 +324,6 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
         return
     try:
-        import unohelper
-        from com.sun.star.awt import XActionListener
 
         smgr = ctx.ServiceManager
 
@@ -391,8 +387,6 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         log.info("STATUS (no ctx) - %s", title)
         return
     try:
-        import unohelper
-        from com.sun.star.awt import XActionListener
 
         smgr = ctx.ServiceManager
         initial_text = build_status_fn()
@@ -471,8 +465,8 @@ def about_dialog(ctx):
     try:
         from plugin.version import EXTENSION_VERSION
     except ImportError:
-        from typing import cast, Any
-        EXTENSION_VERSION = cast(Any, "?")
+        from typing import cast
+        EXTENSION_VERSION = cast("Any", "?")
 
     if not ctx:
         log.info("ABOUT (no ctx)")
@@ -675,12 +669,12 @@ def _load_xdl(relative_path):
 
     ctx = get_ctx()
     assert ctx is not None
-    ctx_any = cast(Any, ctx)
+    ctx_any = cast("Any", ctx)
     smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
     assert smgr is not None
     base = get_extension_url()
     url = base + "/" + relative_path
-    dp = cast(Any, smgr).createInstanceWithContext(
+    dp = cast("Any", smgr).createInstanceWithContext(
         "com.sun.star.awt.DialogProvider2", ctx_any)
     return dp.createDialog(url)
 

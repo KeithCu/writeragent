@@ -26,10 +26,8 @@ from __future__ import annotations
 
 import logging
 import uno
-import unohelper
 from plugin.framework.uno_context import get_active_document
-from plugin.framework.dialogs import get_checkbox_state, get_control_text, set_control_text
-from com.sun.star.awt import XActionListener
+from plugin.framework.dialogs import get_checkbox_state
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
 
@@ -398,7 +396,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._finish_inline_web_approval(True, query_override=text)
 
     def _finish_inline_web_approval(self, approved, query_override=None):
-        from plugin.framework.i18n import _
         ev = getattr(self, "_approval_event", None)
         if ev is None:
             return

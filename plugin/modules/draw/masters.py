@@ -5,7 +5,7 @@
 
 """Impress/Draw master slide tools."""
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool_base import ToolBase
 
 

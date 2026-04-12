@@ -234,7 +234,8 @@ When asked to make a spreadsheet about a topic you are not certain about, use de
 
 # Dummy gettext function for string extraction tools (xgettext)
 # We don't evaluate them here to avoid early localization issues.
-_ = lambda x: x
+def _(x):
+    return x
 
 DEFAULT_WRITER_GREETING = _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
 DEFAULT_CALC_GREETING = _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")

@@ -63,10 +63,10 @@ def get_desktop(ctx=None):
     """Return the UNO Desktop instance."""
     ctx = ctx or get_ctx()
     assert ctx is not None
-    ctx_any = cast(Any, ctx)
+    ctx_any = cast("Any", ctx)
     smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
     assert smgr is not None
-    return cast(Any, smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
+    return cast("Any", smgr).createInstanceWithContext("com.sun.star.frame.Desktop", ctx_any)
 
 
 def get_active_document(ctx=None):
@@ -87,7 +87,7 @@ def get_package_info(ctx=None):
     """Return the PackageInformationProvider singleton."""
     ctx = ctx or get_ctx()
     assert ctx is not None
-    ctx_any = cast(Any, ctx)
+    ctx_any = cast("Any", ctx)
     gvn = getattr(ctx_any, "getValueByName", None)
     if gvn is None:
         return None

@@ -63,10 +63,8 @@ from plugin.framework.dialogs import (
     set_control_visible
 )
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
-from plugin.framework.document import is_writer, is_calc, is_draw
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
-import typing
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 try:
     from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
@@ -74,7 +72,6 @@ except ImportError:
     TOOLPANEL = 3  # Fallback
 
 from plugin.framework.listeners import BaseItemListener
-from com.sun.star.awt import XItemListener
 
 log = logging.getLogger(__name__)
 
@@ -464,7 +461,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             class ModelSyncListener(BaseItemListener):
                 def __init__(self, ctx): self.ctx = ctx
                 def on_item_state_changed(self, rEvent):
-                    ev = rEvent
                     txt = model_selector.getText()
                     if txt: set_config(self.ctx, "text_model", txt)
             model_selector.addItemListener(ModelSyncListener(self.ctx))
@@ -473,7 +469,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             class ImageModelSyncListener(BaseItemListener):
                 def __init__(self, ctx): self.ctx = ctx
                 def on_item_state_changed(self, rEvent):
-                    ev = rEvent
                     txt = image_model_selector.getText()
                     if txt: set_image_model(self.ctx, txt, update_lru=False)
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
@@ -586,7 +581,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _setup_sessions(self, model, extra_instructions):
         """Creates the document and web research chat sessions."""
         from plugin.framework.constants import get_chat_system_prompt_for_document
-        from plugin.framework.document import get_document_property, set_document_property, get_document_type, DocumentType
+        from plugin.framework.document import get_document_property, set_document_property
         
         # This resolves model logic internally
         system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")

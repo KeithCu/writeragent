@@ -18,7 +18,7 @@
 
 from typing import ClassVar
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool_base import ToolBase
 
 
 class ToolCalcSpecialBase(ToolBase):

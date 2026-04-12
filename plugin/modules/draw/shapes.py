@@ -423,7 +423,7 @@ def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bo
         import typing
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
         prop_seq = uno.Any("[]com.sun.star.beans.PropertyValue", (prop,))  # type: ignore
-        uno.invoke(shape, "setPropertyValue", typing.cast(typing.Any, ("CustomShapeGeometry", prop_seq)))
+        uno.invoke(shape, "setPropertyValue", typing.cast("typing.Any", ("CustomShapeGeometry", prop_seq)))
         log.debug(
             "create_shape enhanced_geometry: ok type=%r engine=%r",
             custom_shape_type,
@@ -661,7 +661,6 @@ def _apply_shape_properties(shape, kwargs):
             import sys
             fill_enum = sys.modules.get("com.sun.star.drawing.FillStyle")
             if not fill_enum:
-                import uno
                 from com.sun.star.drawing import FillStyle
                 fill_enum = FillStyle
             style_str = kwargs["fill_style"].lower()
@@ -694,7 +693,6 @@ def _apply_shape_properties(shape, kwargs):
             import sys
             line_enum = sys.modules.get("com.sun.star.drawing.LineStyle")
             if not line_enum:
-                import uno
                 from com.sun.star.drawing import LineStyle as line_enum
             shape.setPropertyValue("LineStyle", line_enum.SOLID)
         except Exception:
@@ -1074,7 +1072,7 @@ class GroupShapes(ToolBase):
                 shape_collection.add(shape)
 
             # Group the shapes
-            group_shape = page.group(shape_collection)
+            page.group(shape_collection)
         except Exception as e:
             return self._tool_error(f"Failed to group shapes: {str(e)}")
 

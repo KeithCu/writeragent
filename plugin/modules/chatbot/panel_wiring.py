@@ -1,10 +1,9 @@
-import weakref
 import logging
+from typing import Any, Callable
 
 from plugin.framework.dialogs import (
     get_optional as get_optional_control,
     get_checkbox_state,
-    set_control_enabled,
     get_control_text,
     set_control_text
 )
@@ -211,11 +210,16 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         )
         _parent = None
         _tp = getattr(self, "toolpanel", None)
+        _deck_getter: Callable[[], Any | None] | None
         if _tp is not None:
             _parent = _tp.parent_window
-        _deck_getter = None
-        if _tp is not None:
-            _deck_getter = lambda: getattr(_tp, "_last_deck_w", None)
+
+            def _last_deck_w():
+                return getattr(_tp, "_last_deck_w", None)
+
+            _deck_getter = _last_deck_w
+        else:
+            _deck_getter = None
         _resize = _PanelResizeListener(
             controls, parent_window=_parent, deck_w_getter=_deck_getter
         )

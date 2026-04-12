@@ -27,7 +27,7 @@ import json
 import logging
 import dataclasses
 import time
-from typing import Dict, Any, Optional, TYPE_CHECKING, cast
+from typing import Dict, Any, cast
 from plugin.framework.event_bus import global_event_bus
 _uno_mod: Any
 _unohelper_mod: Any
@@ -121,7 +121,7 @@ def _config_path(ctx):
     if ctx is None:
         raise ConfigError("UNO context is required to resolve config path")
     try:
-        from plugin.framework.errors import check_disposed, safe_call, UnoObjectError
+        from plugin.framework.errors import safe_call
         sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
         path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
         user_config_path = getattr(path_settings, "UserConfig", "")
@@ -512,7 +512,7 @@ def get_config_int(ctx, key) -> int:
     if v == "":
         raise ConfigError(f"Config key {key!r} not found in schema", "CONFIG_KEY_NOT_FOUND")
     try:
-        return int(float(cast(Any, v)))
+        return int(float(cast("Any", v)))
     except (ValueError, TypeError) as e:
         raise ConfigError(f"Config key {key!r} has non-integer value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
@@ -540,7 +540,7 @@ def get_config_float(ctx, key) -> float:
     Throws ConfigError if key is not found."""
     v = get_config(ctx, key)
     try:
-        return float(cast(Any, v))
+        return float(cast("Any", v))
     except (ValueError, TypeError) as e:
         raise ConfigError(f"Config key {key!r} has non-float value: {v!r}", "CONFIG_TYPE_ERROR") from e
 

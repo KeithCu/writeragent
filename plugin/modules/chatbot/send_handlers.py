@@ -13,11 +13,9 @@ from __future__ import annotations
 
 import queue
 import logging
-import json
 from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
 
 if TYPE_CHECKING:
-    import threading
     from plugin.modules.http.client import LlmClient
     from plugin.modules.chatbot.panel import ChatSession
     from plugin.modules.chatbot.state_machine import SendHandlerState, EffectInterpreter
@@ -83,9 +81,7 @@ from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import safe_json_loads
 from plugin.modules.chatbot.state_machine import (
     SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent,
-    ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter,
-    SpawnAudioWorkerEffect, SpawnDirectImageEffect, SpawnAgentWorkerEffect,
-    SpawnWebWorkerEffect, ProceedToChatEffect
+    ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
 )
 
 log = logging.getLogger(__name__)
@@ -222,7 +218,6 @@ class SendHandlersMixin:
     ) -> None:
         from plugin.framework.dialogs import get_control_text
         q: queue.Queue[Any] = queue.Queue()
-        job_done = [False]
 
         def run_direct_image():
             try:
@@ -400,7 +395,6 @@ class SendHandlersMixin:
             return
 
         q: queue.Queue[Any] = queue.Queue()
-        job_done = [False]
         self._current_agent_backend = adapter
 
         def run_agent():
@@ -539,12 +533,10 @@ class SendHandlersMixin:
         if hasattr(self, "_active_run_librarian"):
             delattr(self, "_active_run_librarian")
 
-        from plugin.modules.http.errors import format_error_message
         from plugin.main import get_tools
         from plugin.framework.document import is_calc, is_draw
 
         q: queue.Queue[Any] = queue.Queue()
-        job_done = [False]
         # Read show_thinking before spawning the thread so apply_chunk can use it
         try:
             from plugin.framework.config import get_config, as_bool

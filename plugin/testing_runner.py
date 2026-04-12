@@ -95,8 +95,8 @@ def run_module_suite(ctx, module, name, doc_model=None):
         fallback_func = getattr(module, fallback_func_name, None)
         if fallback_func:
             try:
-                p, f, l = fallback_func(ctx, doc_model)
-                return int(p or 0), int(f or 0), list(l or [])
+                p, f, lines = fallback_func(ctx, doc_model)
+                return int(p or 0), int(f or 0), list(lines or [])
             except Exception as e:
                 return 0, 1, [f"EXCEPTION in {fallback_func_name}: {e}", traceback.format_exc()]
 

@@ -285,7 +285,7 @@ def run_stream_drain_loop(
                 job_done[0] = True
                 try:
                     on_error(error_payload)
-                except:
+                except Exception:
                     pass
 
             if toolkit:

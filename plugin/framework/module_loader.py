@@ -15,7 +15,7 @@ class ModuleLoader:
         """Loads the module manifest."""
         try:
             from plugin._manifest import MODULES
-            return cast(list[dict[str, Any]], MODULES)
+            return cast("list[dict[str, Any]]", MODULES)
         except ImportError as e:
             raise RuntimeError(
                 "plugin._manifest is missing or invalid (gitignored; run "

@@ -9,17 +9,14 @@ from __future__ import annotations
 import logging
 import inspect
 import dataclasses
-import json
 import queue
-from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar, Sequence, cast
+from typing import TYPE_CHECKING, Protocol, Any, Callable, Sequence, cast
 
 if TYPE_CHECKING:
-    import threading
     from plugin.modules.http.client import LlmClient
     from plugin.modules.chatbot.panel import ChatSession
 
 from plugin.framework.async_stream import (
-    run_stream_completion_async,
     run_stream_drain_loop,
     StreamQueueKind,
 )
@@ -46,12 +43,8 @@ from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.document import get_document_context_for_chat
 from plugin.framework.errors import (
     format_error_payload,
-    safe_json_loads,
-    WriterAgentException,
     ToolExecutionError,
-    UnoObjectError,
-    NetworkError,
-    ConfigError
+    UnoObjectError
 )
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import as_bool
@@ -144,7 +137,6 @@ class ToolCallingMixin:
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
     def _do_send_chat_with_tools(self: ToolLoopHost, query_text: str, model: Any, doc_type_str: str) -> None:
-        from plugin.framework.errors import UnoObjectError
         try:
             log.debug("_do_send: importing core modules...")
             from plugin.main import get_tools
@@ -579,7 +571,7 @@ class ToolCallingMixin:
         elif kind == StreamQueueKind.TOOL_DONE:
             mutates = False
             raw = item if isinstance(item, (tuple, list)) else ()
-            s = cast(Sequence[Any], raw)
+            s = cast("Sequence[Any]", raw)
             ln = len(s)
             if ln > 4:
                 try:
@@ -948,7 +940,6 @@ class ToolCallingMixin:
             )
 
             # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
-            thinking_open = [False]
 
             # --- Kick off the first LLM stream ---
             self._refresh_active_tools_for_session()
@@ -974,69 +965,6 @@ class ToolCallingMixin:
             self.sidebar_state = dataclasses.replace(
                 self.sidebar_state, tool_loop=None
             )
-
-    def _start_simple_stream_async(self: ToolLoopHost, client: "LlmClient", max_tokens: int) -> None:
-        """Start simple streaming (no tools) via async helper; returns immediately."""
-        log.info("=== Simple stream START ===")
-        self._set_status("Thinking...")
-        self._append_response("\nAI: ")
-
-        last_user = ""
-        doc_context = ""
-        for msg in reversed(self.session.messages):
-            if msg["role"] == "user" and not last_user:
-                last_user = msg["content"]
-            if msg["role"] == "system" and "[DOCUMENT CONTENT]" in (
-                msg.get("content") or ""
-            ):
-                doc_context = msg["content"]
-        prompt = (
-            "%s\n\nUser question: %s" % (doc_context, last_user)
-            if doc_context
-            else last_user
-        )
-        system_prompt = ""
-        for msg in self.session.messages:
-            if msg["role"] == "system" and "[DOCUMENT CONTENT]" not in (
-                msg.get("content") or ""
-            ):
-                system_prompt = msg["content"]
-                break
-
-        collected = []
-
-        def apply_chunk(chunk_text, is_thinking=False):
-            self._append_response(chunk_text)
-            if not is_thinking:
-                collected.append(chunk_text)
-
-        def on_done():
-            full_response = "".join(collected)
-            self.session.add_assistant_message(content=full_response)
-            self._terminal_status = "Ready"
-            self._set_status("Ready")
-            self._append_response("\n")
-            if self.stop_requested:
-                self._append_response("\n[Stopped by user]\n")
-
-        def on_error(e):
-            err_msg = format_error_message(e)
-            self._append_response("[Error: %s]\n" % err_msg)
-            self._terminal_status = "Error"
-            self._set_status("Error")
-
-        run_stream_completion_async(
-            self.ctx,
-            client,
-            prompt,
-            system_prompt,
-            max_tokens,
-            apply_chunk,
-            on_done,
-            on_error,
-            on_status_fn=self._set_status,
-            stop_checker=lambda: self.stop_requested,
-        )
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Override on ``SendButtonListener`` for real UI. Default: auto-approve (tests / no panel)."""

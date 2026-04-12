@@ -21,11 +21,9 @@ import logging
 import threading
 import queue
 from typing import Any, cast
-from plugin.framework.types import ToolResult, ToolError
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
-from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger("writeragent.tools")
 
@@ -116,7 +114,7 @@ class ToolRegistry:
     def auto_discover(self, module):
         """Automatically discover and register ToolBase subclasses in a module."""
         import inspect
-        from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+        from plugin.framework.tool_base import ToolBaseDummy
 
         for name, obj in inspect.getmembers(module, inspect.isclass):
             # Must inherit from ToolBase, but not be ToolBase itself or ToolBaseDummy.
@@ -208,7 +206,7 @@ class ToolRegistry:
             to_exclude = _DEFAULT_EXCLUDE_TIERS
         else:
             import typing
-            to_exclude = frozenset(typing.cast(typing.Iterable[typing.Any], exclude_tiers)) if exclude_tiers else frozenset()
+            to_exclude = frozenset(typing.cast("typing.Iterable[typing.Any]", exclude_tiers)) if exclude_tiers else frozenset()
 
         if active_domain:
             # If an active domain is set, restrict the list ONLY to the specialized tools
@@ -374,7 +372,6 @@ class ToolRegistry:
             if props:
                 kwargs = {k: v for k, v in kwargs.items() if k in props}
 
-            from plugin.framework.errors import format_error_payload, ToolExecutionError
 
             # Common context for all error details
             common_details = {"tool_name": tool_name}
@@ -416,7 +413,7 @@ class ToolRegistry:
                     for k, v in common_details.items():
                         if k not in merged:
                             merged[k] = v
-                    cast(dict[str, Any], result)["details"] = merged
+                    cast("dict[str, Any]", result)["details"] = merged
 
             if bus:
                 # only emit completed if result was not an error (optional, but follows general pattern)

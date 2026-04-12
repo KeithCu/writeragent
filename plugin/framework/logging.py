@@ -360,7 +360,7 @@ def format_tool_result_for_display(tool, result, args=None):
                     inner_dict = safe_json_loads(res_str)
                     if isinstance(inner_dict, dict) and "message" in inner_dict:
                         res_str = inner_dict["message"]
-        except:
+        except Exception:
             pass
 
         val_repr = repr(res_str)

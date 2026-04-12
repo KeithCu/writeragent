@@ -21,7 +21,6 @@ import subprocess
 import threading
 import traceback
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Callable
 
 from plugin.framework.errors import WorkerPoolError

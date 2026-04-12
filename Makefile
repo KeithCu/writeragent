@@ -95,7 +95,8 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright bandit ty-run mypy-run pyright-run
+        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright bandit ty-run mypy-run pyright-run \
+        ruff ruff-fix ruff-format-check
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ help:
 	@echo "================================="
 	@echo ""
 	@echo "Build:"
-	@echo "  make build                  Build .oxt with plugin/tests (runs ty, then gettext/UI steps)"
+	@echo "  make build                  Build .oxt with plugin/tests (runs ty + ruff, then gettext/UI steps)"
 	@echo "  make release                Run make test first, then build .oxt without bundled tests"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no contrib/audio, no Record button)"
 	@echo "  make xcu                    Generate XCS/XCU from config schemas"
@@ -147,6 +148,8 @@ help:
 	@echo "  make check                  Quick gate: ty only (also used implicitly before fast workflows)"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
 	@echo "  make mypy / make pyright / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
+	@echo "  make ruff                   Ruff lint (plugin/, excludes contrib + tests; see pyproject.toml)"
+	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check"
 	@echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────────
@@ -183,16 +186,16 @@ preview-translations: refresh-pot
 
 
 ifeq ($(USE_DOCKER),1)
-build: ty preview-translations compile-translations
+build: ty ruff preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: ty preview-translations vendor manifest compile-translations
+build: ty ruff preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: ty preview-translations vendor manifest compile-translations
+build-no-recording: ty ruff preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -456,3 +459,12 @@ pyright-run:
 
 bandit:
 	$(PYTHON) -m bandit -r plugin -c pyproject.toml --severity-level medium
+
+ruff:
+	$(PYTHON) -m ruff check plugin
+
+ruff-fix:
+	$(PYTHON) -m ruff check plugin --fix
+
+ruff-format-check:
+	$(PYTHON) -m ruff format --check plugin

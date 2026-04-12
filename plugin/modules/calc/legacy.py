@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Legacy operations for Calc (Extend/Edit Selection)."""
 from plugin.framework.config import (
-    get_config, get_config_int, get_config_str, get_api_config, validate_api_config
+    get_config_int, get_config_str, get_api_config, validate_api_config
 )
 from plugin.modules.http.errors import format_error_message
 from plugin.modules.http.client import LlmClient

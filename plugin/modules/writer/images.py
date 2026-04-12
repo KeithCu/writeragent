@@ -95,9 +95,9 @@ class GenerateImage(ToolWriterImageBase):
     def execute(self, ctx: typing.Any, **args: typing.Any) -> typing.Any:
         prompt = args.get("prompt", "")
         from plugin.framework.config import (
-            get_config, get_config_dict, as_bool, get_text_model,
+            get_config, get_text_model,
             get_config_int, get_config_bool, get_config_str,
-            get_config_float, update_lru_history,
+            update_lru_history,
         )
         from plugin.framework.queue_executor import execute_on_main_thread
 

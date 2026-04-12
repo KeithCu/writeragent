@@ -14,6 +14,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import annotations
+
 import sys
 import os
 import logging
@@ -47,7 +49,11 @@ if os.path.isdir(_vendor_plugin) and _vendor_plugin not in sys.path:
     sys.path.insert(0, _vendor_plugin)
 
 import unohelper
-from types import ModuleType
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from types import ModuleType
+    from plugin.framework.tool_registry import ToolRegistry
 
 officehelper: ModuleType | None = None
 try:
@@ -65,8 +71,6 @@ from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
 from plugin.framework.uno_context import get_active_document, get_extension_url
-from plugin.framework.tool_registry import ToolRegistry
-from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
@@ -211,7 +215,6 @@ def _register_core_handlers():
     from plugin.framework.legacy_ui import settings_box, show_eval_dashboard
     from plugin.framework.dialogs import about_dialog
     from plugin.framework.document import is_writer, is_calc, is_draw
-    from plugin.framework.uno_context import get_ctx
     import importlib
 
     def _open_settings():
@@ -509,7 +512,7 @@ def _collect_icon_commands():
     import typing
     for m in MODULES:
         mod_name = m["name"]
-        action_icons = typing.cast(typing.Dict[str, str], m.get("action_icons", {}))
+        action_icons = typing.cast("typing.Dict[str, str]", m.get("action_icons", {}))
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
             # Ask the module for dynamic icon (may override the default)
@@ -526,10 +529,10 @@ def _load_icon_graphic(module_name, icon_filename, ctx=None):
         if ctx is None:
             ctx = uno.getComponentContext()
         assert ctx is not None
-        ctx_any = cast(Any, ctx)
+        ctx_any = cast("Any", ctx)
         smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         assert smgr is not None
-        gp = cast(Any, smgr).createInstanceWithContext(
+        gp = cast("Any", smgr).createInstanceWithContext(
             "com.sun.star.graphic.GraphicProvider", ctx_any)
         ext_url = get_extension_url(ctx_any)
         if not ext_url:
@@ -577,7 +580,7 @@ def _update_menu_icons():
         smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
         assert smgr is not None
 
-        supplier = cast(Any, smgr).createInstanceWithContext(
+        supplier = cast("Any", smgr).createInstanceWithContext(
             "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
         for mod_id in _IMAGE_MANAGER_MODULES:
             try:
@@ -814,8 +817,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         url = URL
         with _status_lock:
             _status_listeners[:] = [
-                (l, u) for l, u in _status_listeners
-                if not (l is listener and u.Complete == url.Complete)
+                (lstnr, u) for lstnr, u in _status_listeners
+                if not (lstnr is listener and u.Complete == url.Complete)
             ]
 
 # pythonloader loads a static g_ImplementationHelper variable

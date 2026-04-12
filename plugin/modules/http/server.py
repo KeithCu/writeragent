@@ -24,7 +24,6 @@ Route handlers are looked up from an HttpRouteRegistry instance.
 import json
 import logging
 import socketserver
-import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, cast
 from plugin.framework.utils import get_url_path, get_url_query_dict
@@ -85,10 +84,10 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                     from plugin.framework.queue_executor import default_executor
                     result: Any = default_executor.execute(
                         route.handler, body, self.headers, query)
-                    status, data = cast(tuple[int, Any], result)
+                    status, data = cast("tuple[int, Any]", result)
                 else:
                     result = route.handler(body, self.headers, query)
-                    status, data = cast(tuple[int, Any], result)
+                    status, data = cast("tuple[int, Any]", result)
                 self._send_json(status, data)
         except Exception as e:
             log.error("%s %s error: %s", method, path, e, exc_info=True)

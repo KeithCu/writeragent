@@ -4,9 +4,12 @@
 # This program is free software.
 
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 from plugin.framework.tool_base import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.contrib.smolagents.tools import Tool as SmolTool
 
 log = logging.getLogger(__name__)
 
@@ -14,14 +17,14 @@ log = logging.getLogger(__name__)
 def _memory_key_from_tool_arguments(arguments: object) -> str | None:
     """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
     if isinstance(arguments, dict):
-        k = cast(dict[str, Any], arguments).get("key")
+        k = cast("dict[str, Any]", arguments).get("key")
         return k if isinstance(k, str) else None
     if isinstance(arguments, str):
         from plugin.framework.errors import safe_json_loads
 
         parsed = safe_json_loads(arguments)
         if isinstance(parsed, dict):
-            k = cast(dict[str, Any], parsed).get("key")
+            k = cast("dict[str, Any]", parsed).get("key")
             return k if isinstance(k, str) else None
     return None
 
@@ -191,13 +194,10 @@ TOOLS FOR COMPLETION:
 - Use 'switch_to_document_mode' with a friendly 'message' to END the onboarding and hand over to the document assistant.
 
 """
-            from typing import cast, Iterable
-            from plugin.contrib.smolagents.tools import Tool as SmolTool
-            from plugin.framework.config import get_config_int
             max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")
 
             agent = ToolCallingAgent(
-                tools=cast(list[SmolTool], [
+                tools=cast("list[SmolTool]", [
                     SmolToolAdapter(MemoryTool(), ctx),
                     SmolToolAdapter(SwitchToDocumentModeTool(), ctx)
                 ]),
@@ -213,7 +213,7 @@ TOOLS FOR COMPLETION:
             final_ans = None
             switch_mode_requested = False
 
-            run_stream = cast(Iterable, agent.run(task, stream=True))
+            run_stream = cast("Iterable", agent.run(task, stream=True))
             for step in run_stream:
                 if stop_checker and stop_checker():
                     return format_error_payload(ToolExecutionError("Librarian stopped by user.", code="USER_STOPPED"))

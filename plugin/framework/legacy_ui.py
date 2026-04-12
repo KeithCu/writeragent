@@ -32,7 +32,7 @@ from plugin.framework.i18n import _
 from plugin.framework.config import (
     get_config, get_current_endpoint, get_text_model,
     populate_combobox_with_lru, set_config, update_lru_history,
-    get_config_str, get_config_bool, get_config_int, get_config_float
+    get_config_str
 )
 from plugin.framework.logging import init_logging, agent_log
 from plugin.modules.chatbot.history_db import HAS_SQLITE
@@ -402,7 +402,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                     if field.get("type") == "bool" and is_checkbox:
                         try:
                             set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
-                        except Exception as e:
+                        except Exception:
                             pass
                     elif hasattr(ctrl, "setText"):
                         # Populate options if provided (for select/combo widgets)
@@ -564,7 +564,7 @@ def show_eval_dashboard(ctx):
                 self.dialog.getControl("status").setText("Running...")
                 self.toolkit.processEventsToIdle()
                 
-                desktop = get_desktop(self.ctx)
+                get_desktop(self.ctx)
                 doc = get_active_document(self.ctx)
                 
                 summary = run_benchmark_suite(self.ctx, doc, model_name, categories)

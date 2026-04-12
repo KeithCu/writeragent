@@ -3,7 +3,7 @@
 import time
 import dataclasses
 from dataclasses import dataclass
-from typing import List, Any, Dict, Optional, NamedTuple
+from typing import List, Any, Optional, NamedTuple
 from plugin.modules.http.errors import format_error_for_display
 from plugin.framework.state import BaseState, FsmTransition
 from plugin.framework.types import (
@@ -122,7 +122,7 @@ class EffectInterpreter:
 
     def interpret(self, effect: SendHandlerEffect):
         match effect:
-            case SendHandlerUIEffect("append", text, is_thinking):
+            case SendHandlerUIEffect("append", text, _):
                 # The _append_response handles thinking implicitly by default args, but we match it
                 # For this handler, we just append text. Thinking is checked in the loop.
                 self.handler._append_response(text)

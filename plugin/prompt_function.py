@@ -27,7 +27,6 @@ if _ext_root not in sys.path:
 if _plugin_dir not in sys.path:
     sys.path.insert(0, _plugin_dir)
 
-from plugin.framework.utils import get_plugin_dir
 
 import unohelper
 

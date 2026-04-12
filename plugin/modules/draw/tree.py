@@ -19,7 +19,6 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase
-from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger(__name__)
 

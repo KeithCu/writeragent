@@ -117,8 +117,8 @@ class _PanelResizeListener(BaseWindowListener):
                 info["gap_below_response"] = max(0, bottom_top - info["resp_bottom"])
             else:
                 # Fallback: no controls below response; keep a small gap.
-                info["bottom_top"] = cast(int, info["resp_bottom"])
-                info["bottom_bottom"] = cast(int, info["resp_bottom"])
+                info["bottom_top"] = cast("int", info["resp_bottom"])
+                info["bottom_bottom"] = cast("int", info["resp_bottom"])
                 info["gap_below_response"] = 2
 
         _resize_debug(
@@ -191,9 +191,9 @@ class _PanelResizeListener(BaseWindowListener):
             log.warning("_relayout: no initial state, skip")
             return
 
-        initial = cast(dict[str, Any], self._initial)
-        iw = cast(int, initial["win_w"])
-        ih = cast(int, initial["win_h"])
+        initial = cast("dict[str, Any]", self._initial)
+        cast("int", initial["win_w"])
+        ih = cast("int", initial["win_h"])
         resp_bottom = int(initial.get("resp_bottom", 0))
         gap_below_response = int(initial.get("gap_below_response", 2))
         bottom_top_initial = initial.get("bottom_top")

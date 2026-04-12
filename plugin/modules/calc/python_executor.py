@@ -28,7 +28,6 @@ like formulas by returning the value of the last expression.
 import ast
 import types
 import logging
-import json
 from typing import Any, cast
 
 from plugin.framework.tool_base import ToolBase
@@ -117,7 +116,7 @@ class PythonExecutor:
         if hasattr(result, "__dict__") and not isinstance(result, (list, tuple, dict, str, int, float, bool)):
             try:
                 return f"<Result: {str(result)}>"
-            except:
+            except Exception:
                 return f"<Object: {type(result).__name__}>"
 
         return result
@@ -141,7 +140,7 @@ class PythonExecutor:
             last_node = tree.body[-1]
 
             if isinstance(last_node, ast.Expr):
-                last_expr = cast(ast.Expr, tree.body.pop())
+                last_expr = cast("ast.Expr", tree.body.pop())
             elif isinstance(last_node, (ast.Assign, ast.AnnAssign)):
                 # For assignments, we POP the node so it doesn't run in exec(),
                 # then we evaluate its VALUE in eval() and manually set the name.

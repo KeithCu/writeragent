@@ -19,7 +19,6 @@ import logging
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 
-from plugin.framework.tool_base import ToolBase
 from plugin.modules.writer.base import ToolWriterWebResearchBase
 from plugin.modules.calc.base import ToolCalcWebResearchBase
 from plugin.modules.draw.base import ToolDrawWebResearchBase
@@ -204,7 +203,7 @@ class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDr
 
             web_search_step_index = 0
             from typing import Iterable, cast
-            run_stream = cast(Iterable, agent.run(task, stream=True))
+            run_stream = cast("Iterable", agent.run(task, stream=True))
             for step in run_stream:
                 if stop_checker and stop_checker():
                     return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
@@ -275,7 +274,7 @@ class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDr
                             # Skip a duplicate full `[Web search]` preview when the first DDG query
                             # matches the outer `query` passed into this tool (same text as user intent).
                             q_norm = _norm_research_query(q)
-                            query_norm = _norm_research_query(cast(str, query)) if query is not None else ""
+                            query_norm = _norm_research_query(cast("str", query)) if query is not None else ""
                             skip_redundant_preview = (
                                 web_search_step_index == 0
                                 and q_norm == query_norm

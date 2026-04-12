@@ -27,7 +27,7 @@ structurally when used.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, List, Protocol, Tuple, TypeVar, Union, cast
+from typing import Any, Generic, List, Protocol, Tuple, TypeVar, Union
 
 __all__ = [
     "BaseState",

@@ -39,7 +39,25 @@ dev = [
     "types-unopy",
     "pyright>=1.1.408",
     "bandit[toml]>=1.8.0",
+    "ruff>=0.9.0",
 ]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = [
+    "plugin/contrib",
+    "plugin/tests",
+]
+
+[tool.ruff.lint]
+extend-select = ["TC"]
+# UNO/bootstrap often uses imports after path setup; one-line if/for with colon is legacy style.
+extend-ignore = ["E402", "E701"]
+
+[tool.ruff.lint.flake8-type-checking]
+quote-annotations = true
+# Dataclass field types are evaluated at class creation; keep first-party imports out of TYPE_CHECKING.
+runtime-evaluated-decorators = ["dataclasses.dataclass"]
 
 [tool.mypy]
 python_version = "3.11"

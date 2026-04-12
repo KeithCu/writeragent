@@ -152,7 +152,7 @@ class ProximityService(ServiceBase):
                 ctx_node["para_index"])
 
         import typing
-        target_entry = typing.cast(typing.Optional[typing.Dict[str, typing.Any]], None)
+        target_entry = typing.cast("typing.Optional[typing.Dict[str, typing.Any]]", None)
         error_msg = None
 
         if direction == "next":

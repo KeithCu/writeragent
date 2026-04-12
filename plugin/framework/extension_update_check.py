@@ -67,7 +67,7 @@ def remote_is_newer(remote: str, local: str) -> bool:
 
 def run_extension_update_check(ctx: Any) -> None:
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import set_config
     from plugin.framework.dialogs import msgbox
     from plugin.framework.queue_executor import QueueExecutor
     from plugin.modules.http.requests import sync_request

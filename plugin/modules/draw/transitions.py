@@ -5,7 +5,7 @@
 
 """Impress slide transition and layout tools."""
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 import logging
 
 from plugin.framework.tool_base import ToolBase

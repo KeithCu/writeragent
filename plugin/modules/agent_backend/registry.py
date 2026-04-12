@@ -20,7 +20,6 @@ from plugin.modules.agent_backend.builtin import BuiltinBackend
 from plugin.modules.agent_backend.hermes_simple import HermesBackend
 from plugin.modules.agent_backend.claude_simple import ClaudeBackend
 from plugin.modules.agent_backend.vibe_simple import VibeBackend
-from plugin.modules.agent_backend.mcp_acp_proxy import MCPACPProxy
 
 AGENT_BACKEND_REGISTRY = {
     "builtin": ("Built-in", BuiltinBackend),

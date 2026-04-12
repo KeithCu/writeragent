@@ -3,7 +3,6 @@ from enum import Enum, auto
 from typing import Any, Dict, List, Optional
 
 from plugin.framework.state import BaseState, FsmTransition
-from plugin.framework.types import ToolResult, ToolError
 
 # --- States ---
 class MCPStateStr(Enum):
@@ -126,7 +125,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         # Move to executing tool
         import typing
         effects.append(ExecuteToolEffect(
-            tool_name=typing.cast(str, state.tool_name),
+            tool_name=typing.cast("str", state.tool_name),
             arguments=state.arguments,
             doc_context=doc_context,
             doc_type=doc_type,

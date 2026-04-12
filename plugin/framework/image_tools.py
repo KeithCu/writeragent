@@ -191,7 +191,7 @@ def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", 
             ctrllr = model.CurrentController
             draw_page = ctrllr.ActiveSheet.DrawPage if inside == "calc" else ctrllr.CurrentPage
             pos = obj.getPosition()
-            size = obj.getSize()
+            obj.getSize()
             new_image = model.createInstance("com.sun.star.drawing.GraphicObjectShape")
             new_image.GraphicURL = uno.systemPathToFileUrl(img_path)
             new_image.setPosition(pos)
@@ -267,10 +267,10 @@ def get_selected_image_base64(model, ctx=None):
         if ctx is None:
             ctx = uno.getComponentContext()
         assert ctx is not None
-        ctx_any = cast(Any, ctx)
+        ctx_any = cast("Any", ctx)
         sm = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         assert sm is not None
-        gp = cast(Any, sm).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
+        gp = cast("Any", sm).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
         
         with tempfile.NamedTemporaryFile(suffix=".png") as tmp:
             tmp_url = uno.systemPathToFileUrl(tmp.name)

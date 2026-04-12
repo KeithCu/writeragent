@@ -46,7 +46,7 @@ def get_lo_locale(ctx=None):
         import uno
         if ctx is None:
             ctx = uno.getComponentContext()
-        smgr = cast(Any, ctx).getServiceManager()
+        smgr = cast("Any", ctx).getServiceManager()
         config_provider = smgr.createInstanceWithContext(
             "com.sun.star.configuration.ConfigurationProvider", ctx)
         ca = config_provider.createInstanceWithArguments(

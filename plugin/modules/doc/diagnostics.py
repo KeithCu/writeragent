@@ -7,8 +7,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
-from plugin.framework.types import ToolResult, ToolError
+from plugin.framework.tool_base import ToolBaseDummy
 
 log = logging.getLogger("nelson.common")
 
@@ -37,7 +36,6 @@ class DocumentHealthCheck(ToolBaseDummy):
 
         issues = []
         last_heading_level = 0
-        last_heading_text = ""
         paragraphs_since_heading = 0
         total_headings = 0
 
@@ -99,7 +97,6 @@ class DocumentHealthCheck(ToolBaseDummy):
                     })
 
                 last_heading_level = outline_level
-                last_heading_text = heading_preview
 
                 # --- Large unstructured block check ---
                 if paragraphs_since_heading > 50:

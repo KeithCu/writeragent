@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from plugin.framework.state import BaseState, FsmTransition
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
@@ -49,12 +49,10 @@ class LogSidebarEffect:
     message: str
 
 
-import typing
-
 @dataclass(frozen=True)
 class SidebarCompositeState(BaseState):
     send: SendButtonState
-    tool_loop: typing.Optional[ToolLoopState]
+    tool_loop: Optional[ToolLoopState]
     audio: AudioRecorderState
 
 
@@ -66,7 +64,7 @@ def sidebar_next_state(
 
     match event.kind:
         case SidebarEventKind.SEND:
-            send_tr = send_next_state(composite.send, cast(SendEvent, event.payload))
+            send_tr = send_next_state(composite.send, cast("SendEvent", event.payload))
             return FsmTransition(
                 SidebarCompositeState(
                     send=send_tr.state,
@@ -86,7 +84,7 @@ def sidebar_next_state(
                     ],
                 )
             tool_loop_tr = tool_loop_next_state(
-                composite.tool_loop, cast(ToolLoopEvent, event.payload)
+                composite.tool_loop, cast("ToolLoopEvent", event.payload)
             )
             return FsmTransition(
                 SidebarCompositeState(

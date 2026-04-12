@@ -25,7 +25,7 @@ import urllib.parse
 import http.client
 import socket
 import datetime
-from typing import Any, Dict, Optional, List
+from typing import Any
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
@@ -36,7 +36,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
-from plugin.framework.errors import NetworkError, safe_json_loads
+from plugin.framework.errors import NetworkError
 from plugin.framework.utils import get_url_hostname, get_url_path_and_query
 
 from plugin.modules.http.errors import format_error_message, _format_http_error_response
@@ -119,7 +119,7 @@ class LlmClient:
                 except Exception:
                     pass
                 self._persistent_conn.close()
-            except:
+            except Exception:
                 pass
             self._persistent_conn = None
             self._conn_key = None
@@ -175,7 +175,7 @@ class LlmClient:
 
     def _current_host(self):
         endpoint = self._endpoint()
-        parsed = urllib.parse.urlparse(endpoint)
+        urllib.parse.urlparse(endpoint)
         return get_url_hostname(endpoint)
 
     def _enable_local_ssl_fallback(self, err):
@@ -583,7 +583,7 @@ class LlmClient:
                 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                 last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
                 
-                provider = self._get_provider()
+                self._get_provider()
                 # Google Gemini stream is a JSON array of objects, not SSE.
                 # Actually, iterate_sse might fail if it's not 'data: ...'.
                 # For now, we assume it's SSE-like or we add custom iteration.
@@ -660,7 +660,7 @@ class LlmClient:
                     remaining = response.read()
                     if remaining:
                         log.debug("Consumed extra %d bytes after loop" % len(remaining))
-                except:
+                except Exception:
                     pass
                 # Honor Connection: close so we don't try to reuse when the server closed.
                 conn_hdr = (response.getheader("Connection") or "").strip().lower()

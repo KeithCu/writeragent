@@ -10,7 +10,7 @@ slide with specific presentation types. These tools provide direct access
 to placeholders by role rather than shape index.
 """
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 import logging
 
 from plugin.framework.tool_base import ToolBase

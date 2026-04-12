@@ -26,10 +26,8 @@ Also includes tools for managing document comments (Annotations).
 
 import datetime
 import logging
-from typing import TYPE_CHECKING, cast, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from com.sun.star.text import TextDocument, XTextDocument
 
 from plugin.modules.writer.base import WriterAgentSpecialTracking
 

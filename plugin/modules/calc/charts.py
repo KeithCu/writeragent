@@ -15,18 +15,16 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from typing import Any, cast
+from typing import Any
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
 """
 
 import logging
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool_base import ToolBase
-from plugin.modules.calc.address_utils import parse_address
 from plugin.modules.calc.bridge import CalcBridge
 import uno
-import time
 
 def supportsService(obj, service_name: str) -> bool:
     """Helper to check if a UNO object supports a service."""

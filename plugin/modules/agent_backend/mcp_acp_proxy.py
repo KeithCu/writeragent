@@ -23,10 +23,9 @@ to WriterAgent's MCP server by acting as an ACP-to-MCP protocol bridge.
 import logging
 import threading
 import requests
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 
 from plugin.modules.agent_backend.base import AgentBackend
-from plugin.framework.errors import format_error_payload
 
 log = logging.getLogger(__name__)
 

@@ -202,7 +202,7 @@ class DelegateToSpecializedCalc(ToolBase):
 
             from typing import cast, Iterable
             agent = ToolCallingAgent(
-                tools=cast(list[SmolTool], smol_tools),
+                tools=cast("list[SmolTool]", smol_tools),
                 model=smol_model,
                 max_steps=10,
                 instructions=instructions,
@@ -212,7 +212,7 @@ class DelegateToSpecializedCalc(ToolBase):
 
             final_ans = None
 
-            run_stream = cast(Iterable, agent.run(cast(str, task), stream=True))
+            run_stream = cast("Iterable", agent.run(cast("str", task), stream=True))
             for step in run_stream:
                 if stop_checker and stop_checker():
                     return format_error_payload(ToolExecutionError("Specialized task stopped by user.", code="USER_STOPPED"))
