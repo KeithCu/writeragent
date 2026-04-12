@@ -38,6 +38,7 @@ ALWAYS_INCLUDE_EXTENSION = [
 
 ALWAYS_INCLUDE_PLUGIN = [
     "plugin/__init__.py",
+    "plugin/framework/openrouter_models.json",
     "plugin/main.py",
     "plugin/modules/chatbot/panel_factory.py",
     "plugin/version.py",

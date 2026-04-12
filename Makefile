@@ -90,6 +90,7 @@ endif
 # ── Phony targets ────────────────────────────────────────────────────────────
 
 .PHONY: help build build-no-recording release release-build repack repack-deploy manifest xcu clean \
+        openrouter-catalog \
         install install-force uninstall cache \
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
@@ -107,6 +108,7 @@ help:
 	@echo ""
 	@echo "Build:"
 	@echo "  make build                  Build .oxt with plugin/tests (runs ty + ruff, then gettext/UI steps)"
+	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
 	@echo "  make release                Run make test first, then build .oxt without bundled tests"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no contrib/audio, no Record button)"
 	@echo "  make xcu                    Generate XCS/XCU from config schemas"
@@ -205,7 +207,11 @@ release:
 	@$(MAKE) test
 	@$(MAKE) release-build
 
-release-build: auto-translate vendor manifest compile-translations
+openrouter-catalog:
+	$(PYTHON) scripts/sync_orca_openrouter_catalog.py
+	$(PYTHON) -m ruff format plugin/framework/default_models.py
+
+release-build: auto-translate vendor manifest openrouter-catalog compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (release, bundle without plugin/tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
