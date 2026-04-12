@@ -33,8 +33,7 @@ try:
     import sys
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     
-    from plugin.framework.auth import resolve_auth_for_config, build_auth_headers
-    from plugin.framework.config import get_config, get_config_dict
+    from plugin.framework.config import get_config_dict
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
 except ImportError:
     # Fallback for when running outside the full WriterAgent environment
@@ -191,7 +190,6 @@ def call_translate_batch(texts: List[str], target_lang: str, model: str = "x-ai/
                          endpoint: str = "https://openrouter.ai/api/v1", api_key: Optional[str] = None) -> List[Optional[str]]:
     """Call AI with a list of strings and get corresponding translations back."""
     import urllib.request
-    import urllib.parse
     
     if not api_key:
         try:
