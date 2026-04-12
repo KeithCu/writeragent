@@ -252,7 +252,7 @@ make test
 make help
 ```
 
-Architecture Diagram
+![Sonnet 4.6 architecture diagram](Showcase/Sonnet46ArchDiagram.jpg)
 
 ## License
 
