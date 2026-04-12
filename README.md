@@ -229,7 +229,7 @@ For detailed configuration examples, see [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md
 
 ### Local Development
 
-**Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), PyYAML (`uv pip install pyyaml`), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
+**Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
 
 ```bash
 # Clone the repository
