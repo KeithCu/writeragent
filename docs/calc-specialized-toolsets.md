@@ -1,6 +1,6 @@
 # Calc specialized toolsets (nested delegation)
 
-This document describes how Calc implements **nested delegation** for specialized toolsets, similar to Writer's approach. For detailed background on the delegation model, API design philosophies (Fine-grained vs. Fat APIs), and architecture overview, see [Writer specialized toolsets](writer-specialized-toolsets.md).
+This document describes how Calc implements **nested delegation** for specialized toolsets, similar to Writer's approach. For detailed background on the delegation model, API design philosophies (Fine-grained vs. Fat APIs), and architecture overview, see [Writer specialized toolsets](writer-specialized-toolsets.md), and [Calc specialized toolsets](calc-specialized-toolsets.md), and 
 
 This document focuses on **Calc-specific** domains, implementation status, and feature coverage.
 
@@ -33,15 +33,17 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 |---------------|--------------------|----------------|-------|
 | **Cells** | ✅ Implemented | `cells.py`: Get/SetCellValues, SetCellFormula, GetCellFormula | Basic cell operations on main list |
 | **Ranges** | ✅ Implemented | `cells.py`: Get/SetRangeValues, Get/SetRangeFormulas | — |
-| **Sheets** | ✅ Implemented | `sheets.py`: ListSheets, Create/Delete/RenameSheet, GetSheetProperties | Basic sheet ops on main list |
+| **Sheets** | ✅ Implemented | `sheets.py`: ListSheets, Create/Delete/RenameSheet, GetSheetProperties, SwitchSheet, GetSheetSummary | Basic sheet ops on main list |
 | **Formulas** | ✅ Implemented | `formulas.py`: Get/SetFormula, EvaluateFormula, ListFormulaDependencies | — |
 | **Charts** | ✅ Implemented | `charts.py`: ListCharts, Create/Edit/DeleteChart (shared with Writer) | Medium-fat API (`create_chart`) |
 | **Named Ranges** | ✅ Implemented | `named_ranges.py`: ListNamedRanges, Create/Edit/DeleteNamedRange | — |
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
 | **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../plugin/modules/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](calc-conditional-formatting.md) | Specialized tier |
-| **Pivot Tables** | ✅ Implemented | `pivot.py`: CreatePivotTable, RefreshPivotTable, GetPivotTableData | Specialized tier |
+| **Pivot Tables** | ✅ Implemented | `pivot.py`: CreatePivotTable, RefreshPivotTable, GetPivotTableData, ListPivotTables | Specialized tier |
 | **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
 | **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |
+| **Comments** | ✅ Implemented | `comments.py`: ListCellComments, AddCellComment, DeleteCellComment | Specialized tier |
+| **Forms** | ✅ Implemented | `forms.py`: CreateForm, GenerateForm, ListFormControls, CreateFormControl, EditFormControl, DeleteFormControl (shared with Writer) | Specialized tier |
 
 ### 3.2 Future enhancements (roadmap)
 
@@ -53,7 +55,7 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 | **Scenarios** | ❌ Not implemented | Scenario manager, what-if analysis |
 | **Data Tables** | ❌ Not implemented | One-way and two-way data tables |
 | **External Data** | ❌ Not implemented | Database connections, SQL queries, web queries |
-| **Forms** | ❌ Not implemented | Form controls, data entry, submission |
+| **Advanced Forms** | ❌ Not implemented | Advanced form features, database integration, complex validation |
 | **Advanced Chart Features** | ✅ Partial | Trend lines, error bars, secondary axes |
 | **Pivot Chart Creation** | ❌ Not implemented | Direct pivot chart creation from data |
 | **Dynamic Named Ranges** | ❌ Not implemented | Formula-based range definitions |
