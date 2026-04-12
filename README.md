@@ -231,8 +231,6 @@ For detailed configuration examples, see [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md
 
 **Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), PyYAML (`uv pip install pyyaml`), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
 
-Alternatively, use Docker to build with no local dependencies (see `make docker-build`).
-
 ```bash
 # Clone the repository
 git clone https://github.com/KeithCu/writeragent.git
