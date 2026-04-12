@@ -57,14 +57,12 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
             if not is_edit:
                 if not cell_text:
                     continue
-                cell = sheet.getCellByPosition(col, row)
-                tasks.append((cell, cell_text, extend_sys, extend_max, None))
+                tasks.append((col, row, cell_text, extend_sys, extend_max, None))
             else:
                 cell_original = cell_text
                 prompt = "ORIGINAL VERSION:\n" + cell_original + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
                 max_tokens = len(cell_original) + edit_max
-                cell = sheet.getCellByPosition(col, row)
-                tasks.append((cell, prompt, edit_sys, max_tokens, cell_original))
+                tasks.append((col, row, prompt, edit_sys, max_tokens, cell_original))
 
     if not tasks:
         return
@@ -82,14 +80,21 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     def run_next_cell():
         if task_index[0] >= len(tasks):
             return
-        cell, prompt, system_prompt, max_tokens, original = tasks[task_index[0]]
+        col, row, prompt, system_prompt, max_tokens, original = tasks[task_index[0]]
         task_index[0] += 1
-        if is_edit and original is not None:
+        cell = sheet.getCellByPosition(col, row)
+
+        # Use a list for closure-based mutability of the current cell text
+        accumulated_text = [""]
+        if not is_edit:
+            accumulated_text[0] = prompt  # In extend mode, 'prompt' is the initial cell_text
+        elif original is not None:
             cell.setString("")
 
         def apply_chunk(chunk_text, is_thinking=False):
             if not is_thinking:
-                cell.setString(cell.getString() + chunk_text)
+                accumulated_text[0] += chunk_text
+                cell.setString(accumulated_text[0])
 
         def on_done():
             run_next_cell()
