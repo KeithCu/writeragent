@@ -241,16 +241,34 @@ class LlmClient:
 
         # 2. Google Gemini native
         if provider == "google":
-            # candidates[0].content.parts[0].text
             candidates = chunk.get("candidates", [])
             choice = candidates[0] if candidates else {}
             content = ""
+            tool_calls = []
             parts = choice.get("content", {}).get("parts", [])
-            if parts:
-                content = parts[0].get("text") or ""
+            for p in parts:
+                if "text" in p:
+                    content += p.get("text") or ""
+                if "functionCall" in p:
+                    fc = p["functionCall"]
+                    tool_calls.append({
+                        "id": fc.get("id", "call_" + str(len(tool_calls))),
+                        "type": "function",
+                        "function": {
+                            "name": fc.get("name"),
+                            "arguments": json.dumps(fc.get("args", {}))
+                        }
+                    })
             finish_reason = choice.get("finishReason")
-            usage = chunk.get("usageMetadata", {}) # usage metadata at chunk level
-            return content, finish_reason, None, {"usage": usage}
+            # Map Google finishReason to OpenAI finish_reason
+            if finish_reason == "STOP":
+                finish_reason = "stop"
+
+            usage = chunk.get("usageMetadata", {})
+            delta: dict[str, Any] = {"usage": usage}
+            if tool_calls:
+                delta["tool_calls"] = tool_calls
+            return content, finish_reason, None, delta
 
         # 3. OpenAI / compatible default
         choices = chunk.get("choices", [])
@@ -332,12 +350,62 @@ class LlmClient:
             system_instruction = None
             for m in messages:
                 role = m["role"]
-                if role == "assistant":
-                    role = "model"
+                parts = []
+
+                content = m.get("content")
+                if content:
+                    if isinstance(content, str):
+                        parts.append({"text": content})
+                    elif isinstance(content, list):
+                        for part in content:
+                            if part.get("type") == "text":
+                                parts.append({"text": part.get("text", "")})
+                            # Google supports inline_data for images/multimodal, but
+                            # we'll stick to text for now in this shim.
+
+                tool_calls = m.get("tool_calls")
+                if tool_calls:
+                    for tc in tool_calls:
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments", "{}")
+                        try:
+                            args_obj = json.loads(args) if isinstance(args, str) else args
+                        except:
+                            args_obj = {}
+                        parts.append({
+                            "functionCall": {
+                                "name": fn.get("name"),
+                                "args": args_obj
+                            }
+                        })
+
                 if role == "system":
-                    system_instruction = {"parts": [{"text": m["content"]}]}
+                    system_instruction = {"parts": parts}
+                elif role == "tool":
+                    # For Google, the 'tool' role is 'function'.
+                    # It requires a 'name' and 'response' object.
+                    try:
+                        resp_obj = json.loads(content) if isinstance(content, str) else content
+                    except:
+                        resp_obj = {"result": content}
+
+                    # Ensure it's a dict for the 'response' field
+                    if not isinstance(resp_obj, dict):
+                        resp_obj = {"result": resp_obj}
+
+                    contents.append({
+                        "role": "function",
+                        "parts": [{
+                            "functionResponse": {
+                                "name": m.get("name") or m.get("tool_call_id"),
+                                "response": resp_obj
+                            }
+                        }]
+                    })
                 else:
-                    contents.append({"role": role, "parts": [{"text": m["content"]}]})
+                    if role == "assistant":
+                        role = "model"
+                    contents.append({"role": role, "parts": parts})
             
             data: dict[str, Any] = {
                 "contents": contents,
@@ -349,8 +417,17 @@ class LlmClient:
             if system_instruction:
                 data["system_instruction"] = system_instruction
             if tools:
-                 # TODO: Google tools format
-                 pass
+                # Convert OpenAI tools to Google function_declarations
+                decls = []
+                for t in tools:
+                    # t is expected to be an OpenAI-style tool: {"type": "function", "function": {...}}
+                    fn = t.get("function", {})
+                    decls.append({
+                        "name": fn.get("name"),
+                        "description": fn.get("description", ""),
+                        "parameters": fn.get("parameters", {"type": "object", "properties": {}})
+                    })
+                data["tools"] = [{"function_declarations": decls}]
 
             log.debug("=== Google Gemini Native Request (stream=%s) ===" % stream)
             log.debug("URL: %s (redacted key)" % url.split("?")[0])
