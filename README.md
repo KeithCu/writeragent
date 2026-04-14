@@ -13,9 +13,7 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
 
-> DeepWiki provides excellent analysis of the codebase, including visual dependency graphs.
-
-## Features
+> DeepWiki provides excellent analysis of the codebase, including visual dependency graphs
 
 WriterAgent provides powerful AI-driven capabilities integrated directly into your LibreOffice suite:
 
@@ -37,7 +35,7 @@ Another option is [Together.AI](https://www.together.ai/), which also has a vari
 
 More than just a chatbot, this is a "Document Agent." It doesn't just read your text; it understands the structure—headings, bookmarks, cell ranges, and styles. **Its primary job is to act on your behalf**, performing complex edits that would otherwise take dozens of manual clicks.
 
-#### Features & Performance
+#### Features
 
 - **Sidebar Panel**: A dedicated deck in the right sidebar for multi-turn chat. It supports tool-calling to read and edit the document directly. Chat history is automatically saved and restored using an ID, ensuring the conversation follows the document even if renamed or moved.
 - **Responsive streaming & interleaved tools**: A background thread and queue keep the LibreOffice UI responsive  while reasoning, text, and multi-turn tool calls stream and execute. Uses **[Hermes](https://github.com/NousResearch/hermes-agent)** JSON and tool-call parsing logic for robustness against model misbehaviors.
