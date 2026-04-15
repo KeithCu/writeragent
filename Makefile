@@ -96,7 +96,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright bandit ty-run mypy-run pyright-run \
+        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-format-check
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -149,7 +149,8 @@ help:
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
 	@echo "  make check                  Quick gate: ty only (also used implicitly before fast workflows)"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
-	@echo "  make mypy / make pyright / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
+	@echo "  make mypy / make pyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
+	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
 	@echo "  make ruff                   Ruff lint (plugin/, excludes contrib + tests; see pyproject.toml)"
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check"
 	@echo ""
@@ -450,6 +451,7 @@ check: ty
 ty: manifest ty-run
 mypy: manifest mypy-run
 pyright: manifest pyright-run
+pyrefly: manifest pyrefly-run
 
 ty-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
@@ -462,6 +464,10 @@ mypy-run:
 pyright-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
 	$(PYTHON) -m pyright
+
+pyrefly-run:
+	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
+	$(PYTHON) -m pyrefly check
 
 bandit:
 	$(PYTHON) -m bandit -r plugin -c pyproject.toml --severity-level medium

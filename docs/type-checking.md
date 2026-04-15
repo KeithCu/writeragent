@@ -35,6 +35,13 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 - **Not** part of **`make check`** or **`make build`** alone; it **is** part of **`make typecheck`** and **`make test`** (and thus **`make release`**). Diagnostics overlap Pylance in the editor; use standalone **`make pyright`** for a quick CLI pass.
 - **Status (CLI)**: On the same scoped tree as **`ty`**, Pyright can be driven to **zero errors**; remaining noise is usually **`reportMissingModuleSource`** for **`com.sun.star.*`** imports (stubs exist for typing, but Pyright still warns that it cannot resolve “source” for those modules). That is typically safe to ignore if runtime UNO works.
 
+### Pyrefly (experimental)
+
+- **[Pyrefly](https://pyrefly.org/)** — Meta’s Rust-based type checker and language server; **`make pyrefly`** runs **`python -m pyrefly check`** with the same **`import uno`** / **`make fix-uno`** prelude as **`make pyright`**.
+- **Not** part of **`make check`**, **`make typecheck`**, or **`make test`**. Use as an optional fourth opinion while triaging; **`[tool.pyrefly]`** in **`pyproject.toml`** sets **`project-includes`**, **`project-excludes`**, and **`python-version`** (see [Pyrefly configuration](https://pyrefly.org/en/docs/configuration/)).
+- Like other static checkers, Pyrefly treats **`typing.TYPE_CHECKING` as true**, so imports and types under **`if TYPE_CHECKING:`** participate in analysis. Config sets **`search-path = ["."]`** so **`from plugin...`** in those blocks resolves from the repo root, and **`check-unannotated-defs`**, **`infer-return-types`**, and **`infer-with-first-use`** match Pyrefly’s defaults for full analysis of checked modules.
+- Until the project drives Pyrefly to **zero errors**, CI should not gate on it; treat output as experimental signal alongside ty/mypy/pyright.
+
 ---
 
 ## Pyright vs `ty` and mypy (what differed in practice)

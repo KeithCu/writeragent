@@ -40,6 +40,7 @@ dev = [
     "pyright>=1.1.408",
     "bandit[toml]>=1.8.0",
     "ruff>=0.9.0",
+    "pyrefly>=0.61.0",
 ]
 
 [tool.ruff]
@@ -97,6 +98,17 @@ skips = ["B310", "B314"]
 # Optional: explicitly set what to include (defaults to common patterns)
 include = ["plugin"]
 exclude = ["plugin/contrib", "plugin/tests"]
+
+# Pyrefly (CLI: make pyrefly) — experimental; same scope as ty/mypy/pyright; not part of make test
+[tool.pyrefly]
+project-includes = ["plugin"]
+project-excludes = ["plugin/contrib/**", "plugin/tests/**"]
+python-version = "3.11"
+# Repo root so `from plugin...` inside `if TYPE_CHECKING:` resolves; Pyrefly treats TYPE_CHECKING as true.
+search-path = ["."]
+check-unannotated-defs = true
+infer-return-types = "checked"
+infer-with-first-use = true
 
 # Pyright (CLI: make pyright) — same scope as ty/mypy; uses .venv for stubs (types-unopy) and UNO via make fix-uno
 [tool.pyright]
