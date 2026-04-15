@@ -25,6 +25,8 @@ import logging
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service_base import ServiceBase
+import typing
+
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
@@ -151,7 +153,6 @@ class ProximityService(ServiceBase):
             from_info["context_bookmark"] = bookmark_map.get(
                 ctx_node["para_index"])
 
-        import typing
         target_entry = typing.cast("typing.Optional[typing.Dict[str, typing.Any]]", None)
         error_msg = None
 

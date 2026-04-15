@@ -23,6 +23,8 @@ import logging
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service_base import ServiceBase
+from typing import Any
+
 
 log = logging.getLogger("writeragent.writer.nav.tree")
 
@@ -63,7 +65,6 @@ class TreeService(ServiceBase):
         if key in self._tree_cache:
             return self._tree_cache[key]
 
-        from typing import Any
         text = doc.getText()
         enum = text.createEnumeration()
         root: dict[str, Any] = {"level": 0, "text": "root", "para_index": -1,

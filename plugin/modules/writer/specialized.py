@@ -21,6 +21,19 @@ import logging
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.writer.base import ToolWriterSpecialBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
+from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
+from plugin.contrib.smolagents.tools import Tool as SmolTool
+from plugin.framework.config import get_api_config, get_config_int
+from plugin.framework.errors import format_error_payload, ToolExecutionError
+from plugin.framework.i18n import _
+from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.smol_model import WriterAgentSmolModel
+from plugin.modules.chatbot.web_research import WebResearchTool
+from plugin.modules.http.client import LlmClient
+from typing import cast, Iterable
+
 
 log = logging.getLogger("writeragent.writer")
 
@@ -46,7 +59,6 @@ class DelegateToSpecializedWriter(ToolBase):
 
     def __init__(self):
         super().__init__()
-        from plugin.modules.writer.base import ToolWriterSpecialBase
         domains = []
         for cls in ToolWriterSpecialBase.__subclasses__():
             if getattr(cls, "specialized_domain", None):
@@ -78,13 +90,6 @@ class DelegateToSpecializedWriter(ToolBase):
         return True
 
     def execute(self, ctx, **kwargs):
-        from plugin.framework.errors import format_error_payload, ToolExecutionError
-        from plugin.framework.config import get_api_config, get_config_int
-        from plugin.modules.http.client import LlmClient
-        from plugin.framework.smol_model import WriterAgentSmolModel
-        from plugin.contrib.smolagents.agents import ToolCallingAgent
-        from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
-        from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
 
         domain = kwargs.get("domain")
         task = kwargs.get("task")
@@ -94,7 +99,6 @@ class DelegateToSpecializedWriter(ToolBase):
         stop_checker = getattr(ctx, "stop_checker", None)
 
         if domain == "web_research":
-            from plugin.modules.chatbot.web_research import WebResearchTool
             tool = WebResearchTool()
             return tool.execute(ctx, query=task)
 
@@ -103,7 +107,6 @@ class DelegateToSpecializedWriter(ToolBase):
             if getattr(ctx, "set_active_domain_callback", None):
                 ctx.set_active_domain_callback(domain)
 
-            from plugin.framework.i18n import _
             msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. "
                     "You must call 'specialized_workflow_finished' when done to restore "
                     "the full set of APIs.").format(domain)
@@ -142,7 +145,6 @@ class DelegateToSpecializedWriter(ToolBase):
                 )
 
             # Create a simple wrapper for each ToolBase to expose it to smolagents
-            from plugin.contrib.smolagents.tools import Tool as SmolTool
 
             class WrappedSmolTool(SmolTool):
                 skip_forward_signature_validation = True
@@ -170,7 +172,6 @@ class DelegateToSpecializedWriter(ToolBase):
                     return self.forward(*args, **kwargs)
 
                 def forward(self, *args, **kwargs):
-                    from plugin.framework.queue_executor import execute_on_main_thread
 
                     tool = self.writer_tool
                     if getattr(tool, "is_async", lambda: False)():
@@ -209,8 +210,6 @@ class DelegateToSpecializedWriter(ToolBase):
 
             max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")
 
-            from typing import cast, Iterable
-            from plugin.contrib.smolagents.tools import Tool as SmolTool
             agent = ToolCallingAgent(
                 tools=cast("list[SmolTool]", smol_tools),
                 model=smol_model,
@@ -253,7 +252,6 @@ class DelegateToSpecializedWriter(ToolBase):
                 elif isinstance(step, FinalAnswerStep):
                     final_ans = step.output
 
-            from plugin.framework.i18n import _
 
             return {
                 "status": "ok",

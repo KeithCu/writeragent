@@ -10,6 +10,8 @@
 """Writer document indexes (TOC, bibliography) — specialized indexes domain."""
 
 from plugin.modules.writer.base import ToolWriterIndexBase
+from plugin.modules.writer.target_resolver import resolve_target_cursor
+
 
 
 class IndexesUpdateAll(ToolWriterIndexBase):
@@ -164,7 +166,6 @@ class IndexesCreate(ToolWriterIndexBase):
             if index_kind == "toc" and hasattr(index, "CreateFromOutline"):
                 index.CreateFromOutline = create_from_outline
 
-            from plugin.modules.writer.target_resolver import resolve_target_cursor
             try:
                 cursor = resolve_target_cursor(ctx, target, old_content)
             except ValueError as ve:
@@ -241,7 +242,6 @@ class IndexesAddMark(ToolWriterIndexBase):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
-        from plugin.modules.writer.target_resolver import resolve_target_cursor
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:

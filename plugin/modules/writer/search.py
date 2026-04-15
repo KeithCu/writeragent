@@ -19,6 +19,9 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.modules.writer import format_support
+import re as re_mod
+
 
 log = logging.getLogger("writeragent.writer")
 
@@ -71,7 +74,6 @@ class SearchInDocument(ToolBase):
     tier = "core"
 
     def execute(self, ctx, **kwargs):
-        import re as re_mod
 
         pattern = kwargs.get("pattern", "")
         if not pattern:
@@ -84,7 +86,6 @@ class SearchInDocument(ToolBase):
         return_offsets = kwargs.get("return_offsets", False)
 
         if return_offsets:
-            from plugin.modules.writer import format_support
             ranges = format_support.find_text_ranges(
                 ctx.doc, ctx.ctx, pattern,
                 start=0, limit=max_results, case_sensitive=case_sensitive,

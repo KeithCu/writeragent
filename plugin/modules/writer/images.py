@@ -30,6 +30,13 @@ import os
 import tempfile
 
 from plugin.modules.writer.base import ToolWriterImageBase
+import typing
+import urllib.request
+import ssl
+from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.image_utils import ImageService
+from plugin.framework.config import get_config, get_text_model, get_config_int, get_config_bool, get_config_str, update_lru_history
+from plugin.framework.config import get_config, get_text_model, get_config_int, get_config_bool, get_config_str, update_lru_history
 from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
     get_selected_image_dimensions_px,
@@ -86,7 +93,6 @@ class GenerateImage(ToolWriterImageBase):
     is_mutation = True
     long_running = True
 
-    import typing
 
     def is_async(self) -> bool:
         """HTTP generation runs on the tool worker; UNO is marshalled in execute()."""
@@ -94,12 +100,6 @@ class GenerateImage(ToolWriterImageBase):
 
     def execute(self, ctx: typing.Any, **args: typing.Any) -> typing.Any:
         prompt = args.get("prompt", "")
-        from plugin.framework.config import (
-            get_config, get_text_model,
-            get_config_int, get_config_bool, get_config_str,
-            update_lru_history,
-        )
-        from plugin.framework.queue_executor import execute_on_main_thread
 
         status_callback = getattr(ctx, "status_callback", None)
         mt_timeout = float(get_config_int(ctx.ctx, "request_timeout"))
@@ -167,7 +167,6 @@ class GenerateImage(ToolWriterImageBase):
         width = args.get("width", edit_width if is_edit else w)
         height = args.get("height", edit_height if is_edit else h)
 
-        from plugin.framework.image_utils import ImageService
         image_svc = ImageService(ctx.ctx, config=None) # ImageService should use accessors too, or we pass dict
         args_copy = {
             k: v
@@ -900,8 +899,6 @@ def _download_image_to_cache(url, verify_ssl=False, force=False):
 
     Returns the local file path. Uses a URL-based hash for caching.
     """
-    import urllib.request
-    import ssl
 
     os.makedirs(_IMAGE_CACHE_DIR, exist_ok=True)
 

@@ -21,6 +21,9 @@ import logging
 from plugin.framework.tool_base import ToolBase, ToolBaseDummy
 from plugin.framework.document import normalize_linebreaks
 from plugin.modules.writer import format_support
+from plugin.framework.errors import safe_json_loads
+import re as re_mod
+
 
 log = logging.getLogger("writeragent.writer")
 
@@ -58,7 +61,6 @@ def _normalize_search_string_for_find(s):
     """Collapse horizontal whitespace only; preserve newlines for literal find.
     (LibreOffice regex search does not work across paragraphs.)
     """
-    import re as re_mod
     return re_mod.sub(r"[ \t]+", " ", s).strip()
 
 
@@ -237,7 +239,6 @@ class ApplyDocumentContent(ToolBase):
         if isinstance(content, str):
             stripped = content.strip()
             if stripped.startswith("[") and "<" in stripped:
-                from plugin.framework.errors import safe_json_loads
                 parsed = safe_json_loads(stripped)
                 if isinstance(parsed, list):
                     content = parsed
@@ -270,7 +271,6 @@ class ApplyDocumentContent(ToolBase):
         # target == "search" from here on
         old_stripped = str(old_content).strip()
 
-        import re as re_mod
         search_string = old_stripped
         if format_support.content_has_markup(search_string):
             search_string = format_support.html_to_plain_text(
