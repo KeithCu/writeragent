@@ -16,7 +16,7 @@
 # - Set ``ContainsHeader`` on the filter descriptor; call ``setFilterFields2`` / ``filter``.
 #
 # We do *not* implement helper columns, boolean expression trees, or multi-pass workflows
-# here — those would be separate features (see docs/calc-sheet-filter-roadmap.md).
+# here — those would be separate features (see docs/calc-sheet-filter.md §5).
 #
 # UNO filter descriptor exposes other properties (e.g. ``UseRegularExpressions``,
 # ``IsCaseSensitive``, copy-to-output options). They are not wired through yet; add
