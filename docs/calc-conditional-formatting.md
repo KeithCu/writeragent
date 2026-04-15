@@ -1,7 +1,6 @@
 # Calc conditional formatting — developer guide
 
 This document is for maintainers who need to understand **how WriterAgent exposes LibreOffice Calc conditional formatting**, how that maps to **UNO**, what was implemented in the codebase, and **what work remains** for parity with rich spreadsheet UIs (including OnlyOffice-style “umbrella” features).
-
 ---
 
 ## 1. User-facing behavior (extension tools)
@@ -15,7 +14,6 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 | `remove_conditional_formats` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
 
 Implementation: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/modules/calc/base.py`](../plugin/modules/calc/base.py).
-
 ---
 
 ## 2. LibreOffice UNO — two different models (critical)
@@ -39,7 +37,6 @@ This matches the classic “apply **named cell style** when condition X holds”
 - **Polymorphic entries:** [`XConditionEntry`](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1sheet_1_1XConditionEntry.html) — concrete services include [`DataBar`](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1sheet_1_1DataBar.html), **ColorScale**, **IconSet**, etc.
 
 **Implication:** Rules created **only** through this newer pipeline may **not** appear in `getPropertyValue("ConditionalFormat")` on a cell range, and **vice versa**. Our **`list_conditional_formats`** tool currently reads **only** the legacy range property. A future “full fidelity” listing would need to **merge** legacy range rules with sheet-level **`ConditionalFormats`** filtered by range overlap.
-
 ---
 
 ## 3. Operators: `ConditionOperator` vs `ConditionOperator2`
@@ -65,7 +62,6 @@ Listing output includes:
 
 - **`operator`**: stable string (e.g. `DUPLICATE`) via [`condition_operator_code_to_name()`](../plugin/framework/calc_conditional_constants.py).
 - **`operator_code`**: present when `XSheetCondition2` succeeds (integer, e.g. `10`).
-
 ---
 
 ## 4. What we implemented in code (this iteration)
@@ -93,7 +89,6 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 6. **Tests**  
    - Unit: [`plugin/tests/test_calc_conditional.py`](../plugin/tests/test_calc_conditional.py) — imports [`condition_operator_code_to_name`](../plugin/framework/calc_conditional_constants.py) without loading the Calc package (avoids UNO side effects during `pytest`).  
    - UNO: [`plugin/tests/uno/test_calc.py`](../plugin/tests/uno/test_calc.py) — `test_calc_conditional_formatting` extended with **BETWEEN** and **DUPLICATE** cases.
-
 ---
 
 ## 5. What to do next (recommended roadmap)
@@ -114,7 +109,6 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 - New tools (or a structured sub-API) using **`XConditionalFormats.createByRange`**, **`ConditionalFormat.createEntry`**, and configuration of **`DataBar`**, **`ColorScale`**, **`IconSet`** services.  
 - Expect **large** JSON schemas (many optional visual parameters) and substantial UNO testing.  
 - Cross-reference: [`onlyoffice_calc_impressplan.md`](../onlyoffice_calc_impressplan.md) section A.3 (preset helpers vs UNO).
-
 ---
 
 ## 6. Debugging tips
@@ -123,7 +117,6 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
 - **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against [`calc_conditional_constants`](../plugin/framework/calc_conditional_constants.py).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).
-
 ---
 
 ## 7. Related files
@@ -136,7 +129,13 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 | [`plugin/modules/calc/bridge.py`](../plugin/modules/calc/bridge.py) | Range resolution |
 | [`plugin/modules/calc/specialized.py`](../plugin/modules/calc/specialized.py) | `delegate_to_specialized_calc_toolset` |
 | [`docs/calc-specialized-toolsets.md`](calc-specialized-toolsets.md) | Delegation overview |
-
+| [`docs/calc-sheet-filter.md`](calc-sheet-filter.md) | **Separate feature:** standard sheet filter / AutoFilter (`sheet_filter` domain) |
 ---
 
 *Last updated to match the DUPLICATE / BETWEEN / XSheetCondition2 listing work and the dual-UNO documentation above.*
+
+## 8. Not AutoFilter
+
+**Standard sheet filtering** (AutoFilter / “hide rows that do not match”) is a **different** UNO surface (`XSheetFilterable`, `FilterOperator2`, `TableFilterField2`) from **conditional formatting** (`TableConditionalFormat`, `ConditionOperator`). It is documented and implemented separately: **[calc-sheet-filter.md](calc-sheet-filter.md)** (`sheet_filter` domain, tools `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter`).
+
+For **compound logic** in *conditional formatting* rules, use operator **`FORMULA`** with a single Calc expression (e.g. `=AND($A1>5,$A1<10)` relative to the formatted range).

@@ -21,7 +21,7 @@
 #   - Pivot charts (chart bound to an existing DataPilot table).
 #   - Natural-language-only pivot setup without explicit header names (would need
 #     an LLM step to map text to field names, similar to OO’s parsed.rowIndices).
-#   - Rich auto-filter / Excel-style filter operators (separate from DataPilot).
+#   - Sheet standard filter: see docs/calc-sheet-filter.md and sheet_filter.py.
 # -----------------------------------------------------------------------------
 """Calc DataPilot (pivot table) tools — specialized tier."""
 

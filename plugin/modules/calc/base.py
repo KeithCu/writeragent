@@ -58,6 +58,12 @@ class ToolCalcConditionalBase(ToolCalcSpecialBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
+class ToolCalcSheetFilterBase(ToolCalcSpecialBase):
+    specialized_domain = "sheet_filter"
+    intent = "edit"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
 class ToolCalcSheetBase(ToolCalcSpecialBase):
     specialized_domain = "sheets"
     intent = "edit"

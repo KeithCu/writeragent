@@ -628,6 +628,43 @@ def test_calc_pivot_table():
 
 
 @native_test
+def test_calc_sheet_filter_apply_get_clear():
+    res_write = _execute_calc_tool("write_formula_range", {
+        "range_name": "G40:I43",
+        "formula_or_values": [
+            ["Name", "Region", "Score"],
+            ["Alice", "East", "10"],
+            ["Bob", "West", "20"],
+            ["Carol", "East", "30"],
+        ],
+    })
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+
+    res_apply = _execute_calc_tool("apply_sheet_filter", {
+        "range_name": "G40:I43",
+        "contains_header": True,
+        "criteria": [
+            {"field": 1, "operator": "CONTAINS", "value": "East"},
+        ],
+    })
+    assert res_apply.get("status") == "ok", f"apply_sheet_filter failed: {res_apply}"
+
+    res_get = _execute_calc_tool("get_sheet_filter", {"range_name": "G40:I43"})
+    assert res_get.get("status") == "ok", f"get_sheet_filter failed: {res_get}"
+    crit = res_get.get("criteria", [])
+    assert len(crit) >= 1, crit
+    assert crit[0].get("operator") == "CONTAINS", crit[0]
+    assert crit[0].get("field") == 1, crit[0]
+
+    res_clear = _execute_calc_tool("clear_sheet_filter", {"range_name": "G40:I43", "contains_header": True})
+    assert res_clear.get("status") == "ok", f"clear_sheet_filter failed: {res_clear}"
+
+    res_get2 = _execute_calc_tool("get_sheet_filter", {"range_name": "G40:I43"})
+    assert res_get2.get("status") == "ok", f"get_sheet_filter after clear failed: {res_get2}"
+    assert res_get2.get("count", -1) == 0, res_get2
+
+
+@native_test
 def test_charts_creation_and_listing():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
 
