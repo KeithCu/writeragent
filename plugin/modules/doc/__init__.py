@@ -6,6 +6,7 @@
 """Common tools for all document types."""
 
 from plugin.framework.module_base import ModuleBase
+from . import diagnostics, print_doc, undo
 
 
 class CommonModule(ModuleBase):
@@ -13,8 +14,6 @@ class CommonModule(ModuleBase):
 
     def initialize(self, services):
         self.services = services
-
-        from . import diagnostics, print_doc, undo
 
         for module in (diagnostics, print_doc, undo):
             services.tools.auto_discover(module)

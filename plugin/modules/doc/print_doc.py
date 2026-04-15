@@ -5,7 +5,14 @@
 
 """Print tool for all document types via XPrintable."""
 
+import typing
+
 from plugin.framework.tool_base import ToolBaseDummy
+
+try:
+    from com.sun.star.beans import PropertyValue
+except ImportError:
+    PropertyValue = typing.Any  # type: ignore
 
 
 class PrintDocument(ToolBaseDummy):
@@ -42,8 +49,6 @@ class PrintDocument(ToolBaseDummy):
     is_mutation = False
 
     def execute(self, ctx, **kwargs):
-        from com.sun.star.beans import PropertyValue
-
         doc = ctx.doc
         printer_name = kwargs.get("printer")
         pages = kwargs.get("pages")
