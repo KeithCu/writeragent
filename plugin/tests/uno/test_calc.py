@@ -629,6 +629,20 @@ def test_calc_pivot_table():
 
 @native_test
 def test_calc_sheet_filter_apply_get_clear():
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    sheet_rows = active_sheet.getRows()
+
+    def _visible_row_count(i0: int, i1: int) -> int:
+        """Count 0-based row indices in [i0, i1] with ``TableRow.IsVisible`` true."""
+        n = 0
+        for ri in range(i0, i1 + 1):
+            if sheet_rows.getByIndex(ri).IsVisible:
+                n += 1
+        return n
+
+    # G40:I43 → header row index 39; data rows Alice/Bob/Carol at 40–42.
+    data_i0, data_i1 = 40, 42
+
     res_write = _execute_calc_tool("write_formula_range", {
         "range_name": "G40:I43",
         "formula_or_values": [
@@ -655,6 +669,48 @@ def test_calc_sheet_filter_apply_get_clear():
     assert len(crit) >= 1, crit
     assert crit[0].get("operator") == "CONTAINS", crit[0]
     assert crit[0].get("field") == 1, crit[0]
+
+    res_apply_or = _execute_calc_tool("apply_sheet_filter", {
+        "range_name": "G40:I43",
+        "contains_header": True,
+        "criteria": [
+            {"field": 1, "operator": "CONTAINS", "value": "East"},
+            {
+                "field": 2,
+                "operator": "GREATER",
+                "value": "15",
+                "is_numeric": True,
+                "connection": "OR",
+            },
+        ],
+    })
+    assert res_apply_or.get("status") == "ok", f"apply_sheet_filter OR chain failed: {res_apply_or}"
+
+    assert _visible_row_count(data_i0, data_i1) == 3, "OR: East or Score>15 should show all three data rows"
+
+    res_get_or = _execute_calc_tool("get_sheet_filter", {"range_name": "G40:I43"})
+    assert res_get_or.get("status") == "ok", f"get_sheet_filter after OR apply failed: {res_get_or}"
+    crit_or = res_get_or.get("criteria", [])
+    assert len(crit_or) == 2, crit_or
+    assert crit_or[1].get("operator") == "GREATER", crit_or[1]
+    # Do not assert crit_or[1]["connection"] == "OR": LibreOffice may report AND on
+    # getFilterFields2 readback even when the active filter is OR (validated above).
+
+    res_apply_and = _execute_calc_tool("apply_sheet_filter", {
+        "range_name": "G40:I43",
+        "contains_header": True,
+        "criteria": [
+            {"field": 1, "operator": "CONTAINS", "value": "East"},
+            {
+                "field": 2,
+                "operator": "GREATER",
+                "value": "15",
+                "is_numeric": True,
+            },
+        ],
+    })
+    assert res_apply_and.get("status") == "ok", f"apply_sheet_filter AND chain failed: {res_apply_and}"
+    assert _visible_row_count(data_i0, data_i1) == 1, "AND: only Carol matches East and Score>15"
 
     res_clear = _execute_calc_tool("clear_sheet_filter", {"range_name": "G40:I43", "contains_header": True})
     assert res_clear.get("status") == "ok", f"clear_sheet_filter failed: {res_clear}"

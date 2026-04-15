@@ -8,6 +8,19 @@
 #
 # Calc standard filter (AutoFilter-style) via UNO ``XSheetFilterable`` /
 # ``TableFilterField2`` / ``FilterOperator2``. Not conditional formatting.
+#
+# Scope (intentionally minimal — map UNO, do not invent semantics):
+# - Build ``TableFilterField2`` rows from JSON: ``field``, ``operator``, ``value``,
+#   optional ``is_numeric``, and ``connection`` (``FilterConnection`` AND/OR vs the
+#   *previous* row). This matches Calc's Standard Filter: a single left-associative chain.
+# - Set ``ContainsHeader`` on the filter descriptor; call ``setFilterFields2`` / ``filter``.
+#
+# We do *not* implement helper columns, boolean expression trees, or multi-pass workflows
+# here — those would be separate features (see docs/calc-sheet-filter-roadmap.md).
+#
+# UNO filter descriptor exposes other properties (e.g. ``UseRegularExpressions``,
+# ``IsCaseSensitive``, copy-to-output options). They are not wired through yet; add
+# explicit kwargs + tests when needed rather than half-setting ``XPropertySet`` values.
 
 from __future__ import annotations
 
@@ -17,18 +30,13 @@ from typing import Any
 from plugin.framework.calc_filter_constants import (
     FILTER_OPERATOR2_LABELS,
     filter_operator2_code_to_name,
-    filter_operator2_name_to_code,
 )
+from plugin.framework.calc_sheet_filter_criteria import parse_sheet_filter_criterion
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.modules.calc.base import ToolCalcSheetFilterBase
 from plugin.modules.calc.bridge import CalcBridge
 
 logger = logging.getLogger("writeragent.calc")
-
-_FILTER_OP_NUMERIC_ONLY = frozenset(
-    {"TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "BOTTOM_PERCENT"},
-)
-_FILTER_OP_NO_VALUE = frozenset({"EMPTY", "NOT_EMPTY"})
 
 
 def _query_interface(obj: Any, typename: str) -> Any:
@@ -37,31 +45,7 @@ def _query_interface(obj: Any, typename: str) -> Any:
     return obj.queryInterface(uno.getTypeByName(typename))
 
 
-def _filter_connection_code(name: str | None) -> int:
-    """FilterConnection.AND / .OR are 0 / 1 in published LibreOffice IDL."""
-    if not name or name.upper() == "AND":
-        return 0
-    if name.upper() == "OR":
-        return 1
-    raise UnoObjectError(f"Invalid filter connection: {name!r} (use AND or OR).")
-
-
-def _resolve_operator_code(operator: str) -> int:
-    code = filter_operator2_name_to_code(operator)
-    if code is not None:
-        return code
-    try:
-        from com.sun.star.sheet import FilterOperator2 as FO2
-
-        op_u = operator.strip().upper().replace("-", "_")
-        if hasattr(FO2, op_u):
-            return int(getattr(FO2, op_u))
-    except Exception:
-        pass
-    raise UnoObjectError(f"Unknown filter operator: {operator!r}")
-
-
-def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
+def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
     try:
         op = int(ff.Operator)
@@ -74,7 +58,16 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     except Exception:
         pass
     try:
-        out["connection"] = "OR" if int(ff.Connection) == 1 else "AND"
+        cv = ff.Connection
+        try:
+            if cv == uno_mod.getConstantByName("com.sun.star.sheet.FilterConnection.OR"):
+                out["connection"] = "OR"
+            elif cv == uno_mod.getConstantByName("com.sun.star.sheet.FilterConnection.AND"):
+                out["connection"] = "AND"
+            else:
+                out["connection"] = "OR" if int(cv) == 1 else "AND"
+        except Exception:
+            out["connection"] = "OR" if int(cv) == 1 else "AND"
     except Exception:
         out["connection"] = "AND"
     try:
@@ -89,50 +82,21 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     return out
 
 
-def _parse_criterion(
-    raw: dict[str, Any],
-    is_first: bool,
-) -> tuple[int, int, int, bool, float, str]:
-    """Return Field, Operator, Connection, IsNumeric, NumericValue, StringValue."""
-    if "field" not in raw:
-        raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
-    field = int(raw["field"])
-    op_name = str(raw.get("operator", "")).strip()
-    if not op_name:
-        raise UnoObjectError("Each criterion needs 'operator' (FilterOperator2 name).")
-    op_code = _resolve_operator_code(op_name)
-    op_label = filter_operator2_code_to_name(op_code)
-    if not is_first and raw.get("connection") is not None:
-        conn = _filter_connection_code(str(raw["connection"]))
-    else:
-        conn = _filter_connection_code("AND")
-
-    if op_label in _FILTER_OP_NO_VALUE:
-        return field, op_code, conn, False, 0.0, ""
-
-    if op_label in _FILTER_OP_NUMERIC_ONLY:
-        v = raw.get("value")
-        if v is None or str(v).strip() == "":
-            raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
-        return field, op_code, conn, True, float(v), ""
-
-    v = raw.get("value")
-    if v is None:
-        raise UnoObjectError(f"Operator {op_label} requires 'value'.")
-    if raw.get("is_numeric") is True:
-        return field, op_code, conn, True, float(v), ""
-    return field, op_code, conn, False, 0.0, str(v)
-
-
 def _build_filter_fields2(uno: Any, criteria: list[dict[str, Any]]) -> tuple[Any, ...]:
+    try:
+        fc_and = uno.getConstantByName("com.sun.star.sheet.FilterConnection.AND")
+        fc_or = uno.getConstantByName("com.sun.star.sheet.FilterConnection.OR")
+    except Exception:
+        fc_and, fc_or = 0, 1
+
     fields: list[Any] = []
     for i, c in enumerate(criteria):
-        field, op_code, conn, is_num, num_val, str_val = _parse_criterion(c, i == 0)
+        field, op_code, conn, is_num, num_val, str_val = parse_sheet_filter_criterion(c, i == 0)
 
         st = uno.createUnoStruct("com.sun.star.sheet.TableFilterField2")
         st.Field = field
         st.Operator = op_code
-        st.Connection = conn
+        st.Connection = fc_or if conn == 1 else fc_and
         st.IsNumeric = is_num
         st.NumericValue = float(num_val)
         st.StringValue = str_val
@@ -150,33 +114,44 @@ def _get_filterable_for_range(ctx: Any, range_name: str) -> tuple[Any, Any]:
     return xf, cell_range
 
 
+_CRITERIA_ARRAY_DESCRIPTION = (
+    "Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard "
+    "Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit "
+    "or AND (default) vs previous, or OR. "
+    'Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; '
+    '[{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].'
+)
+
 _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "field": {
             "type": "integer",
-            "description": "0-based column index within range_name (0 = leftmost column).",
+            "description": "0-based column index within range_name (leftmost column = 0).",
         },
         "operator": {
             "type": "string",
             "enum": list(FILTER_OPERATOR2_LABELS),
-            "description": "UNO FilterOperator2 name (see docs/calc-sheet-filter.md).",
+            "description": "LibreOffice FilterOperator2 (see enum).",
         },
         "value": {
             "type": "string",
             "description": (
-                "Filter value. Omitted for EMPTY/NOT_EMPTY. Numeric string for comparisons "
-                "when is_numeric is true. For TOP_VALUES/TOP_PERCENT/BOTTOM_* use a number string."
+                "Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. "
+                "Otherwise set is_numeric when comparing numbers."
             ),
         },
         "is_numeric": {
             "type": "boolean",
-            "description": "If true, value is applied as NumericValue (for numeric comparisons).",
+            "description": "If true, value is NumericValue; else StringValue.",
         },
         "connection": {
             "type": "string",
             "enum": ["AND", "OR"],
-            "description": "How this row connects to the previous criterion (first row ignores).",
+            "description": (
+                "Combines with previous criterion only. Omit on first item. "
+                "Case-insensitive AND/OR."
+            ),
         },
     },
     "required": ["field", "operator"],
@@ -189,27 +164,27 @@ class ApplySheetFilter(ToolCalcSheetFilterBase):
     name = "apply_sheet_filter"
     intent = "edit"
     description = (
-        "Apply a Calc standard filter to a data range using UNO FilterOperator2 "
-        "(CONTAINS, BEGINS_WITH, GREATER, TOP_VALUES, etc.). "
-        "This is sheet filtering (hide non-matching rows), not conditional formatting. "
-        "Use delegate_to_specialized_calc_toolset(domain='sheet_filter'). "
-        "See docs/calc-sheet-filter.md."
+        "Hide rows that do not match a standard Calc filter (not conditional formatting). "
+        "delegate_to_specialized_calc_toolset(domain='sheet_filter'). "
+        "One column per criterion; chain with connection (AND default) after the first."
     )
     parameters = {
         "type": "object",
+        "description": "See criteria for AND/OR chaining.",
         "properties": {
             "range_name": {
                 "type": "string",
-                "description": "Data range to filter (e.g. 'A1:D20'), usually including a header row.",
+                "description": "Range to filter (e.g. 'A1:D20').",
             },
             "contains_header": {
                 "type": "boolean",
-                "description": "If true, the first row of the range is treated as headers (not filtered as data).",
+                "description": "First row is headers only (default true).",
             },
             "criteria": {
                 "type": "array",
                 "items": _CRITERION_ITEM_SCHEMA,
-                "description": "List of filter conditions (TableFilterField2).",
+                "description": _CRITERIA_ARRAY_DESCRIPTION,
+                "minItems": 1,
             },
         },
         "required": ["range_name", "criteria"],
@@ -261,19 +236,20 @@ class ClearSheetFilter(ToolCalcSheetFilterBase):
     name = "clear_sheet_filter"
     intent = "edit"
     description = (
-        "Clear the standard sheet filter on the given range (same range previously passed to "
-        "apply_sheet_filter). Restores all rows visible for that filter region."
+        "Remove the active standard sheet filter on a range so all rows show again. "
+        "Use the same range_name (and contains_header) as apply_sheet_filter. "
+        "delegate_to_specialized_calc_toolset(domain='sheet_filter')."
     )
     parameters = {
         "type": "object",
         "properties": {
             "range_name": {
                 "type": "string",
-                "description": "Same data range used for apply_sheet_filter.",
+                "description": "Same data range string used when applying the filter (e.g. 'A1:D20').",
             },
             "contains_header": {
                 "type": "boolean",
-                "description": "Should match the apply_sheet_filter setting (default true).",
+                "description": "Should match apply_sheet_filter (default true).",
             },
         },
         "required": ["range_name"],
@@ -312,15 +288,15 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
     name = "get_sheet_filter"
     intent = "navigate"
     description = (
-        "Return the current standard filter criteria on a range (from a non-empty "
-        "createFilterDescriptor(False) / getFilterFields2), or an empty list if none."
+        "Return active filter criteria and contains_header for a range, or empty if none. "
+        "delegate_to_specialized_calc_toolset(domain='sheet_filter')."
     )
     parameters = {
         "type": "object",
         "properties": {
             "range_name": {
                 "type": "string",
-                "description": "Data range that may have an active standard filter.",
+                "description": "Same range as apply_sheet_filter.",
             },
         },
         "required": ["range_name"],
@@ -330,6 +306,8 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
         range_name = kwargs["range_name"]
 
         try:
+            import uno
+
             xf, _cell_range = _get_filterable_for_range(ctx, range_name)
             fd = xf.createFilterDescriptor(False)
             fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
@@ -341,7 +319,7 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
             if fields_seq is not None:
                 n = len(fields_seq)
                 for i in range(n):
-                    crit.append(_field_to_dict(fields_seq[i], i))
+                    crit.append(_field_to_dict(fields_seq[i], i, uno))
 
             ch = None
             ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
