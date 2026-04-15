@@ -50,7 +50,7 @@ from plugin.modules.http.client import LlmClient
 import logging
 log = logging.getLogger(__name__)
 
-class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[reportGeneralTypeIssues] — runtime IDL base from LO
+class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[reportGeneralTypeIssues] — runtime IDL base from LO  # pyrefly: ignore[invalid-inheritance]
     def __init__(self, ctx):
         log.debug("=== PromptFunction.__init__ called ===")
         self.ctx = ctx

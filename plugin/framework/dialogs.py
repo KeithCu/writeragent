@@ -124,7 +124,7 @@ def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
         return False
 
 
-def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text):
+def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | None:
     """Modal multiline edit for a web-search query before DuckDuckGo runs.
 
     ``parent_frame`` is typically the sidebar ``XFrame`` so the dialog parents correctly.
@@ -172,17 +172,18 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text):
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         dlg.createPeer(toolkit, parent_window)
 
-        _UNSET = object()
-        _result = {"v": _UNSET}
+        # Single-slot outcome: None = dialog closed without OK/Cancel; else [str] or [None].
+        _outcome: list[str | None] | None = None
 
         class _OkListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent):
+                nonlocal _outcome
                 try:
                     ec = dlg.getControl("QueryEdit")
                     t = (ec.getModel().Text or "").strip() if ec and ec.getModel() else ""
                 except Exception:
                     t = ""
-                _result["v"] = t
+                _outcome = [t]
                 dlg.endDialog(1)
 
             def disposing(self, Source):
@@ -190,7 +191,8 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text):
 
         class _CancelListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent):
-                _result["v"] = None
+                nonlocal _outcome
+                _outcome = [None]
                 dlg.endDialog(0)
 
             def disposing(self, Source):
@@ -200,9 +202,9 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text):
         dlg.getControl("BtnCancel").addActionListener(_CancelListener())
         dlg.execute()
         dlg.dispose()
-        if _result["v"] is _UNSET:
+        if _outcome is None:
             return None
-        return _result["v"]
+        return _outcome[0]
     except Exception:
         log.exception("show_web_search_query_edit_dialog failed")
         return None

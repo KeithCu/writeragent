@@ -17,11 +17,22 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 import uno
+from typing import TypedDict
 from enum import Enum, auto
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 from plugin.framework.uno_context import get_active_document as get_active_doc
 from plugin.framework.errors import UnoObjectError, check_disposed, safe_call, safe_uno_call
+
+
+class HeadingTreeNode(TypedDict):
+    """Shape of nodes returned by :func:`build_heading_tree` (recursive heading tree)."""
+
+    level: int
+    text: str
+    para_index: int
+    children: list["HeadingTreeNode"]
+    body_paragraphs: int
 
 
 class DocumentType(Enum):
@@ -623,14 +634,20 @@ def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
     return 0
 
 
-def build_heading_tree(model):
+def build_heading_tree(model) -> HeadingTreeNode:
     """Build a hierarchical heading tree. Single pass enumeration."""
     try:
         check_disposed(model, "Document Model")
         text = safe_call(model.getText, "Get document text")
         enum = safe_call(text.createEnumeration, "Create enumeration")
-        root = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
-        stack: list[dict] = [root]
+        root: HeadingTreeNode = {
+            "level": 0,
+            "text": "root",
+            "para_index": -1,
+            "children": [],
+            "body_paragraphs": 0,
+        }
+        stack: list[HeadingTreeNode] = [root]
         para_index = 0
 
         while safe_call(enum.hasMoreElements, "Check more elements"):
@@ -645,12 +662,12 @@ def build_heading_tree(model):
                 if isinstance(outline_level, int) and outline_level > 0:
                     while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
                         stack.pop()
-                    node = {
+                    node: HeadingTreeNode = {
                         "level": outline_level,
                         "text": safe_call(element.getString, "Get paragraph string"),
                         "para_index": para_index,
                         "children": [],
-                        "body_paragraphs": 0
+                        "body_paragraphs": 0,
                     }
                     stack[-1]["children"].append(node)
                     stack.append(node)
@@ -662,7 +679,13 @@ def build_heading_tree(model):
         return root
     except UnoObjectError as e:
         logging.getLogger(__name__).warning("build_heading_tree error: %s", e)
-        return {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
+        return {
+            "level": 0,
+            "text": "root",
+            "para_index": -1,
+            "children": [],
+            "body_paragraphs": 0,
+        }
 
 
 def ensure_heading_bookmarks(model):
@@ -734,11 +757,11 @@ def resolve_locator(model, locator: str):
             return {"para_index": 0}
         
         tree = build_heading_tree(model)
-        node = tree
+        node: HeadingTreeNode = tree
         for part in parts:
-            children = node.get("children", [])
+            children = node["children"]
             if 1 <= part <= len(children):
-                node = children[part-1]
+                node = children[part - 1]
             else:
                 break
         return {"para_index": node["para_index"]}

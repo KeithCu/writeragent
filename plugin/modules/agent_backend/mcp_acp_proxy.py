@@ -48,7 +48,7 @@ class MCPACPProxy(AgentBackend):
         self._stop_requested = False
         self._prompt_done = threading.Event()
         self._tools_cache = None
-        self._last_tools_fetch = 0
+        self._last_tools_fetch: float = 0.0
         self._tools_cache_ttl = 300  # 5 minutes
         self._load_config()
 

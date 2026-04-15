@@ -242,17 +242,20 @@ class SetCellStyle(ToolBase):
                 return {"__error__": f"Invalid {color_key}: '{raw}'"}
             return parsed
 
-        bg_color = _parse_or_error("bg_color")
-        if isinstance(bg_color, dict) and "__error__" in bg_color:
-            return self._tool_error(bg_color["__error__"])
+        _bg = _parse_or_error("bg_color")
+        if isinstance(_bg, dict):
+            return self._tool_error(_bg["__error__"])
+        bg_color: int | None = _bg
 
-        font_color = _parse_or_error("font_color")
-        if isinstance(font_color, dict) and "__error__" in font_color:
-            return self._tool_error(font_color["__error__"])
+        _fc = _parse_or_error("font_color")
+        if isinstance(_fc, dict):
+            return self._tool_error(_fc["__error__"])
+        font_color: int | None = _fc
 
-        border_color = _parse_or_error("border_color")
-        if isinstance(border_color, dict) and "__error__" in border_color:
-            return self._tool_error(border_color["__error__"])
+        _bc = _parse_or_error("border_color")
+        if isinstance(_bc, dict):
+            return self._tool_error(_bc["__error__"])
+        border_color: int | None = _bc
 
         style_kwargs = {
             "bold": kwargs.get("bold"),

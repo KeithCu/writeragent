@@ -2,6 +2,7 @@ import os
 import logging
 from typing import Any, List, cast
 
+from plugin.framework.module_base import ModuleBase
 from plugin.framework.utils import get_plugin_dir
 
 
@@ -57,12 +58,12 @@ class ModuleLoader:
         return order
 
     @classmethod
-    def load_modules(cls, services_registry) -> List[object]:
+    def load_modules(cls, services_registry) -> list[ModuleBase]:
         """
         Discovers, imports, and initializes modules based on the manifest.
         Returns a list of initialized module instances.
         """
-        initialized_modules = []
+        initialized_modules: list[ModuleBase] = []
         manifests = cls.topo_sort(cls.load_manifest())
 
         for manifest in manifests:
@@ -101,6 +102,9 @@ class ModuleLoader:
 
                 if module_class:
                     mod = module_class()
+                    # MRO scan above only selects ModuleBase subclasses; cast is for the type checker
+                    # (dynamic import cannot prove subclass to static analysis).
+                    mod = cast(ModuleBase, mod)
                     mod.name = name
                     mod.initialize(services_registry)
                     initialized_modules.append(mod)

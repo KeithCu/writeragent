@@ -21,6 +21,7 @@
 import logging
 import os
 import sys
+from typing import cast
 import hashlib
 import uuid
 import uno
@@ -65,6 +66,7 @@ from plugin.framework.dialogs import (
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
+from com.sun.star.uno import XInterface
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 try:
     from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
@@ -248,7 +250,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Event bus listener for config changes."""
         self._refresh_controls_from_config()
 
-    def getRealInterface(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+    def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         log.debug("=== getRealInterface called ===")
         if not self.toolpanel:
             try:
@@ -265,7 +267,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 import traceback
                 log.error(traceback.format_exc())
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
-        return self.toolpanel
+        return cast(XInterface, self.toolpanel)
 
     def _getOrCreatePanelRootWindow(self):
         log.debug("_getOrCreatePanelRootWindow entered")

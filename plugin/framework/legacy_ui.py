@@ -202,7 +202,10 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                 continue
 
             config = m.get("config", {})
-            children = inline_map.get(m["name"])
+            name_key = m.get("name")
+            if not isinstance(name_key, str):
+                continue
+            children = inline_map.get(name_key)
             
             if not config and not children:
                 continue

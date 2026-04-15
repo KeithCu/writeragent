@@ -49,7 +49,7 @@ if os.path.isdir(_vendor_plugin) and _vendor_plugin not in sys.path:
     sys.path.insert(0, _vendor_plugin)
 
 import unohelper
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -67,14 +67,29 @@ from plugin.framework.logging import init_logging
 import uno
 
 from com.sun.star.task import XJobExecutor, XJob
-from com.sun.star.frame import XDispatch, XDispatchProvider
+from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
+from com.sun.star.util import URL as UnoURL
 from com.sun.star.lang import XInitialization, XServiceInfo
 
+from plugin.framework.module_base import ModuleBase
 from plugin.framework.uno_context import get_active_document, get_extension_url
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
 # ---------------------------------------------------------------------------
+
+
+class HttpMcpActions(Protocol):
+    """``plugin.modules.http`` entry points used from main for MCP menu commands."""
+
+    name: str | None
+
+    def shutdown(self) -> None: ...
+
+    def _action_toggle_server(self) -> None: ...
+
+    def _action_server_status(self) -> None: ...
+
 
 # ---------------------------------------------------------------------------
 # Bootstrapping (Dynamic discovery from loaded manifest)
@@ -94,7 +109,7 @@ def register_action_handler(module_name, action_name, handler_func):
 
 
 _tools: ToolRegistry | None = None
-_modules = []
+_modules: list[ModuleBase] = []
 _init_lock = threading.Lock()
 _initialized = False
 
@@ -603,12 +618,12 @@ def _update_menu_icons():
     except Exception as e:
         log.warning("_update_menu_icons: outer exception: %s", e)
 
-def _get_http_module(ctx=None):
+def _get_http_module(ctx=None) -> HttpMcpActions | None:
     if ctx:
         bootstrap(ctx)
     for mod in _modules:
-        if getattr(mod, "name", "") == "http":
-            return mod
+        if mod.name == "http":
+            return cast(HttpMcpActions, mod)
     return None
 
 def _start_mcp_server(ctx):
@@ -766,16 +781,21 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
 
     # ── XDispatchProvider ────────────────────────────────────────
 
-    def queryDispatch(self, URL, TargetFrameName, SearchFlags):  # pyright: ignore[reportIncompatibleMethodOverride]
+    def queryDispatch(
+        self, URL: UnoURL, TargetFrameName: str, SearchFlags: int
+    ) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
         url = URL
         if url.Protocol == "org.extension.writeragent:":
-            return self
-        return None
+            return cast(XDispatch, self)
+        return cast(XDispatch, None)
 
-    def queryDispatches(self, Requests):  # pyright: ignore[reportIncompatibleMethodOverride]
-        requests = Requests
-        return [self.queryDispatch(r.FeatureURL, r.FrameName,
-                                   r.SearchFlags) for r in requests]
+    def queryDispatches(
+        self, Requests: tuple[DispatchDescriptor, ...]
+    ) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        return tuple(
+            self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags)
+            for r in Requests
+        )
 
     # ── XDispatch ────────────────────────────────────────────────
 

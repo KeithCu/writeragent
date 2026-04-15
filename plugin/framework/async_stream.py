@@ -77,6 +77,11 @@ StreamQueueItem: TypeAlias = tuple[StreamQueueKind, ...]
 BlockingPumpQueueItem: TypeAlias = tuple[BlockingPumpKind, Any]
 
 
+def put_stream_queue_stopped(q: queue.Queue) -> None:
+    """Enqueue a user-stopped signal. Always uses (kind, payload); do not use a 1-tuple."""
+    q.put((StreamQueueKind.STOPPED, None))
+
+
 def run_stream_drain_loop(
     q,
     toolkit,
@@ -106,7 +111,7 @@ def run_stream_drain_loop(
     - (TOOL_THINKING, text): Thinking tokens from a tool (e.g. web search).
     - (FINAL_DONE, text): Final non-tool response.
     - (APPROVAL_REQUIRED, ...): HITL; call on_approval_required(item).
-    - (STOPPED,): Calls on_stopped().
+    - (STOPPED, ignored): Calls on_stopped() (second element unused).
     - (ERROR, payload): Calls on_error(payload).
     - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
@@ -339,7 +344,7 @@ def run_stream_completion_async(
                 stop_checker=stop_checker,
             )
             if stop_checker and stop_checker():
-                q.put((StreamQueueKind.STOPPED,))
+                put_stream_queue_stopped(q)
             else:
                 q.put((StreamQueueKind.STREAM_DONE, None))
         except Exception as e:
@@ -408,7 +413,7 @@ def run_stream_async(
                     stop_checker=stop_checker,
                 )
             if stop_checker and stop_checker():
-                q.put((StreamQueueKind.STOPPED,))
+                put_stream_queue_stopped(q)
             else:
                 q.put((StreamQueueKind.STREAM_DONE, None))
         except Exception as e:

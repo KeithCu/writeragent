@@ -346,11 +346,11 @@ class LlmClient:
             action = ":streamGenerateContent" if stream else ":generateContent"
             url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
             
-            contents = []
+            contents: list[dict[str, Any]] = []
             system_instruction = None
             for m in messages:
                 role = m["role"]
-                parts = []
+                parts: list[dict[str, Any]] = []
 
                 content = m.get("content")
                 if content:
