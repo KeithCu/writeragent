@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Lightweight synchronous event bus for inter-module communication."""
 
+import sys
 import logging
 import weakref
 
@@ -122,10 +123,10 @@ class EventBus:
 
 def get_event_bus():
     """Return the true singleton EventBus across all LO import contexts."""
-    import sys
     if not hasattr(sys, '_localwriter_event_bus'):
         setattr(sys, '_localwriter_event_bus', EventBus())
     return getattr(sys, '_localwriter_event_bus')
+
 
 global_event_bus = get_event_bus()
 

@@ -83,7 +83,8 @@ def test_xcc():
     assert _xcc(None) is None
 
 @patch("plugin.framework.dialogs._")
-@patch("plugin.framework.i18n._")
+@patch("plugin.framework.dialogs._")
+
 def test_add_dialog_button(mock_i18n_translate, mock_translate):
     mock_translate.side_effect = lambda x: f"T_{x}"
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
@@ -107,7 +108,8 @@ def test_add_dialog_button(mock_i18n_translate, mock_translate):
     mock_dlg_model.insertByName.assert_called_once_with("TestBtn", mock_btn)
 
 @patch("plugin.framework.dialogs._")
-@patch("plugin.framework.i18n._")
+@patch("plugin.framework.dialogs._")
+
 def test_add_dialog_label(mock_i18n_translate, mock_translate):
     mock_translate.side_effect = lambda x: f"T_{x}"
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
@@ -149,7 +151,8 @@ def test_add_dialog_edit():
     mock_dlg_model.insertByName.assert_called_once_with("TestEdit", mock_edit)
 
 @patch("plugin.framework.dialogs._")
-@patch("plugin.framework.i18n._")
+@patch("plugin.framework.dialogs._")
+
 def test_add_dialog_hyperlink(mock_i18n_translate, mock_translate):
     mock_translate.side_effect = lambda x: f"T_{x}"
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
@@ -172,7 +175,8 @@ def test_add_dialog_hyperlink(mock_i18n_translate, mock_translate):
     assert link.TextColor == 0x0563C1
     mock_dlg_model.insertByName.assert_called_once_with("TestLink", mock_link)
 
-@patch("plugin.framework.i18n._")
+@patch("plugin.framework.dialogs._")
+
 def test_translate_dialog_xcc(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
 
@@ -207,7 +211,8 @@ def test_translate_dialog_xcc(mock_i18n_translate):
     assert mock_xcc.getControls.call_count == 2
     mock_child.getImplementationName.assert_called_once()
 
-@patch("plugin.framework.i18n._")
+@patch("plugin.framework.dialogs._")
+
 def test_translate_dialog_element_names(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
 
@@ -234,7 +239,8 @@ def test_translate_dialog_element_names(mock_i18n_translate):
     mock_dlg.getControl.assert_called_once_with("Btn2")
     assert mock_child_model.Label == "T_Another Label"
 
-@patch("plugin.framework.i18n._")
+@patch("plugin.framework.dialogs._")
+
 def test_translate_dialog_listbox(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}" if x else x
 

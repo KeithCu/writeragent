@@ -15,9 +15,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
+import threading
+import traceback
 from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
-from plugin.framework.listeners import BaseActionListener
+from plugin.framework.listeners import BaseActionListener, BaseListener
+from com.sun.star.awt import XItemListener, XTextListener
 from plugin.framework.dialogs import (
     TabListener,
     is_checkbox_control,
@@ -67,7 +70,6 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         dlg = dp.createDialog(dlg_url)
         log.debug("input_box: dialog created successfully")
     except Exception as e:
-        import traceback
         log.error("input_box: failed to create dialog: %s" % e)
         log.error("input_box: traceback: %s" % traceback.format_exc())
         raise UnoObjectError(f"Failed to create dialog: {e}") from e
@@ -108,7 +110,6 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         log.debug("input_box: user cancelled")
         return "", ""
     except Exception as e:
-        import traceback
         log.error("input_box: error while showing or reading dialog: %s" % e)
         log.error("input_box: traceback: %s" % traceback.format_exc())
         raise UnoObjectError(f"Error while showing or reading dialog: {e}") from e
@@ -120,7 +121,6 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
                 pass
 
 def settings_box(ctx, title="Settings", x=None, y=None):
-    import threading
 
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
     from plugin.framework.config import (

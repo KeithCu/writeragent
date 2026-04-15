@@ -22,13 +22,29 @@ Reads/writes writeragent.json in LibreOffice's user config directory.
 import os
 import ipaddress
 import urllib.parse
-from plugin.framework.utils import get_plugin_dir
 import json
 import logging
 import dataclasses
 import time
 from typing import Dict, Any, cast
+
+from plugin.framework.utils import get_plugin_dir, normalize_endpoint_url
 from plugin.framework.event_bus import global_event_bus
+from plugin.framework.service_base import ServiceBase
+from plugin.framework.uno_context import get_ctx
+from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, get_provider_defaults
+from plugin.framework.base_errors import ConfigError, NetworkError
+from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.errors import safe_call
+from plugin.framework.types import ModelCapability
+from plugin.framework.i18n import _
+from plugin.modules.http.requests import sync_request
+
+try:
+    from plugin._manifest import MODULES
+except ImportError:
+    MODULES = []
+
 _uno_mod: Any
 _unohelper_mod: Any
 try:
@@ -42,11 +58,6 @@ except ImportError:
     _unohelper_mod = None
 uno: Any = _uno_mod
 unohelper: Any = _unohelper_mod
-from plugin.framework.service_base import ServiceBase
-from plugin.framework.uno_context import get_ctx
-from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
-from plugin.framework.errors import ConfigError
-
 
 log = logging.getLogger(__name__)
 
@@ -121,7 +132,6 @@ def _config_path(ctx):
     if ctx is None:
         raise ConfigError("UNO context is required to resolve config path")
     try:
-        from plugin.framework.errors import safe_call
         sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
         path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
         user_config_path = getattr(path_settings, "UserConfig", "")
@@ -145,9 +155,7 @@ def user_config_dir(ctx):
 
 def _get_schema_default(key):
     """Return default for key from MODULES (module.yaml schema). Supports flat and dotted keys."""
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
+    if not MODULES:
         return None
     # Dotted key (e.g. agent_backend.backend_id)
     if "." in key:
@@ -172,9 +180,7 @@ def _get_schema_default(key):
 
 def _dotted_fallback_keys(key):
     """Yield dotted key variants for key using MODULES (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
+    if not MODULES:
         return
     if "." in key:
         return
@@ -276,7 +282,6 @@ class WriterAgentConfig:
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
         try:
             from plugin.framework.settings_dialog import get_settings_field_specs
-            from plugin.framework.i18n import _
 
             specs = get_settings_field_specs(None)
             for spec in specs:
@@ -699,7 +704,6 @@ def get_provider_from_endpoint(endpoint):
 
 def get_model_capability(ctx, model_id, endpoint):
     """Check the model catalog for capabilities bitmask."""
-    from plugin.framework.types import ModelCapability
     provider = get_provider_from_endpoint(endpoint)
     # Check DEFAULT_MODELS for this ID/provider
     for m in DEFAULT_MODELS:
@@ -726,7 +730,6 @@ def has_native_audio(ctx, model_id, endpoint):
 
     # 2. Catalog check
     caps = get_model_capability(ctx, model_id, endpoint)
-    from plugin.framework.types import ModelCapability
     if isinstance(caps, int) and (caps & ModelCapability.AUDIO):
         return True
         
@@ -802,7 +805,6 @@ def fetch_available_models(endpoint):
     if url in _model_fetch_cache:
         return _model_fetch_cache[url]
 
-    from plugin.modules.http.requests import sync_request
     try:
         data = sync_request(url, parse_json=True)
         if data and isinstance(data, dict) and "data" in data:
@@ -816,7 +818,6 @@ def fetch_available_models(endpoint):
     except (ValueError, TypeError, IOError) as e:
         log.warning("fetch_available_models network/parse error for %s: %s", url, e)
     except Exception as e:
-        from plugin.framework.errors import NetworkError
         if isinstance(e, NetworkError):
             log.warning("fetch_available_models NetworkError for %s: %s", url, e)
         else:
@@ -931,7 +932,6 @@ def get_text_model(ctx):
     val = str(get_config(ctx, "text_model") or get_config(ctx, "model") or "").strip()
     if val:
         return val
-    from plugin.framework.default_models import get_provider_defaults
     current_endpoint = get_current_endpoint(ctx)
     provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)
@@ -940,7 +940,6 @@ def get_text_model(ctx):
 
 def get_stt_model(ctx):
     """Return the configured STT model."""
-    from plugin.framework.default_models import get_provider_defaults
     val = get_config(ctx, "stt_model")
     if val is not None and str(val).strip():
         return str(val).strip()
@@ -1053,7 +1052,6 @@ def get_image_model(ctx):
     val = str(get_config(ctx, "image_model") or "").strip()
     if val:
         return val
-    from plugin.framework.default_models import get_provider_defaults
     if image_provider == "endpoint":
         current_endpoint = get_current_endpoint(ctx)
         provider = get_provider_from_endpoint(current_endpoint)

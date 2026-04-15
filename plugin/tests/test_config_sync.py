@@ -219,7 +219,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     def test_second_call_does_not_http(self):
         from plugin.framework import config as cfg
 
-        with patch("plugin.modules.http.requests.sync_request") as mock_sync:
+        with patch("plugin.framework.config.sync_request") as mock_sync:
             mock_sync.return_value = {"data": [{"id": "alpha"}]}
             r1 = cfg.fetch_available_models("http://127.0.0.1:58901")
             r2 = cfg.fetch_available_models("http://127.0.0.1:58901")
@@ -230,7 +230,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     def test_normalized_url_shares_cache_entry(self):
         from plugin.framework import config as cfg
 
-        with patch("plugin.modules.http.requests.sync_request") as mock_sync:
+        with patch("plugin.framework.config.sync_request") as mock_sync:
             mock_sync.return_value = {"data": [{"id": "beta"}]}
             cfg.fetch_available_models("http://127.0.0.1:58902/")
             cfg.fetch_available_models("http://127.0.0.1:58902")

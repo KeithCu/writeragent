@@ -38,15 +38,17 @@ XDL dialog loading (used by ModuleBase helpers)::
 """
 
 import logging
-from typing import Any, cast
+import time
+from typing import Any, cast, TYPE_CHECKING
 import unohelper
 from plugin.framework.listeners import BaseActionListener
 from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
-from plugin.framework.uno_context import get_desktop, get_extension_url
+from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.dialogs")
+
 
 EXTENSION_ID = "org.extension.writeragent"
 
@@ -56,7 +58,6 @@ EXTENSION_ID = "org.extension.writeragent"
 
 def msgbox(ctx, title, message):
     """Show an info message box."""
-    from plugin.framework.i18n import _
     if not ctx:
         log.info("MSGBOX (no ctx) - %s: %s", title, message)
         return
@@ -256,7 +257,6 @@ def copy_to_clipboard(ctx, text):
 
 def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_type=None, enabled=True):
     """Add a button to a dialog model."""
-    from plugin.framework.i18n import _
     btn = dlg_model.createInstance("com.sun.star.awt.UnoControlButtonModel")
     btn.Name = name
     btn.PositionX = x
@@ -273,7 +273,6 @@ def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_t
 
 def add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True):
     """Add a fixed text label to a dialog model."""
-    from plugin.framework.i18n import _
     lbl = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedTextModel")
     lbl.Name = name
     lbl.PositionX = x
@@ -302,7 +301,6 @@ def add_dialog_edit(dlg_model, name, text, x, y, width, height, readonly=False):
 
 def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
     """Add a clickable hyperlink to a dialog model."""
-    from plugin.framework.i18n import _
     link = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedHyperlinkModel")
     link.Name = name
     link.PositionX = x
@@ -321,7 +319,6 @@ def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
 
 def msgbox_with_copy(ctx, title, message, copy_text):
     """Show a dialog with a message and a Copy button."""
-    from plugin.framework.i18n import _
     if not ctx:
         log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
         return
@@ -565,7 +562,6 @@ def translate_dialog(dlg):
     bulletinboard child; only iterating top-level ``getControls()`` misses
     every label inside the container.
     """
-    from plugin.framework.i18n import _
 
     # Map control types to their translatable properties
     control_types = {

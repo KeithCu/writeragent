@@ -76,7 +76,7 @@ class TestI18n(unittest.TestCase):
             return msg
 
         with patch("plugin.framework.settings_dialog.get_settings_field_specs", fake_specs):
-            with patch("plugin.framework.i18n._", side_effect=_fake):
+            with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
 
@@ -100,7 +100,7 @@ class TestI18n(unittest.TestCase):
             return msg
 
         with patch("plugin.framework.settings_dialog.get_settings_field_specs", fake_specs):
-            with patch("plugin.framework.i18n._", side_effect=_fake):
+            with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg.image_default_aspect, "Square")
 

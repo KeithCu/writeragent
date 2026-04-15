@@ -19,47 +19,11 @@
 All custom exceptions should inherit from WriterAgentException.
 """
 
-
-import json
-import ast
 from typing import Any
 
-
-
-class WriterAgentException(Exception):
-    """Base exception for all WriterAgent errors.
-
-    Backwards compatibility: some older code paths use `context=` while
-    newer code uses `details=` for the JSON error payload.
-    """
-
-    def __init__(self, message, code="INTERNAL_ERROR", context=None, details=None):
-        # Accept both `context` and `details` (alias).
-        if details is None and context is not None:
-            details = context
-
-        from plugin.framework.i18n import _
-        super().__init__(message)
-        self.message = _(str(message))
-        self.code = code
-        self.details = details or {}
-        # Keep legacy attribute name too (some callers reference `.context`).
-        self.context = self.details
-
-
-class ConfigError(WriterAgentException):
-    """Configuration, Auth, or Settings issues."""
-
-    def __init__(self, message, code="CONFIG_ERROR", context=None, details=None):
-        super().__init__(message, code=code, context=context, details=details)
-
-
-class NetworkError(WriterAgentException):
-    """HTTP/Network related failures."""
-
-    def __init__(self, message, code="NETWORK_ERROR", context=None, details=None):
-        super().__init__(message, code=code, context=context, details=details)
-
+from plugin.framework.i18n import _
+from plugin.framework.base_errors import WriterAgentException, ConfigError, NetworkError, format_error_payload
+from plugin.framework.json_utils import repair_json, safe_json_loads, safe_python_literal_eval
 
 class UnoObjectError(WriterAgentException):
     """LibreOffice UNO interface failures (stale docs, missing properties)."""
@@ -80,7 +44,6 @@ class ResourceNotFoundError(WriterAgentException):
     """Configuration files, documents, or resources not found."""
 
     def __init__(self, resource_type, identifier, context=None, details=None):
-        from plugin.framework.i18n import _
         message = _("{resource_type} not found: {identifier}").format(
             resource_type=resource_type, identifier=identifier
         )
@@ -101,6 +64,20 @@ class ToolExecutionError(WriterAgentException):
     """Tool invocation and execution failures."""
 
     def __init__(self, message, code="TOOL_EXECUTION_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+
+
+class ToolPermissionError(WriterAgentException):
+    """User rejected tool execution or permission denied."""
+
+    def __init__(self, message, code="PERMISSION_DENIED", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+
+
+class ToolContextError(WriterAgentException):
+    """Tool Context lifecycle or service availability errors."""
+
+    def __init__(self, message, code="CONTEXT_ERROR", context=None, details=None):
         super().__init__(message, code=code, context=context, details=details)
 
 
@@ -132,6 +109,8 @@ def check_disposed(model, context_name="Object"):
 def safe_uno_call(default=None):
     """Decorator to safely call UNO methods with automatic error handling."""
     def decorator(func):
+        from functools import wraps
+        @wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
@@ -147,6 +126,37 @@ def safe_uno_call(default=None):
                 else:
                     raise UnoObjectError(
                         f"UNO call {func.__name__} failed",
+                        details={"error": str(e), "type": e_name}
+                    ) from e
+        return wrapper
+    return decorator
+
+def handle_errors(context_name):
+    """Decorator to catch exceptions and wrap them in WriterAgentException."""
+
+    def decorator(fn):
+        from functools import wraps
+
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except WriterAgentException:
+                raise
+            except Exception as e:
+                # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
+                # but catching Exception is the standard way to grab them. We immediately wrap it.
+                e_name = type(e).__name__
+                if "DisposedException" in e_name or "RuntimeException" in e_name:
+                    raise DocumentDisposedError(
+                        f"UNO object disposed during {context_name}",
+                        object_type=context_name,
+                        details={"original_error": str(e)}
+                    ) from e
+                else:
+                    raise ToolExecutionError(
+                        f"{context_name} failed: {e}",
+                        code="INTERNAL_ERROR",
                         details={"error": str(e), "type": e_name}
                     ) from e
         return wrapper
@@ -169,166 +179,3 @@ def safe_call(fn, context_name, *args, **kwargs):
         # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
         # but catching Exception is the standard way to grab them. We immediately wrap it.
         raise UnoObjectError(f"{context_name} failed: {e}", context={"operation": context_name, "type": e_name}) from e
-
-def format_error_payload(e: Exception) -> dict[str, Any]:
-    """Format an exception into the standard JSON error payload schema."""
-    if isinstance(e, WriterAgentException):
-        payload: dict[str, Any] = {
-            "status": "error",
-            "code": e.code,
-            "message": e.message,
-        }
-        if e.details:
-            payload["details"] = e.details
-        return payload
-
-    # For unexpected exceptions
-    return {
-        "status": "error",
-        "code": "INTERNAL_ERROR",
-        "message": str(e),
-        "details": {
-            "type": type(e).__name__,
-        },
-    }
-
-
-def repair_json(text: str) -> str:
-    """Attempt to repair common JSON syntax errors from LLMs using json-repair.
-
-    Handles:
-    1. Truncated JSON (missing closing braces/brackets)
-    2. Trailing commas
-    3. Unquoted keys
-    4. Single quotes vs double quotes
-    5. Missing values
-
-    Returns:
-        The repaired JSON string.
-    """
-    if not isinstance(text, str):
-        return text
-
-    repaired = text.strip()
-    if not repaired:
-        return repaired
-
-    import json_repair
-    return str(json_repair.repair_json(repaired))
-
-
-def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any:
-    """Safely parse a JSON string into a Python object with optional robust repair logic.
-
-    Attempts:
-    1. Standard json.loads
-    2. json.loads with strict=False (handles raw control chars, per hermes-agent)
-    3. repair_json + json.loads (LLM/Robust mode only)
-    4. ast.literal_eval as final fallback (LLM/Robust mode only)
-
-    Args:
-        text: The string to parse.
-        default: The value to return if parsing fails. Defaults to None.
-        strict: If True, only use standard JSON parsing (no repair). Defaults to False.
-
-    Returns:
-        The parsed Python object or the default value if an error occurs.
-    """
-    if not isinstance(text, (str, bytes, bytearray)):
-        return default
-
-    # Ensure we are working with a string for repair logic
-    raw_text = text.decode("utf-8", errors="replace") if isinstance(text, (bytes, bytearray)) else text
-    stripped = raw_text.strip()
-    if not stripped:
-        return default
-
-    # 1. Standard attempt
-    try:
-        parsed = json.loads(stripped)
-        return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError):
-        pass
-
-    # 2. strict=False attempt (handles bare control characters)
-    try:
-        parsed = json.loads(stripped, strict=False)
-        return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError):
-        pass
-
-    # In strict mode, we stop here.
-    if strict:
-        return default
-
-    # 3. ast.literal_eval fallback (handles single quotes and Python-isms)
-    # Inspired by hermes-agent/environments/tool_call_parsers/qwen3_coder_parser.py
-    try:
-        # literal_eval handles 'True', 'False', 'None' out of the box.
-        # It also handles single quotes and tuple-like syntax.
-        parsed = ast.literal_eval(stripped)
-        return parsed if parsed is not None else default
-    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
-        pass
-
-    # 4. Repair attempt for truncated or malformed JSON
-    try:
-        repaired = repair_json(stripped)
-        if repaired != stripped:
-            parsed = json.loads(repaired, strict=False)
-            return parsed if parsed is not None else default
-    except (json.JSONDecodeError, TypeError, ValueError):
-        pass
-
-    return default
-
-
-def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
-    """Safely parse a Python-style literal (e.g. from an LLM) without using ast.literal_eval.
-    Supports scalars (bool, None, number, string) and simple JSON-compatible lists/dicts.
-    Returns the default value if it doesn't look like a simple literal.
-
-    Args:
-        text: The string to parse.
-        default: The value to return if parsing fails. Defaults to None.
-
-    Returns:
-        The parsed Python object or the default value if an error occurs.
-    """
-    if not isinstance(text, (str, bytes, bytearray)):
-        return default
-
-    stripped = text.strip()
-    if not stripped:
-        return default
-
-    # 1. Try standard JSON first (handles numbers, double-quoted strings, bools, null)
-    # Use strict=True as literal_eval fallback is handled separately below for booleans/strings.
-    data = safe_json_loads(stripped, default=None, strict=True)
-    if data is not None:
-        return data
-
-    # 2. Handle Python-style booleans and None (which JSON calls true/false/null)
-    # Case-insensitive checks to handle various LLM formatting quirks robustly
-    lower = stripped.lower()
-    if lower == "true":
-        return True
-    if lower == "false":
-        return False
-    if lower in ("none", "null"):
-        return None
-
-    # 3. Handle simple single-quoted string unquoting: 'abc' -> abc
-    # This avoids ast.literal_eval for basic string normalization.
-    if (
-        isinstance(stripped, str)
-        and len(stripped) >= 2
-        and stripped[0] == "'"
-        and stripped[-1] == "'"
-    ):
-        inner = stripped[1:-1]
-        # Only unquote if it's a simple string (no internal single quotes or backslashes)
-        if "'" not in inner and "\\" not in inner:
-            return inner
-
-    return default

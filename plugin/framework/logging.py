@@ -29,7 +29,9 @@ from copy import deepcopy
 from typing import Any
 
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.errors import ConfigError
+from plugin.framework.base_errors import ConfigError, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
+from plugin.framework import config
 
 # Globals set by init_logging(ctx); used by debug_log and agent_log so ctx is not passed at write time.
 _debug_log_path = None
@@ -100,7 +102,6 @@ def init_logging(ctx):
         _agent_log_path = FALLBACK_AGENT
         _enable_agent_log = False
         try:
-            from plugin.framework import config
             udir = config.user_config_dir(ctx)
             if udir:
                 _debug_log_path = os.path.join(udir, DEBUG_LOG_FILENAME)
@@ -110,8 +111,6 @@ def init_logging(ctx):
             pass
 
         try:
-            from plugin.framework import config
-            import logging
             level_str = config.get_config_str(ctx, "log_level")
             numeric_level = getattr(logging, level_str.upper(), logging.WARNING)
             global _log_level_numeric
@@ -187,7 +186,6 @@ def _install_global_exception_hooks():
         try:
             tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
             msg = "Unhandled exception:\n" + "".join(tb_lines)
-            from plugin.framework.errors import format_error_payload
             try:
                 payload = format_error_payload(exc_value)
                 msg += f"\nPayload context: {payload.get('details', {})}"
@@ -214,7 +212,6 @@ def _install_global_exception_hooks():
                     "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
                     if getattr(args, "exc_type", None) else "",
                 )
-                from plugin.framework.errors import format_error_payload
                 try:
                     payload = format_error_payload(args.exc_value)
                     msg += f"\nPayload context: {payload.get('details', {})}"
@@ -285,7 +282,6 @@ def safe_log_exception(e, context="general", logger=None):
 
         # Add traceback if available
         try:
-            import traceback
             error_info['traceback'] = traceback.format_exc()
         except Exception:
             error_info['traceback'] = "<unavailable>"
@@ -346,7 +342,6 @@ def format_tool_call_for_display(tool, args, method=None):
 def format_tool_result_for_display(tool, result, args=None):
     """Format an MCP tool result for UI display, extracting inner text/messages and summarizing length."""
     try:
-        from plugin.framework.errors import safe_json_loads
         res_str = str(result)
         try:
             res_dict = safe_json_loads(result) if isinstance(result, str) else result
