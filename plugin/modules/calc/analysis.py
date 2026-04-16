@@ -32,6 +32,51 @@ except ImportError:
 
 logger = logging.getLogger("writeragent.calc")
 
+# Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
+# NLPSolver engines that open status dialogs (see docs/calc-analysis-tools.md).
+_PREFERRED_SOLVER_SERVICES: tuple[str, ...] = (
+    "com.sun.star.sheet.SolverLinear",
+    "com.sun.star.comp.Calc.CoinMPSolver",
+    "com.sun.star.comp.Calc.LpsolveSolver",
+)
+
+
+def _solver_impl_name(solver_obj: Any) -> str:
+    if solver_obj is not None and hasattr(solver_obj, "getImplementationName"):
+        try:
+            return str(solver_obj.getImplementationName())
+        except Exception:
+            pass
+    return "unknown"
+
+
+def _impl_name_is_java_nlp_headless_unsafe(impl_name: str) -> bool:
+    """True for nlpsolver DEPS/SCO engines that need a UI frame (DEPSSolverImpl omits 'NLPSolver')."""
+    if not impl_name:
+        return False
+    n = impl_name
+    return (
+        "NLPSolver" in n
+        or "DEPSSolver" in n
+        or "SCOSolver" in n
+        or "EvolutionarySolver" in n
+        or "BaseEvolutionary" in n
+    )
+
+
+def _user_requested_java_nlp_engine(engine_name: str | None) -> bool:
+    if not engine_name or engine_name == "com.sun.star.sheet.Solver":
+        return False
+    en = engine_name
+    return "NLPSolver" in en or "DEPS" in en or "SCO" in en
+
+
+def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> bool:
+    """Drop instances that need a visible frame when user did not ask for a Java NLP engine."""
+    if _user_requested_java_nlp_engine(engine_name):
+        return False
+    return _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver))
+
 
 def _get_cell_address(doc, address_str: str) -> "CellAddress":
     """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a CellAddress struct.
@@ -231,14 +276,36 @@ class SolverTool(ToolCalcAnalysisBase):
             
             smgr = ctx.ctx.ServiceManager
             solver = None
+            selected_engine_label: str | None = None
 
-            # 1. Try specified engine first
+            # 1. User-specified concrete engine (not the generic Solver service name)
             if engine_name and engine_name != "com.sun.star.sheet.Solver":
-                solver = smgr.createInstanceWithContext(engine_name, ctx.ctx)
+                try:
+                    solver = smgr.createInstanceWithContext(engine_name, ctx.ctx)
+                except Exception:
+                    solver = None
+                if solver and _should_reject_solver_for_headless(engine_name, solver):
+                    solver = None
+                if solver:
+                    selected_engine_label = engine_name
 
-            # 2. If no specific engine or it failed, enumerate implementations
+            # 2. Prefer native / non-dialog solvers when using the default service name
             if not solver:
-                # Use XContentEnumerationAccess to find all services that implement Solver
+                for svc in _PREFERRED_SOLVER_SERVICES:
+                    try:
+                        s = smgr.createInstanceWithContext(svc, ctx.ctx)
+                    except Exception:
+                        s = None
+                    if not s:
+                        continue
+                    if _should_reject_solver_for_headless(engine_name, s):
+                        continue
+                    solver = s
+                    selected_engine_label = svc
+                    break
+
+            # 3. Enumerate implementations (deprioritize DEPS/NLPSolver — see _priority)
+            if not solver:
                 enum_access = smgr.createInstanceWithContext("com.sun.star.container.XContentEnumerationAccess", ctx.ctx)
                 if enum_access:
                     enum = enum_access.createContentEnumeration("com.sun.star.sheet.Solver")
@@ -248,41 +315,55 @@ class SolverTool(ToolCalcAnalysisBase):
                             el = enum.nextElement()
                             if hasattr(el, "createInstanceWithContext"):
                                 impls.append(el)
-                        
-                        # Sort to prioritize known non-Java solvers
-                        # (Java solvers often start with com.sun.star.comp.Calc.NLPSolver)
-                        def _priority(factory):
+
+                        def _priority(factory: Any) -> int:
                             name = ""
                             if hasattr(factory, "getImplementationName"):
                                 name = factory.getImplementationName()
-                            # Prioritize CoinMP and Lpsolve
+                            if _impl_name_is_java_nlp_headless_unsafe(name):
+                                return 99
                             if "CoinMP" in name or "Lpsolve" in name:
                                 return 0
-                            if "NLPSolver" in name:
-                                return 2
                             return 1
-                        
+
                         impls.sort(key=_priority)
 
                         for el in impls:
                             try:
+                                impl_name = "unknown"
+                                if hasattr(el, "getImplementationName"):
+                                    impl_name = el.getImplementationName()
+                                if _impl_name_is_java_nlp_headless_unsafe(impl_name):
+                                    continue
                                 s = el.createInstanceWithContext(ctx.ctx)
-                                if s:
-                                    solver = s
-                                    impl_name = "unknown"
-                                    if hasattr(el, "getImplementationName"):
-                                        impl_name = el.getImplementationName()
-                                    logger.info("Found solver implementation: %s", impl_name)
-                                    break
+                                if not s:
+                                    continue
+                                if _should_reject_solver_for_headless(engine_name, s):
+                                    continue
+                                solver = s
+                                selected_engine_label = f"enumeration:{impl_name}"
+                                break
                             except Exception:
                                 continue
 
-            # 3. Last ditch fallback to generic name
+            # 4. Last ditch fallback to generic name
             if not solver:
-                solver = smgr.createInstanceWithContext("com.sun.star.sheet.Solver", ctx.ctx)
+                try:
+                    g = smgr.createInstanceWithContext("com.sun.star.sheet.Solver", ctx.ctx)
+                except Exception:
+                    g = None
+                if g and not _should_reject_solver_for_headless(engine_name, g):
+                    solver = g
+                    selected_engine_label = "com.sun.star.sheet.Solver"
 
             if not solver:
                 return self._tool_error("No Solver engine available in this LibreOffice installation")
+
+            logger.info(
+                "calc_solver: engine=%s implementation=%s",
+                selected_engine_label or "unknown",
+                _solver_impl_name(solver),
+            )
 
             solver.Document = doc
             solver.Maximize = maximize

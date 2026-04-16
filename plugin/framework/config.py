@@ -339,8 +339,12 @@ class WriterAgentConfig:
             except (ValueError, TypeError):
                 pass
         if cmtr_ok is None:
-            log.warning("Invalid chat_max_tool_rounds %r, falling back to %s", r_cmtr, _cmtr_def)
             self.chat_max_tool_rounds = _cmtr_def
+            is_blank = r_cmtr == "" or (isinstance(r_cmtr, str) and r_cmtr.strip() == "")
+            if is_blank:
+                log.debug("chat_max_tool_rounds empty, using default %s", _cmtr_def)
+            else:
+                log.warning("Invalid chat_max_tool_rounds %r, falling back to %s", r_cmtr, _cmtr_def)
         else:
             self.chat_max_tool_rounds = cmtr_ok
 

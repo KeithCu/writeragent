@@ -115,25 +115,31 @@ def test_solver():
     # Define Constraint: x + y <= 10 in D3
     active_sheet.getCellByPosition(3, 2).setFormula("=A3+B3")
     
+    # Linear program: use built-in linear solver (avoids Java NLPSolver / DEPS on hidden docs).
     res = _execute_calc_tool("calc_solver", {
         "objective_cell": f"{sheet_name}.C3",
         "variables": [f"{sheet_name}.A3", f"{sheet_name}.B3"],
         "maximize": True,
+        "engine": "com.sun.star.sheet.SolverLinear",
         "constraints": [
             {"left": f"{sheet_name}.D3", "operator": "LESS_EQUAL", "right": "10.0"},
             {"left": f"{sheet_name}.A3", "operator": "GREATER_EQUAL", "right": "0.0"},
             {"left": f"{sheet_name}.B3", "operator": "GREATER_EQUAL", "right": "0.0"}
         ]
     })
-    
+
     if res.get("status") == "error":
         msg = res.get("message", "")
-        if "No Solver engine available" in msg:
+        detail_err = ""
+        det = res.get("details")
+        if isinstance(det, dict):
+            detail_err = str(det.get("error", ""))
+        combined = f"{msg} {detail_err}"
+        if "No Solver engine available" in combined:
             print("Skipping solver test: no engine available")
             return
-        # If it picked an NLPSolver and failed with Java NPE, it might still report as error
-        if "NLPSolver" in msg or "NullPointerException" in msg:
-            print(f"Skipping solver test: engine unstable in this env: {msg}")
+        if "NLPSolver" in combined or "NullPointerException" in combined:
+            print(f"Skipping solver test: engine unstable in this env: {combined}")
             return
 
     assert res.get("status") == "ok", f"Solver failed: {res}"
