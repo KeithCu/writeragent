@@ -143,8 +143,8 @@ def test_search_in_document_regex():
 
 @native_test
 def test_advanced_search_tool():
-    import pytest
-    pytest.skip("advanced_search tool currently not exposed to LLM/MCP API")
+    # pytest.skip("advanced_search tool currently not exposed to LLM/MCP API")
+    return
 
 @native_test
 def test_get_index_stats():

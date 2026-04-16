@@ -40,6 +40,7 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
 | **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../plugin/modules/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](calc-conditional-formatting.md) | Specialized tier |
 | **Sheet filter (AutoFilter-style)** | ✅ Implemented | [`sheet_filter.py`](../plugin/modules/calc/sheet_filter.py): `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter` — [guide](calc-sheet-filter.md) | Specialized tier (`sheet_filter`) |
+| **Analysis (Goal Seek / Solver)** | ✅ Implemented | [`analysis.py`](../plugin/modules/calc/analysis.py): `calc_goal_seek`, `calc_solver` | Specialized tier (`analysis`) |
 | **Pivot Tables** | ✅ Implemented | `pivot.py`: CreatePivotTable, RefreshPivotTable, GetPivotTableData, ListPivotTables | Specialized tier |
 | **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
 | **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |
@@ -51,8 +52,8 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | **Macros** | ❌ Not implemented | Macro recording/execution, VBA compatibility |
-| **Solver** | ❌ Not implemented | Optimization scenarios, constraint solving |
-| **Goal Seek** | ❌ Not implemented | Target value analysis |
+| **Goal Seek** | ✅ Implemented | Target value analysis |
+| **Solver** | ✅ Implemented | Optimization scenarios, constraint solving |
 | **Scenarios** | ❌ Not implemented | Scenario manager, what-if analysis |
 | **Data Tables** | ❌ Not implemented | One-way and two-way data tables |
 | **External Data** | ❌ Not implemented | Database connections, SQL queries, web queries |

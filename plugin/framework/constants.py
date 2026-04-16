@@ -98,6 +98,13 @@ Rules for `task`:
 - Example (domain=shapes): `create_shape` can use on the order of **400+** distinct preset `shape_type` strings in LibreOffice's Enhanced Custom Shape catalog (flowchart-*, stars, callouts, symbols, arrows, etc.), plus standard `com.sun.star.drawing.*Shape` UNO types—so you can ask for a particular catalog name and styling rather than only "a rectangle."
 """
 
+CALC_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED CALC (nested tools):
+The default tool list hides advanced Calc features (Pivot Tables, Conditional Formatting, Goal Seek/Solver, etc.).
+When the user needs those, call delegate_to_specialized_calc_toolset with:
+domain one of: {domains} —
+and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain.
+"""
+
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""{CORE_DIRECTIVES}
 
 {{specialized_delegation}}
@@ -119,6 +126,7 @@ TOOLS:
 
 # We dynamically set this later when calling get_chat_system_prompt_for_document
 DEFAULT_CHAT_SYSTEM_PROMPT = ""
+DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
 
 
 def get_writer_eval_chat_system_prompt() -> str:
@@ -171,8 +179,10 @@ TOOLS (eval harness):
 
 # Calc spreadsheet prompt (structure inspired by libre_calc_ai prompt_templates.py:
 # workflow, grouped tools, "do not explain—do the operation", specify addresses).
-DEFAULT_CALC_CHAT_SYSTEM_PROMPT = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
+DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
 Do not explain—do the operation directly using tools. Perform as many steps as needed in one turn when possible.
+
+{{specialized_delegation}}
 
 {CALC_WORKFLOW}
 
@@ -264,7 +274,18 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     Callers must pass the document that is being chatted about."""
     from plugin.framework.document import is_calc, is_draw
     if is_calc(model):
-        base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT
+        from plugin.modules.calc.base import ToolCalcSpecialBase
+        domains = []
+        for cls in ToolCalcSpecialBase.__subclasses__():
+            if cls.specialized_domain:
+                domains.append(cls.specialized_domain)
+        domains_str = ", ".join(domains)
+        delegation = CALC_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
+        base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        
+        global DEFAULT_CALC_CHAT_SYSTEM_PROMPT
+        if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
+            DEFAULT_CALC_CHAT_SYSTEM_PROMPT = base
     elif is_draw(model):
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
     else:

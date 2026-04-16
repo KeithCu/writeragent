@@ -74,3 +74,9 @@ class ToolCalcPivotBase(ToolCalcSpecialBase):
     specialized_domain = "pivot_tables"
     intent = "analyze"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
+class ToolCalcAnalysisBase(ToolCalcSpecialBase):
+    specialized_domain = "analysis"
+    intent = "analyze"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
