@@ -10,6 +10,8 @@
 """Embedded OLE objects in Writer — specialized embedded domain."""
 
 from plugin.modules.writer.base import ToolWriterEmbeddedBase
+from plugin.modules.writer.target_resolver import resolve_target_cursor
+
 
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
@@ -45,7 +47,6 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
-        from plugin.modules.writer.target_resolver import resolve_target_cursor
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:

@@ -20,6 +20,8 @@ import logging
 
 from plugin.framework.tool_base import ToolBase as FrameworkToolBase
 from plugin.modules.writer.base import ToolWriterStyleBase as ToolBase
+from plugin.modules.writer.target_resolver import resolve_target_cursor
+
 
 log = logging.getLogger("writeragent.writer")
 
@@ -212,7 +214,6 @@ class StylesApply(FrameworkToolBase):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
-        from plugin.modules.writer.target_resolver import resolve_target_cursor
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:

@@ -75,13 +75,13 @@ def _mock_get_config_int_for_sub_agent(ctx, key):
 
 
 @patch(
-    "plugin.framework.config.get_config_int",
+    "plugin.modules.writer.specialized.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
 )
 @patch("plugin.modules.writer.specialized.get_api_config", create=True)
-@patch("plugin.contrib.smolagents.agents.ToolCallingAgent")
-@patch("plugin.framework.smol_model.WriterAgentSmolModel")
-@patch("plugin.modules.http.client.LlmClient")
+@patch("plugin.modules.writer.specialized.ToolCallingAgent")
+@patch("plugin.modules.writer.specialized.WriterAgentSmolModel")
+@patch("plugin.modules.writer.specialized.LlmClient")
 def test_specialized_delegation_sub_agent_mode(
     mock_llm,
     mock_smol_model,

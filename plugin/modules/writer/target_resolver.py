@@ -1,5 +1,8 @@
 import re as re_mod
 import logging
+from plugin.modules.writer.content import _normalize_search_string_for_find, _find_range_by_offset
+from plugin.modules.writer.format_support import content_has_markup, html_to_plain_text
+
 log = logging.getLogger("writeragent.writer")
 
 
@@ -51,8 +54,6 @@ def resolve_target_cursor(ctx, target, old_content):
     # target == "search" or fallback to search if old_content is provided
 
     # target == "search"
-    from plugin.modules.writer.content import _normalize_search_string_for_find, _find_range_by_offset
-    from plugin.modules.writer.format_support import content_has_markup, html_to_plain_text
 
     search_string = str(old_content).strip() if old_content is not None else ""
     if content_has_markup(search_string):

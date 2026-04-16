@@ -20,6 +20,8 @@ from typing import ClassVar
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.base import ToolCalcSpecialBase
+from plugin.framework.constants import USE_SUB_AGENT
+
 
 
 class ToolWriterSpecialBase(ToolBase):
@@ -177,7 +179,6 @@ class SpecializedWorkflowFinished(ToolBase):
 
     def execute(self, ctx, **kwargs):
         # Allow the main LLM loop to exit specialized mode
-        from plugin.framework.constants import USE_SUB_AGENT
         if not USE_SUB_AGENT:
             if getattr(ctx, "set_active_domain_callback", None):
                 ctx.set_active_domain_callback(None)

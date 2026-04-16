@@ -74,6 +74,12 @@ import re
 import tempfile
 
 from plugin.framework.errors import ToolExecutionError
+import urllib.parse
+import urllib.request
+from typing import Any, cast
+import html as html_mod
+from plugin.modules.writer.ops import get_selection_range
+from plugin.modules.writer.ops import get_text_cursor_at_range
 
 log = logging.getLogger("writeragent.writer")
 
@@ -105,8 +111,6 @@ def _get_format_props(config_svc=None):
 
 def _file_url(path):
     """Return a ``file://`` URL for *path*."""
-    import urllib.parse
-    import urllib.request
     return urllib.parse.urljoin(
         "file:", urllib.request.pathname2url(os.path.abspath(path))
     )
@@ -114,7 +118,6 @@ def _file_url(path):
 
 def _create_property_value(name, value):
     """Create a ``com.sun.star.beans.PropertyValue``."""
-    from typing import Any, cast
     p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
     p.Name = name
     p.Value = value
@@ -184,7 +187,6 @@ def _ensure_html_linebreaks(content):
     """
     if not isinstance(content, str) or not content:
         return content
-    import html as html_mod
     content = _normalize(content)
     unescaped = html_mod.unescape(content)
     html_tags = [
@@ -354,7 +356,6 @@ def document_to_content(model, ctx, services, max_chars=None,
     config_svc = services.get("config") if services else None
 
     if scope == "selection":
-        from plugin.modules.writer.ops import get_selection_range
         start, end = get_selection_range(model)
         return _range_to_content_via_temp_doc(
             model, ctx, start, end, max_chars, config_svc
@@ -396,7 +397,6 @@ def insert_content_at_position(model, ctx, content, position,
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
-    import html as html_mod
     content = html_mod.unescape(content)
     content = _ensure_html_linebreaks(content)
 
@@ -431,7 +431,6 @@ def insert_content_at_position(model, ctx, content, position,
 
 def replace_full_document(model, ctx, content, config_svc=None):
     """Clear the document and insert *content*."""
-    import html as html_mod
     content = html_mod.unescape(content)
     content = _ensure_html_linebreaks(content)
 
@@ -450,7 +449,6 @@ def replace_full_document(model, ctx, content, config_svc=None):
 def apply_content_at_range(model, ctx, content, start, end,
                            config_svc=None):
     """Replace character range ``[start, end)`` with rendered *content*."""
-    from plugin.modules.writer.ops import get_text_cursor_at_range
 
     cursor = get_text_cursor_at_range(model, start, end)
     if cursor is None:
@@ -458,7 +456,6 @@ def apply_content_at_range(model, ctx, content, start, end,
             "Invalid range or could not create cursor for (%d, %d)" % (start, end)
         )
 
-    import html as html_mod
     content = html_mod.unescape(content)
     content = _ensure_html_linebreaks(content)
 
@@ -476,7 +473,6 @@ def apply_content_at_search(model, ctx, content, search,
 
     Returns the number of replacements made.
     """
-    import html as html_mod
     prepared = html_mod.unescape(content)
     prepared = _ensure_html_linebreaks(prepared)
 
@@ -508,7 +504,6 @@ def apply_content_at_search(model, ctx, content, search,
 def replace_single_range_with_content(model, text_range, content, ctx,
                                       config_svc=None):
     """Replace the given text range with rendered *content* (HTML path)."""
-    import html as html_mod
     prepared = html_mod.unescape(content)
     prepared = _ensure_html_linebreaks(prepared)
     with _with_temp_buffer(prepared, config_svc) as (_path, file_url):

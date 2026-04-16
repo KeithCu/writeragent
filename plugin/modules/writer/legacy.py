@@ -23,6 +23,9 @@ from plugin.modules.http.errors import format_error_message
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
 from plugin.framework.i18n import _
+from plugin.framework.config import set_config
+from plugin.modules.http.client import LlmClient
+
 
 def do_extend_selection(ctx, model, input_box_fn):
     selection = model.CurrentController.getSelection()
@@ -46,7 +49,6 @@ def do_extend_selection(ctx, model, input_box_fn):
         msgbox(ctx, _("WriterAgent: Extend Selection"), _(err_msg))
         return
 
-    from plugin.modules.http.client import LlmClient
     client = LlmClient(api_config, ctx)
 
     def apply_chunk(chunk_text, is_thinking=False):
@@ -74,7 +76,6 @@ def do_edit_selection(ctx, model, input_box_fn):
         if not user_input:
             return
         if extra_instructions:
-            from plugin.framework.config import set_config
             set_config(ctx, "additional_instructions", extra_instructions)
             update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
     except Exception as e:
@@ -91,7 +92,6 @@ def do_edit_selection(ctx, model, input_box_fn):
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(err_msg))
         return
 
-    from plugin.modules.http.client import LlmClient
     client = LlmClient(api_config, ctx)
 
     text_range.setString("")
