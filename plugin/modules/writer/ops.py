@@ -218,7 +218,9 @@ def get_text_cursor_at_range(model, start, end):
                 details={"operation": "get_text_cursor_at_range", "start": start, "end": end}
             )
 
-        doc_len = _doc_length(model)
+        from plugin.framework.document import get_document_length
+
+        doc_len = get_document_length(model)
         start = max(0, min(start, doc_len))
         end = max(0, min(end, doc_len))
         if start > end:
@@ -263,6 +265,3 @@ def get_text_cursor_at_range(model, start, end):
                 "error_type": type(e).__name__
             }
         ) from e
-
-
-from plugin.framework.document import get_document_length as _doc_length

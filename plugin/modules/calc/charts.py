@@ -200,7 +200,6 @@ def _apply_chart_styling(chart_doc, **kwargs):
     legend_pos = kwargs.get("legend_position")
     if legend_pos and chart_doc.HasLegend:
         try:
-            import uno
             pos_map = {
                 "top": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.TOP"),
                 "bottom": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.BOTTOM"),

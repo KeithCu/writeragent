@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import logging
+import uno
 from typing import Any
 
 from plugin.framework.calc_filter_constants import (
@@ -40,7 +41,6 @@ logger = logging.getLogger("writeragent.calc")
 
 
 def _query_interface(obj: Any, typename: str) -> Any:
-    import uno
 
     return obj.queryInterface(uno.getTypeByName(typename))
 
@@ -192,7 +192,6 @@ class ApplySheetFilter(ToolCalcSheetFilterBase):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        import uno
 
         range_name = kwargs["range_name"]
         criteria = kwargs["criteria"]
@@ -306,7 +305,6 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
         range_name = kwargs["range_name"]
 
         try:
-            import uno
 
             xf, _cell_range = _get_filterable_for_range(ctx, range_name)
             fd = xf.createFilterDescriptor(False)

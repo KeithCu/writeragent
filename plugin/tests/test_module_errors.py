@@ -337,7 +337,7 @@ class TestWriterModuleErrors:
             get_text_cursor_at_range(MagicMock(), 0, None)
         assert exc_info.value.code == "WRITER_INVALID_OFFSETS"
 
-    @patch("plugin.modules.writer.ops._doc_length", return_value=100)
+    @patch("plugin.framework.document.get_document_length", return_value=100)
     def test_get_text_cursor_at_range_null_text_obj(self, mock_doc_len):
         mock_model = MagicMock()
         mock_model.getText.return_value = None

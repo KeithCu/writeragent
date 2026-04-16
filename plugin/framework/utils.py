@@ -18,6 +18,14 @@ def normalize_endpoint_url(url):
         ep = ep[:-3].rstrip("/")
     return ep
 
+
+def normalize_linebreaks(text: str | None) -> str:
+    """Normalize various linebreak sequences (``\\r\\n``, ``\\n\\r``, ``\\r``) to ``\\n``."""
+    if not text:
+        return ""
+    return text.replace("\r\n", "\n").replace("\n\r", "\n").replace("\r", "\n")
+
+
 def get_url_hostname(url):
     """Extract hostname safely."""
     try:

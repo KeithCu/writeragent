@@ -19,7 +19,7 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase, ToolBaseDummy
-from plugin.framework.document import normalize_linebreaks
+from plugin.framework.utils import normalize_linebreaks
 from plugin.modules.writer import format_support
 from plugin.framework.errors import safe_json_loads
 import re as re_mod

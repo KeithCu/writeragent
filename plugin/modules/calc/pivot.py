@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import logging
+import uno
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
@@ -40,7 +41,6 @@ logger = logging.getLogger("writeragent.calc")
 
 def _query_interface(obj: Any, typename: str) -> Any:
     """PyUNO requires ``uno.getTypeByName`` for ``queryInterface``; imported IDL classes fail."""
-    import uno
 
     return obj.queryInterface(uno.getTypeByName(typename))
 

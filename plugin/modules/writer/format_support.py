@@ -84,9 +84,7 @@ from plugin.modules.writer.ops import get_text_cursor_at_range
 log = logging.getLogger("writeragent.writer")
 
 
-from plugin.framework.document import (
-    normalize_linebreaks as _normalize,
-)
+from plugin.framework.utils import normalize_linebreaks as _normalize
 
 
 # ---------------------------------------------------------------------------

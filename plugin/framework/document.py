@@ -23,6 +23,7 @@ from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.analyzer import SheetAnalyzer
 from plugin.framework.uno_context import get_active_document as get_active_doc
 from plugin.framework.errors import UnoObjectError, check_disposed, safe_call, safe_uno_call
+from plugin.framework.utils import normalize_linebreaks
 
 
 class HeadingTreeNode(TypedDict):
@@ -145,14 +146,6 @@ def set_document_property(model, name, value):
             "set_document_property error: %s (url=%s, readonly=%s)", e, doc_url, readonly
         )
         raise
-
-
-def normalize_linebreaks(text: str) -> str:
-    """Normalize various linebreak sequences (\\r\\n, \\n\\r, \\r) to \\n."""
-    if not text:
-        return ""
-    # Chain replacements to handle all cases safely
-    return text.replace("\r\n", "\n").replace("\n\r", "\n").replace("\r", "\n")
 
 
 # class DocumentCache:
