@@ -22,6 +22,7 @@ CellInspector, and ErrorDetector per call using ``ctx.doc``.
 """
 
 import logging
+from typing import cast
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
@@ -81,6 +82,5 @@ class DetectErrors(ToolBase):
                 },
             }
         else:
-            import typing
-            result = error_detector.detect_and_explain(range_str=typing.cast("str", rn))
+            result = error_detector.detect_and_explain(range_str=cast("str", rn))
             return {"status": "ok", "result": result}

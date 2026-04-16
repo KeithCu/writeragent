@@ -24,6 +24,27 @@ UNO imports are deferred to method bodies.
 import csv
 import io
 import logging
+import re
+import sys
+import uno
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import FontWeight
+    from com.sun.star.awt.FontSlant import ITALIC, NONE
+    from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
+    from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM, STANDARD as V_STANDARD
+    from com.sun.star.table import BorderLine, TableSortField
+else:
+    try:
+        from com.sun.star.awt import FontWeight
+        from com.sun.star.awt.FontSlant import ITALIC, NONE
+        from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
+        from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM, STANDARD as V_STANDARD
+        from com.sun.star.table import BorderLine, TableSortField
+    except ImportError:
+        pass
+
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, safe_json_loads
 from plugin.modules.calc import CalcError
@@ -137,7 +158,6 @@ class CellManipulator:
 
     def _is_valid_cell_address(self, address: str) -> bool:
         """Validate if a string is a valid cell address (e.g., A1)."""
-        import re
         if not address:
             return False
         return bool(re.match(r'^[A-Za-z]+[1-9][0-9]*$', address.strip()))
@@ -216,17 +236,14 @@ class CellManipulator:
     ):
         """Apply common style properties to a cell or range object."""
         if bold is not None:
-            import sys
             FW = sys.modules.get('com.sun.star.awt.FontWeight', None)
             if FW is None:
-                from com.sun.star.awt import FontWeight  # type: ignore[unresolved-import]
                 BOLD, NORMAL = FontWeight.BOLD, FontWeight.NORMAL
             else:
                 BOLD, NORMAL = getattr(FW, 'BOLD'), getattr(FW, 'NORMAL')
             obj.setPropertyValue("CharWeight", BOLD if bold else NORMAL)
 
         if italic is not None:
-            from com.sun.star.awt.FontSlant import ITALIC, NONE
             obj.setPropertyValue("CharPosture", ITALIC if italic else NONE)
 
         if bg_color is not None:
@@ -239,9 +256,6 @@ class CellManipulator:
             obj.setPropertyValue("CharHeight", font_size)
 
         if h_align is not None:
-            from com.sun.star.table.CellHoriJustify import (
-                LEFT, CENTER, RIGHT, BLOCK, STANDARD,
-            )
             align_map = {
                 "left": LEFT, "center": CENTER, "right": RIGHT,
                 "justify": BLOCK, "standard": STANDARD,
@@ -250,9 +264,6 @@ class CellManipulator:
                 obj.setPropertyValue("HoriJustify", align_map[h_align.lower()])
 
         if v_align is not None:
-            from com.sun.star.table.CellVertJustify import (
-                TOP, CENTER, BOTTOM, STANDARD,
-            )
             align_map = {
                 "top": TOP, "center": CENTER, "bottom": BOTTOM,
                 "standard": STANDARD,
@@ -268,7 +279,6 @@ class CellManipulator:
 
     def _apply_borders(self, obj, color: int):
         """Apply borders to a cell or range object."""
-        from com.sun.star.table import BorderLine
 
         line = BorderLine()
         setattr(line, "Color", color)
@@ -322,15 +332,18 @@ class CellManipulator:
 
             # Also try to import for unmocked case
             if CCT is None:
-                from com.sun.star.table import CellContentType as CCT
+                try:
+                    from com.sun.star.table import CellContentType as CCT
+                except ImportError:
+                    pass
 
-            if cell_type == CCT.EMPTY:
+            if CCT is not None and cell_type == CCT.EMPTY:
                 return None
-            elif cell_type == CCT.VALUE:
+            elif CCT is not None and cell_type == CCT.VALUE:
                 return cell.getValue()
-            elif cell_type == CCT.TEXT:
+            elif CCT is not None and cell_type == CCT.TEXT:
                 return cell.getString()
-            elif cell_type == CCT.FORMULA:
+            elif CCT is not None and cell_type == CCT.FORMULA:
                 try:
                     # In LibreOffice Calc, cell.getError() returns 0 if no error
                     error_code = cell.getError()
@@ -529,8 +542,6 @@ class CellManipulator:
             logger.info("Range %s merged.", range_str.upper())
 
             if center:
-                from com.sun.star.table.CellHoriJustify import CENTER
-                from com.sun.star.table.CellVertJustify import CENTER as V_CENTER
                 cell_range.setPropertyValue("HoriJustify", CENTER)
                 cell_range.setPropertyValue("VertJustify", V_CENTER)
         except Exception as e:
@@ -560,7 +571,6 @@ class CellManipulator:
             cell_range = self.bridge.get_cell_range(sheet, range_str)
 
             import uno  # noqa: F401 – needed in UNO context
-            from com.sun.star.table import TableSortField
 
             sort_desc = list(cell_range.createSortDescriptor())
 
