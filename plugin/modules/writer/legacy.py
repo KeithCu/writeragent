@@ -25,12 +25,17 @@ from plugin.framework.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.framework.config import set_config
 from plugin.modules.http.client import LlmClient
+from plugin.framework.document import (
+    build_writer_rewrite_prompt,
+    get_string_without_tracked_deletions,
+    WriterStreamedRewriteSession,
+)
 
 
 def do_extend_selection(ctx, model, input_box_fn):
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
-    original_text = text_range.getString()
+    original_text = get_string_without_tracked_deletions(text_range)
     if len(original_text) == 0:
         return
 
@@ -69,7 +74,7 @@ def do_extend_selection(ctx, model, input_box_fn):
 def do_edit_selection(ctx, model, input_box_fn):
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
-    original_text = text_range.getString()
+    original_text = get_string_without_tracked_deletions(text_range)
     
     try:
         user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
@@ -82,7 +87,7 @@ def do_edit_selection(ctx, model, input_box_fn):
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
         return
 
-    prompt = "ORIGINAL VERSION:\n" + original_text + "\n Below is an edited version according to the following instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
+    prompt = build_writer_rewrite_prompt(original_text, user_input)
     system_prompt = extra_instructions or ""
     max_tokens = len(original_text) + get_config_int(ctx, "edit_selection_max_new_tokens")
 
@@ -93,21 +98,25 @@ def do_edit_selection(ctx, model, input_box_fn):
         return
 
     client = LlmClient(api_config, ctx)
-
-    text_range.setString("")
+    session = WriterStreamedRewriteSession(model, text_range, original_text)
 
     def apply_chunk(chunk_text, is_thinking=False):
         if not is_thinking:
-            text_range.setString(text_range.getString() + chunk_text)
+            session.append_chunk(chunk_text)
+
+    def on_done():
+        warning = session.finish()
+        if warning:
+            msgbox(ctx, _("WriterAgent: Edit Selection"), warning)
 
     def on_error(e):
-        text_range.setString(original_text)
+        session.abort_and_restore()
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
 
     try:
         run_stream_completion_async(
             ctx, client, prompt, system_prompt, max_tokens,
-            apply_chunk, lambda: None, on_error
+            apply_chunk, on_done, on_error
         )
     except Exception as e:
         on_error(e)

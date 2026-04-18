@@ -33,12 +33,13 @@ def _extend_writer(services, ctx, doc):
     from plugin.framework.dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
+    from plugin.framework.document import get_string_without_tracked_deletions
     from plugin.modules.http.client import LlmClient
 
     try:
         selection = doc.CurrentController.getSelection()
         text_range = selection.getByIndex(0)
-        selected_text = text_range.getString()
+        selected_text = get_string_without_tracked_deletions(text_range)
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
@@ -214,12 +215,17 @@ def _edit_writer(services, ctx, doc):
     from plugin.framework.dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
+    from plugin.framework.document import (
+        build_writer_rewrite_prompt,
+        get_string_without_tracked_deletions,
+        WriterStreamedRewriteSession,
+    )
     from plugin.modules.http.client import LlmClient
 
     try:
         selection = doc.CurrentController.getSelection()
         text_range = selection.getByIndex(0)
-        original_text = text_range.getString()
+        original_text = get_string_without_tracked_deletions(text_range)
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
@@ -247,14 +253,7 @@ def _edit_writer(services, ctx, doc):
     _mnt = config.get("edit_selection_max_new_tokens") or 0
     max_new_tokens = int(float(_mnt))
 
-    prompt = (
-        "ORIGINAL VERSION:\n" + original_text +
-        "\n Below is an edited version according to the following "
-        "instructions. There are no comments in the edited version. "
-        "The edited version is followed by the end of the document. "
-        "The original version will be edited as follows to create "
-        "the edited version:\n" + user_input + "\nEDITED VERSION:\n"
-    )
+    prompt = build_writer_rewrite_prompt(original_text, user_input)
 
     messages = []
     if system_prompt:
@@ -263,24 +262,21 @@ def _edit_writer(services, ctx, doc):
 
     max_tokens = len(original_text) + max_new_tokens
 
-    # Clear selection and start streaming replacement
-    text_range.setString("")
+    session = WriterStreamedRewriteSession(doc, text_range, original_text)
 
     def apply_chunk(text, is_thinking=False):
         if not is_thinking:
-            try:
-                text_range.setString(text_range.getString() + text)
-            except Exception as e:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                    log.debug("Failed to write text to Writer selection (likely disposed): %s", e)
-                else:
-                    log.exception("Failed to write text")
+            session.append_chunk(text)
+
+    def on_done():
+        warning = session.finish()
+        if warning:
+            log.warning("Writer streamed rewrite fallback: %s", warning)
+            msgbox(ctx, _("WriterAgent: Edit Selection"), warning)
 
     def on_error(e):
         try:
-            text_range.setString(original_text)
+            session.abort_and_restore()
         except Exception as recovery_err:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
@@ -294,7 +290,7 @@ def _edit_writer(services, ctx, doc):
     run_stream_async(
         ctx, client, messages, tools=None,
         apply_chunk_fn=apply_chunk,
-        on_done_fn=lambda: None,
+        on_done_fn=on_done,
         on_error_fn=on_error,
         max_tokens=max_tokens,
     )
