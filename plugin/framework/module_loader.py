@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import os
 import logging
-from typing import Any, List, cast
+from typing import TYPE_CHECKING, Any, List, cast
 
-from plugin.framework.module_base import ModuleBase
 from plugin.framework.utils import get_plugin_dir
+
+if TYPE_CHECKING:
+    from plugin.framework.module_base import ModuleBase
 
 
 class ModuleLoader:
@@ -104,7 +108,7 @@ class ModuleLoader:
                     mod = module_class()
                     # MRO scan above only selects ModuleBase subclasses; cast is for the type checker
                     # (dynamic import cannot prove subclass to static analysis).
-                    mod = cast(ModuleBase, mod)
+                    mod = cast("ModuleBase", mod)
                     mod.name = name
                     mod.initialize(services_registry)
                     initialized_modules.append(mod)

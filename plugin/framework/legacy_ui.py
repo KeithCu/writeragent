@@ -139,8 +139,6 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     _ENDPOINT_DEBOUNCE_SEC = 1.0
 
     log.debug("settings_box entry")
-    from plugin.framework.listeners import BaseListener
-    from com.sun.star.awt import XItemListener, XTextListener
 
     smgr = ctx.getServiceManager()
     log.debug("Calling get_settings_field_specs")

@@ -28,13 +28,12 @@ import dataclasses
 import time
 from typing import Any, Callable, Dict, cast
 
-from plugin.framework.utils import get_plugin_dir, normalize_endpoint_url
+from plugin.framework.utils import get_plugin_dir
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, get_provider_defaults
 from plugin.framework.base_errors import ConfigError, NetworkError
-from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.errors import safe_call
 from plugin.framework.types import ModelCapability
 from plugin.framework.i18n import _
@@ -1245,7 +1244,7 @@ def _uno_service_implementation_decorator() -> Callable[..., Any]:
         pass
     if not callable(impl):
         return _dummy_impl
-    return cast(Callable[..., Any], impl)
+    return cast("Callable[..., Any]", impl)
 
 
 _implementation: Callable[..., Any] = _uno_service_implementation_decorator()

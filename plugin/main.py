@@ -53,6 +53,9 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from types import ModuleType
+
+    from com.sun.star.util import URL as UnoURL
+    from plugin.framework.module_base import ModuleBase
     from plugin.framework.tool_registry import ToolRegistry
 
 officehelper: ModuleType | None = None
@@ -68,10 +71,8 @@ import uno
 
 from com.sun.star.task import XJobExecutor, XJob
 from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
-from com.sun.star.util import URL as UnoURL
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from plugin.framework.module_base import ModuleBase
 from plugin.framework.uno_context import get_active_document, get_extension_url
 
 # ---------------------------------------------------------------------------
@@ -623,7 +624,7 @@ def _get_http_module(ctx=None) -> HttpMcpActions | None:
         bootstrap(ctx)
     for mod in _modules:
         if mod.name == "http":
-            return cast(HttpMcpActions, mod)
+            return cast("HttpMcpActions", mod)
     return None
 
 def _start_mcp_server(ctx):
@@ -786,8 +787,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
     ) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
         url = URL
         if url.Protocol == "org.extension.writeragent:":
-            return cast(XDispatch, self)
-        return cast(XDispatch, None)
+            return cast("XDispatch", self)
+        return cast("XDispatch", None)
 
     def queryDispatches(
         self, Requests: tuple[DispatchDescriptor, ...]

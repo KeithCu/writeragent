@@ -26,21 +26,20 @@ import io
 import logging
 import re
 import sys
-import uno
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM, STANDARD as V_STANDARD
+    from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
     from com.sun.star.table import BorderLine, TableSortField
 else:
     try:
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM, STANDARD as V_STANDARD
+        from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
         from com.sun.star.table import BorderLine, TableSortField
     except ImportError:
         pass

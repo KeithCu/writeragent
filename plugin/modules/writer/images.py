@@ -36,7 +36,6 @@ import ssl
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.image_utils import ImageService
 from plugin.framework.config import get_config, get_text_model, get_config_int, get_config_bool, get_config_str, update_lru_history
-from plugin.framework.config import get_config, get_text_model, get_config_int, get_config_bool, get_config_str, update_lru_history
 from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
     get_selected_image_dimensions_px,

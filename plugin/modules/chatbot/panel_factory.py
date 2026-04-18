@@ -18,10 +18,12 @@
 # Follows the working pattern from LibreOffice's Python ToolPanel example:
 # XUIElement wrapper creates panel in getRealInterface() via ContainerWindowProvider + XDL.
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
-from typing import cast
+from typing import TYPE_CHECKING, cast
 import hashlib
 import uuid
 import uno
@@ -66,7 +68,9 @@ from plugin.framework.dialogs import (
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
-from com.sun.star.uno import XInterface
+if TYPE_CHECKING:
+    from com.sun.star.uno import XInterface
+
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
 try:
     from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
@@ -267,7 +271,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 import traceback
                 log.error(traceback.format_exc())
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
-        return cast(XInterface, self.toolpanel)
+        return cast("XInterface", self.toolpanel)
 
     def _getOrCreatePanelRootWindow(self):
         log.debug("_getOrCreatePanelRootWindow entered")

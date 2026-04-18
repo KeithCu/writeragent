@@ -19,11 +19,15 @@
 All custom exceptions should inherit from WriterAgentException.
 """
 
-from typing import Any
 
 from plugin.framework.i18n import _
-from plugin.framework.base_errors import WriterAgentException, ConfigError, NetworkError, format_error_payload
-from plugin.framework.json_utils import repair_json, safe_json_loads, safe_python_literal_eval
+from plugin.framework.base_errors import (
+    ConfigError,
+    NetworkError,
+    WriterAgentException,
+    format_error_payload,
+)
+from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
 
 class UnoObjectError(WriterAgentException):
     """LibreOffice UNO interface failures (stale docs, missing properties)."""
@@ -179,3 +183,27 @@ def safe_call(fn, context_name, *args, **kwargs):
         # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
         # but catching Exception is the standard way to grab them. We immediately wrap it.
         raise UnoObjectError(f"{context_name} failed: {e}", context={"operation": context_name, "type": e_name}) from e
+
+
+# Re-export base/json helpers so callers can use `from plugin.framework.errors import ...` (public API).
+__all__ = [
+    "AgentParsingError",
+    "ConfigError",
+    "DocumentDisposedError",
+    "NetworkError",
+    "ResourceNotFoundError",
+    "ToolContextError",
+    "ToolExecutionError",
+    "ToolPermissionError",
+    "UnoObjectError",
+    "WorkerPoolError",
+    "WriterAgentException",
+    "WriterError",
+    "check_disposed",
+    "format_error_payload",
+    "handle_errors",
+    "safe_call",
+    "safe_json_loads",
+    "safe_python_literal_eval",
+    "safe_uno_call",
+]

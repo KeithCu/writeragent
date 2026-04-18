@@ -38,8 +38,7 @@ XDL dialog loading (used by ModuleBase helpers)::
 """
 
 import logging
-import time
-from typing import Any, cast, TYPE_CHECKING
+from typing import Any, cast
 import unohelper
 from plugin.framework.listeners import BaseActionListener
 from plugin.framework.worker_pool import run_in_background
@@ -663,7 +662,6 @@ def load_framework_dialog(dialog_name):
 
 def _load_xdl(relative_path):
     """Load an XDL file from the extension bundle via DialogProvider2."""
-    from plugin.framework.uno_context import get_ctx
 
     ctx = get_ctx()
     assert ctx is not None

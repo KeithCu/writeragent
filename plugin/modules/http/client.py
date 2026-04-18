@@ -370,7 +370,7 @@ class LlmClient:
                         args = fn.get("arguments", "{}")
                         try:
                             args_obj = json.loads(args) if isinstance(args, str) else args
-                        except:
+                        except Exception:
                             args_obj = {}
                         parts.append({
                             "functionCall": {
@@ -386,7 +386,7 @@ class LlmClient:
                     # It requires a 'name' and 'response' object.
                     try:
                         resp_obj = json.loads(content) if isinstance(content, str) else content
-                    except:
+                    except Exception:
                         resp_obj = {"result": content}
 
                     # Ensure it's a dict for the 'response' field

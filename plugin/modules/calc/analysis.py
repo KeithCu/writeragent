@@ -15,17 +15,21 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Calc analysis tools: Goal Seek and Solver."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.modules.calc.base import ToolCalcAnalysisBase
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.address_utils import parse_address
 
-try:
+if TYPE_CHECKING:
     from com.sun.star.table import CellAddress
 
+try:
+    __import__("com.sun.star.table", fromlist=["CellAddress"])
     UNO_AVAILABLE = True
 except ImportError:
     UNO_AVAILABLE = False
@@ -78,7 +82,7 @@ def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> 
     return _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver))
 
 
-def _get_cell_address(doc, address_str: str) -> "CellAddress":
+def _get_cell_address(doc, address_str: str) -> CellAddress:
     """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a CellAddress struct.
 
     Args:
