@@ -7,7 +7,6 @@ import pytest
 from plugin.framework.state import (
     BaseState,
     FsmTransition,
-    unpack_transition,
 )
 
 
@@ -46,16 +45,3 @@ def test_trivial_next_pure():
     t2 = _trivial_next(t1.state, False)
     assert t2.state.n == 1
     assert t2.effects == []
-
-
-def test_unpack_transition_fsm():
-    inner = FsmTransition(_TrivialState(n=3), ["a"])
-    assert unpack_transition(inner) is inner
-
-
-def test_unpack_transition_tuple():
-    s = _TrivialState(n=5)
-    eff = ["x", "y"]
-    u = unpack_transition((s, eff))
-    assert u.state == s
-    assert u.effects == ["x", "y"]

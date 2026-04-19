@@ -26,7 +26,7 @@ like formulas by returning the value of the last expression.
 """
 
 import logging
-from typing import Any, cast
+from typing import Any
 
 from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
 from plugin.framework.tool_base import ToolBase

@@ -20,20 +20,18 @@ subscribe or emit from inside ``next_state``. If a transition should trigger a
 bus notification, return a dedicated effect and emit from the interpreter.
 
 Prefer new effects as ``@dataclass(frozen=True)`` types. Plain string tokens may
-still appear in older domains; they satisfy the empty :class:`Effect` protocol
-structurally when used.
+also be used; they satisfy the empty :class:`Effect` protocol structurally when used.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, List, Protocol, Tuple, TypeVar, Union
+from typing import Any, Generic, List, Protocol, TypeVar
 
 __all__ = [
     "BaseState",
     "Effect",
     "FsmTransition",
-    "unpack_transition",
 ]
 
 
@@ -55,13 +53,3 @@ class FsmTransition(Generic[StateT]):
 
     state: StateT
     effects: List[Any]
-
-
-def unpack_transition(
-    t: Union[FsmTransition[StateT], Tuple[StateT, List[Any]]],
-) -> FsmTransition[StateT]:
-    """Normalize legacy ``(state, effects)`` tuples to :class:`FsmTransition`."""
-    if isinstance(t, FsmTransition):
-        return t
-    state, effects = t
-    return FsmTransition(state=state, effects=list(effects))
