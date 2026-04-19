@@ -82,6 +82,209 @@ def is_draw(model):
     return doc_type in (DocumentType.DRAW, DocumentType.IMPRESS)
 
 
+def get_string_without_tracked_deletions(text_range) -> str:
+    """Return text_range text while skipping tracked deletions when possible."""
+    try:
+        para_enum = text_range.createEnumeration()
+    except Exception:
+        return text_range.getString()
+
+    parts: list[str] = []
+    try:
+        first_para = True
+        while para_enum.hasMoreElements():
+            para = para_enum.nextElement()
+            if not first_para:
+                parts.append("\n")
+            first_para = False
+
+            try:
+                portion_enum = para.createEnumeration()
+            except Exception:
+                parts.append(para.getString())
+                continue
+
+            in_delete = False
+            while portion_enum.hasMoreElements():
+                portion = portion_enum.nextElement()
+                try:
+                    try:
+                        portion_type = portion.getPropertyValue("TextPortionType")
+                    except Exception:
+                        portion_type = portion.TextPortionType
+                except Exception:
+                    continue
+
+                if portion_type == "Redline":
+                    try:
+                        if str(portion.getPropertyValue("RedlineType")) == "Delete":
+                            in_delete = not in_delete
+                    except Exception:
+                        pass
+                    continue
+
+                if in_delete:
+                    continue
+
+                try:
+                    chunk = portion.getString()
+                except Exception:
+                    continue
+                if chunk:
+                    parts.append(chunk)
+    except Exception:
+        return text_range.getString()
+
+    return "".join(parts)
+
+
+def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
+    """Return a direct rewrite prompt for Writer selection edits."""
+    return (
+        "Rewrite the following text according to the instructions below. "
+        "Output only the rewritten text with no labels, headings, or explanations.\n\n"
+        f"Instructions: {instructions}\n\n"
+        f"Text to rewrite:\n{original_text}"
+    )
+
+
+class WriterCompoundUndo:
+    """Wrap ``XUndoManager.enterUndoContext`` / ``leaveUndoContext`` for one Ctrl+Z step.
+
+    Call :meth:`close` when the operation finishes (success or error). Safe to call
+    multiple times.
+    """
+
+    def __init__(self, doc, title: str) -> None:
+        self._log = logging.getLogger(__name__)
+        self._undo_manager = None
+        self._open = False
+        try:
+            if not hasattr(doc, "getUndoManager"):
+                return
+            um = doc.getUndoManager()
+            if um is None:
+                return
+            um.enterUndoContext(title)
+            self._undo_manager = um
+            self._open = True
+        except Exception as e:
+            self._log.debug("enterUndoContext skipped: %s", e)
+
+    def close(self) -> None:
+        """End the compound undo context if :meth:`__init__` opened one."""
+        if not self._open:
+            return
+        self._open = False
+        um = self._undo_manager
+        self._undo_manager = None
+        if um is None:
+            return
+        try:
+            um.leaveUndoContext()
+        except Exception as e:
+            self._log.warning("leaveUndoContext failed: %s", e)
+
+
+class WriterStreamedRewriteSession:
+    """Manage a streamed Writer edit that collapses to one tracked change."""
+
+    _UNDO_CONTEXT_TITLE = "WriterAgent: Edit selection"
+
+    def __init__(self, doc, text_range, original_text: str):
+        self.doc = doc
+        self.text_range = text_range
+        self.original_text = original_text
+        self.generated_text = ""
+        self.was_recording = False
+        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
+
+        try:
+            self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
+        except Exception:
+            self.was_recording = False
+
+        try:
+            if self.was_recording:
+                self.doc.setPropertyValue("RecordChanges", False)
+            self.text_range.setString("")
+        except Exception:
+            if self.was_recording:
+                try:
+                    self.doc.setPropertyValue("RecordChanges", True)
+                except Exception:
+                    pass
+            self._compound_undo.close()
+            raise
+
+    def append_chunk(self, chunk: str) -> None:
+        """Append streamed text to the visible range and shadow buffer."""
+        if not chunk:
+            return
+        self.generated_text += chunk
+        self.text_range.setString(self.generated_text)
+
+    def finish(self) -> str | None:
+        """Finalize the rewrite. Returns a warning message on degraded success."""
+        try:
+            if not self.was_recording:
+                return None
+
+            try:
+                self.text_range.setString(self.original_text)
+                self.doc.setPropertyValue("RecordChanges", True)
+                self.text_range.setString(self.generated_text)
+                return None
+            except Exception as commit_error:
+                logging.getLogger(__name__).warning(
+                    "Failed to collapse streamed edit into one tracked change: %s",
+                    commit_error,
+                )
+
+                fallback_errors: list[str] = []
+                try:
+                    self.doc.setPropertyValue("RecordChanges", False)
+                except Exception as e:
+                    fallback_errors.append(f"disable tracking failed: {e}")
+                try:
+                    self.text_range.setString(self.generated_text)
+                except Exception as e:
+                    fallback_errors.append(f"restore generated text failed: {e}")
+                try:
+                    self.doc.setPropertyValue("RecordChanges", True)
+                except Exception as e:
+                    fallback_errors.append(f"re-enable tracking failed: {e}")
+
+                if fallback_errors:
+                    return (
+                        "Failed to finalize the tracked edit and preserve the generated text: "
+                        + "; ".join(fallback_errors)
+                    )
+                return (
+                    "Failed to collapse the streamed edit into a single tracked change. "
+                    "The generated text was kept, but it may still appear as multiple tracked changes."
+                )
+        finally:
+            self._compound_undo.close()
+
+    def abort_and_restore(self) -> None:
+        """Restore the original text and recording state after an error."""
+        try:
+            if self.was_recording:
+                try:
+                    self.doc.setPropertyValue("RecordChanges", False)
+                except Exception:
+                    pass
+            self.text_range.setString(self.original_text)
+        finally:
+            if self.was_recording:
+                try:
+                    self.doc.setPropertyValue("RecordChanges", True)
+                except Exception:
+                    pass
+            self._compound_undo.close()
+
+
 def get_document_property(model, name, default=None):
     """Get a custom document property from the model."""
     try:

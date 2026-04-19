@@ -834,9 +834,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     # _do_send_via_agent_backend is provided by SendHandlersMixin.
 
-    # Future work: Undo grouping for AI edits (user can undo all edits from one turn with Ctrl+Z).
-    # Previous attempt used enterUndoContext("AI Edit") / leaveUndoContext() but leaveUndoContext
-    # was failing in some environments. Revisit when integrating with the async tool-calling path.
+    # Writer edit selection uses WriterStreamedRewriteSession (document compound undo). Broader
+    # chat/tool undo grouping is still future work.
 
     # _run_web_research is provided by SendHandlersMixin.
 

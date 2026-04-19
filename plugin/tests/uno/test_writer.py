@@ -159,6 +159,100 @@ def test_get_paragraph_ranges():
 
 
 @native_test
+def test_get_string_without_tracked_deletions_hides_deleted_text():
+    from plugin.framework.document import get_string_without_tracked_deletions
+    import uno
+
+    desktop = get_desktop(_test_ctx)
+    hidden_prop = uno.createUnoStruct(
+        "com.sun.star.beans.PropertyValue",
+        Name="Hidden",
+        Value=True,
+    )
+    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+    assert doc is not None, "Could not create hidden Writer document"
+
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        text.insertString(cursor, "Alpha Beta", False)
+
+        doc.setPropertyValue("RecordChanges", True)
+        cursor.gotoStart(False)
+        cursor.goRight(6, False)
+        cursor.goRight(4, True)
+        cursor.setString("")
+
+        full_range = text.createTextCursor()
+        full_range.gotoStart(False)
+        full_range.gotoEnd(True)
+
+        assert get_string_without_tracked_deletions(full_range) == "Alpha "
+
+        redline_enum = doc.getRedlines().createEnumeration()
+        assert redline_enum.hasMoreElements(), "Expected a tracked deletion redline"
+    finally:
+        doc.close(True)
+
+
+@native_test
+def test_writer_streamed_rewrite_session_collapses_chunked_edit():
+    from plugin.framework.document import (
+        WriterStreamedRewriteSession,
+        get_string_without_tracked_deletions,
+    )
+    import uno
+
+    desktop = get_desktop(_test_ctx)
+    hidden_prop = uno.createUnoStruct(
+        "com.sun.star.beans.PropertyValue",
+        Name="Hidden",
+        Value=True,
+    )
+    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+    assert doc is not None, "Could not create hidden Writer document"
+
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        text.insertString(cursor, "Alpha Beta", False)
+
+        doc.setPropertyValue("RecordChanges", True)
+        cursor.gotoStart(False)
+        cursor.goRight(6, False)
+        cursor.goRight(4, True)
+
+        session = WriterStreamedRewriteSession(doc, cursor, "Beta")
+        session.append_chunk("Ga")
+        session.append_chunk("mma")
+        warning = session.finish()
+
+        assert warning is None
+
+        full_range = text.createTextCursor()
+        full_range.gotoStart(False)
+        full_range.gotoEnd(True)
+        assert get_string_without_tracked_deletions(full_range) == "Alpha Gamma"
+
+        redlines = doc.getRedlines().createEnumeration()
+        count = 0
+        while redlines.hasMoreElements():
+            redlines.nextElement()
+            count += 1
+        assert 1 <= count <= 2, f"Expected one clean replacement, got {count} redlines"
+
+        um = doc.getUndoManager()
+        assert um.isUndoPossible()
+        um.undo()
+        full_range_undo = text.createTextCursor()
+        full_range_undo.gotoStart(False)
+        full_range_undo.gotoEnd(True)
+        assert get_string_without_tracked_deletions(full_range_undo) == "Alpha Beta"
+    finally:
+        doc.close(True)
+
+
+@native_test
 def test_build_heading_tree():
     try:
         import pytest
