@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-07 23:00-0400\n"
+"POT-Creation-Date: 2026-04-18 20:56-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:688
+#: plugin/modules/chatbot/panel.py:685
 msgid "Starting..."
 msgstr "Запуск..."
 
@@ -219,105 +219,109 @@ msgstr " сгенерировано "
 msgid " with "
 msgstr " с помощью "
 
-#: plugin/framework/dialogs.py:108
+#: plugin/framework/dialogs.py:107
 msgid "Agent requests approval"
 msgstr "Агент запрашивает одобрение"
 
-#: plugin/framework/dialogs.py:109
+#: plugin/framework/dialogs.py:108
 msgid "Proceed with this action?"
 msgstr "Продолжить это действие?"
 
-#: plugin/framework/dialogs.py:110
+#: plugin/framework/dialogs.py:109
 #: plugin/modules/chatbot/web_research_chat.py:33
 #: plugin/modules/chatbot/web_research_chat.py:38
 #, python-format
 msgid "Tool: %s"
 msgstr "Инструмент: %s"
 
-#: plugin/framework/dialogs.py:156
+#: plugin/framework/dialogs.py:154
 msgid "Edit search query"
 msgstr "Редактировать запрос поиска"
 
-#: plugin/framework/dialogs.py:161
+#: plugin/framework/dialogs.py:159
 msgid "Search query:"
 msgstr "Запрос поиска:"
 
-#: plugin/framework/dialogs.py:169 plugin/framework/dialogs.py:342
-#: plugin/framework/dialogs.py:414 plugin/framework/dialogs.py:502
-#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:39
+#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
+#: plugin/framework/dialogs.py:406 plugin/framework/dialogs.py:494
+#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:40
 msgid "OK"
 msgstr "ОК"
 
-#: plugin/framework/dialogs.py:170
+#: plugin/framework/dialogs.py:168
 msgid "Cancel"
 msgstr "Отмена"
 
-#: plugin/framework/dialogs.py:341
+#: plugin/framework/dialogs.py:335
 msgid "Copy"
 msgstr "Копировать"
 
-#: plugin/framework/dialogs.py:361 plugin/framework/dialogs.py:436
+#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
 msgid "Copied!"
 msgstr "Скопировано!"
 
-#: plugin/framework/dialogs.py:411
+#: plugin/framework/dialogs.py:403
 msgid "Copy URL"
 msgstr "Копировать URL"
 
-#: plugin/framework/dialogs.py:486 plugin/framework/dialogs.py:514
-#: plugin/main.py:404
+#: plugin/framework/dialogs.py:478 plugin/framework/dialogs.py:506
+#: plugin/main.py:439
 msgid "About WriterAgent"
 msgstr "О WriterAgent"
 
-#: plugin/framework/dialogs.py:493
+#: plugin/framework/dialogs.py:485
 #, python-format
 msgid "Version: %s"
 msgstr "Версия: %s"
 
-#: plugin/framework/dialogs.py:494
+#: plugin/framework/dialogs.py:486
 msgid "AI-powered extension for LibreOffice"
 msgstr "Расширение на базе ИИ для LibreOffice"
 
-#: plugin/framework/dialogs.py:499
+#: plugin/framework/dialogs.py:491
 msgid "GitHub: quazardous/localwriter"
 msgstr "GitHub: quazardous/localwriter"
 
-#: plugin/framework/dialogs.py:515
+#: plugin/framework/dialogs.py:507
 #, python-brace-format
 msgid "WriterAgent {0}"
 msgstr "WriterAgent {0}"
 
-#: plugin/framework/errors.py:84
+#: plugin/framework/errors.py:51
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "\"{resource_type} не найден: {identifier}\""
 
-#: plugin/framework/legacy_ui.py:460 plugin/main.py:395
-#: plugin/xdl_strings.py:45
+#: plugin/framework/legacy_ui.py:481 plugin/main.py:430
+#: plugin/xdl_strings.py:46
 msgid "Settings"
 msgstr "Настройки"
 
-#: plugin/framework/legacy_ui.py:512 plugin/modules/chatbot/panel.py:765
-#: plugin/modules/chatbot/send_handlers.py:379
-#: plugin/modules/chatbot/send_handlers.py:389
-#: plugin/modules/chatbot/send_handlers.py:398 plugin/main.py:300
+#: plugin/framework/legacy_ui.py:533 plugin/framework/external_editor.py:78
+#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py:96
+#: plugin/framework/external_editor.py:105
+#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:762
+#: plugin/modules/chatbot/send_handlers.py:375
+#: plugin/modules/chatbot/send_handlers.py:385
+#: plugin/modules/chatbot/send_handlers.py:394 plugin/main.py:335
 msgid "Error"
 msgstr "Ошибка"
 
-#: plugin/framework/legacy_ui.py:512
+#: plugin/framework/legacy_ui.py:533
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "Не удалось открыть Настройки: {0}"
 
-#: plugin/framework/settings_dialog.py:173
+#: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
 msgstr "Недействительная настройка"
 
-#: plugin/framework/settings_dialog.py:173
+#: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
 msgstr "Температура должна быть <= 1.0"
 
-#: plugin/framework/constants.py:183
+#: plugin/framework/constants.py:250
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
@@ -325,23 +329,22 @@ msgstr ""
 "ИИ: Я могу мгновенно отредактировать или перевести ваш документ с "
 "профессиональным форматированием и цветом. Попробуйте!"
 
-#: plugin/framework/constants.py:184
+#: plugin/framework/constants.py:251
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
-"ИИ: Я могу помочь вам с формулами, анализом данных и красочными диаграммами."
-" Попробуйте!"
+"ИИ: Я могу помочь вам с формулами, анализом данных и красочными диаграммами. "
+"Попробуйте!"
 
-#: plugin/framework/constants.py:185
+#: plugin/framework/constants.py:252
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"ИИ: Я могу помочь вам создавать и редактировать элегантные, красочные фигуры"
-" в Draw и Impress. Попробуйте!"
+"ИИ: Я могу помочь вам создавать и редактировать элегантные, красочные фигуры "
+"в Draw и Impress. Попробуйте!"
 
-#: plugin/framework/constants.py:186
+#: plugin/framework/constants.py:253
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -349,6 +352,34 @@ msgstr ""
 "ИИ: Я могу провести поиск в Интернете, чтобы ответить на любой вопрос, или "
 "резюмировать веб-страницу, не видя и не изменяя ваш документ. Давайте "
 "пообщаемся."
+
+#: plugin/framework/external_editor.py:83
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Не удалось создать файл конфигурации: {0}"
+
+#: plugin/framework/external_editor.py:97
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Не удалось открыть редактор. Путь:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:107
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Редактор не найден (установите Kate или Gedit, или задайте EDITOR). Путь:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:114
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Не удалось запустить редактор: {0}"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
@@ -400,11 +431,9 @@ msgstr ""
 "настройках."
 
 #: plugin/modules/http/errors.py:43
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"В соединении отказано. Запущен ли ваш локальный сервер ИИ (Ollama/LM "
-"Studio)?"
+"В соединении отказано. Запущен ли ваш локальный сервер ИИ (Ollama/LM Studio)?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -429,11 +458,11 @@ msgstr "HTTP-ошибка {0} от поставщика ИИ: {1}"
 msgid "Error: {0}"
 msgstr "Ошибка: {0}"
 
-#: plugin/modules/http/client.py:538
+#: plugin/modules/http/client.py:717
 msgid "Stream ended with finish_reason=error"
 msgstr "Поток завершился с finish_reason=error"
 
-#: plugin/modules/http/client.py:551
+#: plugin/modules/http/client.py:730
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
@@ -491,110 +520,112 @@ msgstr "Статус сервера"
 msgid "URL: {0}"
 msgstr "URL: {0}"
 
-#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:73
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 msgid "Please enter edit instructions!"
 msgstr "Пожалуйста, введите инструкции для редактирования!"
 
-#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:73
-#: plugin/xdl_strings.py:32
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/xdl_strings.py:33
 msgid "Input"
 msgstr "Ввод"
 
-#: plugin/modules/calc/legacy.py:75 plugin/modules/calc/legacy.py:100
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Редактировать выделение (Calc)"
 
-#: plugin/modules/calc/legacy.py:75 plugin/modules/calc/legacy.py:100
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Расширить выделение (Calc)"
 
-#: plugin/modules/calc/specialized.py:108
-#: plugin/modules/writer/specialized.py:113
+#: plugin/modules/calc/specialized.py:101
+#: plugin/modules/writer/specialized.py:110
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Вызов инструмента переключён на '{0}'. Вы находитесь в режиме "
 "специализированного набора инструментов. При завершении вы должны вызвать "
 "'specialized_workflow_finished', чтобы восстановить полный набор API."
 
-#: plugin/modules/writer/legacy.py:46 plugin/modules/writer/legacy.py:57
-#: plugin/modules/chatbot/selection.py:80
-#: plugin/modules/chatbot/selection.py:165
+#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
+#: plugin/modules/chatbot/selection.py:90
+#: plugin/modules/chatbot/selection.py:177
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Расширить выделение"
 
-#: plugin/modules/writer/legacy.py:81 plugin/modules/writer/legacy.py:91
-#: plugin/modules/writer/legacy.py:105 plugin/modules/chatbot/selection.py:290
-#: plugin/modules/chatbot/selection.py:404
+#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
+#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
+#: plugin/modules/chatbot/selection.py:286
+#: plugin/modules/chatbot/selection.py:297
+#: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Редактировать выделение"
 
-#: plugin/modules/chatbot/panel_wiring.py:191 plugin/xdl_strings.py:41
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
 msgid "Ready"
 msgstr "Готово"
 
-#: plugin/modules/chatbot/panel.py:344 plugin/modules/chatbot/panel.py:663
+#: plugin/modules/chatbot/panel.py:342 plugin/modules/chatbot/panel.py:660
 msgid "Accept"
 msgstr "Принять"
 
-#: plugin/modules/chatbot/panel.py:360 plugin/modules/chatbot/panel.py:886
+#: plugin/modules/chatbot/panel.py:358 plugin/modules/chatbot/panel.py:882
 msgid "Change"
 msgstr "Изменить"
 
-#: plugin/modules/chatbot/panel.py:364 plugin/modules/chatbot/panel.py:893
+#: plugin/modules/chatbot/panel.py:362 plugin/modules/chatbot/panel.py:889
 msgid "Reject"
 msgstr "Отклонить"
 
-#: plugin/modules/chatbot/panel.py:381
+#: plugin/modules/chatbot/panel.py:379
 msgid "Waiting for approval…"
 msgstr "Ожидание одобрения…"
 
-#: plugin/modules/chatbot/panel.py:669
+#: plugin/modules/chatbot/panel.py:666
 msgid "Record"
 msgstr "Запись"
 
-#: plugin/modules/chatbot/panel.py:671
+#: plugin/modules/chatbot/panel.py:668
 msgid "Stop Rec"
 msgstr "Остановить"
 
-#: plugin/modules/chatbot/panel.py:673 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py:670 plugin/xdl_strings.py:45
 msgid "Send"
 msgstr "Отправить"
 
-#: plugin/modules/chatbot/panel.py:697
+#: plugin/modules/chatbot/panel.py:694
 msgid "Getting document..."
 msgstr "Получение документа..."
 
-#: plugin/modules/chatbot/panel.py:702
+#: plugin/modules/chatbot/panel.py:699
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[В активном окне не найдено совместимого документа LibreOffice (Writer, Calc"
-" или Draw).]"
+"[В активном окне не найдено совместимого документа LibreOffice (Writer, Calc "
+"или Draw).]"
 
-#: plugin/modules/chatbot/panel.py:711
+#: plugin/modules/chatbot/panel.py:708
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Внутренняя ошибка: Тип документа изменен с {0} на {1}! Пожалуйста, сообщите"
-" об ошибке.]"
+"[Внутренняя ошибка: Тип документа изменен с {0} на {1}! Пожалуйста, сообщите "
+"об ошибке.]"
 
-#: plugin/modules/chatbot/panel.py:718
+#: plugin/modules/chatbot/panel.py:715
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Внутренняя ошибка: Не удалось определить тип документа для {0}. Пожалуйста,"
-" сообщите об этом!]"
+"[Внутренняя ошибка: Не удалось определить тип документа для {0}. Пожалуйста, "
+"сообщите об этом!]"
 
-#: plugin/modules/chatbot/panel.py:762
+#: plugin/modules/chatbot/panel.py:759
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -632,91 +663,90 @@ msgstr "Запрос на исследование:"
 msgid "Context for the research agent:"
 msgstr "Контекст для агента исследования:"
 
-#: plugin/modules/chatbot/web_research.py:339
+#: plugin/modules/chatbot/web_research.py:337
 msgid "Web research completed."
 msgstr "Веб-исследование завершено."
 
-#: plugin/modules/chatbot/send_handlers.py:113
+#: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
 msgstr "Транскрибирование аудио..."
 
-#: plugin/modules/chatbot/send_handlers.py:114
+#: plugin/modules/chatbot/send_handlers.py:110
 msgid "[Transcribing audio...]"
 msgstr "[Транскрибируется аудио...]"
 
-#: plugin/modules/chatbot/send_handlers.py:124
+#: plugin/modules/chatbot/send_handlers.py:120
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr "[Ошибка транскрипции: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:162
+#: plugin/modules/chatbot/send_handlers.py:158
 #, python-brace-format
 msgid "[Error: {0}]"
 msgstr "[Ошибка: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:377
+#: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Ошибка контекста документа: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:387
+#: plugin/modules/chatbot/send_handlers.py:383
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[Бэкенд агента '{0}' не найден.]"
 
-#: plugin/modules/chatbot/send_handlers.py:394
+#: plugin/modules/chatbot/send_handlers.py:390
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Бэкенд агента '{0}' недоступен. Проверьте настройки (путь, установка).]"
 
-#: plugin/modules/chatbot/send_handlers.py:640
-#: plugin/modules/chatbot/send_handlers.py:648
+#: plugin/modules/chatbot/send_handlers.py:634
+#: plugin/modules/chatbot/send_handlers.py:642
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "Библиотекарь: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:647
+#: plugin/modules/chatbot/send_handlers.py:641
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Отлично! Теперь я переключаю вас на главного ассистента."
 
-#: plugin/modules/chatbot/send_handlers.py:653
+#: plugin/modules/chatbot/send_handlers.py:647
 msgid "Unknown librarian error."
 msgstr "Неизвестная ошибка библиотекаря."
 
-#: plugin/modules/chatbot/send_handlers.py:654
+#: plugin/modules/chatbot/send_handlers.py:648
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[Ошибка библиотекаря: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:677
+#: plugin/modules/chatbot/send_handlers.py:672
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "ИИ (исследование): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:683
+#: plugin/modules/chatbot/send_handlers.py:678
 msgid "Unknown research error."
 msgstr "Неизвестная ошибка исследования."
 
-#: plugin/modules/chatbot/send_handlers.py:684
+#: plugin/modules/chatbot/send_handlers.py:679
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Ошибка исследования: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:90
+#: plugin/modules/chatbot/librarian.py:93
 msgid "Switching to document mode..."
 msgstr "Переключение в режим документов..."
 
-#: plugin/modules/chatbot/panel_factory.py:497
+#: plugin/modules/chatbot/panel_factory.py:498
 msgid "Size:"
 msgstr "Размер:"
 
-#: plugin/modules/chatbot/panel_factory.py:498
+#: plugin/modules/chatbot/panel_factory.py:499
 msgid "Height:"
 msgstr "Высота:"
 
-#: plugin/modules/chatbot/panel_factory.py:499
+#: plugin/modules/chatbot/panel_factory.py:500
 msgid "Width:"
 msgstr "Ширина:"
 
@@ -724,61 +754,61 @@ msgstr "Ширина:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:209
+#: plugin/tests/test_i18n.py:214
 msgid "Built-in"
 msgstr "Встроенный"
 
-#: plugin/tests/test_i18n.py:210
+#: plugin/tests/test_i18n.py:215
 msgid "Backend"
 msgstr "Бэкенд"
 
-#: plugin/main.py:317
+#: plugin/main.py:352
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} успешно, {2} провалено."
 
-#: plugin/main.py:320
+#: plugin/main.py:355
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "Не удалось запустить тесты: {0}"
 
-#: plugin/main.py:393
+#: plugin/main.py:428
 msgid "Extend Selection"
 msgstr "Расширить выделение"
 
-#: plugin/main.py:394
+#: plugin/main.py:429
 msgid "Edit Selection"
 msgstr "Редактировать выделение"
 
-#: plugin/main.py:396
+#: plugin/main.py:431
 msgid "Toggle MCP Server"
 msgstr "Переключить сервер MCP"
 
-#: plugin/main.py:397
+#: plugin/main.py:432
 msgid "MCP Server Status"
 msgstr "Статус сервера MCP"
 
-#: plugin/main.py:399
+#: plugin/main.py:434
 msgid "Run format tests"
 msgstr "Запустить тесты форматирования"
 
-#: plugin/main.py:400
+#: plugin/main.py:435
 msgid "Run calc tests"
 msgstr "Запустить тесты calc"
 
-#: plugin/main.py:401
+#: plugin/main.py:436
 msgid "Run Calc API integration tests"
 msgstr "Запустить интеграционные тесты Calc API"
 
-#: plugin/main.py:402
+#: plugin/main.py:437
 msgid "Run draw tests"
 msgstr "Запустить тесты draw"
 
-#: plugin/main.py:403
+#: plugin/main.py:438
 msgid "Evaluation Dashboard"
 msgstr "Панель оценки"
 
-#: plugin/main.py:780
+#: plugin/main.py:820
 msgid "Dispatch Error"
 msgstr "Ошибка диспетчеризации"
 
@@ -875,106 +905,110 @@ msgid "Draw"
 msgstr "Ничья"
 
 #: plugin/xdl_strings.py:27
+msgid "Edit config file (JSON)…"
+msgstr "Редактировать файл конфигурации (JSON)…"
+
+#: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
 msgstr "URL конечной точки (/v1 добавлен):"
 
-#: plugin/xdl_strings.py:28
+#: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
 msgstr "URL конечной точки:"
 
-#: plugin/xdl_strings.py:29
+#: plugin/xdl_strings.py:30
 msgid "General"
 msgstr "Генерация..."
 
-#: plugin/xdl_strings.py:30
+#: plugin/xdl_strings.py:31
 msgid "Image Model:"
 msgstr "Модель изображения:"
 
-#: plugin/xdl_strings.py:31
+#: plugin/xdl_strings.py:32
 msgid "Image Settings"
 msgstr "Настройки"
 
-#: plugin/xdl_strings.py:33
+#: plugin/xdl_strings.py:34
 msgid "Insert Frame"
 msgstr "Вставить кадр"
 
-#: plugin/xdl_strings.py:34
+#: plugin/xdl_strings.py:35
 msgid "LocalWriter Evaluation Dashboard"
 msgstr "Панель оценки"
 
-#: plugin/xdl_strings.py:35
+#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "Макс. токенов:"
 
-#: plugin/xdl_strings.py:36
+#: plugin/xdl_strings.py:37
 msgid "Max Wait (s):"
 msgstr "Макс. ожидание (с):"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:38
 msgid "Models to Test:"
 msgstr "Модели для тестирования:"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:39
 msgid "Multimodal"
 msgstr "Мультимодальный"
 
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:41
 msgid "Please enter edit instructions:"
 msgstr "Пожалуйста, введите инструкции для редактирования!"
 
-#: plugin/xdl_strings.py:42
+#: plugin/xdl_strings.py:43
 msgid "Run Benchmark"
 msgstr "Запустить бенчмарк"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py:44
 msgid "Seed:"
 msgstr "Семя:"
 
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:47
 msgid "Square"
 msgstr "квадрат"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:48
 msgid "Steps:"
 msgstr "Шаги:"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:49
 msgid "Stop"
 msgstr "Остановить"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:50
 msgid "Temperature:"
 msgstr "Температура:"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:51
 msgid "Text/Chat Model:"
 msgstr "Модель текста/чата:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:52
 msgid "Timeout (s):"
 msgstr "Тайм-аут (с):"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:53
 msgid "Translate Prompt"
 msgstr "Перевести промпт"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:54
 msgid "Translate from (e.g. es):"
 msgstr "Перевод с (например, es):"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:55
 msgid "Use AI Horde for Image Generation"
 msgstr "Используйте AI Horde для генерации изображений"
 
-#: plugin/xdl_strings.py:55
+#: plugin/xdl_strings.py:56
 msgid "Use Image model"
 msgstr "Использовать модель изображений"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py:57
 msgid "Web Research"
 msgstr "Веб-исследование"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:58
 msgid "Writer"
 msgstr "Писатель"
 
@@ -994,12 +1028,11 @@ msgid "Path / URL"
 msgstr "Путь / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Путь к CLI бэкенда (например, aider) или URL сервера ACP (например, "
-"http://localhost:8000 для Hermes). Пусто = попробовать значение по "
-"умолчанию."
+"Путь к CLI бэкенда (например, aider) или URL сервера ACP (например, http://"
+"localhost:8000 для Hermes). Пусто = попробовать значение по умолчанию."
 
 msgid "Extra arguments"
 msgstr "Дополнительные аргументы"

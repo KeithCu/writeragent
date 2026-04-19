@@ -68,75 +68,45 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "display_name": "DeepSeek V3",
         "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
         "context_length": 163840,
-        "ids": {
-            "deepseek": "deepseek-chat",
-            "openrouter": "deepseek/deepseek-chat"
-        },
-        "default_text": True
+        "ids": {"deepseek": "deepseek-chat"},
+        "default_text": True,
     },
     {
-        "display_name": "Llama 3.3 70B",
+        "display_name": "GPT-OSS 120B",
         "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
         "context_length": 131072,
-        "ids": {
-            "groq": "llama-3.3-70b-versatile",
-            "openrouter": "meta-llama/llama-3.3-70b-instruct",
-            "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
-        },
-        "default_text": True
+        "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b"},
+        "default_text": True,
+    },
+    {
+        "display_name": "GPT-OSS 20B",
+        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
+        "context_length": 128000,
+        "ids": {"together": "openai/gpt-oss-20b"},
     },
     {
         "display_name": "Mistral Large 3",
-        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
-        "context_length": 128000,
-        "ids": {
-            "openrouter": "mistralai/mistral-large-latest",
-            "mistral": "mistral-large-latest"
-        }
+        "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS,
+        "context_length": 262144,
+        "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"},
     },
     {
-        "display_name": "Gemini 3.1 Flash Preview",
+        "display_name": "Gemini 3.1 Flash Lite Preview",
         "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS,
         "context_length": 1048576,
-        "ids": {
-            "google": "gemini-3.1-flash-preview",
-            "openrouter": "google/gemini-3.1-flash-lite-preview"
-        },
-        "default_audio": True
+        "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"},
+        "default_audio": True,
     },
     {
-        "display_name": "Claude 3.5 Sonnet",
-        "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS,
-        "context_length": 200000,
-        "ids": {
-            "anthropic": "claude-3-5-sonnet-20241022",
-            "openrouter": "anthropic/claude-3.5-sonnet"
-        }
-    },
-    {
-        "display_name": "FLUX.2 Pro",
+        "display_name": "Gemini Flash Image 2.5",
         "capability": ModelCapability.IMAGE,
-        "ids": {
-            "together": "black-forest-labs/FLUX.2-pro"
-        },
-        "default_image": True
+        "ids": {"together": "google/flash-image-2.5"},
+        "default_image": True,
     },
     {
-        "display_name": "Pixtral Large",
-        "capability": ModelCapability.CHAT | ModelCapability.IMAGE | ModelCapability.VISION,
-        "context_length": 128000,
-        "ids": {
-            "openrouter": "mistralai/pixtral-large-latest",
-            "mistral": "pixtral-large-latest"
-        }
-    },
-    {
-        "display_name": "Whisper Large v3",
+        "display_name": "Voxtral Mini 3B",
         "capability": ModelCapability.AUDIO,
-        "ids": {
-            "together": "openai/whisper-large-v3",
-            "groq": "whisper-large-v3"
-        },
-        "default_audio": True
-    }
+        "ids": {"together": "mistralai/Voxtral-Mini-3B-2507"},
+        "default_audio": True,
+    },
 ]

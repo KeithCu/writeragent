@@ -21,6 +21,7 @@ Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties
 """
 
 import logging
+
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
@@ -44,11 +45,46 @@ CHART_CLSID = "12dcae36-07da-43c1-9c17-56a938c64445"
 CHART_CLSID_DRAW_OLE = "12dcae26-281f-416f-a234-c3086127382e"
 
 
-def _is_chart_clsid(clsid: str) -> bool:
-    if not clsid:
+def _normalize_clsid_value(clsid: Any) -> str:
+    """Coerce UNO CLSID (string, ByteSequence, etc.) to a comparable string."""
+    if clsid is None:
+        return ""
+    if isinstance(clsid, str):
+        return clsid
+    if isinstance(clsid, (bytes, bytearray)):
+        try:
+            return clsid.decode("ascii", errors="replace")
+        except Exception:
+            return ""
+    try:
+        return str(clsid)
+    except Exception:
+        return ""
+
+
+def _is_chart_clsid(clsid: Any) -> bool:
+    s = _normalize_clsid_value(clsid).strip()
+    if not s:
         return False
-    c = clsid.lower().strip("{}")
+    c = s.lower().strip("{}")
     return c in (CHART_CLSID.lower(), CHART_CLSID_DRAW_OLE.lower())
+
+
+def _writer_embed_is_chart(host: Any) -> bool:
+    """True for Writer TextEmbeddedObject charts: CLSID match or embedded chart model."""
+    try:
+        raw = getattr(host, "CLSID", None)
+        if _is_chart_clsid(raw):
+            return True
+    except Exception:
+        pass
+    try:
+        chart_doc = _chart_document_from_host(host)
+        if chart_doc is not None and hasattr(chart_doc, "getDiagram"):
+            return chart_doc.getDiagram() is not None
+    except Exception:
+        pass
+    return False
 
 
 def _chart_document_from_host(host: Any):
@@ -224,6 +260,15 @@ def _resolve_chart(doc, chart_name):
         objects = doc.getEmbeddedObjects()
         if objects.hasByName(chart_name):
             return objects.getByName(chart_name)
+        try:
+            page = doc.getDrawPage()
+            for j in range(page.getCount()):
+                shape = page.getByIndex(j)
+                if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                    if (shape.Name or "") == chart_name:
+                        return shape
+        except Exception:
+            pass
     elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or \
          supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
         # Iterate all pages and shapes
@@ -274,9 +319,18 @@ class ListCharts(ToolBase):
             objects = doc.getEmbeddedObjects()
             for name in objects.getElementNames():
                 obj = objects.getByName(name)
-                # CLSID check for Chart
-                if _is_chart_clsid(obj.CLSID):
+                if _writer_embed_is_chart(obj):
                     result.append(self._get_summary(obj, name))
+            try:
+                page = doc.getDrawPage()
+                for j in range(page.getCount()):
+                    shape = page.getByIndex(j)
+                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape":
+                        if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
+                            nm = shape.Name or f"Chart_{j}"
+                            result.append(self._get_summary(shape, nm))
+            except Exception:
+                pass
 
         elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or \
              supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
@@ -456,15 +510,37 @@ class CreateChart(ToolBase):
         return {"status": "ok", "message": f"Chart '{name}' created in Calc.", "chart_name": name}
 
     def _create_writer_chart(self, ctx, rect, service, **kwargs):
+        """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
+
+        Use ``createTextCursorByRange(getEnd())`` — ``getViewCursor()`` fails for hidden docs.
+        When the document has a visible window, ``getEmbeddedObjects()`` stays in sync
+        with ``list_charts``; headless hidden Writer may omit embeds from the registry.
+        """
         doc = ctx.doc
         text = doc.getText()
-        cursor = doc.getCurrentController().getViewCursor()
-        
+        try:
+            cursor = text.createTextCursorByRange(text.getEnd())
+        except Exception:
+            cursor = text.createTextCursor()
+            try:
+                cursor.gotoEnd(False)
+            except Exception:
+                pass
+
         name = f"Chart_{len(doc.getEmbeddedObjects())}"
         chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
         chart_obj.CLSID = CHART_CLSID
         chart_obj.Name = name
-        
+        try:
+            chart_obj.setPropertyValue("Width", rect.Width)
+            chart_obj.setPropertyValue("Height", rect.Height)
+        except Exception:
+            try:
+                chart_obj.Width = rect.Width
+                chart_obj.Height = rect.Height
+            except Exception:
+                pass
+
         text.insertTextContent(cursor, chart_obj, False)
 
         chart_doc = chart_obj.getEmbeddedObject()
@@ -472,7 +548,6 @@ class CreateChart(ToolBase):
             chart_doc.setDiagram(chart_doc.createInstance(service))
             _apply_chart_styling(chart_doc, **kwargs)
 
-        # Registry name (list_charts / hasByName) may differ from chart_obj.Name; resolve after embed is live
         chart_name = name
         try:
             is_same = getattr(uno, "isSame", None)
@@ -501,7 +576,7 @@ class CreateChart(ToolBase):
             for n in objects.getElementNames():
                 try:
                     o = objects.getByName(n)
-                    if _is_chart_clsid(getattr(o, "CLSID", "") or ""):
+                    if _writer_embed_is_chart(o):
                         by_clsid.append(n)
                 except Exception:
                     pass
@@ -509,7 +584,6 @@ class CreateChart(ToolBase):
                 chart_name = by_clsid[0]
             elif len(by_clsid) > 1:
                 chart_name = by_clsid[-1]
-        # If the registry still only exposes a single name (e.g. Object1 vs Chart_0), use it
         try:
             enms = list(objects.getElementNames())
             if len(enms) == 1 and chart_name == name:
@@ -517,6 +591,7 @@ class CreateChart(ToolBase):
         except Exception:
             pass
 
+        _process_events()
         return {"status": "ok", "message": f"Chart '{chart_name}' inserted in Writer.", "chart_name": chart_name}
 
     def _create_draw_chart(self, ctx, rect, service, **kwargs):
@@ -630,9 +705,19 @@ class DeleteChart(ToolBase):
             charts.removeByName(chart_name)
         elif supportsService(doc, "com.sun.star.text.TextDocument"):
             objects = doc.getEmbeddedObjects()
-            if not objects.hasByName(chart_name):
-                return self._tool_error(f"Chart '{chart_name}' not found.")
-            objects.removeByName(chart_name)
+            if objects.hasByName(chart_name):
+                objects.removeByName(chart_name)
+                return {"status": "ok", "deleted": chart_name}
+            try:
+                page = doc.getDrawPage()
+                for j in range(page.getCount()):
+                    shape = page.getByIndex(j)
+                    if shape.getShapeType() == "com.sun.star.drawing.OLE2Shape" and shape.Name == chart_name:
+                        page.remove(shape)
+                        return {"status": "ok", "deleted": chart_name}
+            except Exception:
+                pass
+            return self._tool_error(f"Chart '{chart_name}' not found.")
         else:
             # Draw/Impress: find shape and remove from page
             for i in range(doc.getDrawPages().getCount()):

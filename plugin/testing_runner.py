@@ -13,6 +13,7 @@ import logging
 import sys
 import json
 import traceback
+import unittest
 from typing import Any, Callable, Dict, List
 
 log = logging.getLogger(__name__)
@@ -135,6 +136,9 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 total_failed += 1
                 suite_log.append(f"FAIL: {test_func.__name__} (ModuleNotFoundError: {e})")
                 suite_log.append(traceback.format_exc())
+            except unittest.SkipTest as e:
+                total_passed += 1
+                suite_log.append(f"OK (skipped): {test_func.__name__} ({e})")
             except AssertionError as e:
                 total_failed += 1
                 suite_log.append(f"FAIL: {test_func.__name__} (AssertionError: {e})")

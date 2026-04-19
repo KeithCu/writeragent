@@ -151,7 +151,7 @@ def slim_catalog_payload(
     source_url: str,
     generator: str = "orca_openrouter_catalog",
 ) -> dict[str, Any]:
-    """Build the JSON object written to openrouter_models.json (tool-calling models only)."""
+    """Build the JSON object written by the sync script (tool-calling models only)."""
     models_raw = raw_api.get("models")
     if not isinstance(models_raw, list):
         raise ValueError("API response missing 'models' list")
