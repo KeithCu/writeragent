@@ -81,6 +81,7 @@ WriterAgent is "format-aware." Unlike simpler plugins that strip away your hard 
 - **Format Preservation**: When fixing typos or rephrasing, WriterAgent uses a "surgical" replacement method. It preserves your existing bold, italics, highlights, and font sizes—even if the AI sends back plain text.
 - **HTML-First Architecture**: For complex elements like tables, nested lists, and colored layouts, we use a robust HTML import layer. This ensures that what the AI "sees" and what it "writes" matches the professional standards of LibreOffice.
 - **Legacy Support**: Optimized to work perfectly even on older versions of LibreOffice (pre-26.2) where native Markdown support is unavailable.
+- **Tracked Changes Support**: Proper handling of tracked deletions, and streamed rewrite with single-undo.
 
 ### Ongoing Challenge: Styles vs. Custom Formatting
 
@@ -220,6 +221,7 @@ Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The 
 - **Connection Keep-Alive**: Automatically enabled to reduce latency.
 - **MCP Server**: On the **Http** tab; when enabled, an HTTP server runs on the configured port (default 8765) for external AI clients. Use **Toggle MCP Server** and **MCP Server Status** from the menu.
 - **Agent backends**: On the **Agent backends** tab; enable an external backend (Aider or Hermes) so Chat uses that agent instead of the built-in LLM. Paths and arguments are optional per backend.
+- **OpenRouter Chat Extras**: Advanced provider configuration via JSON editing (Settings → General → Edit config file) for provider routing, model selection, and request metadata.
 
 For detailed configuration examples, see [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
 

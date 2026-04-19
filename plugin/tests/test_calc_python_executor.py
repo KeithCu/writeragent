@@ -32,7 +32,7 @@ def test_assignment():
     # Last line is an assignment
     assert executor.execute_with_return("y = 100") == 100
     # Verify it's in the state
-    assert executor.mod.__dict__["y"] == 100
+    assert executor.executor.state["y"] == 100
 
 def test_persistence():
     executor = PythonExecutor("test_url")
@@ -68,16 +68,16 @@ c.inc()
 def test_reset():
     executor = PythonExecutor("test_url")
     executor.execute_with_return("a = 1")
-    assert executor.mod.__dict__["a"] == 1
+    assert executor.executor.state["a"] == 1
     executor.reset()
-    assert "a" not in executor.mod.__dict__
+    assert "a" not in executor.executor.state
 
 def test_syntax_error():
     executor = PythonExecutor("test_url")
     from plugin.framework.errors import WriterAgentException
     with pytest.raises(WriterAgentException) as excinfo:
         executor.execute_with_return("if x")
-    assert excinfo.value.code == "PYTHON_SYNTAX_ERROR"
+    assert excinfo.value.code == "PYTHON_EXECUTION_ERROR"
 
 def test_tool_integration():
     ctx = MagicMock()

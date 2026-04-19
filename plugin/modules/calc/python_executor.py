@@ -25,11 +25,10 @@ Implements an AST-based 'pop-and-eval' trick to allow Python scripts to behave
 like formulas by returning the value of the last expression.
 """
 
-import ast
-import types
 import logging
 from typing import Any, cast
 
+from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.errors import WriterAgentException
 from plugin.modules.calc.bridge import CalcBridge
@@ -38,42 +37,18 @@ from plugin.modules.calc.inspector import CellInspector
 
 logger = logging.getLogger("writeragent.calc.python_executor")
 
-# FIXME: Embedded Calc Python executor requires exec/eval (Bandit B102/B307). Future work:
-# restricted globals/builtins, execution timeouts, or a safer subset interpreter; then drop nosec.
-
-def get_module_init_code() -> str:
-    """Returns standard imports and helper definitions for the Python environment."""
-    return """
-import math
-import datetime
-import random
-import json
-import re
-import collections
-import itertools
-import statistics
-
-# The 'lp' and 'Sheet' objects will be injected at runtime
-"""
-
+CALC_AUTHORIZED_IMPORTS = ["math", "datetime", "random", "json", "re", "collections", "itertools", "statistics"]
 
 class PythonExecutor:
-    """Handles the AST transformation and execution of Python code with document awareness."""
+    """Handles the execution of Python code with document awareness locally in a secure sandbox."""
 
     def __init__(self, doc_url: str):
         self.doc_url = doc_url
-        self.mod = types.ModuleType("CalcPythonEnv")
-        self.reset()
+        self.executor = LocalPythonExecutor(additional_authorized_imports=CALC_AUTHORIZED_IMPORTS)
 
     def reset(self):
         """Resets the environment to its initial state."""
-        self.mod.__dict__.clear()
-        # Pre-populate with standard imports
-        self.execute_raw(get_module_init_code())
-
-    def execute_raw(self, code: str):
-        """Executes code normally using exec()."""
-        exec(code, self.mod.__dict__)  # nosec B102
+        self.executor = LocalPythonExecutor(additional_authorized_imports=CALC_AUTHORIZED_IMPORTS)
 
     def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector):
         """Injects document interaction helpers into the environment."""
@@ -93,23 +68,22 @@ class PythonExecutor:
                 return None
 
         # Aliases for convenience
-        self.mod.__dict__["lp"] = lp_helper
-        self.mod.__dict__["Sheet"] = lp_helper
-        self.mod.__dict__["get_range"] = lp_helper
-        
         def set_range_helper(addr: str, data: Any):
             """Write values back to the spreadsheet."""
             return manipulator.write_formula_range(addr, data)
 
-        self.mod.__dict__["set_range"] = set_range_helper
+        self.executor.send_variables({
+            "lp": lp_helper,
+            "Sheet": lp_helper,
+            "get_range": lp_helper,
+            "set_range": set_range_helper,
+        })
 
     def format_result(self, result: Any) -> Any:
         """Processes the result for storage and display."""
         # Handle 1D/2D lists specifically for Calc
         if isinstance(result, (list, tuple)):
-            # If it's a list but not a list-of-lists, we might want to make it 2D
             if result and not isinstance(result[0], (list, tuple)):
-                # Just leave it 1D for now, tool output handles it
                 pass
         
         # Ensure we don't return un-serializable objects as raw references if possible
@@ -123,66 +97,22 @@ class PythonExecutor:
 
     def execute_with_return(self, code_snippet: str) -> Any:
         """
-        Compiles and executes the given code snippet.
-        - If the last statement is an expression, returns its value.
-        - If the last statement is an assignment, returns the assigned value.
+        Executes the given code snippet using the AST sandbox wrapper.
+        The executor natively passes back the value of the final evaluated expression.
         """
         try:
-            # Parse the code as a full module
-            tree = ast.parse(code_snippet, mode="exec")
-
-            if not tree.body:
-                return None
-
-            # If the last node is an expression or assignment, remove it for separate handling
-            last_expr: ast.stmt | None = None
-            assign_name = ""
-            last_node = tree.body[-1]
-
-            if isinstance(last_node, ast.Expr):
-                last_expr = cast("ast.Expr", tree.body.pop())
-            elif isinstance(last_node, (ast.Assign, ast.AnnAssign)):
-                # For assignments, we POP the node so it doesn't run in exec(),
-                # then we evaluate its VALUE in eval() and manually set the name.
-                last_expr = tree.body.pop()
-                if isinstance(last_expr, ast.Assign):
-                    if isinstance(last_expr.targets[0], ast.Name):
-                        assign_name = last_expr.targets[0].id
-                elif isinstance(last_expr, ast.AnnAssign):
-                    if isinstance(last_expr.target, ast.Name):
-                        assign_name = last_expr.target.id
-
-            # Compile and execute the body (everything but the last expression)
-            module_body = ast.fix_missing_locations(ast.Module(body=tree.body, type_ignores=[]))
-            exec_code = compile(module_body, "<string>", "exec")
+            code_output = self.executor(code_snippet)
+            result = code_output.output
             
-            # Execute in the shared module dictionary
-            exec(exec_code, self.mod.__dict__)  # nosec B102
-
-            result = None
-            # If there was a final expression node, evaluate it
-            if last_expr:
-                # ast.Assign/AnnAssign have .value, ast.Expr has .value
-                # We already filtered for these three types above.
-                val_node = getattr(last_expr, "value", None)
-                if val_node:
-                    expr = ast.Expression(val_node)
-                    expr = ast.fix_missing_locations(expr)
-                    eval_code = compile(expr, "<string>", "eval")
-                    result = eval(eval_code, self.mod.__dict__)  # nosec B307
-                
-                # If it was an assignment, make sure the value is stored
-                if assign_name:
-                    self.mod.__dict__[assign_name] = result
-                
-                # Store the result in '_' just like a REPL
-                self.mod.__dict__["_"] = result
+            # Store the result in '_' just like a REPL
+            if result is not None:
+                self.executor.send_variables({"_": result})
 
             return self.format_result(result)
 
-        except SyntaxError as e:
-            logger.exception("Syntax error executing Python code: \n%s", code_snippet)
-            raise WriterAgentException(f"Syntax Error: {e.msg} at line {e.lineno}", code="PYTHON_SYNTAX_ERROR")
+        except InterpreterError as e:
+            logger.exception("Sandbox execution error: \n%s", code_snippet)
+            raise WriterAgentException(f"Execution Error: {str(e)}", code="PYTHON_EXECUTION_ERROR")
         except WriterAgentException:
             raise
         except Exception as e:
