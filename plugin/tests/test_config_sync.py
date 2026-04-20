@@ -205,6 +205,27 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
             self.assertIn("m1", items)
             self.assertIn("m2", items)
 
+    def test_together_empty_lru_merges_default_text_model(self):
+        """Massive providers skip /v1/models in populate_combobox_with_lru; defaults must still appear."""
+        from plugin.framework.config import populate_combobox_with_lru
+
+        self.config_data["model_lru@https://api.together.xyz"] = []
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        with patch("plugin.framework.config.fetch_available_models") as mock_fetch:
+            populate_combobox_with_lru(
+                self.ctx,
+                ctrl,
+                "",
+                "model_lru",
+                "https://api.together.xyz",
+                skip_remote_fetch=True,
+            )
+            mock_fetch.assert_not_called()
+        ctrl.addItems.assert_called()
+        items = ctrl.addItems.call_args[0][0]
+        self.assertIn("openai/gpt-oss-120b", items)
+
 
 class TestFetchAvailableModelsCache(unittest.TestCase):
     """_model_fetch_cache is process-wide; same normalized endpoint hits HTTP once."""

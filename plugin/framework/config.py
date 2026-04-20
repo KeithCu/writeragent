@@ -828,6 +828,33 @@ def fetch_available_models(endpoint):
     _model_fetch_cache[url] = None
     return None
 
+
+def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
+    """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
+
+    Catalog entries use :class:`ModelCapability` bitmasks; legacy configs may use
+    comma-separated labels (e.g. ``text``).
+    """
+    if isinstance(capability, str):
+        parts = [p.strip() for p in capability.split(",") if p.strip()]
+        return req_cap in parts
+    try:
+        cap = (
+            capability
+            if isinstance(capability, ModelCapability)
+            else ModelCapability(int(capability))
+        )
+    except (TypeError, ValueError):
+        return False
+    if req_cap == "text":
+        return bool(cap & ModelCapability.CHAT)
+    if req_cap == "image":
+        return bool(cap & ModelCapability.IMAGE)
+    if req_cap == "audio":
+        return bool(cap & ModelCapability.AUDIO)
+    return False
+
+
 def populate_combobox_with_lru(
     ctx,
     ctrl,
@@ -876,24 +903,22 @@ def populate_combobox_with_lru(
         # Merge defaults into the list if no fetching was done or fetching failed
         if provider:
             for m in DEFAULT_MODELS:
-                capability = m.get("capability", "text")
-                if not isinstance(capability, str):
-                    capability = str(capability)
-                caps = [c.strip() for c in capability.split(",")]
-                if req_cap in caps:
-                    # Only add models that are marked as default for this capability
-                    is_default = False
-                    if req_cap == "text" and m.get("default_text"):
-                        is_default = True
-                    elif req_cap == "image" and m.get("default_image"):
-                        is_default = True
-                    elif req_cap == "audio" and m.get("default_audio"):
-                        is_default = True
+                capability = m.get("capability", ModelCapability.CHAT)
+                if not _default_model_row_matches_combo(capability, req_cap):
+                    continue
+                # Only add models that are marked as default for this capability
+                is_default = False
+                if req_cap == "text" and m.get("default_text"):
+                    is_default = True
+                elif req_cap == "image" and m.get("default_image"):
+                    is_default = True
+                elif req_cap == "audio" and m.get("default_audio"):
+                    is_default = True
 
-                    if is_default:
-                        effective_id = resolve_model_id(m, provider)
-                        if effective_id and effective_id not in to_show:
-                            to_show.append(effective_id)
+                if is_default:
+                    effective_id = resolve_model_id(m, provider)
+                    if effective_id and effective_id not in to_show:
+                        to_show.append(effective_id)
 
     curr_val_str = str(current_val).strip()
     if curr_val_str and curr_val_str not in to_show:
