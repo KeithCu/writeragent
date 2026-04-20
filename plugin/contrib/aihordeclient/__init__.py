@@ -967,11 +967,11 @@ class AiHordeClient:
                     raise IdentifiedError(message, url=REGISTER_AI_HORDE_URL)
                 else:
                     message = (
-                        _("Please try another model,")
-                        + _("{} would take more time than you configured,").format(
+                        _("Please try another model. {0} would take more time than you configured.").format(
                             self.settings["model"]
                         )
-                        + _(" or try again later.")
+                        + " "
+                        + _("Please try again later.")
                     )
                     raise IdentifiedError(message, url=self.status_url)
 
@@ -989,14 +989,14 @@ class AiHordeClient:
             else:
                 log.debug(str(data))
                 raise IdentifiedError(
-                    _(
-                        "There are no workers available with these settings. Please try again later."
-                    )
+                    _("There are no workers available with these settings.")
+                    + " "
+                    + _("Please try again later.")
                 )
         else:
             if self.api_key == ANONYMOUS_KEY:
                 message = (
-                    _("Get an Api key for free at ")
+                    _("Get a free API Key at ")
                     + REGISTER_AI_HORDE_URL
                 + _(".") + "\n " + _("This model takes more time than your current configuration.")
                 )

@@ -291,7 +291,7 @@ class HttpModule(ModuleBase):
         status = b.get_status()
         running = status.get("running", False)
         if not running:
-            msgbox(ctx, "WriterAgent", _("MCP server not running"))
+            msgbox(ctx, "WriterAgent", _("MCP server is not running"))
             return
 
         url = status.get("url", "?")

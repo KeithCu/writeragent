@@ -106,8 +106,9 @@ class SendHandlersMixin:
         cl = self.client
         assert cl is not None
 
-        self._set_status(_("Transcribing audio..."))
-        self._append_response("\n" + _("[Transcribing audio...]") + "\n")
+        transcribing = _("Transcribing audio...")
+        self._set_status(transcribing)
+        self._append_response("\n[" + transcribing + "]\n")
 
         try:
             transcript_text = run_blocking_in_thread(
@@ -155,7 +156,7 @@ class SendHandlersMixin:
                 log.debug("Failed to create Toolkit for stream drain loop (likely disposed): %s", e)
             else:
                 log.error("Failed to create Toolkit for stream drain loop: %s", e)
-            self._append_response("\n" + _("[Error: {0}]").format(str(e)) + "\n")
+            self._append_response("\n[" + _("Error: {0}").format(str(e)) + "]\n")
             self._terminal_status = "Error"
             if hasattr(self, "_current_agent_backend"):
                 self._current_agent_backend = None
