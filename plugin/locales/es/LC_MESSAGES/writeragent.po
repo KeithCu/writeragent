@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-18 20:56-0400\n"
+"POT-Creation-Date: 2026-04-19 23:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -62,8 +62,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo "
-"has intentado y el servicio no responde durante horas, por favor contacta "
+"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo"
+" has intentado y el servicio no responde durante horas, por favor contacta "
 "vía Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -133,6 +133,7 @@ msgid "Generating..."
 msgstr "Generando..."
 
 #: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
 msgstr "Obtén una Clave API gratuita en "
 
@@ -147,37 +148,26 @@ msgid "This model takes more time than your current configuration."
 msgstr "Este modelo tarda más tiempo que su configuración actual."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
-msgid "Please try another model,"
-msgstr "Por favor, intenta con otro modelo,"
-
-#: plugin/contrib/aihordeclient/__init__.py:971
 #, python-brace-format
-msgid "{} would take more time than you configured,"
-msgstr "{} tomaría más tiempo del que configuraste,"
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Por favor, prueba otro modelo. {0} tomaría más tiempo del que configuraste."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
-msgid " or try again later."
-msgstr " o inténtalo de nuevo más tarde."
-
-#: plugin/contrib/aihordeclient/__init__.py:993
-msgid ""
-"There are no workers available with these settings. Please try again later."
-msgstr ""
-"No hay trabajadores disponibles con esta configuración. Por favor, inténtalo "
-"de nuevo más tarde."
-
-#: plugin/contrib/aihordeclient/__init__.py:999
-msgid "Get an Api key for free at "
-msgstr "Obtén una clave API gratis en "
-
-#: plugin/contrib/aihordeclient/__init__.py:1009
-msgid "Probably your image will take one additional minute."
-msgstr "Probablemente tu imagen tomará un minuto adicional."
-
+#: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
 msgstr "Por favor, inténtalo de nuevo más tarde."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "No hay trabajadores disponibles con estos ajustes."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "Probablemente tu imagen tomará un minuto adicional."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
@@ -300,9 +290,9 @@ msgstr "Configuración"
 #: plugin/framework/external_editor.py:96
 #: plugin/framework/external_editor.py:105
 #: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:762
-#: plugin/modules/chatbot/send_handlers.py:375
-#: plugin/modules/chatbot/send_handlers.py:385
-#: plugin/modules/chatbot/send_handlers.py:394 plugin/main.py:335
+#: plugin/modules/chatbot/send_handlers.py:376
+#: plugin/modules/chatbot/send_handlers.py:386
+#: plugin/modules/chatbot/send_handlers.py:395 plugin/main.py:335
 msgid "Error"
 msgstr "Error"
 
@@ -324,12 +314,13 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Puedo editar o traducir tu documento al instante con formato profesional "
-"y color. ¡Pruébame!"
+"IA: Puedo editar o traducir tu documento al instante con formato profesional"
+" y color. ¡Pruébame!"
 
 #: plugin/framework/constants.py:251
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puedo ayudarte con fórmulas, análisis de datos y gráficos coloridos. "
 "¡Pruébame!"
@@ -427,7 +418,8 @@ msgstr ""
 "solicitud' en la Configuración."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Conexión Rechazada. ¿Está tu servidor local de IA (Ollama/LM Studio) en "
 "ejecución?"
@@ -451,6 +443,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Error HTTP {0} del proveedor de IA: {1}"
 
 #: plugin/modules/http/errors.py:77
+#: plugin/modules/chatbot/send_handlers.py:159
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Error: {0}"
@@ -491,13 +484,9 @@ msgstr "El servidor MCP falló al iniciarse"
 msgid "Check ~/localwriter.log"
 msgstr "Revisa ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:288
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
 msgstr "El servidor MCP no está en ejecución"
-
-#: plugin/modules/http/__init__.py:294
-msgid "MCP server not running"
-msgstr "Servidor MCP no en ejecución"
 
 #: plugin/modules/http/__init__.py:299
 msgid "MCP server running"
@@ -538,8 +527,8 @@ msgstr "WriterAgent: Ampliar Selección (Calc)"
 #: plugin/modules/writer/specialized.py:110
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Llamada de herramienta cambiada a '{0}'. Estás en un modo de conjunto de "
@@ -601,8 +590,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw) "
-"en la ventana activa.]"
+"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw)"
+" en la ventana activa.]"
 
 #: plugin/modules/chatbot/panel.py:708
 #, python-brace-format
@@ -668,71 +657,63 @@ msgstr "Investigación web completada."
 msgid "Transcribing audio..."
 msgstr "Transcribiendo audio..."
 
-#: plugin/modules/chatbot/send_handlers.py:110
-msgid "[Transcribing audio...]"
-msgstr "[Transcribiendo audio...]"
-
-#: plugin/modules/chatbot/send_handlers.py:120
+#: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr "[Error de transcripción: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:158
-#, python-brace-format
-msgid "[Error: {0}]"
-msgstr "[Error: {0}]"
-
-#: plugin/modules/chatbot/send_handlers.py:373
+#: plugin/modules/chatbot/send_handlers.py:374
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Error de contexto de documento: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:383
+#: plugin/modules/chatbot/send_handlers.py:384
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[Backend de agente '{0}' no encontrado.]"
 
-#: plugin/modules/chatbot/send_handlers.py:390
+#: plugin/modules/chatbot/send_handlers.py:391
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend de agente '{0}' no está disponible. Verifica Configuración (ruta, "
 "instalación).]"
 
-#: plugin/modules/chatbot/send_handlers.py:634
-#: plugin/modules/chatbot/send_handlers.py:642
+#: plugin/modules/chatbot/send_handlers.py:635
+#: plugin/modules/chatbot/send_handlers.py:643
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "Bibliotecario: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:641
+#: plugin/modules/chatbot/send_handlers.py:642
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "¡Perfecto! Te estoy cambiando al asistente principal ahora."
 
-#: plugin/modules/chatbot/send_handlers.py:647
+#: plugin/modules/chatbot/send_handlers.py:648
 msgid "Unknown librarian error."
 msgstr "Error de bibliotecario desconocido."
 
-#: plugin/modules/chatbot/send_handlers.py:648
+#: plugin/modules/chatbot/send_handlers.py:649
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[Error de bibliotecario: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:672
+#: plugin/modules/chatbot/send_handlers.py:673
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "IA (investigación): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:678
+#: plugin/modules/chatbot/send_handlers.py:679
 msgid "Unknown research error."
 msgstr "Error de investigación desconocido."
 
-#: plugin/modules/chatbot/send_handlers.py:679
+#: plugin/modules/chatbot/send_handlers.py:680
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Error de investigación: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:93
+#: plugin/modules/chatbot/librarian.py:82
 msgid "Switching to document mode..."
 msgstr "Cambiando al modo de documento..."
 
@@ -1026,11 +1007,11 @@ msgid "Path / URL"
 msgstr "Ruta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. http://"
-"localhost:8000 para Hermes). Vacío = intentar por defecto."
+"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. "
+"http://localhost:8000 para Hermes). Vacío = intentar por defecto."
 
 msgid "Extra arguments"
 msgstr "Argumentos adicionales"
@@ -1046,8 +1027,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el "
-"primer agente."
+"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el"
+" primer agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Herramientas de hoja de cálculo de Calc"

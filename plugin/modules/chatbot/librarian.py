@@ -4,13 +4,10 @@
 # This program is free software.
 
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, cast
+from typing import TYPE_CHECKING, Iterable, cast
 
 from plugin.framework.tool_base import ToolBase
-from plugin.modules.chatbot.memory import (
-    format_upsert_memory_chat_line_from_arguments,
-    memory_key_from_tool_arguments as _memory_key_from_tool_arguments,
-)
+from plugin.modules.chatbot.memory import format_upsert_memory_chat_line_from_arguments
 
 if TYPE_CHECKING:
     from plugin.contrib.smolagents.tools import Tool as SmolTool

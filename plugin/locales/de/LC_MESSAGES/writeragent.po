@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-18 20:56-0400\n"
+"POT-Creation-Date: 2026-04-19 23:02-0400\n"
 "PO-Revision-Date: 2024-03-21 12:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: German\n"
@@ -60,8 +60,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch "
-"einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
+"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch"
+" einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
 "antwortet, kontaktieren Sie uns bitte über Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -132,6 +132,7 @@ msgid "Generating..."
 msgstr "Generieren..."
 
 #: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
 msgstr "Holen Sie sich einen kostenlosen API-Schlüssel bei "
 
@@ -146,37 +147,27 @@ msgid "This model takes more time than your current configuration."
 msgstr "Dieses Modell benötigt mehr Zeit als Ihre aktuelle Konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
-msgid "Please try another model,"
-msgstr "Bitte versuchen Sie ein anderes Modell,"
-
-#: plugin/contrib/aihordeclient/__init__.py:971
 #, python-brace-format
-msgid "{} would take more time than you configured,"
-msgstr "{} würde mehr Zeit in Anspruch nehmen, als Sie konfiguriert haben,"
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Bitte versuchen Sie ein anderes Modell. {0} würde mehr Zeit in Anspruch "
+"nehmen, als Sie konfiguriert haben."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
-msgid " or try again later."
-msgstr " oder versuchen Sie es später noch einmal."
-
-#: plugin/contrib/aihordeclient/__init__.py:993
-msgid ""
-"There are no workers available with these settings. Please try again later."
-msgstr ""
-"Mit diesen Einstellungen sind keine Worker verfügbar. Bitte versuchen Sie es "
-"später noch einmal."
-
-#: plugin/contrib/aihordeclient/__init__.py:999
-msgid "Get an Api key for free at "
-msgstr "Holen Sie sich kostenlos einen API-Schlüssel bei "
-
-#: plugin/contrib/aihordeclient/__init__.py:1009
-msgid "Probably your image will take one additional minute."
-msgstr "Wahrscheinlich wird Ihr Bild eine weitere Minute dauern."
-
+#: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
 msgstr "Bitte versuchen Sie es später erneut."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "Es sind keine Worker mit diesen Einstellungen verfügbar."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "Wahrscheinlich wird Ihr Bild eine weitere Minute dauern."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
@@ -300,9 +291,9 @@ msgstr "Einstellungen"
 #: plugin/framework/external_editor.py:96
 #: plugin/framework/external_editor.py:105
 #: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:762
-#: plugin/modules/chatbot/send_handlers.py:375
-#: plugin/modules/chatbot/send_handlers.py:385
-#: plugin/modules/chatbot/send_handlers.py:394 plugin/main.py:335
+#: plugin/modules/chatbot/send_handlers.py:376
+#: plugin/modules/chatbot/send_handlers.py:386
+#: plugin/modules/chatbot/send_handlers.py:395 plugin/main.py:335
 msgid "Error"
 msgstr "Fehler"
 
@@ -329,7 +320,8 @@ msgstr ""
 
 #: plugin/framework/constants.py:251
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "KI: Ich kann Ihnen bei Formeln, Datenanalysen und farbigen Diagrammen "
 "helfen. Probieren Sie es aus!"
@@ -371,8 +363,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie "
-"EDITOR). Pfad:\n"
+"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie EDITOR). Pfad:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -431,7 +422,8 @@ msgstr ""
 "den Einstellungen zu erhöhen."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Verbindung abgelehnt. Läuft Ihr lokaler KI-Server (Ollama/LM Studio)?"
 
 #: plugin/modules/http/errors.py:45
@@ -453,6 +445,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-Fehler {0} vom KI-Anbieter: {1}"
 
 #: plugin/modules/http/errors.py:77
+#: plugin/modules/chatbot/send_handlers.py:159
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Fehler: {0}"
@@ -493,12 +486,8 @@ msgstr "MCP-Server konnte nicht gestartet werden"
 msgid "Check ~/localwriter.log"
 msgstr "Überprüfen Sie ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:288
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
-msgstr "MCP-Server läuft nicht"
-
-#: plugin/modules/http/__init__.py:294
-msgid "MCP server not running"
 msgstr "MCP-Server läuft nicht"
 
 #: plugin/modules/http/__init__.py:299
@@ -540,8 +529,8 @@ msgstr "WriterAgent: Auswahl erweitern (Calc)"
 #: plugin/modules/writer/specialized.py:110
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tool-Aufruf auf '{0}' umgeschaltet. Sie befinden sich im spezialisierten "
@@ -612,8 +601,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden "
-"Sie einen Fehler.]"
+"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden"
+" Sie einen Fehler.]"
 
 #: plugin/modules/chatbot/panel.py:715
 #, python-brace-format
@@ -670,71 +659,63 @@ msgstr "Web-Recherche abgeschlossen."
 msgid "Transcribing audio..."
 msgstr "Transkribiere Audio..."
 
-#: plugin/modules/chatbot/send_handlers.py:110
-msgid "[Transcribing audio...]"
-msgstr "[Audio wird transkribiert...]"
-
-#: plugin/modules/chatbot/send_handlers.py:120
+#: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr "[Transkriptionsfehler: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:158
-#, python-brace-format
-msgid "[Error: {0}]"
-msgstr "[Fehler: {0}]"
-
-#: plugin/modules/chatbot/send_handlers.py:373
+#: plugin/modules/chatbot/send_handlers.py:374
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Dokumentkontextfehler: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:383
+#: plugin/modules/chatbot/send_handlers.py:384
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[Agent-Backend '{0}' nicht gefunden.]"
 
-#: plugin/modules/chatbot/send_handlers.py:390
+#: plugin/modules/chatbot/send_handlers.py:391
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-Backend '{0}' ist nicht verfügbar. Einstellungen prüfen (Pfad, "
 "Installation).]"
 
-#: plugin/modules/chatbot/send_handlers.py:634
-#: plugin/modules/chatbot/send_handlers.py:642
+#: plugin/modules/chatbot/send_handlers.py:635
+#: plugin/modules/chatbot/send_handlers.py:643
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "Bibliothekar: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:641
+#: plugin/modules/chatbot/send_handlers.py:642
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Perfekt! Ich schalte Sie jetzt zum Hauptassistenten um."
 
-#: plugin/modules/chatbot/send_handlers.py:647
+#: plugin/modules/chatbot/send_handlers.py:648
 msgid "Unknown librarian error."
 msgstr "Unbekannter Bibliothekar-Fehler."
 
-#: plugin/modules/chatbot/send_handlers.py:648
+#: plugin/modules/chatbot/send_handlers.py:649
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[Bibliothekar-Fehler: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:672
+#: plugin/modules/chatbot/send_handlers.py:673
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "KI (Forschung): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:678
+#: plugin/modules/chatbot/send_handlers.py:679
 msgid "Unknown research error."
 msgstr "Unbekannter Forschungsfehler."
 
-#: plugin/modules/chatbot/send_handlers.py:679
+#: plugin/modules/chatbot/send_handlers.py:680
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Forschungsfehler: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:93
+#: plugin/modules/chatbot/librarian.py:82
 msgid "Switching to document mode..."
 msgstr "Wechsle zum Dokumentenmodus..."
 
@@ -1028,11 +1009,11 @@ msgid "Path / URL"
 msgstr "Pfad / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. http://"
-"localhost:8000 für Hermes). Leer = Standard versuchen."
+"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. "
+"http://localhost:8000 für Hermes). Leer = Standard versuchen."
 
 msgid "Extra arguments"
 msgstr "Zusätzliche Argumente"

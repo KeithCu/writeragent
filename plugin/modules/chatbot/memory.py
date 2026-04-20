@@ -45,7 +45,7 @@ UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
     if isinstance(arguments, dict):
-        return cast(dict[str, Any], arguments)
+        return cast("dict[str, Any]", arguments)
     if isinstance(arguments, str):
         from plugin.framework.errors import safe_json_loads
 

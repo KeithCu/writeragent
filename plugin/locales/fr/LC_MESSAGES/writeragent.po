@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-18 20:56-0400\n"
+"POT-Creation-Date: 2026-04-19 23:02-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -104,7 +104,8 @@ msgstr "Horde contactée"
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Lors de la demande de l'image, la Horde a été trop lente, réessayez plus tard"
+"Lors de la demande de l'image, la Horde a été trop lente, réessayez plus "
+"tard"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -132,6 +133,7 @@ msgid "Generating..."
 msgstr "Génération..."
 
 #: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
 msgstr "Obtenez une clé API gratuite sur "
 
@@ -146,37 +148,27 @@ msgid "This model takes more time than your current configuration."
 msgstr "Ce modèle prend plus de temps que votre configuration actuelle."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
-msgid "Please try another model,"
-msgstr "Veuillez essayer un autre modèle,"
-
-#: plugin/contrib/aihordeclient/__init__.py:971
 #, python-brace-format
-msgid "{} would take more time than you configured,"
-msgstr "{} prendrait plus de temps que ce que vous avez configuré,"
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Veuillez essayer un autre modèle. {0} prendrait plus de temps que ce que "
+"vous avez configuré."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
-msgid " or try again later."
-msgstr " ou réessayez plus tard."
-
-#: plugin/contrib/aihordeclient/__init__.py:993
-msgid ""
-"There are no workers available with these settings. Please try again later."
-msgstr ""
-"Aucun travailleur n'est disponible avec ces paramètres. Veuillez réessayer "
-"plus tard."
-
-#: plugin/contrib/aihordeclient/__init__.py:999
-msgid "Get an Api key for free at "
-msgstr "Obtenez une clé API gratuite sur "
-
-#: plugin/contrib/aihordeclient/__init__.py:1009
-msgid "Probably your image will take one additional minute."
-msgstr "Votre image prendra probablement une minute supplémentaire."
-
+#: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
 msgstr "Veuillez réessayer plus tard."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "Il n'y a aucun worker disponible avec ces paramètres."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "Votre image prendra probablement une minute supplémentaire."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
@@ -299,9 +291,9 @@ msgstr "Paramètres"
 #: plugin/framework/external_editor.py:96
 #: plugin/framework/external_editor.py:105
 #: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:762
-#: plugin/modules/chatbot/send_handlers.py:375
-#: plugin/modules/chatbot/send_handlers.py:385
-#: plugin/modules/chatbot/send_handlers.py:394 plugin/main.py:335
+#: plugin/modules/chatbot/send_handlers.py:376
+#: plugin/modules/chatbot/send_handlers.py:386
+#: plugin/modules/chatbot/send_handlers.py:395 plugin/main.py:335
 msgid "Error"
 msgstr "Erreur"
 
@@ -328,7 +320,8 @@ msgstr ""
 
 #: plugin/framework/constants.py:251
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA : Je peux vous aider avec des formules, des analyses de données et des "
 "graphiques colorés. Essayez !"
@@ -370,8 +363,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Aucun éditeur trouvé (installez Kate ou Gedit, ou définissez EDITOR). "
-"Chemin :\n"
+"Aucun éditeur trouvé (installez Kate ou Gedit, ou définissez EDITOR). Chemin :\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -430,7 +422,8 @@ msgstr ""
 "d'attente de la demande' dans les paramètres."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexion refusée. Votre serveur d'IA local (Ollama/LM Studio) est-il en "
 "cours d'exécution ?"
@@ -454,6 +447,7 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Erreur HTTP {0} du fournisseur d'IA : {1}"
 
 #: plugin/modules/http/errors.py:77
+#: plugin/modules/chatbot/send_handlers.py:159
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Erreur : {0}"
@@ -494,13 +488,9 @@ msgstr "Échec du démarrage du serveur MCP"
 msgid "Check ~/localwriter.log"
 msgstr "Vérifiez ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:288
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
 msgstr "Le serveur MCP n'est pas en cours d'exécution"
-
-#: plugin/modules/http/__init__.py:294
-msgid "MCP server not running"
-msgstr "Serveur MCP non en cours d'exécution"
 
 #: plugin/modules/http/__init__.py:299
 msgid "MCP server running"
@@ -541,8 +531,8 @@ msgstr "WriterAgent : Étendre la sélection (Calc)"
 #: plugin/modules/writer/specialized.py:110
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "L'appel d'outil a été basculé vers '{0}'. Vous êtes en mode ensemble "
@@ -604,8 +594,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aucun document LibreOffice compatible (Writer, Calc ou Draw) trouvé dans la "
-"fenêtre active.]"
+"[Aucun document LibreOffice compatible (Writer, Calc ou Draw) trouvé dans la"
+" fenêtre active.]"
 
 #: plugin/modules/chatbot/panel.py:708
 #, python-brace-format
@@ -671,71 +661,63 @@ msgstr "Recherche web terminée."
 msgid "Transcribing audio..."
 msgstr "Transcription de l'audio..."
 
-#: plugin/modules/chatbot/send_handlers.py:110
-msgid "[Transcribing audio...]"
-msgstr "[Transcription de l'audio en cours...]"
-
-#: plugin/modules/chatbot/send_handlers.py:120
+#: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr "[Erreur de transcription : {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:158
-#, python-brace-format
-msgid "[Error: {0}]"
-msgstr "[Erreur : {0}]"
-
-#: plugin/modules/chatbot/send_handlers.py:373
+#: plugin/modules/chatbot/send_handlers.py:374
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Erreur de contexte de document : {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:383
+#: plugin/modules/chatbot/send_handlers.py:384
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[Backend d'agent '{0}' non trouvé.]"
 
-#: plugin/modules/chatbot/send_handlers.py:390
+#: plugin/modules/chatbot/send_handlers.py:391
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend d'agent '{0}' non disponible. Vérifiez les Paramètres (chemin, "
 "installation).]"
 
-#: plugin/modules/chatbot/send_handlers.py:634
-#: plugin/modules/chatbot/send_handlers.py:642
+#: plugin/modules/chatbot/send_handlers.py:635
+#: plugin/modules/chatbot/send_handlers.py:643
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "Bibliothécaire : {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:641
+#: plugin/modules/chatbot/send_handlers.py:642
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Parfait ! Je vous bascule maintenant vers l'assistant principal."
 
-#: plugin/modules/chatbot/send_handlers.py:647
+#: plugin/modules/chatbot/send_handlers.py:648
 msgid "Unknown librarian error."
 msgstr "Erreur de bibliothécaire inconnue."
 
-#: plugin/modules/chatbot/send_handlers.py:648
+#: plugin/modules/chatbot/send_handlers.py:649
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[Erreur de bibliothécaire : {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:672
+#: plugin/modules/chatbot/send_handlers.py:673
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "IA (recherche) : {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:678
+#: plugin/modules/chatbot/send_handlers.py:679
 msgid "Unknown research error."
 msgstr "Erreur de recherche inconnue."
 
-#: plugin/modules/chatbot/send_handlers.py:679
+#: plugin/modules/chatbot/send_handlers.py:680
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Erreur de recherche : {0}]"
 
-#: plugin/modules/chatbot/librarian.py:93
+#: plugin/modules/chatbot/librarian.py:82
 msgid "Switching to document mode..."
 msgstr "Passage en mode document..."
 
@@ -1029,8 +1011,8 @@ msgid "Path / URL"
 msgstr "Chemin / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Chemin vers le CLI backend (p. ex. aider) ou URL du serveur ACP (p. ex. "
 "http://localhost:8000 pour Hermes). Vide = essayer la valeur par défaut."
@@ -1103,14 +1085,16 @@ msgid "Prompt for Web Research"
 msgstr "Invite pour la recherche Web"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Demander une confirmation avant d'envoyer une requête de recherche web"
+msgstr ""
+"Demander une confirmation avant d'envoyer une requête de recherche web"
 
 msgid "Web Cache Max Size (MB)"
 msgstr "Taille maximale du cache Web (Mo)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Taille maximale sur disque pour le cache de recherche web (0 pour désactiver)"
+"Taille maximale sur disque pour le cache de recherche web (0 pour "
+"désactiver)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Validité du cache Web (jours)"

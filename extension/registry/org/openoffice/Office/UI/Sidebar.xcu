@@ -27,6 +27,12 @@
             <node oor:name="ChatPanel" oor:op="replace">
                 <prop oor:name="Title" oor:type="xs:string">
                     <value xml:lang="en-US">Chat with Document</value>
+                    <value xml:lang="zh-CN">与文档聊天</value>
+                    <value xml:lang="zh-TW">與文件聊天</value>
+                    <value xml:lang="hi-IN">दस्तावेज़ के साथ चैट</value>
+                    <value xml:lang="id">Mengobrol dengan dokumen</value>
+                    <value xml:lang="bn-IN">নথির সাথে চ্যাট</value>
+                    <value xml:lang="ur-PK">دستاویز کے ساتھ چیٹ</value>
                     <value xml:lang="de">Mit Dokument chatten</value>
                     <value xml:lang="es">Chatear con el documento</value>
                     <value xml:lang="fr">Discuter avec le document</value>
