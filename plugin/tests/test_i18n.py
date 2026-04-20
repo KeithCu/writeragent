@@ -214,6 +214,12 @@ class TestI18n(unittest.TestCase):
         self.assertEqual(translation.gettext("Built-in"), "Eingebaut")
         self.assertEqual(translation.gettext("Backend"), "Backend")
 
+    def test_i18n_translation_loading_korean(self):
+        """gettext can load writeragent.mo and translate 'Built-in' to Korean."""
+        localedir = os.path.join(os.path.abspath("."), "plugin", "locales")
+        translation = gettext.translation("writeragent", localedir, languages=["ko"], fallback=True)
+        self.assertEqual(translation.gettext("Built-in"), "내장")
+
     def test_legacy_ui_imports(self):
         """Import legacy_ui with full UNO; otherwise expect ImportError (headless pytest)."""
         try:

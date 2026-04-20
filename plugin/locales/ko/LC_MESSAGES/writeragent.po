@@ -1,0 +1,1071 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: WriterAgent\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-19 23:18-0400\n"
+"PO-Revision-Date: 2026-04-19 12:00+0000\n"
+"Last-Translator: WriterAgent contributors\n"
+"Language-Team: Korean <>\n"
+"Language: ko\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: plugin/contrib/aihordeclient/__init__.py:262
+#: plugin/modules/chatbot/panel.py:685
+msgid "Starting..."
+msgstr "시작 중…"
+
+#: plugin/contrib/aihordeclient/__init__.py:370
+msgid "Updating model requirements..."
+msgstr "모델 요구사항 업데이트 중…"
+
+#: plugin/contrib/aihordeclient/__init__.py:517
+msgid "Updating Models..."
+msgstr "모델 업데이트 중…"
+
+#: plugin/contrib/aihordeclient/__init__.py:610
+msgid "Register at "
+msgstr "다음에서 등록 "
+
+#: plugin/contrib/aihordeclient/__init__.py:617
+#, python-brace-format
+msgid "You have {} kudos"
+msgstr "{} 쿠도스 보유"
+
+#: plugin/contrib/aihordeclient/__init__.py:625
+#, python-brace-format
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr "«{}»는 유효한 API 키가 아닙니다. 다시 확인하거나 새로 생성하세요"
+
+#: plugin/contrib/aihordeclient/__init__.py:632
+#: plugin/contrib/aihordeclient/__init__.py:675
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr "현재 요청을 처리할 수 없습니다. 나중에 다시 시도해 주세요. 이 문제가 장기간 지속되면 Discord를 통해 알려주세요."
+
+#: plugin/contrib/aihordeclient/__init__.py:638
+msgid "Problem requesting kudos"
+msgstr "쿠도스 요청 문제"
+
+#: plugin/contrib/aihordeclient/__init__.py:648
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+"Horde가 유지보수 모드입니다. 나중에 다시 시도해 주세요. 시도했는데 몇 시간 동안 서비스가 응답하지 않으면 Discord를 통해 "
+"연락 주세요."
+
+#: plugin/contrib/aihordeclient/__init__.py:656
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr "너무 많은 요청을 하셨습니다. 요청이 완료될 때까지 기다려 주시고 나중에 다시 시도해 주세요."
+
+#: plugin/contrib/aihordeclient/__init__.py:662
+#, python-brace-format
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr "«{}»에 문제가 있는 것 같습니다. 다시 확인하거나 새로 만들거나 Discord에 가입해서 도움을 요청하세요."
+
+#: plugin/contrib/aihordeclient/__init__.py:670
+msgid "We hit an error, still: "
+msgstr "오류가 발생했습니다, 그래도: "
+
+#: plugin/contrib/aihordeclient/__init__.py:681
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr "더 이상 유효하지 않습니다. 다시 시도해 주세요. 요청이 너무 오래 걸렸습니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:724
+msgid "Contacting the Horde..."
+msgstr "Horde에 연결 중..."
+
+#: plugin/contrib/aihordeclient/__init__.py:803
+msgid "Horde Contacted"
+msgstr "Horde 연결 완료"
+
+#: plugin/contrib/aihordeclient/__init__.py:821
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr "이미지를 요청할 때 Horde가 너무 느렸습니다. 나중에 다시 시도하세요."
+
+#: plugin/contrib/aihordeclient/__init__.py:843
+msgid "to learn to earn kudos. Detail:"
+msgstr "kudos를 얻는 법을 배우세요. 상세:"
+
+#: plugin/contrib/aihordeclient/__init__.py:865
+#: plugin/contrib/aihordeclient/__init__.py:884
+msgid "Service failed: "
+msgstr "서비스 실패: "
+
+#: plugin/contrib/aihordeclient/__init__.py:935
+msgid "Downloading generated image..."
+msgstr "생성된 이미지 다운로드 중..."
+
+#: plugin/contrib/aihordeclient/__init__.py:941
+msgid "You are first in the queue"
+msgstr "큐의 첫 번째입니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:943
+msgid "Queue position: "
+msgstr "대기열 위치: "
+
+#: plugin/contrib/aihordeclient/__init__.py:946
+msgid "Generating..."
+msgstr "생성 중..."
+
+#: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
+msgid "Get a free API Key at "
+msgstr "무료 API 키 받기: "
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "."
+msgstr "."
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "This model takes more time than your current configuration."
+msgstr "이 모델은 현재 설정보다 더 많은 시간을 소요합니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:970
+#, python-brace-format
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr "다른 모델을 시도해 주세요. {0}은 설정한 시간보다 더 오래 걸립니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:974
+#: plugin/contrib/aihordeclient/__init__.py:994
+#: plugin/contrib/aihordeclient/__init__.py:1011
+#: plugin/contrib/aihordeclient/__init__.py:1018
+msgid "Please try again later."
+msgstr "나중에 다시 시도해 주세요."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "이 설정으로 사용할 수 있는 워커가 없습니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "이미지가 추가로 1분 정도 걸릴 것입니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:1016
+#, python-brace-format
+msgid "Probably your image will take {} additional minutes."
+msgstr "이미지가 추가로 {}분 정도 걸릴 것입니다."
+
+#: plugin/contrib/aihordeclient/__init__.py:1030
+msgid "Fetching images..."
+msgstr "이미지 가져오는 중..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1040
+msgid " is censored, try changing the prompt wording"
+msgstr " 검열되었습니다. 프롬프트 단어를 변경해 보세요"
+
+#: plugin/contrib/aihordeclient/__init__.py:1068
+msgid "Downloading result..."
+msgstr "결과 다운로드 중..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1071
+msgid "Downloading image"
+msgstr "이미지 다운로드 중"
+
+#: plugin/contrib/aihordeclient/__init__.py:1087
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr "설정을 낮추거나 다른 모델을 선택해야 할 수 있습니다. 검열되었을 수도 있습니다. Horde 메시지"
+
+#: plugin/contrib/aihordeclient/__init__.py:1114
+#: plugin/contrib/aihordeclient/__init__.py:1126
+msgid " generated by "
+msgstr " 에 의해 생성됨 "
+
+#: plugin/contrib/aihordeclient/__init__.py:1124
+msgid " with "
+msgstr " 와 함께 "
+
+#: plugin/framework/dialogs.py:107
+msgid "Agent requests approval"
+msgstr "에이전트가 승인을 요청합니다"
+
+#: plugin/framework/dialogs.py:108
+msgid "Proceed with this action?"
+msgstr "이 작업을 계속하시겠습니까?"
+
+#: plugin/framework/dialogs.py:109
+#: plugin/modules/chatbot/web_research_chat.py:33
+#: plugin/modules/chatbot/web_research_chat.py:38
+#, python-format
+msgid "Tool: %s"
+msgstr "도구: %s"
+
+#: plugin/framework/dialogs.py:154
+msgid "Edit search query"
+msgstr "검색 쿼리 편집"
+
+#: plugin/framework/dialogs.py:159
+msgid "Search query:"
+msgstr "검색 쿼리:"
+
+#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
+#: plugin/framework/dialogs.py:406 plugin/framework/dialogs.py:494
+#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:40
+msgid "OK"
+msgstr "확인"
+
+#: plugin/framework/dialogs.py:168
+msgid "Cancel"
+msgstr "취소"
+
+#: plugin/framework/dialogs.py:335
+msgid "Copy"
+msgstr "복사"
+
+#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
+msgid "Copied!"
+msgstr "복사되었습니다!"
+
+#: plugin/framework/dialogs.py:403
+msgid "Copy URL"
+msgstr "URL 복사"
+
+#: plugin/framework/dialogs.py:478 plugin/framework/dialogs.py:506
+#: plugin/main.py:439
+msgid "About WriterAgent"
+msgstr "WriterAgent 정보"
+
+#: plugin/framework/dialogs.py:485
+#, python-format
+msgid "Version: %s"
+msgstr "버전: %s"
+
+#: plugin/framework/dialogs.py:486
+msgid "AI-powered extension for LibreOffice"
+msgstr "LibreOffice용 AI 기반 확장 프로그램"
+
+#: plugin/framework/dialogs.py:491
+msgid "GitHub: quazardous/localwriter"
+msgstr "깃허브: quazardous/localwriter"
+
+#: plugin/framework/dialogs.py:507
+#, python-brace-format
+msgid "WriterAgent {0}"
+msgstr "WriterAgent {0}"
+
+#: plugin/framework/errors.py:51
+#, python-brace-format
+msgid "{resource_type} not found: {identifier}"
+msgstr "{resource_type}을(를) 찾을 수 없습니다: {identifier}"
+
+#: plugin/framework/legacy_ui.py:481 plugin/main.py:430
+#: plugin/xdl_strings.py:46
+msgid "Settings"
+msgstr "설정"
+
+#: plugin/framework/legacy_ui.py:533 plugin/framework/external_editor.py:78
+#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py:96
+#: plugin/framework/external_editor.py:105
+#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:762
+#: plugin/modules/chatbot/send_handlers.py:376
+#: plugin/modules/chatbot/send_handlers.py:386
+#: plugin/modules/chatbot/send_handlers.py:395 plugin/main.py:335
+msgid "Error"
+msgstr "오류"
+
+#: plugin/framework/legacy_ui.py:533
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "설정을 열 수 없습니다: {0}"
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Invalid Setting"
+msgstr "잘못된 설정"
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Temperature must be <= 1.0"
+msgstr "온도는 1.0 이하여야 합니다."
+
+#: plugin/framework/constants.py:250
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr "AI: 전문 서식과 색상을 사용해 문서를 즉시 편집하거나 번역할 수 있습니다. 저를 시도해 보세요!"
+
+#: plugin/framework/constants.py:251
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr "AI: 수식, 데이터 분석, 화려한 차트를 도와드릴 수 있습니다. 저를 시도해 보세요!"
+
+#: plugin/framework/constants.py:252
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr "AI: Draw와 Impress에서 세련되고 다채로운 도형을 만들고 편집하는 데 도움을 줄 수 있어요. 저를 시도해 보세요!"
+
+#: plugin/framework/constants.py:253
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr "AI: 문서를 보거나 변경하지 않고 웹 연구를 해서 어떤 질문에도 답하거나 웹 페이지를 요약할 수 있어요. 채팅해 볼까요?"
+
+#: plugin/framework/external_editor.py:83
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "설정 파일을 생성할 수 없습니다: {0}"
+
+#: plugin/framework/external_editor.py:97
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"편집기를 열 수 없습니다. 경로:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:107
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"편집기를 찾을 수 없습니다 (Kate 또는 Gedit을 설치하거나 EDITOR를 설정하세요). 경로:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:114
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "편집기를 시작할 수 없습니다: {0}"
+
+#: plugin/framework/extension_update_check.py:150
+msgid "Update available"
+msgstr "업데이트 사용 가능"
+
+#: plugin/framework/extension_update_check.py:152
+#, python-format
+msgid ""
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
+msgstr ""
+"더 새로운 WriterAgent (%s)가 사용 가능합니다. 도구 → 확장 관리자를 사용하여 업데이트를 확인하고 최신 확장을 설치하세요."
+
+#: plugin/modules/http/errors.py:14
+#, python-brace-format
+msgid "TLS/SSL Error: {0}"
+msgstr "TLS/SSL 오류: {0}"
+
+#: plugin/modules/http/errors.py:25
+msgid "Invalid API Key. Please check your settings."
+msgstr "잘못된 API 키입니다. 설정을 확인하세요."
+
+#: plugin/modules/http/errors.py:27
+msgid "API access Forbidden. Your key may lack permissions for this model."
+msgstr "API 액세스 금지. 키에 이 모델에 대한 권한이 부족할 수 있습니다."
+
+#: plugin/modules/http/errors.py:29
+msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr "엔드포인트 없음 (404). URL과 모델 이름을 확인하세요."
+
+#: plugin/modules/http/errors.py:31
+#, python-brace-format
+msgid "Server error ({0}). The AI provider is having issues."
+msgstr "서버 오류 ({0}). AI 제공자가 문제를 겪고 있습니다."
+
+#: plugin/modules/http/errors.py:32
+#, python-brace-format
+msgid "HTTP Error {0}: {1}"
+msgstr "HTTP 오류 {0}: {1}"
+
+#: plugin/modules/http/errors.py:35
+msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+msgstr "요청 시간 초과. 설정에서 '요청 타임아웃'을 늘려보세요."
+
+#: plugin/modules/http/errors.py:43
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "연결 거부. 로컬 AI 서버 (Ollama/LM Studio)가 실행 중인가요?"
+
+#: plugin/modules/http/errors.py:45
+msgid "DNS Error. Could not resolve the endpoint URL."
+msgstr "DNS 오류. 엔드포인트 URL을 확인할 수 없습니다."
+
+#: plugin/modules/http/errors.py:46
+#, python-brace-format
+msgid "Connection Error: {0}"
+msgstr "연결 오류: {0}"
+
+#: plugin/modules/http/errors.py:49
+msgid "The AI provider reported an error. Try again."
+msgstr "AI 제공자가 오류를 보고했습니다. 다시 시도하세요."
+
+#: plugin/modules/http/errors.py:56
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "AI 제공자로부터 HTTP 오류 {0}: {1}"
+
+#: plugin/modules/http/errors.py:77
+#: plugin/modules/chatbot/send_handlers.py:159
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "오류: {0}"
+
+#: plugin/modules/http/client.py:717
+msgid "Stream ended with finish_reason=error"
+msgstr "스트림이 finish_reason=error로 종료되었습니다"
+
+#: plugin/modules/http/client.py:730
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr "모델이 동일한 청크를 반복하고 있습니다 (무한 루프). 다시 시도하거나 다른 모델을 사용하세요."
+
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "MCP 서버 중지"
+
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "MCP 서버 시작"
+
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "MCP 서버가 중지되었습니다"
+
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "MCP 서버가 시작되었습니다"
+
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "MCP 서버 시작 실패"
+
+#: plugin/modules/http/__init__.py:278
+msgid "Check ~/localwriter.log"
+msgstr "~/localwriter.log 확인"
+
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
+msgid "MCP server is not running"
+msgstr "MCP 서버가 실행 중이 아닙니다"
+
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "MCP 서버 실행 중"
+
+#: plugin/modules/http/__init__.py:299
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "경로: {0}"
+
+#: plugin/modules/http/__init__.py:310
+msgid "Server Status"
+msgstr "서버 상태"
+
+#: plugin/modules/http/__init__.py:331
+#, python-brace-format
+msgid "URL: {0}"
+msgstr "URL: {0}"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+msgid "Please enter edit instructions!"
+msgstr "편집 지침을 입력하세요!"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/xdl_strings.py:33
+msgid "Input"
+msgstr "입력"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: 선택 편집 (Calc)"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: 선택 확장 (Calc)"
+
+#: plugin/modules/calc/specialized.py:101
+#: plugin/modules/writer/specialized.py:110
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"'{0}'로 도구 호출이 전환되었습니다. 전문 도구 세트 모드에 있습니다. 완료되면 전체 API 세트를 복원하기 위해 "
+"'specialized_workflow_finished'를 호출해야 합니다."
+
+#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
+#: plugin/modules/chatbot/selection.py:90
+#: plugin/modules/chatbot/selection.py:177
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: 선택 확장"
+
+#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
+#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
+#: plugin/modules/chatbot/selection.py:286
+#: plugin/modules/chatbot/selection.py:297
+#: plugin/modules/chatbot/selection.py:411
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: 선택 편집"
+
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+msgid "Ready"
+msgstr "준비됨"
+
+#: plugin/modules/chatbot/panel.py:342 plugin/modules/chatbot/panel.py:660
+msgid "Accept"
+msgstr "승인"
+
+#: plugin/modules/chatbot/panel.py:358 plugin/modules/chatbot/panel.py:882
+msgid "Change"
+msgstr "변경"
+
+#: plugin/modules/chatbot/panel.py:362 plugin/modules/chatbot/panel.py:889
+msgid "Reject"
+msgstr "거부"
+
+#: plugin/modules/chatbot/panel.py:379
+msgid "Waiting for approval…"
+msgstr "승인 대기 중…"
+
+#: plugin/modules/chatbot/panel.py:666
+msgid "Record"
+msgstr "녹음"
+
+#: plugin/modules/chatbot/panel.py:668
+msgid "Stop Rec"
+msgstr "녹음 중지"
+
+#: plugin/modules/chatbot/panel.py:670 plugin/xdl_strings.py:45
+msgid "Send"
+msgstr "보내기"
+
+#: plugin/modules/chatbot/panel.py:694
+msgid "Getting document..."
+msgstr "문서 가져오는 중…"
+
+#: plugin/modules/chatbot/panel.py:699
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr "[활성 창에서 호환되는 LibreOffice 문서(Writer, Calc, 또는 Draw)를 찾을 수 없습니다.]"
+
+#: plugin/modules/chatbot/panel.py:708
+#, python-brace-format
+msgid ""
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
+msgstr "[내부 오류: 문서 유형이 {0}에서 {1}로 변경되었습니다! 오류를 보고해 주세요.]"
+
+#: plugin/modules/chatbot/panel.py:715
+#, python-brace-format
+msgid ""
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr "[내부 오류: {0}의 문서 유형을 식별할 수 없습니다. 이를 보고해 주세요!]"
+
+#: plugin/modules/chatbot/panel.py:759
+#, python-brace-format
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[모델 {0}은 기본 오디오를 지원하지 않습니다. 설정에서 STT 모델을 선택해 주세요.]"
+
+#: plugin/modules/chatbot/web_research_chat.py:15
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "이 검색 쿼리 '%s'가 검색 엔진으로 전송됩니다."
+
+#: plugin/modules/chatbot/web_research_chat.py:28
+msgid "[Web search — approval required]"
+msgstr "[웹 검색 — 승인 필요]"
+
+#: plugin/modules/chatbot/web_research_chat.py:30
+msgid "[Web search]"
+msgstr "[웹 검색]"
+
+#: plugin/modules/chatbot/web_research_chat.py:37
+msgid "[Additional web search]"
+msgstr "[추가 웹 검색]"
+
+#: plugin/modules/chatbot/web_research_chat.py:59
+msgid "[Web research]"
+msgstr "[웹 연구]"
+
+#: plugin/modules/chatbot/web_research_chat.py:60
+msgid "Research request:"
+msgstr "연구 요청:"
+
+#: plugin/modules/chatbot/web_research_chat.py:65
+msgid "Context for the research agent:"
+msgstr "연구 에이전트용 컨텍스트:"
+
+#: plugin/modules/chatbot/web_research.py:337
+msgid "Web research completed."
+msgstr "웹 연구 완료."
+
+#: plugin/modules/chatbot/send_handlers.py:109
+msgid "Transcribing audio..."
+msgstr "오디오 전사 중..."
+
+#: plugin/modules/chatbot/send_handlers.py:121
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[전사 오류: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:374
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[문서 컨텍스트 오류: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:384
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[에이전트 백엔드 '{0}'를 찾을 수 없습니다.]"
+
+#: plugin/modules/chatbot/send_handlers.py:391
+#, python-brace-format
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[에이전트 백엔드 '{0}'를 사용할 수 없습니다. 설정(경로, 설치)을 확인하세요.]"
+
+#: plugin/modules/chatbot/send_handlers.py:635
+#: plugin/modules/chatbot/send_handlers.py:643
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "라이브러리언: {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:642
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "완벽해! 이제 메인 어시스턴트로 전환할게."
+
+#: plugin/modules/chatbot/send_handlers.py:648
+msgid "Unknown librarian error."
+msgstr "알 수 없는 라이브러리언 오류."
+
+#: plugin/modules/chatbot/send_handlers.py:649
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[사서 오류: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:673
+#, python-brace-format
+msgid "AI (research): {0}"
+msgstr "AI (연구): {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:679
+msgid "Unknown research error."
+msgstr "알 수 없는 연구 오류."
+
+#: plugin/modules/chatbot/send_handlers.py:680
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[연구 오류: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:79
+msgid "Switching to document mode..."
+msgstr "문서 모드로 전환 중..."
+
+#: plugin/modules/chatbot/panel_factory.py:498
+msgid "Size:"
+msgstr "크기:"
+
+#: plugin/modules/chatbot/panel_factory.py:499
+msgid "Height:"
+msgstr "높이:"
+
+#: plugin/modules/chatbot/panel_factory.py:500
+msgid "Width:"
+msgstr "너비:"
+
+#: plugin/tests/test_i18n.py:24
+msgid "ThisIsAnUntranslatedString999"
+msgstr "이것은 번역되지 않은 문자열999"
+
+#: plugin/tests/test_i18n.py:214
+msgid "Built-in"
+msgstr "내장"
+
+#: plugin/tests/test_i18n.py:215
+msgid "Backend"
+msgstr "백엔드"
+
+#: plugin/main.py:352
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} 통과, {2} 실패."
+
+#: plugin/main.py:355
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "실행에 실패한 테스트: {0}"
+
+#: plugin/main.py:428
+msgid "Extend Selection"
+msgstr "선택 확장"
+
+#: plugin/main.py:429
+msgid "Edit Selection"
+msgstr "선택 편집"
+
+#: plugin/main.py:431
+msgid "Toggle MCP Server"
+msgstr "MCP 서버 토글"
+
+#: plugin/main.py:432
+msgid "MCP Server Status"
+msgstr "MCP 서버 상태"
+
+#: plugin/main.py:434
+msgid "Run format tests"
+msgstr "포맷 테스트 실행"
+
+#: plugin/main.py:435
+msgid "Run calc tests"
+msgstr "Calc 테스트 실행"
+
+#: plugin/main.py:436
+msgid "Run Calc API integration tests"
+msgstr "Calc API 통합 테스트 실행"
+
+#: plugin/main.py:437
+msgid "Run draw tests"
+msgstr "그리기 테스트 실행"
+
+#: plugin/main.py:438
+msgid "Evaluation Dashboard"
+msgstr "평가 대시보드"
+
+#: plugin/main.py:820
+msgid "Dispatch Error"
+msgstr "디스패치 오류"
+
+#: plugin/xdl_strings.py:4
+msgid "-1"
+msgstr "-1"
+
+#: plugin/xdl_strings.py:5
+msgid "7.5"
+msgstr "7.5"
+
+#: plugin/xdl_strings.py:6
+msgid "AI Horde API Key:"
+msgstr "AI Horde API 키:"
+
+#: plugin/xdl_strings.py:7
+msgid "AI Model:"
+msgstr "AI 모델:"
+
+#: plugin/xdl_strings.py:8
+msgid "API Key:"
+msgstr "API 키:"
+
+#: plugin/xdl_strings.py:9
+msgid "Additional Instructions (History):"
+msgstr "추가 지시사항 (기록):"
+
+#: plugin/xdl_strings.py:10
+msgid "Additional Instructions:"
+msgstr "추가 지시사항:"
+
+#: plugin/xdl_strings.py:11
+msgid "Allow NSFW"
+msgstr "NSFW 허용"
+
+#: plugin/xdl_strings.py:12
+msgid "Ask / instruct:"
+msgstr "질문 / 지시:"
+
+#: plugin/xdl_strings.py:13
+msgid "Aspect Ratio:"
+msgstr "종횡비:"
+
+#: plugin/xdl_strings.py:14
+msgid "Audio Model:"
+msgstr "오디오 모델:"
+
+#: plugin/xdl_strings.py:15
+msgid "Auto Gallery"
+msgstr "자동 갤러리"
+
+#: plugin/xdl_strings.py:16
+msgid "Base Size:"
+msgstr "기본 크기:"
+
+#: plugin/xdl_strings.py:17
+msgid "Base:"
+msgstr "기본:"
+
+#: plugin/xdl_strings.py:18
+msgid "CFG Scale:"
+msgstr "CFG 스케일:"
+
+#: plugin/xdl_strings.py:19
+msgid "Calc"
+msgstr "계산"
+
+#: plugin/xdl_strings.py:20
+msgid "Categories:"
+msgstr "카테고리:"
+
+#: plugin/xdl_strings.py:21
+msgid "Censor NSFW"
+msgstr "NSFW 검열"
+
+#: plugin/xdl_strings.py:22
+msgid "Chat (Testing):"
+msgstr "채팅 (테스트):"
+
+#: plugin/xdl_strings.py:23
+msgid "Clear"
+msgstr "지우기"
+
+#: plugin/xdl_strings.py:24
+msgid "Close"
+msgstr "닫기"
+
+#: plugin/xdl_strings.py:25
+msgid "Context Len:"
+msgstr "컨텍스트 길이:"
+
+#: plugin/xdl_strings.py:26
+msgid "Draw"
+msgstr "그리기"
+
+#: plugin/xdl_strings.py:27
+msgid "Edit config file (JSON)…"
+msgstr "설정 파일 편집 (JSON)…"
+
+#: plugin/xdl_strings.py:28
+msgid "Endpoint URL (/v1 added):"
+msgstr "엔드포인트 URL (/v1 추가):"
+
+#: plugin/xdl_strings.py:29
+msgid "Endpoint URL:"
+msgstr "엔드포인트 URL:"
+
+#: plugin/xdl_strings.py:30
+msgid "General"
+msgstr "일반"
+
+#: plugin/xdl_strings.py:31
+msgid "Image Model:"
+msgstr "이미지 모델:"
+
+#: plugin/xdl_strings.py:32
+msgid "Image Settings"
+msgstr "이미지 설정"
+
+#: plugin/xdl_strings.py:34
+msgid "Insert Frame"
+msgstr "프레임 삽입"
+
+#: plugin/xdl_strings.py:35
+msgid "LocalWriter Evaluation Dashboard"
+msgstr "LocalWriter 평가 대시보드"
+
+#: plugin/xdl_strings.py:36
+msgid "Max Tokens:"
+msgstr "최대 토큰:"
+
+#: plugin/xdl_strings.py:37
+msgid "Max Wait (s):"
+msgstr "최대 대기 (초):"
+
+#: plugin/xdl_strings.py:38
+msgid "Models to Test:"
+msgstr "테스트할 모델:"
+
+#: plugin/xdl_strings.py:39
+msgid "Multimodal"
+msgstr "멀티모달"
+
+#: plugin/xdl_strings.py:41
+msgid "Please enter edit instructions:"
+msgstr "편집 지침을 입력하세요:"
+
+#: plugin/xdl_strings.py:43
+msgid "Run Benchmark"
+msgstr "벤치마크 실행"
+
+#: plugin/xdl_strings.py:44
+msgid "Seed:"
+msgstr "시드:"
+
+#: plugin/xdl_strings.py:47
+msgid "Square"
+msgstr "정사각형"
+
+#: plugin/xdl_strings.py:48
+msgid "Steps:"
+msgstr "스텝:"
+
+#: plugin/xdl_strings.py:49
+msgid "Stop"
+msgstr "중지"
+
+#: plugin/xdl_strings.py:50
+msgid "Temperature:"
+msgstr "온도:"
+
+#: plugin/xdl_strings.py:51
+msgid "Text/Chat Model:"
+msgstr "텍스트/채팅 모델:"
+
+#: plugin/xdl_strings.py:52
+msgid "Timeout (s):"
+msgstr "타임아웃(초):"
+
+#: plugin/xdl_strings.py:53
+msgid "Translate Prompt"
+msgstr "프롬프트 번역"
+
+#: plugin/xdl_strings.py:54
+msgid "Translate from (e.g. es):"
+msgstr "번역 원본 (예: es):"
+
+#: plugin/xdl_strings.py:55
+msgid "Use AI Horde for Image Generation"
+msgstr "이미지 생성에 AI Horde 사용"
+
+#: plugin/xdl_strings.py:56
+msgid "Use Image model"
+msgstr "이미지 모델 사용"
+
+#: plugin/xdl_strings.py:57
+msgid "Web Research"
+msgstr "웹 연구"
+
+#: plugin/xdl_strings.py:58
+msgid "Writer"
+msgstr "작성자"
+
+msgid "Agent backends"
+msgstr "에이전트 백엔드"
+
+msgid "Hermes"
+msgstr "Hermes"
+
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgid "Mistral Vibe (ACP)"
+msgstr "Mistral Vibe (ACP)"
+
+msgid "Path / URL"
+msgstr "경로 / URL"
+
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"백엔드 CLI 경로 (예: aider) 또는 ACP 서버 URL (예: Hermes의 http://localhost:8000). 비어 "
+"있음 = 기본값 시도."
+
+msgid "Extra arguments"
+msgstr "추가 인수"
+
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr "선택된 백엔드의 선택적 인수 (공백으로 구분됨)."
+
+msgid "ACP agent name"
+msgstr "ACP 에이전트 이름"
+
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr "ACP 서버의 에이전트 이름 (예: hermes). 비어 있음 = 첫 번째 에이전트 자동 발견."
+
+msgid "Calc spreadsheet tools"
+msgstr "Calc 스프레드시트 도구"
+
+msgid "Max Rows Display"
+msgstr "최대 행 표시"
+
+msgid "Sidebar"
+msgstr "사이드바"
+
+msgid "Max Tool Rounds"
+msgstr "최대 도구 라운드"
+
+msgid "Document Context Strategy"
+msgstr "문서 컨텍스트 전략"
+
+msgid "How much document content to include in LLM context"
+msgstr "LLM 컨텍스트에 포함할 문서 내용의 양"
+
+msgid "Auto (by document size)"
+msgstr "자동 (문서 크기에 따라)"
+
+msgid "Full document text"
+msgstr "전체 문서 텍스트"
+
+msgid "Pages around cursor"
+msgstr "커서 주변 페이지"
+
+msgid "Outline + excerpt"
+msgstr "개요 + 발췌"
+
+msgid "Stats + outline only"
+msgstr "통계 + 개요만"
+
+msgid "Extend Selection Max Tokens"
+msgstr "선택 확장 최대 토큰"
+
+msgid "Edit Selection Extra Tokens"
+msgstr "선택 편집 추가 토큰"
+
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr "원본 텍스트 길이를 초과하는 추가 토큰. 0 = 원본과 동일한 길이."
+
+msgid "Show Web Search Thinking"
+msgstr "웹 검색 사고 과정 표시"
+
+msgid "Prompt for Web Research"
+msgstr "웹 연구 프롬프트"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "웹 검색 쿼리 전송 전에 확인 요청"
+
+msgid "Web Cache Max Size (MB)"
+msgstr "웹 캐시 최대 크기 (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "웹 검색 캐시의 최대 디스크 크기 (0으로 비활성화)"
+
+msgid "Web Cache Validity (Days)"
+msgstr "웹 캐시 유효 기간 (일)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "캐시 항목이 유효한 것으로 간주되는 일수."
+
+msgid "Doc"
+msgstr "문서"
+
+msgid "Draw and Impress tools"
+msgstr "Draw 및 Impress 도구"
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Enable MCP Server"
+msgstr "MCP 서버 활성화"
+
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr "로컬호스트만, 인증 없음. stdio를 통한 액세스는 항상 활성화됩니다."
+
+msgid "MCP Port"
+msgstr "MCP 포트"
+
+msgid "Writer document tools (including navigation and search)"
+msgstr "Writer 문서 도구 (탐색 및 검색 포함)"
