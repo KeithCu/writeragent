@@ -93,7 +93,7 @@ UNO split (no monolithic `uno_helpers.py`): context helpers → [`plugin/framewo
 
 ### Memory upsert (`upsert_memory`)
 
-Sidebar shows when the model calls `upsert_memory`: **main document chat** uses the tool-loop FSM in [`tool_loop_state.py`](plugin/modules/chatbot/tool_loop_state.py) — a line like `[Memory update: key '…']` when the key is present in arguments, then the usual tool result line. **Librarian onboarding** uses [`librarian.py`](plugin/modules/chatbot/librarian.py): the same style line is sent through `ToolContext.chat_append_callback` (chunk path) so it is visible even when `chatbot.show_search_thinking` is off (other librarian tool progress still goes through the thinking stream only).
+Sidebar shows when the model calls `upsert_memory`: **main document chat** uses the tool-loop FSM in [`tool_loop_state.py`](plugin/modules/chatbot/tool_loop_state.py) — a line like `[Memory update: key '…' value '…']` (value truncated if very long; formatting in [`memory.py`](plugin/modules/chatbot/memory.py)), then the usual tool result line. **Librarian onboarding** uses [`librarian.py`](plugin/modules/chatbot/librarian.py): the same style line is sent through `ToolContext.chat_append_callback` (chunk path) so it is visible even when `chatbot.show_search_thinking` is off (other librarian tool progress still goes through the thinking stream only).
 
 ### Librarian handoff
 

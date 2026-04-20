@@ -140,6 +140,27 @@ def test_next_tool_invalid_max_rounds():
     assert new_state.round_num == 5
     assert any(isinstance(e, SpawnFinalStreamEffect) for e in effects)
 
+def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
+    tool_calls = [
+        {
+            "id": "call_1",
+            "function": {
+                "name": "upsert_memory",
+                "arguments": '{"key": "my_key", "content": "my_val"}',
+            },
+        }
+    ]
+    state = create_base_state(pending_tools=tool_calls)
+    tr = next_state(state, create_event(EventKind.NEXT_TOOL))
+    effects = tr.effects
+    append_eff = next(
+        e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append"
+    )
+    assert "my_key" in append_eff.text
+    assert "my_val" in append_eff.text
+    assert "Memory update" in append_eff.text
+
+
 def test_next_tool_with_pending_tools_and_action_state():
     tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}}]
     state = create_base_state(pending_tools=tool_calls)

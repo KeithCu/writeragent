@@ -7,26 +7,15 @@ import logging
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
 from plugin.framework.tool_base import ToolBase
+from plugin.modules.chatbot.memory import (
+    format_upsert_memory_chat_line_from_arguments,
+    memory_key_from_tool_arguments as _memory_key_from_tool_arguments,
+)
 
 if TYPE_CHECKING:
     from plugin.contrib.smolagents.tools import Tool as SmolTool
 
 log = logging.getLogger(__name__)
-
-
-def _memory_key_from_tool_arguments(arguments: object) -> str | None:
-    """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
-    if isinstance(arguments, dict):
-        k = cast("dict[str, Any]", arguments).get("key")
-        return k if isinstance(k, str) else None
-    if isinstance(arguments, str):
-        from plugin.framework.errors import safe_json_loads
-
-        parsed = safe_json_loads(arguments)
-        if isinstance(parsed, dict):
-            k = cast("dict[str, Any]", parsed).get("key")
-            return k if isinstance(k, str) else None
-    return None
 
 
 class SmolToolAdapter:
@@ -219,12 +208,7 @@ TOOLS FOR COMPLETION:
                     return format_error_payload(ToolExecutionError("Librarian stopped by user.", code="USER_STOPPED"))
                 if isinstance(step, ToolCall):
                     if step.name == "upsert_memory":
-                        mem_key = _memory_key_from_tool_arguments(step.arguments)
-                        line = (
-                            f"[Memory update: key '{mem_key}']\n"
-                            if mem_key
-                            else "[Memory update: upsert_memory]\n"
-                        )
+                        line = format_upsert_memory_chat_line_from_arguments(step.arguments)
                         if callable(chat_append_callback):
                             chat_append_callback(line)
                         elif append_thinking_callback:

@@ -1,5 +1,7 @@
 import os
 import logging
+from typing import Any, Mapping, cast
+
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.config import user_config_dir
 from plugin.framework.errors import ConfigError
@@ -34,6 +36,58 @@ class MemoryStore:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         return True
+
+
+# Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.
+UPSERT_MEMORY_CHAT_VALUE_MAX = 400
+
+
+def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
+    """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
+    if isinstance(arguments, dict):
+        return cast(dict[str, Any], arguments)
+    if isinstance(arguments, str):
+        from plugin.framework.errors import safe_json_loads
+
+        parsed = safe_json_loads(arguments)
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def memory_key_from_tool_arguments(arguments: object) -> str | None:
+    """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
+    d = upsert_memory_arguments_dict(arguments)
+    if not d:
+        return None
+    k = d.get("key")
+    return k if isinstance(k, str) else None
+
+
+def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
+    """One-line chat preview when upsert_memory starts (main chat tool loop)."""
+    key = func_args.get("key")
+    if not isinstance(key, str):
+        return "[Running tool: upsert_memory...]\n"
+    raw = func_args.get("content", "")
+    if raw is None:
+        val = ""
+    elif isinstance(raw, str):
+        val = raw
+    else:
+        val = str(raw)
+    one_line = val.replace("\n", " ").replace("\r", " ")
+    if len(one_line) > UPSERT_MEMORY_CHAT_VALUE_MAX:
+        one_line = one_line[: UPSERT_MEMORY_CHAT_VALUE_MAX - 3] + "..."
+    return f"[Memory update: key {key!r} value {one_line!r}]\n"
+
+
+def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
+    """Chat preview for librarian ToolCall.arguments (dict or JSON string)."""
+    d = upsert_memory_arguments_dict(arguments)
+    if not d:
+        return "[Memory update: upsert_memory]\n"
+    return format_upsert_memory_chat_line(d)
+
 
 class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""

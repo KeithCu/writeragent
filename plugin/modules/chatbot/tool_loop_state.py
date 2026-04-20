@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, NamedTuple
 
 from plugin.framework.state import BaseState, FsmTransition
 from plugin.framework.types import UIEffectKind
+from plugin.modules.chatbot.memory import format_upsert_memory_chat_line
 
 @dataclasses.dataclass(frozen=True)
 class ToolLoopState(BaseState):
@@ -222,12 +223,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 # web_research: chat shows internal DuckDuckGo `web_search` steps only (see
                 # web_research.py + web_research_chat.py), not a separate outer research banner.
                 if func_name == "upsert_memory":
-                    mem_key = func_args.get("key")
-                    run_line = (
-                        f"[Memory update: key '{mem_key}']\n"
-                        if isinstance(mem_key, str)
-                        else f"[Running tool: {func_name}...]\n"
-                    )
+                    run_line = format_upsert_memory_chat_line(func_args)
                 else:
                     run_line = f"[Running tool: {func_name}...]\n"
                 effects.append(

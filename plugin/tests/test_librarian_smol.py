@@ -5,7 +5,6 @@ from plugin.modules.chatbot.librarian import (
     SmolToolAdapter,
     SwitchToDocumentModeTool,
     LibrarianOnboardingTool,
-    _memory_key_from_tool_arguments,
 )
 from plugin.modules.chatbot.memory import MemoryTool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
@@ -84,14 +83,6 @@ class TestLibrarianSmol(unittest.TestCase):
             self.assertEqual(res["status"], "switch_mode")
             self.assertEqual(res["result"], "See you in document mode!")
 
-    def test_memory_key_from_tool_arguments(self):
-        self.assertEqual(_memory_key_from_tool_arguments({"key": "name"}), "name")
-        self.assertIsNone(_memory_key_from_tool_arguments({}))
-        self.assertEqual(
-            _memory_key_from_tool_arguments('{"key": "nested.k", "content": "v"}'),
-            "nested.k",
-        )
-
     def test_upsert_memory_calls_chat_append_callback(self):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
@@ -119,6 +110,7 @@ class TestLibrarianSmol(unittest.TestCase):
         line = chat_append.call_args[0][0]
         self.assertIn("Memory update", line)
         self.assertIn("nickname", line)
+        self.assertIn("Bob", line)
 
 if __name__ == "__main__":
     unittest.main()
