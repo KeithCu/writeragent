@@ -1,7 +1,7 @@
 # WriterAgent
 
 > [!IMPORTANT]
-> **Please update to version 0.7.4.** Initial versions of WriterAgent did not include proper version information, meaning LibreOffice will never notify you that WriterAgent is out of date. Starting with version 0.7.2, the extension includes it, and a weekly update check to keep you informed of new releases. This version also includes many bug fixes and new features. Please update now to get the best experience and future notifications.
+> **Please update to version 0.7.5.** Initial versions of WriterAgent did not include proper version information, meaning LibreOffice will never notify you that WriterAgent is out of date. Starting with version 0.7.2, the extension includes it, and a weekly update check to keep you informed of new releases. This version also includes many bug fixes and new features. Please update now to get the best experience and future notifications.
 
 **Note:** We are excited to announce an official release of the extension! However, the [version on the LibreOffice site](https://extensions.libreoffice.org/en/extensions/show/99526) is **updated less frequently** than this repository. For the **newest builds with the latest features and fixes**, please use the GitHub release from this repo instead.
 
