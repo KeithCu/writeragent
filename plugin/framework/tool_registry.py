@@ -18,12 +18,12 @@
 """Central tool registry with unified execution."""
 
 import logging
-import threading
 import queue
 from typing import Any, cast
 
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema
+from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger("writeragent.tools")
 
@@ -281,23 +281,35 @@ class ToolRegistry:
     def _get_tool_timeout(self, tool):
         return getattr(tool, "timeout", 0)
 
-    def _execute_with_timeout(self, func, timeout, **kwargs):
-        """Simple timeout handling."""
+    def _execute_with_timeout(self, func, timeout, tool_name="<unknown>", run_threaded=True, **kwargs):
+        """Run *func* with an optional wall-clock timeout.
+
+        If ``run_threaded`` is False (e.g. the tool is synchronous and its
+        ``execute_safe`` main-thread guard would fire in a background thread),
+        the timeout is ignored and the function runs inline. A warning is
+        logged so misconfigured tools are visible.
+        """
         if timeout <= 0:
             return func(**kwargs)
 
-        # Use simple threading for timeout
-        result_queue = queue.Queue()
+        if not run_threaded:
+            log.warning(
+                "Tool '%s' declares timeout=%s but is synchronous; "
+                "timeout is ignored (would trip the main-thread guard). "
+                "Set is_async() to True to enable timeout enforcement.",
+                tool_name, timeout,
+            )
+            return func(**kwargs)
+
+        result_queue: queue.Queue = queue.Queue()
 
         def worker():
             try:
-                result = func(**kwargs)
-                result_queue.put(('success', result))
+                result_queue.put(('success', func(**kwargs)))
             except Exception as e:
                 result_queue.put(('error', e))
 
-        worker_thread = threading.Thread(target=worker, daemon=True)
-        worker_thread.start()
+        worker_thread = run_in_background(worker, name=f"tool-timeout-{tool_name}")
         worker_thread.join(timeout=timeout)
 
         if worker_thread.is_alive():
@@ -395,11 +407,17 @@ class ToolRegistry:
             if bus:
                 bus.emit("tool:executing", name=tool_name, caller=ctx.caller)
 
-            # Execution with simple isolation and timeout
+            # Execution with simple isolation and timeout.
+            # Threaded timeout is only safe when either the guard is bypassed
+            # or the tool is explicitly async (otherwise execute_safe's
+            # main-thread check would fail in the worker thread).
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
+            run_threaded = bypass_thread_guard or bool(tool.is_async())
             result = self._execute_with_timeout(
                 runner,
                 timeout=self._get_tool_timeout(tool),
+                tool_name=tool_name,
+                run_threaded=run_threaded,
                 ctx=ctx,
                 **kwargs
             )

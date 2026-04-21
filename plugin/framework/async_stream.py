@@ -327,7 +327,17 @@ def run_async_worker_with_drain(
     q: queue.Queue | None = None,
 ):
     """Run a background worker and drain its queue on the main thread.
-    Exposes full run_stream_drain_loop capabilities to callers."""
+
+    ``worker_fn`` is a callable that accepts the queue and produces
+    :class:`StreamQueueKind` tuples. It does not need to post a terminal
+    ``STREAM_DONE`` — the wrapper does so in ``finally`` so the drain loop
+    always unblocks. Any exception raised by ``worker_fn`` is converted
+    into an ``ERROR`` payload.
+
+    Callback defaults: ``on_error_fn`` and ``on_stopped_fn`` fall back to
+    ``on_done_fn`` or a no-op so the drain loop never fails on a missing
+    handler.
+    """
     if q is None:
         q = queue.Queue()
     job_done = [False]
@@ -339,8 +349,9 @@ def run_async_worker_with_drain(
             from plugin.framework.errors import format_error_payload
             q.put((StreamQueueKind.ERROR, format_error_payload(e)))
         finally:
-            # If the worker didn't already put STREAM_DONE, do it here.
-            # Use a small timeout to avoid double-done if possible, or just put it.
+            # Terminal sentinel so the drain loop always unblocks, even if
+            # the worker forgot. A late sentinel after STOPPED/ERROR is
+            # harmless because the loop has already exited.
             q.put((StreamQueueKind.STREAM_DONE, None))
             job_done[0] = True
 
@@ -348,9 +359,9 @@ def run_async_worker_with_drain(
     toolkit = get_toolkit(ctx)
     if toolkit is None:
         from plugin.framework.errors import UnoObjectError
-
+        err = UnoObjectError(f"Failed to create toolkit for {name}")
         if on_error_fn:
-            on_error_fn(UnoObjectError(f"Failed to create toolkit for {name}"))
+            on_error_fn(err)
         return
 
     run_in_background(worker_wrapper, daemon=True, name=name)
@@ -363,17 +374,71 @@ def run_async_worker_with_drain(
                 # Fallback for callbacks that don't take any arguments.
                 on_done_fn()
 
+    def _noop_error(_payload: Any) -> None:
+        return None
+
+    def _noop_stopped() -> None:
+        return None
+
+    resolved_on_error = on_error_fn or _noop_error
+    resolved_on_stopped = on_stopped_fn or (
+        (lambda: on_done_fn()) if on_done_fn else _noop_stopped
+    )
+
     run_stream_drain_loop(
         q,
         toolkit,
         job_done,
         apply_chunk_fn,
         on_stream_done=on_stream_done_wrapper,
-        on_stopped=on_stopped_fn,
-        on_error=on_error_fn,
+        on_stopped=resolved_on_stopped,
+        on_error=resolved_on_error,
         on_status_fn=on_status_fn,
         ctx=ctx,
         stop_checker=stop_checker,
+    )
+
+
+def _run_client_stream(
+    ctx: Any,
+    client_call: Callable[..., None],
+    apply_chunk_fn: Callable[[str, bool], None] | None,
+    on_done_fn: Callable[..., None] | None,
+    on_error_fn: Callable[[Any], None] | None,
+    on_status_fn: Callable[[str], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    name: str = "stream-client",
+    include_status: bool = False,
+) -> None:
+    """Shared adapter: run *client_call* in a worker streaming into the queue.
+
+    ``client_call`` is a client method pre-bound with all positional args;
+    it receives the standard streaming callback kwargs
+    (``append_callback``, ``append_thinking_callback``, optional
+    ``status_callback``, and ``stop_checker``).
+    """
+
+    def worker(q: queue.Queue) -> None:
+        kwargs: dict[str, Any] = {
+            "append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)),
+            "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)),
+            "stop_checker": stop_checker,
+        }
+        if include_status:
+            kwargs["status_callback"] = lambda t: q.put((StreamQueueKind.STATUS, t))
+        client_call(**kwargs)
+        if stop_checker and stop_checker():
+            put_stream_queue_stopped(q)
+
+    run_async_worker_with_drain(
+        ctx,
+        worker,
+        apply_chunk_fn=apply_chunk_fn,
+        on_done_fn=on_done_fn,
+        on_error_fn=on_error_fn,
+        on_status_fn=on_status_fn,
+        stop_checker=stop_checker,
+        name=name,
     )
 
 
@@ -389,53 +454,20 @@ def run_stream_completion_async(
     on_status_fn=None,
     stop_checker=None,
 ):
-    """
-    High-level helper for simple non-tool streams (always chat completions).
-    """
-    q = queue.Queue()
-    job_done = [False]
+    """High-level helper for simple non-tool streams (always chat completions)."""
 
-    def worker():
-        try:
-            client.stream_completion(
-                prompt,
-                system_prompt,
-                max_tokens,
-                append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)),
-                append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)),
-                status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)),
-                stop_checker=stop_checker,
-            )
-            if stop_checker and stop_checker():
-                put_stream_queue_stopped(q)
-            else:
-                q.put((StreamQueueKind.STREAM_DONE, None))
-        except Exception as e:
-            from plugin.framework.errors import format_error_payload
-            q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+    def client_call(**cb_kwargs):
+        client.stream_completion(prompt, system_prompt, max_tokens, **cb_kwargs)
 
-    try:
-        toolkit = ctx.getServiceManager().createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
-    except Exception as e:
-        from plugin.framework.errors import UnoObjectError
-        on_error_fn(UnoObjectError(f"Failed to create toolkit for async stream: {e}"))
-        return
-
-    run_in_background(worker, daemon=True, name="stream-completion")
-
-    def on_stream_done_wrapper(_response):
-        on_done_fn()
-        return True
-
-    run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk_fn,
-        on_stream_done=on_stream_done_wrapper,
-        on_stopped=on_done_fn,
-        on_error=on_error_fn,
+    _run_client_stream(
+        ctx, client_call,
+        apply_chunk_fn=apply_chunk_fn,
+        on_done_fn=on_done_fn,
+        on_error_fn=on_error_fn,
         on_status_fn=on_status_fn,
-        ctx=ctx,
         stop_checker=stop_checker,
+        name="stream-completion",
+        include_status=True,
     )
 
 
@@ -450,62 +482,25 @@ def run_stream_async(
     max_tokens=None,
     stop_checker=None,
 ):
-    """
-    Compatibility helper for legacy run_stream_async calls (using messages/tools).
-    """
-    q = queue.Queue()
-    job_done = [False]
+    """Compatibility helper for legacy run_stream_async calls (using messages/tools)."""
 
-    def worker():
-        try:
-            if tools:
-                client.stream_request_with_tools(
-                    messages,
-                    max_tokens or 512,
-                    tools=tools,
-                    append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)),
-                    append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)),
-                    stop_checker=stop_checker,
-                )
-            else:
-                client.stream_chat_response(
-                    messages,
-                    max_tokens or 512,
-                    append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)),
-                    append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)),
-                    stop_checker=stop_checker,
-                )
-            if stop_checker and stop_checker():
-                put_stream_queue_stopped(q)
-            else:
-                q.put((StreamQueueKind.STREAM_DONE, None))
-        except Exception as e:
-            from plugin.framework.errors import format_error_payload
-            q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+    effective_max = max_tokens or 512
 
-    try:
-        toolkit = ctx.getServiceManager().createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
-    except Exception as e:
-        from plugin.framework.errors import UnoObjectError
-        if on_error_fn:
-            on_error_fn(UnoObjectError(f"Failed to create toolkit for async stream: {e}"))
-        return
+    def client_call(**cb_kwargs):
+        if tools:
+            client.stream_request_with_tools(
+                messages, effective_max, tools=tools, **cb_kwargs)
+        else:
+            client.stream_chat_response(messages, effective_max, **cb_kwargs)
 
-    run_in_background(worker, daemon=True, name="stream-async")
-
-    def on_stream_done_wrapper(_response):
-        if on_done_fn:
-            on_done_fn()
-        return True
-
-    run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk_fn,
-        on_stream_done=on_stream_done_wrapper,
-        on_stopped=on_done_fn if on_done_fn else (lambda: None),
-        on_error=on_error_fn if on_error_fn else (lambda e: None),
-        ctx=ctx,
+    _run_client_stream(
+        ctx, client_call,
+        apply_chunk_fn=apply_chunk_fn,
+        on_done_fn=on_done_fn,
+        on_error_fn=on_error_fn,
         stop_checker=stop_checker,
+        name="stream-async",
+        include_status=False,
     )
 
 

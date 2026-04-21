@@ -21,7 +21,8 @@ from typing import Any, Callable, cast
 log = logging.getLogger("writeragent.framework.queue_executor")
 
 class _WorkItem:
-    __slots__ = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception")
+    __slots__ = ("id", "fn", "args", "kwargs", "blocking", "event",
+                 "result", "exception", "cancelled")
 
     def __init__(self, item_id, fn, args, kwargs, blocking=True):
         self.id = item_id
@@ -32,6 +33,7 @@ class _WorkItem:
         self.event = threading.Event() if blocking else None
         self.result = None
         self.exception = None
+        self.cancelled = False
 
 class QueueExecutor:
     """Execute functions on main thread using queue system."""
@@ -98,13 +100,17 @@ class QueueExecutor:
         except queue.Empty:
             return
 
-        try:
-            item.result = item.fn(*item.args, **item.kwargs)
-        except Exception as exc:
-            item.exception = exc
-        finally:
-            if item.blocking and item.event:
-                item.event.set()
+        if item.cancelled:
+            log.debug("QueueExecutor: skipping cancelled item %s (%s)",
+                      item.id, getattr(item.fn, "__name__", "<fn>"))
+        else:
+            try:
+                item.result = item.fn(*item.args, **item.kwargs)
+            except Exception as exc:
+                item.exception = exc
+            finally:
+                if item.blocking and item.event:
+                    item.event.set()
 
         # Re-poke if more items waiting
         if not self._work_queue.empty():
@@ -136,6 +142,10 @@ class QueueExecutor:
     def _wait_for_result(self, item, timeout):
         """Wait for and return result from main thread."""
         if not item.event.wait(timeout):
+            # Main thread hasn't picked this up in time. Mark it cancelled
+            # so process_queue drops it instead of running the fn against an
+            # abandoned caller.
+            item.cancelled = True
             raise TimeoutError(
                 "Main-thread execution of %s timed out after %ss"
                 % (getattr(item.fn, "__name__", str(item.fn)), timeout))

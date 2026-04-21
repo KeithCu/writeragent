@@ -71,8 +71,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         try:
             if route.raw:
                 if route.main_thread:
-                    from plugin.framework.queue_executor import QueueExecutor
-                    QueueExecutor().execute(route.handler, self)
+                    from plugin.framework.queue_executor import default_executor
+                    default_executor.execute(route.handler, self)
                 else:
                     route.handler(self)
             else:
