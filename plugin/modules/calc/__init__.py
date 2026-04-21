@@ -34,7 +34,8 @@ class CalcModule(ModuleBase):
     def initialize(self, services):
         self.services = services
 
-        services.tools.auto_discover_package(__name__)
+        # Move to late-import to avoid circular dependency (writer.base -> calc.base -> calc.__init__ -> forms -> writer.base)
+        from . import forms  # noqa: F401
+        from . import specialized as specialized  # noqa: F401
 
-from . import forms  # noqa: F401 — re-exports writer.forms tools for package clarity
-from . import specialized as specialized
+        services.tools.auto_discover_package(__name__)

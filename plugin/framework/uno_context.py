@@ -111,3 +111,26 @@ def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):
         import uno
         return str(uno.fileUrlToSystemPath(url))
     return url
+
+
+def get_toolkit(ctx=None):
+    """Safely retrieve the com.sun.star.awt.Toolkit service."""
+    ctx = ctx or get_ctx()
+    if ctx is None:
+        return None
+    try:
+        from typing import cast
+        ctx_any = cast("Any", ctx)
+        smgr = getattr(
+            ctx_any,
+            "ServiceManager",
+            getattr(ctx_any, "getServiceManager", lambda: None)(),
+        )
+        if smgr is None:
+            return None
+        return cast("Any", smgr).createInstanceWithContext(
+            "com.sun.star.awt.Toolkit", ctx_any
+        )
+    except Exception as e:
+        log.warning("Failed to create toolkit: %s", e)
+        return None

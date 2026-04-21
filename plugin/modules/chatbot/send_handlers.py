@@ -138,29 +138,7 @@ class SendHandlersMixin:
         on_stopped_callback: Callable[[], None] | None = None,
         on_approval_callback: Callable[[Any], None] | None = None
     ) -> None:
-        from plugin.framework.worker_pool import run_in_background
-        from plugin.framework.async_stream import run_stream_drain_loop
-        from plugin.framework.i18n import _
-
-        job_done = [False]
-        run_in_background(worker_fn)
-
-        try:
-            toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", self.ctx
-            )
-        except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                log.debug("Failed to create Toolkit for stream drain loop (likely disposed): %s", e)
-            else:
-                log.error("Failed to create Toolkit for stream drain loop: %s", e)
-            self._append_response("\n[" + _("Error: {0}").format(str(e)) + "]\n")
-            self._terminal_status = "Error"
-            if hasattr(self, "_current_agent_backend"):
-                self._current_agent_backend = None
-            return
+        from plugin.framework.async_stream import run_async_worker_with_drain
 
         def dispatch_event(event):
             nonlocal current_state
@@ -175,32 +153,37 @@ class SendHandlersMixin:
                 return
             dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
 
-        def on_stream_done(response):
-            job_done[0] = True
-            dispatch_event(StreamDoneEvent(response))
-            return True
+        def on_stream_done(item):
+            payload = item[1] if isinstance(item, tuple) and len(item) > 1 else item
+            dispatch_event(StreamDoneEvent(payload))
 
         def on_stopped():
             if on_stopped_callback:
                 on_stopped_callback()
             dispatch_event(StopRequestedEvent())
-            job_done[0] = True
 
         def on_error(e):
             dispatch_event(ErrorEvent(e))
 
-        run_stream_drain_loop(
-            q,
-            toolkit,
-            job_done,
+        def worker_wrapper(worker_q):
+            # The worker_fn in this mixin expects to put things directly into q.
+            # We already have q, so we just run worker_fn.
+            # However, run_async_worker_with_drain creates its own q.
+            # We can just ignore the worker_q and use the outer q.
+            # BUT, it's better to refactor the workers to use the passed queue.
+            worker_fn()
+
+        run_async_worker_with_drain(
+            self.ctx,
+            worker_wrapper,
             apply_chunk,
-            on_stream_done=on_stream_done,
-            on_stopped=on_stopped,
-            on_error=on_error,
+            on_stream_done,
+            on_error,
             on_status_fn=self._set_status,
-            ctx=self.ctx,
             stop_checker=lambda: self.stop_requested,
-            on_approval_required=on_approval_callback,
+            on_stopped_fn=on_stopped,
+            name="chatbot-send-handler",
+            q=q,
         )
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:

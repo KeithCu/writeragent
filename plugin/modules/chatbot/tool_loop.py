@@ -917,18 +917,13 @@ class ToolCallingMixin:
                 log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
                 show_search_thinking = False
 
-            try:
-                toolkit = self.ctx.getServiceManager().createInstanceWithContext(
-                    "com.sun.star.awt.Toolkit", self.ctx
-                )
-            except Exception as e:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                    log.debug("Failed to create Toolkit instance (likely disposed): %s", e)
-                else:
-                    log.error("Failed to create Toolkit instance: %s", e)
-                self._append_response("\n[Error: %s]\n" % str(e))
+            from plugin.framework.uno_context import get_toolkit
+
+            toolkit = get_toolkit(self.ctx)
+            if toolkit is None:
+                from plugin.framework.i18n import _
+
+                self._append_response("\n[" + _("Error: Toolkit unavailable") + "]\n")
                 self._terminal_status = "Error"
                 self._set_status("Error")
                 return

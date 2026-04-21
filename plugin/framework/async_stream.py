@@ -26,7 +26,7 @@ import json
 import logging
 import queue
 from enum import StrEnum
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, Callable
 
 from plugin.framework.worker_pool import run_in_background
 
@@ -312,6 +312,69 @@ def run_stream_drain_loop(
             log.error("Failed to notify error handler")
 
         job_done[0] = True
+
+
+def run_async_worker_with_drain(
+    ctx: Any,
+    worker_fn: Callable[[queue.Queue], None],
+    apply_chunk_fn: Callable[[str, bool], None] | None,
+    on_done_fn: Callable[..., None] | None,
+    on_error_fn: Callable[[Any], None] | None,
+    on_status_fn: Callable[[str], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    on_stopped_fn: Callable[[], None] | None = None,
+    name: str = "async-worker",
+    q: queue.Queue | None = None,
+):
+    """Run a background worker and drain its queue on the main thread.
+    Exposes full run_stream_drain_loop capabilities to callers."""
+    if q is None:
+        q = queue.Queue()
+    job_done = [False]
+
+    def worker_wrapper():
+        try:
+            worker_fn(q)
+        except Exception as e:
+            from plugin.framework.errors import format_error_payload
+            q.put((StreamQueueKind.ERROR, format_error_payload(e)))
+        finally:
+            # If the worker didn't already put STREAM_DONE, do it here.
+            # Use a small timeout to avoid double-done if possible, or just put it.
+            q.put((StreamQueueKind.STREAM_DONE, None))
+            job_done[0] = True
+
+    from plugin.framework.uno_context import get_toolkit
+    toolkit = get_toolkit(ctx)
+    if toolkit is None:
+        from plugin.framework.errors import UnoObjectError
+
+        if on_error_fn:
+            on_error_fn(UnoObjectError(f"Failed to create toolkit for {name}"))
+        return
+
+    run_in_background(worker_wrapper, daemon=True, name=name)
+
+    def on_stream_done_wrapper(item):
+        if on_done_fn:
+            try:
+                on_done_fn(item)
+            except TypeError:
+                # Fallback for callbacks that don't take any arguments.
+                on_done_fn()
+
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        job_done,
+        apply_chunk_fn,
+        on_stream_done=on_stream_done_wrapper,
+        on_stopped=on_stopped_fn,
+        on_error=on_error_fn,
+        on_status_fn=on_status_fn,
+        ctx=ctx,
+        stop_checker=stop_checker,
+    )
 
 
 def run_stream_completion_async(

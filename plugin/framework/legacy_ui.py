@@ -599,7 +599,8 @@ def show_eval_dashboard(ctx):
                 self.dialog.getControl("log_area").setText(log_text)
                 self.dialog.getControl("status").setText("Finished")
 
-        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+        from plugin.framework.uno_context import get_toolkit
+        toolkit = get_toolkit(ctx)
         dlg.getControl("btn_run").addActionListener(EvalRunListener(ctx, dlg, toolkit))
         
         class CloseListener(BaseActionListener):

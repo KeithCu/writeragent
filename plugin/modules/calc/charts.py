@@ -127,21 +127,15 @@ def _axis_title_shape_string(shape, value: str | None) -> str | None:
     return None
 
 
-def _process_events():
-    return None
-
-    """Give LO a moment to process UI events and update object names/states.
+def _process_events(ctx=None):
+    """Give LO a moment to process UI events and update object names/states."""
     try:
-        from plugin.framework.uno_context import get_ctx
-        ctx = cast(Any, get_ctx())
-        smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
-        if smgr:
-            toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-            if toolkit:
-                toolkit.processEventsToIdle()
+        from plugin.framework.uno_context import get_toolkit, get_ctx
+        tk = get_toolkit(ctx or get_ctx())
+        if tk:
+            tk.processEventsToIdle()
     except Exception:
         pass
-    """
 
 # Shared parameters for Create and Edit
 CHART_PROPERTIES = {

@@ -30,7 +30,6 @@ from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.smol_model import WriterAgentSmolModel
-from plugin.modules.chatbot.web_research import WebResearchTool
 from plugin.modules.http.client import LlmClient
 from typing import cast, Iterable
 
@@ -99,6 +98,7 @@ class DelegateToSpecializedWriter(ToolBase):
         stop_checker = getattr(ctx, "stop_checker", None)
 
         if domain == "web_research":
+            from plugin.modules.chatbot.web_research import WebResearchTool
             tool = WebResearchTool()
             return tool.execute(ctx, query=task)
 
