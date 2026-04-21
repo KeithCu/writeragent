@@ -71,8 +71,9 @@ class TestAsyncStreamErrorHandling:
         )
 
         assert job_done[0] is True
-        on_chunk.assert_any_call("hello ", is_thinking=False)
-        on_chunk.assert_any_call("thinking...", is_thinking=True)
+        # apply_chunk_fn is (text, is_thinking) positional — not keyword is_thinking=
+        on_chunk.assert_any_call("hello ", False)
+        on_chunk.assert_any_call("thinking...", True)
         on_stream_done.assert_called_once_with((StreamQueueKind.STREAM_DONE, "final"))
         on_error.assert_not_called()
 
