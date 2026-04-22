@@ -29,6 +29,7 @@ ALWAYS_INCLUDE_EXTENSION = [
     "extension/Addons.xcu",
     "extension/Accelerators.xcu",
     "extension/XPromptFunction.rdb",
+    "extension/Jobs.xcu",
     "extension/registration/",
     "extension/registry/",
     "extension/dialogs/",

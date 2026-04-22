@@ -196,12 +196,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             else:
                 log.exception("Error setting status text: %s", e)
 
-    # 5. Timer and Resize
-    try:
-        from plugin.main import try_ensure_mcp_timer
-        try_ensure_mcp_timer(self.ctx)
-    except Exception as e:
-        log.error("try_ensure_mcp_timer: %s" % e)
 
     try:
         log.debug(

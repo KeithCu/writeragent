@@ -149,6 +149,12 @@ def get_tools() -> ToolRegistry:
     return _tools
 
 def bootstrap(ctx=None):
+    """Bootstraps the service container and modules.
+
+    This is currently triggered eagerly by Jobs.xcu on OnStartApp to ensure the
+    MCP server starts automatically in headless mode. We could make this lazy
+    again in the future if startup performance becomes a concern.
+    """
     global _services, _tools, _modules, _initialized
     
     if _initialized:
@@ -357,6 +363,7 @@ def _run_test_suite(test_func, doc_checker, test_name):
 
 def _dispatch_command(command):
     """Dispatch command using handler registry, falling back to module actions."""
+    bootstrap()
     # First try the action registry
     handler = _ACTION_HANDLERS.get(command)
     if handler:
@@ -388,6 +395,7 @@ def _dispatch_command(command):
 
 def get_menu_text(command):
     """Get dynamic menu text for a command, or None for default."""
+    bootstrap()
     dot = command.find(".")
     if dot <= 0:
         return None
@@ -503,6 +511,7 @@ _IMAGE_MANAGER_MODULES = (
 
 def _get_menu_icon(command):
     """Get dynamic icon prefix for a command, or None."""
+    bootstrap()
     dot = command.find(".")
     if dot <= 0:
         return None
@@ -620,8 +629,6 @@ def _update_menu_icons():
         log.warning("_update_menu_icons: outer exception: %s", e)
 
 def _get_http_module(ctx=None) -> HttpMcpActions | None:
-    if ctx:
-        bootstrap(ctx)
     for mod in _modules:
         if mod.name == "http":
             return cast("HttpMcpActions", mod)
@@ -632,7 +639,8 @@ def _start_mcp_server(ctx):
     from plugin.framework.config import get_config_bool
     if not get_config_bool(ctx, "mcp_enabled"):
         return
-    bootstrap(ctx)
+    # Note: _get_http_module relies on bootstrap already having run.
+    _get_http_module(ctx)
 
 def _stop_mcp_server():
     mod = _get_http_module()
@@ -640,25 +648,18 @@ def _stop_mcp_server():
         mod.shutdown()
 
 def _toggle_mcp_server(ctx):
-    bootstrap(ctx)
     mod = _get_http_module(ctx)
     if mod:
         mod._action_toggle_server()
 
 def _do_mcp_status(ctx):
-    bootstrap(ctx)
     mod = _get_http_module(ctx)
     if mod:
         mod._action_server_status()
 
-def try_ensure_mcp_timer(ctx):
-    """Legacy entry point from sidebar to ensure server is running.
-    The new framework main_thread executes drains natively without timers."""
-    pass
-
 
 # Bootstrapper replaces the previous monolithic MainJob.
-# It acts as an OnStartApp hook and a proxy for legacy toolbar triggers.
+# It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
 class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
     def __init__(self, ctx):
         self.ctx = ctx
@@ -677,7 +678,6 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         return ()
 
     def trigger(self, Event):
-        bootstrap(self.ctx)
         init_logging(self.ctx)
 
         args = Event
@@ -809,7 +809,6 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
             # msgbox(self.ctx, "Dispatch", f"Command: {command}") # Temporary probe
-            bootstrap(self.ctx)
             _dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
