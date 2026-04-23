@@ -239,7 +239,7 @@ Block `WRITER_SPECIALIZED_DELEGATION` is prepended into `DEFAULT_CHAT_SYSTEM_PRO
 Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users do not need delegation for common actions, for example:
 
 - **Track changes:** [`plugin/modules/writer/tracking.py`](../../plugin/modules/writer/tracking.py) — `set_track_changes`, `get_tracked_changes`, `manage_tracked_changes` (nelson-aligned behavior; combined accept/reject in `manage_tracked_changes`).
-- **Paragraph style apply:** [`plugin/modules/writer/styles.py`](../../plugin/modules/writer/styles.py) — `styles_apply_to_selection` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended".
+- **Paragraph style apply:** [`plugin/modules/writer/styles.py`](../../plugin/modules/writer/styles.py) — `styles_apply_to_selection` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended"`.
 
 **Style discovery** (`list_styles`, `get_style_info`) remains under `ToolWriterStyleBase` (specialized) so the main list does not duplicate large style catalog traffic; the prompt steers toward delegation or other discovery when needed.
 
@@ -256,6 +256,8 @@ Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users
 ### 5.1 Domain, modules, and extended LO surface
 
 **WriterAgent** modules/tools (columns 1–3) and **broader LibreOffice** gaps not covered by the agent (column 4). Core/advanced narrative lists remain in §5.5–5.6.
+
+**Math:** Editable **MathML in HTML** is imported on the **default core** tool `apply_document_content` (math-aware segmentation and OLE Math insertion in `format_support`), not through `delegate_to_specialized_writer_toolset`. There is no separate specialized **domain** for equations; models use the same HTML rules as other body content (`WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/constants.py`](../../plugin/framework/constants.py)). See [`docs/libreoffice-html-math-dev-plan.md`](libreoffice-html-math-dev-plan.md).
 
 | Domain / area | WriterAgent status | Module & tools | Extended LO API (gaps) |
 |---------------|--------------------|----------------|-------------------------|
@@ -282,12 +284,12 @@ Some Writer tools intentionally use **`tier = "extended"`** (or `core`) so users
 | **Document automation** | ❌ Not in agent | — | Macros/scripting (Basic/Python/JS); event handling; custom functions; add-ins/extensions |
 | **Security** | ❌ Not in agent | — | Digital signatures; encryption; password protection; redaction |
 | **Document management** | ❌ Not in agent | — | Properties/metadata; version history; document comparison; assembly |
-| **Math & scientific** | ❌ Not in agent | — | Equation editor; math/chemical formulas; graph plotting |
+| **Math (MathML in HTML)** | ✅ Implemented (core) | `content.py`: `apply_document_content`; `format_support.py`, `html_math_segment.py`, `math_mml_convert.py`, `math_formula_insert.py`. Not a delegated domain. | TeX-as-input in HTML (planned); chemistry notation; plotting; extra UNO beyond import path |
 | **Real-time collaboration** | ❌ Not in agent | — | Co-authoring; shared access; change notification; conflict resolution |
 | **External integration** | ❌ Not in agent | — | Database connectivity; web services; cloud storage; API access |
 | **Customization** | ❌ Not in agent | — | Custom toolbars/menus; keyboard shortcuts; UI customization; extension development |
 
-`ToolWriterTableBase` / `tables` is the only **domain base** without a dedicated UNO table toolset (HTML path). Rows above combine specialized domains, planned gaps, and LO-wide areas not covered by WriterAgent tools.
+`ToolWriterTableBase` / `tables` is the only **domain base** without a dedicated UNO table toolset (HTML path). **Math** likewise uses the core HTML insert path, not a `specialized_domain`. Rows above combine specialized domains, planned gaps, and LO-wide areas not covered by WriterAgent tools.
 
 ### 5.2 Core infrastructure
 

@@ -45,6 +45,7 @@ More than just a chatbot, this is a "Document Agent." It doesn't just read your 
 - **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
 - **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name and favorite colors) and give tips. The librarian and general chat agent use the `upsert_memory` tool to store user preferences.
 - **Multilingual & HiDPI**: Ships with the interface translated into 15 languages (Spanish, French, Portuguese, Russian, German, Japanese, Italian, Polish, Korean, Chinese (simplified and traditional), Hindi, Bengali, Indonesian and Urdu) and optimized for modern high-resolution displays using device-independent units.
+- **Writer math in HTML**: **MathML** (`<math>…</math>`) and common **TeX** delimiters (`$…$`, `$$…$$`, `\(...\)`, `\[...\]`) are turned into **editable LibreOffice Math** formulas (OLE objects), not screenshots. Details: [libreoffice-html-math-dev-plan.md](docs/libreoffice-html-math-dev-plan.md).
 - **LibreOffice Resource**: Many models know LibreOffice well, so you can ask questions like: *What is the page gutter feature?*
 
 #### Showcase
@@ -127,6 +128,10 @@ Their work on an embedded MCP (Model Context Protocol) server for LibreOffice wa
 **[Hermes Agent](https://github.com/NousResearch/hermes-agent)**
 
 Their client-side tool call parsers and robust JSON repair strategies (adapted from `environments/tool_call_parsers/` and `cron/jobs.py`) provide the foundation for our `plugin/contrib/tool_call_parsers/` module. This allows local inference models to trigger structured tool loops even when they slightly deviate from strict JSON syntax.
+
+**[latex2mathml](https://github.com/roniemartinez/latex2mathml)**
+
+[latext2mathml](https://github.com/roniemartinez)'s **latex2mathml** converts LaTeX to MathML in pure Python. WriterAgent vendors it (see `requirements-vendor.txt`) so that when models send TeX-delimited math inside HTML for `apply_document_content`, we can turn it into MathML and feed the same LibreOffice-backed path used for native `<math>` islands (`plugin/modules/writer/math_mml_convert.py`). We are grateful for a small, permissively licensed bridge that fits our extension bundle without a heavy TeX stack.
 
 ## Performance & Batch Optimizations
 
