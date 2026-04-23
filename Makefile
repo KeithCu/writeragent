@@ -455,7 +455,7 @@ pyrefly: manifest pyrefly-run
 
 ty-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno
-	$(PYTHON) -m ty check --exclude plugin/contrib/
+	$(PYTHON) -m ty check --exclude plugin/contrib/ --exclude plugin/lib/
 
 mypy-run:
 	@$(PYTHON) -c "import uno" 2>/dev/null || $(MAKE) fix-uno

@@ -4,9 +4,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import unittest
+from unittest.mock import patch
 
 from plugin.modules.writer.math_mml_convert import (
+    MathConversionResult,
     collapse_starmath_newline_tokens_for_writer_embed,
+    convert_latex_to_starmath,
 )
 
 
@@ -31,6 +34,23 @@ class TestCollapseStarmathNewline(unittest.TestCase):
     def test_idempotent(self):
         s = "a + b"
         self.assertEqual(collapse_starmath_newline_tokens_for_writer_embed(s), s)
+
+
+class TestConvertLatexToStarmath(unittest.TestCase):
+    def test_delegates_to_mathml_path(self):
+        fake_ctx = object()
+        with patch(
+            "plugin.modules.writer.math_mml_convert.convert_mathml_to_starmath"
+        ) as mock_mml:
+            mock_mml.return_value = MathConversionResult(True, "a + b", None)
+            res = convert_latex_to_starmath(fake_ctx, "a+b", display_block=False)
+            self.assertTrue(res.ok)
+            self.assertEqual(res.starmath, "a + b")
+            mock_mml.assert_called_once()
+            call_ctx, mathml_arg = mock_mml.call_args[0]
+            self.assertIs(call_ctx, fake_ctx)
+            self.assertIn("<math", mathml_arg.lower())
+            self.assertIn("http://www.w3.org/1998/Math/MathML", mathml_arg)
 
 
 if __name__ == "__main__":

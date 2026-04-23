@@ -12,12 +12,12 @@ The goal is to add **editable math support** to WriterAgent's HTML import path f
 |--------|--------|--------|
 | **Phase 0** (spike) | **Done** | MathML → temp `.mml` → LO Math `Formula` → Writer `TextEmbeddedObject`; proven in shipped code + UNO tests. |
 | **Phase 1** (MathML MVP) | **Done** (core) | Segmentation, mixed HTML import, inline/display, tests, StarMath `newline` collapse for Writer embeds. Gaps called out in [Phase 1](#phase-1-mathml-mvp) below. |
-| **Phase 2** (TeX fallback) | **Not started** | See [Phase 2](#phase-2-tex-aware-fallback). |
+| **Phase 2** (TeX fallback) | **Done** (core) | Delimiters `$…$`, `$$…$$`, `\(...\)`, `\[...\]`; `latex2mathml` → same LO MathML path; mixed scan + precedence in `html_math_segment.py`; `convert_latex_to_starmath` in `math_mml_convert.py`; prompts in `constants.py` / `apply_document_content` schema. Optional: KaTeX `<annotation encoding="application/x-tex">` retry on MathML failure (not implemented). |
 | **Phase 3** (robustness) | **Not started** | See [Phase 3](#phase-3-robustness-and-quality). |
 
-**Shipped modules (WriterAgent):** `html_math_segment.py`, `math_mml_convert.py`, `math_formula_insert.py`, orchestration in `format_support.py`; tests under `plugin/tests/` and `plugin/tests/uno/`; agent context in `AGENTS.md`.
+**Shipped modules (WriterAgent):** `html_math_segment.py` (MathML + TeX segmentation), `math_mml_convert.py` (MathML + LaTeX→MathML→StarMath), `math_formula_insert.py`, orchestration in `format_support.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns); vendored **`latex2mathml`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `plugin/tests/` and `plugin/tests/uno/`; agent context in `AGENTS.md`; model hints in `plugin/framework/constants.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/modules/writer/content.py` (`ApplyDocumentContent`).
 
-**Next priorities (pick from):** Phase 2 TeX; optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; optional tool-return warnings; upstream LO Writer OLE + `newline` rendering.
+**Next priorities (pick from):** Phase 3 quality; Phase 1 backlog (test matrix, optional `warnings` in tool return); optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; upstream LO Writer OLE + `newline` rendering; optional KaTeX annotation fallback.
 
 ## Problem statement
 
@@ -59,15 +59,15 @@ The feature is successful when all of the following are true:
 4. unsupported math does not silently disappear
 5. the implementation is covered by unit tests and UNO tests
 
-**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full matrix, structured tool warnings).
+**As of 2026-04:** (1)–(4) are **met** for MathML-backed HTML; (5) is **met for core paths** with gaps listed under Phase 1 **Not done yet** (full matrix, structured tool warnings). **As of Phase 2 ship:** common TeX-delimited math in the same HTML import path meets the same visibility and test bar as MathML for core cases (subset of LaTeX via `latex2mathml`; not full TeX compatibility).
 
 ## Recommended release strategy
 
-Ship this in three stages (Phase 0 + Phase 1 are **complete in code**; Phases 2–3 remain):
+Ship this in three stages (Phase 0–2 are **complete in code** for core paths; Phase 3 remains):
 
 1. **Prototype spike** — **done** (validated as part of Phase 1 delivery).
 2. **Phase 1 MVP** — **done** (MathML-aware HTML import; see gaps in the Phase 1 section).
-3. **Phase 2 + Phase 3** — **not done** (TeX fallback, then robustness / quality).
+3. **Phase 2 TeX** — **done** (core delimiter path + tests + prompts); Phase 3 robustness / quality **not done**.
 
 This keeps risk low and gives us a natural checkpoint after the hardest technical unknown is resolved.
 
@@ -145,7 +145,8 @@ Support the most structured and realistic first wave of HTML math inputs.
 |--------|--------|
 | Explicit `<math>…</math>` | **Done** |
 | KaTeX / MathJax HTML that **contains** `<math>` (same extractor) | **Done** (no separate DOM fingerprint beyond `<math>`) |
-| Math-heavy HTML **without** `<math>` (CSS-only, TeX-only) | **Not in scope** (Phase 2 / non-goals) |
+| Math-heavy HTML **without** `<math>` but **with** TeX delimiters (`$…$`, `$$…$$`, `\(...\)`, `\[...\]`) | **Done** (Phase 2; subset of LaTeX) |
+| Math-heavy HTML **without** `<math>` or TeX (CSS-only / no machine-readable math) | **Not in scope** (non-goals) |
 
 ### Functional scope
 
@@ -156,12 +157,12 @@ Support the most structured and realistic first wave of HTML math inputs.
 | Preserve order in document | **Done** |
 | Inline formulas | **Done** |
 | Display (`display="block"`, `mode="display"`) as own paragraph | **Done** |
-| Non-math HTML unchanged when no `<math>` | **Done** |
+| Non-math HTML unchanged when no math markers (`<math` / TeX delimiters) | **Done** |
 
 ### Tasks
 
-1. [x] Math detection (`html_fragment_contains_mathml`)
-2. [x] Segmentation (`segment_html_with_mathml`, tag-boundary scanner)
+1. [x] Math detection (`html_fragment_contains_mathml`; Phase 2 adds `html_fragment_contains_tex_math` / `html_fragment_contains_mixed_math`)
+2. [x] Segmentation (`segment_html_with_mixed_math`; `segment_html_with_mathml` is an alias)
 3. [x] Formula insertion (`math_formula_insert.py`)
 4. [x] MathML → StarMath (`math_mml_convert.py`, LO Math doc + `collapse_starmath_newline_tokens_for_writer_embed`)
 5. [x] Orchestration (`format_support.py`, all `insertDocumentFromURL` entry paths + cursor-to-end after each segment)
@@ -182,12 +183,13 @@ Support the most structured and realistic first wave of HTML math inputs.
 
 | Area | Module |
 |------|--------|
-| Segmentation | [`plugin/modules/writer/html_math_segment.py`](../plugin/modules/writer/html_math_segment.py) |
-| MathML → StarMath + `newline` mitigation | [`plugin/modules/writer/math_mml_convert.py`](../plugin/modules/writer/math_mml_convert.py) |
+| Segmentation (MathML + TeX order) | [`plugin/modules/writer/html_math_segment.py`](../plugin/modules/writer/html_math_segment.py) |
+| MathML → StarMath; LaTeX → MathML (`latex2mathml`) → StarMath; `newline` mitigation | [`plugin/modules/writer/math_mml_convert.py`](../plugin/modules/writer/math_mml_convert.py) |
 | OLE insert | [`plugin/modules/writer/math_formula_insert.py`](../plugin/modules/writer/math_formula_insert.py) |
-| HTML + math orchestration, `content_has_markup` `<math` | [`plugin/modules/writer/format_support.py`](../plugin/modules/writer/format_support.py) |
+| HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/modules/writer/format_support.py`](../plugin/modules/writer/format_support.py) |
+| Chat / tool text for `apply_document_content` | [`plugin/framework/constants.py`](../plugin/framework/constants.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`), [`plugin/modules/writer/content.py`](../plugin/modules/writer/content.py) (`ApplyDocumentContent`) |
 | Unit tests | `plugin/tests/test_html_math_segment.py`, `plugin/tests/test_math_mml_convert.py` |
-| UNO tests | `plugin/tests/uno/test_writer_mathml_import.py` |
+| UNO tests | `plugin/tests/uno/test_writer_mathml_import.py` (MathML + TeX cases) |
 | Agent orientation | [`AGENTS.md`](../AGENTS.md) |
 
 ### Implementation notes (LibreOffice / Writer)
@@ -208,7 +210,7 @@ These are **not** Phase 2 TeX work unless noted:
 
 ## Phase 2: TeX-aware fallback
 
-**Status: Not started.**
+**Status: Done (core).** Stretch / backlog: KaTeX-style `<annotation encoding="application/x-tex">` retry when MathML import fails (not implemented).
 
 ### Objective
 
@@ -220,22 +222,24 @@ Handle common sources where the HTML contains TeX source or TeX-style delimiters
 - `$$...$$`
 - `\(...\)`
 - `\[...\]`
-- TeX annotations preserved in upstream KaTeX/MathJax output
+- TeX annotations preserved in upstream KaTeX/MathJax output (**not** auto-mined yet; prefer embedded `<math>` when present)
 
 ### Tasks
 
-1. [ ] TeX source detection
-2. [ ] Precedence rules between MathML and TeX when both are present
-3. [ ] TeX normalization/conversion approach
-4. [ ] Convert TeX → MathML or StarMath
-5. [ ] Reuse Phase 1 formula insertion path
-6. [ ] Tests for mixed HTML + TeX
+1. [x] TeX source detection (`html_fragment_contains_tex_math`, `html_fragment_contains_mixed_math`)
+2. [x] Precedence rules between MathML and TeX when both are present (left-to-right; earliest opener wins)
+3. [x] TeX normalization/conversion approach (vendored `latex2mathml` → MathML string → existing LO path)
+4. [x] Convert TeX → MathML → StarMath (`convert_latex_to_starmath` in `math_mml_convert.py`)
+5. [x] Reuse Phase 1 formula insertion path (`insert_writer_math_formula` unchanged)
+6. [x] Tests for mixed HTML + TeX (unit + UNO in `test_writer_mathml_import.py` and `test_html_math_segment.py`)
 
 ### Acceptance criteria
 
-- common TeX snippets render as editable formulas
-- structured MathML remains preferred when both forms are available
-- conversion failures are visible and non-destructive
+| Criterion | Status |
+|-----------|--------|
+| common TeX snippets render as editable formulas | **Done** (core UNO + unit coverage) |
+| structured MathML remains preferred when both forms are available | **Done** (document order: earliest `<math` or TeX opener wins; prompts tell models to emit MathML first when the source already has it) |
+| conversion failures are visible and non-destructive | **Done** (same `[Math import failed]…` path as MathML) |
 
 ## Phase 3: Robustness and quality
 
@@ -261,11 +265,11 @@ Improve quality and reduce edge-case regressions after MVP ships.
 
 ## Work breakdown by implementation area
 
-Cross-cutting status: **1–3 done** for the MathML MVP path; **4 partial**; **5 partial** (see Phase 1 **Not done yet**).
+Cross-cutting status: **1** done for MathML + common TeX delimiters; KaTeX/MathJax **without** `<math>` or TeX markers still **not done**. **2** done (LO MathML + `latex2mathml` → MathML). **3** done (insertion). **4** partial (structured tool warnings). **5** partial (see Phase 1 **Not done yet**).
 
 ## 1. Parsing and detection
 
-**Status: Partial — MathML path done; TeX / extra DOM heuristics not done.**
+**Status: Partial — MathML + TeX delimiter path done; KaTeX DOM-only / `<annotation>` retry not done.**
 
 ### Goal
 
@@ -277,18 +281,18 @@ Detect supported math reliably before content hits the normal HTML filter.
 |------|--------|
 | `<math>` tags | **Done** (`html_math_segment.py`) |
 | KaTeX / MathJax DOM signatures (without `<math>`) | **Not done** |
-| TeX delimiters | **Not done** (Phase 2) |
+| TeX delimiters (`$`, `$$`, `\(\)`, `\[...\]`) | **Done** (`html_math_segment.py`) |
 | Segmentation preserving source order | **Done** |
 | DOM vs token vs hybrid | **Done** for MVP: tag-boundary scan on string (not full HTML5 DOM) |
 
 ### Review questions
 
 - does the parser avoid corrupting non-math HTML? — **Yes** for segments; HTML still goes through LO filter per chunk.
-- does detection prefer structured sources over heuristic guesses? — **N/A** until TeX path; MathML-first by construction.
+- does detection prefer structured sources over heuristic guesses? — **Partial**: left-to-right earliest opener; prompts and typical KaTeX output favor emitting `<math>` first when both exist.
 
 ## 2. Conversion
 
-**Status: Done for LO-backed MathML; internal converter not built.**
+**Status: Done** for LO-backed MathML and for **TeX → MathML** via vendored `latex2mathml` then the same LO path; internal standalone MathML→StarMath converter **not built** (not required).
 
 ### Goal
 
@@ -301,6 +305,8 @@ Use LibreOffice's own MathML import/conversion path where practical. — **Done.
 ### Fallback implementation
 
 Internal MathML → StarMath subset converter if UNO path fails. — **Not done** (not required after spike).
+
+TeX → MathML (`latex2mathml`) before LO import. — **Done** (Phase 2).
 
 ### Review questions
 
@@ -367,6 +373,7 @@ Meet the repo standard for both logic coverage and UNO-backed document behavior.
 | multiple formulas in one fragment | **Covered** (usage + segments) |
 | mixed text + formula + text | **Covered** (UNO / integration) |
 | KaTeX-style HTML with embedded MathML | **Light** (unit segment test; no large fixture file) |
+| TeX-only + mixed MathML + TeX in HTML | **Covered** (unit + UNO core cases) |
 | malformed or unsupported MathML | **Light** (segmentation unclosed-math; dedicated malformed conversion test optional) |
 
 ## Milestones
@@ -402,13 +409,13 @@ Go/no-go decision:
 
 ## Milestone 3: TeX fallback complete
 
-**Status: Not started.**
+**Status: Done (core).**
 
 Deliverables:
 
-- TeX-aware support for common delimiters
-- extended tests
-- documented support boundaries
+- [x] TeX-aware support for common delimiters
+- [x] extended tests (unit + UNO; not every matrix row)
+- [x] documented support boundaries (`AGENTS.md`, this plan, `WRITER_APPLY_DOCUMENT_HTML_RULES`, tool schema)
 
 ## Risks
 
@@ -457,14 +464,14 @@ The implementation could become an open-ended parser project.
 
 - clearly define MVP input types
 - reject unsupported forms explicitly
-- postpone broad TeX coverage until Phase 2
+- postpone exotic TeX / package coverage beyond `latex2mathml` (Phase 3 / ongoing)
 
 ## Open product decisions
 
 | # | Question | Resolution (as of 2026-04) |
 |---|-----------|----------------------------|
 | 1 | Visible fallback for unsupported formulas: plain text, marker, or both? | **Marker + snippet** — `[Math import failed]` plus truncated source in document; not silent. |
-| 2 | Ship MathML-only before TeX? | **Yes** — Phase 2 not started. |
+| 2 | Ship MathML-only before TeX? | **Yes** historically; **Phase 2 TeX path is now shipped** (MathML still preferred in prompts). |
 | 3 | Auto-repair malformed MathML? | **No** — unclosed `<math>` tails fall back to HTML segment behavior; no repair pass. |
 | 4 | Warnings in logs only vs tool JSON? | **Logs + visible insert** — structured `warnings` in `apply_document_content` return **not implemented** (backlog). |
 
@@ -482,17 +489,24 @@ The implementation could become an open-ended parser project.
 8. [x] Non-math HTML regression (existing suite + new cases)
 9. [x] StarMath `newline` mitigation for Writer embeds
 
+**Completed (Phase 2 — core):**
+
+10. [x] TeX delimiter detection + mixed segmentation (`html_math_segment.py`)
+11. [x] `convert_latex_to_starmath` + `format_support` wiring + `content_has_markup` TeX patterns
+12. [x] Unit + UNO tests for TeX and mixed MathML/TeX
+13. [x] Model/tool copy (`constants.py`, `content.py`)
+
 **Remaining (pick order):**
 
 - [ ] Phase 1 backlog: full test matrix, optional `warnings` in tool return, reviewer examples
 - [ ] Optional: `"".join` for list `content` in `apply_document_content`
-- [ ] Phase 2: TeX fallback (then Milestone 3)
+- [ ] Phase 2 stretch: KaTeX `<annotation encoding="application/x-tex">` retry on failed MathML import
 - [ ] Phase 3: robustness
 - [ ] Trim DEBUG logging when stable
 
 ## Reviewer checklist
 
-- is the supported scope narrow and realistic for MVP? — **Yes** (MathML in HTML only).
+- is the supported scope narrow and realistic for MVP? — **Yes** (MathML in HTML; TeX is a bounded subset via `latex2mathml`, not full LaTeX).
 - is the hardest technical unknown resolved before broad coding starts? — **Yes** (spike folded into MVP).
 - does the plan preserve the existing HTML import path for non-math content? — **Yes**.
 - are failure modes visible and non-destructive? — **Yes** (string fallback; structured warnings optional).
@@ -501,10 +515,11 @@ The implementation could become an open-ended parser project.
 
 ## Implementation handoff summary
 
-Work **after** Phase 1 should assume:
+Work **after** Phase 2 (core) should assume:
 
 - **Done:** MathML-in-HTML → editable Writer formulas via preprocess + LO conversion + `newline` collapse.
-- **Primary backlog:** Phase 2 TeX, then Phase 3 quality; Phase 1 “Not done yet” polish.
+- **Done (core):** TeX delimiters in the same HTML strings → `latex2mathml` → MathML → same LO path + insertion.
+- **Primary backlog:** Phase 3 quality; Phase 1 “Not done yet” polish; optional Phase 2 stretch (annotation retry).
 - **Architecture rule:** keep preprocessing in front of the StarWriter HTML filter; do not teach the HTML filter math.
 - **Testing rule:** extend matrix rows and tool JSON when adding features.
 - **Fallback rule:** never silently lose formulas (unchanged).
@@ -513,6 +528,7 @@ Work **after** Phase 1 should assume:
 
 - Research and architecture proposal: `docs/libreoffice-html-math-proposal.md`
 - Writer HTML import + math orchestration: `plugin/modules/writer/format_support.py`
-- MathML segmentation: `plugin/modules/writer/html_math_segment.py`
-- MathML → StarMath + Writer newline mitigation: `plugin/modules/writer/math_mml_convert.py`
+- MathML + TeX segmentation: `plugin/modules/writer/html_math_segment.py`
+- MathML → StarMath + Writer newline mitigation; LaTeX (`latex2mathml`) → MathML → StarMath: `plugin/modules/writer/math_mml_convert.py`
 - Formula OLE insert: `plugin/modules/writer/math_formula_insert.py`
+- Vendored `latex2mathml`: `requirements-vendor.txt` (and dev mirror in `pyproject.toml` for typecheck)

@@ -80,6 +80,30 @@ def _debug_newline_stats(prefix: str, s: str, *, max_repr: int = 400) -> None:
     )
 
 
+def convert_latex_to_starmath(
+    ctx: Any, latex: str, *, display_block: bool = False
+) -> MathConversionResult:
+    """Convert LaTeX to StarMath via ``latex2mathml`` then :func:`convert_mathml_to_starmath`."""
+    if not latex or not isinstance(latex, str):
+        return MathConversionResult(False, None, "empty_latex")
+    trimmed = latex.strip()
+    if not trimmed:
+        return MathConversionResult(False, None, "empty_latex")
+    try:
+        from latex2mathml.converter import convert as latex2mathml_convert
+    except ImportError as exc:
+        return MathConversionResult(False, None, f"latex2mathml_import:{exc}")
+    display_mode = "block" if display_block else "inline"
+    try:
+        mathml = latex2mathml_convert(trimmed, display=display_mode)
+    except Exception as exc:
+        log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
+        return MathConversionResult(False, None, str(exc))
+    if not isinstance(mathml, str) or not mathml.strip():
+        return MathConversionResult(False, None, "latex2mathml_empty_output")
+    return convert_mathml_to_starmath(ctx, mathml.strip())
+
+
 def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversionResult:
     """Load a MathML document in LibreOffice Math and read the ``Formula`` string.
 

@@ -30,6 +30,7 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
+    "latex2mathml",
     "pytest",
     "pyyaml",
     "sounddevice",
@@ -47,6 +48,7 @@ dev = [
 line-length = 120
 extend-exclude = [
     "plugin/contrib",
+    "plugin/lib",
     "plugin/tests",
 ]
 
@@ -67,6 +69,7 @@ disable_error_code = ["annotation-unchecked"]
 packages = ["plugin"]
 exclude = [
     "plugin/contrib/",
+    "plugin/lib/",
     "plugin/tests/",
 ]
 
@@ -80,6 +83,10 @@ module = "plugin.contrib.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
+module = "plugin.lib.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
 module = "plugin.tests.*"
 ignore_errors = true
 
@@ -90,19 +97,19 @@ disable_error_code = ["import-untyped"]
 
 [tool.bandit]
 # Same scope as ty/mypy/pyright: extension code only (see Makefile `bandit` target).
-exclude_dirs = ["plugin/contrib", "plugin/tests"]
+exclude_dirs = ["plugin/contrib", "plugin/lib", "plugin/tests"]
 # urllib is used intentionally for HTTP (see modules/http); B314 is ET on trusted small update.xml.
 skips = ["B310", "B314"]
 
 [tool.ty.src]
 # Optional: explicitly set what to include (defaults to common patterns)
 include = ["plugin"]
-exclude = ["plugin/contrib", "plugin/tests"]
+exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]
 
 # Pyrefly (CLI: make pyrefly) — experimental; same scope as ty/mypy/pyright; not part of make test
 [tool.pyrefly]
 project-includes = ["plugin"]
-project-excludes = ["plugin/contrib/**", "plugin/tests/**"]
+project-excludes = ["plugin/contrib/**", "plugin/lib/**", "plugin/tests/**"]
 python-version = "3.11"
 # Repo root so `from plugin...` inside `if TYPE_CHECKING:` resolves; Pyrefly treats TYPE_CHECKING as true.
 search-path = ["."]
@@ -116,5 +123,5 @@ pythonVersion = "3.11"
 venvPath = "."
 venv = ".venv"
 include = ["plugin"]
-exclude = ["plugin/contrib", "plugin/tests"]
+exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]
 reportMissingModuleSource = false

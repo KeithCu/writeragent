@@ -147,3 +147,39 @@ def test_apply_document_content_end_with_mathml() -> None:
     body = _test_doc.getText().getString()
     assert "Intro" in body and "Outro" in body
     assert _embed_count(_test_doc) >= 1
+
+
+@native_test
+def test_replace_full_document_tex_inline() -> None:
+    assert _test_doc is not None and _test_ctx is not None
+    html = r"<p>Hi</p><p>\(x^2\)</p><p>Bye</p>"
+    format_support.replace_full_document(_test_doc, _test_ctx, html, config_svc=None)
+    assert _embed_count(_test_doc) >= 1
+    body = _test_doc.getText().getString()
+    assert "Hi" in body and "Bye" in body
+
+
+@native_test
+def test_replace_full_document_tex_display_dollars() -> None:
+    assert _test_doc is not None and _test_ctx is not None
+    html = r"<p>Intro</p>$$\frac{1}{2}$$<p>Outro</p>"
+    format_support.replace_full_document(_test_doc, _test_ctx, html, config_svc=None)
+    assert _embed_count(_test_doc) >= 1
+    body = _test_doc.getText().getString()
+    assert "Intro" in body and "Outro" in body
+
+
+@native_test
+def test_replace_full_document_mixed_mathml_and_tex() -> None:
+    assert _test_doc is not None and _test_ctx is not None
+    html = (
+        r"<p>A</p>"
+        r'<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>t</mi></mrow></math>'
+        r"<p>B</p>"
+        r"\(y\)"
+        r"<p>C</p>"
+    )
+    format_support.replace_full_document(_test_doc, _test_ctx, html, config_svc=None)
+    assert _embed_count(_test_doc) >= 2
+    body = _test_doc.getText().getString()
+    assert "A" in body and "B" in body and "C" in body

@@ -36,11 +36,12 @@ APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all), or 'search'.
 - `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
 - Use <br> for line breaks within an element; <p> for paragraphs. Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
-- Math (equations): include math as **MathML embedded in the same HTML** you send in `content`—use a normal `<math xmlns="http://www.w3.org/1998/Math/MathML">…</math>` subtree inside a fragment (e.g. within `<p>…</p>` or next to prose). WriterAgent imports that as editable LibreOffice Math objects. Do **not** rely on TeX-only delimiters or raster images for equations in this tool path (TeX may be supported later elsewhere).
+- Math (equations): **Preferred** — embed **MathML** in the same HTML: `<math xmlns="http://www.w3.org/1998/Math/MathML">…</math>` inside a fragment (e.g. within `<p>…</p>`). WriterAgent imports that as editable LibreOffice Math objects. **Also supported** — **TeX** in those HTML strings: `$…$` or `\\(…\\)` for inline math; `$$…$$` or `\\[…\\]` for display math. Scanning is left-to-right: the next math island is whichever starts first—`<math…` or TeX delimiters—so keep KaTeX/MathJax `<math>…` before unrelated `$` if you want that MathML used. TeX coverage is a practical subset (not every LaTeX package); stick to common constructs (fractions, subscripts, greek, matrices may be partial). Avoid `$` + digit for money (e.g. `$100` is not treated as math). Failed imports become visible `[Math import failed]…` text, not silent drops. Prefer MathML from the source when you have it; avoid raster images if you want editable equations.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
 - Good math: ["<p>Inline <math xmlns=\\"http://www.w3.org/1998/Math/MathML\\"><mi>x</mi></math> in prose.</p>"]
+- Good math (TeX): ["<p>Inline \\(x^2\\) and display $$\\frac{1}{2}$$.</p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
 - Bad: ["# Title", "Paragraph"] (No Markdown)

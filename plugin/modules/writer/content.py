@@ -184,8 +184,11 @@ class ApplyDocumentContent(ToolBase):
         "Use target='full_document' to replace the whole document. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
         "Use target='search' with old_content to find and replace text. "
-        "For equations, embed MathML inside the HTML: "
-        '<math xmlns="http://www.w3.org/1998/Math/MathML">…</math> in each fragment that needs a formula '
+        "For equations in HTML fragments: prefer MathML "
+        '<math xmlns="http://www.w3.org/1998/Math/MathML">…</math> '
+        "for reliable editable formulas; TeX is also supported inline as $…$ or \\(…\\), "
+        "display as $$…$$ or \\[…\\] (subset of LaTeX; avoid `$`+digit for currency). "
+        "See WRITER_APPLY_DOCUMENT_HTML_RULES in prompts for details."
     )
     parameters = {
         "type": "object",
@@ -194,7 +197,8 @@ class ApplyDocumentContent(ToolBase):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "The new content as a list of HTML (with embedded MathML) or plain-text "
+                    "The new content as a list of HTML fragments (embedded MathML and/or "
+                    "TeX delimiters $…$, $$…$$, \\(…\\), \\[…\\] for equations) or plain-text "
                     "fragments (one element per heading/paragraph). "
                     "Do not use Markdown."
                 ),

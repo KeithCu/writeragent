@@ -9,7 +9,7 @@ WriterAgent uses [Astral’s `ty`](https://docs.astral.sh/ty/) on the `plugin/` 
 | Stage | Notes |
 |--------|--------|
 | Initial | On the order of **1000+** diagnostics before scoping (including vendored `plugin/contrib` and noisy test-only code). |
-| After narrowing | Excluding **`plugin/contrib`** and **`plugin/tests`** via `pyproject.toml` focused work on application code; one documented pass fixed on the order of **~141** categorized issues in that scope. |
+| After narrowing | Excluding **`plugin/contrib`**, **`plugin/lib`** (vendored wheels / pip `--target` trees), and **`plugin/tests`** via `pyproject.toml` focused work on application code; one documented pass fixed on the order of **~141** categorized issues in that scope. |
 | Final | **`ty check`** reports **no errors** for the configured include set. **`make check`** runs **`ty`** only; **`make typecheck`** runs **`ty`**, **`mypy`**, and **`pyright`** in sequence; **`make test`** runs those three, then pytest and LO tests (types before tests). **`make release`** calls **`make test`** first, then the release bundle (see **`Makefile`**). |
 
 Static checking does **not** prove LibreOffice runtime behavior: UNO remains highly dynamic. The goal is consistent annotations, usable stubs, and fewer accidental mistakes in Python code.
@@ -18,15 +18,15 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 
 ## Tooling (short)
 
-- **`pyproject.toml`** — `[tool.ty.src]`: `include = ["plugin"]`, `exclude = ["plugin/contrib", "plugin/tests"]`.
-- **`Makefile`** — `make ty`: ensures `import uno` (via `make fix-uno` if needed), then `python -m ty check --exclude plugin/contrib/`.
+- **`pyproject.toml`** — `[tool.ty.src]`: `include = ["plugin"]`, `exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]`.
+- **`Makefile`** — `make ty`: ensures `import uno` (via `make fix-uno` if needed), then `python -m ty check --exclude plugin/contrib/ --exclude plugin/lib/`.
 - **Dev dependency**: **`types-unopy`** (LibreOffice API stubs). **`make fix-uno`** links system UNO into `.venv` so `uno` and `com.sun.star` resolve; without that, the checker cannot see extension types.
 
 ### mypy (optional)
 
 - **`make mypy`** — same prelude as `ty` (`make manifest`, `import uno` → `make fix-uno`), then **`python -m mypy`** using **`[tool.mypy]`** in `pyproject.toml`.
 - **Not** part of **`make check`** or **`make build`** alone; it **is** part of **`make typecheck`** and **`make test`**. **`make release`** runs **`make test`** first, so mypy runs there too. Use standalone **`make mypy`** to compare against **`ty`**. Mypy often reports issues `ty` does not (and vice versa).
-- **Scope**: `packages = ["plugin"]` with path **`exclude`** plus **`[[tool.mypy.overrides]]`** `ignore_errors = true` for **`plugin.contrib.*`** and **`plugin.tests.*`**. Plain `exclude` alone does not stop mypy from checking vendored contrib when resolving the `plugin` package, so the overrides mirror ty’s “no contrib / no tests” intent.
+- **Scope**: `packages = ["plugin"]` with path **`exclude`** plus **`[[tool.mypy.overrides]]`** `ignore_errors = true` for **`plugin.contrib.*`**, **`plugin.lib.*`**, and **`plugin.tests.*`**. Plain `exclude` alone does not stop mypy from checking vendored trees when resolving the `plugin` package, so the overrides mirror ty’s “no contrib / no lib / no tests” intent.
 - **Stubs**: **`types-requests`**, **`types-unopy`**, and overrides for **`officehelper`** and **`sounddevice`** (no PyPI stubs: **`disable_error_code = ["import-untyped"]`** plus an inline **`# type: ignore[import-untyped]`** on the lazy import in **`audio_recorder.py`**) are configured for a usable first run; remaining diagnostics are normal application code until you tighten further.
 
 ### Pyright (optional)
@@ -46,7 +46,7 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 
 ## Pyright vs `ty` and mypy (what differed in practice)
 
-All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plugin/`** scope (contrib and tests excluded). **`make check`** and **`make build`** run **`ty`** only (fast gate). **`make test`** runs **`ty`**, **`mypy`**, and **`pyright`**, then tests. **`make release`** runs **`make test`** (same gate) before building the release **`.oxt`**. A full Pyright pass still found **real issues and strictness gaps** that **`ty`** (and **`mypy`**) often did not report on the same codebase, or reported much less loudly.
+All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plugin/`** scope (contrib, lib, and tests excluded). **`make check`** and **`make build`** run **`ty`** only (fast gate). **`make test`** runs **`ty`**, **`mypy`**, and **`pyright`**, then tests. **`make release`** runs **`make test`** (same gate) before building the release **`.oxt`**. A full Pyright pass still found **real issues and strictness gaps** that **`ty`** (and **`mypy`**) often did not report on the same codebase, or reported much less loudly.
 
 ### Optional and `None` narrowing
 

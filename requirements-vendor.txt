@@ -1,2 +1,3 @@
 snowballstemmer
 json-repair
+latex2mathml

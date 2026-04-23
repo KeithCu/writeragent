@@ -27,11 +27,13 @@ High-level behavior
 - **HTML / text → document (import path)**: `insert_content_at_position`,
   `replace_full_document`, `apply_content_at_range`, `apply_content_at_search`,
   and `replace_single_range_with_content` flow through ``insertDocumentFromURL``
-  for non-math HTML. When the fragment contains ``<math>`` … ``</math>``,
-  `_insert_mixed_or_plain_html` splits prose and MathML, imports prose chunks
-  with the same filter, converts each MathML island via LibreOffice Math
-  (see `math_mml_convert`), and inserts editable formula objects
-  (`math_formula_insert`). `_ensure_html_linebreaks` converts plain text
+  for non-math HTML. When the fragment contains ``<math>`` … ``</math>`` and/or
+  TeX delimiters (``$...$``, ``$$...$$``, ``\\(...\\)``, ``\\[...\\]``),
+  `_insert_mixed_or_plain_html` splits prose, MathML, and TeX runs, imports prose
+  chunks with the same filter, converts each island (MathML via LibreOffice Math;
+  TeX via ``latex2mathml`` then the same importer — see `math_mml_convert`), and
+  inserts editable formula objects (`math_formula_insert`). `_ensure_html_linebreaks`
+  converts plain text
   (with newlines) into minimal HTML (`<p>`, `<br>`) and `_wrap_html_fragment`
   ensures a full HTML document when needed so the filter behaves consistently.
 
@@ -83,11 +85,14 @@ import urllib.request
 from typing import Any, cast
 import html as html_mod
 from plugin.modules.writer.html_math_segment import (
-    html_fragment_contains_mathml,
-    segment_html_with_mathml,
+    html_fragment_contains_mixed_math,
+    segment_html_with_mixed_math,
 )
 from plugin.modules.writer.math_formula_insert import insert_writer_math_formula
-from plugin.modules.writer.math_mml_convert import convert_mathml_to_starmath
+from plugin.modules.writer.math_mml_convert import (
+    convert_latex_to_starmath,
+    convert_mathml_to_starmath,
+)
 from plugin.modules.writer.ops import get_selection_range
 from plugin.modules.writer.ops import get_text_cursor_at_range
 
@@ -419,9 +424,9 @@ def _insert_starwriter_html_at_cursor(model, cursor, prepared_html, config_svc=N
 def _insert_mixed_html_and_math_at_cursor(
     model, ctx, cursor, unescaped: str, config_svc=None
 ):
-    """Insert alternating HTML (via filter) and MathML (as formula objects)."""
-    _segs = segment_html_with_mathml(unescaped)
-    if log.isEnabledFor(logging.DEBUG) and html_fragment_contains_mathml(unescaped):
+    """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
+    _segs = segment_html_with_mixed_math(unescaped)
+    if log.isEnabledFor(logging.DEBUG) and html_fragment_contains_mixed_math(unescaped):
         _math_i = 0
         for _si, _s in enumerate(_segs):
             if _s.kind == "html":
@@ -434,9 +439,10 @@ def _insert_mixed_html_and_math_at_cursor(
             else:
                 _math_i += 1
                 log.debug(
-                    "mixed_html_math: segment[%d] math#%d display_block=%s "
-                    "mathml_nl=%d mathml_len=%d",
+                    "mixed_html_math: segment[%d] %s#%d display_block=%s "
+                    "src_nl=%d src_len=%d",
                     _si,
+                    _s.kind,
                     _math_i,
                     _s.display_block,
                     _s.text.count("\n"),
@@ -456,7 +462,12 @@ def _insert_mixed_html_and_math_at_cursor(
                 model, cursor, sub, config_svc=config_svc
             )
             continue
-        res = convert_mathml_to_starmath(ctx, seg.text)
+        if seg.kind == "tex":
+            res = convert_latex_to_starmath(
+                ctx, seg.text, display_block=seg.display_block
+            )
+        else:
+            res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath and log.isEnabledFor(logging.DEBUG):
             log.debug(
                 "mixed_html_math: StarMath from converter nl=%d len=%d repr=%r",
@@ -485,8 +496,8 @@ def _insert_mixed_html_and_math_at_cursor(
 
 
 def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None):
-    """HTML import, with an optional MathML preprocessing layer."""
-    if html_fragment_contains_mathml(unescaped_content):
+    """HTML import, with an optional MathML + TeX preprocessing layer."""
+    if html_fragment_contains_mixed_math(unescaped_content):
         _insert_mixed_html_and_math_at_cursor(
             model, ctx, cursor, unescaped_content, config_svc=config_svc
         )
@@ -683,6 +694,10 @@ _MARKUP_PATTERNS = [
     "<strong", "<em>", "</",
     "<html", "<body", "<!DOCTYPE",
     "<math",
+    # TeX (so plain ``\\( … \\)`` / ``$$`` is not misclassified as format-preserving)
+    "$$",
+    "\\(",
+    "\\[",
 ]
 
 
