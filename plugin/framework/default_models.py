@@ -83,6 +83,7 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
         "context_length": 128000,
         "ids": {"together": "openai/gpt-oss-20b"},
+        "default_text": True,
     },
     {
         "display_name": "Mistral Large 3",

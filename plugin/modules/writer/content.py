@@ -183,7 +183,9 @@ class ApplyDocumentContent(ToolBase):
         "Insert or replace content. "
         "Use target='full_document' to replace the whole document. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
-        "Use target='search' with old_content to find and replace text."
+        "Use target='search' with old_content to find and replace text. "
+        "For equations, embed MathML inside the HTML: "
+        '<math xmlns="http://www.w3.org/1998/Math/MathML">…</math> in each fragment that needs a formula '
     )
     parameters = {
         "type": "object",
@@ -192,7 +194,7 @@ class ApplyDocumentContent(ToolBase):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "The new content as a list of HTML or plain-text "
+                    "The new content as a list of HTML (with embedded MathML) or plain-text "
                     "fragments (one element per heading/paragraph). "
                     "Do not use Markdown."
                 ),
@@ -245,9 +247,34 @@ class ApplyDocumentContent(ToolBase):
 
         # Normalize list input to a single string for HTML import paths.
         if isinstance(content, list):
-            content = "\n".join(str(x) for x in content)
+            _parts = [str(x) for x in content]
+            _per_part_nl = [p.count("\n") for p in _parts]
+            log.debug(
+                "apply_document_content: list join n_parts=%d per_part_newline_counts=%s "
+                "total_chars_before_join=%d",
+                len(_parts),
+                _per_part_nl[:20],  # cap log size
+                sum(len(p) for p in _parts),
+            )
+            content = "\n".join(_parts)
+            log.debug(
+                "apply_document_content: after join newline_count=%d has_math_tag=%s "
+                "join_preview=%r",
+                content.count("\n"),
+                ("<math" in content.lower()),
+                content[:500],
+            )
         if isinstance(content, str):
+            _nl_before_esc = content.count("\n")
             content = content.replace("\\n", "\n").replace("\\t", "\t")
+            _nl_after_esc = content.count("\n")
+            if _nl_after_esc != _nl_before_esc:
+                log.debug(
+                    "apply_document_content: literal \\\\n/\\\\t escape expand "
+                    "newline_count %d -> %d",
+                    _nl_before_esc,
+                    _nl_after_esc,
+                )
 
         # Detect markup BEFORE any HTML wrapping.
         raw_content = content

@@ -26,8 +26,12 @@ High-level behavior
 
 - **HTML / text → document (import path)**: `insert_content_at_position`,
   `replace_full_document`, `apply_content_at_range`, `apply_content_at_search`,
-  and `replace_single_range_with_content` all flow through
-  ``insertDocumentFromURL``. `_ensure_html_linebreaks` converts plain text
+  and `replace_single_range_with_content` flow through ``insertDocumentFromURL``
+  for non-math HTML. When the fragment contains ``<math>`` … ``</math>``,
+  `_insert_mixed_or_plain_html` splits prose and MathML, imports prose chunks
+  with the same filter, converts each MathML island via LibreOffice Math
+  (see `math_mml_convert`), and inserts editable formula objects
+  (`math_formula_insert`). `_ensure_html_linebreaks` converts plain text
   (with newlines) into minimal HTML (`<p>`, `<br>`) and `_wrap_html_fragment`
   ensures a full HTML document when needed so the filter behaves consistently.
 
@@ -78,6 +82,12 @@ import urllib.parse
 import urllib.request
 from typing import Any, cast
 import html as html_mod
+from plugin.modules.writer.html_math_segment import (
+    html_fragment_contains_mathml,
+    segment_html_with_mathml,
+)
+from plugin.modules.writer.math_formula_insert import insert_writer_math_formula
+from plugin.modules.writer.math_mml_convert import convert_mathml_to_starmath
 from plugin.modules.writer.ops import get_selection_range
 from plugin.modules.writer.ops import get_text_cursor_at_range
 
@@ -390,58 +400,147 @@ def document_to_content(model, ctx, services, max_chars=None,
 # Content -> Document
 # ---------------------------------------------------------------------------
 
+def _cursor_goto_document_end(model, cursor) -> None:
+    """Move *cursor* to the end of the document body (``model.getText()``)."""
+    end_c = model.getText().createTextCursor()
+    end_c.gotoEnd(False)
+    cursor.gotoRange(end_c.getStart(), False)
+
+
+def _insert_starwriter_html_at_cursor(model, cursor, prepared_html, config_svc=None):
+    """Import one HTML fragment through the StarWriter HTML filter at *cursor*."""
+    with _with_temp_buffer(prepared_html, config_svc) as (_path, file_url):
+        filter_name, _ = _get_format_props(config_svc)
+        filter_props = (_create_property_value("FilterName", filter_name),)
+        cursor.insertDocumentFromURL(file_url, filter_props)
+    _cursor_goto_document_end(model, cursor)
+
+
+def _insert_mixed_html_and_math_at_cursor(
+    model, ctx, cursor, unescaped: str, config_svc=None
+):
+    """Insert alternating HTML (via filter) and MathML (as formula objects)."""
+    _segs = segment_html_with_mathml(unescaped)
+    if log.isEnabledFor(logging.DEBUG) and html_fragment_contains_mathml(unescaped):
+        _math_i = 0
+        for _si, _s in enumerate(_segs):
+            if _s.kind == "html":
+                log.debug(
+                    "mixed_html_math: segment[%d] html nl=%d len=%d",
+                    _si,
+                    _s.text.count("\n"),
+                    len(_s.text),
+                )
+            else:
+                _math_i += 1
+                log.debug(
+                    "mixed_html_math: segment[%d] math#%d display_block=%s "
+                    "mathml_nl=%d mathml_len=%d",
+                    _si,
+                    _math_i,
+                    _s.display_block,
+                    _s.text.count("\n"),
+                    len(_s.text),
+                )
+    for seg in _segs:
+        if seg.kind == "html":
+            chunk = seg.text
+            if not chunk:
+                continue
+            if not chunk.strip():
+                model.getText().insertString(cursor, chunk, False)
+                _cursor_goto_document_end(model, cursor)
+                continue
+            sub = _ensure_html_linebreaks(chunk)
+            _insert_starwriter_html_at_cursor(
+                model, cursor, sub, config_svc=config_svc
+            )
+            continue
+        res = convert_mathml_to_starmath(ctx, seg.text)
+        if res.ok and res.starmath and log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "mixed_html_math: StarMath from converter nl=%d len=%d repr=%r",
+                res.starmath.count("\n"),
+                len(res.starmath),
+                res.starmath[:500],
+            )
+        if res.ok and res.starmath:
+            insert_writer_math_formula(
+                model,
+                cursor,
+                res.starmath,
+                display_block=seg.display_block,
+            )
+            _cursor_goto_document_end(model, cursor)
+        else:
+            snippet = (seg.text or "").replace("\n", " ")[:120]
+            fallback = "[Math import failed] " + snippet
+            model.getText().insertString(cursor, fallback, False)
+            _cursor_goto_document_end(model, cursor)
+            log.debug(
+                "math import failed: %s snippet=%r",
+                res.error_message,
+                snippet,
+            )
+
+
+def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None):
+    """HTML import, with an optional MathML preprocessing layer."""
+    if html_fragment_contains_mathml(unescaped_content):
+        _insert_mixed_html_and_math_at_cursor(
+            model, ctx, cursor, unescaped_content, config_svc=config_svc
+        )
+    else:
+        single = _ensure_html_linebreaks(unescaped_content)
+        _insert_starwriter_html_at_cursor(
+            model, cursor, single, config_svc=config_svc
+        )
+
+
 def insert_content_at_position(model, ctx, content, position,
                                config_svc=None):
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     content = html_mod.unescape(content)
-    content = _ensure_html_linebreaks(content)
 
-    with _with_temp_buffer(content, config_svc) as (_path, file_url):
-        text = model.getText()
-        cursor = text.createTextCursor()
+    text = model.getText()
+    cursor = text.createTextCursor()
 
-        if position == "beginning":
-            cursor.gotoStart(False)
-        elif position == "end":
+    if position == "beginning":
+        cursor.gotoStart(False)
+    elif position == "end":
+        cursor.gotoEnd(False)
+    elif position == "selection":
+        try:
+            controller = model.getCurrentController()
+            sel = controller.getSelection()
+            if sel and sel.getCount() > 0:
+                rng = sel.getByIndex(0)
+                rng.setString("")
+                cursor.gotoRange(rng.getStart(), False)
+            else:
+                vc = controller.getViewCursor()
+                cursor.gotoRange(vc.getStart(), False)
+        except Exception:
             cursor.gotoEnd(False)
-        elif position == "selection":
-            try:
-                controller = model.getCurrentController()
-                sel = controller.getSelection()
-                if sel and sel.getCount() > 0:
-                    rng = sel.getByIndex(0)
-                    rng.setString("")
-                    cursor.gotoRange(rng.getStart(), False)
-                else:
-                    vc = controller.getViewCursor()
-                    cursor.gotoRange(vc.getStart(), False)
-            except Exception:
-                cursor.gotoEnd(False)
-        else:
-            raise ToolExecutionError("Unknown position: %s" % position)
+    else:
+        raise ToolExecutionError("Unknown position: %s" % position)
 
-        filter_name, _ = _get_format_props(config_svc)
-        filter_props = (_create_property_value("FilterName", filter_name),)
-        cursor.insertDocumentFromURL(file_url, filter_props)
+    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
 
 
 def replace_full_document(model, ctx, content, config_svc=None):
     """Clear the document and insert *content*."""
     content = html_mod.unescape(content)
-    content = _ensure_html_linebreaks(content)
 
-    with _with_temp_buffer(content, config_svc) as (_path, file_url):
-        text = model.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        cursor.setString("")
-        cursor.gotoStart(False)
-        filter_name, _ = _get_format_props(config_svc)
-        filter_props = (_create_property_value("FilterName", filter_name),)
-        cursor.insertDocumentFromURL(file_url, filter_props)
+    text = model.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    cursor.setString("")
+    cursor.gotoStart(False)
+    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
 
 
 def apply_content_at_range(model, ctx, content, start, end,
@@ -455,13 +554,8 @@ def apply_content_at_range(model, ctx, content, start, end,
         )
 
     content = html_mod.unescape(content)
-    content = _ensure_html_linebreaks(content)
-
-    with _with_temp_buffer(content, config_svc) as (_path, file_url):
-        cursor.setString("")
-        filter_name, _ = _get_format_props(config_svc)
-        filter_props = (_create_property_value("FilterName", filter_name),)
-        cursor.insertDocumentFromURL(file_url, filter_props)
+    cursor.setString("")
+    _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
 
 
 def apply_content_at_search(model, ctx, content, search,
@@ -472,45 +566,36 @@ def apply_content_at_search(model, ctx, content, search,
     Returns the number of replacements made.
     """
     prepared = html_mod.unescape(content)
-    prepared = _ensure_html_linebreaks(prepared)
 
-    with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
-        filter_name, _ = _get_format_props(config_svc)
-        filter_props = (_create_property_value("FilterName", filter_name),)
+    sd = model.createSearchDescriptor()
+    sd.SearchString = search
+    sd.SearchRegularExpression = False
+    sd.SearchCaseSensitive = case_sensitive
 
-        sd = model.createSearchDescriptor()
-        sd.SearchString = search
-        sd.SearchRegularExpression = False
-        sd.SearchCaseSensitive = case_sensitive
-
-        count = 0
-        found = model.findFirst(sd)
-        while found:
-            text_obj = found.getText()
-            cursor = text_obj.createTextCursorByRange(found)
-            cursor.setString("")
-            cursor.insertDocumentFromURL(file_url, filter_props)
-            count += 1
-            if not all_matches:
-                break
-            found = model.findNext(cursor.getEnd(), sd)
-            if count > 200:
-                break
-        return count
+    count = 0
+    found = model.findFirst(sd)
+    while found:
+        text_obj = found.getText()
+        cursor = text_obj.createTextCursorByRange(found)
+        cursor.setString("")
+        _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc)
+        count += 1
+        if not all_matches:
+            break
+        found = model.findNext(cursor.getEnd(), sd)
+        if count > 200:
+            break
+    return count
 
 
 def replace_single_range_with_content(model, text_range, content, ctx,
                                       config_svc=None):
     """Replace the given text range with rendered *content* (HTML path)."""
     prepared = html_mod.unescape(content)
-    prepared = _ensure_html_linebreaks(prepared)
-    with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
-        filter_name, _ = _get_format_props(config_svc)
-        filter_props = (_create_property_value("FilterName", filter_name),)
-        text_obj = text_range.getText()
-        cursor = text_obj.createTextCursorByRange(text_range)
-        cursor.setString("")
-        cursor.insertDocumentFromURL(file_url, filter_props)
+    text_obj = text_range.getText()
+    cursor = text_obj.createTextCursorByRange(text_range)
+    cursor.setString("")
+    _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc)
 
 
 def _preserving_search_replace(model, uno_ctx, new_text, search_string,
@@ -597,6 +682,7 @@ _MARKUP_PATTERNS = [
     "<ul>", "<ol>", "<li>", "<div", "<span", "<br", "<img",
     "<strong", "<em>", "</",
     "<html", "<body", "<!DOCTYPE",
+    "<math",
 ]
 
 
