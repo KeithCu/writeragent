@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 from plugin.framework.config import (
     get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint,
-    update_lru_history, get_config, endpoint_url_suitable_for_v1_models_fetch,
+    update_lru_history, get_config, set_config, endpoint_url_suitable_for_v1_models_fetch,
 )
 from plugin.framework.event_bus import global_event_bus
 
@@ -47,7 +47,7 @@ class TestConfigSync(unittest.TestCase):
 
             self.assertEqual(self.config_data.get("aihorde_model"), "new-horde-model")
             self.assertIsNone(self.config_data.get("image_model"))
-            mock_emit.assert_called_once_with("config:changed", ctx=self.ctx)
+            mock_emit.assert_not_called()
 
     def test_set_image_model_endpoint(self):
         self.config_data["image_provider"] = "endpoint"
@@ -58,7 +58,14 @@ class TestConfigSync(unittest.TestCase):
             self.assertEqual(self.config_data.get("image_model"), "new-endpoint-model")
             self.assertIsNone(self.config_data.get("aihorde_model"))
             mock_lru.assert_called_once_with(self.ctx, "new-endpoint-model", "image_model_lru", "")
-            mock_emit.assert_called_once_with("config:changed", ctx=self.ctx)
+            mock_emit.assert_not_called()
+
+    def test_set_image_model_skips_when_unchanged(self):
+        self.config_data["image_provider"] = "endpoint"
+        self.config_data["image_model"] = "same-model"
+        self.mock_set.reset_mock()
+        set_image_model(self.ctx, "same-model")
+        self.mock_set.assert_not_called()
 
     def test_update_lru_history_scoping(self):
         # Test with endpoint
@@ -78,6 +85,12 @@ class TestConfigSync(unittest.TestCase):
         # Test deduplication
         update_lru_history(self.ctx, "item2", "test_lru", "ep", max_items=3)
         self.assertEqual(self.config_data.get("test_lru@ep"), ["item2", "item4", "item3"])
+
+    def test_update_lru_history_skips_when_list_unchanged(self):
+        self.config_data["prompt_lru"] = ["first", "second"]
+        self.mock_set.reset_mock()
+        update_lru_history(self.ctx, "first", "prompt_lru", "")
+        self.mock_set.assert_not_called()
 
     def test_get_image_model(self):
         # Test AI Horde
@@ -351,6 +364,24 @@ class TestConfigSyncFileIO(unittest.TestCase):
         # Keys containing _map but not in schema -> raises
         with self.assertRaises(ConfigError):
             get_config(self.ctx, "some_custom_map")
+
+    def test_set_config_skips_identical_value(self):
+        import plugin.framework.config as cfg
+
+        cfg._cached_config_dict = None
+        cfg._cached_config_mtime = 0
+        cfg._cached_config_mtime_last_checked = 0.0
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"text_model": "gpt"}, f)
+        with patch.object(global_event_bus, "emit") as mock_emit:
+            set_config(self.ctx, "text_model", "gpt")
+            mock_emit.assert_not_called()
+        with patch.object(global_event_bus, "emit") as mock_emit:
+            set_config(self.ctx, "text_model", "other")
+            mock_emit.assert_called_once_with("config:changed", ctx=self.ctx)
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(data.get("text_model"), "other")
 
 if __name__ == '__main__':
     unittest.main()

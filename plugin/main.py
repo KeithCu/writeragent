@@ -671,8 +671,11 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
     def execute(self, Arguments):
         """Called by the Jobs framework on OnStartApp."""
         try:
-            bootstrap(self.ctx)
             init_logging(self.ctx)
+        except Exception:
+            pass
+        try:
+            bootstrap(self.ctx)
         except Exception as e:
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         try:
@@ -681,8 +684,12 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             )
 
             ensure_writeragent_proofreader_configured(self.ctx)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(
+                "[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s",
+                e,
+                exc_info=True,
+            )
         return ()
 
     def trigger(self, Event):

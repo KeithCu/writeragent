@@ -128,6 +128,18 @@ def _initialize_extension_paths(ctx):
 
         init_logging(ctx)
         log.info("Initialized extension paths for session: %s" % ext_path)
+        try:
+            from plugin.modules.writer.ai_grammar_proofreader import (
+                ensure_writeragent_proofreader_configured,
+            )
+
+            ensure_writeragent_proofreader_configured(ctx)
+        except Exception as e:
+            log.warning(
+                "[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s",
+                e,
+                exc_info=True,
+            )
         _paths_initialized = True
     except Exception as e:
         init_logging(ctx)
@@ -345,9 +357,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         def get_optional(name):
             return get_optional_control(root, name)
 
-        from plugin.framework.dialogs import translate_dialog
-        translate_dialog(root)
-
         model_selector = get_optional("model_selector")
         prompt_selector = get_optional("prompt_selector")
         image_model_selector = get_optional("image_model_selector")
@@ -467,16 +476,26 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             class ModelSyncListener(BaseItemListener):
                 def __init__(self, ctx): self.ctx = ctx
                 def on_item_state_changed(self, rEvent):
+                    from plugin.framework.config import get_text_model, set_config
                     txt = model_selector.getText()
-                    if txt: set_config(self.ctx, "text_model", txt)
+                    if not txt or txt == get_text_model(self.ctx):
+                        return
+                    set_config(self.ctx, "text_model", txt)
             model_selector.addItemListener(ModelSyncListener(self.ctx))
 
         if image_model_selector and hasattr(image_model_selector, "addItemListener"):
             class ImageModelSyncListener(BaseItemListener):
                 def __init__(self, ctx): self.ctx = ctx
                 def on_item_state_changed(self, rEvent):
+                    from plugin.framework.config import get_config, set_image_model
                     txt = image_model_selector.getText()
-                    if txt: set_image_model(self.ctx, txt, update_lru=False)
+                    if not txt:
+                        return
+                    prov = get_config(self.ctx, "image_provider")
+                    sk = "aihorde_model" if prov == "aihorde" else "image_model"
+                    if txt == str(get_config(self.ctx, sk) or "").strip():
+                        return
+                    set_image_model(self.ctx, txt, update_lru=False)
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
 
     def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, 

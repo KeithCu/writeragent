@@ -556,6 +556,12 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/main.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/prompt_function.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/chatbot/panel_factory.py'),
+        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/writer/ai_grammar_proofreader.py'),
+        # LinguisticWriterAgentGrammar.xcu is NOT bundled by default: merging it into Office's
+        # Linguistic layer has reproducibly crashed Tools→Options→Language Settings→Writing aids
+        # (native LO, no Python traceback). The file remains at
+        # extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu for experiments;
+        # re-add this line after `make manifest` to opt in (risky until schema is validated per LO version).
         ('application/vnd.sun.star.configuration-data', 'Addons.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),
         ('application/vnd.sun.star.configuration-data', 'ProtocolHandler.xcu'),

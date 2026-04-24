@@ -1,3 +1,43 @@
 name: doc
 title: Doc
 requires: [document, config, events]
+
+config:
+  grammar_proofreader_enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Enable AI grammar checker (Writer)
+    helper: "When on, the proofreader code path is active if LibreOffice loads the grammar service (see docs/realtime-grammar-checker-plan.md — Linguistic registry may be off in the shipped .oxt to avoid Options crashes). Checked text uses your API under Tools → Options → AI. Off by default."
+
+  grammar_proofreader_debounce_ms:
+    type: int
+    default: 800
+    min: 200
+    max: 10000
+    widget: number
+    label: Grammar check debounce (ms)
+    helper: "Background delay before calling the API after Writer stops requesting updates for a span."
+
+  grammar_proofreader_max_chars:
+    type: int
+    default: 8000
+    min: 500
+    max: 32000
+    widget: number
+    label: Grammar check max characters
+
+  grammar_proofreader_max_tokens:
+    type: int
+    default: 512
+    min: 128
+    max: 4096
+    widget: number
+    label: Grammar check max response tokens
+
+  grammar_proofreader_model:
+    type: string
+    default: ""
+    widget: text
+    label: Grammar check model (optional)
+    helper: "Leave empty to use the same text model as chat."

@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from plugin.framework.errors import safe_json_loads
 
 log = logging.getLogger(__name__)
+_grammar_diag = logging.getLogger("writeragent.grammar")
 
 _CACHE_LOCK = threading.Lock()
 # cache_key -> (text_fingerprint, tuple of normalized error dicts)
@@ -96,7 +97,11 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     m = _GRAMMAR_JSON_RE.search(text)
     if m:
         text = m.group(0)
-    data = safe_json_loads(text)
+    try:
+        data = safe_json_loads(text)
+    except Exception as e:
+        _grammar_diag.warning("[grammar] parse_grammar_json: JSON parse failed: %s", e, exc_info=True)
+        return []
     if not isinstance(data, Mapping):
         return []
     raw = data.get("errors")
@@ -163,14 +168,22 @@ def normalize_errors_for_text(
         typ = it.get("type", "grammar")
         short = f"({typ}) {reason}".strip() if reason else str(typ)
         full = reason or short
-        results.append(
-            NormalizedProofError(
-                n_error_start=pos,
-                n_error_length=length,
-                suggestions=sugg,
-                short_comment=short[:500],
-                full_comment=full[:2000],
-                rule_identifier=rule_id,
+        try:
+            results.append(
+                NormalizedProofError(
+                    n_error_start=pos,
+                    n_error_length=length,
+                    suggestions=sugg,
+                    short_comment=short[:500],
+                    full_comment=full[:2000],
+                    rule_identifier=rule_id,
+                )
             )
-        )
+        except Exception as e:
+            _grammar_diag.warning(
+                "[grammar] normalize_errors_for_text: skipped item idx=%s: %s",
+                idx,
+                e,
+                exc_info=True,
+            )
     return results
