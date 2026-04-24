@@ -593,10 +593,33 @@ def translate_dialog(dlg):
             for prop in control_types.get(short_type, ()):
                 try:
                     if prop == 'StringItemList':
-                        items = ctrl.getStringItemList()
-                        if items:
-                            translated = tuple(_(item) if item else "" for item in items)
-                            ctrl.setStringItemList(translated)
+                        # ListBox often exposes getStringItemList on the view; ComboBox
+                        # typically only has StringItemList on the model.
+                        model = ctrl.getModel()
+                        used_control = False
+                        try:
+                            if hasattr(ctrl, "getStringItemList"):
+                                items = ctrl.getStringItemList()
+                                if items:
+                                    translated = tuple(_(item) if item else "" for item in items)
+                                    ctrl.setStringItemList(translated)
+                                used_control = True
+                        except Exception:
+                            pass
+                        if not used_control and model is not None and hasattr(
+                            model, "StringItemList"
+                        ):
+                            try:
+                                items = model.StringItemList
+                                if items:
+                                    translated = tuple(
+                                        _(item) if item else "" for item in items
+                                    )
+                                    model.StringItemList = translated
+                            except Exception as e:
+                                log.debug(
+                                    "Failed to translate %s.%s: %s", name, prop, e
+                                )
                     else:
                         model = ctrl.getModel()
                         if hasattr(model, prop):

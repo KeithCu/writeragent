@@ -118,6 +118,9 @@ def init_logging(ctx):
             
             logger = log
             logger.setLevel(numeric_level)
+            # Grammar proofreader uses INFO/DEBUG for diagnostics; do not inherit
+            # writeragent's level (often WARN) or those lines never reach handlers.
+            logging.getLogger("writeragent.grammar").setLevel(logging.DEBUG)
             # Ensure unrelated loggers (e.g. logging.getLogger(__name__) inside
             # UNO panel/tool modules) still reach the same debug log.
             #

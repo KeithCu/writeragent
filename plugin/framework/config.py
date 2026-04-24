@@ -594,6 +594,8 @@ def set_config(ctx, key, value):
             config_data = {}
     else:
         config_data = {}
+    if config_data.get(key) == value:
+        return
     config_data[key] = value
     try:
         with open(config_file_path, "w", encoding="utf-8") as f:
@@ -948,11 +950,15 @@ def update_lru_history(ctx, val, lru_key, endpoint, max_items=None):
     lru = get_config(ctx, scoped_key)
     if not isinstance(lru, list):
         lru = []
-
+    lru = list(lru)
     if val_str in lru:
         lru.remove(val_str)
     lru.insert(0, val_str)
-    set_config(ctx, scoped_key, lru[:max_items])
+    new_lru = lru[:max_items]
+    old = get_config(ctx, scoped_key)
+    if isinstance(old, list) and old == new_lru:
+        return
+    set_config(ctx, scoped_key, new_lru)
 
 
 def get_text_model(ctx):
@@ -1098,14 +1104,17 @@ def set_image_model(ctx, val, update_lru=True):
         return
 
     image_provider = get_config(ctx, "image_provider")
+    storage_key = "aihorde_model" if image_provider == "aihorde" else "image_model"
+    current = str(get_config(ctx, storage_key) or "").strip()
+    if val_str == current:
+        return
+
     if image_provider == "aihorde":
         set_config(ctx, "aihorde_model", val_str)
     else:
         set_config(ctx, "image_model", val_str)
         if update_lru:
             update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
-
-    global_event_bus.emit("config:changed", ctx=ctx)
 
 
 def get_text_model_options(services):

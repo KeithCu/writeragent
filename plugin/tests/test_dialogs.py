@@ -265,3 +265,35 @@ def test_translate_dialog_listbox(mock_i18n_translate):
 
     mock_child.getStringItemList.assert_called_once()
     mock_child.setStringItemList.assert_called_once_with(("T_Item1", "", "T_Item2"))
+
+
+@patch("plugin.framework.dialogs._")
+def test_translate_dialog_combobox_stringitemlist_on_model(mock_i18n_translate):
+    """ComboBox controls often only expose StringItemList on the model, not getStringItemList."""
+    mock_i18n_translate.side_effect = lambda x: f"T_{x}" if x else x
+
+    class ComboCtrl:
+        def getImplementationName(self):
+            return "stardiv.Toolkit.UnoComboBoxControl"
+
+        def getModel(self):
+            return self.model
+
+        def __init__(self):
+            class M:
+                Name = "cb1"
+                StringItemList = ("aa", "bb")
+
+            self.model = M()
+
+    mock_dlg = MagicMock()
+    mock_dlg.queryInterface.side_effect = Exception("No container")
+    mock_dlg_model = MagicMock()
+    mock_dlg_model.ElementNames = ["cb1"]
+    mock_dlg.getModel.return_value = mock_dlg_model
+    combo = ComboCtrl()
+    mock_dlg.getControl.return_value = combo
+
+    translate_dialog(mock_dlg)
+
+    assert combo.model.StringItemList == ("T_aa", "T_bb")
