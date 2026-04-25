@@ -103,8 +103,8 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
 
     We intentionally do **not** call ``XLinguServiceManager2.setConfiguredServices`` here: doing that
     during startup/sidebar init has been observed to destabilize LibreOffice (Writing aids / proofreader
-    list). The Linguistic ``GrammarCheckers`` XCU is opt-in only (see ``manifest_registry.py``) because
-    default bundling still crashed some LibreOffice builds natively.
+    list). The Linguistic ``GrammarCheckers`` XCU is bundled in the default OXT; users still pick the
+    active grammar checker under Tools → Options → Language Settings → Writing aids.
     """
     from plugin.framework.config import get_config_bool
     from plugin.framework.logging import init_logging
@@ -132,9 +132,8 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         )
         return
     log.info(
-        "[grammar] Doc-tab AI grammar on — native Writer grammar registration requires an opt-in "
-        "build with WRITERAGENT_ENABLE_LINGUISTIC_GRAMMAR_XCU=1; default builds keep the crash-prone "
-        "Linguistic XCU out of META-INF/manifest.xml."
+        "[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the "
+        "active grammar checker under Tools → Options → Language Settings → Writing aids for English."
     )
 
 

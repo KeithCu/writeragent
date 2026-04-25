@@ -90,12 +90,12 @@ def test_linguistic_writer_agent_grammar_xcu_is_minimal() -> None:
     assert [_oor_name(c) for c in sm if _local_tag(c) == "node"] == ["GrammarCheckers"]
 
 
-def test_generated_manifest_omits_linguistic_grammar_xcu_by_default() -> None:
-    """Default builds keep the native Linguistic XCU out to avoid LO startup/sidebar crashes."""
+def test_generated_manifest_includes_linguistic_grammar_xcu() -> None:
+    """Default manifest bundles Linguistic grammar registration (Lightproof-style XCU)."""
     mf = os.path.join(_repo_root(), "extension", "META-INF", "manifest.xml")
     with open(mf, encoding="utf-8") as f:
         body = f.read()
-    assert "registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu" not in body
+    assert "registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu" in body
 
 
 def test_ai_grammar_uno_component_has_lightweight_top_level_imports() -> None:
