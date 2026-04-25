@@ -132,7 +132,7 @@ Their client-side tool call parsers and robust JSON repair strategies (adapted f
 
 **[latex2mathml](https://github.com/roniemartinez/latex2mathml)**
 
-**latex2mathml** converts LaTeX to MathML in pure Python. WriterAgent vendors it (see `requirements-vendor.txt`) so that when models send TeX-delimited math inside HTML for `apply_document_content`, we can turn it into MathML and feed the same LibreOffice-backed path used for native `<math>` islands (`plugin/modules/writer/math_mml_convert.py`). We are grateful for a small, permissively licensed bridge that fits our extension bundle without a heavy TeX stack.
+**latex2mathml** converts LaTeX to MathML in pure Python. WriterAgent vendors it so that when models send TeX-delimited math inside HTML for `apply_document_content`, we can turn it into MathML and feed the same LibreOffice-backed path used for native `<math>` islands (`plugin/modules/writer/math_mml_convert.py`). We are grateful for a small, permissively licensed bridge.
 
 ## Performance & Batch Optimizations
 
