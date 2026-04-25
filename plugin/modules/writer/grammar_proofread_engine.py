@@ -55,11 +55,9 @@ def fingerprint_for_text(text: str) -> str:
 
 def make_cache_key(
     doc_id: Any,
-    n_start: int,
-    n_end: int,
     locale_key: str,
 ) -> str:
-    return f"{doc_id!s}|{n_start}|{n_end}|{locale_key}"
+    return f"{doc_id!s}|{locale_key}"
 
 
 def cache_get(key: str, fingerprint: str) -> tuple[dict[str, Any], ...] | None:

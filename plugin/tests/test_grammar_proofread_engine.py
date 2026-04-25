@@ -40,7 +40,7 @@ def test_normalize_errors_respects_slice() -> None:
 
 def test_cache_roundtrip() -> None:
     eng.cache_clear()
-    key = eng.make_cache_key(1, 0, 10, "en_US")
+    key = eng.make_cache_key(1, "en_US")
     fp = eng.fingerprint_for_text("hello world")
     assert eng.cache_get(key, fp) is None
     norms = eng.normalize_errors_for_text(
@@ -64,3 +64,30 @@ def test_ignore_rules_snapshot() -> None:
     assert "rule_a" in eng.ignored_rules_snapshot()
     eng.ignore_rules_clear()
     assert eng.ignored_rules_snapshot() == set()
+
+
+def test_offset_independent_cache() -> None:
+    from dataclasses import asdict
+
+    eng.cache_clear()
+    doc_id = "doc_test_123"
+    loc = "en_US"
+    text1 = "Sentence one. Sentence two."
+    # Initial analysis of the paragraph
+    fp1 = eng.fingerprint_for_text(text1)
+    key = eng.make_cache_key(doc_id, loc)
+
+    # Mocking errors found
+    errors = [{"wrong": "Sentence", "correct": "Phrasence", "type": "style", "reason": "test"}]
+    norms = eng.normalize_errors_for_text(text1, 0, len(text1), errors)
+    eng.cache_put(key, fp1, [asdict(n) for n in norms])
+
+    # Verify cache hit for identical text
+    assert eng.cache_get(key, fp1) is not None
+
+    # Scenario: User inserts a newline at the very beginning of the document.
+    # The paragraph itself is unchanged, but its offset in the document might have shifted.
+    # However, since we now ignore offsets in the key, it should still hit.
+    assert eng.cache_get(key, fp1) is not None
+
+

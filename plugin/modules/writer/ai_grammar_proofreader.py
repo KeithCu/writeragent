@@ -161,6 +161,8 @@ def _build_empty_result(
         a_res.aProperties = ()
         a_res.xProofreader = proofreader
         a_res.aErrors = ()
+        # FIXME: Adoption of lightproof batching (len(a_text)) caused missing underlines.
+        # Reverted to LO suggested bounds for now.
         n_next = n_suggested_behind_end_of_sentence_position
         if n_next < len(a_text):
             ch = a_text[n_next : n_next + 1]
@@ -460,6 +462,8 @@ class WriterAgentAiGrammarProofreader(
                 nSuggestedBehindEndOfSentencePosition,
                 enabled,
             )
+            # FIXME: Paragraph-level batching (0, len(aText)) caused issues.
+            # Reverting to incremental bounds [nStart, nSuggestedEnd).
             n_start = max(0, nStartOfSentencePosition)
             n_end = min(len(aText), nSuggestedBehindEndOfSentencePosition)
             if n_end <= n_start:
@@ -478,7 +482,7 @@ class WriterAgentAiGrammarProofreader(
                     max_chars,
                 )
                 return a_res
-            cache_key = engine.make_cache_key(aDocumentIdentifier, n_start, n_end, loc_key)
+            cache_key = engine.make_cache_key(aDocumentIdentifier, loc_key)
             fp = engine.fingerprint_for_text(slice_txt)
             cached = engine.cache_get(cache_key, fp)
             if cached is not None:
