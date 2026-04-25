@@ -125,3 +125,9 @@ venv = ".venv"
 include = ["plugin"]
 exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]
 reportMissingModuleSource = false
+
+[tool.coverage.run]
+source = ["plugin/framework"]
+
+[tool.coverage.report]
+show_missing = true

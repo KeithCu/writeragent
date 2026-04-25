@@ -1,0 +1,178 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-9.0.3, pluggy-1.6.0
+rootdir: /app
+configfile: pyproject.toml
+testpaths: plugin/tests
+plugins: typeguard-4.4.3, cov-7.1.0, anyio-4.13.0
+collected 664 items / 1 skipped
+
+plugin/tests/test_agent_memory.py s                                      [  0%]
+plugin/tests/test_async_stream.py ................                       [  2%]
+plugin/tests/test_audio_recorder.py ..s                                  [  3%]
+plugin/tests/test_audio_recorder_state.py .....                          [  3%]
+plugin/tests/test_auth.py ..............                                 [  5%]
+plugin/tests/test_calc_conditional.py ......                             [  6%]
+plugin/tests/test_calc_filter_constants.py ..                            [  7%]
+plugin/tests/test_calc_python_executor.py ...........                    [  8%]
+plugin/tests/test_calc_solver_engine_selection.py ......                 [  9%]
+plugin/tests/test_charts_embed_helpers.py .....                          [ 10%]
+plugin/tests/test_chatbot_handlers.py .......                            [ 11%]
+plugin/tests/test_claude_acp.py .....                                    [ 12%]
+plugin/tests/test_config_service.py .....................                [ 15%]
+plugin/tests/test_config_sync.py ......................                  [ 18%]
+plugin/tests/test_csv_import_logic.py ................                   [ 21%]
+plugin/tests/test_default_models.py .                                    [ 21%]
+plugin/tests/test_dialogs.py ..........                                  [ 22%]
+plugin/tests/test_error_handling.py .............                        [ 24%]
+plugin/tests/test_event_bus.py ..........                                [ 26%]
+plugin/tests/test_extension_update_check.py ......                       [ 27%]
+plugin/tests/test_framework_utils.py .............                       [ 29%]
+plugin/tests/test_google_client.py ..                                    [ 29%]
+plugin/tests/test_google_tool_format.py .                                [ 29%]
+plugin/tests/test_grammar_proofread_engine.py ......                     [ 30%]
+plugin/tests/test_hermes_acp.py ................                         [ 32%]
+plugin/tests/test_html_math_segment.py ...............                   [ 35%]
+plugin/tests/test_http_client.py ...........                             [ 36%]
+plugin/tests/test_i18n.py ............FF......                           [ 39%]
+plugin/tests/test_image_service_refactor.py ............                 [ 41%]
+plugin/tests/test_image_status_callback.py ....                          [ 42%]
+plugin/tests/test_image_tools_cursor.py ...                              [ 42%]
+plugin/tests/test_librarian_handoff.py ...                               [ 43%]
+plugin/tests/test_librarian_smol.py ....                                 [ 43%]
+plugin/tests/test_listeners.py ......                                    [ 44%]
+plugin/tests/test_llm_client_modality.py .......                         [ 45%]
+plugin/tests/test_log_redaction.py ...                                   [ 46%]
+plugin/tests/test_logging.py ...                                         [ 46%]
+plugin/tests/test_main_thread.py ................                        [ 48%]
+plugin/tests/test_math_mml_convert.py ....                               [ 49%]
+plugin/tests/test_mcp.py ...                                             [ 50%]
+plugin/tests/test_mcp_server.py .........                                [ 51%]
+plugin/tests/test_memory_tool_context.py ........                        [ 52%]
+plugin/tests/test_module_base.py ....                                    [ 53%]
+plugin/tests/test_module_errors.py ..........................            [ 57%]
+plugin/tests/test_module_loader.py ...                                   [ 57%]
+plugin/tests/test_openrouter_chat_extra.py .........                     [ 58%]
+plugin/tests/test_orca_catalog.py ..............                         [ 60%]
+plugin/tests/test_schema_convert.py ..........                           [ 62%]
+plugin/tests/test_security_fix.py .........                              [ 63%]
+plugin/tests/test_send_state.py .......                                  [ 64%]
+plugin/tests/test_service_base.py .                                      [ 65%]
+plugin/tests/test_service_registry.py ..........                         [ 66%]
+plugin/tests/test_sheet_filter_parse.py ......                           [ 67%]
+plugin/tests/test_sidebar_state.py .....                                 [ 68%]
+plugin/tests/test_specialized_delegation.py ...                          [ 68%]
+plugin/tests/test_state_framework.py ...                                 [ 69%]
+plugin/tests/test_state_machine.py ........                              [ 70%]
+plugin/tests/test_streaming.py .............                             [ 72%]
+plugin/tests/test_streaming_deltas.py .........                          [ 73%]
+plugin/tests/test_streaming_fuzz.py ....                                 [ 74%]
+plugin/tests/test_string_eval_tools.py .....                             [ 75%]
+plugin/tests/test_tool_base.py ....                                      [ 75%]
+plugin/tests/test_tool_call_parsers.py ....................              [ 78%]
+plugin/tests/test_tool_context.py ..                                     [ 78%]
+plugin/tests/test_tool_loop.py ...........                               [ 80%]
+plugin/tests/test_tool_loop_errors.py ..                                 [ 80%]
+plugin/tests/test_tool_loop_state.py .............                       [ 82%]
+plugin/tests/test_tool_registry.py .......................               [ 86%]
+plugin/tests/test_tool_registry_bypass_thread.py .                       [ 86%]
+plugin/tests/test_toolcalling_prompt_examples.py ..                      [ 86%]
+plugin/tests/test_translation_tool.py ...                                [ 87%]
+plugin/tests/test_tree_search_logic.py .........                         [ 88%]
+plugin/tests/test_uno_context.py ...                                     [ 89%]
+plugin/tests/test_web_research_chat.py .....                             [ 89%]
+plugin/tests/test_web_research_query_override.py .......                 [ 90%]
+plugin/tests/test_web_research_step_budget.py ..                         [ 91%]
+plugin/tests/test_worker_pool.py .............                           [ 93%]
+plugin/tests/test_writer_bookmarks.py ......                             [ 93%]
+plugin/tests/test_writer_eval_prompt.py ..                               [ 94%]
+plugin/tests/test_writer_fields.py ....                                  [ 94%]
+plugin/tests/test_writer_footnotes.py .......                            [ 95%]
+plugin/tests/test_writer_index.py ......                                 [ 96%]
+plugin/tests/test_writer_indexes.py ...                                  [ 97%]
+plugin/tests/test_writer_streaming_edit.py .......                       [ 98%]
+plugin/tests/test_writer_tracking.py ...........                         [100%]
+
+=================================== FAILURES ===================================
+____________________ TestI18n.test_i18n_translation_loading ____________________
+
+self = <plugin.tests.test_i18n.TestI18n testMethod=test_i18n_translation_loading>
+
+    def test_i18n_translation_loading(self):
+        """gettext can load writeragent.mo and translate 'Built-in' to German."""
+        localedir = os.path.join(os.path.abspath("."), "plugin", "locales")
+        translation = gettext.translation("writeragent", localedir, languages=["de"], fallback=True)
+>       self.assertEqual(translation.gettext("Built-in"), "Eingebaut")
+E       AssertionError: 'Built-in' != 'Eingebaut'
+E       - Built-in
+E       + Eingebaut
+
+plugin/tests/test_i18n.py:214: AssertionError
+________________ TestI18n.test_i18n_translation_loading_korean _________________
+
+self = <plugin.tests.test_i18n.TestI18n testMethod=test_i18n_translation_loading_korean>
+
+    def test_i18n_translation_loading_korean(self):
+        """gettext can load writeragent.mo and translate 'Built-in' to Korean."""
+        localedir = os.path.join(os.path.abspath("."), "plugin", "locales")
+        translation = gettext.translation("writeragent", localedir, languages=["ko"], fallback=True)
+>       self.assertEqual(translation.gettext("Built-in"), "내장")
+E       AssertionError: 'Built-in' != '내장'
+E       - Built-in
+E       + 내장
+
+plugin/tests/test_i18n.py:221: AssertionError
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.13-final-0 _______________
+
+Name                                             Stmts   Miss  Cover   Missing
+------------------------------------------------------------------------------
+plugin/framework/__init__.py                         0      0   100%
+plugin/framework/async_stream.py                   283     73    74%   71-73, 83, 126-127, 163, 191-192, 257-260, 316-319, 323-328, 331-335, 354-363, 391, 397-399, 410-414, 422-424, 427, 430, 470-482, 508-511, 536-545, 578-581, 591-596, 604
+plugin/framework/auth.py                            62      1    98%   26
+plugin/framework/base_errors.py                     24      0   100%
+plugin/framework/calc_conditional_constants.py       5      0   100%
+plugin/framework/calc_filter_constants.py           10      0   100%
+plugin/framework/calc_sheet_filter_criteria.py      49     16    67%   40-48, 63, 67, 76, 79-82, 86
+plugin/framework/config.py                        1042    413    60%   55-57, 138, 147, 160-177, 184-195, 295, 310-311, 314-315, 321, 333-339, 351-352, 355-356, 359-360, 384-390, 401, 474-475, 480, 487, 502-503, 509, 515-516, 526, 529, 532-533, 541, 544, 560-561, 566, 578-579, 582, 588, 592-594, 618-646, 658, 663-666, 670-673, 679, 682, 688, 692, 694, 696, 698, 700, 702, 704, 706, 712-718, 726-749, 754-763, 777-778, 792-793, 803, 806, 808, 823-831, 841-842, 849-850, 853-857, 897-898, 916, 918, 927, 947, 968, 977-983, 988, 993-999, 1004-1010, 1015-1041, 1050-1067, 1072-1078, 1089-1095, 1101, 1104, 1125-1137, 1145-1157, 1203, 1206-1208, 1224-1236, 1268, 1271, 1277-1281, 1297, 1323-1349, 1357, 1360-1365, 1371, 1387-1442, 1452-1454, 1459-1460, 1464-1465, 1477-1484, 1497-1500, 1511, 1513-1516
+plugin/framework/constants.py                       79     44    44%   266-273, 280-326
+plugin/framework/default_models.py                  36      3    92%   57, 59, 61
+plugin/framework/dialogs.py                        509    356    30%   60-77, 87-124, 134-210, 218-251, 321-366, 384-455, 463-506, 540, 548, 552-554, 583-584, 607-608, 619-620, 629-630, 636-637, 641-642, 657-658, 666-671, 679-683, 689-698, 706-716, 724-735, 741-749, 755-763, 770, 774-778, 788-800, 808-817, 825-833, 845-846, 850
+plugin/framework/document.py                       728    546    25%   59, 64, 71, 89-90, 103-105, 113-116, 122-123, 131-132, 135-136, 164, 167, 171-172, 182, 185-186, 204-205, 211-218, 223, 247-248, 251-252, 255-256, 259, 276-277, 283-284, 290-313, 318-351, 381-386, 395-430, 435-442, 447-477, 482-494, 503-513, 521-546, 552-575, 581-668, 673-711, 716-774, 782-793, 804-809, 814-830, 835-878, 889-935, 940-973, 983, 986, 990, 993-996, 1004, 1011-1032, 1036-1052, 1056, 1060, 1064, 1068, 1072, 1076, 1080-1083
+plugin/framework/errors.py                          79     37    53%   43-44, 51-56, 78, 85, 104-111, 121-131, 141-167, 173-185
+plugin/framework/event_bus.py                       59      5    92%   92-93, 97, 107-108
+plugin/framework/extension_update_check.py          96     57    41%   46-48, 64, 70-172
+plugin/framework/external_editor.py                 78     44    44%   44-45, 48, 53-63, 67-70, 75-114
+plugin/framework/format.py                          63     63     0%   19-117
+plugin/framework/i18n.py                            47      5    89%   78, 109-112
+plugin/framework/image_tools.py                    201    144    28%   34-44, 51-63, 83, 108-112, 121-138, 147-160, 168-208, 216-229, 239-286, 289-316
+plugin/framework/image_utils.py                    222     55    75%   40, 84, 86, 127-132, 145-147, 153-163, 192-193, 201-202, 208-211, 218, 268-270, 279-285, 300-305, 313, 350-360
+plugin/framework/json_utils.py                      64      6    91%   38, 42, 72, 84, 127, 131
+plugin/framework/legacy_ui.py                      438    418     5%   52, 55-57, 62-121, 125-541, 544-613
+plugin/framework/listeners.py                       60      7    88%   65, 77, 89, 112, 115, 118, 121
+plugin/framework/logging.py                        315    102    68%   133, 140-141, 183, 189-203, 211-230, 236, 275, 289-290, 300-302, 312-316, 335, 341-342, 360-362, 366-369, 378-381, 388-389, 396-409, 426-449, 455-459
+plugin/framework/module_base.py                     21      0   100%
+plugin/framework/module_loader.py                   76     13    83%   21-25, 51, 85-89, 115-116
+plugin/framework/openrouter_chat_extra.py           15      1    93%   21
+plugin/framework/orca_catalog.py                   163     26    84%   19, 21, 25-27, 52, 57, 62, 85-86, 99, 141, 157, 183, 185, 187, 218, 232, 235-236, 274, 284-285, 289, 293-294
+plugin/framework/pricing.py                         67     67     0%   17-107
+plugin/framework/queue_executor.py                 115      1    99%   104
+plugin/framework/schema_convert.py                  33      0   100%
+plugin/framework/service_base.py                     5      0   100%
+plugin/framework/service_registry.py                48     14    71%   49-69, 77
+plugin/framework/settings_dialog.py                137    121    12%   63-116, 124-205, 214-236
+plugin/framework/smol_model.py                      43     31    28%   24-25, 40-103
+plugin/framework/state.py                           12      0   100%
+plugin/framework/streaming_deltas.py                46      3    93%   28, 32, 105
+plugin/framework/tool_base.py                       77     14    82%   121, 194, 198-201, 205-218
+plugin/framework/tool_context.py                    14      0   100%
+plugin/framework/tool_registry.py                  232     64    72%   63-64, 66-67, 69-70, 74-81, 90-91, 95-112, 135-140, 188-189, 194-196, 235-236, 243, 245, 247, 264, 268-269, 296-302, 309-310, 322-326, 366-367, 370-371, 449-455
+plugin/framework/types.py                           30      0   100%
+plugin/framework/uno_context.py                     70     39    44%   64-69, 74-83, 88-94, 99-102, 107-113, 120, 130, 134-136
+plugin/framework/utils.py                           57     16    72%   24-26, 34-35, 43, 45-46, 53-54, 61-62, 72-73, 80-81
+plugin/framework/worker_pool.py                    107      1    99%   180
+------------------------------------------------------------------------------
+TOTAL                                             5917   2806    53%
+=========================== short test summary info ============================
+FAILED plugin/tests/test_i18n.py::TestI18n::test_i18n_translation_loading - A...
+FAILED plugin/tests/test_i18n.py::TestI18n::test_i18n_translation_loading_korean
+================== 2 failed, 660 passed, 3 skipped in 16.14s ===================
