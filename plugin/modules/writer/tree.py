@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""TreeService — heading tree, content strategies, AI annotations.
+"""TreeService — heading tree and content strategies.
 
 Ported from mcp-libre services/writer/tree.py.
 """
@@ -39,18 +39,15 @@ class TreeService(ServiceBase):
         self._bm_svc = services.writer_bookmarks
         events = services.events
         self._tree_cache = {}  # doc_key -> root node
-        self._ai_summary_cache = {}  # doc_key -> {para_index: summary}
         events.subscribe("document:cache_invalidated",
                          self._on_cache_invalidated)
 
     def _on_cache_invalidated(self, doc=None, **_kw):
         if doc is None:
             self._tree_cache.clear()
-            self._ai_summary_cache.clear()
         else:
             key = self._doc_svc.doc_key(doc)
             self._tree_cache.pop(key, None)
-            self._ai_summary_cache.pop(key, None)
 
     # ── Tree building ──────────────────────────────────────────────
 
@@ -189,61 +186,18 @@ class TreeService(ServiceBase):
 
         return "\n".join(parts)
 
-    def get_ai_summaries_map(self, doc):
-        """Build {para_index: summary} map from MCP-AI annotations."""
-        key = self._doc_svc.doc_key(doc)
-        if key in self._ai_summary_cache:
-            return self._ai_summary_cache[key]
-
-        summaries = {}
-        try:
-            fields_supplier = doc.getTextFields()
-            enum = fields_supplier.createEnumeration()
-            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-
-            while enum.hasMoreElements():
-                field = enum.nextElement()
-                if not field.supportsService(
-                        "com.sun.star.text.textfield.Annotation"):
-                    continue
-                try:
-                    author = field.getPropertyValue("Author")
-                except Exception:
-                    continue
-                if author != "MCP-AI":
-                    continue
-                content = field.getPropertyValue("Content")
-                anchor = field.getAnchor()
-                para_idx = self._doc_svc.find_paragraph_for_range(
-                    anchor, para_ranges, doc.getText())
-                if para_idx >= 0:
-                    summaries[para_idx] = content
-        except Exception as e:
-            log.error("Failed to get AI summaries: %s", e)
-
-        self._ai_summary_cache[key] = summaries
-        return summaries
-
-    def _apply_content_strategy(self, node, doc, ai_summaries, strategy,
+    def _apply_content_strategy(self, node, doc, strategy,
                                 max_chars=100):
         para_idx = node.get("para_index", -1)
         if strategy in ("none", "heading_only"):
             pass
-        elif strategy == "ai_summary_first":
-            if para_idx in ai_summaries:
-                node["ai_summary"] = ai_summaries[para_idx]
-            else:
-                node["body_preview"] = self._get_body_preview(
-                    doc, para_idx, max_chars)
         elif strategy == "first_lines":
             node["body_preview"] = self._get_body_preview(
                 doc, para_idx, max_chars)
-            if para_idx in ai_summaries:
-                node["ai_summary"] = ai_summaries[para_idx]
         elif strategy == "full":
             node["body_text"] = self._get_full_body_text(doc, para_idx)
 
-    def _serialize_tree_node(self, child, doc, ai_summaries,
+    def _serialize_tree_node(self, child, doc,
                              content_strategy, depth, current_depth=1,
                              bookmark_map=None):
         node = {
@@ -256,12 +210,12 @@ class TreeService(ServiceBase):
             "body_paragraphs": child["body_paragraphs"],
         }
         self._apply_content_strategy(
-            node, doc, ai_summaries, content_strategy)
+            node, doc, content_strategy)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
                 node["children"] = [
                     self._serialize_tree_node(
-                        sub, doc, ai_summaries, content_strategy,
+                        sub, doc, content_strategy,
                         depth, current_depth + 1, bookmark_map)
                     for sub in child["children"]
                 ]
@@ -274,14 +228,10 @@ class TreeService(ServiceBase):
         """Get serialized document tree with content strategies."""
         tree = self.build_heading_tree(doc)
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
-        ai_summaries = (
-            self.get_ai_summaries_map(doc)
-            if content_strategy in ("ai_summary_first", "first_lines")
-            else {})
 
         children = [
             self._serialize_tree_node(
-                child, doc, ai_summaries, content_strategy,
+                child, doc, content_strategy,
                 depth, bookmark_map=bookmark_map)
             for child in tree["children"]
         ]
@@ -342,11 +292,6 @@ class TreeService(ServiceBase):
             raise ToolExecutionError("Heading at paragraph %d not found"
                              % heading_para_index)
 
-        ai_summaries = (
-            self.get_ai_summaries_map(doc)
-            if content_strategy in ("ai_summary_first", "first_lines")
-            else {})
-
         children = []
         text = doc.getText()
         enum = text.createEnumeration()
@@ -391,7 +336,7 @@ class TreeService(ServiceBase):
 
         for child in target["children"]:
             node = self._serialize_tree_node(
-                child, doc, ai_summaries, content_strategy,
+                child, doc, content_strategy,
                 depth, bookmark_map=bookmark_map)
             children.append(node)
 
@@ -407,99 +352,6 @@ class TreeService(ServiceBase):
             "depth": depth,
             "children": children,
         }
-
-    # ── AI annotations ─────────────────────────────────────────────
-
-    def add_ai_summary(self, doc, para_index=None, summary="",
-                       locator=None):
-        """Add an MCP-AI annotation at a paragraph."""
-        if locator is not None and para_index is None:
-            resolved = self._doc_svc.resolve_locator(doc, locator)
-            para_index = resolved.get("para_index")
-        if para_index is None:
-            raise ToolExecutionError("Provide locator or para_index")
-
-        doc_text = doc.getText()
-        self._remove_ai_annotation_at(doc, para_index)
-
-        target, _ = self._doc_svc.find_paragraph_element(doc, para_index)
-        if target is None:
-            raise ToolExecutionError("Paragraph %d not found" % para_index)
-
-        annotation = doc.createInstance(
-            "com.sun.star.text.textfield.Annotation")
-        annotation.setPropertyValue("Author", "MCP-AI")
-        annotation.setPropertyValue("Content", summary)
-        cursor = doc_text.createTextCursorByRange(target.getStart())
-        doc_text.insertTextContent(cursor, annotation, False)
-
-        self._ai_summary_cache.pop(
-            self._doc_svc.doc_key(doc), None)
-
-        try:
-            if doc.hasLocation():
-                doc.store()
-        except Exception:
-            pass
-
-        return {"status": "ok",
-                "message": "Added AI summary at paragraph %d" % para_index,
-                "para_index": para_index,
-                "summary_length": len(summary)}
-
-    def get_ai_summaries(self, doc):
-        """List all MCP-AI annotations."""
-        summaries_map = self.get_ai_summaries_map(doc)
-        summaries = [{"para_index": idx, "summary": text}
-                     for idx, text in sorted(summaries_map.items())]
-        return {"status": "ok", "summaries": summaries,
-                "count": len(summaries)}
-
-    def remove_ai_summary(self, doc, para_index=None, locator=None):
-        """Remove MCP-AI annotation at a paragraph."""
-        if locator is not None and para_index is None:
-            resolved = self._doc_svc.resolve_locator(doc, locator)
-            para_index = resolved.get("para_index")
-        if para_index is None:
-            raise ToolExecutionError("Provide locator or para_index")
-        removed = self._remove_ai_annotation_at(doc, para_index)
-        self._ai_summary_cache.pop(
-            self._doc_svc.doc_key(doc), None)
-        if removed:
-            try:
-                if doc.hasLocation():
-                    doc.store()
-            except Exception:
-                pass
-        return {"status": "ok", "removed": removed,
-                "para_index": para_index}
-
-    def _remove_ai_annotation_at(self, doc, para_index):
-        try:
-            fields = doc.getTextFields()
-            enum = fields.createEnumeration()
-            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-            text_obj = doc.getText()
-            while enum.hasMoreElements():
-                field = enum.nextElement()
-                if not field.supportsService(
-                        "com.sun.star.text.textfield.Annotation"):
-                    continue
-                try:
-                    author = field.getPropertyValue("Author")
-                except Exception:
-                    continue
-                if author != "MCP-AI":
-                    continue
-                anchor = field.getAnchor()
-                idx = self._doc_svc.find_paragraph_for_range(
-                    anchor, para_ranges, text_obj)
-                if idx == para_index:
-                    text_obj.removeTextContent(field)
-                    return True
-        except Exception as e:
-            log.error("Failed to remove AI annotation: %s", e)
-        return False
 
     # ── Locator resolution (called by document.resolve_locator) ────
 

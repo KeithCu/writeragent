@@ -40,7 +40,7 @@ class GetDocumentTree(ToolBase):
         "Get the document heading tree with bookmarks and content previews. "
         "Use content_strategy=\"heading_only\" for a simple outline (headings hierarchy). "
         "Creates _mcp_ bookmarks on headings for stable addressing. "
-        "Strategies: heading_only, first_lines (default), ai_summary_first, full. "
+        "Strategies: heading_only, first_lines (default), full. "
         "depth=0 for unlimited, depth=1 (default) for top-level only."
     )
     parameters = {
@@ -48,7 +48,7 @@ class GetDocumentTree(ToolBase):
         "properties": {
             "content_strategy": {
                 "type": "string",
-                "enum": ["heading_only", "first_lines", "ai_summary_first", "full"],
+                "enum": ["heading_only", "first_lines", "full"],
                 "description": "Content to include with headings (default: first_lines)",
             },
             "depth": {
@@ -95,7 +95,7 @@ class GetHeadingChildren(ToolWriterStructuralBase):
             },
             "content_strategy": {
                 "type": "string",
-                "enum": ["heading_only", "first_lines", "ai_summary_first", "full"],
+                "enum": ["heading_only", "first_lines", "full"],
                 "description": "Content strategy (default: first_lines)",
             },
             "depth": {

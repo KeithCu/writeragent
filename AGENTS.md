@@ -149,7 +149,7 @@ Tools go through `tool_registry` / `ToolContext`. Modular tools: `cells.py`, `fo
 ## 7. Writer navigation & outline
 
 - **Helpers in [`document.py`](plugin/framework/document.py)**: `build_heading_tree`, bookmark/locator helpers used by chat and tools. A commented-out **`DocumentCache`** block is not active; ignore stale notes about cache invalidation. Some docstrings still mention “DocumentCache” — treat as legacy wording.
-- **Registered outline tools** ([`plugin/modules/writer/outline.py`](plugin/modules/writer/outline.py)): **`get_document_tree`** (heading tree, optional content strategies), **`get_heading_children`** (drill into a heading by locator). Legacy names like `get_document_outline` / `get_heading_content` are **not** the current API.
+- **Registered outline tools** ([`plugin/modules/writer/outline.py`](plugin/modules/writer/outline.py)): **`get_document_tree`** (heading tree, optional content strategies: `heading_only`, `first_lines`, `full`), **`get_heading_children`** (drill into a heading by locator). Legacy names like `get_document_outline` / `get_heading_content` are **not** the current API. There is no MCP-AI paragraph-summary annotation path or `ai_summary_first` strategy.
 - **content.py**: `get_document_content` / `apply_document_content` are active `ToolBase` tools; **`CloneHeadingBlock`** (and any remaining dummies) stay off until rebased.
 
 ---

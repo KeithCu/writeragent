@@ -401,8 +401,6 @@ class ProximityService(ServiceBase):
                         author = field.getPropertyValue("Author")
                     except Exception:
                         author = ""
-                    if author == "MCP-AI":
-                        continue
                     anchor = field.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(
                         anchor, para_ranges, text_obj)
