@@ -549,7 +549,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def dispatch(self, event):
         """Dispatch an event to the state machine, compute new state, and apply effects."""
-        log.debug(f"SendButtonListener: dispatching {type(event).__name__}")
         tr = sidebar_next_state(
             self.sidebar_state,
             SidebarEvent(kind=SidebarEventKind.SEND, payload=event),
