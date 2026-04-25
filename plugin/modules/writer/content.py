@@ -184,9 +184,6 @@ class ApplyDocumentContent(ToolBase):
         "Use target='full_document' to replace the whole document. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
         "Use target='search' with old_content to find and replace text. "
-        "For equations: prefer TeX delimiters ($…$ or \\(…\\) inline, $$…$$ or \\[…\\] display); "
-        'MathML (<math xmlns="http://www.w3.org/1998/Math/MathML">…</math>) also accepted. '
-        "Avoid $+digit for currency."
     )
     parameters = {
         "type": "object",
@@ -195,9 +192,8 @@ class ApplyDocumentContent(ToolBase):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "The new content as a list of HTML fragments (TeX delimiters $…$, $$…$$, \\(…\\), \\[…\\] "
-                    "or MathML for equations) or plain-text fragments (one element per heading/paragraph). "
-                    "Do not use Markdown."
+                    "List of HTML fragments or plain-text fragments (one per block); shape and math per system "
+                    "prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown."
                 ),
             },
             "target": {

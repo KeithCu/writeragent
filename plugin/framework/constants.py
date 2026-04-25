@@ -36,18 +36,37 @@ APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Targets: 'beginning', 'end', 'selection', 'full_document' (replaces all), or 'search'.
 - `content` must be a JSON array of HTML strings (one fragment per heading/paragraph). We wrap in <html>/<body>.
 - Use <br> for line breaks within an element; <p> for paragraphs. Raw Unicode (é, ü, ©); straight double quotes ("), not curly/smart quotes or HTML entities. Send <h1> not &lt;h1&gt;. Preserve intentional spacing.
-- Math (equations): Prefer TeX delimiters — `$…$` or `\\(…\\)` inline, `$$…$$` or `\\[…\\]` display. MathML (`<math xmlns="http://www.w3.org/1998/Math/MathML">…</math>`) is also accepted when you already have it. Avoid `$` + digit for currency (e.g. `$100`). Always use structured math, not plain text or images.
+- Math: Always structured math for equations (native LibreOffice objects). Inline: `\\(`…`\\)` or `$`…`$`; display: `$$`…`$$` or `\\[`…`\\]`. Prefer `\\(` over `$` (currency). TeX preferred; MathML in `<math …>` if you already have it. Avoid `$`+digit. No images or informal plain-text formulas.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]
-- Good math (TeX): ["<p>Inline \\(x^2\\) and display $$\\frac{1}{2}$$.</p>"]
-- Good math (MathML): ["<p>Inline <math xmlns=\\"http://www.w3.org/1998/Math/MathML\\"><mi>x</mi></math> in prose.</p>"]
+- Good math: ["<p>Inline \\(x^2\\) and display $$\\frac{1}{2}$$.</p>"]
 - Bad: <h1>Title</h1><p>Paragraph</p> (must be a list of strings)
 - Bad: ["&lt;h1&gt;Title&lt;/h1&gt;"] (escaped entities)
 - Bad: ["# Title", "Paragraph"] (No Markdown)
 - Bad: ["&ldquo;Smart quotes&rdquo;"] (use straight quotes ")"""
 
 FORMATTING_RULES = WRITER_APPLY_DOCUMENT_HTML_RULES
+
+# Prepended to the first string `system` message in LlmClient for non-release bundles only
+# (``make build`` includes ``plugin/tests``; ``make release`` / ``--no-tests`` does not).
+# See `should_prepend_dev_llm_system_prefix()`.
+LLM_DEV_BUILD_SYSTEM_PREFIX = (
+    "[WriterAgent development build]\n"
+    "You are running a development version of the WriterAgent extension. The user is a plugin developer. "
+    "If you run into a problem, explain in detail what failed and why so they can improve the extension. "
+    "If they ask detailed questions about tool-calling APIs, prompts, or how the software works, answer helpfully so developers can improve the plugin."
+)
+
+
+def should_prepend_dev_llm_system_prefix() -> bool:
+    """True when this bundle includes test modules (same signal as the optional Debug / in-OXT tests)."""
+    try:
+        import importlib.util
+        return importlib.util.find_spec("plugin.tests.uno") is not None
+    except Exception:
+        return False
+
 
 # General directives shared across all AI interfaces
 CORE_DIRECTIVES = """When asked to answer a question or create or explain something, assume the user wants the

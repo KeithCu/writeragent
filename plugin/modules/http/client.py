@@ -30,9 +30,31 @@ from typing import Any
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
 
+
+def _prepend_dev_build_system_prefix_to_messages(messages: list) -> None:
+    """If this is a non-release bundle, prepend a dev-oriented line to the first str system message."""
+    if not should_prepend_dev_llm_system_prefix():
+        return
+    prefix = LLM_DEV_BUILD_SYSTEM_PREFIX
+    for m in messages:
+        if m.get("role") != "system":
+            continue
+        c = m.get("content")
+        if not isinstance(c, str):
+            continue
+        if c.startswith(prefix):
+            return
+        m["content"] = f"{prefix}\n\n{c}"
+        return
+
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
 from plugin.framework.streaming_deltas import accumulate_delta
-from plugin.framework.constants import APP_REFERER, APP_TITLE
+from plugin.framework.constants import (
+    APP_REFERER,
+    APP_TITLE,
+    LLM_DEV_BUILD_SYSTEM_PREFIX,
+    should_prepend_dev_llm_system_prefix,
+)
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
@@ -304,6 +326,7 @@ class LlmClient:
 
         # 1. Anthropic Native Shim
         if provider == "anthropic":
+            _prepend_dev_build_system_prefix_to_messages(messages)
             url = f"{endpoint}/v1/messages"
             system_msg = ""
             converted = []
@@ -346,6 +369,7 @@ class LlmClient:
             action = ":streamGenerateContent" if stream else ":generateContent"
             url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
             
+            _prepend_dev_build_system_prefix_to_messages(messages)
             contents: list[dict[str, Any]] = []
             system_instruction = None
             for m in messages:
@@ -471,6 +495,8 @@ class LlmClient:
                         system_msg["content"] = date_msg
         else:
             messages.insert(0, {"role": "system", "content": date_msg})
+
+        _prepend_dev_build_system_prefix_to_messages(messages)
 
         if model_name:
             data["model"] = model_name

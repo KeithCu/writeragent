@@ -350,3 +350,17 @@ def test_make_chat_request_mixed_structured_blocks():
     assert decoded["messages"][0]["role"] == "system"
     assert decoded["messages"][1]["role"] == "user"
     assert decoded["messages"][1]["content"] == mixed_user_content
+
+
+def test_make_chat_request_includes_dev_build_prefix_when_enabled():
+    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
+    messages = [{"role": "user", "content": "Hi"}]
+    with patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=True):
+        _m, _p, body, _h = client.make_chat_request(messages, max_tokens=50)
+    data = json.loads(body.decode("utf-8"))
+    system = data["messages"][0]["content"]
+    assert system.startswith(LLM_DEV_BUILD_SYSTEM_PREFIX)
+    assert "Today's date" in system
