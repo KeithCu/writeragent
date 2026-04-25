@@ -334,7 +334,10 @@ class WriterAgentAiGrammarProofreader(
 ):
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any, *args: Any):
+        # LibreOffice's Linguistic manager instantiates proofreaders with
+        # compatibility arguments before querying XSupportedLocales.
+        del args
         super().__init__()
         self.ctx = ctx
         self._implementation_name = IMPLEMENTATION_NAME

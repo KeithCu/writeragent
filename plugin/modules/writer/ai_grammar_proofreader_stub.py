@@ -29,7 +29,9 @@ class WriterAgentAiGrammarProofreaderStub(
 ):
     """No-op proofreader with the same implementation id as the real component."""
 
-    def __init__(self, ctx: Any):
+    def __init__(self, ctx: Any, *args: Any):
+        # LibreOffice passes compatibility args when enumerating Linguistic services.
+        del args
         self.ctx = ctx
         self._locales = (
             Locale("en", "US", ""),

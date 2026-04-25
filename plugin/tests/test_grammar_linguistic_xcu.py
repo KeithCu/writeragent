@@ -151,3 +151,23 @@ def test_ai_grammar_stub_uses_same_implementation_id() -> None:
 
     assert constant_value(stub, "IMPLEMENTATION_NAME") == constant_value(real, "IMPLEMENTATION_NAME")
     assert constant_value(stub, "SERVICE_NAME") == constant_value(real, "SERVICE_NAME")
+
+
+def test_ai_grammar_components_accept_linguistic_constructor_args() -> None:
+    """LO calls proofreaders through createInstanceWithArgumentsAndContext."""
+    for filename in ("ai_grammar_proofreader.py", "ai_grammar_proofreader_stub.py"):
+        path = os.path.join(_repo_root(), "plugin", "modules", "writer", filename)
+        with open(path, encoding="utf-8") as f:
+            module = ast.parse(f.read(), filename=path)
+
+        classes = [node for node in module.body if isinstance(node, ast.ClassDef)]
+        init_methods = [
+            item
+            for cls in classes
+            for item in cls.body
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__"
+        ]
+        assert init_methods, f"{filename} is missing __init__"
+        assert init_methods[0].args.vararg is not None, (
+            f"{filename} __init__ must accept LO Linguistic compatibility args"
+        )
