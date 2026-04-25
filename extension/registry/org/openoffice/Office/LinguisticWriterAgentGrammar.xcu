@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Experimental: not listed in META-INF/manifest.xml by default (see scripts/manifest_registry.py). -->
+<!-- Opt-in via scripts/manifest_registry.py; Locales must match plugin (Lightproof-style). -->
 <oor:component-data oor:name="Linguistic"
         oor:package="org.openoffice.Office" xmlns:oor="http://openoffice.org/2001/registry"
         xmlns:xs="http://www.w3.org/2001/XMLSchema">
@@ -7,8 +7,7 @@
         <node oor:name="GrammarCheckers">
             <node oor:name="org.extension.writeragent.comp.pyuno.AiGrammarProofreader" oor:op="fuse">
                 <prop oor:name="Locales" oor:type="oor:string-list">
-                    <value>en_US</value>
-                    <value>en_GB</value>
+                    <value>en-US en-GB</value>
                 </prop>
             </node>
         </node>

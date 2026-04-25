@@ -8,7 +8,7 @@ config:
     default: false
     widget: checkbox
     label: Enable AI grammar checker (Writer)
-    helper: "When on, the proofreader code path is active if LibreOffice loads the grammar service (see docs/realtime-grammar-checker-plan.md — Linguistic registry may be off in the shipped .oxt to avoid Options crashes). Checked text uses your API under Tools → Options → AI. Off by default."
+    helper: "When on, AI grammar work runs only in opt-in builds that register the native Writer proofreader (WRITERAGENT_ENABLE_LINGUISTIC_GRAMMAR_XCU=1). Default builds omit that registry entry to avoid LibreOffice crashes. Checked text uses your API under Tools → Options → AI. Off by default."
 
   grammar_proofreader_debounce_ms:
     type: int

@@ -18,6 +18,10 @@ from plugin.framework.errors import safe_json_loads
 log = logging.getLogger(__name__)
 _grammar_diag = logging.getLogger("writeragent.grammar")
 
+# Hyphenated tags for ``LinguisticWriterAgentGrammar.xcu`` ``Locales`` (one ``oor:string-list``
+# ``<value>``, space-separated — same pattern as Lightproof / bundled LO grammar extensions).
+GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = ("en-US", "en-GB")
+
 _CACHE_LOCK = threading.Lock()
 # cache_key -> (text_fingerprint, tuple of normalized error dicts)
 _proofread_cache: dict[str, tuple[str, tuple[dict[str, Any], ...]]] = {}

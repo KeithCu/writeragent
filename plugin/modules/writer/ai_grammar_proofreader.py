@@ -29,19 +29,8 @@ from typing import Any, no_type_check
 
 import unohelper
 
-from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
+from com.sun.star.lang import Locale, XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales
-
-from plugin.framework.config import (
-    get_api_config,
-    get_config_bool,
-    get_config_int,
-    get_config_str,
-    get_text_model,
-)
-from plugin.framework.logging import init_logging
-from plugin.framework.worker_pool import run_in_background
-from plugin.modules.writer import grammar_proofread_engine as _engine
 
 log = logging.getLogger("writeragent.grammar")
 # Do not inherit writeragent's log level (often WARN); grammar uses INFO for diagnostics.
@@ -91,19 +80,20 @@ def _locale_key(loc: Any) -> str:
 def _locale_tuple() -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` — must match ``LinguisticWriterAgentGrammar.xcu`` ``Locales``.
 
+    The XCU uses hyphenated BCP47-like tags in one ``oor:string-list`` value (e.g. ``en-US en-GB``);
+    UNO uses ``com.sun.star.lang.Locale`` structs for the same languages.
+
     LibreOffice merges the registry list with ``XSupportedLocales``; an extra locale here that is
     not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
     when opening Tools → Options → Language Settings (Writing aids).
     """
-    if uno_mod is None:
-        return ()
     try:
         return (
-            uno_mod.createUnoStruct("com.sun.star.lang.Locale", "en", "US", ""),
-            uno_mod.createUnoStruct("com.sun.star.lang.Locale", "en", "GB", ""),
+            Locale("en", "US", ""),
+            Locale("en", "GB", ""),
         )
     except Exception as e:
-        log.error("[grammar] _locale_tuple: createUnoStruct failed: %s", e, exc_info=True)
+        log.error("[grammar] _locale_tuple: Locale construction failed: %s", e, exc_info=True)
         return ()
 
 
@@ -112,12 +102,13 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     """Log Doc-tab grammar state only.
 
     We intentionally do **not** call ``XLinguServiceManager2.setConfiguredServices`` here: doing that
-    during startup/sidebar init has been observed to destabilize LibreOffice so opening
-    **Tools → Options → Language Settings** (Writing aids / proofreader list) can crash. The
-    The Linguistic ``GrammarCheckers`` XCU is not shipped in the default .oxt (see ``manifest_registry.py``)
-    because merging it crashed Writing aids on some LibreOffice builds. Integrated grammar requires
-    that registry entry to be re-enabled when a safe schema is confirmed.
+    during startup/sidebar init has been observed to destabilize LibreOffice (Writing aids / proofreader
+    list). The Linguistic ``GrammarCheckers`` XCU is opt-in only (see ``manifest_registry.py``) because
+    default bundling still crashed some LibreOffice builds natively.
     """
+    from plugin.framework.config import get_config_bool
+    from plugin.framework.logging import init_logging
+
     try:
         init_logging(ctx)
     except Exception as e:
@@ -141,9 +132,9 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         )
         return
     log.info(
-        "[grammar] Doc-tab AI grammar on — if Writer does not use it yet, set **WriterAgent AI Grammar** "
-        "as the active grammar (proofreader) under Tools → Options → Language Settings → Writing aids "
-        "for English (we do not auto-change that setting; it can crash the options UI)."
+        "[grammar] Doc-tab AI grammar on — native Writer grammar registration requires an opt-in "
+        "build with WRITERAGENT_ENABLE_LINGUISTIC_GRAMMAR_XCU=1; default builds keep the crash-prone "
+        "Linguistic XCU out of META-INF/manifest.xml."
     )
 
 
@@ -189,7 +180,7 @@ def _build_empty_result(
 
 @no_type_check
 def _errors_to_uno_tuple(
-    norms: list[_engine.NormalizedProofError],
+    norms: list[Any],
 ) -> tuple[Any, ...]:
     out: list[Any] = []
     for idx, e in enumerate(norms):
@@ -240,6 +231,15 @@ def _run_llm_and_cache(
     map_key: str,
 ) -> None:
     try:
+        from plugin.framework.config import (
+            get_api_config,
+            get_config_bool,
+            get_config_int,
+            get_config_str,
+            get_text_model,
+        )
+        from plugin.modules.writer import grammar_proofread_engine as engine
+
         try:
             debounce_ms = get_config_int(ctx, "doc.grammar_proofreader_debounce_ms")
         except Exception as e:
@@ -313,11 +313,11 @@ def _run_llm_and_cache(
         client = LlmClient(get_api_config(ctx), ctx)
         content = client.chat_completion_sync(messages, max_tokens=max_tok, model=model or None)
         log.debug("[grammar] LLM raw response length=%s", len(content or ""))
-        items = _engine.parse_grammar_json(content or "")
+        items = engine.parse_grammar_json(content or "")
         log.info("[grammar] parsed %s error item(s) from JSON", len(items))
-        ignored = _engine.ignored_rules_snapshot()
-        norms = _engine.normalize_errors_for_text(full_text, n_start, n_end, items, ignored)
-        _engine.cache_put(cache_key, fingerprint, [asdict(n) for n in norms])
+        ignored = engine.ignored_rules_snapshot()
+        norms = engine.normalize_errors_for_text(full_text, n_start, n_end, items, ignored)
+        engine.cache_put(cache_key, fingerprint, [asdict(n) for n in norms])
         log.info("[grammar] cached %s normalized error(s) for key fp=%s…", len(norms), fingerprint[:12])
     except Exception as e:
         log.error("[grammar] worker failed after config/debounce stage: %s", e, exc_info=True)
@@ -327,10 +327,10 @@ def _run_llm_and_cache(
 class WriterAgentAiGrammarProofreader(
     unohelper.Base,
     XProofreader,
-    XSupportedLocales,
     XServiceInfo,
     XServiceName,
     XServiceDisplayName,
+    XSupportedLocales,
 ):
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
@@ -404,6 +404,11 @@ class WriterAgentAiGrammarProofreader(
             raise RuntimeError("uno not available")
         a_res: Any = None
         try:
+            from plugin.framework.config import get_config_bool, get_config_int
+            from plugin.framework.logging import init_logging
+            from plugin.framework.worker_pool import run_in_background
+            from plugin.modules.writer import grammar_proofread_engine as engine
+
             try:
                 init_logging(self.ctx)
             except Exception as e:
@@ -430,7 +435,10 @@ class WriterAgentAiGrammarProofreader(
                 log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
                 return a_res
             if not self.hasLocale(aLocale):
-                log.info("[grammar] doProofreading: locale not supported (have en_US/en_GB): %s", loc_key)
+                log.info(
+                    "[grammar] doProofreading: locale not supported (have en-US/en-GB): %s",
+                    loc_key,
+                )
                 return a_res
             # Lightproof.py "PATCH FOR LO 4": Writer issues incremental calls with nStart != 0; return
             # empty until the sentence-start pass. Otherwise we spam LLM/cache on every sub-span and
@@ -468,14 +476,14 @@ class WriterAgentAiGrammarProofreader(
                     max_chars,
                 )
                 return a_res
-            cache_key = _engine.make_cache_key(aDocumentIdentifier, n_start, n_end, loc_key)
-            fp = _engine.fingerprint_for_text(slice_txt)
-            cached = _engine.cache_get(cache_key, fp)
+            cache_key = engine.make_cache_key(aDocumentIdentifier, n_start, n_end, loc_key)
+            fp = engine.fingerprint_for_text(slice_txt)
+            cached = engine.cache_get(cache_key, fp)
             if cached is not None:
                 try:
-                    ignored_now = _engine.ignored_rules_snapshot()
+                    ignored_now = engine.ignored_rules_snapshot()
                     norms = [
-                        _engine.NormalizedProofError(
+                        engine.NormalizedProofError(
                             n_error_start=int(d["n_error_start"]),
                             n_error_length=int(d["n_error_length"]),
                             suggestions=tuple(d.get("suggestions") or ()),
@@ -532,6 +540,8 @@ class WriterAgentAiGrammarProofreader(
                     pass
                 return a_res
             try:
+                from plugin.framework.logging import init_logging
+
                 init_logging(self.ctx)
             except Exception:
                 pass
@@ -546,14 +556,18 @@ class WriterAgentAiGrammarProofreader(
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
+            from plugin.modules.writer import grammar_proofread_engine as engine
+
             del aLocale  # locale-specific ignore not distinguished in cache yet
-            _engine.ignore_rule_add(str(aRuleIdentifier))
+            engine.ignore_rule_add(str(aRuleIdentifier))
         except Exception as e:
             log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
 
     def resetIgnoreRules(self) -> None:
         try:
-            _engine.ignore_rules_clear()
+            from plugin.modules.writer import grammar_proofread_engine as engine
+
+            engine.ignore_rules_clear()
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
 

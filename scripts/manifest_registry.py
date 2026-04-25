@@ -549,6 +549,13 @@ def generate_manifest_xml(modules, output_path):
     """Generate META-INF/manifest.xml with XCS/XCU entries for selected modules."""
     MANIFEST_NS = "http://openoffice.org/2001/manifest"
     MF = "manifest:"
+    include_linguistic_grammar_xcu = os.environ.get("WRITERAGENT_ENABLE_LINGUISTIC_GRAMMAR_XCU") == "1"
+    use_linguistic_grammar_stub = os.environ.get("WRITERAGENT_LINGUISTIC_GRAMMAR_STUB") == "1"
+    grammar_component = (
+        "plugin/modules/writer/ai_grammar_proofreader_stub.py"
+        if use_linguistic_grammar_stub
+        else "plugin/modules/writer/ai_grammar_proofreader.py"
+    )
 
     # Static entries (always present)
     entries = [
@@ -556,12 +563,7 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/main.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/prompt_function.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/chatbot/panel_factory.py'),
-        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/writer/ai_grammar_proofreader.py'),
-        # LinguisticWriterAgentGrammar.xcu is NOT bundled by default: merging it into Office's
-        # Linguistic layer has reproducibly crashed Tools→Options→Language Settings→Writing aids
-        # (native LO, no Python traceback). The file remains at
-        # extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu for experiments;
-        # re-add this line after `make manifest` to opt in (risky until schema is validated per LO version).
+        ('application/vnd.sun.star.uno-component;type=Python', grammar_component),
         ('application/vnd.sun.star.configuration-data', 'Addons.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),
         ('application/vnd.sun.star.configuration-data', 'ProtocolHandler.xcu'),
@@ -570,6 +572,17 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Sidebar.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/Office/UI/Factories.xcu'),
     ]
+    if include_linguistic_grammar_xcu or use_linguistic_grammar_stub:
+        # Experimental: still crashes some LibreOffice builds during native Linguistic service
+        # enumeration. Enable only for controlled grammar-integration tests. The stub mode forces
+        # the XCU on so it can isolate XCU/LO registration from the real proofreader implementation.
+        entries.insert(
+            5,
+            (
+                "application/vnd.sun.star.configuration-data",
+                "registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu",
+            ),
+        )
 
     # Build XML tree
     def _mf(tag):
