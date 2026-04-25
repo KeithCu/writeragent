@@ -23,6 +23,14 @@ For implementation details, see the [Writer documentation](writer-specialized-to
 
 WriterAgent organizes Calc tools into specialized domains to keep the main chat toolset focused. Below is the current implementation status and roadmap.
 
+### Rich HTML in a single cell
+
+The **`insert_cell_html`** tool ([`plugin/modules/calc/cells.py`](../plugin/modules/calc/cells.py), implementation [`rich_html.py`](../plugin/modules/calc/rich_html.py)) is on the **extended** tier (main Calc tool list when extended tools are available—not a delegated `specialized_domain`). It **replaces the text in one cell** on the **active sheet** with content parsed from an HTML string:
+
+- **Mechanism**: A **hidden temporary Writer** document loads the fragment with the same **`HTML (StarWriter)`** filter and cursor import path as Writer tools; the body is **selected** with a text cursor (not the view cursor—required for hidden docs), then **`getTransferable` → `select(cell)` → `insertTransferable`** on the Calc controller.
+- **Use when**: The model needs **mixed character formatting in one cell**; plain **`write_formula_range` / `set_string`** cannot express that.
+- **Limits**: **One cell** per call; **no** embedded images/OLE; math-in-HTML is not a goal for Calc. Callers must supply a **valid UNO component context** on `ToolContext.ctx` (in-process tests and the sidebar pass this; a `None` context can break `get_desktop` in some embed scenarios).
+
 ---
 
 ## 3. Implementation status and roadmap
@@ -31,7 +39,7 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 
 | Domain / area | WriterAgent status | Module & tools | Notes |
 |---------------|--------------------|----------------|-------|
-| **Cells** | ✅ Implemented | `cells.py`: Get/SetCellValues, SetCellFormula, GetCellFormula | Basic cell operations on main list |
+| **Cells** | ✅ Implemented | `cells.py`: `read_cell_range`, `write_formula_range`, `set_style`, `insert_cell_html` ([`rich_html.py`](../plugin/modules/calc/rich_html.py)), merge/sort/delete helpers | Basic range + style + **HTML → rich text in one cell** ([§ Rich HTML in a single cell](#rich-html-in-a-single-cell)) |
 | **Ranges** | ✅ Implemented | `cells.py`: Get/SetRangeValues, Get/SetRangeFormulas | — |
 | **Sheets** | ✅ Implemented | `sheets.py`: ListSheets, Create/Delete/RenameSheet, GetSheetProperties, SwitchSheet, GetSheetSummary | Basic sheet ops on main list |
 | **Formulas** | ✅ Implemented | `formulas.py`: Get/SetFormula, EvaluateFormula, ListFormulaDependencies | — |

@@ -201,7 +201,9 @@ READ:
 
 WRITE & FORMAT:
 - write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Alternatively, provide multiline CSV data to bulk insert starting at a cell. Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations.
-- set_style: Formatting (bold, colors, alignment, number format) for a range. Prefer ranges for efficiency; use after bulk writes.
+- set_style: Use for one or more cells/ranges at once (same formatting applied per range). Good after bulk writes for uniform look. It only exposes a small fixed set of properties (see list below)—not mixed rich text inside a cell. For per-character formatting, links, or HTML structure in a single cell, use insert_cell_html instead.
+- set_style properties (each optional except range_name): range_name (array of addresses/ranges); bold; italic; font_size (points); bg_color; font_color (hex #RRGGBB or names: red, yellow, …); h_align (left|center|right|justify); v_align (top|center|bottom); wrap_text; border_color (outline around the range); number_format (e.g. #,##0.00, 0%, dates).
+- insert_cell_html: Paste HTML into one cell on the active sheet as rich text (bold, italic, links, line breaks—same import as Writer). Plain write_formula_range cannot do this. One cell only; no images. Does not replace set_style for whole-table borders/number formats—combine as needed.
 
 - merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_style.
 - sort_range: Sort a range by a column (ascending/descending, optional header row).

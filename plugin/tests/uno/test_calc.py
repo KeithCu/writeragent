@@ -109,7 +109,10 @@ def test_cells_parse_color():
 def _execute_calc_tool(name, args):
     from plugin.main import get_tools, get_services
     from plugin.framework.tool_context import ToolContext
-    tctx = ToolContext(_test_doc, None, "calc", get_services(), "test")
+    # Pass suite bootstrap ctx (same as setup_calc_tests); None makes
+    # get_desktop() use uno.getComponentContext() and can segfault under
+    # python -m plugin.testing_runner.
+    tctx = ToolContext(_test_doc, _test_ctx, "calc", get_services(), "test")
     try:
         res = get_tools().execute(name, tctx, **args)
     except (KeyError, ValueError) as e:
@@ -129,6 +132,105 @@ def test_write_formula_range():
     _execute_calc_tool("write_formula_range", {"range_name": ["B1", "B2"], "formula_or_values": "Batch"})
     assert active_sheet.getCellByPosition(1, 0).getString() == "Batch", "Batch write cell 1 failed"
     assert active_sheet.getCellByPosition(1, 1).getString() == "Batch", "Batch write cell 2 failed"
+
+
+def _is_bold_char_weight(wv) -> bool:
+    """UNO may use float/enum; BOLD is 150, NORMAL 100 in awt.FontWeight."""
+    if wv is None:
+        return False
+    try:
+        from com.sun.star.awt import FontWeight
+
+        if wv == FontWeight.BOLD:
+            return True
+    except Exception:
+        pass
+    try:
+        return float(wv) >= 135.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _iter_cell_text_portions_for_test(cell):
+    """Calc cells may not advertise ``Paragraph``; mirror document.get_string_without_… logic."""
+    text = cell.getText()
+    top = text.createEnumeration()
+    while top.hasMoreElements():
+        block = top.nextElement()
+        try:
+            inner = block.createEnumeration()
+        except Exception:
+            yield block
+            continue
+        any_inner = False
+        while inner.hasMoreElements():
+            any_inner = True
+            yield inner.nextElement()
+        if not any_inner:
+            yield block
+
+
+def _diagnose_insert_cell_html_bold(cell) -> str:
+    """Only used when the bold assertion fails: dump CharWeight / snippet per portion."""
+    lines: list[str] = []
+    i = 0
+    for portion in _iter_cell_text_portions_for_test(cell):
+        i += 1
+        s = "?"
+        wv = tpt = None
+        try:
+            s = portion.getString()
+        except Exception as ex:
+            s = f"<getString: {ex!r}>"
+        try:
+            wv = portion.getPropertyValue("CharWeight")
+        except Exception as ex:
+            wv = f"<CharWeight: {ex!r}>"
+        try:
+            tpt = portion.getPropertyValue("TextPortionType")
+        except Exception:
+            pass
+        lines.append(
+            f"  portion[{i}] CharWeight={wv!r} TextPortionType={tpt!r} s={s!r} "
+            f"is_bold={_is_bold_char_weight(wv) if not isinstance(wv, str) else 'n/a'}"
+        )
+    if not lines:
+        return "  (no portions enumerated)"
+    return "\n".join(lines)
+
+
+@native_test
+def test_insert_cell_html():
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    res = _execute_calc_tool(
+        "insert_cell_html",
+        {
+            "cell_address": "Z99",
+            "html": "Plain <b>BoldBit</b> tail",
+        },
+    )
+    assert res.get("status") == "ok", f"insert_cell_html failed: {res}"
+    cell = active_sheet.getCellByPosition(25, 98)
+    s = cell.getString()
+    assert "BoldBit" in s and "Plain" in s and "tail" in s, f"unexpected cell string: {s!r}"
+
+    has_bold = False
+    for portion in _iter_cell_text_portions_for_test(cell):
+        try:
+            wv = portion.getPropertyValue("CharWeight")
+        except Exception:
+            continue
+        try:
+            ptxt = portion.getString()
+        except Exception:
+            ptxt = ""
+        if _is_bold_char_weight(wv) and "BoldBit" in ptxt:
+            has_bold = True
+            break
+    assert has_bold, (
+        "expected a bold text portion containing BoldBit; diagnosis:\n"
+        + _diagnose_insert_cell_html_bold(cell)
+    )
 
 
 @native_test

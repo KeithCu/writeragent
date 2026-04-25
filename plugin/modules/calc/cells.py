@@ -24,6 +24,7 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 import json
 import logging
 
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.inspector import CellInspector
@@ -160,6 +161,69 @@ class WriteCellRange(ToolBase):
         for r in rn:
             manipulator.write_formula_range(r, fov)
         return {"status": "ok", "message": f"Wrote to {len(rn)} ranges"}
+
+
+class InsertCellHtml(ToolBase):
+    """Insert HTML as rich text into a single cell (active sheet)."""
+
+    name = "insert_cell_html"
+    intent = "edit"
+    description = (
+        "Parses HTML with the same filter as Writer and pastes rich text into "
+        "one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). "
+        "Does not support images or embedded objects. Clears existing cell text."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "cell_address": {
+                "type": "string",
+                "description": 'Single cell (e.g. "A1") on the active sheet.',
+            },
+            "html": {
+                "type": "string",
+                "description": "HTML fragment or small document (UTF-8).",
+            },
+        },
+        "required": ["cell_address", "html"],
+    }
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    tier = "extended"
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        from plugin.modules.calc.address_utils import parse_address
+        from plugin.modules.calc.rich_html import insert_cell_html_rich
+
+        addr = (kwargs.get("cell_address") or "").strip()
+        html = kwargs.get("html")
+        if not addr:
+            return self._tool_error("cell_address is required")
+        try:
+            parse_address(addr)
+        except ValueError as e:
+            return self._tool_error(f"Invalid cell address: {e}")
+
+        config_svc = None
+        if ctx.services is not None and hasattr(ctx.services, "get"):
+            config_svc = ctx.services.get("config")
+
+        try:
+            insert_cell_html_rich(
+                ctx.doc,
+                ctx.ctx,
+                addr,
+                html if isinstance(html, str) else "",
+                config_svc=config_svc,
+            )
+        except ToolExecutionError as e:
+            return self._tool_error(str(e))
+
+        return {
+            "status": "ok",
+            "message": f"Inserted rich HTML into cell {addr.upper()}.",
+        }
+
 
 class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
