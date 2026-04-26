@@ -23,6 +23,10 @@ class _XItemListener:
     pass
 
 
+class _XEventListener:
+    pass
+
+
 sys.modules.setdefault("uno", MagicMock())
 unohelper_module = sys.modules.setdefault("unohelper", MagicMock())
 unohelper_module.Base = _UnoBase
@@ -31,16 +35,19 @@ com_module = sys.modules.setdefault("com", ModuleType("com"))
 sun_module = sys.modules.setdefault("com.sun", ModuleType("com.sun"))
 star_module = sys.modules.setdefault("com.sun.star", ModuleType("com.sun.star"))
 awt_module = sys.modules.setdefault("com.sun.star.awt", ModuleType("com.sun.star.awt"))
+lang_module = sys.modules.setdefault("com.sun.star.lang", ModuleType("com.sun.star.lang"))
 setattr(com_module, "sun", sun_module)
 setattr(sun_module, "star", star_module)
 setattr(star_module, "awt", awt_module)
+setattr(star_module, "lang", lang_module)
 setattr(awt_module, "XActionListener", _XActionListener)
 setattr(awt_module, "XTextListener", _XTextListener)
 setattr(awt_module, "XWindowListener", _XWindowListener)
 setattr(awt_module, "XItemListener", _XItemListener)
+setattr(lang_module, "XEventListener", _XEventListener)
 
 
-from plugin.modules.chatbot.panel import SendButtonListener
+from plugin.modules.chatbot.panel import SendButtonListener, format_grammar_status
 
 
 def _make_listener(*, in_librarian_mode: bool) -> SimpleNamespace:
@@ -66,6 +73,20 @@ def _make_listener(*, in_librarian_mode: bool) -> SimpleNamespace:
         _do_send_direct_image=MagicMock(),
         _do_send_via_agent_backend=MagicMock(),
     )
+
+
+def test_format_grammar_status_complete() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "complete",
+            "preview": "This are bad",
+            "length": 42,
+            "result": "1 issue",
+            "elapsed_ms": 812,
+        }
+    )
+
+    assert text == "Grammar: done 'This are bad' len 42: 1 issue, 812ms"
 
 
 def test_do_send_enters_librarian_when_user_memory_missing():

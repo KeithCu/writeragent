@@ -46,6 +46,8 @@ except ImportError:
     uno_mod = None
 
 _DEBOUNCE_SEQ: dict[str, int] = {}
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT_JOBS: dict[str, "_InflightGrammarJob"] = {}
 
 
 @no_type_check
@@ -66,6 +68,89 @@ def _proofreading_markup_type() -> int:
 
 
 _DEBOUNCE_LOCK = threading.Lock()
+
+
+class _InflightGrammarJob:
+    def __init__(self) -> None:
+        self.done = threading.Event()
+
+
+def _inflight_key(cache_key: str, fingerprint: str) -> str:
+    return f"{cache_key}|{fingerprint}"
+
+
+def _grammar_text_preview(text: str) -> str:
+    words = text.strip().split()
+    return " ".join(words[:3]) if words else "(empty)"
+
+
+def _emit_grammar_status(
+    phase: str,
+    text: str,
+    *,
+    result: str = "",
+    elapsed_ms: int | None = None,
+) -> None:
+    try:
+        from plugin.framework.event_bus import global_event_bus
+
+        global_event_bus.emit(
+            "grammar:status",
+            phase=phase,
+            preview=_grammar_text_preview(text),
+            length=len(text),
+            result=result,
+            elapsed_ms=elapsed_ms,
+        )
+    except Exception as e:
+        log.debug("[grammar] status emit failed: %s", e, exc_info=True)
+
+
+def _wait_for_inflight_job(ctx: Any, job: _InflightGrammarJob, timeout_ms: int) -> bool:
+    """Wait for a grammar worker while letting LibreOffice service pending UI events."""
+    timeout_s = max(0, timeout_ms) / 1000.0
+    if timeout_s <= 0:
+        return job.done.is_set()
+    deadline = time.monotonic() + timeout_s
+    try:
+        from plugin.framework.uno_context import get_toolkit
+
+        toolkit = get_toolkit(ctx)
+    except Exception as e:
+        log.warning("[grammar] wait: toolkit unavailable, waiting without event pump: %s", e, exc_info=True)
+        toolkit = None
+    while not job.done.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return job.done.is_set()
+        if job.done.wait(min(0.1, remaining)):
+            return True
+        if toolkit is not None:
+            try:
+                toolkit.processEventsToIdle()
+            except Exception as e:
+                log.warning("[grammar] wait: processEventsToIdle failed: %s", e, exc_info=True)
+                toolkit = None
+    return True
+
+
+def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...]) -> tuple[Any, ...]:
+    from plugin.modules.writer import grammar_proofread_engine as engine
+
+    ignored_now = engine.ignored_rules_snapshot()
+    norms = [
+        engine.NormalizedProofError(
+            n_error_start=int(d["n_error_start"]),
+            n_error_length=int(d["n_error_length"]),
+            suggestions=tuple(d.get("suggestions") or ()),
+            short_comment=str(d.get("short_comment", "")),
+            full_comment=str(d.get("full_comment", "")),
+            rule_identifier=str(d.get("rule_identifier", "")),
+        )
+        for d in cached
+        if str(d.get("rule_identifier", "")) not in ignored_now
+    ]
+    return _errors_to_uno_tuple(norms)
 
 
 def _locale_key(loc: Any) -> str:
@@ -302,6 +387,7 @@ def _run_llm_and_cache(
                 len(slice_txt),
                 max_chars,
             )
+            _emit_grammar_status("skipped", slice_txt, result="too long")
             return
         try:
             max_tok = get_config_int(ctx, "doc.grammar_proofreader_max_tokens")
@@ -329,6 +415,8 @@ def _run_llm_and_cache(
             max_tok,
             model or "(default text model)",
         )
+        request_start = time.monotonic()
+        _emit_grammar_status("request", slice_txt, result="LLM request")
         from plugin.modules.http.client import LlmClient
 
         client = LlmClient(get_api_config(ctx), ctx)
@@ -336,15 +424,22 @@ def _run_llm_and_cache(
             content = client.chat_completion_sync(
                 messages, max_tokens=max_tok, model=model or None
             )
+        elapsed_ms = int((time.monotonic() - request_start) * 1000)
         log.debug("[grammar] LLM raw response length=%s", len(content or ""))
         items = engine.parse_grammar_json(content or "")
         log.info("[grammar] parsed %s error item(s) from JSON", len(items))
         ignored = engine.ignored_rules_snapshot()
         norms = engine.normalize_errors_for_text(full_text, n_start, n_end, items, ignored)
         engine.cache_put(cache_key, fingerprint, [asdict(n) for n in norms])
+        issue_word = "issue" if len(norms) == 1 else "issues"
+        _emit_grammar_status("complete", slice_txt, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
         log.info("[grammar] cached %s normalized error(s) for key fp=%s…", len(norms), fingerprint[:12])
     except Exception as e:
         log.error("[grammar] worker failed after config/debounce stage: %s", e, exc_info=True)
+        try:
+            _emit_grammar_status("failed", full_text[n_start:n_end], result=type(e).__name__)
+        except Exception:
+            pass
 
 
 @no_type_check
@@ -510,21 +605,12 @@ class WriterAgentAiGrammarProofreader(
             cached = engine.cache_get(cache_key, fp)
             if cached is not None:
                 try:
-                    ignored_now = engine.ignored_rules_snapshot()
-                    norms = [
-                        engine.NormalizedProofError(
-                            n_error_start=int(d["n_error_start"]),
-                            n_error_length=int(d["n_error_length"]),
-                            suggestions=tuple(d.get("suggestions") or ()),
-                            short_comment=str(d.get("short_comment", "")),
-                            full_comment=str(d.get("full_comment", "")),
-                            rule_identifier=str(d.get("rule_identifier", "")),
-                        )
-                        for d in cached
-                        if str(d.get("rule_identifier", "")) not in ignored_now
-                    ]
-                    a_res.aErrors = _errors_to_uno_tuple(norms)
-                    log.info("[grammar] cache HIT returning %s error(s) key=%s…", len(norms), cache_key[:80])
+                    a_res.aErrors = _cached_errors_to_uno_tuple(cached)
+                    log.info(
+                        "[grammar] cache HIT returning %s error(s) key=%s…",
+                        len(tuple(a_res.aErrors)),
+                        cache_key[:80],
+                    )
                 except Exception as e:
                     log.exception("[grammar] doProofreading: cache HIT path failed: %s", e)
                     try:
@@ -534,28 +620,82 @@ class WriterAgentAiGrammarProofreader(
                 return a_res
 
             map_key = cache_key
-            with _DEBOUNCE_LOCK:
-                _DEBOUNCE_SEQ[map_key] = _DEBOUNCE_SEQ.get(map_key, 0) + 1
-                seq = _DEBOUNCE_SEQ[map_key]
-            log.info(
-                "[grammar] cache MISS scheduling worker seq=%s slice_len=%s fp=%s…",
-                seq,
-                len(slice_txt),
-                fp[:12],
-            )
-            run_in_background(
-                _run_llm_and_cache,
-                self.ctx,
-                cache_key,
-                fp,
-                aText,
-                n_start,
-                n_end,
-                seq,
-                map_key,
-                name="writeragent-grammar-proofread",
-                error_callback=_grammar_worker_error_callback,
-            )
+            inflight_key = _inflight_key(cache_key, fp)
+            start_worker = False
+            with _INFLIGHT_LOCK:
+                job = _INFLIGHT_JOBS.get(inflight_key)
+                if job is None:
+                    job = _InflightGrammarJob()
+                    _INFLIGHT_JOBS[inflight_key] = job
+                    start_worker = True
+            if start_worker:
+                with _DEBOUNCE_LOCK:
+                    _DEBOUNCE_SEQ[map_key] = _DEBOUNCE_SEQ.get(map_key, 0) + 1
+                    seq = _DEBOUNCE_SEQ[map_key]
+                log.info(
+                    "[grammar] cache MISS scheduling worker seq=%s slice_len=%s fp=%s…",
+                    seq,
+                    len(slice_txt),
+                    fp[:12],
+                )
+                _emit_grammar_status("start", slice_txt, result="queued")
+
+                def _worker_wrapper() -> None:
+                    try:
+                        _run_llm_and_cache(
+                            self.ctx,
+                            cache_key,
+                            fp,
+                            aText,
+                            n_start,
+                            n_end,
+                            seq,
+                            map_key,
+                        )
+                    finally:
+                        job.done.set()
+                        with _INFLIGHT_LOCK:
+                            if _INFLIGHT_JOBS.get(inflight_key) is job:
+                                del _INFLIGHT_JOBS[inflight_key]
+
+                run_in_background(
+                    _worker_wrapper,
+                    name="writeragent-grammar-proofread",
+                    error_callback=_grammar_worker_error_callback,
+                )
+            else:
+                log.info("[grammar] cache MISS joining in-flight worker fp=%s…", fp[:12])
+                _emit_grammar_status("join", slice_txt, result="waiting")
+            try:
+                wait_timeout_ms = get_config_int(self.ctx, "doc.grammar_proofreader_wait_timeout_ms")
+            except Exception as e:
+                log.warning("[grammar] doProofreading: get_config_int wait_timeout_ms: %s", e, exc_info=True)
+                wait_timeout_ms = 15000
+            if _wait_for_inflight_job(self.ctx, job, wait_timeout_ms):
+                cached_after_wait = engine.cache_get(cache_key, fp)
+                if cached_after_wait is not None:
+                    try:
+                        a_res.aErrors = _cached_errors_to_uno_tuple(cached_after_wait)
+                        log.info(
+                            "[grammar] wait complete returning %s error(s) key=%s…",
+                            len(tuple(a_res.aErrors)),
+                            cache_key[:80],
+                        )
+                    except Exception as e:
+                        log.exception("[grammar] doProofreading: post-wait cache path failed: %s", e)
+                        try:
+                            a_res.aErrors = ()
+                        except Exception:
+                            pass
+                else:
+                    log.info("[grammar] wait complete with no cache entry fp=%s…", fp[:12])
+            else:
+                log.info(
+                    "[grammar] wait timed out after %sms; returning empty while worker continues fp=%s…",
+                    wait_timeout_ms,
+                    fp[:12],
+                )
+                _emit_grammar_status("timeout", slice_txt, result=f">{wait_timeout_ms}ms")
             return a_res
         except Exception as e:
             log.exception(

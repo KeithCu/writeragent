@@ -54,6 +54,36 @@ HAS_RECORDING = _AudioRecorderCls is not None
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
 
+def format_grammar_status(data: dict[str, Any]) -> str:
+    """Format native grammar proofreader progress for the sidebar status field."""
+    phase = str(data.get("phase") or "")
+    preview = str(data.get("preview") or "")
+    result = str(data.get("result") or "")
+    try:
+        length = int(data.get("length") or 0)
+    except Exception:
+        length = 0
+    elapsed = data.get("elapsed_ms")
+    if phase == "start":
+        return f"Grammar: checking '{preview}' len {length}"
+    if phase == "join":
+        return f"Grammar: waiting '{preview}' len {length}"
+    if phase == "request":
+        return f"Grammar: LLM '{preview}' len {length}"
+    if phase == "complete":
+        suffix = result or "done"
+        if elapsed is not None:
+            suffix = f"{suffix}, {elapsed}ms"
+        return f"Grammar: done '{preview}' len {length}: {suffix}"
+    if phase == "timeout":
+        return f"Grammar: still running '{preview}' len {length}: {result}"
+    if phase == "skipped":
+        return f"Grammar: skipped '{preview}' len {length}: {result}"
+    if phase == "failed":
+        return f"Grammar: failed '{preview}' len {length}: {result}"
+    return f"Grammar: {phase or 'update'} '{preview}' len {length}"
+
+
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
 # ---------------------------------------------------------------------------
@@ -258,13 +288,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Subscribe to MCP/tool bus events
         try:
             from plugin.main import get_tools
+            from plugin.framework.event_bus import global_event_bus
             event_bus = getattr(get_tools()._services, "events", None)
             if event_bus:
                 event_bus.subscribe("mcp:request", self._on_mcp_request)
                 event_bus.subscribe("mcp:result", self._on_mcp_result)
                 log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
+            global_event_bus.subscribe("grammar:status", self._on_grammar_status, weak=True)
         except Exception as e:
-            log.error("MCP subscribe error: %s" % e)
+            log.error("SendButtonListener event subscribe error: %s" % e)
 
     @property
     def state(self):
@@ -458,6 +490,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.debug("_set_status('%s', level=logging.DEBUG) likely disposed: %s" % (text, e))
             else:
                 log.debug("_set_status('%s', level=logging.DEBUG) EXCEPTION: %s" % (text, e))
+
+    def _on_grammar_status(self, **data):
+        """Show native grammar proofreader progress in the sidebar status field."""
+        if self._send_busy or self._approval_event is not None:
+            return
+        text = format_grammar_status(data)
+        try:
+            from plugin.framework.queue_executor import post_to_main_thread
+
+            post_to_main_thread(self._set_status, text)
+        except Exception as e:
+            log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
+            self._set_status(text)
 
     def _scroll_response_to_bottom(self):
         """Scroll the response area to show the bottom (newest content).
@@ -861,6 +906,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.framework.event_bus import global_event_bus
             global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
             global_event_bus.unsubscribe("mcp:result", self._on_mcp_result)
+            global_event_bus.unsubscribe("grammar:status", self._on_grammar_status)
         except Exception as e:
             log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
 

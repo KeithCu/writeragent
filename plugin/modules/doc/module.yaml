@@ -19,6 +19,15 @@ config:
     label: Grammar check debounce (ms)
     helper: "Background delay before calling the API after Writer stops requesting updates for a span."
 
+  grammar_proofreader_wait_timeout_ms:
+    type: int
+    default: 15000
+    min: 0
+    max: 60000
+    widget: number
+    label: Grammar check wait timeout (ms)
+    helper: "How long WriterAgent waits for AI grammar results while processing LibreOffice events. If the timeout is reached, results are cached for a later pass."
+
   grammar_proofreader_max_chars:
     type: int
     default: 8000
