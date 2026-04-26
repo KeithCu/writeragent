@@ -490,14 +490,17 @@ class ToolCallingMixin:
 
         def run():
             try:
-                response = client.stream_request_with_tools(
-                    self.session.messages,
-                    max_tokens,
-                    tools=tools,
-                    append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)),
-                    append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)),
-                    stop_checker=lambda: self.stop_requested,
-                )
+                from plugin.framework.llm_concurrency import llm_request_lane
+
+                with llm_request_lane():
+                    response = client.stream_request_with_tools(
+                        self.session.messages,
+                        max_tokens,
+                        tools=tools,
+                        append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)),
+                        append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)),
+                        stop_checker=lambda: self.stop_requested,
+                    )
                 if self.stop_requested:
                     q.put((StreamQueueKind.STOPPED,))
                 else:
@@ -523,6 +526,7 @@ class ToolCallingMixin:
         def run_final():
             last_streamed = []
             try:
+                from plugin.framework.llm_concurrency import llm_request_lane
 
                 def append_c(c):
                     q.put((StreamQueueKind.CHUNK, c))
@@ -531,13 +535,14 @@ class ToolCallingMixin:
                 def append_t(t):
                     q.put((StreamQueueKind.THINKING, t))
 
-                client.stream_chat_response(
-                    self.session.messages,
-                    max_tokens,
-                    append_c,
-                    append_t,
-                    stop_checker=lambda: self.stop_requested,
-                )
+                with llm_request_lane():
+                    client.stream_chat_response(
+                        self.session.messages,
+                        max_tokens,
+                        append_c,
+                        append_t,
+                        stop_checker=lambda: self.stop_requested,
+                    )
                 if self.stop_requested:
                     q.put((StreamQueueKind.STOPPED,))
                 else:

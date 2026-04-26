@@ -385,6 +385,7 @@ class SendHandlersMixin:
             try:
                 from plugin.framework.constants import CORE_DIRECTIVES
                 from plugin.framework.config import as_bool
+                from plugin.framework.llm_concurrency import llm_request_lane
 
                 # Lean system prompt for external agents: instructions + MCP connection info
                 mcp_url = self._get_mcp_url()
@@ -411,15 +412,16 @@ class SendHandlersMixin:
                 if extra:
                     lean_system_prompt += "\n\n" + extra
 
-                adapter.send(
-                    queue=q,
-                    user_message=query_text,
-                    document_context=doc_context,
-                    document_url=document_url,
-                    system_prompt=lean_system_prompt,
-                    mcp_url=mcp_url,
-                    stop_checker=lambda: self.stop_requested,
-                )
+                with llm_request_lane():
+                    adapter.send(
+                        queue=q,
+                        user_message=query_text,
+                        document_context=doc_context,
+                        document_url=document_url,
+                        system_prompt=lean_system_prompt,
+                        mcp_url=mcp_url,
+                        stop_checker=lambda: self.stop_requested,
+                    )
             except Exception as e:
                 log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s",
                           backend_id, doc_type_str, e)

@@ -239,6 +239,10 @@ def _run_llm_and_cache(
             get_config_str,
             get_text_model,
         )
+        from plugin.framework.llm_concurrency import (
+            is_agent_active,
+            llm_request_lane,
+        )
         from plugin.modules.writer import grammar_proofread_engine as engine
 
         try:
@@ -269,6 +273,22 @@ def _run_llm_and_cache(
                 return
         except Exception as e:
             log.warning("[grammar] worker: get_config_bool enabled: %s", e, exc_info=True)
+            return
+        try:
+            pause_during_agent = get_config_bool(
+                ctx, "doc.grammar_proofreader_pause_during_agent"
+            )
+        except Exception as e:
+            log.warning(
+                "[grammar] worker: get_config_bool pause_during_agent: %s",
+                e,
+                exc_info=True,
+            )
+            pause_during_agent = False
+        if pause_during_agent and is_agent_active():
+            log.info(
+                "[grammar] worker skipped: agent active and pause_during_agent enabled"
+            )
             return
         try:
             max_chars = get_config_int(ctx, "doc.grammar_proofreader_max_chars")
@@ -312,7 +332,10 @@ def _run_llm_and_cache(
         from plugin.modules.http.client import LlmClient
 
         client = LlmClient(get_api_config(ctx), ctx)
-        content = client.chat_completion_sync(messages, max_tokens=max_tok, model=model or None)
+        with llm_request_lane():
+            content = client.chat_completion_sync(
+                messages, max_tokens=max_tok, model=model or None
+            )
         log.debug("[grammar] LLM raw response length=%s", len(content or ""))
         items = engine.parse_grammar_json(content or "")
         log.info("[grammar] parsed %s error item(s) from JSON", len(items))

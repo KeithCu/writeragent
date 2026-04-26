@@ -41,3 +41,10 @@ config:
     widget: text
     label: Grammar check model (optional)
     helper: "Leave empty to use the same text model as chat."
+
+  grammar_proofreader_pause_during_agent:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Pause grammar while chat/agent runs
+    helper: "When on, AI grammar skips background requests while sidebar chat or agent runs, to avoid concurrent API calls."

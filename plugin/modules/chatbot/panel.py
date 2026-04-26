@@ -616,7 +616,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self.stop_requested = False
                 self._terminal_status = "Ready"
                 try:
-                    self._do_send()
+                    from plugin.framework.llm_concurrency import agent_session
+
+                    with agent_session():
+                        self._do_send()
                 except Exception as e:
                     import traceback
                     tb = traceback.format_exc()
