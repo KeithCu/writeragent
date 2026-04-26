@@ -49,8 +49,10 @@ def test_do_proofreading_returns_cached_errors() -> None:
     text = "Hello they is fine."
     n_start = 0
     n_end = len(text)
-    key = eng.make_cache_key(42, "en_US_")
     fp = eng.fingerprint_for_text(text[n_start:n_end])
+    key = eng.make_cache_key(
+        42, "en_US_", fingerprint=fp, slice_start=n_start, slice_end=n_end
+    )
     from dataclasses import asdict
 
     norms = eng.normalize_errors_for_text(
@@ -82,8 +84,10 @@ def test_ignore_rule_filters_cached_error() -> None:
     text = "Hello they is fine."
     n_start = 0
     n_end = len(text)
-    key = eng.make_cache_key(99, "en_US_")
     fp = eng.fingerprint_for_text(text[n_start:n_end])
+    key = eng.make_cache_key(
+        99, "en_US_", fingerprint=fp, slice_start=n_start, slice_end=n_end
+    )
     from dataclasses import asdict
 
     norms = eng.normalize_errors_for_text(

@@ -29,14 +29,15 @@ Track **A** follows the [lightproof/](../lightproof/) pattern (Python UNO `XProo
 
 ### 2.2 Configuration
 
-- **All settings (Doc tab)**: `doc.grammar_proofreader_*` in [`plugin/modules/doc/module.yaml`](../plugin/modules/doc/module.yaml) — enable (default **off**), debounce (ms), max characters, max response tokens, optional model (empty = same as chat `text_model`). The Doc tab also inlines Calc’s **Max Rows Display** (`calc.max_rows_display` via `config_inline: doc` in [`plugin/modules/calc/module.yaml`](../plugin/modules/calc/module.yaml)).
+- **All settings (Doc tab)**: `doc.grammar_proofreader_*` in [`plugin/modules/doc/module.yaml`](../plugin/modules/doc/module.yaml) — enable (default **off**), debounce (ms), wait timeout (ms), max characters, max response tokens, optional model (empty = same as chat `text_model`), and `doc.grammar_proofreader_pause_during_agent` (default **off**) to pause grammar API requests while sidebar chat/agent work is active. The Doc tab also inlines Calc’s **Max Rows Display** (`calc.max_rows_display` via `config_inline: doc` in [`plugin/modules/calc/module.yaml`](../plugin/modules/calc/module.yaml)).
 - **Diagnostics**: logger name `writeragent.grammar` — `INFO` lines prefixed `[grammar]` for each `doProofreading` call, cache hit/miss, worker skip/supersede, LLM request/result counts, and `WARNING` with stack trace on worker failure. Ensure `init_logging` has run (first grammar call attempts it); see `writeragent_debug.log` under the LO user config directory (see AGENTS.md).
 
 ### 2.3 Runtime behavior (summary)
 
-- **`doProofreading`** is synchronous from LibreOffice’s perspective. To avoid UI freezes, on a **cache miss** it returns **empty errors immediately** and schedules an LLM call via [`run_in_background`](../plugin/framework/worker_pool.py) (`plugin.framework.worker_pool`). When results arrive, they are stored in the in-process cache; **the next** LO proofreading pass can return `SingleProofreadingError` rows (pull model — there is no push callback to force a redraw).
+- **`doProofreading`** is synchronous from LibreOffice’s perspective. On a **cache miss**, it starts or joins one in-flight LLM worker for the **full cache key** (doc, locale, slice fingerprint, and sentence bounds), then waits up to `doc.grammar_proofreader_wait_timeout_ms` while pumping LibreOffice events with `processEventsToIdle()`. If the worker finishes in time, the same proofreading call returns `SingleProofreadingError` rows. If the timeout is reached, it returns empty errors and the worker continues caching results for a later LO proofreading pass.
+- **Sidebar status**: the proofreader emits `grammar:status` events (`start`, `join`, `request`, `complete`, `timeout`, `skipped`, `failed`) with a three-word preview, checked length, result count/status, and elapsed milliseconds when available. The chat sidebar listens and posts these to the status field unless a chat send/approval is active.
 - **Debouncing** is applied **inside the background job** (sleep then check sequence number) so rapid LO calls do not spawn unbounded parallel requests.
-- **LLM**: [`LlmClient.chat_completion_sync`](../plugin/modules/http/client.py) with a small system prompt requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}`; user message is the **checked substring only** (not the whole document).
+- **LLM**: [`LlmClient.chat_completion_sync`](../plugin/modules/http/client.py) with `response_format={"type":"json_object"}` on the OpenAI-compatible path (Together, OpenRouter, etc.; see docstring on `make_chat_request`), a small system prompt requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}`, and user message the **checked substring only** (not the whole document). Parser: [`parse_grammar_json`](../plugin/modules/writer/grammar_proofread_engine.py) uses `safe_json_loads` then `json_repair` when needed.
 - **`TextMarkupType.PROOFREADING`**: resolved with `uno.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")` (avoids fragile `TextMarkupType` submodule imports for typecheckers).
 
 ### 2.4 Tests
@@ -49,9 +50,9 @@ Track **A** follows the [lightproof/](../lightproof/) pattern (Python UNO `XProo
 | Risk | Mitigation shipped / notes |
 |------|----------------------------|
 | Token cost / privacy | Master switch **off** by default; user must enable on Sidebar; Writer tab documents that checked text is sent to the configured endpoint. |
-| UI freeze | No blocking HTTP in `doProofreading`; work on worker thread. |
-| Stale underlines | In-process cache: one `(fingerprint, errors)` slot per **doc id + locale**; fingerprint is **SHA256 of the checked slice** only. **Cache hit** → no LLM; **miss** → empty return + background worker. Re-proofing the **same** slice text avoids extra API calls until another span overwrites the slot or the slice text changes. See §6 for evolving this. |
-| Concurrent chat agent | Separate `LlmClient` instance from sidebar; no explicit queueing — see **future work** (§6). |
+| UI freeze | HTTP still runs on a worker thread. `doProofreading` may wait briefly for results, but it pumps LibreOffice events while waiting and falls back to the asynchronous cache path on timeout. |
+| Stale underlines | In-process cache: LRU (max **128** entries) keyed by **doc id + locale + SHA256(slice) + `(n_start,n_end)`** so identical substring text at different positions never shares cached absolute offsets. **Cache hit** → no LLM; **miss** → wait-with-event-pump for the in-flight worker (one job per full key), then fall back to cached-later behavior on timeout. Re-proofing the **same** slice at the **same** bounds and text avoids extra API calls until eviction or edits change the slice. See §6 for evolving this. |
+| Concurrent chat agent | Optional guard (`doc.grammar_proofreader_pause_during_agent`) can skip grammar worker calls while chat/agent sends are active; grammar and chat/agent LLM requests also share one in-process request lane to avoid overlap races. |
 
 ---
 
@@ -60,7 +61,7 @@ Track **A** follows the [lightproof/](../lightproof/) pattern (Python UNO `XProo
 As of **2026-04-25**, the native grammar checker implements two key optimizations inspired by the `lightproof` project to handle long documents efficiently:
 
 1.  **Paragraph-Level Batching**: (EXPERIMENTAL / REVERTED) Originally attempted by returning `a_res.nStartOfNextSentencePosition = len(a_text)`. This caused missing underlines in some scenarios, likely due to LO's internal sentence tracking. Reverted to incremental bounds for now with a FIXME in `ai_grammar_proofreader.py`.
-2.  **Slice fingerprinting**: Cache lookup uses `doc_id` + `locale_key` plus a **SHA256 of the substring** LO passed for this pass (`fingerprint_for_text`). That cheaply detects “same bytes being checked again” so repeated `doProofreading` calls can **hit** without calling the LLM. Cached `SingleProofreadingError` positions are absolute in the **current** proofread buffer; if the model of truth drifts (e.g. edits elsewhere change indices while the slice string looks unchanged), treat as a **future correctness** topic (§6).
+2.  **Slice fingerprinting + bounds in key**: Cache lookup uses `doc_id` + `locale_key` + **SHA256 of the substring** (`fingerprint_for_text`) **and** Writer’s `(n_start, n_end)` for that pass (`make_cache_key` in [`grammar_proofread_engine.py`](../plugin/modules/writer/grammar_proofread_engine.py)). That detects “same bytes at the same span” for hits without calling the LLM, and avoids wrong underlines when the **same** characters appear elsewhere in the document. Cached `SingleProofreadingError` positions are absolute in the **current** proofread buffer; if the model of truth drifts (e.g. edits shift indices but LO reuses the same bounds), treat as a **future correctness** topic (§6).
 
 ---
 
@@ -92,10 +93,10 @@ The standalone [`GrammarChecker.py`](../GrammarChecker.py) (root of repo) was us
 4.  **Locales**: extend `LinguisticWriterAgentGrammar.xcu` and `getLocales()` / `hasLocale()` beyond English once validated.
 5.  **Refresh UX**: LO only shows new squiggles on **subsequent** proofreading passes; document for users; optional future hook if LO exposes a safe “invalidate proofreading” API worth researching.
 6.  **Optional model / temperature**: surface more controls in Settings if needed (currently optional grammar model + shared endpoint).
-7.  **Multi-span / LRU cache**: Today one proofread result per `doc_id|locale` can be **overwritten** when Writer checks another range. Consider a small LRU or dict keyed by `(doc_id, locale, slice_fp)` (or include `(n_start, n_end)` if stable enough) so flipping between paragraphs retains hits without thrashing.
+7.  **Multi-span / LRU cache**: **Shipped (baseline):** LRU (128) keyed by `doc_id`, locale, slice fingerprint, and `(n_start, n_end)`. Further ideas: larger cap, TTL, or persistent disk cache (see item 1).
 8.  **Document-generation invalidation**: If LO exposes a revision counter, generation id, or “document modified” tick, fold it into the cache key or force miss when the full buffer changes even if a slice string matches (reduces risk of stale absolute offsets after edits above the span).
 9.  **Persistent + bounded disk cache**: Extend item (1): cap entries by size/TTL; optional opt-out for privacy; encrypt-at-rest if storing text snippets on disk.
-10. **Shared policy with chat**: Single global semaphore or “grammar may run when chat idle” to avoid 429s and surprise latency when both paths hit the same endpoint; surface “grammar paused” in logs or a subtle status line.
+10. **Shared policy with chat**: Baseline shipped: optional pause-during-agent setting + shared in-process LLM request lane. Future expansion: endpoint-aware policy (per provider/model), richer status UX, and adaptive queue/backoff.
 11. **Smaller / faster grammar model**: Route grammar-only traffic to a cheaper or local model by default; keep “same as chat” as an override (already partially supported via `grammar_proofreader_model`).
 12. **Prompt and schema hardening**: Few-shot examples for edge cases (quotes, lists, track changes); strict JSON recovery; optional `response_format` where the API supports it.
 13. **Revisit paragraph batching**: The reverted `nStartOfNextSentencePosition = len(a_text)` path (see FIXME in [`ai_grammar_proofreader.py`](../plugin/modules/writer/ai_grammar_proofreader.py)) may still be worth a gated experiment behind a Doc-tab flag once we have better LO behavior notes or version guards.

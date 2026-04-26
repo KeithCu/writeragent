@@ -161,13 +161,19 @@ def test_ai_grammar_components_accept_linguistic_constructor_args() -> None:
             module = ast.parse(f.read(), filename=path)
 
         classes = [node for node in module.body if isinstance(node, ast.ClassDef)]
-        init_methods = [
-            item
+        proofreader_classes = [
+            cls
             for cls in classes
-            for item in cls.body
-            if isinstance(item, ast.FunctionDef) and item.name == "__init__"
+            if cls.name in ("WriterAgentAiGrammarProofreader", "WriterAgentAiGrammarProofreaderStub")
         ]
-        assert init_methods, f"{filename} is missing __init__"
-        assert init_methods[0].args.vararg is not None, (
-            f"{filename} __init__ must accept LO Linguistic compatibility args"
-        )
+        assert proofreader_classes, f"{filename} is missing proofreader class"
+        for cls in proofreader_classes:
+            init_methods = [
+                item
+                for item in cls.body
+                if isinstance(item, ast.FunctionDef) and item.name == "__init__"
+            ]
+            assert init_methods, f"{filename} {cls.name} is missing __init__"
+            assert init_methods[0].args.vararg is not None, (
+                f"{filename} {cls.name}.__init__ must accept LO Linguistic compatibility args"
+            )

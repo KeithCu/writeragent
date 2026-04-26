@@ -311,8 +311,20 @@ class LlmClient:
 
         return content, finish_reason, thinking, delta
 
-    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None):
-        """Build a chat completions request from a full messages array (provider-aware)."""
+    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None):
+        """Build a chat completions request from a full messages array (provider-aware).
+
+        ``response_format`` (e.g. ``{"type": "json_object"}``) is merged into the JSON body on the
+        **OpenAI-compatible** path only (Together, generic OpenAI bases, OpenRouter when not using
+        native shims). Together and OpenRouter document ``response_format`` / ``json_object`` on chat
+        completions; not every OpenRouter upstream model supports JSON mode. See
+        https://docs.together.ai/reference/chat-completions and
+        https://openrouter.ai/docs/api-reference/chat-completion
+
+        **Google** (``provider == "google"``) and **Anthropic** (``provider == "anthropic"``) native
+        shims return before this field is applied — callers relying on JSON mode should use an
+        OpenAI-compatible endpoint (e.g. OpenRouter) or parse without strict API JSON mode.
+        """
         try:
             max_tokens = int(max_tokens)
         except (TypeError, ValueError):
@@ -504,6 +516,8 @@ class LlmClient:
             data["tools"] = tools
             data["tool_choice"] = "auto"
             data["parallel_tool_calls"] = False
+        if response_format:
+            data["response_format"] = response_format
 
         if self.config.get("is_openrouter"):
             extra = self.config.get("openrouter_chat_extra")
@@ -869,6 +883,7 @@ class LlmClient:
         body_override=None,
         model=None,
         stream=False,
+        response_format=None,
     ):
         """Chat request with support for tools and streaming.
         
@@ -879,7 +894,7 @@ class LlmClient:
         """
         init_logging(self.ctx)
         method, path, body, headers = self.make_chat_request(
-            messages, max_tokens, tools=tools, stream=stream, model=model
+            messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format
         )
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
@@ -1012,12 +1027,12 @@ class LlmClient:
         return self.request_with_tools(*args, **kwargs)
 
 
-    def chat_completion_sync(self, messages, max_tokens=512, model=None):
+    def chat_completion_sync(self, messages, max_tokens=512, model=None, response_format=None):
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
         """
         result = self.request_with_tools(
-            messages, max_tokens=max_tokens, tools=None, model=model
+            messages, max_tokens=max_tokens, tools=None, model=model, response_format=response_format
         )
         return result.get("content") or ""

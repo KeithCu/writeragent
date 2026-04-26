@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import collections
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, cast
 
-from plugin.framework.errors import safe_json_loads
+import json_repair
+
+from plugin.framework.json_utils import safe_json_loads
 
 log = logging.getLogger(__name__)
 _grammar_diag = logging.getLogger("writeragent.grammar")
@@ -24,8 +27,9 @@ GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = ("en-US", "en-GB")
 
 _CACHE_LOCK = threading.Lock()
 # cache_key -> (text_fingerprint, tuple of normalized error dicts)
-_proofread_cache: dict[str, tuple[str, tuple[dict[str, Any], ...]]] = {}
+_proofread_cache: collections.OrderedDict[str, tuple[str, tuple[dict[str, Any], ...]]] = collections.OrderedDict()
 _ignored_rules: set[str] = set()
+MAX_CACHE_SIZE = 128
 
 
 def cache_clear() -> None:
@@ -56,7 +60,17 @@ def fingerprint_for_text(text: str) -> str:
 def make_cache_key(
     doc_id: Any,
     locale_key: str,
+    fingerprint: str = "",
+    slice_start: int | None = None,
+    slice_end: int | None = None,
 ) -> str:
+    """Build a cache key. When *fingerprint* is set, include slice bounds so identical
+    substring text at different document positions never shares one cache entry.
+    """
+    if fingerprint:
+        if slice_start is not None and slice_end is not None:
+            return f"{doc_id!s}|{locale_key}|{fingerprint}|{slice_start}:{slice_end}"
+        return f"{doc_id!s}|{locale_key}|{fingerprint}"
     return f"{doc_id!s}|{locale_key}"
 
 
@@ -68,12 +82,16 @@ def cache_get(key: str, fingerprint: str) -> tuple[dict[str, Any], ...] | None:
         cached_fp, errors = hit
         if cached_fp != fingerprint:
             return None
+        _proofread_cache.move_to_end(key)
         return errors
 
 
 def cache_put(key: str, fingerprint: str, errors: Sequence[dict[str, Any]]) -> None:
     with _CACHE_LOCK:
         _proofread_cache[key] = (fingerprint, tuple(errors))
+        _proofread_cache.move_to_end(key)
+        while len(_proofread_cache) > MAX_CACHE_SIZE:
+            _proofread_cache.popitem(last=False)
 
 
 @dataclass(frozen=True)
@@ -99,30 +117,34 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     m = _GRAMMAR_JSON_RE.search(text)
     if m:
         text = m.group(0)
-    try:
-        data = safe_json_loads(text)
-    except Exception as e:
-        _grammar_diag.warning("[grammar] parse_grammar_json: JSON parse failed: %s", e, exc_info=True)
-        return []
+    data: Any = safe_json_loads(text)
+    if not isinstance(data, Mapping):
+        try:
+            data = json_repair.repair_json(text, return_objects=True)
+        except Exception as e:
+            _grammar_diag.warning("[grammar] parse_grammar_json: json_repair failed: %s", e)
+            return []
     if not isinstance(data, Mapping):
         return []
-    raw = data.get("errors")
+    root = cast(Mapping[str, Any], data)
+    raw = root.get("errors")
     if not isinstance(raw, list):
         return []
     out: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, Mapping):
             continue
-        wrong = item.get("wrong")
-        correct = item.get("correct")
+        row = cast(Mapping[str, Any], item)
+        wrong = row.get("wrong")
+        correct = row.get("correct")
         if wrong is None or correct is None:
             continue
         out.append(
             {
                 "wrong": str(wrong),
                 "correct": str(correct),
-                "type": str(item.get("type", "grammar")),
-                "reason": str(item.get("reason", "")),
+                "type": str(row.get("type", "grammar")),
+                "reason": str(row.get("reason", "")),
             }
         )
     return out
