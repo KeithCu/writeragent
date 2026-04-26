@@ -25,7 +25,7 @@ import urllib.parse
 import http.client
 import socket
 import datetime
-from typing import Any
+from typing import Any, cast
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
@@ -460,7 +460,7 @@ class LlmClient:
                         role = "model"
                     contents.append({"role": role, "parts": parts})
             
-            data: dict[str, Any] = {
+            google_data: dict[str, Any] = {
                 "contents": contents,
                 "generationConfig": {
                     "maxOutputTokens": max_tokens,
@@ -468,7 +468,7 @@ class LlmClient:
                 }
             }
             if system_instruction:
-                data["system_instruction"] = system_instruction
+                google_data["system_instruction"] = system_instruction
             if tools:
                 # Convert OpenAI tools to Google function_declarations
                 decls = []
@@ -480,14 +480,14 @@ class LlmClient:
                         "description": fn.get("description", ""),
                         "parameters": fn.get("parameters", {"type": "object", "properties": {}})
                     })
-                data["tools"] = [{"function_declarations": decls}]
+                google_data["tools"] = [{"function_declarations": decls}]
 
             log.debug("=== Google Gemini Native Request (stream=%s) ===" % stream)
             log.debug("URL: %s (redacted key)" % url.split("?")[0])
             log.debug("Note: Google shim implemented, needs verification with live key.")
             
             path = get_url_path_and_query(url)
-            return "POST", path, json.dumps(data).encode("utf-8"), self._headers()
+            return "POST", path, json.dumps(google_data).encode("utf-8"), self._headers()
 
         # 3. Default OpenAI-Compatible Path
         api_path = self._api_path()
@@ -505,23 +505,24 @@ class LlmClient:
         today = datetime.date.today().strftime("%A, %Y-%m-%d")
         date_msg = f"Today's date is {today}."
 
-        system_msg = None
+        # Use a distinct name from the Anthropic branch's ``system_msg: str`` (same function scope).
+        system_message: Any = None
         for m in messages:
             if m.get("role") == "system":
-                system_msg = m
+                system_message = m
                 break
 
-        if system_msg:
-            old_content = system_msg.get("content")
+        if system_message:
+            old_content = system_message.get("content")
             if isinstance(old_content, str):
                 if not (
                     old_content.startswith(date_msg)
                     or old_content.startswith("Today's date is ")
                 ):
                     if old_content:
-                        system_msg["content"] = f"{date_msg}\n\n{old_content}"
+                        system_message["content"] = f"{date_msg}\n\n{old_content}"
                     else:
-                        system_msg["content"] = date_msg
+                        system_message["content"] = date_msg
         else:
             messages.insert(0, {"role": "system", "content": date_msg})
 
@@ -930,10 +931,10 @@ class LlmClient:
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
-        message_snapshot = {}
+        message_snapshot: dict[object, object] = {}
         last_finish_reason = None
-        images = []
-        usage = {}
+        images: list[Any] = []
+        usage: dict[str, Any] = {}
         content = ""
         tool_calls = None
 
@@ -963,7 +964,7 @@ class LlmClient:
             raw_content = message_snapshot.get("content")
             content = _normalize_message_content(raw_content)
             tool_calls = message_snapshot.get("tool_calls")
-            usage = message_snapshot.get("usage", {})
+            usage = cast(dict[str, Any], message_snapshot.get("usage", {}))
         else:
             # Sync path
             result = None
@@ -1039,7 +1040,7 @@ class LlmClient:
                 p_content, p_tool_calls = parser.parse(content)
                 if p_tool_calls:
                     tool_calls = p_tool_calls
-                    content = p_content
+                    content = p_content or ""
                     if last_finish_reason != "tool_calls":
                         last_finish_reason = "tool_calls"
 
