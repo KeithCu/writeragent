@@ -242,8 +242,8 @@ def _build_empty_result(
         a_res.aProperties = ()
         a_res.xProofreader = proofreader
         a_res.aErrors = ()
-        # FIXME: Adoption of lightproof batching (len(a_text)) caused missing underlines.
-        # Reverted to LO suggested bounds for now.
+        # Default: follow LO’s suggested end + Lightproof-style space adjustment (see
+        # ``_finalize_proofreading_sentence_positions`` for the nStart==0 grammar batch path).
         n_next = n_suggested_behind_end_of_sentence_position
         if n_next < len(a_text):
             ch = a_text[n_next : n_next + 1]
@@ -258,6 +258,33 @@ def _build_empty_result(
     except Exception as e:
         log.exception("[grammar] _build_empty_result: filling ProofreadingResult failed: %s", e)
         raise
+
+
+@no_type_check
+def _finalize_proofreading_sentence_positions(
+    a_res: Any,
+    a_text: str,
+    n_suggested_behind_end: int,
+    proofread_batch_end: int,
+) -> None:
+    """Lightproof-style batching (``lightproof/Lightproof.py`` after LO 4 patch).
+
+    Writer grows ``nSuggestedBehindEndOfSentencePosition`` per keystroke; we treat the
+    proofread window as ``a_text[0:proofread_batch_end]`` with ``proofread_batch_end`` capped
+    by ``doc.grammar_proofreader_max_chars``. Then set ``nStartOfNextSentencePosition`` /
+    ``nBehindEndOfSentencePosition`` from that batch end with the same space-skipping idea as
+    ``_build_empty_result`` / Lightproof lines 126–132.
+    """
+    n_next = proofread_batch_end
+    if n_next < len(a_text):
+        ch = a_text[n_next : n_next + 1]
+        while ch == " ":
+            n_next += 1
+            ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
+        if n_next == n_suggested_behind_end and ch != "":
+            n_next = n_suggested_behind_end + 1
+    a_res.nStartOfNextSentencePosition = n_next
+    a_res.nBehindEndOfSentencePosition = n_next
 
 
 @no_type_check
@@ -570,35 +597,35 @@ class WriterAgentAiGrammarProofreader(
                     nStartOfSentencePosition,
                 )
                 return a_res
-            log.info(
-                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s range=[%s,%s) enabled=%s",
-                aDocumentIdentifier,
-                len(aText),
-                loc_key,
-                nStartOfSentencePosition,
-                nSuggestedBehindEndOfSentencePosition,
-                enabled,
-            )
-            # FIXME: Paragraph-level batching (0, len(aText)) caused issues.
-            # Reverting to incremental bounds [nStart, nSuggestedEnd).
-            n_start = max(0, nStartOfSentencePosition)
-            n_end = min(len(aText), nSuggestedBehindEndOfSentencePosition)
-            if n_end <= n_start:
-                log.info("[grammar] doProofreading: empty span after clamp (%s,%s)", n_start, n_end)
-                return a_res
-            slice_txt = aText[n_start:n_end]
             try:
                 max_chars = get_config_int(self.ctx, "doc.grammar_proofreader_max_chars")
             except Exception as e:
                 log.warning("[grammar] doProofreading: get_config_int max_chars: %s", e, exc_info=True)
                 max_chars = 8000
-            if len(slice_txt) > max_chars:
-                log.info(
-                    "[grammar] doProofreading: slice too long (%s chars, max %s) — skipping LLM",
-                    len(slice_txt),
-                    max_chars,
-                )
+            proofread_batch_end = min(len(aText), max_chars)
+            _finalize_proofreading_sentence_positions(
+                a_res,
+                aText,
+                nSuggestedBehindEndOfSentencePosition,
+                proofread_batch_end,
+            )
+            log.info(
+                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) "
+                "batch_end=%s enabled=%s",
+                aDocumentIdentifier,
+                len(aText),
+                loc_key,
+                nStartOfSentencePosition,
+                nSuggestedBehindEndOfSentencePosition,
+                proofread_batch_end,
+                enabled,
+            )
+            n_start = max(0, nStartOfSentencePosition)
+            n_end = proofread_batch_end
+            if n_end <= n_start:
+                log.info("[grammar] doProofreading: empty span after clamp (%s,%s)", n_start, n_end)
                 return a_res
+            slice_txt = aText[n_start:n_end]
             fp = engine.fingerprint_for_text(slice_txt)
             cache_key = engine.make_cache_key(
                 aDocumentIdentifier,

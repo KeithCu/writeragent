@@ -126,7 +126,7 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
             return []
     if not isinstance(data, Mapping):
         return []
-    root = cast(Mapping[str, Any], data)
+    root = cast("Mapping[str, Any]", data)
     raw = root.get("errors")
     if not isinstance(raw, list):
         return []
@@ -134,7 +134,7 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     for item in raw:
         if not isinstance(item, Mapping):
             continue
-        row = cast(Mapping[str, Any], item)
+        row = cast("Mapping[str, Any]", item)
         wrong = row.get("wrong")
         correct = row.get("correct")
         if wrong is None or correct is None:

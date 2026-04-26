@@ -71,3 +71,19 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         )
 
     client_cls.assert_not_called()
+
+
+def test_finalize_proofreading_uses_full_batch_end_not_suggested_prefix() -> None:
+    """Lightproof-style batch: result positions extend to batch end, not LO’s growing n_suggested."""
+    from plugin.modules.writer.ai_grammar_proofreader import _finalize_proofreading_sentence_positions
+
+    class Res:
+        nStartOfNextSentencePosition = 0
+        nBehindEndOfSentencePosition = 0
+
+    text = "This is a sentence."
+    proofread_end = min(len(text), 8000)
+    r = Res()
+    _finalize_proofreading_sentence_positions(r, text, n_suggested_behind_end=2, proofread_batch_end=proofread_end)
+    assert r.nStartOfNextSentencePosition == len(text)
+    assert r.nBehindEndOfSentencePosition == len(text)
