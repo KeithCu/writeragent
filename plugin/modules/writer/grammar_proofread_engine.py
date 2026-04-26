@@ -17,13 +17,16 @@ from typing import Any, Iterable, Mapping, Sequence, cast
 import json_repair
 
 from plugin.framework.json_utils import safe_json_loads
+from plugin.modules.writer.grammar_locale_registry import (
+    GRAMMAR_REGISTRY_LOCALE_TAGS as _GRAMMAR_REGISTRY_LOCALE_TAGS,
+)
 
 log = logging.getLogger(__name__)
 _grammar_diag = logging.getLogger("writeragent.grammar")
 
-# Hyphenated tags for ``LinguisticWriterAgentGrammar.xcu`` ``Locales`` (one ``oor:string-list``
-# ``<value>``, space-separated — same pattern as Lightproof / bundled LO grammar extensions).
-GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = ("en-US", "en-GB")
+# Re-export: hyphenated tags for ``LinguisticWriterAgentGrammar.xcu`` and tests (see
+# ``grammar_locale_registry`` — same list as ``plugin/locales`` + ``en`` variants).
+GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = _GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _CACHE_LOCK = threading.Lock()
 # cache_key -> (text_fingerprint, tuple of normalized error dicts)

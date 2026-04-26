@@ -171,18 +171,24 @@ def _locale_key(loc: Any) -> str:
 def _locale_tuple() -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` — must match ``LinguisticWriterAgentGrammar.xcu`` ``Locales``.
 
-    The XCU uses hyphenated BCP47-like tags in one ``oor:string-list`` value (e.g. ``en-US en-GB``);
-    UNO uses ``com.sun.star.lang.Locale`` structs for the same languages.
+    The XCU uses hyphenated BCP47-like tags in one ``oor:string-list`` value; UNO uses
+    ``com.sun.star.lang.Locale`` in the same order as ``GRAMMAR_REGISTRY_LOCALE_TAGS``.
 
     LibreOffice merges the registry list with ``XSupportedLocales``; an extra locale here that is
     not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
     when opening Tools → Options → Language Settings (Writing aids).
     """
+    from plugin.modules.writer.grammar_locale_registry import (
+        GRAMMAR_REGISTRY_LOCALE_TAGS,
+        bcp47_to_uno_lang_country,
+    )
+
+    out: list[Any] = []
     try:
-        return (
-            Locale("en", "US", ""),
-            Locale("en", "GB", ""),
-        )
+        for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
+            la, ctry = bcp47_to_uno_lang_country(tag)
+            out.append(Locale(la, ctry, ""))
+        return tuple(out)
     except Exception as e:
         log.error("[grammar] _locale_tuple: Locale construction failed: %s", e, exc_info=True)
         return ()
@@ -224,7 +230,8 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         return
     log.info(
         "[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the "
-        "active grammar checker under Tools → Options → Language Settings → Writing aids for English."
+        "active grammar checker under Tools → Options → Language Settings → Writing aids for the "
+        "document language (same locales as the extension’s UI translation set)."
     )
 
 
@@ -348,6 +355,7 @@ def _run_llm_and_cache(
     n_end: int,
     debounce_seq: int,
     map_key: str,
+    grammar_bcp47: str,
 ) -> None:
     try:
         from plugin.framework.config import (
@@ -361,6 +369,9 @@ def _run_llm_and_cache(
             llm_request_lane,
         )
         from plugin.modules.writer import grammar_proofread_engine as engine
+        from plugin.modules.writer.grammar_locale_registry import (
+            grammar_english_name_for_bcp47,
+        )
 
         # --- Debounce disabled (2026-04): see module doc on ``_DEBOUNCE_SEQ``.
         # try:
@@ -423,11 +434,15 @@ def _run_llm_and_cache(
         except Exception as e:
             log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
             model = ""
+        _lang = grammar_english_name_for_bcp47(grammar_bcp47)
         sys_prompt = (
             "You are a strict grammar and style checker. Reply with a single JSON object only, "
             'no markdown, shaped exactly as: {"errors": [{"wrong": "exact substring from the text", '
             '"correct": "replacement", "type": "grammar|style|spelling", "reason": "brief reason"}]}. '
-            "Use an empty errors array if there are no issues."
+            "Use an empty errors array if there are no issues. "
+            f"The text to check is in {_lang} (BCP-47: {grammar_bcp47}). Apply grammar, spelling, "
+            "and style rules appropriate to that language; use the same language as the text in "
+            '"reason" and any comments when you give them.'
         )
         messages = [
             {"role": "system", "content": sys_prompt},
@@ -511,20 +526,13 @@ class WriterAgentAiGrammarProofreader(
     # --- XSupportedLocales ---
     def hasLocale(self, aLocale: Any) -> bool:
         try:
+            from plugin.modules.writer.grammar_locale_registry import (
+                normalize_uno_locale_to_bcp47,
+            )
+
             if aLocale is None or not self._locales:
                 return False
-            for i in self._locales:
-                try:
-                    if i == aLocale:
-                        return True
-                    if i.Language == aLocale.Language and (
-                        i.Country == aLocale.Country or i.Country == "" or aLocale.Country == ""
-                    ):
-                        return True
-                except Exception as ie:
-                    log.debug("[grammar] hasLocale inner compare: %s", ie, exc_info=True)
-                    continue
-            return False
+            return normalize_uno_locale_to_bcp47(aLocale) is not None
         except Exception as e:
             log.warning("[grammar] hasLocale: %s", e, exc_info=True)
             return False
@@ -558,6 +566,9 @@ class WriterAgentAiGrammarProofreader(
             from plugin.framework.logging import init_logging
             from plugin.framework.worker_pool import run_in_background
             from plugin.modules.writer import grammar_proofread_engine as engine
+            from plugin.modules.writer.grammar_locale_registry import (
+                normalize_uno_locale_to_bcp47,
+            )
 
             try:
                 init_logging(self.ctx)
@@ -580,16 +591,18 @@ class WriterAgentAiGrammarProofreader(
                     exc_info=True,
                 )
                 enabled = False
-            loc_key = _locale_key(aLocale)
+            loc_raw = _locale_key(aLocale)
+            grammar_bcp47 = normalize_uno_locale_to_bcp47(aLocale)
             if not enabled:
                 log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
                 return a_res
-            if not self.hasLocale(aLocale):
+            if grammar_bcp47 is None:
                 log.info(
-                    "[grammar] doProofreading: locale not supported (have en-US/en-GB): %s",
-                    loc_key,
+                    "[grammar] doProofreading: locale not in WriterAgent registry: %s",
+                    loc_raw,
                 )
                 return a_res
+            loc_key = grammar_bcp47
             # Lightproof.py "PATCH FOR LO 4": Writer issues incremental calls with nStart != 0; return
             # empty until the sentence-start pass. Otherwise we spam LLM/cache on every sub-span and
             # fight Writer's real grammar pass (same pattern as lightproof/Lightproof.py).
@@ -681,6 +694,7 @@ class WriterAgentAiGrammarProofreader(
                             n_end,
                             seq,
                             map_key,
+                            grammar_bcp47,
                         )
                     finally:
                         job.done.set()

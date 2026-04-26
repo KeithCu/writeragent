@@ -14,6 +14,12 @@ import unohelper
 from com.sun.star.lang import Locale, XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales
 
+from plugin.modules.writer.grammar_locale_registry import (
+    GRAMMAR_REGISTRY_LOCALE_TAGS,
+    bcp47_to_uno_lang_country,
+    normalize_uno_locale_to_bcp47,
+)
+
 IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
 SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
 
@@ -33,10 +39,11 @@ class WriterAgentAiGrammarProofreaderStub(
         # LibreOffice passes compatibility args when enumerating Linguistic services.
         del args
         self.ctx = ctx
-        self._locales = (
-            Locale("en", "US", ""),
-            Locale("en", "GB", ""),
-        )
+        _loc: list[Locale] = []
+        for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
+            la, c = bcp47_to_uno_lang_country(tag)
+            _loc.append(Locale(la, c, ""))
+        self._locales = tuple(_loc)
 
     def getServiceName(self) -> str:
         return IMPLEMENTATION_NAME
@@ -51,12 +58,9 @@ class WriterAgentAiGrammarProofreaderStub(
         return (SERVICE_NAME,)
 
     def hasLocale(self, aLocale: Any) -> bool:
-        for loc in self._locales:
-            if loc == aLocale:
-                return True
-            if loc.Language == aLocale.Language and (loc.Country == aLocale.Country or loc.Country == ""):
-                return True
-        return False
+        if aLocale is None or not self._locales:
+            return False
+        return normalize_uno_locale_to_bcp47(aLocale) is not None
 
     def getLocales(self) -> tuple[Any, ...]:
         return self._locales

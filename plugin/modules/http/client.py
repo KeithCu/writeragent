@@ -964,7 +964,7 @@ class LlmClient:
             raw_content = message_snapshot.get("content")
             content = _normalize_message_content(raw_content)
             tool_calls = message_snapshot.get("tool_calls")
-            usage = cast(dict[str, Any], message_snapshot.get("usage", {}))
+            usage = cast("dict[str, Any]", message_snapshot.get("usage", {}))
         else:
             # Sync path
             result = None

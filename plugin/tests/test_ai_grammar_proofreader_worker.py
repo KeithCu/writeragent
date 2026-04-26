@@ -68,6 +68,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
             n_end=4,
             debounce_seq=3,
             map_key="doc|en",
+            grammar_bcp47="en-US",
         )
 
     client_cls.assert_not_called()
