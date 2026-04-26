@@ -422,7 +422,10 @@ def _run_llm_and_cache(
         client = LlmClient(get_api_config(ctx), ctx)
         with llm_request_lane():
             content = client.chat_completion_sync(
-                messages, max_tokens=max_tok, model=model or None
+                messages,
+                max_tokens=max_tok,
+                model=model or None,
+                response_format={"type": "json_object"},
             )
         elapsed_ms = int((time.monotonic() - request_start) * 1000)
         log.debug("[grammar] LLM raw response length=%s", len(content or ""))
@@ -600,8 +603,8 @@ class WriterAgentAiGrammarProofreader(
                     max_chars,
                 )
                 return a_res
-            cache_key = engine.make_cache_key(aDocumentIdentifier, loc_key)
             fp = engine.fingerprint_for_text(slice_txt)
+            cache_key = engine.make_cache_key(aDocumentIdentifier, loc_key, fingerprint=fp)
             cached = engine.cache_get(cache_key, fp)
             if cached is not None:
                 try:
@@ -619,7 +622,7 @@ class WriterAgentAiGrammarProofreader(
                         pass
                 return a_res
 
-            map_key = cache_key
+            map_key = engine.make_cache_key(aDocumentIdentifier, loc_key)
             inflight_key = _inflight_key(cache_key, fp)
             start_worker = False
             with _INFLIGHT_LOCK:
