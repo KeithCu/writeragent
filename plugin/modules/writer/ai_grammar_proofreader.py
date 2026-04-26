@@ -39,12 +39,22 @@ log.setLevel(logging.DEBUG)
 IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
 SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
 
+# Fixed caps (not user-configurable): batching / LLM slice length and JSON response budget.
+GRAMMAR_PROOFREAD_MAX_CHARS = 500
+GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
+
 uno_mod: Any
 try:
     uno_mod = importlib.import_module("uno")
 except ImportError:
     uno_mod = None
 
+# Debounce / supersede (currently disabled below — see ``_run_llm_and_cache``).
+# Original idea: ``doProofreading`` returned quickly with empty errors; the worker ran async.
+# A per-``map_key`` (doc|locale) sequence let workers ``sleep(debounce_ms)`` then skip if a newer
+# miss had bumped the counter, coalescing API calls while the user typed. That pairs well with
+# cache-on-next-pass. With sync wait + ``processEventsToIdle``, the same sleep sits on the
+# critical path for callers that wait for results, so debounce is commented out for now.
 _DEBOUNCE_SEQ: dict[str, int] = {}
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT_JOBS: dict[str, "_InflightGrammarJob"] = {}
@@ -271,7 +281,7 @@ def _finalize_proofreading_sentence_positions(
 
     Writer grows ``nSuggestedBehindEndOfSentencePosition`` per keystroke; we treat the
     proofread window as ``a_text[0:proofread_batch_end]`` with ``proofread_batch_end`` capped
-    by ``doc.grammar_proofreader_max_chars``. Then set ``nStartOfNextSentencePosition`` /
+    by ``GRAMMAR_PROOFREAD_MAX_CHARS``. Then set ``nStartOfNextSentencePosition`` /
     ``nBehindEndOfSentencePosition`` from that batch end with the same space-skipping idea as
     ``_build_empty_result`` / Lightproof lines 126–132.
     """
@@ -343,7 +353,6 @@ def _run_llm_and_cache(
         from plugin.framework.config import (
             get_api_config,
             get_config_bool,
-            get_config_int,
             get_config_str,
             get_text_model,
         )
@@ -353,28 +362,29 @@ def _run_llm_and_cache(
         )
         from plugin.modules.writer import grammar_proofread_engine as engine
 
-        try:
-            debounce_ms = get_config_int(ctx, "doc.grammar_proofreader_debounce_ms")
-        except Exception as e:
-            log.warning("[grammar] worker: get_config_int debounce_ms: %s", e, exc_info=True)
-            debounce_ms = 800
-        log.debug(
-            "[grammar] worker sleep debounce_ms=%s key=%s seq=%s",
-            debounce_ms,
-            map_key[:80] if len(map_key) > 80 else map_key,
-            debounce_seq,
-        )
-        time.sleep(debounce_ms / 1000.0)
-        with _DEBOUNCE_LOCK:
-            cur = _DEBOUNCE_SEQ.get(map_key, -1)
-        if cur != debounce_seq:
-            log.info(
-                "[grammar] worker superseded (debounce): map_key=%s had_seq=%s want_seq=%s",
-                map_key[:120],
-                cur,
-                debounce_seq,
-            )
-            return
+        # --- Debounce disabled (2026-04): see module doc on ``_DEBOUNCE_SEQ``.
+        # try:
+        #     debounce_ms = get_config_int(ctx, "doc.grammar_proofreader_debounce_ms")
+        # except Exception as e:
+        #     log.warning("[grammar] worker: get_config_int debounce_ms: %s", e, exc_info=True)
+        #     debounce_ms = 800
+        # log.debug(
+        #     "[grammar] worker sleep debounce_ms=%s key=%s seq=%s",
+        #     debounce_ms,
+        #     map_key[:80] if len(map_key) > 80 else map_key,
+        #     debounce_seq,
+        # )
+        # time.sleep(debounce_ms / 1000.0)
+        # with _DEBOUNCE_LOCK:
+        #     cur = _DEBOUNCE_SEQ.get(map_key, -1)
+        # if cur != debounce_seq:
+        #     log.info(
+        #         "[grammar] worker superseded (debounce): map_key=%s had_seq=%s want_seq=%s",
+        #         map_key[:120],
+        #         cur,
+        #         debounce_seq,
+        #     )
+        #     return
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
                 log.info("[grammar] worker skipped: doc.grammar_proofreader_enabled is false after debounce")
@@ -398,25 +408,16 @@ def _run_llm_and_cache(
                 "[grammar] worker skipped: agent active and pause_during_agent enabled"
             )
             return
-        try:
-            max_chars = get_config_int(ctx, "doc.grammar_proofreader_max_chars")
-        except Exception as e:
-            log.warning("[grammar] worker: get_config_int max_chars: %s", e, exc_info=True)
-            max_chars = 8000
         slice_txt = full_text[n_start:n_end]
-        if len(slice_txt) > max_chars:
+        if len(slice_txt) > GRAMMAR_PROOFREAD_MAX_CHARS:
             log.info(
-                "[grammar] worker skipped: slice len %s > max_chars %s",
+                "[grammar] worker skipped: slice len %s > GRAMMAR_PROOFREAD_MAX_CHARS %s",
                 len(slice_txt),
-                max_chars,
+                GRAMMAR_PROOFREAD_MAX_CHARS,
             )
             _emit_grammar_status("skipped", slice_txt, result="too long")
             return
-        try:
-            max_tok = get_config_int(ctx, "doc.grammar_proofreader_max_tokens")
-        except Exception as e:
-            log.warning("[grammar] worker: get_config_int max_tokens: %s", e, exc_info=True)
-            max_tok = 512
+        max_tok = GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         try:
             model = get_config_str(ctx, "doc.grammar_proofreader_model").strip() or get_text_model(ctx)
         except Exception as e:
@@ -449,6 +450,7 @@ def _run_llm_and_cache(
                 max_tokens=max_tok,
                 model=model or None,
                 response_format={"type": "json_object"},
+                prepend_dev_build_system_prefix=False,
             )
         elapsed_ms = int((time.monotonic() - request_start) * 1000)
         log.debug("[grammar] LLM raw response length=%s", len(content or ""))
@@ -597,12 +599,7 @@ class WriterAgentAiGrammarProofreader(
                     nStartOfSentencePosition,
                 )
                 return a_res
-            try:
-                max_chars = get_config_int(self.ctx, "doc.grammar_proofreader_max_chars")
-            except Exception as e:
-                log.warning("[grammar] doProofreading: get_config_int max_chars: %s", e, exc_info=True)
-                max_chars = 8000
-            proofread_batch_end = min(len(aText), max_chars)
+            proofread_batch_end = min(len(aText), GRAMMAR_PROOFREAD_MAX_CHARS)
             _finalize_proofreading_sentence_positions(
                 a_res,
                 aText,
@@ -661,12 +658,13 @@ class WriterAgentAiGrammarProofreader(
                     _INFLIGHT_JOBS[inflight_key] = job
                     start_worker = True
             if start_worker:
-                with _DEBOUNCE_LOCK:
-                    _DEBOUNCE_SEQ[map_key] = _DEBOUNCE_SEQ.get(map_key, 0) + 1
-                    seq = _DEBOUNCE_SEQ[map_key]
+                # Debounce seq bump disabled with worker debounce (see ``_run_llm_and_cache``).
+                # with _DEBOUNCE_LOCK:
+                #     _DEBOUNCE_SEQ[map_key] = _DEBOUNCE_SEQ.get(map_key, 0) + 1
+                #     seq = _DEBOUNCE_SEQ[map_key]
+                seq = 0
                 log.info(
-                    "[grammar] cache MISS scheduling worker seq=%s slice_len=%s fp=%s…",
-                    seq,
+                    "[grammar] cache MISS scheduling worker slice_len=%s fp=%s…",
                     len(slice_txt),
                     fp[:12],
                 )

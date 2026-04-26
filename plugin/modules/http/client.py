@@ -311,8 +311,23 @@ class LlmClient:
 
         return content, finish_reason, thinking, delta
 
-    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None):
+    def make_chat_request(
+        self,
+        messages,
+        max_tokens=512,
+        tools=None,
+        stream=False,
+        model=None,
+        response_format=None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+    ):
         """Build a chat completions request from a full messages array (provider-aware).
+
+        ``prepend_dev_build_system_prefix``: when True (default), non-release bundles may prepend
+        ``LLM_DEV_BUILD_SYSTEM_PREFIX`` to the first string system message — intended for sidebar
+        chat with the document. Set False for narrow tasks (e.g. grammar JSON) so the model sees
+        only the task system prompt.
 
         ``response_format`` (e.g. ``{"type": "json_object"}``) is merged into the JSON body on the
         **OpenAI-compatible** path only (Together, generic OpenAI bases, OpenRouter when not using
@@ -338,7 +353,8 @@ class LlmClient:
 
         # 1. Anthropic Native Shim
         if provider == "anthropic":
-            _prepend_dev_build_system_prefix_to_messages(messages)
+            if prepend_dev_build_system_prefix:
+                _prepend_dev_build_system_prefix_to_messages(messages)
             url = f"{endpoint}/v1/messages"
             system_msg = ""
             converted = []
@@ -381,7 +397,8 @@ class LlmClient:
             action = ":streamGenerateContent" if stream else ":generateContent"
             url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
             
-            _prepend_dev_build_system_prefix_to_messages(messages)
+            if prepend_dev_build_system_prefix:
+                _prepend_dev_build_system_prefix_to_messages(messages)
             contents: list[dict[str, Any]] = []
             system_instruction = None
             for m in messages:
@@ -508,7 +525,8 @@ class LlmClient:
         else:
             messages.insert(0, {"role": "system", "content": date_msg})
 
-        _prepend_dev_build_system_prefix_to_messages(messages)
+        if prepend_dev_build_system_prefix:
+            _prepend_dev_build_system_prefix_to_messages(messages)
 
         if model_name:
             data["model"] = model_name
@@ -860,10 +878,16 @@ class LlmClient:
         append_callback,
         append_thinking_callback=None,
         stop_checker=None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
     ):
         """Stream a final chat response (no tools) using the messages array."""
         method, path, body, headers = self.make_chat_request(
-            messages, max_tokens, tools=None, stream=True
+            messages,
+            max_tokens,
+            tools=None,
+            stream=True,
+            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
         )
         self.stream_request(
             method, path, body, headers,
@@ -884,6 +908,7 @@ class LlmClient:
         model=None,
         stream=False,
         response_format=None,
+        prepend_dev_build_system_prefix: bool = True,
     ):
         """Chat request with support for tools and streaming.
         
@@ -894,7 +919,13 @@ class LlmClient:
         """
         init_logging(self.ctx)
         method, path, body, headers = self.make_chat_request(
-            messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format
+            messages,
+            max_tokens,
+            tools=tools,
+            stream=stream,
+            model=model,
+            response_format=response_format,
+            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
         )
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
@@ -1027,12 +1058,25 @@ class LlmClient:
         return self.request_with_tools(*args, **kwargs)
 
 
-    def chat_completion_sync(self, messages, max_tokens=512, model=None, response_format=None):
+    def chat_completion_sync(
+        self,
+        messages,
+        max_tokens=512,
+        model=None,
+        response_format=None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+    ):
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
         """
         result = self.request_with_tools(
-            messages, max_tokens=max_tokens, tools=None, model=model, response_format=response_format
+            messages,
+            max_tokens=max_tokens,
+            tools=None,
+            model=model,
+            response_format=response_format,
+            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
         )
         return result.get("content") or ""

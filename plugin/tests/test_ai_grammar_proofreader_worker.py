@@ -82,7 +82,7 @@ def test_finalize_proofreading_uses_full_batch_end_not_suggested_prefix() -> Non
         nBehindEndOfSentencePosition = 0
 
     text = "This is a sentence."
-    proofread_end = min(len(text), 8000)
+    proofread_end = min(len(text), proofreader.GRAMMAR_PROOFREAD_MAX_CHARS)
     r = Res()
     _finalize_proofreading_sentence_positions(r, text, n_suggested_behind_end=2, proofread_batch_end=proofread_end)
     assert r.nStartOfNextSentencePosition == len(text)

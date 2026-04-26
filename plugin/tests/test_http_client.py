@@ -364,3 +364,27 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     system = data["messages"][0]["content"]
     assert system.startswith(LLM_DEV_BUILD_SYSTEM_PREFIX)
     assert "Today's date" in system
+
+
+def test_make_chat_request_skips_dev_build_prefix_when_disabled():
+    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
+    messages = [{"role": "system", "content": "task-only prompt"}, {"role": "user", "content": "x"}]
+    with patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=True):
+        _m, _p, body, _h = client.make_chat_request(
+            messages,
+            max_tokens=50,
+            prepend_dev_build_system_prefix=False,
+        )
+    data = json.loads(body.decode("utf-8"))
+    prefix_first_line = LLM_DEV_BUILD_SYSTEM_PREFIX.split("\n", 1)[0]
+    for m in data["messages"]:
+        c = m.get("content")
+        if isinstance(c, str):
+            assert not c.startswith(prefix_first_line), c[:120]
+    assert any(
+        isinstance(m.get("content"), str) and "task-only prompt" in m["content"]
+        for m in data["messages"]
+    )
