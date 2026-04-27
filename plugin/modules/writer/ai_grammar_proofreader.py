@@ -44,6 +44,9 @@ SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
 GRAMMAR_PROOFREAD_MAX_CHARS = 500
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
 GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
+# Background-thread only: sleep then supersede if a newer worker was scheduled for the same key.
+# Pairs with async ``doProofreading`` (no wait on main thread) so menus stay responsive.
+GRAMMAR_WORKER_DEBOUNCE_MS = 600
 
 # Locale-agnostic sentence terminators used as a conservative fallback signal.
 _SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
@@ -56,12 +59,8 @@ try:
 except ImportError:
     uno_mod = None
 
-# Debounce / supersede (currently disabled below — see ``_run_llm_and_cache``).
-# Original idea: ``doProofreading`` returned quickly with empty errors; the worker ran async.
-# A per-``map_key`` (doc|locale) sequence let workers ``sleep(debounce_ms)`` then skip if a newer
-# miss had bumped the counter, coalescing API calls while the user typed. That pairs well with
-# cache-on-next-pass. With sync wait + ``processEventsToIdle``, the same sleep sits on the
-# critical path for callers that wait for results, so debounce is commented out for now.
+# Debounce / supersede: keyed by inflight sentence key (doc|locale|slice fp). Sequence bumped when
+# a new worker is scheduled; worker sleeps on background thread only, then skips if superseded.
 _DEBOUNCE_SEQ: dict[str, int] = {}
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT_JOBS: dict[str, "_InflightGrammarJob"] = {}
@@ -377,7 +376,7 @@ def _run_llm_and_cache(
     n_start: int,
     n_end: int,
     debounce_seq: int,
-    map_key: str,
+    debounce_key: str,
     grammar_bcp47: str,
     partial_sentence: bool = False,
 ) -> None:
@@ -397,29 +396,25 @@ def _run_llm_and_cache(
             grammar_english_name_for_bcp47,
         )
 
-        # --- Debounce disabled (2026-04): see module doc on ``_DEBOUNCE_SEQ``.
-        # try:
-        #     debounce_ms = get_config_int(ctx, "doc.grammar_proofreader_debounce_ms")
-        # except Exception as e:
-        #     log.warning("[grammar] worker: get_config_int debounce_ms: %s", e, exc_info=True)
-        #     debounce_ms = 800
-        # log.debug(
-        #     "[grammar] worker sleep debounce_ms=%s key=%s seq=%s",
-        #     debounce_ms,
-        #     map_key[:80] if len(map_key) > 80 else map_key,
-        #     debounce_seq,
-        # )
-        # time.sleep(debounce_ms / 1000.0)
-        # with _DEBOUNCE_LOCK:
-        #     cur = _DEBOUNCE_SEQ.get(map_key, -1)
-        # if cur != debounce_seq:
-        #     log.info(
-        #         "[grammar] worker superseded (debounce): map_key=%s had_seq=%s want_seq=%s",
-        #         map_key[:120],
-        #         cur,
-        #         debounce_seq,
-        #     )
-        #     return
+        if GRAMMAR_WORKER_DEBOUNCE_MS > 0:
+            log.debug(
+                "[grammar] worker sleep debounce_ms=%s key=%s seq=%s",
+                GRAMMAR_WORKER_DEBOUNCE_MS,
+                debounce_key[:100] if len(debounce_key) > 100 else debounce_key,
+                debounce_seq,
+            )
+            time.sleep(GRAMMAR_WORKER_DEBOUNCE_MS / 1000.0)
+            with _DEBOUNCE_LOCK:
+                cur = _DEBOUNCE_SEQ.get(debounce_key)
+            # Only supersede if a newer bump exists for this key (``None`` = no bump yet, never supersede).
+            if cur is not None and cur != debounce_seq:
+                log.info(
+                    "[grammar] worker superseded (debounce): key=%s latest_seq=%s worker_seq=%s",
+                    debounce_key[:120],
+                    cur,
+                    debounce_seq,
+                )
+                return
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
                 log.info("[grammar] worker skipped: doc.grammar_proofreader_enabled is false after debounce")
@@ -592,7 +587,7 @@ class WriterAgentAiGrammarProofreader(
             raise RuntimeError("uno not available")
         a_res: Any = None
         try:
-            from plugin.framework.config import get_config_bool, get_config_int
+            from plugin.framework.config import get_config_bool
             from plugin.framework.logging import init_logging
             from plugin.framework.worker_pool import run_in_background
             from plugin.modules.writer import grammar_proofread_engine as engine
@@ -703,7 +698,6 @@ class WriterAgentAiGrammarProofreader(
                         pass
                 return a_res
 
-            map_key = engine.make_cache_key(aDocumentIdentifier, loc_key)
             fp = engine.fingerprint_for_text(slice_txt)
             inflight_key = f"{aDocumentIdentifier}|{loc_key}|{fp}"
             start_worker = False
@@ -714,11 +708,9 @@ class WriterAgentAiGrammarProofreader(
                     _INFLIGHT_JOBS[inflight_key] = job
                     start_worker = True
             if start_worker:
-                # Debounce seq bump disabled with worker debounce (see ``_run_llm_and_cache``).
-                # with _DEBOUNCE_LOCK:
-                #     _DEBOUNCE_SEQ[map_key] = _DEBOUNCE_SEQ.get(map_key, 0) + 1
-                #     seq = _DEBOUNCE_SEQ[map_key]
-                seq = 0
+                with _DEBOUNCE_LOCK:
+                    _DEBOUNCE_SEQ[inflight_key] = _DEBOUNCE_SEQ.get(inflight_key, 0) + 1
+                    seq = _DEBOUNCE_SEQ[inflight_key]
                 log.info(
                     "[grammar] cache MISS scheduling worker slice_len=%s fp=%s…",
                     len(slice_txt),
@@ -734,7 +726,7 @@ class WriterAgentAiGrammarProofreader(
                             n_start,
                             n_end,
                             seq,
-                            map_key,
+                            inflight_key,
                             grammar_bcp47,
                             partial_sentence=not complete_sentence,
                         )
@@ -750,43 +742,14 @@ class WriterAgentAiGrammarProofreader(
                     error_callback=_grammar_worker_error_callback,
                 )
             else:
-                log.info("[grammar] cache MISS joining in-flight worker fp=%s…", fp[:12])
-                _emit_grammar_status("join", slice_txt, result="waiting")
-            try:
-                wait_timeout_ms = get_config_int(self.ctx, "doc.grammar_proofreader_wait_timeout_ms")
-            except Exception as e:
-                log.warning("[grammar] doProofreading: get_config_int wait_timeout_ms: %s", e, exc_info=True)
-                wait_timeout_ms = 15000
-            if _wait_for_inflight_job(self.ctx, job, wait_timeout_ms):
-                cached_after_wait = engine.cache_get_sentence(loc_key, slice_txt)
-                if cached_after_wait is not None:
-                    try:
-                        # cached errors are relative to sentence start; add current n_start
-                        adjusted = []
-                        for e in cached_after_wait:
-                            adj = dict(e)
-                            adj["n_error_start"] = n_start + e.get("n_error_start", 0)
-                            adjusted.append(adj)
-                        a_res.aErrors = _cached_errors_to_uno_tuple(tuple(adjusted))
-                        log.info(
-                            "[grammar] wait complete returning %s error(s) from sentence cache",
-                            len(adjusted),
-                        )
-                    except Exception as e:
-                        log.exception("[grammar] doProofreading: post-wait cache path failed: %s", e)
-                        try:
-                            a_res.aErrors = ()
-                        except Exception:
-                            pass
-                else:
-                    log.info("[grammar] wait complete with no cache entry for sentence len=%s", len(slice_txt))
-            else:
                 log.info(
-                    "[grammar] wait timed out after %sms; returning empty while worker continues fp=%s…",
-                    wait_timeout_ms,
+                    "[grammar] cache MISS in-flight already for fp=%s; returning empty (async)",
                     fp[:12],
                 )
-                _emit_grammar_status("timeout", slice_txt, result=f">{wait_timeout_ms}ms")
+            # Async path: never wait or pump here — keeps menus/dialogs responsive. Squiggles on a later pass.
+            log.info(
+                "[grammar] doProofreading: async miss returning empty errors; sentence cache fills in background"
+            )
             return a_res
         except Exception as e:
             log.exception(

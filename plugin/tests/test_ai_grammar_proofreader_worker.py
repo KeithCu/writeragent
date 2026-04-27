@@ -65,7 +65,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
             n_start=0,
             n_end=4,
             debounce_seq=3,
-            map_key="doc|en",
+            debounce_key="doc|en",
             grammar_bcp47="en-US",
         )
 
@@ -121,6 +121,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.llm_concurrency.is_agent_active", return_value=False),
         patch("plugin.framework.llm_concurrency.llm_request_lane") as lane_ctx,
         patch("plugin.modules.http.client.LlmClient") as client_cls,
+        patch("plugin.modules.writer.ai_grammar_proofreader.time.sleep"),
         patch("plugin.modules.writer.grammar_proofread_engine.parse_grammar_json", return_value=[]),
         patch("plugin.modules.writer.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
         patch("plugin.modules.writer.grammar_proofread_engine.cache_put_sentence"),
@@ -135,7 +136,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
             n_start=0,
             n_end=len("This is long enough but unfinished"),
             debounce_seq=0,
-            map_key="doc|en-US",
+            debounce_key="doc|en-US",
             grammar_bcp47="en-US",
             partial_sentence=True,
         )

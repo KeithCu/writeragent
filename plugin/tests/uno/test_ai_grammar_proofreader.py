@@ -50,21 +50,17 @@ def test_do_proofreading_returns_cached_errors() -> None:
     text = "Hello they is fine."
     n_start = 0
     n_end = len(text)
-    fp = eng.fingerprint_for_text(text[n_start:n_end])
-    key = eng.make_cache_key(
-        42, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
-    )
     from dataclasses import asdict
 
     norms = eng.normalize_errors_for_text(
         text,
-        n_start,
-        n_end,
+        0,
+        len(text),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
     )
-    eng.cache_put(key, fp, [asdict(n) for n in norms])
+    eng.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
 
-    res = pr.doProofreading(42, text, loc, n_start, n_end, ())
+    res = pr.doProofreading("doc-42", text, loc, n_start, n_end, ())
     assert res is not None
     errs = tuple(res.aErrors)
     assert len(errs) == 1
@@ -85,25 +81,21 @@ def test_ignore_rule_filters_cached_error() -> None:
     text = "Hello they is fine."
     n_start = 0
     n_end = len(text)
-    fp = eng.fingerprint_for_text(text[n_start:n_end])
-    key = eng.make_cache_key(
-        99, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
-    )
     from dataclasses import asdict
 
     norms = eng.normalize_errors_for_text(
         text,
-        n_start,
-        n_end,
+        0,
+        len(text),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
     )
     assert len(norms) == 1
     rid = norms[0].rule_identifier
-    eng.cache_put(key, fp, [asdict(n) for n in norms])
-    res1 = pr.doProofreading(99, text, loc, n_start, n_end, ())
+    eng.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
+    res1 = pr.doProofreading("doc-99", text, loc, n_start, n_end, ())
     assert len(tuple(res1.aErrors)) == 1
     pr.ignoreRule(rid, loc)
-    res2 = pr.doProofreading(99, text, loc, n_start, n_end, ())
+    res2 = pr.doProofreading("doc-99", text, loc, n_start, n_end, ())
     assert len(tuple(res2.aErrors)) == 0
     pr.resetIgnoreRules()
 
@@ -120,21 +112,17 @@ def test_incomplete_short_sentence_skips_before_cache_lookup() -> None:
     text = "Too short clause"
     n_start = 0
     n_end = min(len(text), 500)
-    fp = eng.fingerprint_for_text(text[n_start:n_end])
-    key = eng.make_cache_key(
-        123, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
-    )
     from dataclasses import asdict
 
     norms = eng.normalize_errors_for_text(
         text,
-        n_start,
-        n_end,
+        0,
+        len(text),
         [{"wrong": "short", "correct": "brief", "type": "style", "reason": "test"}],
     )
-    eng.cache_put(key, fp, [asdict(n) for n in norms])
+    eng.cache_put_sentence("en-US", text[n_start:n_end], [asdict(n) for n in norms])
 
-    res = pr.doProofreading(123, text, loc, n_start, n_end, ())
+    res = pr.doProofreading("doc-123", text, loc, n_start, n_end, ())
     assert len(tuple(res.aErrors)) == 0
 
 
@@ -150,20 +138,17 @@ def test_incomplete_long_sentence_uses_cache_when_allowed() -> None:
     text = "This is a long unfinished sentence with bad grammar they is here"
     n_start = 0
     n_end = min(len(text), 500)
-    fp = eng.fingerprint_for_text(text[n_start:n_end])
-    key = eng.make_cache_key(
-        124, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
-    )
+    slice_txt = text[n_start:n_end]
     from dataclasses import asdict
 
     norms = eng.normalize_errors_for_text(
-        text,
-        n_start,
-        n_end,
+        slice_txt,
+        0,
+        len(slice_txt),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
     )
-    eng.cache_put(key, fp, [asdict(n) for n in norms])
+    eng.cache_put_sentence("en-US", slice_txt, [asdict(n) for n in norms])
 
-    res = pr.doProofreading(124, text, loc, n_start, n_end, ())
+    res = pr.doProofreading("doc-124", text, loc, n_start, n_end, ())
     errs = tuple(res.aErrors)
     assert len(errs) == 1
