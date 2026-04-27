@@ -46,6 +46,12 @@ GRAMMAR_PROOFREAD_MAX_CHARS = 500
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
 GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
 
+# The time (in seconds) to wait without receiving any new grammar requests
+# before processing the current batch. This 1-second pause ensures we
+# don't start grammar checking while the user is actively typing, thereby
+# reducing unnecessary LLM calls and backend stampedes.
+GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
+
 # Locale-agnostic sentence terminators used as a conservative fallback signal.
 _SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
 _TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "”", "’", "」", "』", "）", "］"))
@@ -160,7 +166,8 @@ class _GrammarWorkQueue:
             batch: list[_GrammarWorkItem] = [first]
             while True:
                 try:
-                    more = self._q.get_nowait()
+                    # Wait for a pause of no new results coming in
+                    more = self._q.get(timeout=GRAMMAR_WORKER_PAUSE_TIMEOUT_S)
                     if more is None:
                         return
                     batch.append(more)
