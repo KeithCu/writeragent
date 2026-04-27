@@ -456,6 +456,39 @@ def _run_llm_and_cache(
                 GRAMMAR_PROOFREAD_MAX_CHARS,
             )
             return
+        # Check which sentences are already cached; only send uncached ones to the LLM.
+        sentences = engine.split_into_sentences(slice_txt)
+        if sentences:
+            uncached: list[tuple[int, str]] = [
+                (off, txt)
+                for off, txt in sentences
+                if engine.cache_get_sentence(grammar_bcp47, txt) is None
+            ]
+            if not uncached:
+                log.info(
+                    "[grammar] worker skipped: all %s sentence(s) already cached for batch len=%s",
+                    len(sentences),
+                    len(slice_txt),
+                )
+                return
+            log.info(
+                "[grammar] worker: %s/%s sentence(s) uncached, sending only uncached to LLM",
+                len(uncached),
+                len(sentences),
+            )
+        else:
+            # No sentence boundaries found — treat entire slice as one uncached chunk
+            uncached = [(0, slice_txt)]
+        # Build the text to send: concatenate uncached sentences with a space separator.
+        # Track each sentence's offset within the concatenated text for error attribution.
+        llm_parts: list[str] = []
+        part_map: list[tuple[int, str]] = []  # (offset_in_llm_text, original_sentence)
+        pos = 0
+        for _orig_offset, sent_text in uncached:
+            llm_parts.append(sent_text)
+            part_map.append((pos, sent_text))
+            pos += len(sent_text) + 1  # +1 for the space separator
+        llm_text = " ".join(llm_parts)
         max_tok = GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         try:
             model = get_config_str(ctx, "doc.grammar_proofreader_model").strip() or get_text_model(ctx)
@@ -479,16 +512,18 @@ def _run_llm_and_cache(
             )
         messages = [
             {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": slice_txt},
+            {"role": "user", "content": llm_text},
         ]
         log.info(
-            "[grammar] LLM request slice_len=%s max_tokens=%s model=%s",
-            len(slice_txt),
+            "[grammar] LLM request llm_text_len=%s (uncached %s/%s sent) max_tokens=%s model=%s",
+            len(llm_text),
+            len(uncached),
+            len(sentences) if sentences else 1,
             max_tok,
             model or "(default text model)",
         )
         request_start = time.monotonic()
-        _emit_grammar_status("request", slice_txt, result="LLM request")
+        _emit_grammar_status("request", llm_text, result="LLM request")
         from plugin.modules.http.client import LlmClient
 
         client = LlmClient(get_api_config(ctx), ctx)
@@ -505,13 +540,24 @@ def _run_llm_and_cache(
         items = engine.parse_grammar_json(content or "")
         log.info("[grammar] parsed %s error item(s) from JSON", len(items))
         ignored = engine.ignored_rules_snapshot()
-        # Normalize relative to sentence start (0) so cached errors are always relative to the sentence text.
-        # This fulfills "cache the sentence and assume every sentence has the same errors".
-        norms = engine.normalize_errors_for_text(slice_txt, 0, len(slice_txt), items, ignored)
-        engine.cache_put_sentence(grammar_bcp47, slice_txt, [asdict(n) for n in norms])
+        # Normalize errors against the concatenated LLM text.
+        norms = engine.normalize_errors_for_text(llm_text, 0, len(llm_text), items, ignored)
+        # Attribute errors to individual sentences and cache each.
+        for llm_offset, sent_text in part_map:
+            sent_end_in_llm = llm_offset + len(sent_text)
+            sent_errors = [
+                {**asdict(n), "n_error_start": n.n_error_start - llm_offset}
+                for n in norms
+                if llm_offset <= n.n_error_start < sent_end_in_llm
+            ]
+            engine.cache_put_sentence(grammar_bcp47, sent_text, sent_errors)
+        log.info(
+            "[grammar] cached errors for %s uncached sentence(s), batch len=%s",
+            len(uncached),
+            len(slice_txt),
+        )
         issue_word = "issue" if len(norms) == 1 else "issues"
-        _emit_grammar_status("complete", slice_txt, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
-        log.info("[grammar] cached %s normalized error(s) for sentence of len=%s", len(norms), len(slice_txt))
+        _emit_grammar_status("complete", llm_text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
     except Exception as e:
         log.error("[grammar] worker failed: %s", e, exc_info=True)
         try:
@@ -684,28 +730,56 @@ class WriterAgentAiGrammarProofreader(
                 )
                 return a_res
 
-            cached = engine.cache_get_sentence(loc_key, slice_txt)
-            if cached is not None:
-                try:
-                    # cached errors are relative to sentence start (0); add current n_start
-                    adjusted = []
-                    for e in cached:
-                        adj = dict(e)
-                        adj["n_error_start"] = n_start + e.get("n_error_start", 0)
-                        adjusted.append(adj)
-                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(adjusted))
-                    log.info(
-                        "[grammar] sentence cache HIT returning %s error(s) for sentence len=%s",
-                        len(adjusted),
-                        len(slice_txt),
-                    )
-                except Exception as e:
-                    log.exception("[grammar] doProofreading: sentence cache HIT path failed: %s", e)
+            # Per-sentence cache lookup: split the batch into individual sentences
+            # and check each. Return cached errors immediately (even partial — better
+            # than empty). Enqueue only if there are uncached sentences.
+            sentences = engine.split_into_sentences(slice_txt)
+            if sentences:
+                combined_errors: list[dict[str, Any]] = []
+                uncached_count = 0
+                for sent_offset, sent_text in sentences:
+                    cached = engine.cache_get_sentence(loc_key, sent_text)
+                    if cached is None:
+                        uncached_count += 1
+                        continue
+                    # Cached errors are relative to sentence start (0);
+                    # shift to paragraph position: n_start + sent_offset + error_offset
+                    for err_item in cached:
+                        adj = dict(err_item)
+                        adj["n_error_start"] = n_start + sent_offset + err_item.get("n_error_start", 0)
+                        combined_errors.append(adj)
+                if uncached_count == 0:
+                    # All sentences cached — return full result, no enqueue needed
                     try:
-                        a_res.aErrors = ()
-                    except Exception:
-                        pass
-                return a_res
+                        a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
+                        log.info(
+                            "[grammar] per-sentence cache ALL HIT: %s sentence(s), %s error(s) for batch len=%s",
+                            len(sentences),
+                            len(combined_errors),
+                            len(slice_txt),
+                        )
+                    except Exception as e:
+                        log.exception("[grammar] doProofreading: per-sentence cache HIT path failed: %s", e)
+                        try:
+                            a_res.aErrors = ()
+                        except Exception:
+                            pass
+                    return a_res
+                # Partial miss: return cached errors now (better than empty),
+                # and fall through to enqueue for the uncached sentences.
+                if combined_errors:
+                    try:
+                        a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
+                    except Exception as e:
+                        log.exception("[grammar] doProofreading: partial cache path failed: %s", e)
+                log.info(
+                    "[grammar] per-sentence cache PARTIAL HIT: %s/%s cached (%s error(s) returned), "
+                    "%s uncached → enqueueing",
+                    len(sentences) - uncached_count,
+                    len(sentences),
+                    len(combined_errors),
+                    uncached_count,
+                )
 
             fp = engine.fingerprint_for_text(slice_txt)
             inflight_key = f"{aDocumentIdentifier}|{loc_key}|{fp}"

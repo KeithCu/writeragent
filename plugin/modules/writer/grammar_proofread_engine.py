@@ -217,38 +217,84 @@ def normalize_errors_for_text(
     return results
 
 
+# ---------------------------------------------------------------------------
+# Sentence splitter (pure Python, no UNO)
+# ---------------------------------------------------------------------------
+
+# Split on sentence-ending punctuation followed by whitespace.
+# Uses the same multilingual terminators as the proofreader's _looks_complete_sentence.
+_SENTENCE_SPLIT_RE = re.compile(
+    r'(?<=[.!?…؟。！？।])\s+'
+)
+
+
+def split_into_sentences(text: str) -> list[tuple[int, str]]:
+    """Split *text* into ``(start_offset, sentence_text)`` pairs.
+
+    Splits on sentence-ending punctuation followed by whitespace.
+    Each segment retains its punctuation; trailing whitespace is kept
+    (normalization happens at cache-key time via ``rstrip``).
+
+    Returns at least one element when *text* contains non-whitespace.
+    """
+    if not text or not text.strip():
+        return []
+    result: list[tuple[int, str]] = []
+    last = 0
+    for m in _SENTENCE_SPLIT_RE.finditer(text):
+        seg = text[last:m.start()]
+        if seg:
+            result.append((last, seg))
+        last = m.end()
+    tail = text[last:]
+    if tail:
+        result.append((last, tail))
+    return result or [(0, text)]
+
+
 # --- Sentence-level cache (simple, text-based, no positions)
-# Keyed by locale + sentence fingerprint. Errors are relative to the start of that sentence (offset 0).
-# This fulfills the requirement that identical sentence text always has the same errors, regardless of
-# document position. We trust LO sentence boundaries for splitting.
+# Keyed by locale + sentence fingerprint (trailing whitespace stripped for normalization).
+# Errors are relative to the start of that sentence (offset 0).
+# This fulfills the requirement that identical sentence text always has the same errors,
+# regardless of document position.
 
 _SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, list[dict[str, Any]]]] = collections.OrderedDict()
 
 
 def make_sentence_key(locale_key: str, sentence: str) -> str:
-    """Cache key for a specific sentence text (locale + fingerprint)."""
-    fp = fingerprint_for_text(sentence)
+    """Cache key for a specific sentence text (locale + fingerprint).
+
+    Trailing whitespace is stripped so ``'Hello.'`` and ``'Hello. '`` share
+    the same cache entry (handles the enter-at-end-of-paragraph edge case).
+    """
+    fp = fingerprint_for_text(sentence.rstrip())
     return f"sent|{locale_key}|{fp}"
 
 
 def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] | None:
-    """Return cached errors for this exact sentence (relative to sentence start = 0)."""
+    """Return cached errors for this exact sentence (relative to sentence start = 0).
+
+    Trailing whitespace is stripped before fingerprint comparison.
+    """
     key = make_sentence_key(locale_key, sentence)
     with _CACHE_LOCK:
         hit = _SENTENCE_CACHE.get(key)
         if not hit:
             return None
         cached_fp, errors = hit
-        if cached_fp != fingerprint_for_text(sentence):
+        if cached_fp != fingerprint_for_text(sentence.rstrip()):
             return None
         _SENTENCE_CACHE.move_to_end(key)
         return list(errors)  # return copy
 
 
 def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, Any]]) -> None:
-    """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
+    """Cache errors for this sentence text (errors must have offsets relative to sentence start).
+
+    Trailing whitespace is stripped before fingerprinting.
+    """
     key = make_sentence_key(locale_key, sentence)
-    fp = fingerprint_for_text(sentence)
+    fp = fingerprint_for_text(sentence.rstrip())
     with _CACHE_LOCK:
         _SENTENCE_CACHE[key] = (fp, [dict(e) for e in errors])  # deep enough copy
         _SENTENCE_CACHE.move_to_end(key)

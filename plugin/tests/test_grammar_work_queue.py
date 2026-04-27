@@ -107,3 +107,116 @@ def test_different_locales_not_deduped() -> None:
     assert len(result) == 2
     locales = {r.grammar_bcp47 for r in result}
     assert locales == {"fr-FR", "en-US"}
+
+
+# ---------------------------------------------------------------------------
+# Sentence splitter tests
+# ---------------------------------------------------------------------------
+
+from plugin.modules.writer.grammar_proofread_engine import (
+    cache_get_sentence,
+    cache_put_sentence,
+    clear_sentence_cache,
+    make_sentence_key,
+    split_into_sentences,
+)
+
+
+def test_split_basic_two_sentences() -> None:
+    result = split_into_sentences("Hello world. This is fine.")
+    assert len(result) == 2
+    assert result[0] == (0, "Hello world.")
+    assert result[1][1] == "This is fine."
+
+
+def test_split_single_sentence() -> None:
+    result = split_into_sentences("Just one.")
+    assert len(result) == 1
+    assert result[0] == (0, "Just one.")
+
+
+def test_split_three_sentences() -> None:
+    text = "First. Second. Third."
+    result = split_into_sentences(text)
+    assert len(result) == 3
+    assert result[0][1] == "First."
+    assert result[1][1] == "Second."
+    assert result[2][1] == "Third."
+    # Verify offsets are correct
+    for offset, sent in result:
+        assert text[offset : offset + len(sent)] == sent
+
+
+def test_split_multilingual_terminators() -> None:
+    result = split_into_sentences("これは文です。 次の文。")
+    assert len(result) == 2
+
+
+def test_split_question_and_exclamation() -> None:
+    result = split_into_sentences("Really? Yes! Okay.")
+    assert len(result) == 3
+
+
+def test_split_empty_and_whitespace() -> None:
+    assert split_into_sentences("") == []
+    assert split_into_sentences("   ") == []
+
+
+def test_split_no_terminator() -> None:
+    """Text without sentence-ending punctuation stays as one segment."""
+    result = split_into_sentences("hello world without punctuation")
+    assert len(result) == 1
+    assert result[0] == (0, "hello world without punctuation")
+
+
+def test_split_preserves_offsets() -> None:
+    """Offsets should correctly index back into the original text."""
+    text = "Alpha bravo. Charlie delta. Echo foxtrot."
+    result = split_into_sentences(text)
+    for offset, sent in result:
+        assert text[offset : offset + len(sent)] == sent
+
+
+# ---------------------------------------------------------------------------
+# Trailing whitespace normalization tests
+# ---------------------------------------------------------------------------
+
+
+def test_whitespace_normalization_cache_key() -> None:
+    """'Hello.' and 'Hello. ' and 'Hello.\\n' should produce the same cache key."""
+    key1 = make_sentence_key("en-US", "Hello.")
+    key2 = make_sentence_key("en-US", "Hello. ")
+    key3 = make_sentence_key("en-US", "Hello.\n")
+    assert key1 == key2 == key3
+
+
+def test_cache_hit_with_trailing_whitespace() -> None:
+    """Putting 'Hello.' and getting 'Hello. ' should be a cache hit."""
+    clear_sentence_cache()
+    cache_put_sentence("en-US", "Hello.", [{"n_error_start": 0, "n_error_length": 5}])
+    result = cache_get_sentence("en-US", "Hello. ")
+    assert result is not None
+    assert len(result) == 1
+    assert result[0]["n_error_start"] == 0
+
+
+def test_cache_roundtrip_per_sentence() -> None:
+    """Simulate the per-sentence cache flow: store per sentence, retrieve per sentence."""
+    clear_sentence_cache()
+    # Simulate worker storing per-sentence errors
+    cache_put_sentence("en-US", "This has a eror.", [
+        {"n_error_start": 11, "n_error_length": 4, "suggestions": ("error",),
+         "short_comment": "(spelling) typo", "full_comment": "typo",
+         "rule_identifier": "wa_grammar_0_abc"},
+    ])
+    cache_put_sentence("en-US", "Second sent.", [])  # no errors
+
+    # Simulate doProofreading lookup for a grown paragraph
+    sentences = split_into_sentences("This has a eror. Second sent. Third.")
+    assert len(sentences) == 3
+
+    # First two should be cached
+    assert cache_get_sentence("en-US", "This has a eror.") is not None
+    assert cache_get_sentence("en-US", "Second sent.") is not None
+    # Third is new → cache miss
+    assert cache_get_sentence("en-US", "Third.") is None
