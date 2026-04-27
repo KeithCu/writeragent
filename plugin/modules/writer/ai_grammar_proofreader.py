@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import re
 import sys
 
 # LO loads this file as a standalone UNO component; set up path like panel_factory.py
@@ -42,6 +43,12 @@ SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
 # Fixed caps (not user-configurable): batching / LLM slice length and JSON response budget.
 GRAMMAR_PROOFREAD_MAX_CHARS = 500
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
+GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
+
+# Locale-agnostic sentence terminators used as a conservative fallback signal.
+_SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
+_TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "”", "’", "」", "』", "）", "］"))
+_NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
 uno_mod: Any
 try:
@@ -304,6 +311,24 @@ def _finalize_proofreading_sentence_positions(
     a_res.nBehindEndOfSentencePosition = n_next
 
 
+def _count_nonspace_chars(text: str) -> int:
+    return len(_NONSPACE_RE.findall(text or ""))
+
+
+def _last_meaningful_char(text: str) -> str:
+    if not text:
+        return ""
+    for ch in reversed(text.rstrip()):
+        if ch in _TRAILING_CLOSERS:
+            continue
+        return ch
+    return ""
+
+
+def _looks_complete_sentence(text: str) -> bool:
+    return _last_meaningful_char(text) in _SENTENCE_TERMINATORS
+
+
 @no_type_check
 def _errors_to_uno_tuple(
     norms: list[Any],
@@ -348,14 +373,13 @@ def _grammar_worker_error_callback(err: Any) -> None:
 
 def _run_llm_and_cache(
     ctx: Any,
-    cache_key: str,
-    fingerprint: str,
     full_text: str,
     n_start: int,
     n_end: int,
     debounce_seq: int,
     map_key: str,
     grammar_bcp47: str,
+    partial_sentence: bool = False,
 ) -> None:
     try:
         from plugin.framework.config import (
@@ -426,7 +450,6 @@ def _run_llm_and_cache(
                 len(slice_txt),
                 GRAMMAR_PROOFREAD_MAX_CHARS,
             )
-            _emit_grammar_status("skipped", slice_txt, result="too long")
             return
         max_tok = GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         try:
@@ -444,6 +467,11 @@ def _run_llm_and_cache(
             "and style rules appropriate to that language; use the same language as the text in "
             '"reason" and any comments when you give them.'
         )
+        if partial_sentence:
+            sys_prompt += (
+                " The input may be a partial sentence; prefer conservative grammar suggestions and "
+                "avoid broad rewrites."
+            )
         messages = [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": slice_txt},
@@ -472,11 +500,13 @@ def _run_llm_and_cache(
         items = engine.parse_grammar_json(content or "")
         log.info("[grammar] parsed %s error item(s) from JSON", len(items))
         ignored = engine.ignored_rules_snapshot()
-        norms = engine.normalize_errors_for_text(full_text, n_start, n_end, items, ignored)
-        engine.cache_put(cache_key, fingerprint, [asdict(n) for n in norms])
+        # Normalize relative to sentence start (0) so cached errors are always relative to the sentence text.
+        # This fulfills "cache the sentence and assume every sentence has the same errors".
+        norms = engine.normalize_errors_for_text(slice_txt, 0, len(slice_txt), items, ignored)
+        engine.cache_put_sentence(grammar_bcp47, slice_txt, [asdict(n) for n in norms])
         issue_word = "issue" if len(norms) == 1 else "issues"
         _emit_grammar_status("complete", slice_txt, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
-        log.info("[grammar] cached %s normalized error(s) for key fp=%s…", len(norms), fingerprint[:12])
+        log.info("[grammar] cached %s normalized error(s) for sentence of len=%s", len(norms), len(slice_txt))
     except Exception as e:
         log.error("[grammar] worker failed after config/debounce stage: %s", e, exc_info=True)
         try:
@@ -636,25 +666,37 @@ class WriterAgentAiGrammarProofreader(
                 log.info("[grammar] doProofreading: empty span after clamp (%s,%s)", n_start, n_end)
                 return a_res
             slice_txt = aText[n_start:n_end]
-            fp = engine.fingerprint_for_text(slice_txt)
-            cache_key = engine.make_cache_key(
-                aDocumentIdentifier,
-                loc_key,
-                fingerprint=fp,
-                slice_start=n_start,
-                slice_end=n_end,
-            )
-            cached = engine.cache_get(cache_key, fp)
+            # Trust LO sentence boundaries (nStart==0 batch). Cache by exact sentence text.
+            # Identical sentence text anywhere in the document reuses the same errors (relative to sentence start).
+            # This fulfills the requirement to cache per sentence without worrying about document offsets.
+            nonspace_len = _count_nonspace_chars(slice_txt)
+            complete_sentence = _looks_complete_sentence(slice_txt)
+            partial_allowed = nonspace_len >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
+            if not complete_sentence and not partial_allowed:
+                log.info(
+                    "[grammar] doProofreading: skip incomplete short sentence len_nonspace=%s min=%s",
+                    nonspace_len,
+                    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
+                )
+                return a_res
+
+            cached = engine.cache_get_sentence(loc_key, slice_txt)
             if cached is not None:
                 try:
-                    a_res.aErrors = _cached_errors_to_uno_tuple(cached)
+                    # cached errors are relative to sentence start (0); add current n_start
+                    adjusted = []
+                    for e in cached:
+                        adj = dict(e)
+                        adj["n_error_start"] = n_start + e.get("n_error_start", 0)
+                        adjusted.append(adj)
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(adjusted))
                     log.info(
-                        "[grammar] cache HIT returning %s error(s) key=%s…",
-                        len(tuple(a_res.aErrors)),
-                        cache_key[:80],
+                        "[grammar] sentence cache HIT returning %s error(s) for sentence len=%s",
+                        len(adjusted),
+                        len(slice_txt),
                     )
                 except Exception as e:
-                    log.exception("[grammar] doProofreading: cache HIT path failed: %s", e)
+                    log.exception("[grammar] doProofreading: sentence cache HIT path failed: %s", e)
                     try:
                         a_res.aErrors = ()
                     except Exception:
@@ -662,7 +704,8 @@ class WriterAgentAiGrammarProofreader(
                 return a_res
 
             map_key = engine.make_cache_key(aDocumentIdentifier, loc_key)
-            inflight_key = cache_key
+            fp = engine.fingerprint_for_text(slice_txt)
+            inflight_key = f"{aDocumentIdentifier}|{loc_key}|{fp}"
             start_worker = False
             with _INFLIGHT_LOCK:
                 job = _INFLIGHT_JOBS.get(inflight_key)
@@ -687,14 +730,13 @@ class WriterAgentAiGrammarProofreader(
                     try:
                         _run_llm_and_cache(
                             self.ctx,
-                            cache_key,
-                            fp,
                             aText,
                             n_start,
                             n_end,
                             seq,
                             map_key,
                             grammar_bcp47,
+                            partial_sentence=not complete_sentence,
                         )
                     finally:
                         job.done.set()
@@ -716,14 +758,19 @@ class WriterAgentAiGrammarProofreader(
                 log.warning("[grammar] doProofreading: get_config_int wait_timeout_ms: %s", e, exc_info=True)
                 wait_timeout_ms = 15000
             if _wait_for_inflight_job(self.ctx, job, wait_timeout_ms):
-                cached_after_wait = engine.cache_get(cache_key, fp)
+                cached_after_wait = engine.cache_get_sentence(loc_key, slice_txt)
                 if cached_after_wait is not None:
                     try:
-                        a_res.aErrors = _cached_errors_to_uno_tuple(cached_after_wait)
+                        # cached errors are relative to sentence start; add current n_start
+                        adjusted = []
+                        for e in cached_after_wait:
+                            adj = dict(e)
+                            adj["n_error_start"] = n_start + e.get("n_error_start", 0)
+                            adjusted.append(adj)
+                        a_res.aErrors = _cached_errors_to_uno_tuple(tuple(adjusted))
                         log.info(
-                            "[grammar] wait complete returning %s error(s) key=%s…",
-                            len(tuple(a_res.aErrors)),
-                            cache_key[:80],
+                            "[grammar] wait complete returning %s error(s) from sentence cache",
+                            len(adjusted),
                         )
                     except Exception as e:
                         log.exception("[grammar] doProofreading: post-wait cache path failed: %s", e)
@@ -732,7 +779,7 @@ class WriterAgentAiGrammarProofreader(
                         except Exception:
                             pass
                 else:
-                    log.info("[grammar] wait complete with no cache entry fp=%s…", fp[:12])
+                    log.info("[grammar] wait complete with no cache entry for sentence len=%s", len(slice_txt))
             else:
                 log.info(
                     "[grammar] wait timed out after %sms; returning empty while worker continues fp=%s…",

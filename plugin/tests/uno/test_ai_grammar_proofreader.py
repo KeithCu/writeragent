@@ -33,6 +33,7 @@ def teardown_grammar_proof_tests(ctx: Any) -> None:
     if _saved_enabled is not None:
         set_config(ctx, "doc.grammar_proofreader_enabled", _saved_enabled)
     eng.cache_clear()
+    eng.clear_sentence_cache()
     eng.ignore_rules_clear()
     _test_ctx = None
 
@@ -51,7 +52,7 @@ def test_do_proofreading_returns_cached_errors() -> None:
     n_end = len(text)
     fp = eng.fingerprint_for_text(text[n_start:n_end])
     key = eng.make_cache_key(
-        42, "en_US_", fingerprint=fp, slice_start=n_start, slice_end=n_end
+        42, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
     )
     from dataclasses import asdict
 
@@ -86,7 +87,7 @@ def test_ignore_rule_filters_cached_error() -> None:
     n_end = len(text)
     fp = eng.fingerprint_for_text(text[n_start:n_end])
     key = eng.make_cache_key(
-        99, "en_US_", fingerprint=fp, slice_start=n_start, slice_end=n_end
+        99, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
     )
     from dataclasses import asdict
 
@@ -105,3 +106,64 @@ def test_ignore_rule_filters_cached_error() -> None:
     res2 = pr.doProofreading(99, text, loc, n_start, n_end, ())
     assert len(tuple(res2.aErrors)) == 0
     pr.resetIgnoreRules()
+
+
+@native_test
+def test_incomplete_short_sentence_skips_before_cache_lookup() -> None:
+    import uno
+
+    from plugin.modules.writer.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    assert _test_ctx is not None
+    pr = WriterAgentAiGrammarProofreader(_test_ctx)
+    loc = uno.createUnoStruct("com.sun.star.lang.Locale", "en", "US", "")
+    text = "Too short clause"
+    n_start = 0
+    n_end = min(len(text), 500)
+    fp = eng.fingerprint_for_text(text[n_start:n_end])
+    key = eng.make_cache_key(
+        123, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
+    )
+    from dataclasses import asdict
+
+    norms = eng.normalize_errors_for_text(
+        text,
+        n_start,
+        n_end,
+        [{"wrong": "short", "correct": "brief", "type": "style", "reason": "test"}],
+    )
+    eng.cache_put(key, fp, [asdict(n) for n in norms])
+
+    res = pr.doProofreading(123, text, loc, n_start, n_end, ())
+    assert len(tuple(res.aErrors)) == 0
+
+
+@native_test
+def test_incomplete_long_sentence_uses_cache_when_allowed() -> None:
+    import uno
+
+    from plugin.modules.writer.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    assert _test_ctx is not None
+    pr = WriterAgentAiGrammarProofreader(_test_ctx)
+    loc = uno.createUnoStruct("com.sun.star.lang.Locale", "en", "US", "")
+    text = "This is a long unfinished sentence with bad grammar they is here"
+    n_start = 0
+    n_end = min(len(text), 500)
+    fp = eng.fingerprint_for_text(text[n_start:n_end])
+    key = eng.make_cache_key(
+        124, "en-US", fingerprint=fp, slice_start=n_start, slice_end=n_end
+    )
+    from dataclasses import asdict
+
+    norms = eng.normalize_errors_for_text(
+        text,
+        n_start,
+        n_end,
+        [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
+    )
+    eng.cache_put(key, fp, [asdict(n) for n in norms])
+
+    res = pr.doProofreading(124, text, loc, n_start, n_end, ())
+    errs = tuple(res.aErrors)
+    assert len(errs) == 1

@@ -39,6 +39,7 @@ def cache_clear() -> None:
     """Clear proofreading cache (e.g. tests)."""
     with _CACHE_LOCK:
         _proofread_cache.clear()
+        _SENTENCE_CACHE.clear()
 
 
 def ignore_rules_clear() -> None:
@@ -214,3 +215,48 @@ def normalize_errors_for_text(
                 exc_info=True,
             )
     return results
+
+
+# --- Sentence-level cache (simple, text-based, no positions)
+# Keyed by locale + sentence fingerprint. Errors are relative to the start of that sentence (offset 0).
+# This fulfills the requirement that identical sentence text always has the same errors, regardless of
+# document position. We trust LO sentence boundaries for splitting.
+
+_SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, list[dict[str, Any]]]] = collections.OrderedDict()
+
+
+def make_sentence_key(locale_key: str, sentence: str) -> str:
+    """Cache key for a specific sentence text (locale + fingerprint)."""
+    fp = fingerprint_for_text(sentence)
+    return f"sent|{locale_key}|{fp}"
+
+
+def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] | None:
+    """Return cached errors for this exact sentence (relative to sentence start = 0)."""
+    key = make_sentence_key(locale_key, sentence)
+    with _CACHE_LOCK:
+        hit = _SENTENCE_CACHE.get(key)
+        if not hit:
+            return None
+        cached_fp, errors = hit
+        if cached_fp != fingerprint_for_text(sentence):
+            return None
+        _SENTENCE_CACHE.move_to_end(key)
+        return list(errors)  # return copy
+
+
+def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, Any]]) -> None:
+    """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
+    key = make_sentence_key(locale_key, sentence)
+    fp = fingerprint_for_text(sentence)
+    with _CACHE_LOCK:
+        _SENTENCE_CACHE[key] = (fp, [dict(e) for e in errors])  # deep enough copy
+        _SENTENCE_CACHE.move_to_end(key)
+        while len(_SENTENCE_CACHE) > MAX_CACHE_SIZE:
+            _SENTENCE_CACHE.popitem(last=False)
+
+
+def clear_sentence_cache() -> None:
+    """Clear sentence cache (for tests)."""
+    with _CACHE_LOCK:
+        _SENTENCE_CACHE.clear()

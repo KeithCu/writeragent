@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def _ensure_module(name: str) -> types.ModuleType:
@@ -61,8 +61,6 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
     ):
         proofreader._run_llm_and_cache(
             ctx=None,
-            cache_key="cache",
-            fingerprint="fp",
             full_text="test",
             n_start=0,
             n_end=4,
@@ -88,3 +86,62 @@ def test_finalize_proofreading_uses_full_batch_end_not_suggested_prefix() -> Non
     _finalize_proofreading_sentence_positions(r, text, n_suggested_behind_end=2, proofread_batch_end=proofread_end)
     assert r.nStartOfNextSentencePosition == len(text)
     assert r.nBehindEndOfSentencePosition == len(text)
+
+
+def test_sentence_terminators_cover_multilingual_cases() -> None:
+    assert proofreader._looks_complete_sentence("Hello world.")
+    assert proofreader._looks_complete_sentence("مرحبا بالعالم؟")
+    assert proofreader._looks_complete_sentence("これは文です。")
+    assert proofreader._looks_complete_sentence("यह एक वाक्य है।")
+    assert not proofreader._looks_complete_sentence("incomplete clause")
+
+
+def test_partial_threshold_counts_nonspace_chars() -> None:
+    assert proofreader._count_nonspace_chars("a b c") == 3
+    assert proofreader._count_nonspace_chars("too short") < proofreader.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
+    assert (
+        proofreader._count_nonspace_chars("this is long enough")
+        >= proofreader.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
+    )
+
+
+def test_partial_sentence_adds_prompt_note() -> None:
+    def _get_config_bool(_ctx, key: str) -> bool:
+        if key == "doc.grammar_proofreader_enabled":
+            return True
+        if key == "doc.grammar_proofreader_pause_during_agent":
+            return False
+        raise AssertionError(f"unexpected key: {key}")
+
+    with (
+        patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
+        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.get_text_model", return_value="test-model"),
+        patch("plugin.framework.config.get_api_config", return_value={}),
+        patch("plugin.framework.llm_concurrency.is_agent_active", return_value=False),
+        patch("plugin.framework.llm_concurrency.llm_request_lane") as lane_ctx,
+        patch("plugin.modules.http.client.LlmClient") as client_cls,
+        patch("plugin.modules.writer.grammar_proofread_engine.parse_grammar_json", return_value=[]),
+        patch("plugin.modules.writer.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
+        patch("plugin.modules.writer.grammar_proofread_engine.cache_put_sentence"),
+    ):
+        lane_ctx.return_value.__enter__ = MagicMock(return_value=None)
+        lane_ctx.return_value.__exit__ = MagicMock(return_value=False)
+        client = client_cls.return_value
+        client.chat_completion_sync.return_value = '{"errors":[]}'
+        proofreader._run_llm_and_cache(
+            ctx=None,
+            full_text="This is long enough but unfinished",
+            n_start=0,
+            n_end=len("This is long enough but unfinished"),
+            debounce_seq=0,
+            map_key="doc|en-US",
+            grammar_bcp47="en-US",
+            partial_sentence=True,
+        )
+
+    args, kwargs = client.chat_completion_sync.call_args
+    del kwargs
+    messages = args[0]
+    system_prompt = messages[0]["content"]
+    assert "partial sentence" in system_prompt
