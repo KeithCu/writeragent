@@ -17,7 +17,7 @@ config:
     max: 60000
     widget: number
     label: Grammar check wait timeout (ms)
-    helper: "How long WriterAgent waits for AI grammar results while processing LibreOffice events. If the timeout is reached, results are cached for a later pass."
+    helper: "Reserved for possible future use. The proofreader returns immediately on cache miss (async); results appear on a later Writer pass once the sentence cache is filled."
 
   grammar_proofreader_model:
     type: string

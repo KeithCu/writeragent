@@ -260,3 +260,80 @@ def clear_sentence_cache() -> None:
     """Clear sentence cache (for tests)."""
     with _CACHE_LOCK:
         _SENTENCE_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Work-queue dedup (pure Python, no UNO)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class GrammarWorkItem:
+    """One unit of grammar work to be processed by the sequential queue worker.
+
+    Lives here (not in ``ai_grammar_proofreader``) so the dedup logic can be
+    unit-tested without UNO imports.
+    """
+
+    ctx: Any
+    full_text: str
+    n_start: int
+    n_end: int
+    grammar_bcp47: str
+    partial_sentence: bool
+    doc_id: str
+    inflight_key: str
+    enqueue_seq: int
+
+
+def deduplicate_grammar_batch(
+    batch: list[GrammarWorkItem],
+) -> list[GrammarWorkItem]:
+    """Remove stale items from a batch: superseded keys and prefix subsets.
+
+    Within each ``(doc_id, locale)`` group, if item A's slice text is a proper
+    prefix of item B's slice text, A is dropped (B is the more-complete version
+    from continued typing).  Additionally, if two items share the same
+    ``inflight_key`` (same fingerprint), the one with the lower ``enqueue_seq``
+    is dropped.
+    """
+    from collections import defaultdict
+
+    # Step 1: supersede by sequence (same inflight_key → keep latest only)
+    best_by_key: dict[str, GrammarWorkItem] = {}
+    for item in batch:
+        prev = best_by_key.get(item.inflight_key)
+        if prev is None or item.enqueue_seq > prev.enqueue_seq:
+            best_by_key[item.inflight_key] = item
+    unique = list(best_by_key.values())
+
+    # Step 2: prefix dedup within (doc_id, locale) groups
+    groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
+    for item in unique:
+        groups[(item.doc_id, item.grammar_bcp47)].append(item)
+
+    result: list[GrammarWorkItem] = []
+    for _key, group in groups.items():
+        # Sort longest-first so we can cheaply check "is X a prefix of Y?"
+        group.sort(key=lambda x: len(x.full_text[x.n_start : x.n_end]), reverse=True)
+        kept_texts: list[str] = []
+        for item in group:
+            slice_txt = item.full_text[item.n_start : item.n_end]
+            # Drop if this text is a proper prefix of any already-kept text
+            if any(
+                longer.startswith(slice_txt) and longer != slice_txt
+                for longer in kept_texts
+            ):
+                _grammar_diag.info(
+                    "[grammar] queue dedup: dropped prefix len=%s "
+                    "(superseded by longer text len=%s)",
+                    len(slice_txt),
+                    next(
+                        len(t)
+                        for t in kept_texts
+                        if t.startswith(slice_txt) and t != slice_txt
+                    ),
+                )
+                continue
+            kept_texts.append(slice_txt)
+            result.append(item)
+    return result

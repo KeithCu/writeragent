@@ -37,8 +37,6 @@ from plugin.modules.writer import ai_grammar_proofreader as proofreader
 
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
-    proofreader._DEBOUNCE_SEQ["doc|en"] = 3
-
     def _get_config_bool(_ctx, key: str) -> bool:
         if key == "doc.grammar_proofreader_enabled":
             return True
@@ -64,8 +62,8 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
             full_text="test",
             n_start=0,
             n_end=4,
-            debounce_seq=3,
-            debounce_key="doc|en",
+            enqueue_seq=3,
+            inflight_key="doc|en",
             grammar_bcp47="en-US",
         )
 
@@ -135,8 +133,8 @@ def test_partial_sentence_adds_prompt_note() -> None:
             full_text="This is long enough but unfinished",
             n_start=0,
             n_end=len("This is long enough but unfinished"),
-            debounce_seq=0,
-            debounce_key="doc|en-US",
+            enqueue_seq=0,
+            inflight_key="doc|en-US",
             grammar_bcp47="en-US",
             partial_sentence=True,
         )

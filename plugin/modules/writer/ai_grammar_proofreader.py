@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import queue
 import re
 import sys
 
@@ -44,9 +45,6 @@ SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
 GRAMMAR_PROOFREAD_MAX_CHARS = 500
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
 GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
-# Background-thread only: sleep then supersede if a newer worker was scheduled for the same key.
-# Pairs with async ``doProofreading`` (no wait on main thread) so menus stay responsive.
-GRAMMAR_WORKER_DEBOUNCE_MS = 600
 
 # Locale-agnostic sentence terminators used as a conservative fallback signal.
 _SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
@@ -59,11 +57,9 @@ try:
 except ImportError:
     uno_mod = None
 
-# Debounce / supersede: keyed by inflight sentence key (doc|locale|slice fp). Sequence bumped when
-# a new worker is scheduled; worker sleeps on background thread only, then skips if superseded.
-_DEBOUNCE_SEQ: dict[str, int] = {}
-_INFLIGHT_LOCK = threading.Lock()
-_INFLIGHT_JOBS: dict[str, "_InflightGrammarJob"] = {}
+# Monotonic enqueue counter for supersede detection in the work queue.
+_ENQUEUE_SEQ_LOCK = threading.Lock()
+_ENQUEUE_SEQ = 0
 
 
 @no_type_check
@@ -81,14 +77,6 @@ def _proofreading_markup_type() -> int:
             exc_info=True,
         )
         return 4
-
-
-_DEBOUNCE_LOCK = threading.Lock()
-
-
-class _InflightGrammarJob:
-    def __init__(self) -> None:
-        self.done = threading.Event()
 
 
 def _grammar_text_preview(text: str) -> str:
@@ -118,32 +106,84 @@ def _emit_grammar_status(
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
 
 
-def _wait_for_inflight_job(ctx: Any, job: _InflightGrammarJob, timeout_ms: int) -> bool:
-    """Wait for a grammar worker while letting LibreOffice service pending UI events."""
-    timeout_s = max(0, timeout_ms) / 1000.0
-    if timeout_s <= 0:
-        return job.done.is_set()
-    deadline = time.monotonic() + timeout_s
-    try:
-        from plugin.framework.uno_context import get_toolkit
+from plugin.modules.writer.grammar_proofread_engine import (
+    GrammarWorkItem as _GrammarWorkItem,
+    deduplicate_grammar_batch as _deduplicate_grammar_batch,
+)
 
-        toolkit = get_toolkit(ctx)
-    except Exception as e:
-        log.warning("[grammar] wait: toolkit unavailable, waiting without event pump: %s", e, exc_info=True)
-        toolkit = None
-    while not job.done.is_set():
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return job.done.is_set()
-        if job.done.wait(min(0.1, remaining)):
-            return True
-        if toolkit is not None:
-            try:
-                toolkit.processEventsToIdle()
-            except Exception as e:
-                log.warning("[grammar] wait: processEventsToIdle failed: %s", e, exc_info=True)
-                toolkit = None
-    return True
+
+class _GrammarWorkQueue:
+    """Single-worker sequential queue for grammar LLM requests.
+
+    Solves two problems:
+    1. **Stampede**: N cache misses no longer spawn N workers that all
+       contend for ``llm_request_lane`` simultaneously.
+    2. **Prefix waste**: when the user types, successive calls produce
+       growing text ("This is" → "This is a" → "This is a story.").
+       At dequeue time, shorter prefixes are dropped in favor of the
+       longest text for the same ``(doc_id, locale)`` group.
+    """
+
+    def __init__(self) -> None:
+        self._q: queue.Queue[_GrammarWorkItem | None] = queue.Queue()
+        self._seq_lock = threading.Lock()
+        self._latest_seq: dict[str, int] = {}
+        self._worker_started = False
+        self._worker_lock = threading.Lock()
+
+    def enqueue(self, item: _GrammarWorkItem) -> None:
+        """Add a work item; starts the drain worker on first call."""
+        with self._seq_lock:
+            self._latest_seq[item.inflight_key] = item.enqueue_seq
+        self._q.put(item)
+        self._ensure_worker()
+
+    def _ensure_worker(self) -> None:
+        with self._worker_lock:
+            if self._worker_started:
+                return
+            self._worker_started = True
+        t = threading.Thread(
+            target=self._drain_loop,
+            name="writeragent-grammar-queue",
+            daemon=True,
+        )
+        t.start()
+
+    def _drain_loop(self) -> None:
+        """Block-dequeue, batch-drain pending items, deduplicate, process sequentially."""
+        while True:
+            first = self._q.get()
+            if first is None:
+                break
+            # Drain any items that accumulated while the previous request was in flight
+            batch: list[_GrammarWorkItem] = [first]
+            while True:
+                try:
+                    more = self._q.get_nowait()
+                    if more is None:
+                        return
+                    batch.append(more)
+                except queue.Empty:
+                    break
+            survivors = _deduplicate_grammar_batch(batch)
+            for item in survivors:
+                try:
+                    _run_llm_and_cache(
+                        item.ctx,
+                        item.full_text,
+                        item.n_start,
+                        item.n_end,
+                        item.enqueue_seq,
+                        item.inflight_key,
+                        item.grammar_bcp47,
+                        partial_sentence=item.partial_sentence,
+                    )
+                except Exception as e:
+                    log.error("[grammar] queue worker item failed: %s", e, exc_info=True)
+
+
+_grammar_queue = _GrammarWorkQueue()
 
 
 def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...]) -> tuple[Any, ...]:
@@ -356,18 +396,7 @@ def _errors_to_uno_tuple(
     return tuple(out)
 
 
-def _grammar_worker_error_callback(err: Any) -> None:
-    """Log worker-pool wrapper failures for grammar tasks (original exc is in details)."""
-    try:
-        details = getattr(err, "details", None) or {}
-        log.warning(
-            "[grammar] worker_pool task failed: %s details=%s",
-            err,
-            details,
-            exc_info=True,
-        )
-    except Exception as e:
-        log.warning("[grammar] worker_pool error_callback logging failed: %s", e, exc_info=True)
+
 
 
 def _run_llm_and_cache(
@@ -375,8 +404,8 @@ def _run_llm_and_cache(
     full_text: str,
     n_start: int,
     n_end: int,
-    debounce_seq: int,
-    debounce_key: str,
+    enqueue_seq: int,
+    inflight_key: str,
     grammar_bcp47: str,
     partial_sentence: bool = False,
 ) -> None:
@@ -396,25 +425,6 @@ def _run_llm_and_cache(
             grammar_english_name_for_bcp47,
         )
 
-        if GRAMMAR_WORKER_DEBOUNCE_MS > 0:
-            log.debug(
-                "[grammar] worker sleep debounce_ms=%s key=%s seq=%s",
-                GRAMMAR_WORKER_DEBOUNCE_MS,
-                debounce_key[:100] if len(debounce_key) > 100 else debounce_key,
-                debounce_seq,
-            )
-            time.sleep(GRAMMAR_WORKER_DEBOUNCE_MS / 1000.0)
-            with _DEBOUNCE_LOCK:
-                cur = _DEBOUNCE_SEQ.get(debounce_key)
-            # Only supersede if a newer bump exists for this key (``None`` = no bump yet, never supersede).
-            if cur is not None and cur != debounce_seq:
-                log.info(
-                    "[grammar] worker superseded (debounce): key=%s latest_seq=%s worker_seq=%s",
-                    debounce_key[:120],
-                    cur,
-                    debounce_seq,
-                )
-                return
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
                 log.info("[grammar] worker skipped: doc.grammar_proofreader_enabled is false after debounce")
@@ -503,7 +513,7 @@ def _run_llm_and_cache(
         _emit_grammar_status("complete", slice_txt, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
         log.info("[grammar] cached %s normalized error(s) for sentence of len=%s", len(norms), len(slice_txt))
     except Exception as e:
-        log.error("[grammar] worker failed after config/debounce stage: %s", e, exc_info=True)
+        log.error("[grammar] worker failed: %s", e, exc_info=True)
         try:
             _emit_grammar_status("failed", full_text[n_start:n_end], result=type(e).__name__)
         except Exception:
@@ -589,7 +599,6 @@ class WriterAgentAiGrammarProofreader(
         try:
             from plugin.framework.config import get_config_bool
             from plugin.framework.logging import init_logging
-            from plugin.framework.worker_pool import run_in_background
             from plugin.modules.writer import grammar_proofread_engine as engine
             from plugin.modules.writer.grammar_locale_registry import (
                 normalize_uno_locale_to_bcp47,
@@ -700,52 +709,30 @@ class WriterAgentAiGrammarProofreader(
 
             fp = engine.fingerprint_for_text(slice_txt)
             inflight_key = f"{aDocumentIdentifier}|{loc_key}|{fp}"
-            start_worker = False
-            with _INFLIGHT_LOCK:
-                job = _INFLIGHT_JOBS.get(inflight_key)
-                if job is None:
-                    job = _InflightGrammarJob()
-                    _INFLIGHT_JOBS[inflight_key] = job
-                    start_worker = True
-            if start_worker:
-                with _DEBOUNCE_LOCK:
-                    _DEBOUNCE_SEQ[inflight_key] = _DEBOUNCE_SEQ.get(inflight_key, 0) + 1
-                    seq = _DEBOUNCE_SEQ[inflight_key]
-                log.info(
-                    "[grammar] cache MISS scheduling worker slice_len=%s fp=%s…",
-                    len(slice_txt),
-                    fp[:12],
+            global _ENQUEUE_SEQ
+            with _ENQUEUE_SEQ_LOCK:
+                _ENQUEUE_SEQ += 1
+                seq = _ENQUEUE_SEQ
+            log.info(
+                "[grammar] cache MISS enqueuing slice_len=%s fp=%s… seq=%s",
+                len(slice_txt),
+                fp[:12],
+                seq,
+            )
+            _emit_grammar_status("start", slice_txt, result="queued")
+            _grammar_queue.enqueue(
+                _GrammarWorkItem(
+                    ctx=self.ctx,
+                    full_text=aText,
+                    n_start=n_start,
+                    n_end=n_end,
+                    grammar_bcp47=grammar_bcp47,
+                    partial_sentence=not complete_sentence,
+                    doc_id=aDocumentIdentifier,
+                    inflight_key=inflight_key,
+                    enqueue_seq=seq,
                 )
-                _emit_grammar_status("start", slice_txt, result="queued")
-
-                def _worker_wrapper() -> None:
-                    try:
-                        _run_llm_and_cache(
-                            self.ctx,
-                            aText,
-                            n_start,
-                            n_end,
-                            seq,
-                            inflight_key,
-                            grammar_bcp47,
-                            partial_sentence=not complete_sentence,
-                        )
-                    finally:
-                        job.done.set()
-                        with _INFLIGHT_LOCK:
-                            if _INFLIGHT_JOBS.get(inflight_key) is job:
-                                del _INFLIGHT_JOBS[inflight_key]
-
-                run_in_background(
-                    _worker_wrapper,
-                    name="writeragent-grammar-proofread",
-                    error_callback=_grammar_worker_error_callback,
-                )
-            else:
-                log.info(
-                    "[grammar] cache MISS in-flight already for fp=%s; returning empty (async)",
-                    fp[:12],
-                )
+            )
             # Async path: never wait or pump here — keeps menus/dialogs responsive. Squiggles on a later pass.
             log.info(
                 "[grammar] doProofreading: async miss returning empty errors; sentence cache fills in background"
