@@ -137,10 +137,35 @@ class _GrammarWorkQueue:
         self._worker_started = False
         self._worker_lock = threading.Lock()
 
+    @staticmethod
+    def _slice_preview(item: _GrammarWorkItem, max_len: int = 48) -> str:
+        slice_txt = item.full_text[item.n_start : item.n_end]
+        compact = " ".join(slice_txt.split())
+        if len(compact) <= max_len:
+            return compact
+        return f"{compact[:max_len]}…"
+
+    def _latest_seq_for(self, inflight_key: str) -> int | None:
+        with self._seq_lock:
+            return self._latest_seq.get(inflight_key)
+
+    def _is_stale(self, item: _GrammarWorkItem) -> bool:
+        latest = self._latest_seq_for(item.inflight_key)
+        return latest is not None and item.enqueue_seq < latest
+
     def enqueue(self, item: _GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call."""
         with self._seq_lock:
             self._latest_seq[item.inflight_key] = item.enqueue_seq
+        log.info(
+            "[grammar] queue enqueue doc_id=%s locale=%s seq=%s key=%s len=%s preview=%r",
+            item.doc_id,
+            item.grammar_bcp47,
+            item.enqueue_seq,
+            item.inflight_key,
+            len(item.full_text[item.n_start : item.n_end]),
+            self._slice_preview(item),
+        )
         self._q.put(item)
         self._ensure_worker()
 
@@ -173,9 +198,33 @@ class _GrammarWorkQueue:
                     batch.append(more)
                 except queue.Empty:
                     break
+            log.info("[grammar] queue drain: batch_size=%s", len(batch))
             survivors = _deduplicate_grammar_batch(batch)
+            log.info("[grammar] queue drain: survivors=%s", len(survivors))
             for item in survivors:
+                latest = self._latest_seq_for(item.inflight_key)
+                if self._is_stale(item):
+                    log.info(
+                        "[grammar] queue stale-skip doc_id=%s locale=%s seq=%s latest=%s key=%s preview=%r",
+                        item.doc_id,
+                        item.grammar_bcp47,
+                        item.enqueue_seq,
+                        latest,
+                        item.inflight_key,
+                        self._slice_preview(item),
+                    )
+                    continue
                 try:
+                    log.info(
+                        "[grammar] queue execute doc_id=%s locale=%s seq=%s latest=%s key=%s len=%s preview=%r",
+                        item.doc_id,
+                        item.grammar_bcp47,
+                        item.enqueue_seq,
+                        latest,
+                        item.inflight_key,
+                        len(item.full_text[item.n_start : item.n_end]),
+                        self._slice_preview(item),
+                    )
                     _run_llm_and_cache(
                         item.ctx,
                         item.full_text,

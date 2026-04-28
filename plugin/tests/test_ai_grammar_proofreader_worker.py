@@ -34,6 +34,7 @@ setattr(
 )
 
 from plugin.modules.writer import ai_grammar_proofreader as proofreader
+from plugin.modules.writer.grammar_proofread_engine import GrammarWorkItem
 
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
@@ -144,3 +145,37 @@ def test_partial_sentence_adds_prompt_note() -> None:
     messages = args[0]
     system_prompt = messages[0]["content"]
     assert "partial sentence" in system_prompt
+
+
+def test_queue_stale_check_uses_latest_sequence() -> None:
+    q = proofreader._GrammarWorkQueue()
+    item = GrammarWorkItem(
+        ctx=None,
+        full_text="What is going on",
+        n_start=0,
+        n_end=len("What is going on"),
+        grammar_bcp47="en-US",
+        partial_sentence=False,
+        doc_id="doc-1",
+        inflight_key="doc-1|en-US|fp_x",
+        enqueue_seq=7,
+    )
+    q._latest_seq[item.inflight_key] = 9
+    assert q._is_stale(item) is True
+
+
+def test_queue_stale_check_allows_latest_item() -> None:
+    q = proofreader._GrammarWorkQueue()
+    item = GrammarWorkItem(
+        ctx=None,
+        full_text="What is going on",
+        n_start=0,
+        n_end=len("What is going on"),
+        grammar_bcp47="en-US",
+        partial_sentence=False,
+        doc_id="doc-1",
+        inflight_key="doc-1|en-US|fp_x",
+        enqueue_seq=9,
+    )
+    q._latest_seq[item.inflight_key] = 9
+    assert q._is_stale(item) is False

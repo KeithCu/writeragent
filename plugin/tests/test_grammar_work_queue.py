@@ -37,7 +37,7 @@ def _make_item(
 
 
 def test_prefix_dedup_typing_sequence() -> None:
-    """Typing 'This is' -> 'This is a' -> 'This is a story.' should keep only the longest."""
+    """Typing 'This is' -> 'This is a' -> 'This is a story.' keeps only newest."""
     items = [
         _make_item("This is", seq=1),
         _make_item("This is a", seq=2),
@@ -88,8 +88,8 @@ def test_mixed_dedup() -> None:
     ]
     result = deduplicate_grammar_batch(items)
     texts = {r.full_text[r.n_start : r.n_end] for r in result}
-    # "Short." survives (seq=5), "The cat" dropped (prefix of longer),
-    # "The cat sat on the mat." survives, "Unrelated paragraph." survives
+    # "Short." survives (seq=5), "The cat" dropped (older prefix-related),
+    # "The cat sat on the mat." survives (newer), "Unrelated paragraph." survives
     assert "Short." in texts
     assert "The cat sat on the mat." in texts
     assert "Unrelated paragraph." in texts
@@ -108,5 +108,38 @@ def test_different_locales_not_deduped() -> None:
     locales = {r.grammar_bcp47 for r in result}
     assert locales == {"fr-FR", "en-US"}
 
+
+def test_newest_wins_over_longest_for_prefix_related_items() -> None:
+    """A newer shorter prefix-related item must survive over older longer text."""
+    items = [
+        _make_item("What is going on", seq=10),
+        _make_item("What is going", seq=11),
+    ]
+    result = deduplicate_grammar_batch(items)
+    assert len(result) == 1
+    item = result[0]
+    assert item.enqueue_seq == 11
+    assert item.full_text[item.n_start : item.n_end] == "What is going"
+
+
+def test_reverse_prefix_chain_executes_only_latest() -> None:
+    """Reverse chain reproducer: only newest item survives."""
+    items = [
+        _make_item("What is going on", seq=1),
+        _make_item("What is going o", seq=2),
+        _make_item("What is going", seq=3),
+        _make_item("What is goin", seq=4),
+        _make_item("What is goi", seq=5),
+        _make_item("What is go", seq=6),
+        _make_item("What is g", seq=7),
+        _make_item("What is ", seq=8),
+        _make_item("What is", seq=9),
+        _make_item("W", seq=10),
+    ]
+    result = deduplicate_grammar_batch(items)
+    assert len(result) == 1
+    item = result[0]
+    assert item.enqueue_seq == 10
+    assert item.full_text[item.n_start : item.n_end] == "W"
 
 

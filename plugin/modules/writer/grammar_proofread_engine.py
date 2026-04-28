@@ -471,11 +471,14 @@ class GrammarWorkItem:
 def deduplicate_grammar_batch(
     batch: list[GrammarWorkItem],
 ) -> list[GrammarWorkItem]:
-    """Remove stale items from a batch: superseded keys and prefix subsets.
+    """Remove stale items from a batch using newest-first semantics.
 
-    Within each ``(doc_id, locale)`` group, if item A's slice text is a proper
-    prefix of item B's slice text, A is dropped (B is the more-complete version
-    from continued typing).  Additionally, if two items share the same
+    Within each ``(doc_id, locale)`` group, prefix-related conflicts are resolved
+    in favor of the newest item (highest ``enqueue_seq``), regardless of text
+    length. This avoids cases where an older longer text wins over a newer
+    shorter text from the same typing timeline.
+
+    Additionally, if two items share the same
     ``inflight_key`` (same fingerprint), the one with the lower ``enqueue_seq``
     is dropped.
     """
@@ -487,36 +490,50 @@ def deduplicate_grammar_batch(
         prev = best_by_key.get(item.inflight_key)
         if prev is None or item.enqueue_seq > prev.enqueue_seq:
             best_by_key[item.inflight_key] = item
+        elif prev is not None and item.enqueue_seq < prev.enqueue_seq:
+            _grammar_diag.info(
+                "[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)",
+                item.enqueue_seq,
+                item.inflight_key,
+                prev.enqueue_seq,
+            )
     unique = list(best_by_key.values())
 
-    # Step 2: prefix dedup within (doc_id, locale) groups
+    # Step 2: prefix dedup within (doc_id, locale) groups (newest-first)
     groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
     for item in unique:
         groups[(item.doc_id, item.grammar_bcp47)].append(item)
 
     result: list[GrammarWorkItem] = []
     for _key, group in groups.items():
-        # Sort longest-first so we can cheaply check "is X a prefix of Y?"
-        group.sort(key=lambda x: len(x.full_text[x.n_start : x.n_end]), reverse=True)
+        # Newest first: prefix-related conflicts keep the most recent request.
+        group.sort(key=lambda x: x.enqueue_seq, reverse=True)
         kept_texts: list[str] = []
+        kept_seqs: list[int] = []
         for item in group:
             slice_txt = item.full_text[item.n_start : item.n_end]
-            # Drop if this text is a proper prefix of any already-kept text
+            # Drop if this text conflicts by prefix relation with any newer kept text.
             if any(
-                longer.startswith(slice_txt) and longer != slice_txt
-                for longer in kept_texts
+                (kept.startswith(slice_txt) or slice_txt.startswith(kept))
+                and kept != slice_txt
+                for kept in kept_texts
             ):
+                conflict_idx = next(
+                    i
+                    for i, kept in enumerate(kept_texts)
+                    if (kept.startswith(slice_txt) or slice_txt.startswith(kept))
+                    and kept != slice_txt
+                )
+                newer_seq = kept_seqs[conflict_idx]
                 _grammar_diag.info(
-                    "[grammar] queue dedup: dropped prefix len=%s "
-                    "(superseded by longer text len=%s)",
+                    "[grammar] queue dedup: dropped older prefix-related item seq=%s len=%s "
+                    "(newer seq=%s kept)",
+                    item.enqueue_seq,
                     len(slice_txt),
-                    next(
-                        len(t)
-                        for t in kept_texts
-                        if t.startswith(slice_txt) and t != slice_txt
-                    ),
+                    newer_seq,
                 )
                 continue
             kept_texts.append(slice_txt)
+            kept_seqs.append(item.enqueue_seq)
             result.append(item)
     return result
