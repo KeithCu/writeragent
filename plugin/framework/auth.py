@@ -100,8 +100,6 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         header_style="bearer",
         host_matches=("api.x.ai",),
     ),
-    # FIXME: Add native shims for Anthropic (Messages API) and Google (GenerativeLanguage)
-    # in LlmClient to skip OpenRouter/proxies when using direct keys.
     "anthropic": ProviderConfig(
         id="anthropic",
         name="Anthropic Claude",

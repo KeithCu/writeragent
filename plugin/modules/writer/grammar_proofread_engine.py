@@ -228,28 +228,94 @@ _SENTENCE_SPLIT_RE = re.compile(
 )
 
 
-def split_into_sentences(text: str) -> list[tuple[int, str]]:
+def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int, str]]:
     """Split *text* into ``(start_offset, sentence_text)`` pairs.
 
-    Splits on sentence-ending punctuation followed by whitespace.
-    Each segment retains its punctuation; trailing whitespace is kept
-    (normalization happens at cache-key time via ``rstrip``).
-
-    Returns at least one element when *text* contains non-whitespace.
+    For Thai, Lao, and Khmer, splits on whitespace.
+    For other languages, uses LibreOffice's BreakIterator with an abbreviation heuristic.
     """
     if not text or not text.strip():
         return []
-    result: list[tuple[int, str]] = []
-    last = 0
-    for m in _SENTENCE_SPLIT_RE.finditer(text):
-        seg = text[last:m.start()]
-        if seg:
-            result.append((last, seg))
-        last = m.end()
-    tail = text[last:]
-    if tail:
-        result.append((last, tail))
-    return result or [(0, text)]
+
+    if locale_key.startswith(("th", "lo", "km")):
+        # Thai, Lao, Khmer: spaces indicate phrase/sentence boundaries
+        # Regex to split on 1 or more spaces, keeping the space with the previous segment?
+        # Actually, let's just find the spaces and split there.
+        _SPACE_RE = re.compile(r'\s+')
+        result: list[tuple[int, str]] = []
+        last = 0
+        for m in _SPACE_RE.finditer(text):
+            seg = text[last:m.start()]
+            if seg:
+                result.append((last, seg))
+            last = m.end()
+        tail = text[last:]
+        if tail:
+            result.append((last, tail))
+        return result or [(0, text)]
+
+    # For other languages, use LibreOffice BreakIterator
+    import uno
+    
+    # Try to get BreakIterator
+    try:
+        smgr = ctx.ServiceManager
+        break_iterator = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
+        parts = locale_key.split("-")
+        if len(parts) > 1:
+            locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
+        else:
+            locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
+    except Exception as e:
+        _grammar_diag.warning("[grammar] split_into_sentences: failed to init BreakIterator: %s", e)
+        # Fallback to regex if LO is unavailable
+        result = []
+        last = 0
+        for m in _SENTENCE_SPLIT_RE.finditer(text):
+            seg = text[last:m.start()]
+            if seg:
+                result.append((last, seg))
+            last = m.end()
+        tail = text[last:]
+        if tail:
+            result.append((last, tail))
+        return result or [(0, text)]
+
+    pos = 0
+    sentences = []
+    
+    while pos < len(text):
+        end_pos = break_iterator.endOfSentence(text, pos, locale)
+        
+        if end_pos <= pos:
+            # Prevent infinite loop if endOfSentence gets stuck
+            end_pos = len(text)
+            
+        # Abbreviation heuristic
+        while end_pos < len(text):
+            i = end_pos - 1
+            while i >= pos and text[i].isspace():
+                i -= 1
+            if i >= pos and text[i] == '.':
+                j = i - 1
+                while j >= pos and not text[j].isspace() and text[j] not in '.!?':
+                    j -= 1
+                word = text[j+1:i]
+                if 0 < len(word) <= 5 and word[0].isupper():
+                    next_end = break_iterator.endOfSentence(text, end_pos, locale)
+                    if next_end > end_pos:
+                        end_pos = next_end
+                        continue
+            break
+            
+        sentences.append((pos, text[pos:end_pos]))
+        pos = end_pos
+        
+        # Skip trailing whitespace to the next sentence start
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+            
+    return sentences or [(0, text)]
 
 
 # --- Sentence-level cache (simple, text-based, no positions)

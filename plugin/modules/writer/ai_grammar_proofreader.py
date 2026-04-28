@@ -54,7 +54,7 @@ GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # Locale-agnostic sentence terminators used as a conservative fallback signal.
 _SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
-_TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "”", "’", "」", "』", "）", "］"))
+_TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "”", "’", "」", "』", "）", "］", "〉", "》", "】", "〕", "〖", "〗", "〛", "〛"))
 _NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
 uno_mod: Any
@@ -464,7 +464,7 @@ def _run_llm_and_cache(
             )
             return
         # Check which sentences are already cached; only send uncached ones to the LLM.
-        sentences = engine.split_into_sentences(slice_txt)
+        sentences = engine.split_into_sentences(ctx, grammar_bcp47, slice_txt)
         if sentences:
             uncached: list[tuple[int, str]] = [
                 (off, txt)
@@ -740,7 +740,7 @@ class WriterAgentAiGrammarProofreader(
             # Per-sentence cache lookup: split the batch into individual sentences
             # and check each. Return cached errors immediately (even partial — better
             # than empty). Enqueue only if there are uncached sentences.
-            sentences = engine.split_into_sentences(slice_txt)
+            sentences = engine.split_into_sentences(self.ctx, loc_key, slice_txt)
             if sentences:
                 combined_errors: list[dict[str, Any]] = []
                 uncached_count = 0
