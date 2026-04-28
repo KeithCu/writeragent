@@ -153,9 +153,30 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
         )
     return out
 
+def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list[str]:
+    """Split text into a list of word tokens and non-word (punctuation/whitespace) tokens.
+    Uses LO's BreakIterator if available, otherwise falls back to a regex."""
+    if not text:
+        return []
 
-def _tokenize(text: str) -> list[str]:
-    """Split text into a list of word tokens and non-word (punctuation/whitespace) tokens."""
+    if break_iterator and locale:
+        try:
+            tokens = []
+            start = 0
+            while start < len(text):
+                # 0 = WordType.ANY_WORD
+                res = break_iterator.getWordBoundary(text, start, locale, 0, True)
+                if res.endPos <= start:
+                    break
+                tokens.append(text[res.startPos:res.endPos])
+                start = res.endPos
+            
+            # If the iterator perfectly covered the text, return the tokens.
+            if sum(len(t) for t in tokens) == len(text):
+                return tokens
+        except Exception as e:
+            _grammar_diag.debug("[grammar] _tokenize: BreakIterator failed: %s", e)
+
     return re.findall(r'\w+|\W+', text)
 
 
@@ -165,6 +186,8 @@ def normalize_errors_for_text(
     n_slice_end: int,
     items: Iterable[dict[str, Any]],
     ignored: set[str] | None = None,
+    ctx: Any = None,
+    loc_key: str | None = None,
 ) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
     ignored = ignored or set()
@@ -173,6 +196,22 @@ def normalize_errors_for_text(
     window = full_text[slice_start:slice_end]
     results: list[NormalizedProofError] = []
     used_spans: list[tuple[int, int]] = []
+
+    break_iterator = None
+    locale = None
+    if ctx and loc_key:
+        try:
+            import uno
+            smgr = ctx.ServiceManager
+            break_iterator = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
+            parts = loc_key.split("-")
+            if len(parts) > 1:
+                locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
+            else:
+                locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
+        except Exception as e:
+            _grammar_diag.warning("[grammar] normalize_errors_for_text: failed to init BreakIterator: %s", e)
+            break_iterator = None
 
     for idx, it in enumerate(items):
         wrong = it.get("wrong", "")
@@ -193,8 +232,8 @@ def normalize_errors_for_text(
         if correct:
             # Suffix overlap (forward expansion)
             suffix = full_text[pos + length:]
-            t_c = _tokenize(correct)
-            t_s = _tokenize(suffix)
+            t_c = _tokenize(correct, break_iterator, locale)
+            t_s = _tokenize(suffix, break_iterator, locale)
             for k in range(min(len(t_c), len(t_s)), 0, -1):
                 if t_c[-k:] == t_s[:k]:
                     overlap_len = sum(len(t) for t in t_c[-k:])
@@ -203,7 +242,7 @@ def normalize_errors_for_text(
 
             # Prefix overlap (backward expansion)
             prefix = full_text[:pos]
-            t_p = _tokenize(prefix)
+            t_p = _tokenize(prefix, break_iterator, locale)
             for k in range(min(len(t_p), len(t_c)), 0, -1):
                 if t_p[-k:] == t_c[:k]:
                     overlap_len = sum(len(t) for t in t_p[-k:])

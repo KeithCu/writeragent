@@ -548,7 +548,7 @@ def _run_llm_and_cache(
         log.info("[grammar] parsed %s error item(s) from JSON", len(items))
         ignored = engine.ignored_rules_snapshot()
         # Normalize errors against the concatenated LLM text.
-        norms = engine.normalize_errors_for_text(llm_text, 0, len(llm_text), items, ignored)
+        norms = engine.normalize_errors_for_text(llm_text, 0, len(llm_text), items, ignored, ctx, grammar_bcp47)
         # Attribute errors to individual sentences and cache each.
         for llm_offset, sent_text in part_map:
             sent_end_in_llm = llm_offset + len(sent_text)
