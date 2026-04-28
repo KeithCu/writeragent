@@ -46,6 +46,17 @@ GRAMMAR_PROOFREAD_MAX_CHARS = 500
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
 GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
 
+GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
+    "You are a strict grammar and style checker. Reply with a single JSON object only, "
+    'no markdown, shaped exactly as: {{"errors": [{{"wrong": "exact substring from the text", '
+    '"correct": "replacement", "type": "grammar|style|spelling", "reason": "brief reason"}}]}}. '
+    "Use an empty errors array if there are no issues. "
+    "Provide errors in the order they appear in the text. "
+    "The text to check is in {lang_name} (BCP-47: {bcp47}). Apply grammar, spelling, "
+    "and style rules appropriate to that language; use the same language as the text in "
+    '"reason" and any comments when you give them.'
+)
+
 # The time (in seconds) to wait without receiving any new grammar requests
 # before processing the current batch. This 1-second pause ensures we
 # don't start grammar checking while the user is actively typing, thereby
@@ -577,14 +588,8 @@ def _run_llm_and_cache(
             log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
             model = ""
         _lang = grammar_english_name_for_bcp47(grammar_bcp47)
-        sys_prompt = (
-            "You are a strict grammar and style checker. Reply with a single JSON object only, "
-            'no markdown, shaped exactly as: {"errors": [{"wrong": "exact substring from the text", '
-            '"correct": "replacement", "type": "grammar|style|spelling", "reason": "brief reason"}]}. '
-            "Use an empty errors array if there are no issues. "
-            f"The text to check is in {_lang} (BCP-47: {grammar_bcp47}). Apply grammar, spelling, "
-            "and style rules appropriate to that language; use the same language as the text in "
-            '"reason" and any comments when you give them.'
+        sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(
+            lang_name=_lang, bcp47=grammar_bcp47
         )
         if partial_sentence:
             sys_prompt += (

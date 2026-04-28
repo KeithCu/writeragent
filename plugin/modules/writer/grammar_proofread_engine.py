@@ -30,7 +30,7 @@ GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = _GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _CACHE_LOCK = threading.Lock()
 _ignored_rules: set[str] = set()
-MAX_CACHE_SIZE = 128
+MAX_CACHE_SIZE = 512
 
 
 def cache_clear() -> None:
@@ -70,6 +70,25 @@ class NormalizedProofError:
     rule_identifier: str
 
 
+def _get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, Any]:
+    """Helper to initialize LO BreakIterator and Locale from a BCP-47 key."""
+    if not ctx or not loc_key:
+        return None, None
+    try:
+        import uno
+        smgr = ctx.ServiceManager
+        bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
+        parts = loc_key.split("-")
+        if len(parts) > 1:
+            loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
+        else:
+            loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
+        return bi, loc
+    except Exception as e:
+        _grammar_diag.warning("[grammar] _get_break_iterator_and_locale failed: %s", e)
+        return None, None
+
+
 _GRAMMAR_JSON_RE = re.compile(r"\{[\s\S]*\}\s*$")
 
 
@@ -84,6 +103,7 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     data: Any = safe_json_loads(text)
     if not isinstance(data, Mapping):
         try:
+            _grammar_diag.info("[grammar] parse_grammar_json: attempting json_repair")
             data = json_repair.repair_json(text, return_objects=True)
         except Exception as e:
             _grammar_diag.warning("[grammar] parse_grammar_json: json_repair failed: %s", e)
@@ -157,47 +177,39 @@ def normalize_errors_for_text(
     results: list[NormalizedProofError] = []
     used_spans: list[tuple[int, int]] = []
 
-    break_iterator = None
-    locale = None
-    if ctx and loc_key:
-        try:
-            import uno
-            smgr = ctx.ServiceManager
-            break_iterator = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
-            parts = loc_key.split("-")
-            if len(parts) > 1:
-                locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
-            else:
-                locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
-        except Exception as e:
-            _grammar_diag.warning("[grammar] normalize_errors_for_text: failed to init BreakIterator: %s", e)
-            break_iterator = None
+    bi, locale = _get_break_iterator_and_locale(ctx, loc_key)
 
-    # NOTE: window.find(wrong) returns the first occurrence of the substring.
-    # If the same erroneous text appears multiple times in the window, errors
-    # from the LLM about later occurrences will be mapped to the first one.
-    # The used_spans overlap check prevents double-marking but cannot relocate.
+    # Track last matched position to handle multiple occurrences of the same text.
+    # We assume the LLM returns errors in the order they appear.
+    search_pos = 0
+
     for idx, it in enumerate(items):
         wrong = it.get("wrong", "")
         correct = it.get("correct", "")
         if not wrong:
             continue
-        rel = window.find(wrong)
-        if rel >= 0:
-            pos = slice_start + rel
-        else:
-            pos = full_text.find(wrong)
-            if pos < 0 or pos < slice_start or pos + len(wrong) > slice_end:
+        
+        rel = window.find(wrong, search_pos)
+        if rel < 0:
+            # If not found after search_pos, try finding from the beginning of the window
+            # but log it as a possible out-of-order issue.
+            rel = window.find(wrong)
+            if rel < 0:
                 continue
+        
+        pos = slice_start + rel
         length = len(wrong)
         if length <= 0:
             continue
+        
+        # Advance search_pos for the next item
+        search_pos = rel + 1
 
         if correct:
             # Suffix overlap (forward expansion)
             suffix = full_text[pos + length:]
-            t_c = _tokenize(correct, break_iterator, locale)
-            t_s = _tokenize(suffix, break_iterator, locale)
+            t_c = _tokenize(correct, bi, locale)
+            t_s = _tokenize(suffix, bi, locale)
             for k in range(min(len(t_c), len(t_s)), 0, -1):
                 if t_c[-k:] == t_s[:k]:
                     overlap_len = sum(len(t) for t in t_c[-k:])
@@ -206,7 +218,7 @@ def normalize_errors_for_text(
 
             # Prefix overlap (backward expansion)
             prefix = full_text[:pos]
-            t_p = _tokenize(prefix, break_iterator, locale)
+            t_p = _tokenize(prefix, bi, locale)
             for k in range(min(len(t_p), len(t_c)), 0, -1):
                 if t_p[-k:] == t_c[:k]:
                     overlap_len = sum(len(t) for t in t_p[-k:])
@@ -274,8 +286,6 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
     if locale_key.startswith(("th", "lo", "km")):
         # Thai, Lao, Khmer: spaces indicate phrase/sentence boundaries
-        # Regex to split on 1 or more spaces, keeping the space with the previous segment?
-        # Actually, let's just find the spaces and split there.
         _SPACE_RE = re.compile(r'\s+')
         result: list[tuple[int, str]] = []
         last = 0
@@ -289,20 +299,10 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
             result.append((last, tail))
         return result or [(0, text)]
 
-    # For other languages, use LibreOffice BreakIterator
-    import uno
+    # For other languages, try to use LibreOffice BreakIterator
+    bi, locale = _get_break_iterator_and_locale(ctx, locale_key)
     
-    # Try to get BreakIterator
-    try:
-        smgr = ctx.ServiceManager
-        break_iterator = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
-        parts = locale_key.split("-")
-        if len(parts) > 1:
-            locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
-        else:
-            locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
-    except Exception as e:
-        _grammar_diag.warning("[grammar] split_into_sentences: failed to init BreakIterator: %s", e)
+    if not bi or not locale:
         # Fallback to regex if LO is unavailable
         result = []
         last = 0
@@ -320,7 +320,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
     sentences = []
     
     while pos < len(text):
-        end_pos = break_iterator.endOfSentence(text, pos, locale)
+        end_pos = bi.endOfSentence(text, pos, locale)
         
         if end_pos <= pos:
             # Prevent infinite loop if endOfSentence gets stuck
@@ -340,7 +340,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                     j -= 1
                 word = text[j+1:i]
                 if 0 < len(word) <= 3 and word[0].isupper():
-                    next_end = break_iterator.endOfSentence(text, end_pos, locale)
+                    next_end = bi.endOfSentence(text, end_pos, locale)
                     if next_end > end_pos:
                         end_pos = next_end
                         continue
@@ -354,6 +354,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
             pos += 1
             
     return sentences or [(0, text)]
+
 
 
 # --- Sentence-level cache (simple, text-based, no positions)
