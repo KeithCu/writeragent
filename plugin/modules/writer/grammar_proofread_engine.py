@@ -154,6 +154,11 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
     return out
 
 
+def _tokenize(text: str) -> list[str]:
+    """Split text into a list of word tokens and non-word (punctuation/whitespace) tokens."""
+    return re.findall(r'\w+|\W+', text)
+
+
 def normalize_errors_for_text(
     full_text: str,
     n_slice_start: int,
@@ -184,6 +189,33 @@ def normalize_errors_for_text(
         length = len(wrong)
         if length <= 0:
             continue
+
+        if correct:
+            # Suffix overlap (forward expansion)
+            suffix = full_text[pos + length:]
+            t_c = _tokenize(correct)
+            t_s = _tokenize(suffix)
+            for k in range(min(len(t_c), len(t_s)), 0, -1):
+                if t_c[-k:] == t_s[:k]:
+                    overlap_len = sum(len(t) for t in t_c[-k:])
+                    length += overlap_len
+                    break
+
+            # Prefix overlap (backward expansion)
+            prefix = full_text[:pos]
+            t_p = _tokenize(prefix)
+            for k in range(min(len(t_p), len(t_c)), 0, -1):
+                if t_p[-k:] == t_c[:k]:
+                    overlap_len = sum(len(t) for t in t_p[-k:])
+                    pos -= overlap_len
+                    length += overlap_len
+                    break
+
+            # No-op filter
+            expanded_wrong = full_text[pos : pos + length]
+            if expanded_wrong == correct:
+                continue
+
         span = (pos, pos + length)
         if any(not (span[1] <= o[0] or span[0] >= o[1]) for o in used_spans):
             continue

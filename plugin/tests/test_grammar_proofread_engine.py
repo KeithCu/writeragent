@@ -93,3 +93,32 @@ def test_cache_key_includes_slice_bounds() -> None:
     eng.cache_clear()
 
 
+def test_overlap_forward_expansion() -> None:
+    full = "I went to the store."
+    # LLM flagged "to" but correct was "to the" (which overlaps with " the store.")
+    items = [{"wrong": "to", "correct": "to the", "type": "grammar"}]
+    norms = eng.normalize_errors_for_text(full, 0, len(full), items)
+    assert len(norms) == 0, "Should be dropped as a no-op because expanding 'to' -> 'to the' matches 'correct'"
+
+    items2 = [{"wrong": "to", "correct": "into the", "type": "grammar"}]
+    norms2 = eng.normalize_errors_for_text(full, 0, len(full), items2)
+    assert len(norms2) == 1
+    err = norms2[0]
+    expanded_wrong = full[err.n_error_start : err.n_error_start + err.n_error_length]
+    assert expanded_wrong == "to the", f"Expected 'to the' but got {expanded_wrong}"
+
+
+def test_overlap_backward_expansion() -> None:
+    full = "He is a good man."
+    # LLM flagged "good" but correct was "a good"
+    items = [{"wrong": "good", "correct": "a good", "type": "grammar"}]
+    norms = eng.normalize_errors_for_text(full, 0, len(full), items)
+    assert len(norms) == 0, "Should be dropped as a no-op because 'a good' was already there"
+
+    items2 = [{"wrong": "good", "correct": "a very good", "type": "grammar"}]
+    norms2 = eng.normalize_errors_for_text(full, 0, len(full), items2)
+    assert len(norms2) == 1
+    err = norms2[0]
+    expanded_wrong = full[err.n_error_start : err.n_error_start + err.n_error_length]
+    assert expanded_wrong == "a good"
+    assert err.suggestions == ("a very good",)
