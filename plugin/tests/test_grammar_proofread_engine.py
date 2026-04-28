@@ -38,21 +38,24 @@ def test_normalize_errors_respects_slice() -> None:
     assert norms[0].n_error_start >= 3
 
 
-def test_cache_roundtrip() -> None:
+def test_sentence_cache_roundtrip() -> None:
     eng.cache_clear()
-    key = eng.make_cache_key(1, "en_US")
-    fp = eng.fingerprint_for_text("hello world")
-    assert eng.cache_get(key, fp) is None
-    norms = eng.normalize_errors_for_text(
-        "they is bad",
-        0,
-        20,
-        [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "r"}],
-    )
-    from dataclasses import asdict
+    assert eng.cache_get_sentence("en-US", "Hello world.") is None
+    errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "wa_test"}]
+    eng.cache_put_sentence("en-US", "Hello world.", errors)
+    got = eng.cache_get_sentence("en-US", "Hello world.")
+    assert got is not None
+    assert len(got) == 1
+    assert got[0]["n_error_start"] == 0
+    assert eng.cache_get_sentence("fr-FR", "Hello world.") is None
+    eng.cache_clear()
 
-    eng.cache_put(key, fp, [asdict(n) for n in norms])
-    got = eng.cache_get(key, fp)
+
+def test_sentence_cache_trailing_whitespace() -> None:
+    """'Hello.' and 'Hello. ' share the same cache key."""
+    eng.cache_clear()
+    eng.cache_put_sentence("en-US", "Hello.", [{"n_error_start": 0, "n_error_length": 5}])
+    got = eng.cache_get_sentence("en-US", "Hello. ")
     assert got is not None
     assert len(got) == 1
     eng.cache_clear()
@@ -64,33 +67,6 @@ def test_ignore_rules_snapshot() -> None:
     assert "rule_a" in eng.ignored_rules_snapshot()
     eng.ignore_rules_clear()
     assert eng.ignored_rules_snapshot() == set()
-
-
-def test_cache_key_includes_slice_bounds() -> None:
-    """Identical slice text at different (start, end) must not share one cache entry."""
-    from dataclasses import asdict
-
-    eng.cache_clear()
-    doc_id = "doc_test_123"
-    loc = "en_US"
-    full = "aa Sentence one. bb Sentence one. cc"
-    # Same substring "Sentence one." at two windows
-    w0, w1 = 3, 16
-    w2, w3 = 20, 33
-    slice_a = full[w0:w1]
-    slice_b = full[w2:w3]
-    assert slice_a == slice_b
-    fp = eng.fingerprint_for_text(slice_a)
-    key_a = eng.make_cache_key(doc_id, loc, fingerprint=fp, slice_start=w0, slice_end=w1)
-    key_b = eng.make_cache_key(doc_id, loc, fingerprint=fp, slice_start=w2, slice_end=w3)
-    assert key_a != key_b
-
-    errors = [{"wrong": "Sentence", "correct": "Phrasence", "type": "style", "reason": "test"}]
-    norms_a = eng.normalize_errors_for_text(full, w0, w1, errors)
-    eng.cache_put(key_a, fp, [asdict(n) for n in norms_a])
-    assert eng.cache_get(key_a, fp) is not None
-    assert eng.cache_get(key_b, fp) is None
-    eng.cache_clear()
 
 
 def test_overlap_forward_expansion() -> None:

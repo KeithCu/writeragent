@@ -12,7 +12,7 @@ import collections
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence, cast
+from typing import Any, Iterable, Mapping, cast
 
 import json_repair
 
@@ -29,8 +29,6 @@ _grammar_diag = logging.getLogger("writeragent.grammar")
 GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = _GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _CACHE_LOCK = threading.Lock()
-# cache_key -> (text_fingerprint, tuple of normalized error dicts)
-_proofread_cache: collections.OrderedDict[str, tuple[str, tuple[dict[str, Any], ...]]] = collections.OrderedDict()
 _ignored_rules: set[str] = set()
 MAX_CACHE_SIZE = 128
 
@@ -38,7 +36,6 @@ MAX_CACHE_SIZE = 128
 def cache_clear() -> None:
     """Clear proofreading cache (e.g. tests)."""
     with _CACHE_LOCK:
-        _proofread_cache.clear()
         _SENTENCE_CACHE.clear()
 
 
@@ -59,43 +56,6 @@ def ignored_rules_snapshot() -> set[str]:
 
 def fingerprint_for_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()
-
-
-def make_cache_key(
-    doc_id: Any,
-    locale_key: str,
-    fingerprint: str = "",
-    slice_start: int | None = None,
-    slice_end: int | None = None,
-) -> str:
-    """Build a cache key. When *fingerprint* is set, include slice bounds so identical
-    substring text at different document positions never shares one cache entry.
-    """
-    if fingerprint:
-        if slice_start is not None and slice_end is not None:
-            return f"{doc_id!s}|{locale_key}|{fingerprint}|{slice_start}:{slice_end}"
-        return f"{doc_id!s}|{locale_key}|{fingerprint}"
-    return f"{doc_id!s}|{locale_key}"
-
-
-def cache_get(key: str, fingerprint: str) -> tuple[dict[str, Any], ...] | None:
-    with _CACHE_LOCK:
-        hit = _proofread_cache.get(key)
-        if not hit:
-            return None
-        cached_fp, errors = hit
-        if cached_fp != fingerprint:
-            return None
-        _proofread_cache.move_to_end(key)
-        return errors
-
-
-def cache_put(key: str, fingerprint: str, errors: Sequence[dict[str, Any]]) -> None:
-    with _CACHE_LOCK:
-        _proofread_cache[key] = (fingerprint, tuple(errors))
-        _proofread_cache.move_to_end(key)
-        while len(_proofread_cache) > MAX_CACHE_SIZE:
-            _proofread_cache.popitem(last=False)
 
 
 @dataclass(frozen=True)
@@ -213,6 +173,10 @@ def normalize_errors_for_text(
             _grammar_diag.warning("[grammar] normalize_errors_for_text: failed to init BreakIterator: %s", e)
             break_iterator = None
 
+    # NOTE: window.find(wrong) returns the first occurrence of the substring.
+    # If the same erroneous text appears multiple times in the window, errors
+    # from the LLM about later occurrences will be mapped to the first one.
+    # The used_spans overlap check prevents double-marking but cannot relocate.
     for idx, it in enumerate(items):
         wrong = it.get("wrong", "")
         correct = it.get("correct", "")
@@ -362,7 +326,10 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
             # Prevent infinite loop if endOfSentence gets stuck
             end_pos = len(text)
             
-        # Abbreviation heuristic
+        # Abbreviation heuristic: merge BreakIterator splits that land
+        # after a likely abbreviation (e.g. "Mr.", "Dr.", "vs.").
+        # Only short words (<=3 chars) qualify to avoid false positives
+        # on proper nouns and acronyms like "USA.", "Tom.", "NYC.".
         while end_pos < len(text):
             i = end_pos - 1
             while i >= pos and text[i].isspace():
@@ -372,7 +339,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                 while j >= pos and not text[j].isspace() and text[j] not in '.!?':
                     j -= 1
                 word = text[j+1:i]
-                if 0 < len(word) <= 5 and word[0].isupper():
+                if 0 < len(word) <= 3 and word[0].isupper():
                     next_end = break_iterator.endOfSentence(text, end_pos, locale)
                     if next_end > end_pos:
                         end_pos = next_end

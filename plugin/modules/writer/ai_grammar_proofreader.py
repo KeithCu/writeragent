@@ -54,7 +54,7 @@ GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # Locale-agnostic sentence terminators used as a conservative fallback signal.
 _SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
-_TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "”", "’", "」", "』", "）", "］", "〉", "》", "】", "〕", "〖", "〗", "〛", "〛"))
+_TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "“", "‘", "」", "』", "）", "］", "〉", "》", "】", "〕", "〗", "〛"))
 _NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
 uno_mod: Any
@@ -156,6 +156,15 @@ class _GrammarWorkQueue:
     def enqueue(self, item: _GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call."""
         with self._seq_lock:
+            prev_seq = self._latest_seq.get(item.inflight_key)
+            if prev_seq is not None and item.enqueue_seq < prev_seq:
+                log.error(
+                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: "
+                    "incoming seq=%s < latest seq=%s; stale detection may be unreliable",
+                    item.inflight_key,
+                    item.enqueue_seq,
+                    prev_seq,
+                )
             self._latest_seq[item.inflight_key] = item.enqueue_seq
         log.info(
             "[grammar] queue enqueue doc_id=%s locale=%s seq=%s key=%s len=%s preview=%r",
@@ -400,7 +409,23 @@ def _finalize_proofreading_sentence_positions(
         while ch == " ":
             n_next += 1
             ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
+        # Lightproof fallback: if space-skipping didn't advance past LO's suggested end
+        # and we're not at EOF, nudge by one.  In the capped-batch path this condition
+        # is nearly unreachable because proofread_batch_end < n_suggested_behind_end,
+        # but it is kept for parity with Lightproof lines 126-132.
         if n_next == n_suggested_behind_end and ch != "":
+            log.debug(
+                "[grammar] _finalize: Lightproof fallback nudge fired "
+                "n_next=%s n_suggested=%s batch_end=%s text_len=%s",
+                n_next,
+                n_suggested_behind_end,
+                proofread_batch_end,
+                len(a_text),
+            )
+            assert proofread_batch_end >= n_suggested_behind_end, (
+                f"Lightproof fallback expected proofread_batch_end ({proofread_batch_end}) "
+                f">= n_suggested_behind_end ({n_suggested_behind_end})"
+            )
             n_next = n_suggested_behind_end + 1
     a_res.nStartOfNextSentencePosition = n_next
     a_res.nBehindEndOfSentencePosition = n_next
