@@ -457,6 +457,10 @@ def _insert_mixed_html_and_math_at_cursor(
                 model.getText().insertString(cursor, chunk, False)
                 _cursor_goto_document_end(model, cursor)
                 continue
+            
+            # Expand literal \n and \t for plain HTML without math
+            chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
+            
             sub = _ensure_html_linebreaks(chunk)
             _insert_starwriter_html_at_cursor(
                 model, cursor, sub, config_svc=config_svc
@@ -502,6 +506,9 @@ def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_sv
             model, ctx, cursor, unescaped_content, config_svc=config_svc
         )
     else:
+        # Expand literal \n and \t for plain HTML without math
+        unescaped_content = unescaped_content.replace("\\n", "\n").replace("\\t", "\t")
+        
         single = _ensure_html_linebreaks(unescaped_content)
         _insert_starwriter_html_at_cursor(
             model, cursor, single, config_svc=config_svc

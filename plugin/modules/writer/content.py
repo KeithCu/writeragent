@@ -261,21 +261,22 @@ class ApplyDocumentContent(ToolBase):
                 ("<math" in content.lower()),
                 content[:500],
             )
-        if isinstance(content, str):
+        # Detect markup BEFORE any HTML wrapping.
+        use_preserve = isinstance(content, str) and not format_support.content_has_markup(content)
+
+        if use_preserve and isinstance(content, str):
             _nl_before_esc = content.count("\n")
             content = content.replace("\\n", "\n").replace("\\t", "\t")
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
                 log.debug(
-                    "apply_document_content: literal \\\\n/\\\\t escape expand "
+                    "apply_document_content: literal \\\\n/\\\\t escape expand (plain text) "
                     "newline_count %d -> %d",
                     _nl_before_esc,
                     _nl_after_esc,
                 )
 
-        # Detect markup BEFORE any HTML wrapping.
         raw_content = content
-        use_preserve = isinstance(content, str) and not format_support.content_has_markup(content)
 
         config_svc = ctx.services.get("config")
 
