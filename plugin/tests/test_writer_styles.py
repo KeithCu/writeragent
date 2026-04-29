@@ -98,7 +98,6 @@ def test_list_styles_filtering(mock_ctx):
     assert "Standard" not in names
     assert "Default Paragraph Style" not in names
     assert res["count"] == 4
-    assert res["total_count"] == 12
 
 def test_list_character_styles(mock_ctx):
     families = mock_ctx.doc.getStyleFamilies()

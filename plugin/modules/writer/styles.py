@@ -105,7 +105,6 @@ class ListStyles(ToolBase):
         # Always use "auto" filter logic to show used, custom, and common built-in styles.
         styles = []
         element_names = style_family.getElementNames()
-        total_count = len(element_names)
 
         for name in element_names:
             style = style_family.getByName(name)
@@ -194,7 +193,6 @@ class ListStyles(ToolBase):
             "family": family,
             "styles": styles,
             "count": len(styles),
-            "total_count": total_count,
         }
 
 
