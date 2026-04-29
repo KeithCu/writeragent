@@ -444,7 +444,10 @@ class ListPages(ToolBase):
     name = "list_pages"
     description = "Lists all pages (slides) in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     doc_types = ["draw", "impress"]
     tier = "core"
 
@@ -473,7 +476,10 @@ class GetDrawSummary(ToolBase):
         },
         "required": [],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     doc_types = ["draw", "impress"]
 
     def execute(self, ctx, **kwargs):
@@ -777,7 +783,10 @@ class CreateShape(ToolBase):
         },
         "required": ["shape_type", "x", "y", "width", "height"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     doc_types = ["draw", "impress"]
     tier = "core"
     is_mutation = True
@@ -917,7 +926,10 @@ class EditShape(ToolBase):
         },
         "required": ["shape_index"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -973,7 +985,10 @@ class ConnectShapes(ToolBase):
         },
         "required": ["start_shape_index", "end_shape_index"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     doc_types = ["draw", "impress"]
     is_mutation = True
 
@@ -1043,7 +1058,10 @@ class GroupShapes(ToolBase):
         },
         "required": ["shape_indices"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     doc_types = ["draw", "impress"]
     is_mutation = True
 
@@ -1095,7 +1113,10 @@ class DeleteShape(ToolBase):
         },
         "required": ["shape_index"],
     }
-    uno_services = ["com.sun.star.drawing.DrawingDocument"]
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
