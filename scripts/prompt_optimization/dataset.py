@@ -1,7 +1,8 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-Includes original 8 Writer tasks + FLOWCHART_GEN (non-LO Draw support via DrawDocState in string_eval_tools.py).
+Includes original 8 Writer tasks (some hardened for better model differentiation) + FLOWCHART_GEN (non-LO Draw support via DrawDocState in string_eval_tools.py).
+TABLE_FROM_MESS kept as sufficiently challenging baseline. Others (bulk_cleanup, reformat_resume, etc.) updated with stricter constraints, expanded edge cases, precise rubrics referencing judge weights/gold.
 See docs/archive/eval-ideas.md (annotated with LO requirements) and docs/eval-dev-plan.md.
 """
 import sys
@@ -40,34 +41,35 @@ TABLE_FROM_MESS = {
 # 2. Reformat resume
 # ---------------------------------------------------------------------------
 PLAIN_RESUME = """john doe
-john@example.com  |  555-1234
+john@example.com | 555-1234
 
 SUMMARY
 I am a very dedicated developer who has worked at many places and I really love coding in Python and doing APIs. I led some people once and it was good. I have experience in both front-end and back-end stuff and I am looking for a new job.
 
 WORK HISTORY
-* acme corp 2020 to 2023  developer
-  built apis and fixed bugs  led 2 junior devs. we used python mostly.
+* acme corp 2020 to 2023 developer
+  built apis and fixed bugs led 2 junior devs. we used python mostly.
 
-- techstart inc  Feb '23-present  senior developer
-  microservices architecture  ci/cd  on-call rotation. worked on high scale stuff with high availability requirements
+- techstart inc Feb '23-present senior developer
+  microservices architecture ci/cd on-call rotation. worked on high scale stuff with high availability requirements
   We scaled the system to 100K users and 100M requests per month using a novel caching strategy.
 
 EDUCATION
-state university  bs computer science 2016  gpa 3.8
+state university bs computer science 2016 gpa 3.8
 
 * skills
-python  java  sql  docker  kubernetes
+python java sql docker kubernetes
+certifications: AWS, Kubernetes
 """
 
 REFORMAT_RESUME = {
     "document_content": PLAIN_RESUME,
-    "user_question": "Reformat this plain text resume as professional. Use clear section headings and consistent formatting.",
+    "user_question": "Reformat this plain text resume as professional HTML. Use EXACT section headings: WORK HISTORY, EDUCATION, SKILLS (no variations like 'Work Experience' or 'Summary'). Consistent hyphen bullets for all experience items, active voice in summary (<=60 words, mention Python APIs and leadership), bold job titles/roles, consistent date formatting (e.g. '2020-2023'). Fix all inconsistencies (casing, spacing, bullets, certifications).",
     "task_id": "reformat_resume",
-    "expected_contains": ["John", "Work", "Skills", "Education", "Acme", "TechStart"],
+    "expected_contains": ["John", "WORK HISTORY", "EDUCATION", "SKILLS", "Acme Corp", "TechStart Inc", "<h2>", "<ul>", "<li>", "<strong>"],
     "is_non_trivial": True,
     "category": "creative",
-    "rubric": "Professional resume format. Clear section headings (WORK HISTORY, EDUCATION, SKILLS). Consistent bullet points for all work experience items.",
+    "rubric": "Professional resume format. Creative: 30% accuracy (exact headings, all content captured/fixed without loss), 20% formatting (valid HTML structure, consistent bullets/dates), 50% naturalness (active voice, professional tone). Matches gold_standards.json. Rejects variations in headings.",
 }
 
 # ---------------------------------------------------------------------------
@@ -78,17 +80,19 @@ Apple, 1.20, 12
 Banana, 0.50, 24
 Orange, 0.80
 Grape, 2.00, 8
-Mango, 1.50, 6,
+Mango, 1.50, 6, [note]
+Kiwi,1.75,,
+Total,?,?
 """
 
 TABLE_ENGINEERING = {
     "document_content": CSV_LIKE,
-    "user_question": "Convert this comma-separated list into a clean table with headers (Item, Price, Quantity). Fix missing or extra commas.",
+    "user_question": "Convert this comma-separated (with irregularities, footnotes, missing values) list into a clean HTML table with headers (Item, Price, Quantity). Fix all missing/extra commas/commas. Add a computed Total row at bottom. Use get_document_content then targeted apply_document_content if needed. Right-align numerics.",
     "task_id": "table_engineering",
-    "expected_contains": ["Item", "Price", "Quantity"],
+    "expected_contains": ["Item", "Price", "Quantity", "Total", "Kiwi", "note"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Clean CSV-to-table conversion. Map 'Fruit' to 'Item'. Ensure numeric values are right-aligned if possible, or at least consistent.",
+    "rubric": "Clean CSV-to-table conversion with edge cases. Structural: 60% accuracy (correct totals, handle notes/missing data without hallucination), 40% formatting (HTML table, right-aligned nums, Total row). Snapshot or final HTML matches expected. Map 'Fruit'->'Item'.",
 }
 
 # ---------------------------------------------------------------------------
@@ -96,18 +100,19 @@ TABLE_ENGINEERING = {
 # ---------------------------------------------------------------------------
 DOUBLE_SPACE_TEXT = """This  sentence   has    extra   spaces.  So  does  this  one..
 Another   paragraph   here  ,  with spaces before commas.  Fix  all  double  spaces  and  ensure  one  space  after  sentences.
+https://example.com/test  with   URL. "Quoted  text"  should  stay  intact .
 
-
-Too many line breaks above  .  Normalize to single paragraph breaks.
+Too many line breaks above  .  Normalize to single paragraph breaks. Also fix this one with trailing  period  .
 """
 
 BULK_CLEANUP = {
     "document_content": DOUBLE_SPACE_TEXT,
-    "user_question": "Remove all double spaces, fix punctuation (no space before comma, no double periods), and normalize line breaks to single paragraph breaks.",
+    "user_question": "Remove all double spaces, fix punctuation (no space before comma, no double periods, preserve URLs and quoted text), normalize line breaks to single paragraph breaks. Output as clean HTML paragraphs.",
     "task_id": "bulk_cleanup",
     "expected_contains": [],
-    "reject_contains": ["  ", " .", "..", " ,"],  # no double spaces, space-before-period, double period, space before comma
+    "reject_contains": ["  ", " .", "..", " ,", "<br>", "  .", ' " ', "period  ."],  # no artifacts; preserve quotes/URLs
     "category": "structural",
+    "rubric": "Perfect normalization. Structural: 60% accuracy (no meaning loss, preserve URLs/quotes exactly), 40% formatting (clean HTML paragraphs, zero forbidden patterns). Use apply_document_content(target='full_document'). Matches gold.",
 }
 
 # ---------------------------------------------------------------------------
@@ -117,11 +122,12 @@ TECH_PARAGRAPH = """We are incredibly excited to announce the release of LocalWr
 
 LOGICAL_REWRITING = {
     "document_content": TECH_PARAGRAPH,
-    "user_question": "Rewrite this paragraph to be professional and concise.",
+    "user_question": "Rewrite this paragraph to be professional and concise (≤70 words). Preserve 'LocalWriter', '2.0', 'Dual-Mode', 'G-Eval' and 'Prometheus' verbatim. Exclude all hype words like 'incredibly', 'significant leap', 'brand new'. Use active voice.",
     "task_id": "logical_rewriting",
-    "expected_contains": ["LocalWriter", "2.0"],
+    "expected_contains": ["LocalWriter", "2.0", "Dual-Mode", "G-Eval", "Prometheus"],
     "is_non_trivial": True,
     "category": "creative",
+    "rubric": "Professional, concise rewrite. Creative: 30% accuracy (exact terms preserved, no hype), 20% formatting, 50% naturalness (active voice, flows well). Matches gold_standards.json exactly. Forces precise instruction following.",
 }
 
 # ---------------------------------------------------------------------------
@@ -186,13 +192,16 @@ BULLET_LIST = """* First thing
 - Second thing  
 3) Third thing
 • Fourth thing
+1. Fifth item (number)
+- Sixth  with extra  space  
+* Seventh (mixed)
 """
 
 BULLET_CONSISTENCY = {
     "document_content": BULLET_LIST,
     "user_question": (
-        "Normalize this list: use hyphen bullets (-), one item per line, trim stray spaces, "
-        "and end each bullet line with a period."
+        "Normalize this list: use ONLY hyphen bullets (-), exactly one item per line, trim ALL stray spaces, "
+        "end EACH bullet line with a period. Output as HTML <ul> if possible. Handle all variants including numbers and mixed symbols."
     ),
     "task_id": "bullet_consistency",
     "expected_contains": [
@@ -200,13 +209,17 @@ BULLET_CONSISTENCY = {
         "- Second thing.",
         "- Third thing.",
         "- Fourth thing.",
+        "- Fifth item.",
+        "- Sixth with extra space.",
+        "- Seventh (mixed).",
     ],
-    "reject_contains": ["* First", "3) Third", "• Fourth"],
+    "reject_contains": ["* First", "3) Third", "• Fourth", "1. Fifth", "Seventh (mixed)"],
     "category": "structural",
+    "rubric": "Perfect list normalization. Structural: 60% accuracy (all 7 items preserved exactly, no variants left), 40% formatting (consistent - bullets + period, clean HTML <ul> preferred). Zero rejects. Uses targeted apply_document_content.",
 }
 
 # ---------------------------------------------------------------------------
-# Additional tests from docs/archive/eval-ideas.md (string-backend compatible)
+# Additional tests from docs/archive/eval-ideas.md (string-backend compatible; some hardened)
 # ---------------------------------------------------------------------------
 
 # Style Consistency (archive Writer #12, #18)
@@ -218,12 +231,12 @@ HEADING 2 text that should be upgraded.
 Another default paragraph.
 Heading 2 again.
 """,
-    "user_question": "Find all text in 'Default' style and change it to 'Quotations'. Map all 'Heading 2' to 'Heading 1' and adjust levels.",
+    "user_question": "Use find_text first if needed. Find all text in 'Default' style and change it to 'Quotations'. Map all 'Heading 2' to 'Heading 1' and adjust levels.",
     "task_id": "style_consistency",
     "expected_contains": ["Quotations", "Heading 1", "HEADING 1"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Consistent style mapping across document. Default -> Quotations; Heading 2 -> Heading 1. Preserve content and structure.",
+    "rubric": "Consistent style mapping across document. Default -> Quotations; Heading 2 -> Heading 1. Preserve content and structure. Use targeted edits.",
 }
 
 # Smart Summarization (archive Writer #15)
@@ -266,16 +279,16 @@ Main content goes here.
 COMMENT_MANAGEMENT = {
     "document_content": """The results are uncertain at this point in the analysis.
 Further testing is recommended before deployment.""",
-    "user_question": "Add a comment 'Review this before finalizing' to the word 'uncertain'. Then ensure the document notes the review requirement.",
+    "user_question": "Use find_text to locate 'uncertain'. Add a comment 'Review this before finalizing' to the word 'uncertain'. Then ensure the document notes the review requirement (e.g. via annotation or note in text).",
     "task_id": "comment_management",
     "expected_contains": ["uncertain", "Review this before finalizing", "review requirement"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Simulate comment addition via text annotation or note. Document reflects the review note. (Full UNO comments require LO backend.)",
+    "rubric": "Simulate comment addition via text annotation or note (use find_text + apply). Document reflects the review note. (Full UNO comments require LO backend.)",
 }
 
 # ---------------------------------------------------------------------------
-# All examples (for train/val split)
+# All examples (for train/val split). TABLE_FROM_MESS kept as baseline; others hardened with stricter rubrics, edge cases, tool hints, expanded reject_contains/expected_contains for better good-vs-great differentiation.
 # ---------------------------------------------------------------------------
 ALL_EXAMPLES = [
     TABLE_FROM_MESS,
@@ -310,15 +323,15 @@ DATA_SORTING = {
     "rubric": "Correct descending sort by Revenue. Final snapshot JSON shows Tool first. Uses CalcStringState.",
 }
 
-# Basic Tax Column (eval-ideas.md Calc #1) - non-LO test using CalcStringState.write_cell_range
+# Basic Tax Column (eval-ideas.md Calc #1, hardened) - non-LO test using CalcStringState.write_cell_range
 TAX_COLUMN = {
-    "document_content": "Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8",
-    "user_question": "Calculate 8% tax for each Price and write to a new Tax column using write_cell_range. Verify with get_sheet_summary.",
+    "document_content": "Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5\nTotal\t?",
+    "user_question": "First use get_sheet_summary or get_document_content to verify data, then calculate exact 8% tax (round appropriately) for each Price and write to a new Tax column using write_cell_range. Add Total if appropriate. Verify final with get_sheet_summary.",
     "task_id": "tax_column",
-    "expected_contains": ["0.8", "0.4", "0.64", "Tax"],
+    "expected_contains": ["0.8", "0.4", "0.64", "1.0", "Tax", "snapshot"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Writes correct tax values (Price*0.08). Final snapshot JSON has Tax column with 0.8, 0.4, 0.64. Uses CalcStringState.",
+    "rubric": "Writes correct tax values (Price*0.08, e.g. 0.8/0.4/0.64/1.0). Structural: 60% accuracy (precise calcs, verification step), 40% formatting (correct JSON snapshot with Tax column). Uses CalcStringState fully (no hallucinations on Total/?).",
 }
 
 ALL_EXAMPLES.append(FLOWCHART_GEN)

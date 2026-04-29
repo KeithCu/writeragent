@@ -42,10 +42,10 @@ See previous analysis for architecture diagram (StringBackend → DrawJSONBacken
 
 ## Updated Phase 2: Roadmap & Next Steps
 
-### A. Expand Test Suite (In Progress)
-- Port high-priority cases from [`docs/archive/eval-ideas.md`](docs/archive/eval-ideas.md) into `dataset.py` (focus on string/DrawJSON compatible first: more Writer formatting, table, bullet; add Draw flowchart example).
-- Added DrawJSONBackend support in `llm_chat_eval.py` / `draw_eval_tools.py` (future).
-- Categorize by LO requirement (see above).
+### A. Expand Test Suite (Completed hardening)
+- Hardened key tests in [`scripts/prompt_optimization/dataset.py`](scripts/prompt_optimization/dataset.py) (BULK_CLEANUP, REFORMAT_RESUME, LOGICAL_REWRITING, TABLE_ENGINEERING, BULLET_CONSISTENCY, TAX_COLUMN, STYLE_CONSISTENCY, COMMENT_MANAGEMENT) with stricter instructions, edge cases, precise rubrics referencing judge weights/gold, expanded contains/rejects, tool hints (per plan). TABLE_FROM_MESS and structural Draw/Calc kept as baseline. No new full tests added ("don't go crazy").
+- Ported/updated from [`docs/archive/eval-ideas.md`](docs/archive/eval-ideas.md).
+- Categorize by LO requirement (see above). Update `AGENTS.md` after changes.
 
 ### B. Multimodal & Image Evaluation
 - Mock `generate_image` + tree/image node in state.

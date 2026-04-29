@@ -1,12 +1,11 @@
 # Writer Tools Consolidation Analysis
 
-## Current State: 51 Tool Classes across 19 Files
+## Current State: 48 Tool Classes across 18 Files
 
 | File | Tools | Lines | Bytes |
 |------|-------|-------|-------|
-| [annotations.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/annotations.py) | AddAiSummary, GetAiSummaries, RemoveAiSummary | 102 | 3.6K |
 | [bookmarks.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/bookmarks.py) | ListBookmarks, CleanupBookmarks | 51 | 1.8K |
-| [comments.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/comments.py) | ListComments, AddComment, DeleteComment, ResolveComment, ScanTasks, GetWorkflowStatus, SetWorkflowStatus, CheckStopConditions | 617 | 19.7K |
+| [comments.py](../../plugin/modules/writer/comments.py) | ListComments, AddComment, DeleteComment, ResolveComment, workflow | 548 | 19.1K |
 | [content.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/content.py) | GetDocumentContent, ApplyDocumentContent, FindText, ReadParagraphs, InsertAtParagraph, SetParagraphText, SetParagraphStyle, DeleteParagraph, DuplicateParagraph, CloneHeadingBlock, InsertParagraphsBatch | 1032 | 36.4K |
 | [format_support.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/format_support.py) | *(helper module, no tools)* | 580 | 20.2K |
 | [frames.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/frames.py) | ListTextFrames, GetTextFrameInfo, SetTextFrameProperties | 276 | 9.1K |
@@ -22,9 +21,9 @@
 | [styles.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/styles.py) | ListStyles, GetStyleInfo | 151 | 4.3K |
 | [tables.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/tables.py) | ListTables, ReadTable, WriteTableCell, CreateTable | 279 | 8.8K |
 | [tracking.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/tracking.py) | SetTrackChanges, GetTrackedChanges, AcceptAllChanges, RejectAllChanges | 152 | 4.6K |
-| [tree.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/tree.py) | GetDocumentTree, GetHeadingChildren | 94 | 3.4K |
+| [tree.py](../../plugin/modules/writer/tree.py) | *(service only; tools in outline.py)* | 496 | 19.6K |
 
-**Total: ~5,438 lines, ~181KB**
+**Total: ~5,300 lines, ~178KB** (approximate; per-file sizes drift with development)
 
 ---
 
@@ -83,13 +82,9 @@ Currently split into:
 
 ---
 
-### 5. [annotations.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/annotations.py) → fold into [comments.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/comments.py)
+### 5. ~~MCP-AI paragraph summaries~~ (removed, do not merge)
 
-AI annotations are semantically comments/annotations. [annotations.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/annotations.py) tools (AddAiSummary, GetAiSummaries, RemoveAiSummary) share the same `intent = "review"` as comment tools and operate on the same comment infrastructure.
-
-**Proposal:** Move all 3 annotation tools into [comments.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/comments.py). Delete [annotations.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/annotations.py).
-
-**Savings:** 1 file removed, ~10 lines of boilerplate
+WriterAgent does not ship a separate `annotations.py`. The optional MCP-AI annotation tools (`add_ai_summary`, `get_ai_summaries`, `remove_ai_summary`) and the `ai_summary_first` heading-tree content strategy were **removed**; outline navigation uses `get_document_tree` / `get_heading_children` with `content_strategy` in `heading_only`, `first_lines`, or `full` only. Implementation: [`plugin/modules/writer/outline.py`](../../plugin/modules/writer/outline.py), [`plugin/modules/writer/tree.py`](../../plugin/modules/writer/tree.py), [`plugin/modules/writer/comments.py`](../../plugin/modules/writer/comments.py).
 
 ---
 
@@ -131,16 +126,15 @@ Both tools in [tracking.py](file:///home/keithcu/Desktop/Python/localwriter/plug
 | FindText → SearchInDocument | 0 | 1 | ~45 |
 | images + images_doc → images | 1 | 0 | ~20 |
 | bookmarks → structural | 1 | 0 | ~10 |
-| annotations → comments | 1 | 0 | ~10 |
 | stats → content | 1 | 0 | ~10 |
 | Accept/Reject → single tool | 0 | 1 | ~25 |
 | fulltext → search | 1 | 0 | ~10 |
-| **Totals** | **6 files** | **4 tools** | **~230 lines** |
+| **Totals** | **5 files** | **4 tools** | **~220 lines** |
 
-**After consolidation: 47 tools across 13 files** (down from 51 tools across 19 files)
+**After consolidation:** counts in the table above are planning estimates only. MCP-AI summary tooling is not part of the codebase.
 
 > [!NOTE]
-> The big content files ([content.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/content.py) at 1032 lines, [comments.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/comments.py) at 617 lines, [images_doc.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/images_doc.py) at 729 lines) are already large. The proposed merges keep them from getting unwieldy — the largest merge adds ~160 lines to [search.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/search.py) for fulltext, and ~100 lines to [comments.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/comments.py) for annotations.
+> The big content files ([content.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/content.py) at 1032 lines, [comments.py](../../plugin/modules/writer/comments.py) at 548 lines, [images_doc.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/images_doc.py) at 729 lines) are already large. The proposed merges keep them from getting unwieldy — the largest merge adds ~160 lines to [search.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/search.py) for fulltext.
 
 > [!IMPORTANT]
 > The [format_support.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/format_support.py) and [ops.py](file:///home/keithcu/Desktop/Python/localwriter/plugin/modules/writer/ops.py) helper modules (705 lines combined) are not tool files and should remain as-is. They provide shared utilities used across multiple tool files.
