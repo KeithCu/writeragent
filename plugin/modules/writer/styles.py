@@ -135,7 +135,7 @@ class ListStyles(ToolBase):
                         pass
                 elif family == "CharacterStyles":
                     # Always show core character styles.
-                    core_char_styles = ("Source Text",)
+                    core_char_styles = ("Default Style", "Source Text")
                     if name in core_char_styles:
                         show = True
 
@@ -148,8 +148,8 @@ class ListStyles(ToolBase):
                     if cat in (2, 3, 4, 5) and not (in_use or user_defined):
                         show = False
                     
-                    # BLOCK abstract 'Heading' parent.
-                    elif name == "Heading":
+                    # BLOCK abstract 'Heading' parent and the 'Standard' base style.
+                    elif name in ("Heading", "Standard", "Default Paragraph Style"):
                         show = False
                     
                     # BLOCK deep headings (> 5) unless used/custom.
@@ -164,7 +164,7 @@ class ListStyles(ToolBase):
                     # For Category 0 (TEXT), only show "Core" styles if not used/custom.
                     # This prunes Salutation, Appendix, Marginalia, etc.
                     elif cat == 0 and not (in_use or user_defined):
-                        core_text_styles = ("Standard", "Text body", "Title", "Subtitle")
+                        core_text_styles = ("Text body", "Title", "Subtitle")
                         if name not in core_text_styles:
                             show = False
                 except Exception:
@@ -173,20 +173,16 @@ class ListStyles(ToolBase):
             if not show:
                 continue
 
-            display_name = name
-            try:
-                dn = style.getPropertyValue("DisplayName")
-                if dn:
-                    display_name = dn
-            except Exception:
-                pass
 
             entry = {
                 "name": name,
-                "display_name": display_name,
                 "is_user_defined": user_defined,
                 "is_in_use": in_use,
             }
+            # Present the UNO "Default Style" as "No Character Style" — the
+            # clearer name that matches what the LLM should pass to apply_style.
+            if family == "CharacterStyles" and name == "Default Style":
+                entry["name"] = "No Character Style"
             try:
                 entry["parent_style"] = style.getPropertyValue("ParentStyle")
             except Exception:
@@ -244,17 +240,10 @@ class GetStyleInfo(ToolBase):
         style = style_family.getByName(style_name)
         info = {
             "name": style_name,
-            "display_name": style_name,
             "family": family,
             "is_user_defined": style.isUserDefined(),
             "is_in_use": style.isInUse(),
         }
-        try:
-            dn = style.getPropertyValue("DisplayName")
-            if dn:
-                info["display_name"] = dn
-        except Exception:
-            pass
 
         for prop_name in _FAMILY_PROPS.get(family, []):
             try:
@@ -263,6 +252,8 @@ class GetStyleInfo(ToolBase):
                 pass
 
         return {"status": "ok", **info}
+
+
 
 
 class ApplyStyle(FrameworkToolBase):
@@ -274,7 +265,8 @@ class ApplyStyle(FrameworkToolBase):
     description = (
         "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
         "styles (e.g. Heading 1) or family='CharacterStyles' for character "
-        "styles (e.g. Source Text). "
+        "styles (e.g. Source Text). Use 'No Character Style' "
+        "with family='CharacterStyles' to remove a character style. "
         "Use target='selection' (default), 'beginning', 'end', 'full_document', "
         "or 'search' with old_content."
     )
@@ -325,6 +317,11 @@ class ApplyStyle(FrameworkToolBase):
                 "Unknown family: %s. Use ParagraphStyles or CharacterStyles." % family
             )
 
+
+        # UNO quirk: the default character style is applied by setting
+        # CharStyleName to an empty string.
+        uno_value = "" if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
+
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
@@ -337,7 +334,7 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
-            cursor.setPropertyValue(uno_prop, style_name)
+            cursor.setPropertyValue(uno_prop, uno_value)
         except Exception as e:
             return self._tool_error(
                 "Could not apply style: %s" % e

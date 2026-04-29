@@ -29,7 +29,7 @@ import logging
 from typing import Any
 
 from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool_base import ToolBaseDummy
 from plugin.framework.errors import WriterAgentException
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.manipulator import CellManipulator
@@ -131,7 +131,7 @@ def get_executor_for_doc(doc_url: str) -> PythonExecutor:
     return _EXECUTOR_ENV_CACHE[doc_url]
 
 
-class ExecutePythonScript(ToolBase):
+class ExecutePythonScript(ToolBaseDummy):
     """Executes a Python script in a persistent document-specific environment."""
 
     name = "execute_python_script"

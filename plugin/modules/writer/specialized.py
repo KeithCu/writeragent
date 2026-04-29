@@ -47,8 +47,8 @@ class DelegateToSpecializedWriter(ToolBase):
     name = "delegate_to_specialized_writer_toolset"
     description = (
         "Delegates a specialized task to a sub-agent with a focused toolset. "
-        "Use this for complex Writer operations like manipulating tables, "
-        "charts, fields, styles, page (page styles, margins, headers/footers, columns, page breaks), "
+        "Use this for specialized complex Writer operations like manipulating "
+        "charts, fields, styles (list, edit, create), page (margins, headers/footers, columns, page breaks), "
         "textframes (list_text_frames, get_text_frame_info, set_text_frame_properties), "
         "embedded objects, shapes, indexes, "
         "bookmarks, track changes (tracking), footnotes/endnotes (domain=footnotes), "

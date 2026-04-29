@@ -63,6 +63,8 @@ def test_list_styles_filtering(mock_ctx):
         "Obscure": create_mock_style("Obscure", is_in_use=False, is_physical=False, category=3),
         "Hidden": create_mock_style("Hidden", is_hidden=True, is_physical=True, category=0),
         "MyStyle": create_mock_style("MyStyle", is_user_defined=True, is_physical=True, category=0),
+        "Standard": create_mock_style("Standard", is_in_use=True, is_physical=True, category=0),
+        "Default Paragraph Style": create_mock_style("Default Paragraph Style", is_in_use=False, is_physical=True, category=0),
     }
     
     style_family.getElementNames.return_value = list(styles_data.keys())
@@ -93,8 +95,10 @@ def test_list_styles_filtering(mock_ctx):
     assert "Salutation" not in names
     assert "Obscure" not in names
     assert "Hidden" not in names
+    assert "Standard" not in names
+    assert "Default Paragraph Style" not in names
     assert res["count"] == 4
-    assert res["total_count"] == 10
+    assert res["total_count"] == 12
 
 def test_list_character_styles(mock_ctx):
     families = mock_ctx.doc.getStyleFamilies()
@@ -103,10 +107,12 @@ def test_list_character_styles(mock_ctx):
     families.hasByName.return_value = True
 
     # Setup styles
-    # 1. Non-physical core style (Source Text)
-    # 2. Non-physical pruned style (Emphasis)
-    # 3. Non-physical obscure style (Rubies)
+    # 1. Non-physical core style (Default Style / "No Character Style")
+    # 2. Non-physical core style (Source Text)
+    # 3. Non-physical pruned style (Emphasis)
+    # 4. Non-physical obscure style (Rubies)
     styles_data = {
+        "Default Style": create_mock_style("Default Style", display_name="No Character Style", is_in_use=False, is_physical=False),
         "Source Text": create_mock_style("Source Text", is_in_use=False, is_physical=False),
         "Emphasis": create_mock_style("Emphasis", is_in_use=False, is_physical=False),
         "Rubies": create_mock_style("Rubies", is_in_use=False, is_physical=False),
@@ -120,10 +126,11 @@ def test_list_character_styles(mock_ctx):
     
     assert res["status"] == "ok"
     names = [s["name"] for s in res["styles"]]
+    assert "No Character Style" in names
     assert "Source Text" in names
     assert "Emphasis" not in names
     assert "Rubies" not in names
-    assert res["count"] == 1
+    assert res["count"] == 2
 
 def test_get_style_info(mock_ctx):
     families = mock_ctx.doc.getStyleFamilies()
@@ -131,7 +138,7 @@ def test_get_style_info(mock_ctx):
     families.getByName.return_value = style_family
     families.hasByName.return_value = True
     
-    style = create_mock_style("Emphasis", display_name="My Emphasis", is_in_use=True)
+    style = create_mock_style("Emphasis", is_in_use=True)
     style_family.hasByName.return_value = True
     style_family.getByName.return_value = style
     
@@ -140,7 +147,6 @@ def test_get_style_info(mock_ctx):
     
     assert res["status"] == "ok"
     assert res["name"] == "Emphasis"
-    assert res["display_name"] == "My Emphasis"
     assert res["is_in_use"] is True
 
 @patch("plugin.modules.writer.styles.resolve_target_cursor")
@@ -166,3 +172,17 @@ def test_apply_style_character(mock_resolve, mock_ctx):
     assert res["status"] == "ok"
     assert res["family"] == "CharacterStyles"
     cursor.setPropertyValue.assert_called_once_with("CharStyleName", "Source Text")
+
+@patch("plugin.modules.writer.styles.resolve_target_cursor")
+def test_apply_default_character_style(mock_resolve, mock_ctx):
+    """Applying 'No Character Style' should set CharStyleName to '' (UNO reset)."""
+    cursor = MagicMock()
+    mock_resolve.return_value = cursor
+    
+    tool = ApplyStyle()
+    res = tool.execute(mock_ctx, style_name="No Character Style", family="CharacterStyles", target="selection")
+    
+    assert res["status"] == "ok"
+    assert res["style_name"] == "No Character Style"
+    assert res["family"] == "CharacterStyles"
+    cursor.setPropertyValue.assert_called_once_with("CharStyleName", "")

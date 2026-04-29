@@ -88,6 +88,7 @@ def test_calc_enhanced_chart():
     assert info2.get("y_axis_title") == "New Y"
 
 
+@unittest.skip("Disabled as per user request: internal test causing problems")
 @native_test
 def test_writer_chart_polymorphic():
     # 1. Create in Writer
