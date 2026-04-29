@@ -42,9 +42,27 @@ _LATEX_CLASH_RE = re.compile(
     r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")\b"
 )
 
+_SILENT_CORRUPTIONS = {}
+_escape_map = {'n': '\n', 't': '\t', 'r': '\r', 'b': '\b', 'f': '\f'}
+for _word in _LATEX_CLASH_WORDS:
+    _first = _word[0]
+    if _first in _escape_map:
+        _corrupted = _escape_map[_first] + _word[1:]
+        _repaired = r"\\" + _word
+        _SILENT_CORRUPTIONS[_corrupted] = _repaired
+
 def _repair_latex_clashes(text: str) -> str:
     """Escape backslashes for LaTeX commands that conflict with JSON escapes."""
-    return _LATEX_CLASH_RE.sub(r"\\\\\1", text)
+    # 1. Handle properly escaped but single-slash clashes (e.g. \\nabla -> \\\\nabla)
+    text = _LATEX_CLASH_RE.sub(r"\\\\\1", text)
+    
+    # 2. Handle cases where the LLM sent a single backslash in the network JSON,
+    # which the outer json.loads already silently evaluated as a control character
+    # (e.g. \nabla -> \n + abla).
+    for corrupted, repaired in _SILENT_CORRUPTIONS.items():
+        text = text.replace(corrupted, repaired)
+        
+    return text
 
 from typing import Any
 

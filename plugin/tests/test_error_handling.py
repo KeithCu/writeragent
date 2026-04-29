@@ -87,6 +87,13 @@ class TestSafeJsonLoads(unittest.TestCase):
         self.assertEqual(safe_json_loads('invalid', default={"error": True}), {"error": True})
         self.assertEqual(safe_json_loads(None, default="default"), "default")
 
+    def test_safe_json_loads_silent_latex_corruption(self):
+        # Simulate an LLM generating `\nabla` which the initial `json.loads` natively evaluated 
+        # as a literal newline (`\n` + `abla`) before it reaches `safe_json_loads`.
+        corrupted_json = "{\"content\": \"\nabla \times \frac{1}{c}\"}"
+        repaired = safe_json_loads(corrupted_json)
+        self.assertEqual(repaired, {"content": "\\nabla \\times \\frac{1}{c}"})
+
 from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop
 
 class TestAsyncStreamErrorHandling(unittest.TestCase):
