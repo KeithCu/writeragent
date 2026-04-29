@@ -127,6 +127,13 @@ domain one of: {domains} —
 and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain.
 """
 
+DRAW_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED DRAW (nested tools):
+The default tool list hides advanced Draw/Impress features (shapes, connectors, groups, charts, transitions, etc.).
+When the user needs those, call delegate_to_specialized_draw_toolset with:
+domain one of: {domains} —
+and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain.
+"""
+
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""{CORE_DIRECTIVES}
 
 {{specialized_delegation}}
@@ -239,31 +246,33 @@ ERRORS:
 
 When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""
 
-DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
+DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
+
+{specialized_delegation}
 
 WORKFLOW:
 1. Understand the user's request.
-2. If needed, use get_draw_summary or list_pages to understand the current layout.
-3. Use tools to create or edit shapes.
+2. If needed, use list_pages to understand the current layout.
+3. Use the specialized delegation tool to perform shape operations (create, edit, group, etc.).
 4. Give a short confirmation (e.g. "Changed rectangle color to red").
 
 TOOLS:
 
-SHAPES:
-- create_shape: Create rectangle, ellipse, text, or line.
-- edit_shape: Move, resize, set text, or change color of a shape.
-- delete_shape: Remove a shape.
-
 PAGE MANAGEMENT:
 - list_pages: List all pages/slides in the document.
-- get_draw_summary: Get a list of shapes and their properties for a specific page.
 
 COORDINATES:
 All coordinates (x, y, width, height) are in 100ths of a millimeter.
 A typical page is roughly 21000 x 29700 (A4).
 
 When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information."""
+
+
+# We dynamically set these later when calling get_chat_system_prompt_for_document
+DEFAULT_CHAT_SYSTEM_PROMPT = ""
+DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
+DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
 
 
 # Dummy gettext function for string extraction tools (xgettext)
@@ -311,7 +320,18 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
             DEFAULT_CALC_CHAT_SYSTEM_PROMPT = base
     elif is_draw(model):
-        base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
+        from plugin.modules.draw.base import ToolDrawSpecialBase
+        domains = []
+        for cls in ToolDrawSpecialBase.__subclasses__():
+            if cls.specialized_domain:
+                domains.append(cls.specialized_domain)
+        domains_str = ", ".join(domains)
+        delegation = DRAW_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
+        base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+
+        global DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
+        if not DEFAULT_DRAW_CHAT_SYSTEM_PROMPT:
+            DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = base
     else:
         # Generate domain list dynamically
         from plugin.modules.writer.base import ToolWriterSpecialBase

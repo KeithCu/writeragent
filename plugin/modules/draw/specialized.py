@@ -1,9 +1,12 @@
 import logging
 
 from plugin.framework.tool_base import ToolBase
-from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT
+from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
+from plugin.framework.errors import format_error_payload, ToolExecutionError
+from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.draw")
+
 
 class DelegateToSpecializedDraw(ToolBase):
     """Gateway tool to delegate tasks to specialized Draw toolsets.
@@ -15,7 +18,8 @@ class DelegateToSpecializedDraw(ToolBase):
     name = "delegate_to_specialized_draw_toolset"
     description = (
         "Delegates a specialized task to a sub-agent with a focused toolset. "
-        "Use this for complex Draw operations."
+        "Use this for complex Draw operations like creating and editing shapes, "
+        "charts, and other page elements."
     )
 
     def __init__(self):
@@ -57,11 +61,32 @@ class DelegateToSpecializedDraw(ToolBase):
         domain = kwargs.get("domain")
         task = kwargs.get("task")
 
+        status_callback = getattr(ctx, "status_callback", None)
+
         if domain == "web_research":
             from plugin.modules.chatbot.web_research import WebResearchTool
             tool = WebResearchTool()
             return tool.execute(ctx, query=task)
 
-        # Later we can add actual Draw-specific sub-agents here
-        from plugin.framework.errors import format_error_payload, ToolExecutionError
-        return format_error_payload(ToolExecutionError(f"Domain {domain} not implemented for Draw"))
+        if not USE_SUB_AGENT:
+            # Tell the main LLM loop to switch tools for the next round
+            if getattr(ctx, "set_active_domain_callback", None):
+                ctx.set_active_domain_callback(domain)
+
+            msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. "
+                    "You must call 'specialized_workflow_finished' when done to restore "
+                    "the full set of APIs.").format(domain)
+
+            if status_callback:
+                status_callback(f"Switched to '{domain}' tools.")
+
+            return {
+                "status": "ok",
+                "message": msg,
+            }
+
+        # For now, we only support in-place switching for Draw specialized tools
+        # unless we want to copy the full smolagents loop from Writer.
+        # Given the user request, let's at least enable the in-place switching.
+        
+        return format_error_payload(ToolExecutionError(f"Sub-agent mode for domain {domain} not yet implemented for Draw. Try setting USE_SUB_AGENT=False in constants.py or use in-place switching."))

@@ -238,7 +238,7 @@ class TestExcludeSpecializedTiers:
         assert "fake_tool" in names
         assert "spec_tool" in names
 
-    def test_create_shape_specialized_hidden_for_writer_not_for_draw(self):
+    def test_create_shape_specialized_hidden_for_all(self):
         class CreateShapeStub(ToolBase):
             name = "create_shape"
             description = "stub"
@@ -256,7 +256,7 @@ class TestExcludeSpecializedTiers:
         w = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
         d = [t.name for t in reg.get_tools(doc=MockDoc("draw"))]
         assert "create_shape" not in w
-        assert "create_shape" in d
+        assert "create_shape" not in d
 
 
 class TestLibrarianToolVisibility:

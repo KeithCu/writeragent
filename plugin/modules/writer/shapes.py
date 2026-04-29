@@ -42,8 +42,7 @@ _WRITER_DRAW_SHAPE_DOCS = [
 class CreateShape(DrawCreateShape, ToolWriterShapeBase):
     name = "create_shape"
     uno_services = _WRITER_DRAW_SHAPE_DOCS
-    # Specialized for Writer (use delegate_to_specialized_writer_toolset(domain=shapes));
-    # Draw/Impress default tool lists still include create_shape via tool_registry tier exception.
+    # Specialized for all document types (use delegate_to_specialized_*_toolset(domain=shapes)).
     tier = "specialized"
 
 class EditShape(DrawEditShape, ToolWriterShapeBase):

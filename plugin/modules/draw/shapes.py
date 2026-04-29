@@ -20,6 +20,7 @@ import logging
 
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.tool_base import ToolBase
+from .base import ToolDrawShapeBase
 
 log = logging.getLogger(__name__)
 
@@ -462,7 +463,7 @@ class ListPages(ToolBase):
         }
 
 
-class GetDrawSummary(ToolBase):
+class GetDrawSummary(ToolDrawShapeBase):
     name = "get_draw_summary"
     intent = "edit"
     description = "Returns a summary of shapes on the active or specified page."
@@ -756,7 +757,7 @@ _CREATE_SHAPE_SHAPE_TYPE_DESC = (
 )
 
 
-class CreateShape(ToolBase):
+class CreateShape(ToolDrawShapeBase):
     name = "create_shape"
     description = "Creates a new shape on the active page."
     parameters = {
@@ -788,7 +789,6 @@ class CreateShape(ToolBase):
         "com.sun.star.presentation.PresentationDocument",
     ]
     doc_types = ["draw", "impress"]
-    tier = "core"
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -900,7 +900,7 @@ class CreateShape(ToolBase):
         return result
 
 
-class EditShape(ToolBase):
+class EditShape(ToolDrawShapeBase):
     name = "edit_shape"
     intent = "edit"
     description = "Modifies properties of an existing shape."
@@ -960,7 +960,7 @@ class EditShape(ToolBase):
         return {"status": "ok", "message": "Shape updated"}
 
 
-class ConnectShapes(ToolBase):
+class ConnectShapes(ToolDrawShapeBase):
     """Connect two shapes with a connector."""
     name = "shapes_connect"
     intent = "edit"
@@ -1038,7 +1038,7 @@ class ConnectShapes(ToolBase):
         return {"status": "ok", "message": f"Connected shape {start_idx} to {end_idx}", "shape_index": page.getCount() - 1}
 
 
-class GroupShapes(ToolBase):
+class GroupShapes(ToolDrawShapeBase):
     """Group multiple shapes together."""
     name = "shapes_group"
     intent = "edit"
@@ -1101,7 +1101,7 @@ class GroupShapes(ToolBase):
         }
 
 
-class DeleteShape(ToolBase):
+class DeleteShape(ToolDrawShapeBase):
     name = "delete_shape"
     intent = "edit"
     description = "Deletes a shape by index."

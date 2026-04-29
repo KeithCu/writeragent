@@ -37,11 +37,19 @@ class ToolDrawSpecialBase(ToolBase):
 # --- Domain-Specific Base Classes ---
 
 class ToolDrawWebResearchBase(ToolDrawSpecialBase):
-    specialized_domain = "web_research"
+    specialized_domain: ClassVar[str | None] = "web_research"
 
 
 class ToolDrawChartBase(ToolDrawSpecialBase):
-    specialized_domain = "charts"
+    specialized_domain: ClassVar[str | None] = "charts"
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]
+
+
+class ToolDrawShapeBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "shapes"
     uno_services = [
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
