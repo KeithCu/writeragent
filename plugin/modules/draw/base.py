@@ -54,3 +54,12 @@ class ToolDrawShapeBase(ToolDrawSpecialBase):
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]
+
+
+class ToolDrawFormBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "forms"
+    intent = "edit"
+    uno_services = [
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    ]

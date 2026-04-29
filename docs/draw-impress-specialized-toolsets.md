@@ -54,9 +54,9 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `set_slide_master` | `masters.py` | Drawing+Presentation | Assign a master to a slide |
 | `get_speaker_notes` | `notes.py` | Presentation | Read speaker notes |
 | `set_speaker_notes` | `notes.py` | Presentation | Set speaker notes |
-| `list_placeholders` | `placeholders.py` | Drawing+Presentation | List placeholder shapes (title, subtitle, body) |
-| `get_placeholder_text` | `placeholders.py` | Drawing+Presentation | Get text from a placeholder |
-| `set_placeholder_text` | `placeholders.py` | Drawing+Presentation | Set text in a placeholder |
+| `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
+| `get_placeholder_text` | `placeholders.py` | Presentation | Get text from a placeholder |
+| `set_placeholder_text` | `placeholders.py` | Presentation | Set text in a placeholder |
 | `list_charts` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | List all charts |
 | `get_chart_info` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | Get chart details |
 | `create_chart` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | Create a new chart |
@@ -73,6 +73,12 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | Tool | Domain | Module | Purpose |
 |------|--------|--------|---------|
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context |
+| `create_form_control` | `forms` | `writer/forms.py` | Create a single form control |
+| `create_form` | `forms` | `writer/forms.py` | Create multiple form controls |
+| `generate_form` | `forms` | `writer/forms.py` | Generate form from description |
+| `list_form_controls` | `forms` | `writer/forms.py` | List form controls |
+| `edit_form_control` | `forms` | `writer/forms.py` | Modify a form control |
+| `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control |
 
 ----
 
@@ -83,8 +89,8 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | **Shapes (core)** | ✅ Complete | 6 tools | Create, edit, delete, connect, group, summary |
 | **Pages/Slides (core)** | ✅ Complete | 4 tools | List, add, delete, read text |
 | **Master Slides (core)** | ✅ Complete | 3 tools | List, get, set |
-| **Speaker Notes (core)** | ✅ Complete | 2 tools | Get, set |
-| **Placeholders (core)** | ✅ Complete | 3 tools | List, get text, set text |
+| **Speaker Notes (core)** | ✅ Complete | 2 tools | Get, set (Impress only) |
+| **Placeholders (core)** | ✅ Complete | 3 tools | List, get text, set text (Impress only) |
 | **Transitions (core)** | ✅ Complete | 4 tools | Get/set transition, get/set layout |
 | **Charts (specialized)** | ✅ Complete | 5 tools | Full CRUD + info |
 | **Tree Structure (core)** | ✅ Complete | 1 tool | JSON DOM for LLM understanding |
@@ -103,7 +109,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | **Guides/Grid** | ❌ Missing | — | Snap settings, custom guides |
 | **OCR** | ❌ Missing | — | Text from images |
 | **Export** | ❌ Missing | — | PDF, image, video export |
-| **Forms** | ❌ Missing | — | Interactive form controls |
+| **Forms (specialized)** | ✅ Complete | 6 tools | Interactive form controls |
 | **Macros** | ❌ Missing | — | Automation scripts |
 | **Versioning** | ❌ Missing | — | Document history |
 
@@ -141,8 +147,8 @@ _ALL_CHART_DOCS = [
 | Task | Effort | Impact | Status |
 |------|--------|--------|--------|
 | Add `PresentationDocument` to `uno_services` for 9 tools | 1 hour | Unblocks Impress users from core shape/page tools | ✅ **Done** |
-| Add `DrawingDocument` to speaker notes tools | 30 min | Allows notes in Draw | ⏸️ Pending |
-| Add `DrawingDocument` to placeholder tools | 30 min | Allows placeholders in Draw | ⏸️ Pending |
+| Add `DrawingDocument` to speaker notes tools | 30 min | Allows notes in Draw | ❌ **N/A (Not supported by Draw)** |
+| Restrict placeholders to Impress | 30 min | Keeps Draw toolset clean | ✅ **Done** |
 
 ### 5.2 Priority 2: High-Value Features
 

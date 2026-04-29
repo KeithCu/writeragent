@@ -20,6 +20,7 @@ from typing import ClassVar
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.base import ToolCalcSpecialBase
+from plugin.modules.draw.base import ToolDrawFormBase
 from plugin.framework.constants import USE_SUB_AGENT
 
 
@@ -113,8 +114,8 @@ class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
-class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase):
-    """Form tools for Writer and Calc (single ``specialized_domain``; union ``uno_services`` on concrete tools)."""
+class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFormBase):
+    """Form tools for Writer, Calc, and Draw/Impress (single ``specialized_domain``; union ``uno_services`` on concrete tools)."""
 
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"

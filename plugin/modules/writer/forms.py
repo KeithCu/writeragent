@@ -33,6 +33,8 @@ log = logging.getLogger("writeragent.writer.forms")
 _FORM_DOC_SERVICES = [
     "com.sun.star.text.TextDocument",
     "com.sun.star.sheet.SpreadsheetDocument",
+    "com.sun.star.drawing.DrawingDocument",
+    "com.sun.star.presentation.PresentationDocument",
 ]
 
 _CONTROL_TYPE_MAP = {
@@ -61,13 +63,28 @@ def _is_spreadsheet_doc(doc) -> bool:
         return False
 
 
+def _is_draw_doc(doc) -> bool:
+    if doc is None:
+        return False
+    try:
+        return bool(doc.supportsService("com.sun.star.drawing.DrawingDocument")) or bool(
+            doc.supportsService("com.sun.star.presentation.PresentationDocument")
+        )
+    except Exception:
+        return False
+
+
 def _get_form_draw_page(doc):
-    """Writer: document draw page. Calc: active sheet draw page (indices are per active sheet)."""
+    """Writer: document draw page. Calc: active sheet draw page. Draw/Impress: active slide."""
     if _is_spreadsheet_doc(doc):
         from plugin.modules.calc.bridge import CalcBridge
 
         sheet = CalcBridge(doc).get_active_sheet()
         return sheet.getDrawPage()
+    if _is_draw_doc(doc):
+        from plugin.modules.draw.bridge import DrawBridge
+
+        return DrawBridge(doc).get_active_page()
     return doc.getDrawPage()
 
 
@@ -221,7 +238,7 @@ class CreateFormControl(ToolWriterFormBase):
             
             shape.Control = model
 
-            if _is_spreadsheet_doc(doc):
+            if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
                 dp = _get_form_draw_page(doc)
                 pos = _next_stacked_position_on_draw_page(dp, w, h)
                 shape.setPosition(pos)
@@ -301,6 +318,8 @@ class CreateForm(ToolWriterFormBase):
         doc = ctx.doc
         if _is_spreadsheet_doc(doc):
             _append_text_to_calc_active_area(doc, " ")
+            return
+        if _is_draw_doc(doc):
             return
         vc = doc.getCurrentController().getViewCursor()
         doc.getText().insertString(vc, " ", False)
@@ -394,7 +413,25 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             if plain:
                 _append_text_to_calc_active_area(doc, plain + " ")
             return
+        if _is_draw_doc(doc):
+            from plugin.modules.draw.bridge import DrawBridge
+
+            bridge = DrawBridge(doc)
+            dp = bridge.get_active_page()
+            plain = _plain_text_for_calc_html_fragment(text)
+            if not plain:
+                return
+            # Create a text shape for the label/text
+            w, h = 8000, 1000  # Default size for text labels
+            pos = _next_stacked_position_on_draw_page(dp, w, h)
+            shape = bridge.create_shape(
+                "com.sun.star.drawing.TextShape", pos.X, pos.Y, w, h, page=dp
+            )
+            shape.setString(plain)
+            return
+
         from plugin.modules.writer.ops import insert_html_at_cursor
+
         vc = doc.getCurrentController().getViewCursor()
         cursor = doc.getText().createTextCursorByRange(vc)
         insert_html_at_cursor(cursor, text)
