@@ -351,7 +351,32 @@ class LlmClient:
         model_name = model or self.config.get("model", "")
         temperature = self.config.get("temperature", 0.5)
 
-        # 1. Anthropic Native Shim
+        # 1. Inject date into the first system message if present, or add one.
+        # This is done before native shims so all providers see the current date.
+        today = datetime.date.today().strftime("%A, %Y-%m-%d")
+        date_msg = f"Today's date is {today}."
+
+        system_message: Any = None
+        for m in messages:
+            if m.get("role") == "system":
+                system_message = m
+                break
+
+        if system_message:
+            old_content = system_message.get("content")
+            if isinstance(old_content, str):
+                if not (
+                    old_content.startswith(date_msg)
+                    or old_content.startswith("Today's date is ")
+                ):
+                    if old_content:
+                        system_message["content"] = f"{date_msg}\n\n{old_content}"
+                    else:
+                        system_message["content"] = date_msg
+        else:
+            messages.insert(0, {"role": "system", "content": date_msg})
+
+        # 2. Anthropic Native Shim
         if provider == "anthropic":
             if prepend_dev_build_system_prefix:
                 _prepend_dev_build_system_prefix_to_messages(messages)
@@ -385,7 +410,7 @@ class LlmClient:
             path = get_url_path_and_query(url)
             return "POST", path, json.dumps(data).encode("utf-8"), self._headers()
 
-        # 2. Google Native Shim
+        # 3. Google Native Shim
         if provider == "google":
             # Google Gemini: v1beta/models/{model}:streamGenerateContent?key={key}
             key = auth_info.get("api_key", "")
@@ -489,7 +514,7 @@ class LlmClient:
             path = get_url_path_and_query(url)
             return "POST", path, json.dumps(google_data).encode("utf-8"), self._headers()
 
-        # 3. Default OpenAI-Compatible Path
+        # 4. Default OpenAI-Compatible Path
         api_path = self._api_path()
         url = endpoint + api_path + "/chat/completions"
         
@@ -500,31 +525,6 @@ class LlmClient:
             "top_p": 0.9,
             "stream": stream,
         }
-
-        # Inject date into the first system message if present, or add one.
-        today = datetime.date.today().strftime("%A, %Y-%m-%d")
-        date_msg = f"Today's date is {today}."
-
-        # Use a distinct name from the Anthropic branch's ``system_msg: str`` (same function scope).
-        system_message: Any = None
-        for m in messages:
-            if m.get("role") == "system":
-                system_message = m
-                break
-
-        if system_message:
-            old_content = system_message.get("content")
-            if isinstance(old_content, str):
-                if not (
-                    old_content.startswith(date_msg)
-                    or old_content.startswith("Today's date is ")
-                ):
-                    if old_content:
-                        system_message["content"] = f"{date_msg}\n\n{old_content}"
-                    else:
-                        system_message["content"] = date_msg
-        else:
-            messages.insert(0, {"role": "system", "content": date_msg})
 
         if prepend_dev_build_system_prefix:
             _prepend_dev_build_system_prefix_to_messages(messages)

@@ -152,9 +152,11 @@ class WebResearchTool(ToolWriterWebResearchBase, ToolCalcWebResearchBase, ToolDr
                 status_callback=status_callback,
             )
 
+            import datetime
+            today = datetime.date.today().strftime("%A, %Y-%m-%d")
             base_intro = (
-                "You are a research assistant. Use the conversation context provided below "
-                "to resolve any ambiguity in the user's query."
+                f"You are a research assistant. Today's date is {today}. "
+                "Use the conversation context provided below to resolve any ambiguity in the user's query."
             )
             tool_steps_budget = max_steps - 1
             if max_steps <= 1:
