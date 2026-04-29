@@ -8,6 +8,8 @@ setup_uno_mocks()
 from plugin.framework.tool_registry import ToolRegistry, _is_specialized_domain_tool
 from plugin.modules.writer.base import ToolWriterSpecialBase, SpecializedWorkflowFinished
 from plugin.modules.writer.specialized import DelegateToSpecializedWriter
+from plugin.modules.calc.specialized import DelegateToSpecializedCalc
+from plugin.modules.draw.specialized import DelegateToSpecializedDraw
 from plugin.modules.calc.base import ToolCalcSpecialBase
 from plugin.modules.draw.base import ToolDrawSpecialBase
 
@@ -75,13 +77,13 @@ def _mock_get_config_int_for_sub_agent(ctx, key):
 
 
 @patch(
-    "plugin.modules.writer.specialized.get_config_int",
+    "plugin.framework.specialized_base.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
 )
-@patch("plugin.modules.writer.specialized.get_api_config", create=True)
-@patch("plugin.modules.writer.specialized.ToolCallingAgent")
-@patch("plugin.modules.writer.specialized.WriterAgentSmolModel")
-@patch("plugin.modules.writer.specialized.LlmClient")
+@patch("plugin.framework.specialized_base.get_api_config", create=True)
+@patch("plugin.framework.specialized_base.ToolCallingAgent")
+@patch("plugin.framework.specialized_base.WriterAgentSmolModel")
+@patch("plugin.framework.specialized_base.LlmClient")
 def test_specialized_delegation_sub_agent_mode(
     mock_llm,
     mock_smol_model,
@@ -184,3 +186,81 @@ def test_active_domain_schemas_include_calc_and_draw(registry):
     names_d = [s["function"]["name"] for s in schemas_d]
     assert "dummy_draw_special_tool" in names_d
     assert "specialized_workflow_finished" in names_d
+
+
+@patch(
+    "plugin.framework.specialized_base.get_config_int",
+    side_effect=_mock_get_config_int_for_sub_agent,
+)
+@patch("plugin.framework.specialized_base.get_api_config", create=True)
+@patch("plugin.framework.specialized_base.ToolCallingAgent")
+@patch("plugin.framework.specialized_base.WriterAgentSmolModel")
+@patch("plugin.framework.specialized_base.LlmClient")
+def test_calc_specialized_delegation_sub_agent(
+    mock_llm,
+    mock_smol_model,
+    mock_agent_class,
+    mock_get_config,
+    _mock_get_config_int,
+    registry,
+    mock_ctx,
+):
+    registry.register(DummyCalcSpecialTool())
+    registry.register(DelegateToSpecializedCalc())
+    
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="Calc done")]
+    mock_agent_class.return_value = mock_agent_instance
+
+    gateway_tool = registry.get("delegate_to_specialized_calc_toolset")
+    mock_ctx.stop_checker = lambda: False
+    
+    result = gateway_tool.execute_safe(mock_ctx, domain="images", task="Insert image")
+    
+    assert result["status"] == "ok"
+    assert result["result"] == "Calc done"
+    
+    # Verify the domain tools passed
+    call_args = mock_agent_class.call_args
+    smol_tools = call_args.kwargs.get("tools", [])
+    smol_tool_names = [t.name for t in smol_tools]
+    assert "dummy_calc_images_tool" in smol_tool_names
+
+
+@patch(
+    "plugin.framework.specialized_base.get_config_int",
+    side_effect=_mock_get_config_int_for_sub_agent,
+)
+@patch("plugin.framework.specialized_base.get_api_config", create=True)
+@patch("plugin.framework.specialized_base.ToolCallingAgent")
+@patch("plugin.framework.specialized_base.WriterAgentSmolModel")
+@patch("plugin.framework.specialized_base.LlmClient")
+def test_draw_specialized_delegation_sub_agent(
+    mock_llm,
+    mock_smol_model,
+    mock_agent_class,
+    mock_get_config,
+    _mock_get_config_int,
+    registry,
+    mock_ctx,
+):
+    registry.register(DummyDrawSpecialTool())
+    registry.register(DelegateToSpecializedDraw())
+    
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="Draw done")]
+    mock_agent_class.return_value = mock_agent_instance
+
+    gateway_tool = registry.get("delegate_to_specialized_draw_toolset")
+    mock_ctx.stop_checker = lambda: False
+    
+    result = gateway_tool.execute_safe(mock_ctx, domain="draw_test_domain", task="Create shape")
+    
+    assert result["status"] == "ok"
+    assert result["result"] == "Draw done"
+    
+    # Verify the domain tools passed
+    call_args = mock_agent_class.call_args
+    smol_tools = call_args.kwargs.get("tools", [])
+    smol_tool_names = [t.name for t in smol_tools]
+    assert "dummy_draw_special_tool" in smol_tool_names
