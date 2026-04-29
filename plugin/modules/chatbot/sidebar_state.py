@@ -13,7 +13,7 @@ Pure routing via :func:`sidebar_next_state`; no I/O or logging inside transition
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Any, Optional, cast
 
 from plugin.framework.state import BaseState, FsmTransition
@@ -30,7 +30,7 @@ from plugin.modules.chatbot.tool_loop_state import (
 )
 
 
-class SidebarEventKind(StrEnum):
+class SidebarEventKind(str, Enum):
     SEND = "send"
     TOOL_LOOP = "tool_loop"
     AUDIO = "audio"

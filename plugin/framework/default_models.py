@@ -72,6 +72,13 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "default_text": True,
     },
     {
+        "display_name": "Qwen 3 Coder Next FP8",
+        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
+        "context_length": 262144,
+        "ids": {"together": "Qwen/Qwen3-Coder-Next-FP8"},
+        "default_text": True,
+    },
+    {
         "display_name": "GPT-OSS 120B",
         "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
         "context_length": 131072,

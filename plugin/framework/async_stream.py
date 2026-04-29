@@ -26,7 +26,7 @@ import json
 import logging
 import queue
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import Enum
 from typing import Any, TypeAlias, Callable
 
 from plugin.framework.worker_pool import run_in_background
@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 from plugin.framework.errors import format_error_payload
 
 
-class StreamQueueKind(StrEnum):
+class StreamQueueKind(str, Enum):
     """First element of stream queue tuples (producers must use these enum members)."""
 
     CHUNK = "chunk"
@@ -55,7 +55,7 @@ class StreamQueueKind(StrEnum):
     TOOL_RESULT = "tool_result"
 
 
-class BlockingPumpKind(StrEnum):
+class BlockingPumpKind(str, Enum):
     """Tags for :func:`run_blocking_in_thread` queue (not the stream drain protocol)."""
 
     DONE = "done"
