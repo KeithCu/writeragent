@@ -1,7 +1,8 @@
 """
-Fixed examples for DSPy prompt optimization.
-Each example has document_content (the in-memory "document") and user_question.
-Optional: expected_contains (list of strings that must appear in final doc) for metric.
+Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
+
+Includes original 8 Writer tasks + FLOWCHART_GEN (non-LO Draw support via DrawDocState in string_eval_tools.py).
+See docs/archive/eval-ideas.md (annotated with LO requirements) and docs/eval-dev-plan.md.
 """
 import sys
 from pathlib import Path
@@ -205,6 +206,75 @@ BULLET_CONSISTENCY = {
 }
 
 # ---------------------------------------------------------------------------
+# Additional tests from docs/archive/eval-ideas.md (string-backend compatible)
+# ---------------------------------------------------------------------------
+
+# Style Consistency (archive Writer #12, #18)
+STYLE_CONSISTENCY = {
+    "document_content": """Default style paragraph one.
+
+HEADING 2 text that should be upgraded.
+
+Another default paragraph.
+Heading 2 again.
+""",
+    "user_question": "Find all text in 'Default' style and change it to 'Quotations'. Map all 'Heading 2' to 'Heading 1' and adjust levels.",
+    "task_id": "style_consistency",
+    "expected_contains": ["Quotations", "Heading 1", "HEADING 1"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": "Consistent style mapping across document. Default -> Quotations; Heading 2 -> Heading 1. Preserve content and structure.",
+}
+
+# Smart Summarization (archive Writer #15)
+SMART_SUMMARIZATION = {
+    "document_content": """# Findings
+The system achieved 99.9% uptime. Latency averaged 45ms under load. Error rate was 0.01%. Scaling tests confirmed linear performance to 10k RPS. Cost per query dropped 40% after optimization.
+
+# Executive Summary
+[To be filled by agent]
+""",
+    "user_question": "Summarize the 'Finding' section into 5 bullet points and insert it into the 'Executive Summary'.",
+    "task_id": "smart_summarization",
+    "expected_contains": ["99.9%", "45ms", "0.01%", "10k RPS", "40%"],
+    "is_non_trivial": True,
+    "category": "creative",
+    "rubric": "Accurate 5-bullet summary extracted from Findings. Inserted cleanly into Executive Summary section. Professional tone.",
+}
+
+# Section Refactor (archive Writer #17)
+SECTION_REFACTOR = {
+    "document_content": """# Introduction
+Background info here.
+
+# Conclusion
+Final thoughts and call to action.
+
+# Body
+Main content goes here.
+""",
+    "user_question": "Move the 'Conclusion' after the 'Intro' and rename it 'Goal'. Update any cross-references if present.",
+    "task_id": "section_refactor",
+    "expected_contains": ["# Introduction", "# Goal", "# Body"],
+    "reject_contains": ["# Conclusion"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": "Structural movement of sections with rename. Conclusion becomes Goal and placed after Intro. No orphaned headings.",
+}
+
+# Comment Management Simulation (archive Writer #3; text-based for string backend)
+COMMENT_MANAGEMENT = {
+    "document_content": """The results are uncertain at this point in the analysis.
+Further testing is recommended before deployment.""",
+    "user_question": "Add a comment 'Review this before finalizing' to the word 'uncertain'. Then ensure the document notes the review requirement.",
+    "task_id": "comment_management",
+    "expected_contains": ["uncertain", "Review this before finalizing", "review requirement"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": "Simulate comment addition via text annotation or note. Document reflects the review note. (Full UNO comments require LO backend.)",
+}
+
+# ---------------------------------------------------------------------------
 # All examples (for train/val split)
 # ---------------------------------------------------------------------------
 ALL_EXAMPLES = [
@@ -217,6 +287,44 @@ ALL_EXAMPLES = [
     STYLE_APPLICATION,
     BULLET_CONSISTENCY,
 ]
+
+# Flowchart Gen (from archive/eval-ideas.md Draw #3) - tests non-LO shapes via DrawDocState
+FLOWCHART_GEN = {
+    "document_content": "Create a simple login flowchart.",
+    "user_question": "Create a 'Start' oval connected to a 'Process' box for user login, then a 'Decision' diamond for credentials valid?, with Yes to 'End' and No back to Process. Use get_draw_tree to verify connections.",
+    "task_id": "flowchart_gen",
+    "expected_contains": ["Start", "Process", "Decision", "End", "login", "credentials"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": "Uses create_shape for flowchart-* types (oval, rectangle, diamond). Connections via shapes_connect or tree. Final get_draw_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
+}
+
+# Data Sorting (eval-ideas.md Calc #6) - non-LO test using CalcStringState.sort_range
+DATA_SORTING = {
+    "document_content": "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t950",
+    "user_question": "Sort this data by Revenue descending. Use sort_range on the Revenue column.",
+    "task_id": "data_sorting",
+    "expected_contains": ["Tool", "2100", "Widget", "1200"],  # top of sorted descending
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": "Correct descending sort by Revenue. Final snapshot JSON shows Tool first. Uses CalcStringState.",
+}
+
+# Basic Tax Column (eval-ideas.md Calc #1) - non-LO test using CalcStringState.write_cell_range
+TAX_COLUMN = {
+    "document_content": "Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8",
+    "user_question": "Calculate 8% tax for each Price and write to a new Tax column using write_cell_range. Verify with get_sheet_summary.",
+    "task_id": "tax_column",
+    "expected_contains": ["0.8", "0.4", "0.64", "Tax"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": "Writes correct tax values (Price*0.08). Final snapshot JSON has Tax column with 0.8, 0.4, 0.64. Uses CalcStringState.",
+}
+
+ALL_EXAMPLES.append(FLOWCHART_GEN)
+ALL_EXAMPLES.append(DATA_SORTING)
+ALL_EXAMPLES.append(TAX_COLUMN)
+
 
 
 def _load_gold_standards(examples: list[dict]) -> list[dict]:

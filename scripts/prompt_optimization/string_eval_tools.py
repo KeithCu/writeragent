@@ -7,6 +7,10 @@ In-memory document for prompt_optimization benchmarks (no LibreOffice).
 
 Implements a narrow subset of get_document_content / apply_document_content / find_text
 JSON shapes so the LlmClient tool loop matches production tool names without UNO.
+
+Extended with basic DrawDocState for shapes/flowcharts (get_draw_tree, create_shape) and
+CalcStringState for sorting and basic formula/column ops. This enables non-LO evaluation of
+selected Calc tests (data sorting, tax column) from docs/archive/eval-ideas.md.
 """
 from __future__ import annotations
 
@@ -143,8 +147,175 @@ class StringDocState:
         return {"status": "ok", "ranges": ranges}
 
 
-def dispatch_string_tool(state: StringDocState, name: str, arguments_json: str) -> str:
-    """Execute one tool by name; return JSON string for the assistant message."""
+class DrawDocState:
+    """Simple in-memory state for Draw shapes and get_draw_tree (no LO).
+
+    Supports flowchart tests from eval-ideas.md without screenshots. Maintains
+    a list of shapes; builds semantic tree similar to plugin/modules/draw/tree.py.
+    """
+
+    __slots__ = ("shapes", "_next_index")
+
+    def __init__(self) -> None:
+        self.shapes: list[dict[str, Any]] = []
+        self._next_index = 0
+
+    def create_shape(self, shape_type: str = "rectangle", text: str = "", x: int = 1000, y: int = 1000, width: int = 2000, height: int = 1000, **kwargs: Any) -> dict[str, Any]:
+        """Mock create_shape for flowchart and basic shapes."""
+        idx = self._next_index
+        self._next_index += 1
+
+        shape = {
+            "index": idx,
+            "type": shape_type,
+            "text": text,
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "custom_shape_type": shape_type if "flowchart" in shape_type.lower() else None,
+        }
+        self.shapes.append(shape)
+        return {
+            "status": "ok",
+            "message": f"Created {shape_type}",
+            "shape_index": idx,
+            "page_index": 0,
+            "shape_count_after": len(self.shapes),
+        }
+
+    def get_draw_tree(self, **kwargs: Any) -> dict[str, Any]:
+        """Returns semantic tree (DOM) matching production GetDrawTree."""
+        tree = []
+        for s in self.shapes:
+            node = {
+                "type": s["type"],
+                "name": f"shape_{s['index']}",
+                "text": s.get("text", ""),
+                "geometry": {
+                    "x": s["x"],
+                    "y": s["y"],
+                    "width": s["width"],
+                    "height": s["height"],
+                },
+            }
+            if s.get("custom_shape_type"):
+                node["custom_shape_type"] = s["custom_shape_type"]
+            tree.append(node)
+        return {
+            "status": "ok",
+            "page_index": 0,
+            "tree": tree,
+        }
+
+    def get_draw_summary(self, **kwargs: Any) -> dict[str, Any]:
+        """Flat summary for compatibility."""
+        return {
+            "status": "ok",
+            "page_index": 0,
+            "shapes": [
+                {
+                    "index": s["index"],
+                    "type": s["type"],
+                    "x": s["x"],
+                    "y": s["y"],
+                    "width": s["width"],
+                    "height": s["height"],
+                    "text": s.get("text", ""),
+                }
+                for s in self.shapes
+            ],
+        }
+
+
+class CalcStringState:
+    """In-memory grid for non-LO Calc tests (data sorting, tax column from eval-ideas.md).
+
+    Single active sheet as list-of-lists. Supports read/sort/write for range ops.
+    Final snapshot returns JSON grid for judging (parallel to DrawDocState tree).
+    """
+
+    __slots__ = ("_grid", "_headers")
+
+    def __init__(self, initial: str = "") -> None:
+        self._grid: list[list[Any]] = []
+        self._headers: list[str] = []
+        if initial:
+            self._parse_initial(initial)
+
+    def _parse_initial(self, text: str) -> None:
+        """Parse TSV/CSV-like initial document_content into grid."""
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
+        for line in lines:
+            if "\t" in line:
+                row = [cell.strip() for cell in line.split("\t")]
+            else:
+                row = [cell.strip() for cell in line.split(",") if cell.strip()]
+            if row:
+                self._grid.append(row)
+        if self._grid:
+            self._headers = self._grid[0]
+
+    def get_sheet_summary(self, **kwargs: Any) -> dict[str, Any]:
+        """Simple summary matching get_calc_context_for_chat style."""
+        rows = len(self._grid)
+        cols = len(self._grid[0]) if self._grid else 0
+        return {
+            "status": "ok",
+            "sheet_name": "Sheet1",
+            "row_count": rows,
+            "col_count": cols,
+            "headers": self._headers,
+            "grid": self._grid[:5],  # first few rows for judge
+        }
+
+    def sort_range(self, **kwargs: Any) -> dict[str, Any]:
+        """Mock for sort_range (test 1). Sorts by column index or name."""
+        if not self._grid or len(self._grid) < 2:
+            return {"status": "ok", "message": "Nothing to sort"}
+        col_name = kwargs.get("sort_column", "Revenue")
+        ascending = kwargs.get("ascending", False)
+        try:
+            col_idx = self._headers.index(col_name) if col_name in self._headers else 0
+        except ValueError:
+            col_idx = 0
+        # Skip header, sort data rows by numeric or string value
+        data_rows = self._grid[1:]
+        data_rows.sort(key=lambda row: float(row[col_idx]) if row and len(row) > col_idx and str(row[col_idx]).replace(".", "").replace("-", "").isdigit() else row[col_idx], reverse=not ascending)
+        self._grid = [self._grid[0]] + data_rows
+        return {"status": "ok", "message": f"Sorted by column {col_idx} ({col_name})", "sorted_rows": len(data_rows)}
+
+    def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
+        """Mock for writing values (used for tax column in test 3). Accepts range and values list."""
+        values = kwargs.get("values", [])
+        if not isinstance(values, list):
+            values = [values]
+        # Simple: append or replace last column for tax example
+        if self._grid and values:
+            for i, row in enumerate(self._grid[1:]):  # skip header
+                if i < len(values):
+                    if len(row) < 3:
+                        row.extend([0] * (3 - len(row)))
+                    row[2] = values[i] if i < len(values) else 0
+        return {"status": "ok", "message": "Wrote cell range (tax column applied)", "written": len(values)}
+
+    def snapshot(self) -> dict[str, Any]:
+        """JSON representation for final judging (like Draw tree)."""
+        return {
+            "status": "ok",
+            "sheet": "Sheet1",
+            "headers": self._headers,
+            "rows": self._grid,
+            "row_count": len(self._grid),
+        }
+
+
+def dispatch_string_tool(state: StringDocState | DrawDocState | CalcStringState, name: str, arguments_json: str) -> str:
+    """Execute one tool by name; return JSON string for the assistant message.
+
+    Supports Writer (StringDocState), Draw (DrawDocState), and Calc (CalcStringState)
+    for non-LO tests including data sorting and tax column.
+    """
     try:
         args = safe_json_loads(arguments_json)
     except Exception:
@@ -152,19 +323,60 @@ def dispatch_string_tool(state: StringDocState, name: str, arguments_json: str) 
     if not isinstance(args, dict):
         args = {}
     try:
-        if name == "get_document_content":
-            res = state.get_document_content(**args)
-        elif name == "apply_document_content":
-            res = state.apply_document_content(**args)
-        elif name == "find_text":
-            res = state.find_text(
-                args.get("search", ""),
-                start=int(args.get("start", 0)),
-                limit=args.get("limit"),
-                case_sensitive=bool(args.get("case_sensitive", True)),
-            )
+        if isinstance(state, CalcStringState):
+            if name == "sort_range":
+                res = state.sort_range(**args)
+            elif name == "write_cell_range":
+                res = state.write_cell_range(**args)
+            elif name in ("get_sheet_summary", "read_cell_range"):
+                res = state.get_sheet_summary(**args)
+            else:
+                res = {"status": "error", "message": f"Unknown Calc tool: {name}"}
+        elif isinstance(state, DrawDocState):
+            if name == "create_shape":
+                res = state.create_shape(**args)
+            elif name in ("get_draw_tree", "get_draw_summary"):
+                if name == "get_draw_tree":
+                    res = state.get_draw_tree(**args)
+                else:
+                    res = state.get_draw_summary(**args)
+            else:
+                res = {"status": "error", "message": f"Unknown Draw tool: {name}"}
+        elif isinstance(state, StringDocState):
+            if name == "get_document_content":
+                res = state.get_document_content(**args)
+            elif name == "apply_document_content":
+                res = state.apply_document_content(**args)
+            elif name == "find_text":
+                res = state.find_text(
+                    args.get("search", ""),
+                    start=int(args.get("start", 0)),
+                    limit=args.get("limit"),
+                    case_sensitive=bool(args.get("case_sensitive", True)),
+                )
+            else:
+                # Forward unknown to Draw or Calc if it looks like one (for mixed evals)
+                if name in ("create_shape", "get_draw_tree", "get_draw_summary"):
+                    draw_state = DrawDocState()
+                    if name == "create_shape":
+                        res = draw_state.create_shape(**args)
+                    elif name == "get_draw_tree":
+                        res = draw_state.get_draw_tree(**args)
+                    else:
+                        res = draw_state.get_draw_summary(**args)
+                elif name in ("sort_range", "write_cell_range", "get_sheet_summary"):
+                    # Fallback for mixed
+                    calc_state = CalcStringState()
+                    if name == "sort_range":
+                        res = calc_state.sort_range(**args)
+                    elif name == "write_cell_range":
+                        res = calc_state.write_cell_range(**args)
+                    else:
+                        res = calc_state.get_sheet_summary(**args)
+                else:
+                    res = {"status": "error", "message": f"Unknown tool: {name}"}
         else:
-            res = {"status": "error", "message": f"Unknown tool: {name}"}
+            res = {"status": "error", "message": f"Unknown state type for tool {name}"}
     except Exception as e:
         res = {"status": "error", "message": str(e)}
     return json.dumps(res, ensure_ascii=False)

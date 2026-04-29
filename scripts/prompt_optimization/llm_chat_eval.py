@@ -28,7 +28,7 @@ for _p in (_REPO, _SCRIPTS_PO):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from string_eval_tools import StringDocState, dispatch_string_tool
+from string_eval_tools import StringDocState, DrawDocState, CalcStringState, dispatch_string_tool
 
 
 class _EvalMockContext:
@@ -70,15 +70,81 @@ _FIND_TEXT_SCHEMA = SimpleNamespace(
 )
 
 
-def build_eval_tool_schemas() -> list[dict[str, Any]]:
-    """OpenAI function schemas for the three eval tools (matches production tool names)."""
+def build_eval_tool_schemas(include_draw: bool = False, include_calc: bool = False) -> list[dict[str, Any]]:
+    """OpenAI function schemas for eval tools. include_draw for shapes, include_calc for
+    sorting/tax column tests (see CalcStringState in string_eval_tools.py).
+    Matches production names from plugin/modules/calc/cells.py and plugin/framework/document.py."""
     g = GetDocumentContent()
     a = ApplyDocumentContent()
-    return [
+    schemas = [
         to_openai_schema(g),
         to_openai_schema(a),
         to_openai_schema(_FIND_TEXT_SCHEMA),
     ]
+    if include_draw:
+        # Minimal schemas for shapes (full production schemas in main codebase)
+        schemas.extend([
+            {
+                "name": "create_shape",
+                "description": "Create a shape on the draw page (supports flowchart-* types, rectangle, etc.). Returns shape_index and status.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "shape_type": {"type": "string", "description": "rectangle, flowchart-process, ellipse, etc."},
+                        "text": {"type": "string", "description": "Text content for the shape."},
+                        "x": {"type": "integer"},
+                        "y": {"type": "integer"},
+                        "width": {"type": "integer"},
+                        "height": {"type": "integer"},
+                    },
+                    "required": ["shape_type"],
+                },
+            },
+            {
+                "name": "get_draw_tree",
+                "description": "Returns semantic tree (DOM) of shapes. Use for verifying flowcharts, connections, hierarchy without screenshots.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "page_index": {"type": "integer"},
+                    },
+                },
+            },
+        ])
+    if include_calc:
+        schemas.extend([
+            {
+                "name": "sort_range",
+                "description": "Sort a range by column (for Data Sorting test).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sort_column": {"type": "string", "description": "Column name like 'Revenue'"},
+                        "ascending": {"type": "boolean", "description": "False for descending"},
+                    },
+                },
+            },
+            {
+                "name": "write_cell_range",
+                "description": "Write values to a range (for tax column test).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "range": {"type": "string", "description": "e.g. C2:C10"},
+                        "values": {"type": "array", "items": {"type": "number"}},
+                    },
+                },
+            },
+            {
+                "name": "get_sheet_summary",
+                "description": "Get grid summary and data (matches get_calc_context_for_chat).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+        ])
+    return schemas
 
 
 def _build_api_config(
@@ -177,13 +243,22 @@ def run_llm_chat_eval(
         max_tool_rounds=max_tool_rounds,
     )
     client = LlmClient(cfg, _EvalMockContext())
-    tools = build_eval_tool_schemas()
+    # Detect task type for appropriate non-LO state (Draw or Calc)
+    lower_q = (user_question or "").lower()
+    is_draw_task = any(k in lower_q for k in ["flowchart", "shape", "draw", "get_draw_tree"])
+    is_calc_task = any(k in lower_q for k in ["sort", "tax", "revenue", "column", "formula", "sort_range", "write_cell_range"])
+    tools = build_eval_tool_schemas(include_draw=is_draw_task, include_calc=is_calc_task)
 
     instruction = system_prompt
     if bust_cache:
         instruction = f"{instruction}\n\n[Eval: {uuid.uuid4().hex[:8]}]"
 
-    state = StringDocState(document_content)
+    if is_draw_task:
+        state: StringDocState | DrawDocState | CalcStringState = DrawDocState()
+    elif is_calc_task:
+        state = CalcStringState(document_content)
+    else:
+        state = StringDocState(document_content)
     user_body = (
         f"[DOCUMENT CONTENT]\n{document_content}\n[END DOCUMENT]\n\n{user_question}"
     )
@@ -274,6 +349,12 @@ def run_llm_chat_eval(
 
         final = tl.get_content_as_html() or ""
     else:
-        final = state.get_html()
+        if isinstance(state, DrawDocState):
+            tree_res = state.get_draw_tree()
+            final = json.dumps(tree_res, indent=2)  # Tree JSON for judging flowchart/structure
+        elif isinstance(state, CalcStringState):
+            final = json.dumps(state.snapshot(), indent=2)  # Grid JSON for sorting/tax tests
+        else:
+            final = state.get_html()
 
     return final, usage_acc, err
