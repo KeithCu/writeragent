@@ -28,9 +28,6 @@ log = logging.getLogger("writeragent.writer")
 _STYLE_FAMILIES = [
     "ParagraphStyles",
     "CharacterStyles",
-    "PageStyles",
-    "FrameStyles",
-    "NumberingStyles",
 ]
 
 # Properties to read per style family.
@@ -43,8 +40,17 @@ _FAMILY_PROPS = {
     "CharacterStyles": [
         "ParentStyle", "CharFontName", "CharHeight",
         "CharWeight", "CharPosture", "CharColor",
+        "CharUnderline", "CharStrikeout", "CharCaseMap",
     ],
 }
+
+
+def _get_bool_prop(obj, prop_name, default=False):
+    """Safely get a boolean property from a UNO object."""
+    try:
+        return bool(obj.getPropertyValue(prop_name))
+    except Exception:
+        return default
 
 
 class ListStyles(ToolBase):
@@ -60,9 +66,10 @@ class ListStyles(ToolBase):
         "properties": {
             "family": {
                 "type": "string",
+                "enum": ["ParagraphStyles", "CharacterStyles"],
                 "description": (
-                    "Style family (ParagraphStyles, CharacterStyles, PageStyles, "
-                    "FrameStyles, NumberingStyles). Omit to list family names only."
+                    "Style family (ParagraphStyles or CharacterStyles). "
+                    "Default: ParagraphStyles."
                 ),
             },
         },
@@ -75,14 +82,15 @@ class ListStyles(ToolBase):
 
         families = doc.getStyleFamilies()
         if not family or not str(family).strip():
-            available = list(families.getElementNames())
+            # Only return the families we officially support in this tool.
+            available = [f for f in families.getElementNames() if f in _STYLE_FAMILIES]
             return {
                 "status": "ok",
                 "families": available,
                 "count": len(available),
             }
 
-        family = str(family).strip()
+        family = str(family or "ParagraphStyles").strip()
         style_family = self.get_item(
             doc, "getStyleFamilies", family,
             missing_msg="Document does not support style families.",
@@ -94,13 +102,90 @@ class ListStyles(ToolBase):
                 style_family["available_families"] = style_family.pop("available")
             return style_family
 
+        # Always use "auto" filter logic to show used, custom, and common built-in styles.
         styles = []
-        for name in style_family.getElementNames():
+        element_names = style_family.getElementNames()
+        total_count = len(element_names)
+
+        for name in element_names:
             style = style_family.getByName(name)
+            
+            # Predicates for language-agnostic filtering
+            in_use = style.isInUse()
+            user_defined = style.isUserDefined()
+            is_physical = _get_bool_prop(style, "IsPhysical", True)
+            is_hidden = _get_bool_prop(style, "IsHidden", False)
+
+            # Filter logic (auto)
+            if is_hidden:
+                continue
+
+            # Core visibility logic:
+            show = in_use or user_defined or is_physical
+            
+            # 1. Core structural fallback:
+            if not show:
+                if family == "ParagraphStyles":
+                    # Always show Heading 1-5 (CHAPTER category).
+                    try:
+                        cat = style.getPropertyValue("Category")
+                        if cat == 1:  # CHAPTER
+                            show = True
+                    except Exception:
+                        pass
+                elif family == "CharacterStyles":
+                    # Always show core character styles.
+                    core_char_styles = ("Source Text",)
+                    if name in core_char_styles:
+                        show = True
+
+            # 2. Strict "Essential" pruning for the 'auto' list:
+            if show and family == "ParagraphStyles":
+                try:
+                    cat = style.getPropertyValue("Category")
+                    
+                    # BLOCK List, Index, Extra, and HTML categories unless used/custom.
+                    if cat in (2, 3, 4, 5) and not (in_use or user_defined):
+                        show = False
+                    
+                    # BLOCK abstract 'Heading' parent.
+                    elif name == "Heading":
+                        show = False
+                    
+                    # BLOCK deep headings (> 5) unless used/custom.
+                    elif cat == 1 and not (in_use or user_defined):
+                        try:
+                            level = int(name[len("Heading "):])
+                            if level > 5:
+                                show = False
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # For Category 0 (TEXT), only show "Core" styles if not used/custom.
+                    # This prunes Salutation, Appendix, Marginalia, etc.
+                    elif cat == 0 and not (in_use or user_defined):
+                        core_text_styles = ("Standard", "Text body", "Title", "Subtitle")
+                        if name not in core_text_styles:
+                            show = False
+                except Exception:
+                    pass
+
+            if not show:
+                continue
+
+            display_name = name
+            try:
+                dn = style.getPropertyValue("DisplayName")
+                if dn:
+                    display_name = dn
+            except Exception:
+                pass
+
             entry = {
                 "name": name,
-                "is_user_defined": style.isUserDefined(),
-                "is_in_use": style.isInUse(),
+                "display_name": display_name,
+                "is_user_defined": user_defined,
+                "is_in_use": in_use,
             }
             try:
                 entry["parent_style"] = style.getPropertyValue("ParentStyle")
@@ -113,6 +198,7 @@ class ListStyles(ToolBase):
             "family": family,
             "styles": styles,
             "count": len(styles),
+            "total_count": total_count,
         }
 
 
@@ -158,10 +244,18 @@ class GetStyleInfo(ToolBase):
         style = style_family.getByName(style_name)
         info = {
             "name": style_name,
+            "display_name": style_name,
             "family": family,
             "is_user_defined": style.isUserDefined(),
             "is_in_use": style.isInUse(),
         }
+        try:
+            dn = style.getPropertyValue("DisplayName")
+            if dn:
+                info["display_name"] = dn
+        except Exception:
+            pass
+
         for prop_name in _FAMILY_PROPS.get(family, []):
             try:
                 info[prop_name] = style.getPropertyValue(prop_name)
@@ -171,25 +265,32 @@ class GetStyleInfo(ToolBase):
         return {"status": "ok", **info}
 
 
-class StylesApply(FrameworkToolBase):
-    """Apply a paragraph style."""
+class ApplyStyle(FrameworkToolBase):
+    """Apply a paragraph or character style."""
 
-    name = "styles_apply"
+    name = "apply_style"
     intent = "edit"
     tier = "extended"
     description = (
-        "Apply a paragraph style name to a specific target. "
-        "Use target='beginning', 'end', or 'selection' to apply to those positions. "
-        "Use target='search' with old_content to apply to the found text. "
-        "For a full style list, use delegate_to_specialized_writer_toolset(domain=styles) "
-        "or discover names from the document / Styles sidebar."
+        "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
+        "styles (e.g. Heading 1) or family='CharacterStyles' for character "
+        "styles (e.g. Source Text). "
+        "Use target='selection' (default), 'beginning', 'end', 'full_document', "
+        "or 'search' with old_content."
     )
     parameters = {
         "type": "object",
         "properties": {
             "style_name": {
                 "type": "string",
-                "description": "Paragraph style name (e.g. Heading 1).",
+                "description": "Style name (e.g. Heading 1, Source Text).",
+            },
+            "family": {
+                "type": "string",
+                "enum": ["ParagraphStyles", "CharacterStyles"],
+                "description": (
+                    "Style family. Default: ParagraphStyles."
+                ),
             },
             "target": {
                 "type": "string",
@@ -206,10 +307,23 @@ class StylesApply(FrameworkToolBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
+    # Maps family to the UNO property that holds the style name.
+    _PROPERTY_MAP = {
+        "ParagraphStyles": "ParaStyleName",
+        "CharacterStyles": "CharStyleName",
+    }
+
     def execute(self, ctx, **kwargs):
         style_name = (kwargs.get("style_name") or "").strip()
         if not style_name:
             return self._tool_error("style_name is required.")
+
+        family = kwargs.get("family", "ParagraphStyles")
+        uno_prop = self._PROPERTY_MAP.get(family)
+        if not uno_prop:
+            return self._tool_error(
+                "Unknown family: %s. Use ParagraphStyles or CharacterStyles." % family
+            )
 
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
@@ -223,9 +337,9 @@ class StylesApply(FrameworkToolBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
-            cursor.setPropertyValue("ParaStyleName", style_name)
+            cursor.setPropertyValue(uno_prop, style_name)
         except Exception as e:
             return self._tool_error(
-                "Could not apply style (select text or a paragraph): %s" % e
+                "Could not apply style: %s" % e
             )
-        return {"status": "ok", "style_name": style_name}
+        return {"status": "ok", "style_name": style_name, "family": family}

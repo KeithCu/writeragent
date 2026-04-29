@@ -135,7 +135,7 @@ TOOLS:
 - apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
 - get_document_content: Read document (full/selection/range) as HTML.
 - search_in_document: Find text (use return_offsets for character positions if needed for inspection).
-- styles_apply_to_selection: Apply a paragraph style to the selection (use after discovering style names if needed).
+- apply_style: Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles').
 
 {TRANSLATION_RULES}
 
@@ -162,7 +162,7 @@ def get_writer_eval_chat_system_prompt() -> str:
     eval_scope = (
         "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. "
         "Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, "
-        "styles_apply_to_selection, or add_comment."
+        "apply_style, or add_comment."
     )
     eval_tool_patterns = """TOOL USAGE PATTERNS (eval harness):
 - Use find_text to locate passages; use apply_document_content (often with old_content) to replace HTML.

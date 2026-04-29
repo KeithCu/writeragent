@@ -251,7 +251,7 @@ Block `WRITER_SPECIALIZED_DELEGATION` is prepended into `DEFAULT_CHAT_SYSTEM_PRO
 Some Writer tools intentionally use `**tier = "extended"`** (or `core`) so users do not need delegation for common actions, for example:
 
 - **Track changes:** `[plugin/modules/writer/tracking.py](../../plugin/modules/writer/tracking.py)` — `set_track_changes`, `get_tracked_changes`, `manage_tracked_changes` (nelson-aligned behavior; combined accept/reject in `manage_tracked_changes`).
-- **Paragraph style apply:** `[plugin/modules/writer/styles.py](../../plugin/modules/writer/styles.py)` — `styles_apply_to_selection` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended"`.
+- **Style apply:** `[plugin/modules/writer/styles.py](../../plugin/modules/writer/styles.py)` — `apply_style` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended"`.
 
 **Style discovery** (`list_styles`, `get_style_info`) remains under `ToolWriterStyleBase` (specialized) so the main list does not duplicate large style catalog traffic; the prompt steers toward delegation or other discovery when needed.
 
