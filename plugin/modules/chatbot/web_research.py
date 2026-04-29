@@ -18,7 +18,6 @@
 
 import logging
 import os
-import json
 from typing import Any, cast
 
 from plugin.framework.tool_base import ToolBase
@@ -80,7 +79,20 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
         if remaining <= 2:
             budget_msg += " You are almost out of steps! You MUST call final_answer in your next turn with your best summary."
         
-        messages.append(ChatMessage(role=MessageRole.USER, content=budget_msg))
+        if messages and (messages[-1].role == MessageRole.USER or messages[-1].role == MessageRole.TOOL_RESPONSE):
+            # Prepend to last user-equivalent message to avoid consecutive USER roles after conversion
+            last_msg = messages[-1]
+            # Ensure content is a list of parts to satisfy smolagents' merge-assertion (models.py:376)
+            if isinstance(last_msg.content, str):
+                last_msg.content = [{"type": "text", "text": last_msg.content}]
+            elif last_msg.content is None:
+                last_msg.content = []
+            
+            if isinstance(last_msg.content, list):
+                last_msg.content.insert(0, {"type": "text", "text": budget_msg})
+        else:
+            # Use list-of-dicts format to satisfy smolagents' merge-assertion
+            messages.append(ChatMessage(role=MessageRole.USER, content=[{"type": "text", "text": budget_msg}]))
         return messages
 
 

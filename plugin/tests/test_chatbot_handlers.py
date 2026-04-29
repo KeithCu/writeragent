@@ -205,8 +205,8 @@ def test_web_research_tool():
             return ChatMessage(role=MessageRole.ASSISTANT, content="", tool_calls=[tc])
 
         elif call_count[0] == 2:
-            # WebResearchToolCallingAgent appends a USER step-budget line after memory.
-            assert messages[-1].role == MessageRole.USER
+            # WebResearchToolCallingAgent appends/merges a step-budget line.
+            assert messages[-1].role in (MessageRole.USER, MessageRole.TOOL_RESPONSE)
             assert "Step budget" in str(messages[-1].content)
             tool_responses = [m for m in messages if m.role == MessageRole.TOOL_RESPONSE]
             assert tool_responses

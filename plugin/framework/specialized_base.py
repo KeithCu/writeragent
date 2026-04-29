@@ -22,7 +22,6 @@ from typing import cast, Type, ClassVar
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
 from plugin.framework.i18n import _
-from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.config import get_api_config, get_config_int
 from plugin.modules.http.client import LlmClient
 from plugin.framework.smol_model import WriterAgentSmolModel
