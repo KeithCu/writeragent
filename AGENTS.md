@@ -117,6 +117,8 @@ Some classes in [`content.py`](plugin/modules/writer/content.py) (e.g. **`CloneH
 
 **Draw/Impress `insert_math`** (specialized domain `math`): `formula_type` (`latex`|`mathml`), `formula`, `page_index`, `x`, `y` (100ths mm); uses **`ToolContext.ctx`** (UNO component context) for `convert_*_to_starmath` / `get_desktop`, not the `ToolContext` wrapper itself. OLE box size from embedded `XVisualObject.getVisualAreaSize` when available, else heuristic — [`plugin/modules/draw/math_insert.py`](plugin/modules/draw/math_insert.py).
 
+**Impress headers/footers** (`get_headers_footers` / `set_headers_footers`, Presentation only): when `is_master_page` is true, `page_index` is a **slide** index; the tool resolves that slide’s **`MasterPage`** (do not use `getMasterPages().getByIndex(page_index)` — collection order differs from the slide’s assigned master) — [`plugin/modules/draw/headers_footers.py`](plugin/modules/draw/headers_footers.py).
+
 **Fields** / **track changes**: [`plugin/modules/writer/fields.py`](plugin/modules/writer/fields.py), [`plugin/modules/writer/tracking.py`](plugin/modules/writer/tracking.py).
 
 **Tool Compatibility**: `ToolRegistry` prioritizes `uno_services` matches (strict), but falls back to `doc_types` if no service match is found. This ensures tools remain accessible in test environments or across slightly different LibreOffice flavors. `get_schemas` (chat/MCP) applies the same filter as `execute`, so gateway tools must list every supported UNO service (e.g. `delegate_to_specialized_draw_toolset` includes both Draw and Impress presentation services).
