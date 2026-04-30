@@ -79,6 +79,8 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `list_form_controls` | `forms` | `writer/forms.py` | List form controls |
 | `edit_form_control` | `forms` | `writer/forms.py` | Modify a form control |
 | `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control |
+| `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) |
+| `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) |
 
 ----
 
@@ -103,7 +105,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | **Timings** | ❌ Missing | — | Rehearse, auto-advance |
 | **Themes** | ❌ Missing | — | Color/font schemes |
 | **Templates** | ❌ Missing | — | Document templates |
-| **Headers/Footers** | ❌ Missing | — | Slide numbering, date |
+| **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `get_headers_footers`, `set_headers_footers` (Impress only) |
 | **Tables** | ❌ Missing | — | Insert/edit tables in Draw |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |
 | **Guides/Grid** | ❌ Missing | — | Snap settings, custom guides |
@@ -156,7 +158,6 @@ _ALL_CHART_DOCS = [
 |---------|----------|-------------|--------|
 | **Slide Animations** | `com.sun.star.presentation.Animation*` | Professional presentations | Medium |
 | **Slide Show Controls** | `com.sun.star.presentation.Presentation` | Start/stop presentations | Low |
-| **Headers/Footers** | `com.sun.star.presentation.*` | Page numbering, dates | Low |
 | **Layers** | `com.sun.star.drawing.Layer*` | Advanced Draw organization | Medium |
 | **Media Insertion** | `com.sun.star.presentation.Media*` | Audio/video in slides | Medium |
 | **Tables in Draw** | `com.sun.star.drawing.TableShape` | Tabular data | Medium |
