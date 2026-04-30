@@ -27,6 +27,13 @@ class MathConversionResult:
     error_message: str | None
 
 
+def _exception_message(exc: Exception) -> str:
+    """Non-empty diagnostic for UNO / latex2mathml failures (some bridges return ``str(exc)==''``)."""
+    name = type(exc).__name__
+    text = str(exc).strip()
+    return f"{name}: {text}" if text else name
+
+
 def _file_url(path: str) -> str:
     return uno.systemPathToFileUrl(os.path.abspath(path))
 
@@ -98,7 +105,7 @@ def convert_latex_to_starmath(
         mathml = latex2mathml_convert(trimmed, display=display_mode)
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
-        return MathConversionResult(False, None, str(exc))
+        return MathConversionResult(False, None, _exception_message(exc))
     if not isinstance(mathml, str) or not mathml.strip():
         return MathConversionResult(False, None, "latex2mathml_empty_output")
     return convert_mathml_to_starmath(ctx, mathml.strip())
@@ -139,7 +146,12 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
         try:
             formula = doc.getPropertyValue("Formula")
             if not isinstance(formula, str) or not formula.strip():
-                return MathConversionResult(False, None, "empty_formula_property")
+                return MathConversionResult(
+                    False,
+                    None,
+                    "empty_formula_property: LibreOffice Math opened the file but "
+                    "returned no formula text (unsupported or invalid MathML for this build).",
+                )
             _formula_stripped = formula.strip()
             _debug_newline_stats(
                 "convert_mathml_to_starmath: Formula from LO (before return.strip)",
@@ -164,7 +176,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
                 log.debug("math doc close: %s", exc)
     except Exception as exc:
         log.debug("convert_mathml_to_starmath failed: %s", exc, exc_info=True)
-        return MathConversionResult(False, None, str(exc))
+        return MathConversionResult(False, None, _exception_message(exc))
     finally:
         try:
             os.unlink(path)

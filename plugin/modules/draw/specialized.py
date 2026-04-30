@@ -35,7 +35,7 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     description = (
         "Delegates a specialized task to a sub-agent with a focused toolset. "
         "Use this for complex Draw operations like creating and editing shapes, "
-        "charts, and other page elements."
+        "charts, and other page elements. Including inserting math formulas (domain='math')."
     )
 
     uno_services = [

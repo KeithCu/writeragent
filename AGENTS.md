@@ -115,6 +115,8 @@ Some classes in [`content.py`](plugin/modules/writer/content.py) (e.g. **`CloneH
 
 **Shapes** (`create_shape`, `edit_shape`, connect/group): specialized-tier for Writer; default toolset for Draw/Impress. Implementation and Writer vs floating-draw-page behavior: [`plugin/modules/draw/shapes.py`](plugin/modules/draw/shapes.py), [`plugin/modules/writer/shapes.py`](plugin/modules/writer/shapes.py); see [docs/features/writer-specialized-toolsets.md](docs/features/writer-specialized-toolsets.md).
 
+**Draw/Impress `insert_math`** (specialized domain `math`): `formula_type` (`latex`|`mathml`), `formula`, `page_index`, `x`, `y` (100ths mm); uses **`ToolContext.ctx`** (UNO component context) for `convert_*_to_starmath` / `get_desktop`, not the `ToolContext` wrapper itself. OLE box size from embedded `XVisualObject.getVisualAreaSize` when available, else heuristic — [`plugin/modules/draw/math_insert.py`](plugin/modules/draw/math_insert.py).
+
 **Fields** / **track changes**: [`plugin/modules/writer/fields.py`](plugin/modules/writer/fields.py), [`plugin/modules/writer/tracking.py`](plugin/modules/writer/tracking.py).
 
 **Tool Compatibility**: `ToolRegistry` prioritizes `uno_services` matches (strict), but falls back to `doc_types` if no service match is found. This ensures tools remain accessible in test environments or across slightly different LibreOffice flavors. `get_schemas` (chat/MCP) applies the same filter as `execute`, so gateway tools must list every supported UNO service (e.g. `delegate_to_specialized_draw_toolset` includes both Draw and Impress presentation services).

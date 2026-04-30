@@ -13,6 +13,19 @@ from plugin.modules.writer.math_mml_convert import (
 )
 
 
+class _QuietExc(Exception):
+    def __str__(self) -> str:
+        return ""
+
+
+def test_exception_message_non_empty_for_empty_str_uno_style() -> None:
+    from plugin.modules.writer import math_mml_convert as mmc
+
+    assert mmc._exception_message(_QuietExc()) == "_QuietExc"
+    assert "ValueError" in mmc._exception_message(ValueError("bad"))
+
+
+
 class TestCollapseStarmathNewline(unittest.TestCase):
     def test_collapses_spaced_newline_operators(self):
         raw = "a newline x ^ 2 newline + newline b"

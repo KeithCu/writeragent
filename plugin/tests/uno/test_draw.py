@@ -270,3 +270,35 @@ def test_get_draw_tree():
             found = True
             break
     assert found, "Created shape not found in draw tree"
+
+@native_test
+def test_insert_math_draw():
+    try:
+        import pytest
+        if _test_doc is None:
+            pytest.skip("Requires LibreOffice document from native runner")
+    except ImportError:
+        pass
+
+    # Insert math (formula_type + formula + page_index + x + y; size from UNO/heuristic)
+    result = _exec_tool("insert_math", {
+        "formula_type": "latex",
+        "formula": "E = mc^2",
+        "page_index": 0,
+        "x": 2000,
+        "y": 2000,
+    })
+
+    data = json.loads(result)
+    assert data.get("status") == "ok", f"insert_math failed: {result}"
+
+    # Query shape using UNO
+    active_page = _test_doc.getCurrentController().getCurrentPage()
+    if active_page is None:
+        active_page = _test_doc.getDrawPages().getByIndex(0)
+
+    shape = active_page.getByIndex(data.get("shape_index"))
+
+    assert shape.CLSID == "078B7ABA-54FC-457F-8551-6147e776a997"
+    sz = shape.getSize()
+    assert sz.Width >= 400 and sz.Height >= 300, f"expected plausible size, got {sz.Width}x{sz.Height}"

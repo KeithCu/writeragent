@@ -97,3 +97,17 @@ class DrawBridge:
             # But simple add works for many
             new_page.add(shape) 
         return new_page
+
+    def get_active_page_index(self):
+        page = self.get_active_page()
+        if page:
+            # LibreOffice API to get page index can be indirect.
+            # In Draw, getNumber() - 1 is often the index.
+            if hasattr(page, "getNumber"):
+                return page.getNumber() - 1
+            # Fallback
+            pages = self.get_pages()
+            for i in range(pages.getCount()):
+                if pages.getByIndex(i) == page:
+                    return i
+        return 0
