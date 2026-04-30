@@ -88,6 +88,12 @@ def _get_form_draw_page(doc):
     return doc.getDrawPage()
 
 
+def _no_form_draw_page_payload():
+    return format_error_payload(
+        ToolExecutionError("No draw page available for form operations.")
+    )
+
+
 def _next_stacked_position_on_draw_page(dp, default_width: int, default_height: int) -> Point:
     """Place new controls below existing shapes on a draw page (1/100 mm)."""
     margin_x = 5000
@@ -240,6 +246,8 @@ class CreateFormControl(ToolWriterFormBase):
 
             if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
                 dp = _get_form_draw_page(doc)
+                if dp is None:
+                    return _no_form_draw_page_payload()
                 pos = _next_stacked_position_on_draw_page(dp, w, h)
                 shape.setPosition(pos)
                 dp.add(shape)
@@ -462,6 +470,8 @@ class ListFormControls(ToolWriterFormBase):
     def _execute_main(self, ctx, **kwargs):
         doc = ctx.doc
         dp = _get_form_draw_page(doc)
+        if dp is None:
+            return _no_form_draw_page_payload()
         controls = []
         
         for i in range(dp.getCount()):
@@ -530,6 +540,8 @@ class EditFormControl(ToolWriterFormBase):
     def _execute_main(self, ctx, **kwargs):
         doc = ctx.doc
         dp = _get_form_draw_page(doc)
+        if dp is None:
+            return _no_form_draw_page_payload()
         idx = kwargs["shape_index"]
         
         if idx < 0 or idx >= dp.getCount():
@@ -586,6 +598,8 @@ class DeleteFormControl(ToolWriterFormBase):
     def _execute_main(self, ctx, **kwargs):
         doc = ctx.doc
         dp = _get_form_draw_page(doc)
+        if dp is None:
+            return _no_form_draw_page_payload()
         idx = kwargs["shape_index"]
         
         if idx < 0 or idx >= dp.getCount():
