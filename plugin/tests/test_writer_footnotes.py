@@ -59,6 +59,85 @@ def test_footnotes_insert():
     note.setString.assert_called_with("My footnote text")
     t_cursor.getText.return_value.insertTextContent.assert_called_with(t_cursor, note, False)
 
+
+def test_footnotes_insert_with_insert_after_text():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+
+    sd = MagicMock()
+    doc.createSearchDescriptor.return_value = sd
+
+    found_range = MagicMock()
+    text_mock = MagicMock()
+    t_cursor = MagicMock()
+    insert_surface = MagicMock()
+    found_range.getText.return_value = text_mock
+    text_mock.createTextCursorByRange.return_value = t_cursor
+    t_cursor.getText.return_value = insert_surface
+
+    doc.findFirst.return_value = found_range
+
+    note = MagicMock()
+    note.getLabel.return_value = ""
+    doc.createInstance.return_value = note
+
+    tool = FootnotesInsert()
+    ctx = FakeCtx(doc)
+
+    res = tool.execute(
+        ctx,
+        note_type="footnote",
+        text="This sentence is only a test.",
+        insert_after_text="This is a test.",
+    )
+
+    assert res["status"] == "ok"
+    doc.createSearchDescriptor.assert_called_once()
+    assert sd.SearchString == "This is a test."
+    assert sd.SearchCaseSensitive is True
+    doc.findFirst.assert_called_once_with(sd)
+    text_mock.createTextCursorByRange.assert_called_once_with(found_range)
+    t_cursor.collapseToEnd.assert_called_once()
+    doc.getCurrentController.assert_not_called()
+    insert_surface.insertTextContent.assert_called_once_with(t_cursor, note, False)
+    note.setString.assert_called_once_with("This sentence is only a test.")
+
+
+def test_footnotes_insert_anchor_no_match():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    doc.createSearchDescriptor.return_value = MagicMock()
+    doc.findFirst.return_value = None
+
+    res = FootnotesInsert().execute(
+        FakeCtx(doc),
+        note_type="footnote",
+        text="x",
+        insert_after_text="not in document",
+    )
+    assert res["status"] == "error"
+    assert "No match" in res["message"]
+
+
+def test_footnotes_insert_anchor_occurrence_too_high():
+    doc = MagicMock()
+    doc.supportsService.return_value = True
+    doc.createSearchDescriptor.return_value = MagicMock()
+    m1 = MagicMock()
+    doc.findFirst.return_value = m1
+    doc.findNext.return_value = None
+
+    res = FootnotesInsert().execute(
+        FakeCtx(doc),
+        note_type="footnote",
+        text="x",
+        insert_after_text="foo",
+        occurrence=1,
+    )
+    assert res["status"] == "error"
+    assert "not enough occurrences" in res["message"]
+
+
 def test_footnotes_list():
     doc = MagicMock()
     doc.supportsService.return_value = True

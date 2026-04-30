@@ -21,6 +21,34 @@ from plugin.modules.writer.base import ToolWriterFootnoteBase
 from plugin.framework.errors import ToolExecutionError
 
 
+def _cursor_after_nth_match(
+    doc: Any,
+    search: str,
+    occurrence: int,
+    case_sensitive: bool,
+) -> Any:
+    """Return an ``XTextCursor`` collapsed to the end of the *occurrence*-th match (0-based)."""
+    sd = doc.createSearchDescriptor()
+    sd.SearchString = search
+    sd.SearchRegularExpression = False
+    sd.SearchCaseSensitive = case_sensitive
+
+    found = doc.findFirst(sd)
+    if found is None:
+        raise ToolExecutionError("No match for insert_after_text in the document.")
+
+    for _ in range(occurrence):
+        found = doc.findNext(found, sd)
+        if found is None:
+            raise ToolExecutionError(
+                f"No match for insert_after_text at occurrence {occurrence} (not enough occurrences)."
+            )
+
+    t_cursor = found.getText().createTextCursorByRange(found)
+    t_cursor.collapseToEnd()
+    return t_cursor
+
+
 def _get_note_supplier(doc: Any, note_type: str) -> Any:
     if note_type == "footnote":
         if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
@@ -49,10 +77,12 @@ def _get_note_settings(doc: Any, note_type: str) -> Any:
 class FootnotesInsert(ToolWriterFootnoteBase):
     name = "footnotes_insert"
     description = (
-        "Inserts a new footnote or endnote at the current cursor position in the document. "
-        "The note text will be placed at the bottom of the page (for footnotes) or the end "
-        "of the document (for endnotes). You can optionally provide a custom label/mark, "
-        "otherwise it will be auto-numbered."
+        "Inserts a new footnote or endnote. Without insert_after_text, uses the current view cursor. "
+        "When the insert position must be specific (e.g. delegated sub-agent work), pass insert_after_text: "
+        "document text to find; the footnote anchor is inserted immediately after the first occurrence "
+        "(or after the occurrence-th match when occurrence is set). Match the document verbatim. "
+        "Note text appears at the foot of the page (footnote) or end of document (endnote). "
+        "Optional custom label/mark; otherwise auto-numbered."
     )
     parameters = {
         "type": "object",
@@ -70,6 +100,25 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                 "type": "string",
                 "description": "Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering.",
             },
+            "insert_after_text": {
+                "type": "string",
+                "description": (
+                    "If non-empty, find this substring in the document and insert the footnote/endnote "
+                    "anchor immediately after that match instead of using the view cursor. "
+                    "Use the exact text from the document (or from the delegating task). Required when "
+                    "position matters and the tool is run outside normal user cursor control."
+                ),
+            },
+            "occurrence": {
+                "type": "integer",
+                "description": (
+                    "0-based index when insert_after_text matches multiple times (default 0 = first match)."
+                ),
+            },
+            "case_sensitive": {
+                "type": "boolean",
+                "description": "Search matching for insert_after_text (default true).",
+            },
         },
         "required": ["note_type", "text"],
     }
@@ -80,23 +129,46 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         text = str(kwargs.get("text"))
         label = kwargs.get("label", "")
 
+        raw_anchor = kwargs.get("insert_after_text")
+        if raw_anchor is None:
+            insert_after = ""
+            use_anchor = False
+        else:
+            insert_after = str(raw_anchor)
+            use_anchor = bool(insert_after.strip())
+
         doc = ctx.doc
 
         try:
-            # We need the current cursor to insert the note.
-            # Use the view cursor for the active location.
-            ctrl = doc.getCurrentController()
-            if not ctrl:
-                return self._tool_error("Cannot access current document controller to find cursor position.")
+            if use_anchor:
+                occ_raw = kwargs.get("occurrence", 0)
+                try:
+                    occurrence = int(occ_raw)
+                except (TypeError, ValueError):
+                    return self._tool_error("occurrence must be an integer.")
+                if occurrence < 0:
+                    return self._tool_error("occurrence must be non-negative.")
 
-            v_cursor = ctrl.getViewCursor()
-            if not v_cursor:
-                return self._tool_error("Cannot access view cursor.")
+                case_sensitive = bool(kwargs.get("case_sensitive", True))
 
-            # Create a text cursor at the view cursor position
-            # We must collapse it to not replace text, or just insert at its start/end.
-            t_cursor = v_cursor.getText().createTextCursorByRange(v_cursor)
-            t_cursor.collapseToEnd()
+                try:
+                    t_cursor = _cursor_after_nth_match(
+                        doc, insert_after, occurrence, case_sensitive
+                    )
+                except ToolExecutionError as e:
+                    return self._tool_error(str(e))
+            else:
+                # View cursor: active insertion point in the UI.
+                ctrl = doc.getCurrentController()
+                if not ctrl:
+                    return self._tool_error("Cannot access current document controller to find cursor position.")
+
+                v_cursor = ctrl.getViewCursor()
+                if not v_cursor:
+                    return self._tool_error("Cannot access view cursor.")
+
+                t_cursor = v_cursor.getText().createTextCursorByRange(v_cursor)
+                t_cursor.collapseToEnd()
 
             # Create the note instance
             service_name = "com.sun.star.text.Footnote" if note_type == "footnote" else "com.sun.star.text.Endnote"

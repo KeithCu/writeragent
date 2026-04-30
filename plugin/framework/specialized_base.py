@@ -29,6 +29,7 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.framework.smol_executor import SmolAgentExecutor
+from plugin.framework.specialized_shapes_context import format_shapes_canvas_context
 
 log = logging.getLogger("writeragent.specialized")
 
@@ -182,10 +183,24 @@ class DelegateToSpecializedBase(ToolBase):
             status_callback=status_callback,
         )
 
+        footnotes_hint = ""
+        if domain == "footnotes":
+            footnotes_hint = (
+                " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+                "pass that exact string as insert_after_text so the note is placed after that text; "
+                "the sub-agent cannot move the view cursor."
+            )
+        shapes_canvas = ""
+        if domain == "shapes":
+            canvas = format_shapes_canvas_context(getattr(ctx, "doc", None))
+            if canvas:
+                shapes_canvas = canvas
         instructions = (
             f"You are a specialized {self._agent_label} agent focused on the '{domain}' domain. "
             f"You have a focused set of tools to accomplish your task. "
             f"Use them to fulfill the user's request."
+            f"{footnotes_hint}"
+            f"{shapes_canvas}"
         )
 
         max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")

@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import MagicMock, patch
-import sys
 
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
@@ -22,6 +21,16 @@ class DummyTableTool(ToolWriterSpecialBase):
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "message": "Table created"}
+
+
+class DummyShapeTool(ToolWriterSpecialBase):
+    name = "dummy_shape_tool"
+    description = "A dummy shape tool."
+    parameters = {"type": "object", "properties": {}, "required": []}
+    specialized_domain = "shapes"
+
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok", "message": "ok"}
 
 
 class DummyCalcSpecialTool(ToolCalcSpecialBase):
@@ -52,6 +61,7 @@ class DummyDrawSpecialTool(ToolDrawSpecialBase):
 def registry():
     r = ToolRegistry(services={})
     r.register(DummyTableTool())
+    r.register(DummyShapeTool())
     r.register(SpecializedWorkflowFinished())
     r.register(DelegateToSpecializedWriter())
     return r
@@ -65,7 +75,7 @@ def mock_ctx(registry):
     return ctx
 
 
-from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.framework.config import get_config_int as _real_get_config_int
 
 def _mock_get_config_int_for_sub_agent(ctx, key):
@@ -108,7 +118,6 @@ def test_specialized_delegation_sub_agent_mode(
     # Setup the mocked smolagents agent to yield a FinalAnswerStep
     mock_agent_instance = MagicMock()
 
-    from plugin.contrib.smolagents.memory import FinalAnswerStep
     dummy_final_step = FinalAnswerStep(output="Mocked agent summary")
     mock_agent_instance.run.return_value = [dummy_final_step]
 
@@ -146,6 +155,75 @@ def test_specialized_delegation_sub_agent_mode(
     smol_tool_names = [t.name for t in smol_tools]
     assert "dummy_table_tool" in smol_tool_names
     assert "specialized_workflow_finished" not in smol_tool_names
+
+
+@patch(
+    "plugin.framework.specialized_base.get_config_int",
+    side_effect=_mock_get_config_int_for_sub_agent,
+)
+@patch("plugin.framework.specialized_base.get_api_config", create=True)
+@patch("plugin.framework.specialized_base.ToolCallingAgent")
+@patch("plugin.framework.specialized_base.WriterAgentSmolModel")
+@patch("plugin.framework.specialized_base.LlmClient")
+def test_shapes_delegation_includes_canvas_in_instructions(
+    mock_llm,
+    mock_smol_model,
+    mock_agent_class,
+    mock_get_config,
+    _mock_get_config_int,
+    registry,
+    mock_ctx,
+):
+    mock_ctx.ctx = MagicMock()
+    mock_get_config.return_value = {}
+
+    doc = MagicMock()
+
+    def supports(svc: str) -> bool:
+        return svc == "com.sun.star.text.TextDocument"
+
+    doc.supportsService = supports
+    doc.getCurrentController.return_value = None
+    style = MagicMock()
+
+    def gv(name: str):
+        return {
+            "Width": 21_000,
+            "Height": 29_700,
+            "LeftMargin": 2_000,
+            "RightMargin": 2_000,
+            "TopMargin": 2_500,
+            "BottomMargin": 2_500,
+            "IsLandscape": False,
+        }[name]
+
+    style.getPropertyValue = gv
+    page_styles = MagicMock()
+    page_styles.hasByName = lambda n: n == "Standard"
+    page_styles.getByName = lambda n: style if n == "Standard" else MagicMock()
+    families = MagicMock()
+    families.getByName = lambda n: page_styles if n == "PageStyles" else MagicMock()
+    doc.getStyleFamilies.return_value = families
+    mock_ctx.doc = doc
+
+    mock_agent_instance = MagicMock()
+    mock_agent_instance.run.return_value = [FinalAnswerStep(output="Shapes done")]
+    mock_agent_class.return_value = mock_agent_instance
+
+    gateway_tool = registry.get("delegate_to_specialized_writer_toolset")
+    mock_ctx.stop_checker = lambda: False
+
+    result = gateway_tool.execute_safe(
+        mock_ctx,
+        domain="shapes",
+        task="Add a rectangle",
+    )
+    assert result["status"] == "ok"
+    instructions = mock_agent_class.call_args.kwargs["instructions"]
+    assert "Document canvas (Writer)" in instructions
+    assert "210.0" in instructions
+    smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
+    assert any(t.name == "dummy_shape_tool" for t in smol_tools)
 
 
 def test_is_specialized_domain_tool_helper():

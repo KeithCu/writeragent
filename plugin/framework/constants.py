@@ -118,6 +118,7 @@ Rules for `task`:
 - Treat it as a complete natural-language specification, not a summary. Enumerate what must be true (types, layout, numbers, colors, style names, anchors, text). If the user was vague, state explicit defaults in the task rather than leaving them undefined.
 - Prefer **concrete, capability-rich** instructions over "minimal" or "basic" when the user is open to it: name specific variants (e.g. exact shape presets, styles, or operations) so the sub-agent can use the full API instead of picking a boring default.
 - Example (domain=shapes): `create_shape` can use on the order of **400+** distinct preset `shape_type` strings in LibreOffice's Enhanced Custom Shape catalog (flowchart-*, stars, callouts, symbols, arrows, etc.), plus standard `com.sun.star.drawing.*Shape` UNO types—so you can ask for a particular catalog name and styling rather than only "a rectangle."
+- Example (domain=footnotes): Quote the **exact** document sentence or unique substring where the note must attach so the sub-agent can know where to put the footnote anchor.
 """
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED CALC (nested tools):
