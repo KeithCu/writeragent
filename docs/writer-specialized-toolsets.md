@@ -288,6 +288,7 @@ Some Writer tools intentionally use `**tier = "extended"`** (or `core`) so users
 | **Footnotes / endnotes**    | ✅ Implemented           | `footnotes.py`: Insert, List, Edit, Delete, SettingsGet/Update                                                                                                                                                                                     | —                                                                                                      |
 | **Tables**                  | ✅ Implemented           | Tables edited via HTML                                                                                                                                                                                                                             | UNO table ops TBD if needed beyond HTML                                                                |
 | **Structural navigation**   | ✅ Implemented           | `structural.py` (`list_sections`, `goto_page`, `read_section`), `navigation.py` (`navigate_heading`, `get_surroundings`), `outline.py` (`get_heading_children`); delegate `domain=structural`. `get_document_tree` / `get_page_objects` stay core. | Technical docs: cross-refs, callouts, revision marks, change bars (not agent)                          |
+| **Sections**                | ✅ Partially implemented | `structural.py`: `list_sections`, `read_section` (read-only). Create/edit/delete and per-section property setters not implemented. See [§5.3 Future work: Sections specialized toolset](#53-future-work-sections-specialized-toolset).             | Create/insert `TextSection`; `TextColumns`, `IsVisible`/`Condition`, `IsProtected` (+ password), `SectionLeft/RightMargin`, `BackColor`/`BackGraphic*`, `FileLink`/`LinkRegion`, `DDECommand*`, per-section footnote/endnote scoping; nesting; delete/rename |
 | **Forms**                   | ✅ Partially implemented | 'forms.py'                                                                                                                                                                                                                                         | remaining: DB integration                                                                              |
 | **Mail merge**              | ❌ Not implemented       | No module                                                                                                                                                                                                                                          | Data sources (CSV/DB/sheets); merge fields; execution; labels; envelopes; email merge                  |
 | **Bibliography**            | ❌ Not implemented       | No module                                                                                                                                                                                                                                          | Bib DB; citation styles; insertion/formatting; bibliography generation; reference managers             |
@@ -312,6 +313,60 @@ Some Writer tools intentionally use `**tier = "extended"`** (or `core`) so users
 - **Gateway:** `delegate_to_specialized_writer_toolset` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
 - **Prompt:** `WRITER_SPECIALIZED_DELEGATION` in `constants.py` teaches when to delegate.
 - **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
+
+### 5.3 Future work: Sections specialized toolset
+
+Sections (`com.sun.star.text.TextSection`) are a substantial Writer feature that is currently only **read-only** in WriterAgent (`list_sections` and `read_section` under the `structural` domain in [`plugin/modules/writer/structural.py`](../../plugin/modules/writer/structural.py)). A full create/edit/property surface belongs in its own specialized domain. This subsection captures the design context so that work can be picked up later.
+
+#### What sections are
+
+A `TextSection` is a range of **complete paragraphs** in a Writer document, grouped so that a focused set of layout, visibility, linking, and footnote-handling properties apply to that range only. Sections can be **nested**. UI entry points are **Insert > Section** and **Format > Sections**.
+
+#### What sections scope (and why this is a substantial domain)
+
+Sections are the **only** way Writer can vary several properties below the page-style level on the same page, which makes them tightly coupled with page styles, columns, and footnotes. Properties scoped by a section include:
+
+- **Multi-column layout** — `TextColumns` (`XTextColumns`); independent of the page style; required when mixing single- and multi-column blocks on one page.
+- **Visibility / conditional hiding** — `IsVisible` (boolean) and `Condition` (string, boolean expression evaluated against fields/user variables).
+- **Protection** — `IsProtected` (boolean), optionally password-secured via the section dialog.
+- **Margins / indents** — `SectionLeftMargin`, `SectionRightMargin` (long, 1/100 mm).
+- **Background** — `BackGraphicURL`, `BackGraphicFilter`, `BackGraphicLocation`, plus background color (paragraph-style-like properties).
+- **External content link** — `FileLink` (`SectionFileLink` struct: file URL + filter), `LinkRegion` (named source section/bookmark in the linked file).
+- **DDE** — `DDECommandFile`, `DDECommandType`, `DDECommandElement` for live data exchange.
+- **Footnote / endnote scoping** — `FootnoteIsCollectAtTextEnd`, `FootnoteIsRestartNumbering`, `FootnoteNumberingType`, `FootnoteNumberingPrefix`/`Suffix`, plus endnote equivalents (`Endnote*`).
+
+UI restriction worth surfacing in tool errors: a section **cannot** be hidden when it is the only content on a page or when it lives inside a header, footer, footnote, endnote, frame, or table cell.
+
+#### UNO API summary
+
+- **Discovery / collection:** `doc` implements `com.sun.star.text.XTextSectionsSupplier`; `doc.getTextSections()` returns an `XNameAccess` of named `TextSection` instances.
+- **Create:** `doc.createInstance("com.sun.star.text.TextSection")` then `XText.insertTextContent(xRange, xSection, bAbsorb=True)` to wrap an existing range. Setting `bAbsorb=True` over a multi-paragraph selection is the canonical "wrap selection in a section" pattern.
+- **Properties:** `TextSection` supports `com.sun.star.beans.XPropertySet`; all properties above are read/written via `getPropertyValue` / `setPropertyValue`.
+- **Columns helper:** `TextColumns` values come from `doc.createInstance("com.sun.star.text.TextColumns")`, configured via `setColumnCount(n)` and per-column gaps/widths, then assigned back with `setPropertyValue("TextColumns", cols)`.
+- **Delete / rename:** sections expose `XTextContent` (so `removeTextContent` works) and `XNamed` for rename.
+
+#### Why this belongs in its own specialized domain
+
+- **Schema surface is large** (file link, DDE, footnote scoping, columns, background) and overlaps **page** (page columns), **fields** (condition expressions), **footnotes** (per-section overrides), and **structural** (existing read-only navigation). Putting these in the default chat tool list would noticeably grow context and confuse tool selection — the exact problem the delegation pattern solves (see [§1.1 Why this feature exists](#11-why-this-feature-exists)).
+- **Multi-step workflows** (create section, set columns, set protection, optionally attach a file link) map well to a short-lived sub-agent with only `sections_*` tools visible.
+- **Read path already lives in `structural`**; the write path could either join `structural` or get its own `sections` domain. Recommendation: a dedicated `sections` domain so `structural` stays purely navigational.
+
+#### Proposed future tools (sketch, not implemented)
+
+- `create_section(name, range_locator, columns?, hide?, condition?, protect?, password?, file_link?, dde?, footnote_scope?)`
+- `delete_section(name)` / `rename_section(old_name, new_name)`
+- `get_section_properties(name)` / `set_section_properties(name, ...)`
+- `set_section_columns(name, count, gap?, separator?)`
+- `set_section_link(name, file_url, filter?, link_region?)` / `clear_section_link(name)`
+- `set_section_protection(name, protected, password?)`
+- `set_section_visibility(name, visible, condition?)`
+- `set_section_footnote_scope(name, ...)`
+
+#### References
+
+- TextSection service: [api.libreoffice.org TextSection](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1text_1_1TextSection.html).
+- User-facing guide: [help.libreoffice.org "Using Sections"](https://help.libreoffice.org/latest/en-US/text/swriter/guide/sections.html).
+- Existing read tools: [`plugin/modules/writer/structural.py`](../../plugin/modules/writer/structural.py).
 
 ### 6.7 Cross-cutting Enhancements
 
