@@ -79,8 +79,13 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `list_form_controls` | `forms` | `writer/forms.py` | List form controls | Drawing+Presentation+Spreadsheet+Text |
 | `edit_form_control` | `forms` | `writer/forms.py` | Modify a form control | Drawing+Presentation+Spreadsheet+Text |
 | `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control | Drawing+Presentation+Spreadsheet+Text |
+| `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 
 > **Note**: Form tools are implemented in `writer/forms.py` but inherit from `ToolDrawFormBase`, making them available across document types. This document focuses on Draw/Impress usage.
+
+### 2.3 insert_math (math domain)
+
+> **Follow-up — shape size / bounding box:** `insert_math` does not take width/height from the model. It attempts content-based sizing via the embedded object’s `XVisualObject.getVisualAreaSize` (after the formula is set), then falls back to a simple heuristic from formula length. **In practice this often still looks wrong** (too small or large, wrong aspect, or inconsistent across LibreOffice versions and headless vs GUI). This area **needs more engineering**: validate UNO sizing across builds, consider map-unit edge cases, optional post-insert resize once the OLE is realized, or expose optional max dimensions while keeping defaults automatic.
 
 ----
 
@@ -98,6 +103,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | **Tree Structure (core)** | ✅ Complete | 1 tool | JSON DOM for LLM understanding |
 | **Web Research (specialized)** | ✅ Complete | 1 tool | Delegated search |
 | **Forms (specialized)** | ✅ Complete | 6 tools | Form controls (shared with Writer) |
+| **Math (specialized)** | partial | 1 tool (`insert_math`) | LaTeX/MathML → OLE Math on slide; **bounding-box sizing still unreliable** — see [§2.3](#23-insert_math-math-domain) |
 | **Animations** | ❌ Missing | — | Slide + shape-level animations |
 | **Layers** | ❌ Missing | — | Draw layer management |
 | **Slide Show** | ❌ Missing | — | Start, stop, presenter mode |
@@ -156,6 +162,7 @@ Some tools are implemented in shared modules but work with Draw/Impress:
 | Task | Effort | Impact | Status |
 |------|--------|--------|--------|
 | Add `PresentationDocument` to `uno_services` for 9 tools | 1 hour | Unblocks Impress users from core shape/page tools | ✅ **Done** |
+| Improve `insert_math` OLE shape sizing (`math_insert.py`) | Medium | Correct default box for formulas without model-supplied width/height | Open — see [§2.3](#23-insert_math-math-domain) |
 
 ### 5.2 Priority 2: High-Value Features
 
