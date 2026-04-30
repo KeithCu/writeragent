@@ -44,6 +44,7 @@ More than just a chatbot, this is a "Document Agent." It doesn't just read your 
 - **Image Generation**: Generate from chat or edit selected images (Img2Img) using AI Horde or your configured endpoint.
 - **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
 - **Calc rich text in one cell**: The `insert_cell_html` tool pastes **HTML** into a **single cell** on the active sheet (inline bold, italics, links, line breaks) using the same StarWriter import path as Writer, then a transferable paste—see [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md#rich-html-in-a-single-cell).
+- **Calc batch edits**: Range tools (`write_formula_range`, `set_cell_style`, and similar) apply formulas, bulk data, and formats in one shot instead of cell-by-cell.
 - **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name and favorite colors) and give tips. The librarian and general chat agent use the `upsert_memory` tool to store user preferences.
 - **Multilingual & HiDPI**: Ships with support for 34 locales (`de`, `es`, `fr`, `it`, `ja`, `ko`, `pl`, `pt`, `ru`, `zh_CN`, `zh_TW`, `hi_IN`, `id`, `bn_IN`, `ur_PK`, `nl`, `sv`, `da`, `fi`, `ca`, `el`, `cs`, `hu`, `ro`, `nb_NO`, `nn_NO`, `uk`, `tr`, `sk`, `bg`, `hr`, `lt`, `lv`, `et`); Optimized for modern high-resolution displays using device-independent units.
 - **Writer math in HTML**: **MathML** (`<math>…</math>`) and common **TeX** delimiters (`$…$`, `$$…$$`, `\(...\)`, `\[...\]`) are turned into **editable LibreOffice Math** formulas (OLE objects), not screenshots. Details: [libreoffice-html-math-dev-plan.md](docs/libreoffice-html-math-dev-plan.md).
@@ -134,14 +135,6 @@ Their client-side tool call parsers and robust JSON repair strategies (adapted f
 **[latex2mathml](https://github.com/roniemartinez/latex2mathml)**
 
 **latex2mathml** converts LaTeX to MathML in pure Python. WriterAgent vendors it so that when models send TeX-delimited math inside HTML for `apply_document_content`, we can turn it into MathML and feed the same LibreOffice-backed path used for native `<math>` islands (`plugin/modules/writer/math_mml_convert.py`). We are grateful for a small, permissively licensed bridge.
-
-## Performance & Batch Optimizations
-
-To handle complex spreadsheet tasks, WriterAgent is optimized for high-throughput "batch" operations:
-
-- **Batch Tool-Calling**: Instead of making one-by-one changes, tools like `write_formula_range` and `set_cell_style` operate on entire ranges in a single call.
-- **High-Volume Insertion**: The `write_formula_range` tool allows the AI to generate and inject large CSV datasets instantly. This is orders of magnitude faster than inserting data cell-by-cell; we found that providing these batch tools encourages the AI to perform far more ambitious spreadsheet automation and data analysis.
-- **Optimized Ranges**: Formatting and number formats are applied at the range level, minimizing UNO calls and ensuring the UI remains fluid even during heavy document analysis.
 
 ## Recent Progress & Benchmarks (Apr 2026)
 
