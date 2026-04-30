@@ -281,6 +281,12 @@ class SendHandlersMixin:
                         "image_model": image_model_text,
                     },
                 )
+                if isinstance(res, dict) and res.get("status") == "error":
+                    log.error(
+                        "generate_image (direct) failed: %s details=%s",
+                        res.get("message"),
+                        res.get("details"),
+                    )
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})
                 if isinstance(data, dict):

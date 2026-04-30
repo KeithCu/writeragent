@@ -16,10 +16,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Base class for all tools."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, format_error_payload
+
+_log = logging.getLogger(__name__)
 
 
 _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
@@ -125,6 +128,10 @@ class ToolBase(ABC):
                     )
             return self.execute(ctx, **kwargs)
         except Exception as e:
+            _log.exception(
+                "Tool '%s' execution failed",
+                self.name if self.name else "<unknown>",
+            )
             return self._tool_error(
                 f"Tool execution failed: {str(e)}",
                 code="TOOL_EXECUTION_ERROR",

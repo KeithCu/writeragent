@@ -150,7 +150,7 @@ Tools go through `tool_registry` / `ToolContext`. Modular tools: `cells.py`, `fo
 
 ## 6. Images (summary)
 
-**Providers**: AI Horde ([`aihordeclient/`](plugin/framework/aihordeclient/)) vs **endpoint** (same URL/key as chat, **`image_model`** / `image_model_lru`). **Direct image** sidebar checkbox: `chat_direct_image` → `execute_tool("generate_image", …)`. ImageService: [`image_service.py`](plugin/framework/image_service.py); insertion/cursor rules: [`image_tools.py`](plugin/framework/image_tools.py) (ViewCursor → TextCursor before `insertTextContent`). Full keys: [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
+**Providers**: AI Horde ([`aihordeclient/`](plugin/framework/aihordeclient/)) vs **endpoint** (same URL/key as chat, **`image_model`** / `image_model_lru`). **Direct image** sidebar checkbox: `chat_direct_image` → `execute_tool("generate_image", …)`. **`ImageService`** ([`image_utils.py`](plugin/framework/image_utils.py)): `GenerateImage` passes `config=None`; endpoint `get_provider` uses `(self.config or {})` for `image_model` then **`get_image_model`** (not chat `get_text_model`) so OpenRouter `modalities: ["image"]` targets the configured image model. Optional tool arg **`image_model`** passes the sidebar combobox through the registry filter to the provider. **`ToolBase.execute_safe`** logs `logger.exception` on failure so swallowed tool errors still appear in `writeragent_debug.log`. Insertion/cursor rules: [`image_tools.py`](plugin/framework/image_tools.py) (ViewCursor → TextCursor before `insertTextContent`). Full keys: [IMAGE_GENERATION.md](IMAGE_GENERATION.md).
 
 ---
 

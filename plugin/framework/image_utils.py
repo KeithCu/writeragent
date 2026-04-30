@@ -58,6 +58,9 @@ class EndpointImageProvider(ImageProvider):
 
     def generate(self, prompt, width=512, height=512, model=None, steps=None, **kwargs):
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
+        override = kwargs.pop("image_model", None)
+        if isinstance(override, str) and override.strip():
+            model = override.strip()
         model = model or self.model
         # For OpenRouter edit (img2img): send multimodal message with text + source image
         source_image = kwargs.get("source_image")
@@ -77,7 +80,9 @@ class EndpointImageProvider(ImageProvider):
         fallback_content = ""
 
         if self.client.config.get("is_openrouter"):
-            method, path, body, headers = self.client.make_chat_request(messages, max_tokens=1000)
+            method, path, body, headers = self.client.make_chat_request(
+                messages, max_tokens=1000, model=model
+            )
             body_dict = json.loads(body)
             body_dict["modalities"] = ["image"]
             if steps is not None and steps > 0:
@@ -85,7 +90,9 @@ class EndpointImageProvider(ImageProvider):
             if "max_tokens" in kwargs:
                 body_dict["max_tokens"] = kwargs["max_tokens"]
 
-            chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict))
+            chat_resp = self.client.request_with_tools(
+                messages, body_override=json.dumps(body_dict), model=model
+            )
             fallback_content = chat_resp.get("content") or ""
 
             # Parse response: OpenRouter etc. may put image in message.images[].image_url.url
@@ -298,9 +305,10 @@ class ImageService:
         if name == "aihorde":
             return AIHordeImageProvider(self.config, self.ctx)
         if name == "endpoint":
-            from plugin.framework.config import get_api_config, get_text_model
+            from plugin.framework.config import get_api_config, get_image_model
             api_config = get_api_config(self.ctx).copy()
-            api_config["model"] = (self.config.get("image_model") or "").strip() or get_text_model(self.ctx)
+            cfg = self.config or {}
+            api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model(self.ctx)
             return EndpointImageProvider(api_config, self.ctx)
         return None
 

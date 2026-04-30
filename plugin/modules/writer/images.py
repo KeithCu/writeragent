@@ -35,7 +35,13 @@ import urllib.request
 import ssl
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.image_utils import ImageService
-from plugin.framework.config import get_config, get_text_model, get_config_int, get_config_bool, get_config_str, update_lru_history
+from plugin.framework.config import (
+    get_image_model,
+    get_config_int,
+    get_config_bool,
+    get_config_str,
+    update_lru_history,
+)
 from plugin.framework.image_tools import (
     insert_image, replace_image_in_place, get_selected_image_base64,
     get_selected_image_dimensions_px,
@@ -84,7 +90,11 @@ class GenerateImage(ToolWriterImageBase):
             },
             "width": {"type": "integer", "description": "Override calculated width"},
             "height": {"type": "integer", "description": "Override calculated height"},
-            "provider": {"type": "string", "description": "Override default provider"}
+            "provider": {"type": "string", "description": "Override default provider"},
+            "image_model": {
+                "type": "string",
+                "description": "Override Settings image model for this request (endpoint / OpenRouter).",
+            },
         },
         "required": ["prompt"]
     }
@@ -170,7 +180,16 @@ class GenerateImage(ToolWriterImageBase):
         args_copy = {
             k: v
             for k, v in args.items()
-            if k not in ("prompt", "base_size", "aspect_ratio", "width", "height", "provider", "source_image")
+            if k
+            not in (
+                "prompt",
+                "base_size",
+                "aspect_ratio",
+                "width",
+                "height",
+                "provider",
+                "source_image",
+            )
         }
         if is_edit:
             args_copy["source_image"] = source_b64
@@ -214,9 +233,7 @@ class GenerateImage(ToolWriterImageBase):
         msg = execute_on_main_thread(_insert_or_replace, timeout=mt_timeout)
 
         if provider in ("endpoint", "openrouter"):
-            image_model_used = str(
-                args.get("image_model") or get_config(ctx.ctx, "image_model") or get_text_model(ctx.ctx) or ""
-            ).strip()
+            image_model_used = str(args.get("image_model") or get_image_model(ctx.ctx) or "").strip()
             if image_model_used:
                 endpoint = get_config_str(ctx.ctx, "endpoint").strip()
                 update_lru_history(ctx.ctx, image_model_used, "image_model_lru", endpoint)
