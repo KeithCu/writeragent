@@ -8,17 +8,17 @@ This document describes Draw/Impress tool organization, current implementation s
 
 ## 1. Architecture Overview
 
-Draw/Impress tools follow the same **nested delegation** pattern as Writer and Calc:
+Draw/Impress tools follow the same **nested delegation** pattern as Writer:
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
 | `ToolDrawSpecialBase` | Base class for specialized Draw tools | `plugin/modules/draw/base.py` |
-| `specialized_domain` | Domain identifier (e.g., `"charts"`, `"web_research"`) | Class attribute |
+| `specialized_domain` | Domain identifier (e.g., `"charts"`, `"web_research"`, `"forms"`) | Class attribute |
 | `tier = "specialized"` | Marks tool for domain-specific sub-agent | Class attribute |
 | `delegate_to_specialized_draw_toolset` | Gateway tool for delegation | `plugin/modules/draw/specialized.py` |
 | `uno_services` | Document type filtering | Class attribute |
 
-** Delegation flow:**
+**Delegation flow:**
 ```
 Main chat → delegate_to_specialized_draw_toolset → Sub-agent (filtered tools) → final_answer
 ```
@@ -33,18 +33,18 @@ These tools are **always available** to the main agent for Draw/Impress document
 
 | Tool | Module | Services | Description |
 |------|--------|----------|-------------|
-| `list_pages` | `pages.py` | Drawing | Lists all pages/slides |
-| `get_draw_summary` | `shapes.py` | Drawing | Shape summary for a page |
-| `create_shape` | `shapes.py` | Drawing | Create rectangle, ellipse, text, line, connector, custom |
-| `edit_shape` | `shapes.py` | Drawing | Modify shape properties (color, size, text, rotation) |
-| `delete_shape` | `shapes.py` | Drawing | Remove a shape |
-| `connect_shapes` | `shapes.py` | Drawing | Connect two shapes with a line |
-| `group_shapes` | `shapes.py` | Drawing | Group multiple shapes |
+| `list_pages` | `pages.py` | Drawing+Presentation | Lists all pages/slides |
+| `get_draw_summary` | `shapes.py` | Drawing+Presentation | Shape summary for a page |
+| `create_shape` | `shapes.py` | Drawing+Presentation | Create rectangle, ellipse, text, line, connector, custom |
+| `edit_shape` | `shapes.py` | Drawing+Presentation | Modify shape properties (color, size, text, rotation) |
+| `delete_shape` | `shapes.py` | Drawing+Presentation | Remove a shape |
+| `connect_shapes` | `shapes.py` | Drawing+Presentation | Connect two shapes with a line |
+| `group_shapes` | `shapes.py` | Drawing+Presentation | Group multiple shapes |
 | `get_draw_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes (for flowcharts) |
-| `add_slide` | `pages.py` | Drawing | Add a new page/slide |
-| `delete_slide` | `pages.py` | Drawing | Delete a page/slide |
-| `read_slide_text` | `pages.py` | Drawing | Extract text from all shapes on a page |
-| `get_presentation_info` | `pages.py` | Drawing | Metadata: slide count, dimensions, masters |
+| `add_slide` | `pages.py` | Drawing+Presentation | Add a new page/slide |
+| `delete_slide` | `pages.py` | Drawing+Presentation | Delete a page/slide |
+| `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
+| `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
 | `get_slide_transition` | `transitions.py` | Presentation | Get transition effect/speed/duration |
 | `set_slide_transition` | `transitions.py` | Presentation | Set transition effect/speed/duration |
 | `get_slide_layout` | `transitions.py` | Presentation | Get current layout |
@@ -52,33 +52,35 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `list_master_slides` | `masters.py` | Drawing+Presentation | List all master slides |
 | `get_slide_master` | `masters.py` | Drawing+Presentation | Get master for a slide |
 | `set_slide_master` | `masters.py` | Drawing+Presentation | Assign a master to a slide |
-| `get_speaker_notes` | `notes.py` | Presentation | Read speaker notes |
-| `set_speaker_notes` | `notes.py` | Presentation | Set speaker notes |
+| `get_speaker_notes` | `notes.py` | Presentation | Read speaker notes (Impress only) |
+| `set_speaker_notes` | `notes.py` | Presentation | Set speaker notes (Impress only) |
 | `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `get_placeholder_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `set_placeholder_text` | `placeholders.py` | Presentation | Set text in a placeholder |
-| `list_charts` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | List all charts |
-| `get_chart_info` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | Get chart details |
-| `create_chart` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | Create a new chart |
-| `edit_chart` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | Modify a chart |
-| `delete_chart` | `charts.py` | Drawing+Presentation+Spreadsheet+Text | Remove a chart |
+| `list_charts` | `charts.py` | Drawing+Presentation | List all charts |
+| `get_chart_info` | `charts.py` | Drawing+Presentation | Get chart details |
+| `create_chart` | `charts.py` | Drawing+Presentation | Create a new chart |
+| `edit_chart` | `charts.py` | Drawing+Presentation | Modify a chart |
+| `delete_chart` | `charts.py` | Drawing+Presentation | Remove a chart |
 | `delegate_to_specialized_draw_toolset` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
 
-> ✅ **Fixed**: All tools now correctly include both `DrawingDocument` and `PresentationDocument` in their `uno_services` declarations.
+> ✅ **Fixed**: All applicable tools now correctly include both `DrawingDocument` and `PresentationDocument` in their `uno_services` declarations where appropriate. Tools marked "Impress only" correctly use `PresentationDocument` only.
 
 ### 2.2 Specialized Tools (tier = "specialized")
 
 These are available only via `delegate_to_specialized_draw_toolset`:
 
-| Tool | Domain | Module | Purpose |
-|------|--------|--------|---------|
-| `WebResearchTool` | `web_research` | `web_research.py` | Web search for context |
-| `create_form_control` | `forms` | `writer/forms.py` | Create a single form control |
-| `create_form` | `forms` | `writer/forms.py` | Create multiple form controls |
-| `generate_form` | `forms` | `writer/forms.py` | Generate form from description |
-| `list_form_controls` | `forms` | `writer/forms.py` | List form controls |
-| `edit_form_control` | `forms` | `writer/forms.py` | Modify a form control |
-| `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control |
+| Tool | Domain | Module | Purpose | Services |
+|------|--------|--------|---------|---------|
+| `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
+| `create_form_control` | `forms` | `writer/forms.py` | Create a single form control | Drawing+Presentation+Spreadsheet+Text |
+| `create_form` | `forms` | `writer/forms.py` | Create multiple form controls | Drawing+Presentation+Spreadsheet+Text |
+| `generate_form` | `forms` | `writer/forms.py` | Generate form from description | All |
+| `list_form_controls` | `forms` | `writer/forms.py` | List form controls | Drawing+Presentation+Spreadsheet+Text |
+| `edit_form_control` | `forms` | `writer/forms.py` | Modify a form control | Drawing+Presentation+Spreadsheet+Text |
+| `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control | Drawing+Presentation+Spreadsheet+Text |
+
+> **Note**: Form tools are implemented in `writer/forms.py` but inherit from `ToolDrawFormBase`, making them available across document types. This document focuses on Draw/Impress usage.
 
 ----
 
@@ -86,15 +88,16 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 
 | Domain | Status | Tools | Notes |
 |--------|--------|-------|-------|
-| **Shapes (core)** | ✅ Complete | 6 tools | Create, edit, delete, connect, group, summary |
+| **Shapes (core)** | ✅ Complete | 7 tools | Create, edit, delete, connect, group, summary, tree |
 | **Pages/Slides (core)** | ✅ Complete | 4 tools | List, add, delete, read text |
 | **Master Slides (core)** | ✅ Complete | 3 tools | List, get, set |
-| **Speaker Notes (core)** | ✅ Complete | 2 tools | Get, set (Impress only) |
+| **Speaker Notes (core)** | ✅ Complete | 2 tools | Get, set (Impress only — Draw has no speaker notes) |
 | **Placeholders (core)** | ✅ Complete | 3 tools | List, get text, set text (Impress only) |
 | **Transitions (core)** | ✅ Complete | 4 tools | Get/set transition, get/set layout |
 | **Charts (specialized)** | ✅ Complete | 5 tools | Full CRUD + info |
 | **Tree Structure (core)** | ✅ Complete | 1 tool | JSON DOM for LLM understanding |
 | **Web Research (specialized)** | ✅ Complete | 1 tool | Delegated search |
+| **Forms (specialized)** | ✅ Complete | 6 tools | Form controls (shared with Writer) |
 | **Animations** | ❌ Missing | — | Slide + shape-level animations |
 | **Layers** | ❌ Missing | — | Draw layer management |
 | **Slide Show** | ❌ Missing | — | Start, stop, presenter mode |
@@ -109,34 +112,40 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | **Guides/Grid** | ❌ Missing | — | Snap settings, custom guides |
 | **OCR** | ❌ Missing | — | Text from images |
 | **Export** | ❌ Missing | — | PDF, image, video export |
-| **Forms (specialized)** | ✅ Complete | 6 tools | Interactive form controls |
 | **Macros** | ❌ Missing | — | Automation scripts |
 | **Versioning** | ❌ Missing | — | Document history |
 
 ----
 
-## 4. Service Coverage Issues
+## 4. Service Coverage Notes
 
 ### 4.1 `uno_services` Fix Applied ✅
 
-**Completed**: Added `"com.sun.star.presentation.PresentationDocument"` to `uno_services` for all 9 tools:
+**Completed**: Added `"com.sun.star.presentation.PresentationDocument"` to `uno_services` for 9 core tools:
 
 - `ListPages`, `GetDrawSummary`, `CreateShape`, `EditShape`, `ConnectShapes`, `GroupShapes`, `DeleteShape` (in `shapes.py`)
 - `ReadSlideText`, `GetPresentationInfo` (in `pages.py`)
 
 These tools now work with both Draw and Impress documents.
 
-### 4.2 Chart Tools Already Correct
+### 4.2 Impress-Only Features
 
-The chart tools in `plugin/modules/draw/charts.py` correctly include all document types:
-```python
-_ALL_CHART_DOCS = [
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.text.TextDocument",
-]
-```
+The following features are **intentionally Impress-only** as Draw does not support them:
+- Speaker notes (`get_speaker_notes`, `set_speaker_notes`)
+- Slide placeholders (`list_placeholders`, `get_placeholder_text`, `set_placeholder_text`)
+- Slide transitions (`get_slide_transition`, `set_slide_transition`, `get_slide_layout`, `set_slide_layout`)
+- Master slides (`list_master_slides`, `get_slide_master`, `set_slide_master`)
+
+> These tools correctly use `uno_services = ["com.sun.star.presentation.PresentationDocument"]` only.
+
+### 4.3 Shared Tools (Draw + Impress + Other Types)
+
+Some tools are implemented in shared modules but work with Draw/Impress:
+
+- **Charts** (`plugin/modules/draw/charts.py`): Chart tools work across all document types that support charts
+- **Forms** (`writer/forms.py`): Form tools inherit from `ToolDrawFormBase` (`plugin/modules/draw/base.py`) and work across document types that support form controls
+
+> This document focuses on Draw/Impress-specific usage of these shared tools.
 
 ----
 
@@ -147,8 +156,6 @@ _ALL_CHART_DOCS = [
 | Task | Effort | Impact | Status |
 |------|--------|--------|--------|
 | Add `PresentationDocument` to `uno_services` for 9 tools | 1 hour | Unblocks Impress users from core shape/page tools | ✅ **Done** |
-| Add `DrawingDocument` to speaker notes tools | 30 min | Allows notes in Draw | ❌ **N/A (Not supported by Draw)** |
-| Restrict placeholders to Impress | 30 min | Keeps Draw toolset clean | ✅ **Done** |
 
 ### 5.2 Priority 2: High-Value Features
 
@@ -188,7 +195,6 @@ Create new specialized domains for sub-agent delegation:
 - **Presenter Console**: Presenter view with notes timer
 - **Themes**: Color schemes, font schemes
 - **Templates**: Document template management
-- **Forms**: Interactive form controls in presentations
 - **Macros**: Recording and execution
 - **Versioning**: Document history and rollback
 - **3D Objects**: 3D shape creation and manipulation
@@ -258,6 +264,9 @@ Create new specialized domains for sub-agent delegation:
 - `plugin/tests/uno/test_impress_shapes.py` - Shape CRUD in Impress
 - `plugin/tests/uno/test_draw_pages.py` - Page management
 - `plugin/tests/uno/test_impress_slides.py` - Slide-specific features
+- `plugin/tests/uno/test_draw_transitions.py` - Transition handling
+- `plugin/tests/uno/test_impress_notes.py` - Speaker notes
+- `plugin/tests/uno/test_impress_placeholders.py` - Placeholder handling
 
 ----
 
@@ -300,18 +309,9 @@ This pattern could be extended to other domains.
 ## 9. References
 
 - [LibreOffice API Reference — Draw](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1drawing_1_1XDrawPage.html)
-- [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1presentation_1_1XPresentation.html)
+- [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1star_1_1presentation_1_1XPresentation.html)
 - [LibreOffice Draw/Impress UNO Examples](https://wiki.documentfoundation.org/Documentation/DevGuide/Drawings/Tutorial)
 - [Writer specialized toolsets](writer-specialized-toolsets.md) — Architecture reference
 - [AGENTS.md](../../AGENTS.md) — Project overview
-d to other domains.
-
-----
-
-## 9. References
-
-- [LibreOffice API Reference — Draw](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1drawing_1_1XDrawPage.html)
-- [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1presentation_1_1XPresentation.html)
-- [LibreOffice Draw/Impress UNO Examples](https://wiki.documentfoundation.org/Documentation/DevGuide/Drawings/Tutorial)
-- [Writer specialized toolsets](writer-specialized-toolsets.md) — Architecture reference
+ [Writer specialized toolsets](writer-specialized-toolsets.md) — Architecture reference
 - [AGENTS.md](../../AGENTS.md) — Project overview
