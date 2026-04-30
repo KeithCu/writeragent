@@ -1,10 +1,9 @@
-import sys
-import types
 from unittest.mock import MagicMock
 
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
+from plugin.modules.calc.base import ToolCalcSpecialBase
 from plugin.modules.writer.tracking import (
     TrackChangesStart,
     TrackChangesStop,
@@ -53,6 +52,22 @@ def _create_mock_ctx():
     doc.getCurrentController.return_value = controller
     
     return ctx, dispatcher, frame, view_settings
+
+def test_track_changes_tools_support_calc_document_type():
+    assert isinstance(TrackChangesStart(), ToolCalcSpecialBase)
+    assert isinstance(TrackChangesAccept(), ToolCalcSpecialBase)
+    expected = (
+        "com.sun.star.text.TextDocument",
+        "com.sun.star.sheet.SpreadsheetDocument",
+    )
+    assert TrackChangesStart.uno_services == list(expected)
+    assert TrackChangesList.uno_services == list(expected)
+
+
+def test_track_changes_comment_tools_writer_only():
+    assert not isinstance(TrackChangesCommentInsert(), ToolCalcSpecialBase)
+    assert TrackChangesCommentInsert.uno_services == ["com.sun.star.text.TextDocument"]
+
 
 def test_track_changes_start():
     ctx, _, _, _ = _create_mock_ctx()
@@ -125,6 +140,23 @@ def test_track_changes_show():
     res = tool.execute(ctx, show=True)
     assert res["status"] == "ok"
     view_settings.setPropertyValue.assert_called_with("ShowChangesInMargin", True)
+
+
+def test_track_changes_show_calc_like_controller_returns_stub():
+    """Spreadsheet controllers have no getViewSettings; Calc path is a no-op stub for now."""
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    class CalcLikeController:
+        pass
+
+    doc.getCurrentController.return_value = CalcLikeController()
+    ctx.doc = doc
+
+    res = TrackChangesShow().execute(ctx, show=True)
+    assert res["status"] == "ok"
+    assert res.get("calc_track_changes_show_unsupported") is True
+    assert "not supported" in res["message"].lower()
 
 def test_track_changes_accept_all():
     ctx, dispatcher, frame, _ = _create_mock_ctx()

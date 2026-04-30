@@ -80,3 +80,11 @@ class ToolCalcAnalysisBase(ToolCalcSpecialBase):
     specialized_domain = "analysis"
     intent = "analyze"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
+class ToolCalcSpecialTracking(ToolCalcSpecialBase):
+    """Track changes (shared tool classes with Writer via multiple inheritance)."""
+
+    specialized_domain: ClassVar[str | None] = "tracking"
+    intent = "review"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]

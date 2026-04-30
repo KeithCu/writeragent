@@ -14,29 +14,58 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer track-changes tools.
+"""Writer and Calc track-changes tools.
 
 Provides the complete suite of specialized track changes tools:
 track_changes_start, track_changes_stop, track_changes_list,
 track_changes_accept, track_changes_reject, track_changes_accept_all,
 track_changes_reject_all, and track_changes_show.
 
-Also includes tools for managing document comments (Annotations).
+Also includes tools for managing document comments (Annotations) in Writer only.
 """
 
 import datetime
 import logging
 from typing import Any
 
-
+from plugin.modules.calc.base import ToolCalcSpecialTracking
 from plugin.modules.writer.base import WriterAgentSpecialTracking
 
 log = logging.getLogger("writeragent.writer")
 
+_TRACK_CHANGES_UNO_SERVICES = [
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+]
 
-class TrackChangesStart(WriterAgentSpecialTracking):
+
+def _calc_track_changes_show_markup(
+    _ctx: Any, _controller: Any, show: bool
+) -> dict[str, Any]:
+    """Calc: show/hide tracked-change markup from tools is deferred (no stable UNO path yet).
+
+    INVESTIGATE LATER: spreadsheet controllers lack ``getViewSettings``/``ShowChangesInMargin``.
+    A prior attempt scanned the controller as ``XPropertySet`` for boolean props matching
+    change/track + show/visible, then dispatched ``.uno:ShowTrackedChanges``; Calc still did
+    not reliably expose or toggle markup the way Writer does. Revisit when LibreOffice
+    documents a supported API (or headless-safe dispatch with deterministic state).
+    """
+    _ = show
+    return {
+        "status": "ok",
+        "message": (
+            "Calc: showing or hiding tracked-change markup from WriterAgent is not supported "
+            "yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. "
+            "track_changes_start / track_changes_stop still control recording."
+        ),
+        "calc_track_changes_show_unsupported": True,
+    }
+
+
+class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Start recording changes."""
 
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_start"
     description = "Start recording changes (track changes) in the document."
     parameters = {
@@ -54,9 +83,10 @@ class TrackChangesStart(WriterAgentSpecialTracking):
             return self._tool_error(f"Failed to start tracking changes: {e}")
 
 
-class TrackChangesStop(WriterAgentSpecialTracking):
+class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Stop recording changes."""
 
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_stop"
     description = "Stop recording changes (track changes) in the document."
     parameters = {
@@ -74,9 +104,10 @@ class TrackChangesStop(WriterAgentSpecialTracking):
             return self._tool_error(f"Failed to stop tracking changes: {e}")
 
 
-class TrackChangesList(WriterAgentSpecialTracking):
+class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """List all tracked changes (redlines) in the document."""
 
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_list"
     description = (
         "List all tracked changes (redlines) in the document, "
@@ -141,11 +172,16 @@ class TrackChangesList(WriterAgentSpecialTracking):
             return self._tool_error(f"Failed to list tracked changes: {e}")
 
 
-class TrackChangesShow(WriterAgentSpecialTracking):
+class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Show or hide change markup."""
 
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_show"
-    description = "Show or hide tracked changes markup in the document view."
+    description = (
+        "Show or hide tracked changes markup in the document view (Writer). "
+        "On Calc, recording still works; this call returns guidance to use LibreOffice "
+        "menus for show/hide markup until UNO support is implemented."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -163,28 +199,29 @@ class TrackChangesShow(WriterAgentSpecialTracking):
         if show is None:
             return self._tool_error("Missing required parameter: show")
 
-        try:
-            view_settings = ctx.doc.getCurrentController().getViewSettings()
-            view_settings.setPropertyValue("ShowChangesInMargin", bool(show))
-            
-            # Additional related properties if needed, although LibreOffice 
-            # uses ShowChangesInMargin for margin tracking and there isn't 
-            # a single "ShowChanges" global API property exposed consistently 
-            # across all view controllers.
-            # For exact control, setting view settings properties is safer than 
-            # dispatching the .uno:ShowTrackedChanges toggle command.
-            
-            return {
-                "status": "ok", 
-                "message": f"{'Showing' if show else 'Hiding'} tracked changes markup."
-            }
-        except Exception as e:
-            return self._tool_error(f"Failed to set track changes visibility: {e}")
+        show_b = bool(show)
+        controller = ctx.doc.getCurrentController()
+        view_getter = getattr(controller, "getViewSettings", None)
+        if callable(view_getter):
+            try:
+                view_settings: Any = view_getter()
+                view_settings.setPropertyValue("ShowChangesInMargin", show_b)
+                return {
+                    "status": "ok",
+                    "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup.",
+                }
+            except Exception as e:
+                return self._tool_error(
+                    f"Failed to set track changes visibility: {e}"
+                )
+
+        return _calc_track_changes_show_markup(ctx, controller, show_b)
 
 
-class TrackChangesAcceptAll(WriterAgentSpecialTracking):
+class TrackChangesAcceptAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Accept all tracked changes in the document."""
 
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_accept_all"
     description = "Accept all tracked changes in the document."
     parameters = {
@@ -208,9 +245,10 @@ class TrackChangesAcceptAll(WriterAgentSpecialTracking):
             return self._tool_error(f"Failed to accept all changes: {e}")
 
 
-class TrackChangesRejectAll(WriterAgentSpecialTracking):
+class TrackChangesRejectAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Reject all tracked changes in the document."""
 
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_reject_all"
     description = "Reject all tracked changes in the document."
     parameters = {
@@ -234,9 +272,10 @@ class TrackChangesRejectAll(WriterAgentSpecialTracking):
             return self._tool_error(f"Failed to reject all changes: {e}")
 
 
-class _TrackChangesSingleAction(WriterAgentSpecialTracking):
+class _TrackChangesSingleAction(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """Base logic for accepting or rejecting a single tracked change."""
-    
+
+    uno_services = _TRACK_CHANGES_UNO_SERVICES
     is_mutation = True
 
     def _execute_single(self, ctx, index, is_accept):

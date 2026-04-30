@@ -122,6 +122,25 @@ def _execute_calc_tool(name, args):
 
 
 @native_test
+def test_calc_track_changes_record_toggle():
+    """SpreadsheetDocument exposes RecordChanges via SpreadsheetDocumentSettings."""
+    from plugin.main import get_services
+    from plugin.framework.tool_context import ToolContext
+    from plugin.modules.writer.tracking import TrackChangesStart, TrackChangesStop
+
+    doc = _test_doc
+    before = bool(doc.getPropertyValue("RecordChanges"))
+    tctx = ToolContext(doc, _test_ctx, "calc", get_services(), "test")
+    try:
+        assert TrackChangesStart().execute(tctx).get("status") == "ok"
+        assert doc.getPropertyValue("RecordChanges") is True
+        assert TrackChangesStop().execute(tctx).get("status") == "ok"
+        assert doc.getPropertyValue("RecordChanges") is False
+    finally:
+        doc.setPropertyValue("RecordChanges", before)
+
+
+@native_test
 def test_write_formula_range():
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
     res = _execute_calc_tool("write_formula_range", {"range_name": "A1", "formula_or_values": "Hello"})

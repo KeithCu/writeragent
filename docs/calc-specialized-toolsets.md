@@ -1,6 +1,6 @@
 # Calc specialized toolsets (nested delegation)
 
-This document describes how Calc implements **nested delegation** for specialized toolsets, similar to Writer's approach. For detailed background on the delegation model, API design philosophies (Fine-grained vs. Fat APIs), and architecture overview, see [Writer specialized toolsets](writer-specialized-toolsets.md), and [Calc specialized toolsets](calc-specialized-toolsets.md), and 
+This document describes how Calc implements **nested delegation** for specialized toolsets, similar to Writer's approach. For detailed background on the delegation model, API design philosophies (Fine-grained vs. Fat APIs), and architecture overview, see [Writer specialized toolsets](writer-specialized-toolsets.md).
 
 This document focuses on **Calc-specific** domains, implementation status, and feature coverage.
 
@@ -102,35 +102,6 @@ This design trades a second LLM hop (delegation) for a **cleaner main conversati
 ---
 
 ## 5. References
-
-For complete LibreOffice Calc UNO API documentation:
-- [Official LibreOffice API Reference](https://api.libreoffice.org/)
-- [LibreOffice Developer's Guide](https://wiki.documentfoundation.org/Documentation/DevGuide)
-- [LibreOffice Development Tools](https://help.libreoffice.org/latest/en-US/text/shared/guide/dev_tools.html)
-- [PyOOCalc - Python Libre/Open Office Calc interface API (UNO)](https://github.com/panpuchkov/pyoocalc)
-
-For recent feature additions:
-- [LibreOffice 26.2 Release Notes](https://www.howtogeek.com/libreoffices-first-big-update-for-2026-has-arrived/)
-- [LibreOffice 26.2 New Features](https://9to5linux.com/libreoffice-26-2-open-source-office-suite-officially-released-this-is-whats-new)
-
----
-
-## 7. Summary
-
-| Concern | Mechanism |
-|---------|-----------|
-| Smaller default tool list | `exclude_tiers` default in `ToolRegistry.get_tools` / `get_schemas` |
-| Domain grouping | `ToolCalc*Base.specialized_domain` + `tier = "specialized"` |
-| User/model entry point | `delegate_to_specialized_calc_toolset` (`tier = "core"`, async) |
-| Sub-agent completion | `final_answer` (`tier = "specialized_control"`) |
-| Prompt teaching | `CALC_SPECIALIZED_DELEGATION` in `constants.py` |
-| Execution by name | Unchanged `execute()` — tier only affects **listing**, not **dispatch** |
-
-This design trades a second LLM hop (delegation) for a **cleaner main conversation** and **safer tool choice**, while preserving a path to **full** Calc automation per domain. Implementation status, infrastructure, priorities, phased roadmap, and the Calc API coverage map are consolidated in [§5 Implementation status and feature coverage](#5-implementation-status-and-feature-coverage).
-
----
-
-## 8. References
 
 For complete LibreOffice Calc UNO API documentation:
 - [Official LibreOffice API Reference](https://api.libreoffice.org/)
