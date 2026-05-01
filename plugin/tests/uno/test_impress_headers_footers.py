@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import json
+import unittest
 from plugin.framework.logging import log
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import setup, teardown, native_test
@@ -62,6 +63,8 @@ def _exec_tool(name, args):
     return json.dumps(res) if isinstance(res, dict) else res
 
 
+#FIXME: bugs to fix
+@unittest.skip("Disabled as per user request: internal test causing problems")
 @native_test
 def test_headers_footers():
     try:

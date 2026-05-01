@@ -222,6 +222,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     current_endpoint = get_current_endpoint(ctx)
 
     endpoint_listener = None
+    api_key_text_listener = None
 
     try:
         for field in field_specs:
@@ -256,6 +257,15 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                     except Exception:
                                         pass
                                     self._timer = None
+
+                            def _dialog_api_key_override_for_fetch(self):
+                                ak = get_optional(self._dlg, "api_key")
+                                if ak is None:
+                                    return None
+                                try:
+                                    return str(get_control_text(ak) or "")
+                                except Exception:
+                                    return None
 
                             def _sync_api_key_only(self):
                                 try:
@@ -321,18 +331,18 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                             resolved,
                                             skip_remote_fetch=skip_remote_fetch,
                                         )
-                                    api_key_ctrl = self._dlg.getControl("api_key")
-                                    if api_key_ctrl:
-                                        set_control_text(api_key_ctrl, get_api_key_for_endpoint(self._ctx, resolved))
                                 except Exception as e:
                                     log.error("EndpointCombinedListener _apply_dropdowns: %s", e, exc_info=True)
 
                             def _bg_fetch(self, gen, resolved):
                                 if self._closed or gen != self._debounce_gen:
                                     return
+                                key_ov = self._dialog_api_key_override_for_fetch()
                                 models = None
                                 if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved):
-                                    models = fetch_available_models(resolved, self._ctx)
+                                    models = fetch_available_models(
+                                        resolved, self._ctx, api_key_override=key_ov
+                                    )
 
                                 def apply_ui():
                                     if self._closed or gen != self._debounce_gen:
@@ -362,22 +372,25 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                             def _on_timer_fired(self, gen):
                                 post_to_main_thread(lambda: self._schedule_async_refresh(gen))
 
+                            def _schedule_debounced_models_fetch(self):
+                                if self._timer is not None:
+                                    try:
+                                        self._timer.cancel()
+                                    except Exception:
+                                        pass
+                                    self._timer = None
+                                self._debounce_gen += 1
+                                gen = self._debounce_gen
+                                self._timer = threading.Timer(
+                                    _ENDPOINT_DEBOUNCE_SEC, self._on_timer_fired, args=(gen,)
+                                )
+                                self._timer.daemon = True
+                                self._timer.start()
+
                             def textChanged(self, rEvent):
                                 try:
                                     self._sync_api_key_only()
-                                    if self._timer is not None:
-                                        try:
-                                            self._timer.cancel()
-                                        except Exception:
-                                            pass
-                                        self._timer = None
-                                    self._debounce_gen += 1
-                                    gen = self._debounce_gen
-                                    self._timer = threading.Timer(
-                                        _ENDPOINT_DEBOUNCE_SEC, self._on_timer_fired, args=(gen,)
-                                    )
-                                    self._timer.daemon = True
-                                    self._timer.start()
+                                    self._schedule_debounced_models_fetch()
                                 except Exception as e:
                                     log.error("EndpointCombinedListener textChanged: %s", e, exc_info=True)
 
@@ -416,6 +429,21 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                         ctrl.addItemListener(endpoint_listener)
                         if hasattr(ctrl, "addTextListener"):
                             ctrl.addTextListener(endpoint_listener)
+
+                        class SettingsApiKeyTextListener(BaseListener, XTextListener):
+                            def __init__(self, outer):
+                                self._outer = outer
+
+                            def textChanged(self, rEvent):
+                                try:
+                                    self._outer._schedule_debounced_models_fetch()
+                                except Exception as e:
+                                    log.error("SettingsApiKeyTextListener textChanged: %s", e, exc_info=True)
+
+                        ak_ctrl = get_optional(dlg, "api_key")
+                        if ak_ctrl is not None and hasattr(ak_ctrl, "addTextListener"):
+                            api_key_text_listener = SettingsApiKeyTextListener(endpoint_listener)
+                            ak_ctrl.addTextListener(api_key_text_listener)
                 elif field["name"] == "image_base_size":
                     populate_combobox_with_lru(ctx, ctrl, field["value"], "image_base_size_lru", "")
                 else:
@@ -533,6 +561,13 @@ def settings_box(ctx, title="Settings", x=None, y=None):
         msgbox(ctx, _("Error"), _("Failed to open Settings: {0}").format(e) + "\n\n" + traceback.format_exc())
         return format_error_payload(e)
     finally:
+        if api_key_text_listener is not None:
+            ak = get_optional(dlg, "api_key")
+            if ak is not None and hasattr(ak, "removeTextListener"):
+                try:
+                    ak.removeTextListener(api_key_text_listener)
+                except Exception:
+                    pass
         if endpoint_listener is not None:
             try:
                 endpoint_listener.close()

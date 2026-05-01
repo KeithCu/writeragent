@@ -779,10 +779,18 @@ def set_native_audio_support(ctx, model_id, endpoint, supported):
 _model_fetch_cache: dict[str, list[str] | None] = {}
 
 
-def _model_fetch_cache_key(url: str, ctx: Any, base: str) -> str:
+def _model_fetch_cache_key(
+    url: str,
+    ctx: Any,
+    base: str,
+    api_key_override: str | None = None,
+) -> str:
     if ctx is None:
         return url
-    key = str(get_api_key_for_endpoint(ctx, base) or "")
+    if api_key_override is not None:
+        key = str(api_key_override).strip()
+    else:
+        key = str(get_api_key_for_endpoint(ctx, base) or "")
     return f"{url}\x1f{key}"
 
 
@@ -811,12 +819,15 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
-def fetch_available_models(endpoint, ctx=None):
+def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = None):
     """Fetch available models from endpoint/v1/models. Returns list of IDs or None on error.
 
     When ``ctx`` is set, sends the same auth headers as chat (Bearer / x-api-key per provider)
-    using ``get_api_key_for_endpoint(ctx, base)``. When ``ctx`` is omitted, behavior matches
-    legacy unauthenticated GET (tests / callers without context).
+    using ``get_api_key_for_endpoint(ctx, base)``. Pass ``api_key_override`` (including ``""``)
+    to use a key not yet saved to config (e.g. Settings dialog typing order: URL then API key).
+
+    When ``ctx`` is omitted, behavior matches legacy unauthenticated GET (tests / callers
+    without context). ``api_key_override`` is ignored if ``ctx`` is ``None``.
 
     Responses (including failed lookups, stored as None) are cached in `_model_fetch_cache`
     for the process lifetime so repeated Settings/sidebar use does not re-hit the network.
@@ -829,7 +840,7 @@ def fetch_available_models(endpoint, ctx=None):
     if not endpoint_url_suitable_for_v1_models_fetch(base):
         return None
     url = f"{base}/v1/models"
-    cache_key = _model_fetch_cache_key(url, ctx, base)
+    cache_key = _model_fetch_cache_key(url, ctx, base, api_key_override)
     if cache_key in _model_fetch_cache:
         return _model_fetch_cache[cache_key]
 
@@ -837,7 +848,10 @@ def fetch_available_models(endpoint, ctx=None):
     if ctx is not None:
         from plugin.framework.auth import AuthError, build_auth_headers, resolve_auth_for_config
 
-        api_key = str(get_api_key_for_endpoint(ctx, base) or "").strip()
+        if api_key_override is not None:
+            api_key = str(api_key_override).strip()
+        else:
+            api_key = str(get_api_key_for_endpoint(ctx, base) or "").strip()
         is_openwebui = (
             as_bool(get_config(ctx, "is_openwebui"))
             or "open-webui" in base.lower()

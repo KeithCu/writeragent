@@ -250,7 +250,11 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
         keys_to_del = [
             k
             for k in cfg._model_fetch_cache
-            if "127.0.0.1:58901" in k or "127.0.0.1:58902" in k or "127.0.0.1:58903" in k
+            if "127.0.0.1:58901" in k
+            or "127.0.0.1:58902" in k
+            or "127.0.0.1:58903" in k
+            or "127.0.0.1:58904" in k
+            or "127.0.0.1:58905" in k
         ]
         for k in keys_to_del:
             del cfg._model_fetch_cache[k]
@@ -311,6 +315,89 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                         headers.get("Authorization"),
                         "Bearer secret-token",
                     )
+
+    def test_model_fetch_cache_key_differs_for_override(self):
+        from plugin.framework import config as cfg
+        from unittest.mock import MagicMock
+
+        ctx = MagicMock()
+        url = "http://127.0.0.1:58903/v1/models"
+        base = "http://127.0.0.1:58903"
+        with patch.object(cfg, "get_api_key_for_endpoint", return_value="saved"):
+            k_saved = cfg._model_fetch_cache_key(url, ctx, base, None)
+            k_a = cfg._model_fetch_cache_key(url, ctx, base, "typed-a")
+            k_b = cfg._model_fetch_cache_key(url, ctx, base, "typed-b")
+        self.assertEqual(k_saved, f"{url}\x1fsaved")
+        self.assertEqual(k_a, f"{url}\x1ftyped-a")
+        self.assertEqual(k_b, f"{url}\x1ftyped-b")
+
+    def test_fetch_available_models_override_used_not_config_file(self):
+        """Settings passes live api_key field; override must win over api_keys_by_endpoint."""
+        from plugin.framework import config as cfg
+        from plugin.framework.utils import normalize_endpoint_url
+
+        ctx = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            endpoint = "http://127.0.0.1:58904"
+            norm = normalize_endpoint_url(endpoint)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump({"api_keys_by_endpoint": {norm: "from-config-only"}}, f)
+
+            def mock_config_path(c):
+                return config_path
+
+            with patch("plugin.framework.config._config_path", side_effect=mock_config_path):
+                cfg._cached_config_dict = None
+                cfg._cached_config_mtime = 0
+                cfg._cached_config_mtime_last_checked = 0.0
+                for k in list(cfg._model_fetch_cache):
+                    if "58904" in k:
+                        del cfg._model_fetch_cache[k]
+
+                with patch("plugin.framework.config.sync_request") as mock_sync:
+                    mock_sync.return_value = {"data": [{"id": "m1"}]}
+                    r = cfg.fetch_available_models(
+                        endpoint, ctx, api_key_override="from-override"
+                    )
+                    self.assertEqual(r, ["m1"])
+                    mock_sync.assert_called_once()
+                    _args, kwargs = mock_sync.call_args
+                    headers = kwargs.get("headers")
+                    self.assertIsInstance(headers, dict)
+                    self.assertEqual(
+                        headers.get("Authorization"),
+                        "Bearer from-override",
+                    )
+
+    def test_fetch_override_and_saved_key_separate_cache(self):
+        from plugin.framework import config as cfg
+        from plugin.framework.utils import normalize_endpoint_url
+
+        ctx = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            endpoint = "http://127.0.0.1:58905"
+            norm = normalize_endpoint_url(endpoint)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump({"api_keys_by_endpoint": {norm: "key-a"}}, f)
+
+            def mock_config_path(c):
+                return config_path
+
+            with patch("plugin.framework.config._config_path", side_effect=mock_config_path):
+                cfg._cached_config_dict = None
+                cfg._cached_config_mtime = 0
+                cfg._cached_config_mtime_last_checked = 0.0
+                for k in list(cfg._model_fetch_cache):
+                    if "58905" in k:
+                        del cfg._model_fetch_cache[k]
+
+                with patch("plugin.framework.config.sync_request") as mock_sync:
+                    mock_sync.return_value = {"data": [{"id": "x"}]}
+                    cfg.fetch_available_models(endpoint, ctx)
+                    cfg.fetch_available_models(endpoint, ctx, api_key_override="key-b")
+                    self.assertEqual(mock_sync.call_count, 2)
 
 
 class TestConfigSyncFileIO(unittest.TestCase):
