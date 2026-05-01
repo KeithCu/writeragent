@@ -332,7 +332,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                     return
                                 models = None
                                 if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved):
-                                    models = fetch_available_models(resolved)
+                                    models = fetch_available_models(resolved, self._ctx)
 
                                 def apply_ui():
                                     if self._closed or gen != self._debounce_gen:

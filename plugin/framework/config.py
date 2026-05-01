@@ -774,8 +774,16 @@ def set_native_audio_support(ctx, model_id, endpoint, supported):
 
 
 # GET {base}/v1/models — memoized for the lifetime of this Python process (LibreOffice
-# session). Key is normalized `.../v1/models`; value is model id list or None after failure.
+# session). Key is normalized URL, or ``url + "\\x1f" + api_key`` when ``ctx`` is passed
+# (same host, different keys must not share cache). Value is model id list or None after failure.
 _model_fetch_cache: dict[str, list[str] | None] = {}
+
+
+def _model_fetch_cache_key(url: str, ctx: Any, base: str) -> str:
+    if ctx is None:
+        return url
+    key = str(get_api_key_for_endpoint(ctx, base) or "")
+    return f"{url}\x1f{key}"
 
 
 def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
@@ -803,8 +811,12 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
-def fetch_available_models(endpoint):
+def fetch_available_models(endpoint, ctx=None):
     """Fetch available models from endpoint/v1/models. Returns list of IDs or None on error.
+
+    When ``ctx`` is set, sends the same auth headers as chat (Bearer / x-api-key per provider)
+    using ``get_api_key_for_endpoint(ctx, base)``. When ``ctx`` is omitted, behavior matches
+    legacy unauthenticated GET (tests / callers without context).
 
     Responses (including failed lookups, stored as None) are cached in `_model_fetch_cache`
     for the process lifetime so repeated Settings/sidebar use does not re-hit the network.
@@ -817,18 +829,43 @@ def fetch_available_models(endpoint):
     if not endpoint_url_suitable_for_v1_models_fetch(base):
         return None
     url = f"{base}/v1/models"
-    if url in _model_fetch_cache:
-        return _model_fetch_cache[url]
+    cache_key = _model_fetch_cache_key(url, ctx, base)
+    if cache_key in _model_fetch_cache:
+        return _model_fetch_cache[cache_key]
+
+    req_headers: dict[str, str] = {}
+    if ctx is not None:
+        from plugin.framework.auth import AuthError, build_auth_headers, resolve_auth_for_config
+
+        api_key = str(get_api_key_for_endpoint(ctx, base) or "").strip()
+        is_openwebui = (
+            as_bool(get_config(ctx, "is_openwebui"))
+            or "open-webui" in base.lower()
+            or "openwebui" in base.lower()
+        )
+        is_openrouter = "openrouter.ai" in base.lower() or as_bool(get_config(ctx, "is_openrouter"))
+        mini = {
+            "endpoint": base,
+            "api_key": api_key,
+            "is_openwebui": is_openwebui,
+            "is_openrouter": is_openrouter,
+        }
+        try:
+            req_headers = build_auth_headers(resolve_auth_for_config(mini))
+        except AuthError as e:
+            log.debug("fetch_available_models skipping %s: %s", url, e)
+            _model_fetch_cache[cache_key] = None
+            return None
 
     try:
-        data = sync_request(url, parse_json=True)
+        data = sync_request(url, parse_json=True, headers=req_headers if req_headers else None)
         if data and isinstance(data, dict) and "data" in data:
             models = []
             for m in data["data"]:
                 mid = m.get("id")
                 if mid:
                     models.append(mid)
-            _model_fetch_cache[url] = models
+            _model_fetch_cache[cache_key] = models
             return models
     except (ValueError, TypeError, IOError) as e:
         log.warning("fetch_available_models network/parse error for %s: %s", url, e)
@@ -837,7 +874,7 @@ def fetch_available_models(endpoint):
             log.warning("fetch_available_models NetworkError for %s: %s", url, e)
         else:
             log.warning("fetch_available_models unexpected error for %s: %s", url, type(e).__name__)
-    _model_fetch_cache[url] = None
+    _model_fetch_cache[cache_key] = None
     return None
 
 
@@ -905,7 +942,7 @@ def populate_combobox_with_lru(
     elif skip_remote_fetch:
         fetched_models = None
     elif req_cap == "text" and endpoint and (not provider or provider not in massive_providers):
-        fetched_models = fetch_available_models(endpoint)
+        fetched_models = fetch_available_models(endpoint, ctx)
 
     if fetched_models is not None:
         for mid in fetched_models:

@@ -16,11 +16,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Tools for manipulating headers, footers, page numbers, and dates in presentations."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 from plugin.framework.errors import WriterAgentException
-from plugin.framework.tool_context import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool_context import ToolContext
+
 from plugin.modules.draw.base import ToolDrawHeaderFooterBase
 from plugin.modules.draw.bridge import DrawBridge
 
