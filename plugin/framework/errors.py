@@ -186,39 +186,6 @@ def safe_call(fn, context_name, *args, **kwargs):
         raise UnoObjectError(f"{context_name} failed: {e}", context={"operation": context_name, "type": e_name}) from e
 
 
-def _exception_chain_texts(exc: BaseException | None, *, max_depth: int = 12) -> list[str]:
-    """Return str(exc) for exc and each __cause__ in the chain (for error heuristics)."""
-    out: list[str] = []
-    cur: BaseException | None = exc
-    depth = 0
-    while cur is not None and depth < max_depth:
-        out.append(str(cur))
-        cur = cur.__cause__
-        depth += 1
-    return out
-
-
-def user_message_if_provider_harmony_tool_parse_failure(exc: BaseException | None) -> str | None:
-    """
-    When the provider returns an error that looks like a Harmony / channel parse failure
-    (common with GPT-OSS-style routes vs smolagents ReAct + tool JSON), return a short
-    localized hint; otherwise None.
-    """
-    if exc is None:
-        return None
-    parts = _exception_chain_texts(exc)
-    combined = "\n".join(parts)
-    lower = combined.lower()
-    if "failed to parse input" not in lower:
-        return None
-    if "<|channel|" not in combined:
-        return None
-    return _(
-        "The Librarian uses tool calls with plain prompts. Some models (for example GPT-OSS / Harmony routes) "
-        "cause the provider to reject the request. Choose another chat model in Settings and try again."
-    )
-
-
 # Re-export base/json helpers so callers can use `from plugin.framework.errors import ...` (public API).
 __all__ = [
     "AgentParsingError",
@@ -240,5 +207,4 @@ __all__ = [
     "safe_json_loads",
     "safe_python_literal_eval",
     "safe_uno_call",
-    "user_message_if_provider_harmony_tool_parse_failure",
 ]

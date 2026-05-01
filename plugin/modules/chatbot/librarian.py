@@ -108,11 +108,7 @@ class LibrarianOnboardingTool(ToolBase):
     def execute(self, ctx, **kwargs):
         query = kwargs.get("query")
         history_text = kwargs.get("history_text")
-        from plugin.framework.errors import (
-            format_error_payload,
-            ToolExecutionError,
-            user_message_if_provider_harmony_tool_parse_failure,
-        )
+        from plugin.framework.errors import format_error_payload, ToolExecutionError
 
         try:
             from plugin.framework.config import get_api_config, get_config_int
@@ -264,9 +260,5 @@ TOOLS FOR COMPLETION:
         except Exception as e:
             tb = traceback.format_exc()
             log.error("Librarian error: %s", e)
-            friendly = user_message_if_provider_harmony_tool_parse_failure(e)
-            if friendly:
-                err = ToolExecutionError(f"{friendly}\n\n{tb}", details={"query": query})
-            else:
-                err = ToolExecutionError(f"Librarian failed: {str(e)}\n\n{tb}", details={"query": query})
+            err = ToolExecutionError(f"Librarian failed: {str(e)}\n\n{tb}", details={"query": query})
             return format_error_payload(err)
