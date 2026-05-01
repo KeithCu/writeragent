@@ -51,8 +51,13 @@ class WriterAgentSmolModel(Model):
         if self._status_callback:
             self._status_callback("Thinking...")
 
-        # Make the request to WriterAgent's backend
-        result = self.api.request_with_tools(msg_dicts, max_tokens=self.max_tokens, tools=tools)
+        # Smol agents carry their own system instructions; skip dev-build LLM prefix (see make_chat_request).
+        result = self.api.request_with_tools(
+            msg_dicts,
+            max_tokens=self.max_tokens,
+            tools=tools,
+            prepend_dev_build_system_prefix=False,
+        )
         
         if self._status_callback:
             self._status_callback("Model responded, processing...")
