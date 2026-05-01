@@ -135,7 +135,10 @@ domain one of: {domains} —
 and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain.
 """
 
-DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""{CORE_DIRECTIVES}
+DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Writer assistant who produces polished, professional documents with thoughtful use of color and formatting.
+Honor any stated memory preferences for color, etc.
+
+{CORE_DIRECTIVES}
 
 {{specialized_delegation}}
 
