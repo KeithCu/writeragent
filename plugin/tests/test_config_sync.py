@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 from plugin.framework.config import (
     get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint,
-    update_lru_history, get_config, set_config, endpoint_url_suitable_for_v1_models_fetch,
+    update_lru_history, get_config, get_config_int, set_config,
+    endpoint_url_suitable_for_v1_models_fetch,
 )
 from plugin.framework.event_bus import global_event_bus
 
@@ -348,10 +349,15 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config(self.ctx, "prompt_lru"), [])
         self.assertEqual(get_config(self.ctx, "model_lru@http://127.0.0.1:5000"), [])
 
+        # Internal epoch for weekly extension update check (schema default when absent from JSON)
+        self.assertEqual(get_config_int(self.ctx, "extension_update_check_epoch"), 0)
+
         # Test that unknown keys now raise ConfigError (strict schema enforcement)
         # Unknown string key -> raises
-        with self.assertRaises(ConfigError):
+        with self.assertRaises(ConfigError) as err_ctx:
             get_config(self.ctx, "unknown_key")
+        self.assertEqual(err_ctx.exception.details.get("key"), "unknown_key")
+        self.assertIn("unknown_key", str(err_ctx.exception))
 
         # Keys ending in _lru but not in schema -> raises
         with self.assertRaises(ConfigError):

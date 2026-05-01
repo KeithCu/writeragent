@@ -231,6 +231,8 @@ class WriterAgentConfig:
     seed: str = ""
     chatbot_show_search_thinking: bool = False
     enable_agent_log: bool = False
+    # Last extension update.xml check time (unix seconds); see extension_update_check.py
+    extension_update_check_epoch: float = 0.0
     web_cache_max_mb: int = 50
     web_cache_validity_days: int = 7
     is_openwebui: bool = False
@@ -415,7 +417,11 @@ def _resolve_default(key):
             return val
 
     # Strict check: if not in schema and not a recognized dynamic pattern, it's a bug.
-    raise ConfigError(f"Config key {key!r} not found in schema", "CONFIG_KEY_NOT_FOUND")
+    raise ConfigError(
+        f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.",
+        "CONFIG_KEY_NOT_FOUND",
+        details={"key": key},
+    )
 
 
 # In-memory configuration cache so we don't open/parse/validate writeragent.json
@@ -526,7 +532,11 @@ def get_config_int(ctx, key) -> int:
         v = _resolve_default(key)
     # _resolve_default returns "" for unknown keys that slip through without a dataclass default.
     if v == "":
-        raise ConfigError(f"Config key {key!r} not found in schema", "CONFIG_KEY_NOT_FOUND")
+        raise ConfigError(
+            f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.",
+            "CONFIG_KEY_NOT_FOUND",
+            details={"key": key},
+        )
     try:
         return int(float(cast("Any", v)))
     except (ValueError, TypeError) as e:
