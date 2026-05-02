@@ -52,12 +52,109 @@ def test_sentence_cache_roundtrip() -> None:
 
 
 def test_sentence_cache_trailing_whitespace() -> None:
-    """'Hello.' and 'Hello. ' share the same cache key."""
+    """'Hello.' and 'Hello. ' share the same cache key (preserved behavior)."""
     eng.cache_clear()
     eng.cache_put_sentence("en-US", "Hello.", [{"n_error_start": 0, "n_error_length": 5}])
     got = eng.cache_get_sentence("en-US", "Hello. ")
     assert got is not None
     assert len(got) == 1
+    eng.cache_clear()
+
+
+def test_normalize_for_sentence_cache() -> None:
+    """Test that first terminator is preserved but additional trailing punctuation is ignored."""
+    norm = eng._normalize_for_sentence_cache
+    assert norm("Hello.") == "Hello."
+    assert norm("Hello. ") == "Hello."
+    assert norm("Hello...") == "Hello."
+    assert norm("Hello....") == "Hello."
+    assert norm("Hello?") == "Hello?"
+    assert norm("Hello?...") == "Hello?"
+    assert norm("Hello?!!") == "Hello?"
+    assert norm("Are you there?") == "Are you there?"
+    assert norm("Are you there?!") == "Are you there?"
+    assert norm("Really!!!") == "Really!"
+    assert norm("Wait……") == "Wait…"
+    assert norm("结束。") == "结束。"
+    assert norm("结束。！？") == "结束。"
+    # Internal punctuation and no trailing punctuation unchanged
+    assert norm("Hello, world.") == "Hello, world."
+    assert norm("What? No!") == "What? No!"
+    assert norm("") == ""
+    assert norm("   ") == ""
+    # No terminator at all — returned as-is
+    assert norm("Hello world") == "Hello world"
+    assert norm("Hello. world") == "Hello. world"
+    # Single terminator with trailing whitespace
+    assert norm("Hello?\n") == "Hello?"
+    assert norm("Done!  \t") == "Done!"
+
+
+def test_sentence_cache_trailing_punctuation() -> None:
+    """Test cache behavior with first-terminator preservation.
+
+    "Hello." and "Hello..." share cache; "Hello?" and "Hello?..." share cache.
+    First terminator is significant.
+    """
+    eng.cache_clear()
+    errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "test"}]
+
+    # Put with canonical form, get with extra punctuation
+    eng.cache_put_sentence("en-US", "Hello.", errors)
+    got1 = eng.cache_get_sentence("en-US", "Hello...")
+    assert got1 is not None
+    assert len(got1) == 1
+    assert got1[0]["n_error_start"] == 0
+
+    # Put with question, get with extra punctuation
+    eng.cache_put_sentence("en-US", "Hello?", errors)
+    got2 = eng.cache_get_sentence("en-US", "Hello?...!!")
+    assert got2 is not None
+    assert len(got2) == 1
+
+    # Different first terminator should be cache miss
+    assert eng.cache_get_sentence("en-US", "Hello?") is not None  # still in cache
+    eng.cache_clear()  # reset for next test
+
+
+def test_sentence_cache_trailing_punctuation_clipping() -> None:
+    """Test that errors only on redundant trailing punctuation are clipped."""
+    eng.cache_clear()
+    # Error that would only be on the extra dots (start=6 is past "Hello." which is len 6)
+    errors = [{"n_error_start": 6, "n_error_length": 3}]
+    eng.cache_put_sentence("en-US", "Hello....", errors)
+    got = eng.cache_get_sentence("en-US", "Hello.")
+    assert got is not None
+    assert len(got) == 0, "Error beyond canonical length should be clipped"
+
+    # Error that spans into the redundant trailing punctuation gets trimmed
+    eng.cache_put_sentence("en-US", "Hi there....", [{"n_error_start": 3, "n_error_length": 10}])
+    got2 = eng.cache_get_sentence("en-US", "Hi there.")
+    assert got2 is not None
+    assert len(got2) == 1
+    # "Hi there." is len 9, error starts at 3, so max length is 9-3=6
+    assert got2[0]["n_error_start"] == 3
+    assert got2[0]["n_error_length"] == 6
+
+    # Error fully within canonical length is untouched
+    eng.cache_put_sentence("en-US", "Bad grammar...", [{"n_error_start": 0, "n_error_length": 3}])
+    got3 = eng.cache_get_sentence("en-US", "Bad grammar.")
+    assert got3 is not None
+    assert len(got3) == 1
+    assert got3[0]["n_error_length"] == 3
+    eng.cache_clear()
+
+
+def test_sentence_cache_different_first_terminator_no_cross_hit() -> None:
+    """Sentences with different first terminators must not share cache."""
+    eng.cache_clear()
+    eng.cache_put_sentence("en-US", "Done.", [{"n_error_start": 0, "n_error_length": 4}])
+    # "Done?" has a different first terminator — must be a miss
+    assert eng.cache_get_sentence("en-US", "Done?") is None
+    # "Done!" also different
+    assert eng.cache_get_sentence("en-US", "Done!") is None
+    # "Done." still a hit
+    assert eng.cache_get_sentence("en-US", "Done.") is not None
     eng.cache_clear()
 
 

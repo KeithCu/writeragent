@@ -109,11 +109,17 @@ def test_split_abbreviation_heuristic(uno_context=None):
 @native_test
 def test_whitespace_normalization_cache_key(uno_context=None):
     if uno_context is None: return
-    """'Hello.' and 'Hello. ' and 'Hello.\\n' should produce the same cache key."""
+    """Test cache key normalization: whitespace + trailing punctuation after first terminator."""
     key1 = make_sentence_key("en-US", "Hello.")
     key2 = make_sentence_key("en-US", "Hello. ")
     key3 = make_sentence_key("en-US", "Hello.\n")
-    assert key1 == key2 == key3
+    key4 = make_sentence_key("en-US", "Hello...")
+    key5 = make_sentence_key("en-US", "Hello?...")
+    key6 = make_sentence_key("en-US", "Hello?")
+    assert key1 == key2 == key3 == key4
+    assert key5 == key6
+    # Different first terminator should produce different key
+    assert key1 != key6
 
 @native_test
 def test_cache_hit_with_trailing_whitespace(uno_context=None):

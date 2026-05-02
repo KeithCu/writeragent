@@ -58,6 +58,26 @@ def fingerprint_for_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def _normalize_for_sentence_cache(text: str) -> str:
+    """Canonical form for cache key that preserves first sentence terminator.
+
+    - rstrip() whitespace (preserves existing "Hello." vs "Hello. " behavior).
+    - Keep everything up to and including the *first* sentence terminator.
+    - Ignore any additional trailing punctuation after the first terminator.
+    - This makes "Hello." and "Hello..." share a cache entry, and
+      "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
+    """
+    s = text.rstrip()
+    if not s:
+        return s
+    # Match up to first terminator, then any extra trailing punctuation to discard
+    # Non-greedy match ensures we stop at the first terminator
+    match = re.search(r'^(.*?[.!?…。！？])([.!?…。！？]*)$', s)
+    if match:
+        return match.group(1)
+    return s
+
+
 @dataclass(frozen=True)
 class NormalizedProofError:
     """One grammar issue with absolute offsets in the proofread buffer ``rText``."""
@@ -358,28 +378,59 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
 
 # --- Sentence-level cache (simple, text-based, no positions)
-# Keyed by locale + sentence fingerprint (trailing whitespace stripped for normalization).
-# Errors are relative to the start of that sentence (offset 0).
-# This fulfills the requirement that identical sentence text always has the same errors,
-# regardless of document position.
+# Keyed by locale + sentence fingerprint. Normalization:
+# - trailing whitespace is stripped (existing behavior)
+# - any punctuation after the *first* sentence terminator is ignored for the cache key
+#   ("Hello." and "Hello..." share a key; "Hello?" and "Hello?..." share one;
+#    but "Hello?" and "Hello." remain distinct as the first terminator is significant).
+# Errors are relative to the start of that (canonical) sentence (offset 0).
+# This fulfills the requirement that semantically equivalent sentence text
+# always has the same errors, regardless of document position.
 
 _SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, list[dict[str, Any]]]] = collections.OrderedDict()
+
+
+def _clip_errors_to_canonical_length(
+    errors: list[dict[str, Any]], canonical_len: int
+) -> list[dict[str, Any]]:
+    """Clip or drop errors that reference positions beyond the canonical sentence length.
+
+    This prevents errors that targeted only the redundant trailing punctuation
+    (e.g. the extra dots in "Hello....") from being stored against the shorter
+    canonical form.
+    """
+    clipped: list[dict[str, Any]] = []
+    for e in errors:
+        start = e.get("n_error_start", 0)
+        if start >= canonical_len:
+            continue
+        length = e.get("n_error_length", 0)
+        effective_len = min(length, canonical_len - start)
+        if effective_len <= 0:
+            continue
+        if effective_len != length:
+            e = dict(e)  # shallow copy is sufficient here
+            e["n_error_length"] = effective_len
+        clipped.append(e)
+    return clipped
 
 
 def make_sentence_key(locale_key: str, sentence: str) -> str:
     """Cache key for a specific sentence text (locale + fingerprint).
 
-    Trailing whitespace is stripped so ``'Hello.'`` and ``'Hello. '`` share
-    the same cache entry (handles the enter-at-end-of-paragraph edge case).
+    Uses _normalize_for_sentence_cache so that ``'Hello.'`` and ``'Hello...'``
+    share the same cache entry, and ``'Hello?'`` and ``'Hello?... '`` share one,
+    but the first terminator remains semantically significant.
     """
-    fp = fingerprint_for_text(sentence.rstrip())
+    fp = fingerprint_for_text(_normalize_for_sentence_cache(sentence))
     return f"sent|{locale_key}|{fp}"
 
 
 def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] | None:
     """Return cached errors for this exact sentence (relative to sentence start = 0).
 
-    Trailing whitespace is stripped before fingerprint comparison.
+    Uses _normalize_for_sentence_cache before fingerprint comparison so that
+    additional trailing punctuation after the first terminator is ignored.
     """
     key = make_sentence_key(locale_key, sentence)
     with _CACHE_LOCK:
@@ -387,7 +438,7 @@ def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] |
         if not hit:
             return None
         cached_fp, errors = hit
-        if cached_fp != fingerprint_for_text(sentence.rstrip()):
+        if cached_fp != fingerprint_for_text(_normalize_for_sentence_cache(sentence)):
             return None
         _SENTENCE_CACHE.move_to_end(key)
         return list(errors)  # return copy
@@ -396,12 +447,16 @@ def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] |
 def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, Any]]) -> None:
     """Cache errors for this sentence text (errors must have offsets relative to sentence start).
 
-    Trailing whitespace is stripped before fingerprinting.
+    Uses _normalize_for_sentence_cache + clipping so additional trailing
+    punctuation after the first terminator does not affect the cache key or
+    produce invalid offsets.
     """
-    key = make_sentence_key(locale_key, sentence)
-    fp = fingerprint_for_text(sentence.rstrip())
+    canon = _normalize_for_sentence_cache(sentence)
+    fp = fingerprint_for_text(canon)
+    key = f"sent|{locale_key}|{fp}"
+    clipped = _clip_errors_to_canonical_length(errors, len(canon))
     with _CACHE_LOCK:
-        _SENTENCE_CACHE[key] = (fp, [dict(e) for e in errors])  # deep enough copy
+        _SENTENCE_CACHE[key] = (fp, [dict(e) for e in clipped])  # deep enough copy
         _SENTENCE_CACHE.move_to_end(key)
         while len(_SENTENCE_CACHE) > MAX_CACHE_SIZE:
             _SENTENCE_CACHE.popitem(last=False)
