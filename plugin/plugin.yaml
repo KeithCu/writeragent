@@ -1,17 +1,3 @@
 name: main
 title: WriterAgent global settings
 requires: []
-actions:
-  about:
-    title: "About WriterAgent"
-
-menus:
-  - separator: true
-  - action: about
-
-# config:
-#   debug:
-#     type: boolean
-#     default: false
-#     widget: checkbox
-#     label: Debug Mode

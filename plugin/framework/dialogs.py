@@ -455,58 +455,6 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         msgbox(ctx, title, build_status_fn())
 
 
-# ── About dialog ─────────────────────────────────────────────────────
-
-
-def about_dialog(ctx):
-    """Show the WriterAgent About dialog with a clickable GitHub link."""
-    try:
-        from plugin.version import EXTENSION_VERSION
-    except ImportError:
-        from typing import cast
-        EXTENSION_VERSION = cast("Any", "?")
-
-    if not ctx:
-        log.info("ABOUT (no ctx)")
-        return
-
-    try:
-        smgr = ctx.ServiceManager
-
-        dlg_model = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialogModel", ctx)
-        dlg_model.Title = _("About WriterAgent")
-        dlg_model.Width = 220
-        dlg_model.Height = 90
-
-        # Info text
-        info_text = (
-            "WriterAgent\n"
-            + _("Version: %s") % EXTENSION_VERSION + "\n"
-            + _("AI-powered extension for LibreOffice")
-        )
-        add_dialog_label(dlg_model, "Info", info_text, 10, 8, 200, 36)
-
-        # Clickable hyperlink
-        add_dialog_hyperlink(dlg_model, "GitHubLink", _("GitHub: quazardous/localwriter"),
-                             "https://github.com/quazardous/localwriter", 10, 48, 200, 12)
-
-        add_dialog_button(dlg_model, "OKBtn", _("OK"), 160, 68, 50, 14, push_button_type=1)
-
-        dlg = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialog", ctx)
-        dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
-        dlg.createPeer(toolkit, None)
-        dlg.execute()
-        dlg.dispose()
-    except Exception:
-        log.exception("About dialog error")
-        msgbox(ctx, _("About WriterAgent"),
-           _("WriterAgent {0}").format(EXTENSION_VERSION) + "\nhttps://github.com/quazardous/localwriter")
-
-
 # ── XDL dialog loading ──────────────────────────────────────────────
 
 

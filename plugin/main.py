@@ -235,7 +235,6 @@ def bootstrap(ctx=None):
 def _register_core_handlers():
     """Register core application handlers during bootstrap."""
     from plugin.framework.legacy_ui import settings_box, show_eval_dashboard
-    from plugin.framework.dialogs import about_dialog
     from plugin.framework.document import is_writer, is_calc, is_draw
     import importlib
 
@@ -243,9 +242,6 @@ def _register_core_handlers():
         _open_dialog_safely(settings_box, "Failed to open settings")
 
     register_action_handler("main", "settings", _open_settings)
-
-    register_action_handler("main", "about",
-        lambda: _open_dialog_safely(about_dialog, "Failed to open about dialog"))
 
     register_action_handler("main", "EvaluationDashboard",
         lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
@@ -444,7 +440,6 @@ def get_menu_text(command):
         "main.RunCalcIntegrationTests": _("Run Calc API integration tests"),
         "main.RunDrawTests": _("Run draw tests"),
         "main.EvaluationDashboard": _("Evaluation Dashboard"),
-        "main.about": _("About WriterAgent")
     }
 
     if command in static_titles:

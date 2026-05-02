@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Constants for WriterAgent."""
 
-APP_REFERER = "https://github.com/keithcu/WriterAgent"
+APP_REFERER = "https://github.com/KeithCu/writeragent"
 APP_TITLE = "WriterAgent"
 USER_AGENT = f"{APP_TITLE} ({APP_REFERER})"
 

@@ -38,8 +38,8 @@ try:
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
 except ImportError:
     # Fallback for when running outside the full WriterAgent environment
-    USER_AGENT = "WriterAgent (https://github.com/keithcu/WriterAgent)"
-    APP_REFERER = "https://github.com/keithcu/WriterAgent"
+    USER_AGENT = "WriterAgent (https://github.com/KeithCu/writeragent)"
+    APP_REFERER = "https://github.com/KeithCu/writeragent"
     APP_TITLE = "WriterAgent"
 
 # Configure logging
