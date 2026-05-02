@@ -199,6 +199,24 @@ from plugin.modules.chatbot.sidebar_state import (
 
 log = logging.getLogger(__name__)
 
+
+def _uno_model_probe_for_log(model: Any) -> str:
+    """Short UNO diagnostic for error logs. No document text."""
+    if model is None:
+        return "None"
+    impl = "?"
+    try:
+        impl = model.getImplementationName()
+    except Exception:
+        pass
+    try:
+        from plugin.framework.document import get_document_type
+
+        return "impl=%s doc_type=%s" % (impl, get_document_type(model).name)
+    except Exception:
+        return "impl=%s doc_type=?" % impl
+
+
 class QueryTextListener(BaseTextListener):
     def __init__(self, send_listener):
         # We now keep a reference to the main SendButtonListener which holds the state
@@ -562,12 +580,52 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         log.error("_on_mcp_result post error: %s" % e)
 
     def _get_document_model(self):
-        """Get the Writer document model."""
-        model = get_active_document(self.ctx)
+        """Get the Writer document model.
+
+        Prefer the document bound to this sidebar's frame (same window as the user)
+        over ``Desktop.getCurrentComponent()``, which can point at the sidebar or
+        another focus target when the user types in the query field and clicks Send.
+        """
+        frame_model = None
+        frame_exc: BaseException | None = None
+        if self.frame:
+            try:
+                frame_model = self.frame.getController().getModel()
+            except Exception as e:
+                frame_exc = e
+
+        desktop_model = None
+        if frame_model is None:
+            desktop_model = get_active_document(self.ctx)
+
+        model = frame_model if frame_model is not None else desktop_model
 
         from plugin.framework.document import is_writer, is_calc, is_draw
         if model and (is_writer(model) or is_calc(model) or is_draw(model)):
             return model
+
+        # Only log when chat send will fail (same moment as the sidebar error message).
+        detail_parts = [
+            "has_frame=%s" % bool(self.frame),
+            "frame_branch=%s" % _uno_model_probe_for_log(frame_model),
+            "desktop_current=%s" % _uno_model_probe_for_log(desktop_model),
+        ]
+        if frame_exc is not None:
+            detail_parts.append(
+                "frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc)
+            )
+        if model is not None:
+            detail_parts.append(
+                "reject_reason=unsupported_component source=%s probe=%s"
+                % (
+                    "frame" if frame_model is not None else "desktop",
+                    _uno_model_probe_for_log(model),
+                )
+            )
+        log.error(
+            "SendButtonListener: no compatible document model for chat (%s)",
+            "; ".join(detail_parts),
+        )
         return None
 
     def set_fixed_send_width(self, width_px):
@@ -742,7 +800,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         log.debug("_do_send: getting document model...")
         model = self._get_document_model()
         if not model:
-            log.info("_do_send: no document found")
             self._append_response("\n" + _("[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]") + "\n")
             self._terminal_status = "Error"
             return
