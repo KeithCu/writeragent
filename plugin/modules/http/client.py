@@ -21,6 +21,7 @@ Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
 import logging
 import collections
 import json
+import re
 import urllib.parse
 import http.client
 import socket
@@ -29,6 +30,19 @@ from typing import Any, cast
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
+
+# Local / Harmony-style models sometimes leak chat-template control tokens like
+# ``<|channel|>`` into completion text. If that text is replayed on the next
+# request, the server can reject the input. Strip only ``<|alphanumeric_underscore|>``-style
+# tokens (not ``<tool_call>`` etc.).
+_CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
+
+
+def strip_leaked_chat_template_control_tokens(content: str | None) -> str:
+    """Remove ``<|name|>`` chat-template tokens that models sometimes emit in plain text."""
+    if not content:
+        return ""
+    return _CHAT_TEMPLATE_CONTROL_TOKEN_RE.sub("", content).strip()
 
 
 def _prepend_dev_build_system_prefix_to_messages(messages: list) -> None:
@@ -919,6 +933,15 @@ class LlmClient:
         Returns a dict: {role, content, tool_calls, finish_reason, images, usage}
         """
         init_logging(self.ctx)
+        eff_model = model or self.config.get("model", "")
+        n_tool_defs = len(tools) if isinstance(tools, list) else 0
+        log.debug(
+            "request_with_tools: model=%s stream=%s n_messages=%s n_tool_defs=%s",
+            eff_model,
+            stream,
+            len(messages),
+            n_tool_defs,
+        )
         method, path, body, headers = self.make_chat_request(
             messages,
             max_tokens,
@@ -976,6 +999,14 @@ class LlmClient:
                     if response.status != 200:
                         err_body = response.read().decode("utf-8", errors="replace")
                         log.error("Provider API Error %d: %s" % (response.status, err_body))
+                        try:
+                            redacted_msgs = redact_sensitive_payload_for_log(messages)
+                            log.error(
+                                "request_with_tools outgoing messages (redacted): %s",
+                                json.dumps(redacted_msgs, indent=2, ensure_ascii=False),
+                            )
+                        except Exception as log_exc:
+                            log.warning("Could not log redacted outgoing messages: %s", log_exc)
                         self._close_connection()
                         raise NetworkError(
                             _format_http_error_response(response.status, response.reason, err_body),
@@ -1033,9 +1064,27 @@ class LlmClient:
         if last_finish_reason == "stop" and tool_calls:
             last_finish_reason = "tool_calls"
 
+        if content:
+            cleaned = strip_leaked_chat_template_control_tokens(content)
+            if cleaned != content:
+                log.info(
+                    "Stripped leaked <|...|> chat-template tokens from assistant content "
+                    "(model=%s, original_len=%d, cleaned_len=%d)",
+                    eff_model,
+                    len(content),
+                    len(cleaned),
+                )
+                log.debug(
+                    "Stripped leaked chat-template control tokens from model content. "
+                    "original=%r cleaned=%r",
+                    content,
+                    cleaned,
+                )
+                content = cleaned
+
         if not tool_calls and content:
             from plugin.contrib.tool_call_parsers import get_parser_for_model
-            parser = get_parser_for_model(model or self.config.get("model", ""))
+            parser = get_parser_for_model(eff_model)
             if parser:
                 p_content, p_tool_calls = parser.parse(content)
                 if p_tool_calls:

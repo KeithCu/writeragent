@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.modules.http.client import LlmClient
+from plugin.modules.http.client import LlmClient, strip_leaked_chat_template_control_tokens
 from plugin.tests.testing_utils import MockContext
 
 
@@ -388,3 +388,65 @@ def test_make_chat_request_skips_dev_build_prefix_when_disabled():
         isinstance(m.get("content"), str) and "task-only prompt" in m["content"]
         for m in data["messages"]
     )
+
+
+def test_strip_leaked_chat_template_control_tokens_removes_harmony_style():
+    raw = (
+        '<|channel|>final <|constrain|>commentary<|message|>{\n'
+        '  "name": "reply_to_user",\n'
+        '  "arguments": {\n'
+        '    "answer": "Hi"\n'
+        "  }\n"
+        "}"
+    )
+    out = strip_leaked_chat_template_control_tokens(raw)
+    assert "<|" not in out
+    assert "reply_to_user" in out
+    assert "Hi" in out
+
+
+def test_strip_leaked_chat_template_control_tokens_plain_unchanged():
+    assert strip_leaked_chat_template_control_tokens("Hello world") == "Hello world"
+
+
+def test_strip_leaked_chat_template_control_tokens_empty():
+    assert strip_leaked_chat_template_control_tokens("") == ""
+    assert strip_leaked_chat_template_control_tokens(None) == ""
+
+
+def test_strip_leaked_chat_template_control_tokens_llama_python_tag_still_parsable():
+    """Stripping ``<|python_tag|>`` leaves JSON; llama3_json parser uses ``{`` anyway."""
+    raw = '<|python_tag|>{"name": "x", "arguments": {}}'
+    out = strip_leaked_chat_template_control_tokens(raw)
+    assert "<|" not in out
+    assert out.startswith('{"name"')
+
+
+def test_request_with_tools_strips_leaked_control_tokens_in_sync_response(client):
+    """End-to-end: content from OpenAI-style JSON is sanitized before return."""
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '<|channel|>x<|message|>{"name": "n", "arguments": {}}',
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {},
+    }
+    with (
+        patch.object(client, "_get_connection") as mock_get,
+        patch("plugin.modules.http.client.get_unverified_ssl_context"),
+    ):
+        mock_conn = MagicMock()
+        mock_get.return_value = mock_conn
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = json.dumps(payload).encode("utf-8")
+        mock_conn.getresponse.return_value = mock_resp
+
+        result = client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
+    assert "<|" not in (result.get("content") or "")
+    assert "n" in (result.get("content") or "")
