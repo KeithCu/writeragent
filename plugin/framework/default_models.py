@@ -72,10 +72,10 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "default_text": True,
     },
     {
-        "display_name": "Qwen 3 Coder Next FP8",
+        "display_name": "MiniMax M2.7",
         "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
-        "context_length": 262144,
-        "ids": {"together": "Qwen/Qwen3-Coder-Next-FP8"},
+        "context_length": 197000,
+        "ids": {"together": "MiniMaxAI/MiniMax-M2.7"},
         "default_text": True,
     },
     {
