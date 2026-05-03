@@ -56,7 +56,7 @@ msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Problème de demande de kudos"
+msgstr "Problème lors de la demande de kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
@@ -71,8 +71,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Vous avez fait trop de demandes, veuillez attendre qu'elles se terminent et "
-"réessayer plus tard"
+"Vous avez effectué trop de demandes, veuillez attendre qu'elles se "
+"terminent, puis réessayez plus tard."
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -94,7 +94,7 @@ msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Contact de la Horde..."
+msgstr "Contact de la Horde en cours..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
@@ -104,7 +104,8 @@ msgstr "Horde contactée"
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Lors de la demande de l'image, la Horde a été trop lente, réessayez plus tard"
+"Lors de la demande de l'image, la Horde a été trop lente, réessayez plus "
+"tard"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -148,7 +149,8 @@ msgstr "Ce modèle prend plus de temps que votre configuration actuelle."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Veuillez essayer un autre modèle. {0} prendrait plus de temps que ce que "
 "vous avez configuré."
@@ -162,7 +164,7 @@ msgstr "Veuillez réessayer plus tard."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "Il n'y a aucun worker disponible avec ces paramètres."
+msgstr "Aucun agent de traitement n'est disponible avec ces paramètres."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
@@ -194,8 +196,8 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Vous devrez peut-être réduire vos paramètres ou choisir un autre modèle, ou "
-"vous avez peut-être été censuré. Message de la Horde"
+"Il est possible que vous deviez réduire vos paramètres ou choisir un autre "
+"modèle, ou que vous ayez été censuré. Message de la Horde"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
@@ -280,13 +282,13 @@ msgstr "Échec d'ouverture des Paramètres : {0}"
 #: plugin/framework/specialized_base.py:94
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"L'appel d'outil a été basculé vers '{0}'. Vous êtes en mode ensemble "
-"d'outils spécialisé. Vous devez appeler 'specialized_workflow_finished' une "
-"fois terminé pour restaurer l'ensemble complet des API."
+"Appel d'outil basculé sur « {0} ». Vous êtes en mode d'outils spécialisé. "
+"Vous devez appeler « specialized_workflow_finished » une fois terminé pour "
+"restaurer l'ensemble complet des API."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
@@ -306,7 +308,8 @@ msgstr ""
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA : Je peux vous aider avec des formules, des analyses de données et des "
 "graphiques colorés. Essayez !"
@@ -348,8 +351,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Aucun éditeur trouvé (installez Kate ou Gedit, ou définissez EDITOR). "
-"Chemin :\n"
+"Aucun éditeur trouvé (installez Kate ou Gedit, ou définissez EDITOR). Chemin :\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -383,7 +385,8 @@ msgstr "Clé d'API invalide. Veuillez vérifier vos paramètres."
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"Accès API interdit. Votre clé peut manquer d'autorisations pour ce modèle."
+"Accès API refusé. Votre clé ne dispose peut-être pas des autorisations "
+"nécessaires pour ce modèle."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
@@ -408,7 +411,8 @@ msgstr ""
 "d'attente de la demande' dans les paramètres."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexion refusée. Votre serveur d'IA local (Ollama/LM Studio) est-il en "
 "cours d'exécution ?"
@@ -539,7 +543,7 @@ msgstr "Accepter"
 
 #: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
-msgstr "Changer"
+msgstr "Modifier"
 
 #: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
@@ -570,8 +574,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aucun document LibreOffice compatible (Writer, Calc ou Draw) trouvé dans la "
-"fenêtre active.]"
+"[Aucun document LibreOffice compatible (Writer, Calc ou Draw) trouvé dans la"
+" fenêtre active.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -654,7 +658,8 @@ msgstr "[Backend d'agent '{0}' non trouvé.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend d'agent '{0}' non disponible. Vérifiez les Paramètres (chemin, "
 "installation).]"
@@ -710,7 +715,7 @@ msgstr "Largeur :"
 
 #: plugin/tests/test_i18n.py:24
 msgid "ThisIsAnUntranslatedString999"
-msgstr "CeciEstUneChaineNonTraduite999"
+msgstr "ThisIsAnUntranslatedString999"
 
 #: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
 msgid "Built-in"
@@ -756,7 +761,7 @@ msgstr "Exécuter les tests de Calc"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Exécuter les tests d'intégration API Calc"
+msgstr "Exécuter les tests d'intégration de l'API Calc"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
@@ -768,7 +773,7 @@ msgstr "Tableau de bord d'évaluation"
 
 #: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "Erreur de répartition"
+msgstr "Erreur de dispatch"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -792,7 +797,7 @@ msgstr "Clé API:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "Instructions supplémentaires (Historique):"
+msgstr "Instructions supplémentaires (historique) :"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
@@ -808,7 +813,7 @@ msgstr "Demander / instruire :"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
-msgstr "Rapport d'aspect :"
+msgstr "Format d'image :"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
@@ -832,7 +837,7 @@ msgstr "Échelle CFG :"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Calculatrice"
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -860,7 +865,7 @@ msgstr "Longueur du contexte :"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Dessiner"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
@@ -876,7 +881,7 @@ msgstr "URL du point de terminaison :"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
-msgstr "Génération..."
+msgstr "Général"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
@@ -884,7 +889,7 @@ msgstr "Modèle d'image :"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
-msgstr "Paramètres"
+msgstr "Paramètres d'image"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
@@ -912,7 +917,7 @@ msgstr "Multimodal"
 
 #: plugin/xdl_strings.py:41
 msgid "Please enter edit instructions:"
-msgstr "Veuillez saisir les instructions de modification !"
+msgstr "Veuillez saisir les instructions de modification :"
 
 #: plugin/xdl_strings.py:43
 msgid "Run Benchmark"
@@ -928,11 +933,11 @@ msgstr "Carré"
 
 #: plugin/xdl_strings.py:48
 msgid "Steps:"
-msgstr "Étapes:"
+msgstr "Étapes :"
 
 #: plugin/xdl_strings.py:49
 msgid "Stop"
-msgstr "Arrêter l'enregistrement"
+msgstr "Arrêter"
 
 #: plugin/xdl_strings.py:50
 msgid "Temperature:"
@@ -956,7 +961,7 @@ msgstr "Traduire depuis (ex. es) :"
 
 #: plugin/xdl_strings.py:55
 msgid "Use AI Horde for Image Generation"
-msgstr "Utilisez AI Horde pour la génération d'images"
+msgstr "Utiliser AI Horde pour la génération d'images"
 
 #: plugin/xdl_strings.py:56
 msgid "Use Image model"
@@ -968,7 +973,7 @@ msgstr "Recherche Web"
 
 #: plugin/xdl_strings.py:58
 msgid "Writer"
-msgstr "Écrivain"
+msgstr "Writer"
 
 msgid "Agent backends"
 msgstr "Agents"
@@ -986,8 +991,8 @@ msgid "Path / URL"
 msgstr "Chemin / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Chemin vers le CLI backend (p. ex. aider) ou URL du serveur ACP (p. ex. "
 "http://localhost:8000 pour Hermes). Vide = essayer la valeur par défaut."
@@ -1019,13 +1024,13 @@ msgid "Sidebar"
 msgstr "Volet"
 
 msgid "Max Tool Rounds"
-msgstr "Tours d'outil maximum"
+msgstr "Nombre maximal de tours d'outil"
 
 msgid "Document Context Strategy"
 msgstr "Stratégie de contexte de document"
 
 msgid "How much document content to include in LLM context"
-msgstr "Combien de contenu de document inclure dans le contexte LLM"
+msgstr "Quantité de contenu de document à inclure dans le contexte LLM"
 
 msgid "Auto (by document size)"
 msgstr "Automatique (par la taille du document)"
@@ -1043,10 +1048,10 @@ msgid "Stats + outline only"
 msgstr "Statistiques + plan uniquement"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Étendre la sélection"
+msgstr "Étendre la sélection (jetons max)"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Modifier la sélection"
+msgstr "Modifier la sélection (jetons supplémentaires)"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
@@ -1060,37 +1065,39 @@ msgid "Prompt for Web Research"
 msgstr "Invite pour la recherche Web"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Demander une confirmation avant d'envoyer une requête de recherche web"
+msgstr ""
+"Demander une confirmation avant d'envoyer une requête de recherche web"
 
 msgid "Web Cache Max Size (MB)"
 msgstr "Taille maximale du cache Web (Mo)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Taille maximale sur disque pour le cache de recherche web (0 pour désactiver)"
+"Taille maximale sur disque pour le cache de recherche web (0 pour "
+"désactiver)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Validité du cache Web (jours)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
-"Combien de jours les entrées de cache doivent-elles être considérées comme "
-"valides."
+"Nombre de jours pendant lesquels les entrées de cache sont considérées comme"
+" valides."
 
 msgid "Doc"
-msgstr "Doc"
+msgstr "Document"
 
 msgid "Enable AI grammar checker (Writer)"
 msgstr "Activer le correcteur grammatical IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Lorsque activé, WriterAgent enregistre son correcteur grammatical IA avec "
-"Linguistic ; le texte vérifié utilise votre API (Outils → Options → IA). Des "
-"soulignements apparaissent peu après que vous cessiez de taper. Désactivé "
+"Linguistic ; le texte vérifié utilise votre API (Outils → Options → IA). Des"
+" soulignements apparaissent peu après que vous cessiez de taper. Désactivé "
 "par défaut."
 
 msgid "Grammar check wait timeout (ms)"
@@ -1101,13 +1108,13 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Réservé pour une utilisation future possible. Le correcteur renvoie "
-"immédiatement en cas de miss de cache (asynchrone) ; les résultats "
+"Réservé pour une utilisation future possible. Le correcteur répond "
+"immédiatement en cas d'échec de cache (asynchrone) ; les résultats "
 "apparaissent lors d'un passage ultérieur de Writer une fois le cache de "
 "phrases rempli."
 
 msgid "Grammar check model (optional)"
-msgstr "Modèle vérification grammaticale (optionnel)"
+msgstr "Modèle de vérification grammaticale (optionnel)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr "Laissez vide pour utiliser le même modèle de texte que le chat."
@@ -1130,7 +1137,7 @@ msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "Basculer le serveur MCP"
+msgstr "Activer le serveur MCP"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""

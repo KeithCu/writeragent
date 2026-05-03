@@ -62,8 +62,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo "
-"has intentado y el servicio no responde durante horas, por favor contacta "
+"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo"
+" has intentado y el servicio no responde durante horas, por favor contacta "
 "vía Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -149,7 +149,8 @@ msgstr "Este modelo tarda más tiempo que su configuración actual."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Por favor, prueba otro modelo. {0} tomaría más tiempo del que configuraste."
 
@@ -280,8 +281,8 @@ msgstr "Error al abrir Configuración: {0}"
 #: plugin/framework/specialized_base.py:94
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Llamada de herramienta cambiada a '{0}'. Estás en un modo de conjunto de "
@@ -290,7 +291,7 @@ msgstr ""
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
-msgstr "Configuración"
+msgstr "Configuración no válida"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
@@ -301,12 +302,13 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Puedo editar o traducir tu documento al instante con formato profesional "
-"y color. ¡Pruébame!"
+"IA: Puedo editar o traducir tu documento al instante con formato profesional"
+" y color. ¡Pruébame!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puedo ayudarte con fórmulas, análisis de datos y gráficos coloridos. "
 "¡Pruébame!"
@@ -404,7 +406,8 @@ msgstr ""
 "solicitud' en la Configuración."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Conexión Rechazada. ¿Está tu servidor local de IA (Ollama/LM Studio) en "
 "ejecución?"
@@ -566,8 +569,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw) "
-"en la ventana activa.]"
+"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw)"
+" en la ventana activa.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -650,7 +653,8 @@ msgstr "[Backend de agente '{0}' no encontrado.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend de agente '{0}' no está disponible. Verifica Configuración (ruta, "
 "instalación).]"
@@ -706,7 +710,7 @@ msgstr "Anchura:"
 
 #: plugin/tests/test_i18n.py:24
 msgid "ThisIsAnUntranslatedString999"
-msgstr "EstaEsUnaCadenaSinTraducir999"
+msgstr "ThisIsAnUntranslatedString999"
 
 #: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
 msgid "Built-in"
@@ -748,7 +752,7 @@ msgstr "Ejecutar pruebas de formato"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Ejecutar pruebas de calc"
+msgstr "Ejecutar pruebas de Calc"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
@@ -756,7 +760,7 @@ msgstr "Ejecutar pruebas de integración de la API de Calc"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Ejecutar pruebas de draw"
+msgstr "Ejecutar pruebas de Draw"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -840,7 +844,7 @@ msgstr "Censurar NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Chat:"
+msgstr "Chat (pruebas):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
@@ -872,7 +876,7 @@ msgstr "URL del endpoint:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
-msgstr "Generando..."
+msgstr "General"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
@@ -944,7 +948,7 @@ msgstr "Tiempo de espera (s):"
 
 #: plugin/xdl_strings.py:53
 msgid "Translate Prompt"
-msgstr "Traducir Indicación"
+msgstr "Traducir Instrucción"
 
 #: plugin/xdl_strings.py:54
 msgid "Translate from (e.g. es):"
@@ -967,7 +971,7 @@ msgid "Writer"
 msgstr "Writer"
 
 msgid "Agent backends"
-msgstr "Agentes"
+msgstr "Backends de agente"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -982,11 +986,11 @@ msgid "Path / URL"
 msgstr "Ruta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. http://"
-"localhost:8000 para Hermes). Vacío = intentar por defecto."
+"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. "
+"http://localhost:8000 para Hermes). Vacío = intentar por defecto."
 
 msgid "Extra arguments"
 msgstr "Argumentos adicionales"
@@ -1002,8 +1006,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el "
-"primer agente."
+"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el"
+" primer agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Herramientas de hoja de cálculo de Calc"
@@ -1012,7 +1016,7 @@ msgid "Max Rows Display"
 msgstr "Límite de filas a mostrar"
 
 msgid "Sidebar"
-msgstr "Lateral"
+msgstr "Panel lateral"
 
 msgid "Max Tool Rounds"
 msgstr "Rondas máximas de herramientas"
@@ -1068,7 +1072,7 @@ msgid "Web Cache Validity (Days)"
 msgstr "Validez de caché web (Días)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr "Cuántos días las entradas de caché se considerarán válidas."
+msgstr "Número de días que las entradas de caché se considerarán válidas."
 
 msgid "Doc"
 msgstr "Doc"
@@ -1078,13 +1082,13 @@ msgstr "Habilitar corrector gramatical de IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Cuando está activado, WriterAgent registra su corrector gramatical de IA con "
-"Linguistic; el texto comprobado usa tu API (Herramientas → Opciones → IA). "
-"Los subrayados aparecen poco después de pausar la escritura. Desactivado por "
-"defecto."
+"Cuando está activado, WriterAgent registra su corrector gramatical de IA con"
+" Linguistic; el texto comprobado usa tu API (Herramientas → Opciones → IA). "
+"Los subrayados aparecen poco después de pausar la escritura. Desactivado por"
+" defecto."
 
 msgid "Grammar check wait timeout (ms)"
 msgstr "Tiempo de espera para comprobación de gramática (ms)"
@@ -1094,9 +1098,10 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Reservado para posible uso futuro. El corrector devuelve inmediatamente en "
-"caso de desacierto de caché (asíncrono); los resultados aparecen en una "
-"pasada posterior del Writer una vez que la caché de oraciones esté llena."
+"Reservado para un posible uso futuro. El corrector devuelve una respuesta "
+"inmediata en caso de fallo de caché (asíncrono); los resultados aparecen en "
+"una pasada posterior de Writer una vez que la caché de oraciones se haya "
+"completado."
 
 msgid "Grammar check model (optional)"
 msgstr "Modelo de comprobación gramatical (opcional)"
@@ -1105,15 +1110,15 @@ msgid "Leave empty to use the same text model as chat."
 msgstr "Dejar vacío para usar el mismo modelo de texto que el chat."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Pausar gramática mientras se ejecuta chat/agente"
+msgstr "Pausar la gramática mientras se ejecutan el chat o el agente"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Cuando está activado, la gramática de IA omite solicitudes en segundo plano "
-"mientras se ejecuta el chat de la barra lateral o el agente, para evitar "
-"llamadas API concurrentes."
+"Cuando está activado, el corrector gramatical de IA omite las solicitudes en"
+" segundo plano mientras el chat de la barra lateral o el agente están en "
+"ejecución, para evitar llamadas a la API simultáneas."
 
 msgid "Draw and Impress tools"
 msgstr "Herramientas de Draw e Impress"
