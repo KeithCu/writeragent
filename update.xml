@@ -10,7 +10,7 @@
       only shows "update available" without a workable LO-side upgrade path.
     -->
     <identifier value="org.extension.writeragent" />
-    <version value="0.7.6" />
+    <version value="0.7.7" />
     <update-download>
         <src xlink:href="https://github.com/KeithCu/writeragent/releases/latest/download/writeragent.oxt" />
     </update-download>
