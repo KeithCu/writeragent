@@ -30,7 +30,11 @@ GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = _GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _CACHE_LOCK = threading.Lock()
 _ignored_rules: set[str] = set()
-MAX_CACHE_SIZE = 512
+MAX_CACHE_SIZE = 2048
+# Limit how many recent entries we scan for incomplete-sentence prefix
+# compaction on each cache_put_sentence. 10 is a good balance between
+# effectiveness (catches typical typing chains) and CPU (few memory touches).
+MAX_RECENT_INCOMPLETE_SCAN = 10
 
 
 def cache_clear() -> None:
@@ -76,6 +80,35 @@ def _normalize_for_sentence_cache(text: str) -> str:
     if match:
         return match.group(1)
     return s
+
+
+# Sentence completeness helpers (mirrored from ai_grammar_proofreader.py
+# to avoid import cycles). Used for deciding whether to evict incomplete
+# prefix predecessors during cache_put_sentence.
+_SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
+_TRAILING_CLOSERS = frozenset(
+    ("\"", "'", ")", "]", "}", ">", "»", "“", "‘", "」", "』", "）", "］", "〉", "》", "】", "〕", "〗", "〛")
+)
+
+
+def _last_meaningful_char(text: str) -> str:
+    """Return the last non-closer character (skipping quotes, brackets, etc.)."""
+    if not text:
+        return ""
+    for ch in reversed(text.rstrip()):
+        if ch in _TRAILING_CLOSERS:
+            continue
+        return ch
+    return ""
+
+
+def _is_complete_sentence(canon: str) -> bool:
+    """True if the canonical normalized text ends with a sentence terminator.
+
+    Used to protect complete sentences from being evicted by incomplete ones
+    during prefix compaction.
+    """
+    return _last_meaningful_char(canon) in _SENTENCE_TERMINATORS
 
 
 @dataclass(frozen=True)
@@ -384,10 +417,19 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 #   ("Hello." and "Hello..." share a key; "Hello?" and "Hello?..." share one;
 #    but "Hello?" and "Hello." remain distinct as the first terminator is significant).
 # Errors are relative to the start of that (canonical) sentence (offset 0).
-# This fulfills the requirement that semantically equivalent sentence text
-# always has the same errors, regardless of document position.
+#
+# Additional behavior for incomplete sentences (no terminator):
+# - On cache_put_sentence, we scan up to MAX_RECENT_INCOMPLETE_SCAN=10
+#   *newest* entries (OrderedDict end). If we find an incomplete strict-prefix
+#   predecessor for the same locale, we evict it. This collapses long typing
+#   chains ("The qu", "The qui", ..., "The quick brown fox") into 1 LRU slot.
+# - Complete sentences are protected and never evicted by this rule.
+# - This prevents LRU churn while keeping put cost tiny (bounded scan).
+# - Complete/cross-document sentences continue to reuse perfectly.
 
-_SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, list[dict[str, Any]]]] = collections.OrderedDict()
+_SENTENCE_CACHE: collections.OrderedDict[
+    str, tuple[str, str, bool, list[dict[str, Any]]]
+] = collections.OrderedDict()
 
 
 def _clip_errors_to_canonical_length(
@@ -437,7 +479,7 @@ def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] |
         hit = _SENTENCE_CACHE.get(key)
         if not hit:
             return None
-        cached_fp, errors = hit
+        cached_fp, _canon, _is_complete, errors = hit
         if cached_fp != fingerprint_for_text(_normalize_for_sentence_cache(sentence)):
             return None
         _SENTENCE_CACHE.move_to_end(key)
@@ -450,14 +492,44 @@ def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, An
     Uses _normalize_for_sentence_cache + clipping so additional trailing
     punctuation after the first terminator does not affect the cache key or
     produce invalid offsets.
+
+    For incomplete sentences (no terminator), we also perform a cheap
+    newest-first scan (max MAX_RECENT_INCOMPLETE_SCAN=10 entries) to evict
+    any recent incomplete strict-prefix predecessors for the same locale.
+    This prevents LRU churn from a user typing a long sentence one character
+    at a time. Complete sentences are never evicted by this logic.
     """
     canon = _normalize_for_sentence_cache(sentence)
     fp = fingerprint_for_text(canon)
     key = f"sent|{locale_key}|{fp}"
     clipped = _clip_errors_to_canonical_length(errors, len(canon))
+    is_complete = _is_complete_sentence(canon)
+
     with _CACHE_LOCK:
-        _SENTENCE_CACHE[key] = (fp, [dict(e) for e in clipped])  # deep enough copy
+        _SENTENCE_CACHE[key] = (fp, canon, is_complete, [dict(e) for e in clipped])
         _SENTENCE_CACHE.move_to_end(key)
+
+        # Prefix compaction for incomplete sentences. Scans newest-first
+        # (OrderedDict end) and stops early. Cost is bounded and tiny.
+        if not is_complete:
+            scan_count = 0
+            to_remove: list[str] = []
+            # Snapshot to avoid modification-during-iteration
+            for k, v in list(_SENTENCE_CACHE.items())[::-1]:
+                if scan_count >= MAX_RECENT_INCOMPLETE_SCAN:
+                    break
+                if not k.startswith(f"sent|{locale_key}|"):
+                    continue
+                other_fp, other_canon, other_complete, _ = v
+                if other_complete:
+                    continue
+                if len(other_canon) < len(canon) and canon.startswith(other_canon):
+                    to_remove.append(k)
+                    break  # only the most recent matching predecessor
+                scan_count += 1
+            for k in to_remove:
+                _SENTENCE_CACHE.pop(k, None)
+
         while len(_SENTENCE_CACHE) > MAX_CACHE_SIZE:
             _SENTENCE_CACHE.popitem(last=False)
 

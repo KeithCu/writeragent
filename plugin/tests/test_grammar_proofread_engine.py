@@ -195,3 +195,60 @@ def test_overlap_backward_expansion() -> None:
     expanded_wrong = full[err.n_error_start : err.n_error_start + err.n_error_length]
     assert expanded_wrong == "a good"
     assert err.suggestions == ("a very good",)
+
+
+def test_sentence_cache_incomplete_prefix_compaction() -> None:
+    """Incomplete growing prefixes collapse to one LRU entry (newest wins)."""
+    eng.cache_clear()
+    errors = [{"n_error_start": 0, "n_error_length": 3, "rule_identifier": "test"}]
+
+    # Growing incomplete sentence
+    eng.cache_put_sentence("en-US", "The", errors)
+    eng.cache_put_sentence("en-US", "The qu", errors)
+    eng.cache_put_sentence("en-US", "The quick", errors)
+    eng.cache_put_sentence("en-US", "The quick brown", errors)
+
+    # Should have collapsed to only the longest one
+    assert eng.cache_get_sentence("en-US", "The") is None
+    assert eng.cache_get_sentence("en-US", "The qu") is None
+    assert eng.cache_get_sentence("en-US", "The quick") is None
+    got = eng.cache_get_sentence("en-US", "The quick brown")
+    assert got is not None
+    assert len(got) == 1
+
+    # Complete sentence should not be affected
+    eng.cache_put_sentence("en-US", "The quick brown fox.", errors)
+    assert eng.cache_get_sentence("en-US", "The quick brown fox.") is not None
+    assert eng.cache_get_sentence("en-US", "The quick brown") is not None  # still there
+
+    eng.cache_clear()
+
+
+def test_sentence_cache_complete_not_evicted() -> None:
+    """Complete sentences are protected from eviction by incomplete ones."""
+    eng.cache_clear()
+    errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "test"}]
+
+    eng.cache_put_sentence("en-US", "Hello world.", errors)  # complete
+    eng.cache_put_sentence("en-US", "Hello world", errors)   # incomplete
+    eng.cache_put_sentence("en-US", "Hello world is", errors)  # incomplete
+
+    # Complete one should still be present
+    assert eng.cache_get_sentence("en-US", "Hello world.") is not None
+    # The incomplete ones may or may not collapse depending on exact order,
+    # but the complete is never evicted.
+    eng.cache_clear()
+
+
+def test_sentence_cache_locale_isolation() -> None:
+    """Different locales do not interfere with prefix compaction."""
+    eng.cache_clear()
+    errors = [{"n_error_start": 0, "n_error_length": 3, "rule_identifier": "test"}]
+
+    eng.cache_put_sentence("en-US", "Hello", errors)
+    eng.cache_put_sentence("fr-FR", "Bonjour", errors)
+    eng.cache_put_sentence("en-US", "Hello there", errors)  # should evict "Hello" for en-US only
+
+    assert eng.cache_get_sentence("en-US", "Hello") is None
+    assert eng.cache_get_sentence("fr-FR", "Bonjour") is not None  # unaffected
+    eng.cache_clear()
