@@ -203,15 +203,17 @@ class TestI18n(unittest.TestCase):
         self.assertEqual(normalize_backend_id("claude"), "claude")
         self.assertEqual(normalize_backend_id("Built-in"), "builtin")
         self.assertEqual(normalize_backend_id("Eingebaut"), "builtin")
+        self.assertEqual(normalize_backend_id("Integriert"), "builtin")
         self.assertEqual(normalize_backend_id("Hermes"), "hermes")
         self.assertEqual(normalize_backend_id("nonexistent"), "builtin")
         self.assertIsNotNone(get_backend("Eingebaut"))
+        self.assertIsNotNone(get_backend("Integriert"))
 
     def test_i18n_translation_loading(self):
-        """gettext can load writeragent.mo and translate 'Built-in' to German."""
+        """gettext can load writeragent.mo and translate 'Built-in' to German (Integriert)."""
         localedir = os.path.join(os.path.abspath("."), "plugin", "locales")
         translation = gettext.translation("writeragent", localedir, languages=["de"], fallback=True)
-        self.assertEqual(translation.gettext("Built-in"), "Eingebaut")
+        self.assertEqual(translation.gettext("Built-in"), "Integriert")
         self.assertEqual(translation.gettext("Backend"), "Backend")
 
     def test_i18n_translation_loading_korean(self):

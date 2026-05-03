@@ -11,6 +11,10 @@ Leading/trailing whitespace is stripped before the API call and restored on the 
 ``--review`` requires ``--model`` (use another model than gap-fill for useful critiques)
 and writes a JSON report (never modifies ``.po`` files): stdout lists every string including
 ``No Errors`` rows; the file's ``suggestions`` array lists only ``suggest`` / ``error`` rows.
+``--apply-review LOCALE`` reads ``translation_review_<LOCALE>.json`` (or ``--review-json``)
+and applies remaining ``suggest`` rows to ``plugin/locales/<LOCALE>/LC_MESSAGES/writeragent.po``;
+by default skips rows whose ``current_msgstr`` no longer matches the PO (use
+``--force-apply-review`` to apply anyway).
 """
 
 import os
@@ -590,6 +594,158 @@ def review_rows_for_json_report(rows: List[Dict[str, Any]]) -> List[Dict[str, An
     return out
 
 
+def load_review_report(path: Path) -> Dict[str, Any]:
+    """Load a ``--review`` JSON report; must contain a ``suggestions`` list."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Review JSON must be a JSON object: {path}")
+    if "suggestions" not in data or not isinstance(data["suggestions"], list):
+        raise ValueError(f"Review JSON must contain key 'suggestions' with a list: {path}")
+    return data
+
+
+def _preserve_msgid_edges(msgid: str, new_val: str) -> str:
+    """Match ``update_po_file`` layout rules for leading/trailing newlines on ``msgid``."""
+    out = new_val
+    if msgid.startswith("\n") and not out.startswith("\n"):
+        out = "\n" + out
+    if msgid.endswith("\n") and not out.endswith("\n"):
+        out = out + "\n"
+    return out
+
+
+def _normalize_plural_dict(d: Any) -> Dict[str, str]:
+    if not isinstance(d, dict):
+        return {}
+    return {str(k): str(v) for k, v in d.items()}
+
+
+def _row_msgid_plural_key(row: Dict[str, Any]) -> Optional[str]:
+    mp = row.get("msgid_plural")
+    if mp is None or mp == "":
+        return None
+    return str(mp)
+
+
+def _find_matching_po_entries(
+    po: polib.POFile, msgid: str, msgid_plural_key: Optional[str]
+) -> List[polib.POEntry]:
+    matches: List[polib.POEntry] = []
+    for entry in po:
+        if entry.msgid == "":
+            continue
+        if entry.msgid != msgid:
+            continue
+        ep = entry.msgid_plural or None
+        if msgid_plural_key is None:
+            if ep is None:
+                matches.append(entry)
+        elif ep == msgid_plural_key:
+            matches.append(entry)
+    return matches
+
+
+def apply_review_rows_to_po(
+    po_path: str,
+    rows: List[Dict[str, Any]],
+    *,
+    strict_current: bool = True,
+) -> Tuple[int, int, List[str]]:
+    """Apply review ``suggest`` rows to one PO file.
+
+    Returns ``(applied_count, skipped_count, warning_messages)``.
+    """
+    po = polib.pofile(po_path)
+    applied = 0
+    skipped = 0
+    warnings: List[str] = []
+    changed = False
+
+    for row in rows:
+        act = str(row.get("action", "")).lower()
+        if act != "suggest":
+            skipped += 1
+            continue
+
+        sug = row.get("suggested_msgstr")
+        sug_pl = row.get("suggested_msgstr_plural")
+        has_sug = sug is not None and str(sug).strip() != ""
+        has_pl = isinstance(sug_pl, dict) and any(str(v).strip() for v in sug_pl.values())
+        if not has_sug and not has_pl:
+            skipped += 1
+            continue
+
+        msgid = str(row.get("msgid", ""))
+        pk = _row_msgid_plural_key(row)
+        matches = _find_matching_po_entries(po, msgid, pk)
+        if len(matches) == 0:
+            w = f"No PO entry for msgid={msgid!r} msgid_plural={pk!r}"
+            log.warning(w)
+            warnings.append(w)
+            skipped += 1
+            continue
+        if len(matches) > 1:
+            w = f"Multiple PO entries for msgid={msgid!r} msgid_plural={pk!r}; skipping"
+            log.error(w)
+            warnings.append(w)
+            skipped += 1
+            continue
+
+        entry = matches[0]
+
+        if strict_current:
+            if entry.msgid_plural:
+                cur_po_pl = _normalize_plural_dict(entry.msgstr_plural or {})
+                cur_js_pl = _normalize_plural_dict(row.get("current_msgstr_plural") or {})
+                if cur_po_pl != cur_js_pl:
+                    w = (
+                        f"Stale plural current_msgstr_plural for msgid={msgid!r}; "
+                        "PO changed since review (skip; use --force-apply-review)"
+                    )
+                    log.warning(w)
+                    warnings.append(w)
+                    skipped += 1
+                    continue
+                # Do not compare ``current_msgstr`` to ``entry.msgstr`` here: polib often
+                # round-trips plural entries with an empty ``msgstr`` while forms live in
+                # ``msgstr_plural`` only.
+            else:
+                cur_po = entry.msgstr or ""
+                cur_js = row.get("current_msgstr")
+                if cur_js is not None and str(cur_js) != cur_po:
+                    w = (
+                        f"Stale current_msgstr for msgid={msgid!r}; "
+                        "PO changed since review (skip; use --force-apply-review)"
+                    )
+                    log.warning(w)
+                    warnings.append(w)
+                    skipped += 1
+                    continue
+
+        if entry.msgid_plural:
+            if has_pl:
+                assert isinstance(sug_pl, dict)
+                entry.msgstr_plural = {
+                    int(k): _preserve_msgid_edges(entry.msgid, str(v)) for k, v in sug_pl.items()
+                }
+            if has_sug:
+                entry.msgstr = _preserve_msgid_edges(entry.msgid, str(sug))
+        else:
+            if has_sug:
+                entry.msgstr = _preserve_msgid_edges(entry.msgid, str(sug))
+
+        if "fuzzy" in entry.flags:
+            entry.flags.remove("fuzzy")
+        applied += 1
+        changed = True
+
+    if changed:
+        po.save(po_path)
+        log.info("Saved %s", po_path)
+
+    return applied, skipped, warnings
+
+
 def update_po_file(po_file: str, translations_dict: Dict[str, str]) -> bool:
     po = polib.pofile(po_file)
     updated = False
@@ -666,6 +822,16 @@ def main():
         action="store_true",
         help="Review existing translations with a model; write JSON report only (no .po changes)",
     )
+    mode.add_argument(
+        "--apply-review",
+        metavar="LOCALE",
+        type=str,
+        default=None,
+        help=(
+            "Apply remaining suggest rows from translation_review_<LOCALE>.json "
+            "to plugin/locales/<LOCALE>/LC_MESSAGES/writeragent.po (override JSON path with --review-json)"
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=10, help="Batch size (default: 10)")
     parser.add_argument(
         "--jobs",
@@ -696,6 +862,18 @@ def main():
         help="With --review: JSON report path (default: translation_review_<locales>.json)",
     )
     parser.add_argument(
+        "--review-json",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="With --apply-review: read this JSON file instead of translation_review_<LOCALE>.json",
+    )
+    parser.add_argument(
+        "--force-apply-review",
+        action="store_true",
+        help="With --apply-review: apply even when current_msgstr / current_msgstr_plural differs from the PO",
+    )
+    parser.add_argument(
         "--skip-initial-status",
         action="store_true",
         help="Do not print the localization table at start (e.g. second phase of make auto-translate after status preview)",
@@ -710,6 +888,48 @@ def main():
             )
     elif args.execute and not args.model:
         args.model = DEFAULT_TRANSLATE_MODEL
+
+    if args.apply_review is not None:
+        locale = str(args.apply_review).strip()
+        if not locale:
+            parser.error("--apply-review requires a non-empty LOCALE (e.g. de, zh_CN).")
+        json_path = Path(args.review_json) if args.review_json else Path(default_review_output_path([locale]))
+        if not args.skip_initial_status:
+            print_status_report()
+        if not json_path.is_file():
+            log.error("Review JSON not found: %s", json_path.resolve())
+            raise SystemExit(1)
+        po_path = Path("plugin/locales") / locale / "LC_MESSAGES" / "writeragent.po"
+        if not po_path.is_file():
+            log.error("PO file not found: %s", po_path.resolve())
+            raise SystemExit(1)
+        try:
+            report = load_review_report(json_path)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            log.error("Invalid review JSON %s: %s", json_path, e)
+            raise SystemExit(1)
+        rows = [
+            r
+            for r in report["suggestions"]
+            if isinstance(r, dict) and str(r.get("locale", "")) == locale
+        ]
+        if not rows:
+            log.info("No suggestions for locale %s in %s — nothing to apply.", locale, json_path)
+            return
+        strict = not args.force_apply_review
+        applied, skipped, warns = apply_review_rows_to_po(str(po_path), rows, strict_current=strict)
+        print(
+            f"apply-review: locale={locale} applied={applied} skipped={skipped} warnings={len(warns)}",
+            flush=True,
+        )
+        for w in warns:
+            print(w, flush=True)
+        if applied:
+            subprocess.run(
+                ["msgfmt", "-o", str(po_path).replace(".po", ".mo"), str(po_path)],
+                check=False,
+            )
+        return
 
     if args.review:
         if not args.skip_initial_status:
@@ -788,7 +1008,8 @@ def main():
         print(
             "Dry run active. Run with `--execute` to perform updates, "
             "`--preview` to show localization status only, "
-            "or `--review --model ...` to write a translation review JSON report."
+            "or `--review --model ...` to write a translation review JSON report, "
+            "or `--apply-review LOCALE` to apply a curated review JSON to a PO file."
         )
         return
 
