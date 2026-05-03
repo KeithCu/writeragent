@@ -59,6 +59,8 @@ Opus 4.6 one-shotted this Arch Linux resume:
 ![Opus 4.6 Resume](Showcase/Opus46Resume.png)
 Sonnet 4.6 one-shotted this "pretty spreadsheet"
 ![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)
+Tex Math, also showing a blue underline from the incomplete sentence.
+![Math Expressions](https://github.com/KeithCu/writeragent/blob/master/Showcase/Math.png)
 
 
 ### 3. Web Research & Fact-Checking (Local & Private)
