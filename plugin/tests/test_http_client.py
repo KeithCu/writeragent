@@ -450,3 +450,40 @@ def test_request_with_tools_strips_leaked_control_tokens_in_sync_response(client
         result = client.request_with_tools([{"role": "user", "content": "hi"}], max_tokens=10)
     assert "<|" not in (result.get("content") or "")
     assert "n" in (result.get("content") or "")
+
+
+def test_request_with_tools_sync_paces_consecutive_requests(client):
+    """Second sync call sleeps ~50ms when monotonic time has not advanced (burst guard)."""
+    ok_json = json.dumps(
+        {
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "a"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {},
+        }
+    ).encode("utf-8")
+    sleeps: list[float] = []
+
+    def track_sleep(dt: float) -> None:
+        sleeps.append(dt)
+
+    with (
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("time.sleep", side_effect=track_sleep),
+        patch("time.monotonic", side_effect=[1000.0] * 8),
+    ):
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = ok_json
+        mock_conn.getresponse.return_value = mock_resp
+
+        client.request_with_tools([{"role": "user", "content": "x"}], max_tokens=10)
+        client.request_with_tools([{"role": "user", "content": "y"}], max_tokens=10)
+
+    assert len(sleeps) == 1
+    assert abs(sleeps[0] - 0.05) < 1e-9

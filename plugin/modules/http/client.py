@@ -22,6 +22,7 @@ import logging
 import collections
 import json
 import re
+import time
 import urllib.parse
 import http.client
 import socket
@@ -30,6 +31,10 @@ from typing import Any, cast
 
 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
 REPEATED_STREAMING_CHUNK_LIMIT = 20
+
+# Minimum wall time between consecutive ``conn.request`` calls on one client (bursty
+# sub-agents / tool loops can otherwise hit provider rate limits).
+_LLM_MIN_REQUEST_INTERVAL_SEC = 0.05
 
 # Local / Harmony-style models sometimes leak chat-template control tokens like
 # ``<|channel|>`` into completion text. If that text is replayed on the next
@@ -103,6 +108,17 @@ class LlmClient:
         self._persistent_conn = None
         self._conn_key = None  # (scheme, host, port)
         self._ssl_fallback_hosts = set()
+        self._last_llm_request_sent_monotonic = 0.0
+
+    def _pace_before_llm_request(self) -> None:
+        """Sleep if needed so consecutive HTTP sends on this client are not back-to-back."""
+        now = time.monotonic()
+        wait = _LLM_MIN_REQUEST_INTERVAL_SEC - (now - self._last_llm_request_sent_monotonic)
+        if wait > 0:
+            time.sleep(wait)
+
+    def _mark_llm_request_sent(self) -> None:
+        self._last_llm_request_sent_monotonic = time.monotonic()
 
     def _get_connection(self):
         """Get or create a persistent http.client connection."""
@@ -719,7 +735,9 @@ class LlmClient:
         conn = self._get_connection()
         
         try:
+            self._pace_before_llm_request()
             conn.request(method, path, body=body, headers=headers)
+            self._mark_llm_request_sent()
             response = conn.getresponse()
             
             if response.status != 200:
@@ -994,7 +1012,9 @@ class LlmClient:
             for attempt in (0, 1):
                 try:
                     conn = self._get_connection()
+                    self._pace_before_llm_request()
                     conn.request(method, path, body=body, headers=headers)
+                    self._mark_llm_request_sent()
                     response = conn.getresponse()
                     if response.status != 200:
                         err_body = response.read().decode("utf-8", errors="replace")
