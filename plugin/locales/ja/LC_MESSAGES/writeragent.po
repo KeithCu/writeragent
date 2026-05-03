@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-19 23:02-0400\n"
+"POT-Creation-Date: 2026-05-02 16:50-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:685
+#: plugin/modules/chatbot/panel.py:790
 msgid "Starting..."
 msgstr "起動..."
 
@@ -36,12 +36,14 @@ msgstr "に登録してください"
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "{} の賞賛をいただきます"
+msgstr "保有クドス: {}"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» は有効な API キーではありません。再確認するか、新しい API キーを作成してください"
+msgstr ""
+"«{}» は有効な API キーではありません。再確認するか、新しい API キーを作成して"
+"ください"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -49,31 +51,36 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"現時点ではリクエストを処理できません。後でもう一度お試しください。  この問題が長期間発生する場合は、Discord 経由でお知らせください。"
+"現時点ではリクエストを処理できません。後でもう一度お試しください。  この問題"
+"が長期間発生する場合は、Discord 経由でお知らせください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "称賛を求める際の問題"
+msgstr "クドスの取得に問題が発生しました"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde はメンテナンス モードです。後でもう一度お試しください。試してもサービスが何時間も応答しない場合は、Discord 経由でご連絡ください。"
+"Horde はメンテナンス モードです。後でもう一度お試しください。試してもサービス"
+"が何時間も応答しない場合は、Discord 経由でご連絡ください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
-msgstr "リクエストが多すぎます。完了するまで待って、後でもう一度お試しください。"
+msgstr ""
+"リクエストが多すぎます。完了するまで待って、後でもう一度お試しください。"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
 msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
-msgstr "«{}» に問題があるようです。再確認するか、新しいものを作成するか、Discord に参加して助けを求めてください"
+msgstr ""
+"«{}» に問題があるようです。再確認するか、新しいものを作成するか、Discord に参"
+"加して助けを求めてください"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
@@ -81,20 +88,24 @@ msgstr "エラーが発生しましたが、それでも次のとおりです。
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr "有効ではありません。もう一度お試しください。  リクエストに時間がかかりすぎました"
+msgstr ""
+"有効ではありません。もう一度お試しください。  リクエストに時間がかかりすぎま"
+"した"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "大群と接触中..."
+msgstr "Horde に接続中..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "大群が接触しました"
+msgstr "Horde に接続しました"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr "画像を要求しようとしたとき、Horde が遅すぎました。後でもう一度試してください。"
+msgstr ""
+"画像を要求しようとしたとき、Horde が遅すぎました。後でもう一度試してくださ"
+"い。"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -111,7 +122,7 @@ msgstr "生成されたイメージをダウンロードしています..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "あなたが列の先頭です"
+msgstr "キューの先頭です"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
@@ -138,9 +149,9 @@ msgstr "このモデルは現在の設定よりも時間がかかります。"
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
-msgstr "別のモデルをお試しください。{0} は設定された時間よりも多くの時間を要します。"
+msgid "Please try another model. {0} would take more time than you configured."
+msgstr ""
+"別のモデルをお試しください。{0} は設定された時間よりも多くの時間を要します。"
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
@@ -182,7 +193,9 @@ msgstr "画像をダウンロード中"
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
-msgstr "設定を下げるか、別のモデルを選択する必要があるか、検閲を受けている可能性があります。大群のメッセージ"
+msgstr ""
+"設定を下げるか、別のモデルを選択する必要があるか、検閲を受けている可能性があ"
+"ります。Horde のメッセージ"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
@@ -217,10 +230,10 @@ msgid "Search query:"
 msgstr "検索クエリ："
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
-#: plugin/framework/dialogs.py:406 plugin/framework/dialogs.py:494
-#: plugin/modules/http/__init__.py:319 plugin/xdl_strings.py:40
+#: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
+#: plugin/xdl_strings.py:40
 msgid "OK"
-msgstr "わかりました"
+msgstr "OK"
 
 #: plugin/framework/dialogs.py:168
 msgid "Cancel"
@@ -238,54 +251,42 @@ msgstr "コピーしました！"
 msgid "Copy URL"
 msgstr "URLをコピー"
 
-#: plugin/framework/dialogs.py:478 plugin/framework/dialogs.py:506
-#: plugin/main.py:439
-msgid "About WriterAgent"
-msgstr "WriterAgentについて"
-
-#: plugin/framework/dialogs.py:485
-#, python-format
-msgid "Version: %s"
-msgstr "バージョン: %s"
-
-#: plugin/framework/dialogs.py:486
-msgid "AI-powered extension for LibreOffice"
-msgstr "AI を活用した LibreOffice 用拡張機能"
-
-#: plugin/framework/dialogs.py:491
-msgid "GitHub: quazardous/localwriter"
-msgstr "GitHub: quazardous/ローカルライター"
-
-#: plugin/framework/dialogs.py:507
-#, python-brace-format
-msgid "WriterAgent {0}"
-msgstr "ライターエージェント {0}"
-
-#: plugin/framework/errors.py:51
+#: plugin/framework/errors.py:52
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} が見つかりません: {identifier}"
 
-#: plugin/framework/legacy_ui.py:481 plugin/main.py:430
+#: plugin/framework/legacy_ui.py:509 plugin/main.py:434
 #: plugin/xdl_strings.py:46
 msgid "Settings"
 msgstr "設定"
 
-#: plugin/framework/legacy_ui.py:533 plugin/framework/external_editor.py:78
+#: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
 #: plugin/framework/external_editor.py:83
 #: plugin/framework/external_editor.py:96
 #: plugin/framework/external_editor.py:105
-#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:762
-#: plugin/modules/chatbot/send_handlers.py:376
-#: plugin/modules/chatbot/send_handlers.py:386
-#: plugin/modules/chatbot/send_handlers.py:395 plugin/main.py:335
+#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:866
+#: plugin/modules/chatbot/send_handlers.py:365
+#: plugin/modules/chatbot/send_handlers.py:375
+#: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
 msgid "Error"
 msgstr "エラー"
 
-#: plugin/framework/legacy_ui.py:533
+#: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "設定を開くのに失敗しました: {0}"
+
+#: plugin/framework/specialized_base.py:94
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っていま"
+"す。完了したら 'specialized_workflow_finished' を呼び出して、APIのフルセット"
+"を復元してください。"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
@@ -295,29 +296,36 @@ msgstr "無効な設定"
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatureは1.0以下である必要があります"
 
-#: plugin/framework/constants.py:250
+#: plugin/framework/constants.py:287
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
-msgstr "AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻訳できます。ぜひお試しください！"
+msgstr ""
+"AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻"
+"訳できます。ぜひお試しください！"
 
-#: plugin/framework/constants.py:251
+#: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr "AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しください！"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しくだ"
+"さい！"
 
-#: plugin/framework/constants.py:252
+#: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
-msgstr "AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いします。ぜひお試しください！"
+msgstr ""
+"AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いしま"
+"す。ぜひお試しください！"
 
-#: plugin/framework/constants.py:253
+#: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
-msgstr "AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答えたり、ウェブページを要約したりできます。お話ししましょう。"
+msgstr ""
+"AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答え"
+"たり、ウェブページを要約したりできます。お話ししましょう。"
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
@@ -339,7 +347,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設定してください)。パス:\n"
+"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設"
+"定してください)。パス:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -357,8 +366,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager "
-"を使用して更新を確認し、最新の拡張機能をインストールしてください。"
+"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager を使用"
+"して更新を確認し、最新の拡張機能をインストールしてください。"
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -371,11 +380,14 @@ msgstr "API キーが無効です。設定を確認してください。"
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr "API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可能性があります。"
+msgstr ""
+"API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可"
+"能性があります。"
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
+msgstr ""
+"エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
@@ -389,12 +401,14 @@ msgstr "HTTP エラー {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr "リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やしてみてください。"
+msgstr ""
+"リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やして"
+"みてください。"
 
 #: plugin/modules/http/errors.py:43
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr "接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -415,20 +429,21 @@ msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AIプロバイダーからの HTTP エラー {0}: {1}"
 
 #: plugin/modules/http/errors.py:77
-#: plugin/modules/chatbot/send_handlers.py:159
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "エラー: {0}"
 
-#: plugin/modules/http/client.py:717
+#: plugin/modules/http/client.py:790
 msgid "Stream ended with finish_reason=error"
 msgstr "ストリームが finish_reason=error で終了しました"
 
-#: plugin/modules/http/client.py:730
+#: plugin/modules/http/client.py:803
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
-msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
+msgstr ""
+"モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただく"
+"か、別のモデルをご使用ください。"
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
@@ -493,17 +508,6 @@ msgstr "WriterAgent: 選択範囲の編集 (Calc)"
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 
-#: plugin/modules/calc/specialized.py:101
-#: plugin/modules/writer/specialized.py:110
-#, python-brace-format
-msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
-"APIs."
-msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
-"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
-
 #: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
 #: plugin/modules/chatbot/selection.py:90
 #: plugin/modules/chatbot/selection.py:177
@@ -520,67 +524,78 @@ msgstr "WriterAgent: 選択範囲の編集"
 
 #: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
 msgid "Ready"
-msgstr "準備ができて"
+msgstr "準備完了"
 
-#: plugin/modules/chatbot/panel.py:342 plugin/modules/chatbot/panel.py:660
+#: plugin/modules/chatbot/tool_loop.py:931
+msgid "Error: Toolkit unavailable"
+msgstr "エラー: ツールキットが利用できません"
+
+#: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
 msgstr "承認"
 
-#: plugin/modules/chatbot/panel.py:358 plugin/modules/chatbot/panel.py:882
+#: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
 msgstr "変更"
 
-#: plugin/modules/chatbot/panel.py:362 plugin/modules/chatbot/panel.py:889
+#: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
 msgstr "拒否"
 
-#: plugin/modules/chatbot/panel.py:379
+#: plugin/modules/chatbot/panel.py:429
 msgid "Waiting for approval…"
 msgstr "承認を待っています…"
 
-#: plugin/modules/chatbot/panel.py:666
+#: plugin/modules/chatbot/panel.py:771
 msgid "Record"
 msgstr "録音"
 
-#: plugin/modules/chatbot/panel.py:668
+#: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
 msgstr "録音停止"
 
-#: plugin/modules/chatbot/panel.py:670 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
 msgid "Send"
 msgstr "送信"
 
-#: plugin/modules/chatbot/panel.py:694
+#: plugin/modules/chatbot/panel.py:799
 msgid "Getting document..."
 msgstr "ドキュメントを取得しています..."
 
-#: plugin/modules/chatbot/panel.py:699
+#: plugin/modules/chatbot/panel.py:803
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
+"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、"
+"または Draw) が見つかりません。]"
 
-#: plugin/modules/chatbot/panel.py:708
+#: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
-msgstr "[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報告してください。]"
+msgstr ""
+"[内部エラー: ドキュメント タイプが {0} から {1} に変更されました。エラーを報"
+"告してください。]"
 
-#: plugin/modules/chatbot/panel.py:715
+#: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ぜひご報告ください！】"
+msgstr ""
+"[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告くださ"
+"い。]"
 
-#: plugin/modules/chatbot/panel.py:759
+#: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
+msgstr ""
+"[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデル"
+"を選択してください。]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
@@ -611,7 +626,7 @@ msgstr "調査リクエスト："
 msgid "Context for the research agent:"
 msgstr "調査エージェントのコンテキスト："
 
-#: plugin/modules/chatbot/web_research.py:337
+#: plugin/modules/chatbot/web_research.py:232
 msgid "Web research completed."
 msgstr "ウェブリサーチが完了しました。"
 
@@ -624,68 +639,69 @@ msgstr "音声を文字起こし中..."
 msgid "[Transcription error: {0}]"
 msgstr "[文字起こしエラー: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:374
+#: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[ドキュメントコンテキストエラー: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:384
+#: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[エージェントバックエンド '{0}' が見つかりません。]"
 
-#: plugin/modules/chatbot/send_handlers.py:391
+#: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）"
+"を確認してください。]"
 
-#: plugin/modules/chatbot/send_handlers.py:635
-#: plugin/modules/chatbot/send_handlers.py:643
+#: plugin/modules/chatbot/send_handlers.py:626
+#: plugin/modules/chatbot/send_handlers.py:634
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "ライブラリアン：{0}"
 
-#: plugin/modules/chatbot/send_handlers.py:642
+#: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "完璧！今からメインアシスタントに切り替えます。"
 
-#: plugin/modules/chatbot/send_handlers.py:648
+#: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
 msgstr "不明なライブラリアンエラー。"
 
-#: plugin/modules/chatbot/send_handlers.py:649
+#: plugin/modules/chatbot/send_handlers.py:640
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[ライブラリアンエラー：{0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:673
+#: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "AI（研究）: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:679
+#: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
 msgstr "不明な研究エラー。"
 
-#: plugin/modules/chatbot/send_handlers.py:680
+#: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[研究エラー: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:82
+#: plugin/modules/chatbot/librarian.py:80
 msgid "Switching to document mode..."
 msgstr "ドキュメントモードに切り替え中…"
 
-#: plugin/modules/chatbot/panel_factory.py:498
+#: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
 msgstr "サイズ:"
 
-#: plugin/modules/chatbot/panel_factory.py:499
+#: plugin/modules/chatbot/panel_factory.py:518
 msgid "Height:"
 msgstr "高さ:"
 
-#: plugin/modules/chatbot/panel_factory.py:500
+#: plugin/modules/chatbot/panel_factory.py:519
 msgid "Width:"
 msgstr "幅:"
 
@@ -693,7 +709,7 @@ msgstr "幅:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "これは未翻訳の文字列999です"
 
-#: plugin/tests/test_i18n.py:214
+#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
 msgid "Built-in"
 msgstr "ビルトイン"
 
@@ -701,55 +717,55 @@ msgstr "ビルトイン"
 msgid "Backend"
 msgstr "バックエンド"
 
-#: plugin/main.py:352
+#: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} 合格、{2} 失敗。"
+msgstr "{0}: {1} 成功、{2} 失敗。"
 
-#: plugin/main.py:355
+#: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "テストの実行に失敗しました: {0}"
 
-#: plugin/main.py:428
+#: plugin/main.py:432
 msgid "Extend Selection"
 msgstr "選択範囲を拡張"
 
-#: plugin/main.py:429
+#: plugin/main.py:433
 msgid "Edit Selection"
 msgstr "選択範囲を編集"
 
-#: plugin/main.py:431
+#: plugin/main.py:435
 msgid "Toggle MCP Server"
 msgstr "MCPサーバーの切り替え"
 
-#: plugin/main.py:432
+#: plugin/main.py:436
 msgid "MCP Server Status"
 msgstr "MCP サーバーのステータス"
 
-#: plugin/main.py:434
+#: plugin/main.py:438
 msgid "Run format tests"
 msgstr "フォーマットテストを実行する"
 
-#: plugin/main.py:435
+#: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "計算テストを実行する"
+msgstr "Calc テストを実行する"
 
-#: plugin/main.py:436
+#: plugin/main.py:440
 msgid "Run Calc API integration tests"
 msgstr "Calc API 統合テストを実行する"
 
-#: plugin/main.py:437
+#: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "描画テストを実行する"
+msgstr "Draw テストを実行する"
 
-#: plugin/main.py:438
+#: plugin/main.py:442
 msgid "Evaluation Dashboard"
 msgstr "評価ダッシュボード"
 
-#: plugin/main.py:820
+#: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "発送エラー"
+msgstr "ディスパッチエラー"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -857,7 +873,7 @@ msgstr "エンドポイントURL:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
-msgstr "生成中..."
+msgstr "一般"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
@@ -865,15 +881,15 @@ msgstr "画像モデル:"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
-msgstr "設定"
+msgstr "画像設定"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
 msgstr "フレームを挿入"
 
 #: plugin/xdl_strings.py:35
-msgid "LocalWriter Evaluation Dashboard"
-msgstr "評価ダッシュボード"
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent 評価ダッシュボード"
 
 #: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
@@ -893,7 +909,7 @@ msgstr "マルチモーダル"
 
 #: plugin/xdl_strings.py:41
 msgid "Please enter edit instructions:"
-msgstr "編集の指示を入力してください！"
+msgstr "編集の指示を入力してください:"
 
 #: plugin/xdl_strings.py:43
 msgid "Run Benchmark"
@@ -913,7 +929,7 @@ msgstr "ステップ:"
 
 #: plugin/xdl_strings.py:49
 msgid "Stop"
-msgstr "録音停止"
+msgstr "停止"
 
 #: plugin/xdl_strings.py:50
 msgid "Temperature:"
@@ -967,11 +983,11 @@ msgid "Path / URL"
 msgstr "パス / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の場合は "
-"http://localhost:8000)。空の場合はデフォルトを試行します。"
+"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の"
+"場合は http://localhost:8000)。空の場合はデフォルトを試行します。"
 
 msgid "Extra arguments"
 msgstr "追加引数"
@@ -985,7 +1001,9 @@ msgstr "ACP エージェント名"
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
-msgstr "ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自動検出します。"
+msgstr ""
+"ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自"
+"動検出します。"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc 表計算ツール"
@@ -1052,6 +1070,46 @@ msgstr "キャッシュエントリが有効と見なされる日数。"
 
 msgid "Doc"
 msgstr "文書"
+
+msgid "Enable AI grammar checker (Writer)"
+msgstr "AI 文法チェッカー (Writer) を有効にする"
+
+msgid ""
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
+msgstr ""
+"オンにすると、WriterAgent は Linguistic に AI 文法校正機能を登録します。"
+"チェックされるテキストはあなたの API を使用します (Tools → Options → AI)。入"
+"力が一時停止するとすぐに下線が表示されます。デフォルトでオフです。"
+
+msgid "Grammar check wait timeout (ms)"
+msgstr "文法チェック待機タイムアウト (ms)"
+
+msgid ""
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
+msgstr ""
+"将来の使用のために予約されています。プルーフリーダーはキャッシュミス時に即座"
+"に結果を返します（非同期）；文キャッシュが読み込まれると、後続のWriter処理で結果が"
+"表示されます。"
+
+msgid "Grammar check model (optional)"
+msgstr "文法チェック モデル (オプション)"
+
+msgid "Leave empty to use the same text model as chat."
+msgstr "チャットと同じテキストモデルを使用するには空にしておいてください。"
+
+msgid "Pause grammar while chat/agent runs"
+msgstr "チャット/エージェント実行中に文法を一時停止"
+
+msgid ""
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
+msgstr ""
+"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを"
+"避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
 
 msgid "Draw and Impress tools"
 msgstr "Draw と Impress ツール"

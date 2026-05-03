@@ -1,0 +1,1121 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: WriterAgent 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: \n"
+"Language-Team: Turkish\n"
+"Language: tr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/contrib/aihordeclient/__init__.py:262
+#: plugin/modules/chatbot/panel.py:790
+msgid "Starting..."
+msgstr "Başlatılıyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:370
+msgid "Updating model requirements..."
+msgstr "Model gereksinimleri güncelleniyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:517
+msgid "Updating Models..."
+msgstr "Modeller güncelleniyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:610
+msgid "Register at "
+msgstr "Kayıt ol "
+
+#: plugin/contrib/aihordeclient/__init__.py:617
+#, python-brace-format
+msgid "You have {} kudos"
+msgstr "{} kudos'unuz var"
+
+#: plugin/contrib/aihordeclient/__init__.py:625
+#, python-brace-format
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr ""
+"«{}» geçerli bir API ANAHTARI değil, lütfen kontrol edin veya yenisini "
+"oluşturun"
+
+#: plugin/contrib/aihordeclient/__init__.py:632
+#: plugin/contrib/aihordeclient/__init__.py:675
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr ""
+"Şu anda isteğinizi işleyemiyoruz, lütfen daha sonra tekrar deneyin. Eğer bu "
+"uzun bir süre devam ediyorsa, lütfen Discord üzerinden bize bildirin"
+
+#: plugin/contrib/aihordeclient/__init__.py:638
+msgid "Problem requesting kudos"
+msgstr "Kudos talep ederken sorun"
+
+#: plugin/contrib/aihordeclient/__init__.py:648
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+"Horde bakım modunda, lütfen daha sonra tekrar deneyin, saatlerce "
+"denediyseniz ve hizmet yanıt vermiyorsa lütfen Discord üzerinden iletişime "
+"geçin"
+
+#: plugin/contrib/aihordeclient/__init__.py:656
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr ""
+"Çok fazla istek yaptınız, lütfen bitmelerini bekleyin ve daha sonra tekrar "
+"deneyin"
+
+#: plugin/contrib/aihordeclient/__init__.py:662
+#, python-brace-format
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr ""
+"«{}» ile ilgili bir sorun var gibi görünüyor; kontrol edin, yenisini "
+"oluşturun veya yardım için Discord'a katılın"
+
+#: plugin/contrib/aihordeclient/__init__.py:670
+msgid "We hit an error, still: "
+msgstr "Hâlâ bir hata oluştu: "
+
+#: plugin/contrib/aihordeclient/__init__.py:681
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr "Artık geçerli değil, lütfen yeniden deneyin. İsteğiniz çok uzun sürdü"
+
+#: plugin/contrib/aihordeclient/__init__.py:724
+msgid "Contacting the Horde..."
+msgstr "Horde ile iletişim kuruluyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:803
+msgid "Horde Contacted"
+msgstr "Horde ile iletişim kuruldu"
+
+#: plugin/contrib/aihordeclient/__init__.py:821
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr "Görsel istenirken Horde çok yavaştı, daha sonra yeniden deneyin"
+
+#: plugin/contrib/aihordeclient/__init__.py:843
+msgid "to learn to earn kudos. Detail:"
+msgstr "kudos kazanmayı öğrenmek için. Ayrıntı:"
+
+#: plugin/contrib/aihordeclient/__init__.py:865
+#: plugin/contrib/aihordeclient/__init__.py:884
+msgid "Service failed: "
+msgstr "Hizmet başarısız oldu: "
+
+#: plugin/contrib/aihordeclient/__init__.py:935
+msgid "Downloading generated image..."
+msgstr "Oluşturulan görsel indiriliyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:941
+msgid "You are first in the queue"
+msgstr "Kuyrukta birincisiniz"
+
+#: plugin/contrib/aihordeclient/__init__.py:943
+msgid "Queue position: "
+msgstr "Kuyruk sırası: "
+
+#: plugin/contrib/aihordeclient/__init__.py:946
+msgid "Generating..."
+msgstr "Oluşturuluyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
+msgid "Get a free API Key at "
+msgstr "Ücretsiz API Anahtarı edinin "
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "."
+msgstr "."
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "This model takes more time than your current configuration."
+msgstr "Bu model mevcut yapılandırmanızdan daha fazla zaman alır."
+
+#: plugin/contrib/aihordeclient/__init__.py:970
+#, python-brace-format
+msgid "Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Lütfen başka bir model deneyin. {0} yapılandırdığınızdan daha fazla zaman "
+"alır."
+
+#: plugin/contrib/aihordeclient/__init__.py:974
+#: plugin/contrib/aihordeclient/__init__.py:994
+#: plugin/contrib/aihordeclient/__init__.py:1011
+#: plugin/contrib/aihordeclient/__init__.py:1018
+msgid "Please try again later."
+msgstr "Lütfen daha sonra tekrar deneyin."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "Bu ayarlarla kullanılabilir worker yok."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "Muhtemelen görseliniz bir dakika ek süre alacak."
+
+#: plugin/contrib/aihordeclient/__init__.py:1016
+#, python-brace-format
+msgid "Probably your image will take {} additional minutes."
+msgstr "Muhtemelen görseliniz {} dakika ek süre alacak."
+
+#: plugin/contrib/aihordeclient/__init__.py:1030
+msgid "Fetching images..."
+msgstr "Görüntüler getiriliyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1040
+msgid " is censored, try changing the prompt wording"
+msgstr " sansürlendi, prompt kelimelerini değiştirmeyi deneyin"
+
+#: plugin/contrib/aihordeclient/__init__.py:1068
+msgid "Downloading result..."
+msgstr "Sonuç indiriliyor..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1071
+msgid "Downloading image"
+msgstr "Görüntü indiriliyor"
+
+#: plugin/contrib/aihordeclient/__init__.py:1087
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr ""
+"Ayarlarınızı düşürmeniz veya başka bir model seçmeniz gerekebilir, ya da "
+"sansürlendiniz. Horde mesajı"
+
+#: plugin/contrib/aihordeclient/__init__.py:1114
+#: plugin/contrib/aihordeclient/__init__.py:1126
+msgid " generated by "
+msgstr " tarafından oluşturuldu "
+
+#: plugin/contrib/aihordeclient/__init__.py:1124
+msgid " with "
+msgstr " ile "
+
+#: plugin/framework/dialogs.py:107
+msgid "Agent requests approval"
+msgstr "Ajan onay istiyor"
+
+#: plugin/framework/dialogs.py:108
+msgid "Proceed with this action?"
+msgstr "Bu eylemle devam etmek istiyor musunuz?"
+
+#: plugin/framework/dialogs.py:109
+#: plugin/modules/chatbot/web_research_chat.py:33
+#: plugin/modules/chatbot/web_research_chat.py:38
+#, python-format
+msgid "Tool: %s"
+msgstr "Araç: %s"
+
+#: plugin/framework/dialogs.py:154
+msgid "Edit search query"
+msgstr "Arama sorgusunu düzenle"
+
+#: plugin/framework/dialogs.py:159
+msgid "Search query:"
+msgstr "Arama sorgusu:"
+
+#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
+#: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
+#: plugin/xdl_strings.py:40
+msgid "OK"
+msgstr "Tamam"
+
+#: plugin/framework/dialogs.py:168
+msgid "Cancel"
+msgstr "İptal"
+
+#: plugin/framework/dialogs.py:335
+msgid "Copy"
+msgstr "Kopyala"
+
+#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
+msgid "Copied!"
+msgstr "Kopyalandı!"
+
+#: plugin/framework/dialogs.py:403
+msgid "Copy URL"
+msgstr "URL'yi kopyala"
+
+#: plugin/framework/errors.py:52
+#, python-brace-format
+msgid "{resource_type} not found: {identifier}"
+msgstr "{resource_type} bulunamadı: {identifier}"
+
+#: plugin/framework/legacy_ui.py:509 plugin/main.py:434
+#: plugin/xdl_strings.py:46
+msgid "Settings"
+msgstr "Ayarlar"
+
+#: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
+#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py:96
+#: plugin/framework/external_editor.py:105
+#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:866
+#: plugin/modules/chatbot/send_handlers.py:365
+#: plugin/modules/chatbot/send_handlers.py:375
+#: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
+msgid "Error"
+msgstr "Hata"
+
+#: plugin/framework/legacy_ui.py:561
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Ayarlar açılamadı: {0}"
+
+#: plugin/framework/specialized_base.py:94
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Araç çağrısı '{0}' olarak değiştirildi. Uzmanlaşmış araç kümesi "
+"modundasınız. Tam API kümesini geri yüklemek için işiniz bittiğinde "
+"'specialized_workflow_finished' çağırmalısınız."
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Invalid Setting"
+msgstr "Geçersiz Ayar"
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Temperature must be <= 1.0"
+msgstr "Sıcaklık <= 1.0 olmalıdır"
+
+#: plugin/framework/constants.py:287
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+"AI: Belgenizi profesyonel biçimlendirme ve renkle anında düzenleyebilir veya "
+"çevirebilirim. Beni dene!"
+
+#: plugin/framework/constants.py:288
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: Formüller, veri analizi ve renkli grafiklerde sana yardımcı olabilirim. "
+"Beni dene!"
+
+#: plugin/framework/constants.py:289
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+"AI: Draw ve Impress'te cilalı, renkli şekiller oluşturup düzenlemenize "
+"yardımcı olabilirim. Beni deneyin!"
+
+#: plugin/framework/constants.py:290
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Herhangi bir soruya cevap vermek için web araştırması yapabilirim veya "
+"bir web sayfasını özetleyebilirim, belgenizi görmeden veya değiştirmeden. "
+"Sohbet edelim."
+
+#: plugin/framework/external_editor.py:83
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Yapılandırma dosyası oluşturulamadı: {0}"
+
+#: plugin/framework/external_editor.py:97
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Bir düzenleyici açılamadı. Yol:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:107
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Düzenleyici bulunamadı (Kate veya Gedit yükleyin veya EDITOR ayarlayın). "
+"Yol:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:114
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Düzenleyici başlatılamadı: {0}"
+
+#: plugin/framework/extension_update_check.py:150
+msgid "Update available"
+msgstr "Güncelleme mevcut"
+
+#: plugin/framework/extension_update_check.py:152
+#, python-format
+msgid ""
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
+msgstr ""
+"Daha yeni bir WriterAgent (%s) mevcut. Güncellemeleri kontrol etmek ve en "
+"son uzantıyı yüklemek için Araçlar → Uzantı Yöneticisi'ni kullanın."
+
+#: plugin/modules/http/errors.py:14
+#, python-brace-format
+msgid "TLS/SSL Error: {0}"
+msgstr "TLS/SSL Hatası: {0}"
+
+#: plugin/modules/http/errors.py:25
+msgid "Invalid API Key. Please check your settings."
+msgstr "Geçersiz API Anahtarı. Lütfen ayarlarınızı kontrol edin."
+
+#: plugin/modules/http/errors.py:27
+msgid "API access Forbidden. Your key may lack permissions for this model."
+msgstr ""
+"API erişimi Yasaklandı. Anahtarınızın bu model için izinleri olmayabilir."
+
+#: plugin/modules/http/errors.py:29
+msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr "Uç nokta bulunamadı (404). URL'nizi ve Model adını kontrol edin."
+
+#: plugin/modules/http/errors.py:31
+#, python-brace-format
+msgid "Server error ({0}). The AI provider is having issues."
+msgstr "Sunucu hatası ({0}). AI sağlayıcısı sorun yaşıyor."
+
+#: plugin/modules/http/errors.py:32
+#, python-brace-format
+msgid "HTTP Error {0}: {1}"
+msgstr "HTTP Hatası {0}: {1}"
+
+#: plugin/modules/http/errors.py:35
+msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+msgstr "İstek Zaman Aşımı. Ayarlarda 'İstek Zaman Aşımı'nı artırmayı deneyin."
+
+#: plugin/modules/http/errors.py:43
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Bağlantı Reddedildi. Yerel AI sunucunuz (Ollama/LM Studio) çalışıyor mu?"
+
+#: plugin/modules/http/errors.py:45
+msgid "DNS Error. Could not resolve the endpoint URL."
+msgstr "DNS Hatası. Uç nokta URL'si çözümlenemedi."
+
+#: plugin/modules/http/errors.py:46
+#, python-brace-format
+msgid "Connection Error: {0}"
+msgstr "Bağlantı Hatası: {0}"
+
+#: plugin/modules/http/errors.py:49
+msgid "The AI provider reported an error. Try again."
+msgstr "AI sağlayıcısı bir hata bildirdi. Tekrar deneyin."
+
+#: plugin/modules/http/errors.py:56
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "AI Sağlayıcısından HTTP Hatası {0}: {1}"
+
+#: plugin/modules/http/errors.py:77
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Hata: {0}"
+
+#: plugin/modules/http/client.py:790
+msgid "Stream ended with finish_reason=error"
+msgstr "Akış finish_reason=hata ile sona erdi"
+
+#: plugin/modules/http/client.py:803
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Model aynı parçayı tekrarlıyor (sonsuz döngü). Tekrar deneyin veya farklı "
+"bir model kullanın."
+
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "MCP Sunucusunu Durdur"
+
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "MCP Sunucusunu Başlat"
+
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "MCP sunucusu durduruldu"
+
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "MCP sunucusu başlatıldı"
+
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "MCP sunucusu başlatılamadı"
+
+#: plugin/modules/http/__init__.py:278
+msgid "Check ~/localwriter.log"
+msgstr "~/localwriter.log dosyasını kontrol edin"
+
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
+msgid "MCP server is not running"
+msgstr "MCP sunucusu çalışmıyor"
+
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "MCP sunucusu çalışıyor"
+
+#: plugin/modules/http/__init__.py:299
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Rotalar: {0}"
+
+#: plugin/modules/http/__init__.py:310
+msgid "Server Status"
+msgstr "Sunucu Durumu"
+
+#: plugin/modules/http/__init__.py:331
+#, python-brace-format
+msgid "URL: {0}"
+msgstr "URL: {0}"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+msgid "Please enter edit instructions!"
+msgstr "Lütfen düzenleme talimatlarını girin!"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/xdl_strings.py:33
+msgid "Input"
+msgstr "Giriş"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Seçimi Düzenle (Hesapla)"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Seçimi Genişlet (Hesapla)"
+
+#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
+#: plugin/modules/chatbot/selection.py:90
+#: plugin/modules/chatbot/selection.py:177
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Seçimi Genişlet"
+
+#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
+#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
+#: plugin/modules/chatbot/selection.py:286
+#: plugin/modules/chatbot/selection.py:297
+#: plugin/modules/chatbot/selection.py:411
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Seçimi Düzenle"
+
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+msgid "Ready"
+msgstr "Hazır"
+
+#: plugin/modules/chatbot/tool_loop.py:931
+msgid "Error: Toolkit unavailable"
+msgstr "Hata: Toolkit kullanılamıyor"
+
+#: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
+msgid "Accept"
+msgstr "Kabul Et"
+
+#: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
+msgid "Change"
+msgstr "Değiştir"
+
+#: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
+msgid "Reject"
+msgstr "Reddet"
+
+#: plugin/modules/chatbot/panel.py:429
+msgid "Waiting for approval…"
+msgstr "Onay bekleniyor…"
+
+#: plugin/modules/chatbot/panel.py:771
+msgid "Record"
+msgstr "Kayıt"
+
+#: plugin/modules/chatbot/panel.py:773
+msgid "Stop Rec"
+msgstr "Kayıt Durdur"
+
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+msgid "Send"
+msgstr "Gönder"
+
+#: plugin/modules/chatbot/panel.py:799
+msgid "Getting document..."
+msgstr "Belge alınıyor..."
+
+#: plugin/modules/chatbot/panel.py:803
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[Aktif pencerede uyumlu bir LibreOffice belgesi (Writer, Calc veya Draw) "
+"bulunamadı.]"
+
+#: plugin/modules/chatbot/panel.py:812
+#, python-brace-format
+msgid ""
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
+msgstr ""
+"[İç Hata: Belge türü {0}'dan {1}'e değişti! Lütfen bir hata raporu gönderin.]"
+
+#: plugin/modules/chatbot/panel.py:819
+#, python-brace-format
+msgid ""
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr "[İç Hata: {0} için belge türü tanımlanamadı. Lütfen bunu bildirin!]"
+
+#: plugin/modules/chatbot/panel.py:863
+#, python-brace-format
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[Model {0} yerel sesi desteklemiyor. Ayarlarda bir STT Modeli seçin.]"
+
+#: plugin/modules/chatbot/web_research_chat.py:15
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Bu arama sorgusu '%s' arama motoruna gönderilecek."
+
+#: plugin/modules/chatbot/web_research_chat.py:28
+msgid "[Web search — approval required]"
+msgstr "[Web araması — onay gerekli]"
+
+#: plugin/modules/chatbot/web_research_chat.py:30
+msgid "[Web search]"
+msgstr "[Web araması]"
+
+#: plugin/modules/chatbot/web_research_chat.py:37
+msgid "[Additional web search]"
+msgstr "[Ek web araması]"
+
+#: plugin/modules/chatbot/web_research_chat.py:59
+msgid "[Web research]"
+msgstr "[Web araştırması]"
+
+#: plugin/modules/chatbot/web_research_chat.py:60
+msgid "Research request:"
+msgstr "Araştırma isteği:"
+
+#: plugin/modules/chatbot/web_research_chat.py:65
+msgid "Context for the research agent:"
+msgstr "Araştırma ajanı için bağlam:"
+
+#: plugin/modules/chatbot/web_research.py:232
+msgid "Web research completed."
+msgstr "Web araştırması tamamlandı."
+
+#: plugin/modules/chatbot/send_handlers.py:109
+msgid "Transcribing audio..."
+msgstr "Ses transkribe ediliyor..."
+
+#: plugin/modules/chatbot/send_handlers.py:121
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transkripsiyon hatası: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:363
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Belge bağlam hatası: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:373
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Ajan backend '{0}' bulunamadı.]"
+
+#: plugin/modules/chatbot/send_handlers.py:380
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Ajan backend '{0}' kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
+
+#: plugin/modules/chatbot/send_handlers.py:626
+#: plugin/modules/chatbot/send_handlers.py:634
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Kütüphaneci: {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:633
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Mükemmel! Sizi şimdi ana asistana geçiriyorum."
+
+#: plugin/modules/chatbot/send_handlers.py:639
+msgid "Unknown librarian error."
+msgstr "Bilinmeyen kütüphaneci hatası."
+
+#: plugin/modules/chatbot/send_handlers.py:640
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Kütüphaneci hatası: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:664
+#, python-brace-format
+msgid "AI (research): {0}"
+msgstr "AI (araştırma): {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:670
+msgid "Unknown research error."
+msgstr "Bilinmeyen araştırma hatası."
+
+#: plugin/modules/chatbot/send_handlers.py:671
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Araştırma hatası: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:80
+msgid "Switching to document mode..."
+msgstr "Belge moduna geçiliyor..."
+
+#: plugin/modules/chatbot/panel_factory.py:517
+msgid "Size:"
+msgstr "Boyut:"
+
+#: plugin/modules/chatbot/panel_factory.py:518
+msgid "Height:"
+msgstr "Yükseklik:"
+
+#: plugin/modules/chatbot/panel_factory.py:519
+msgid "Width:"
+msgstr "Genişlik:"
+
+#: plugin/tests/test_i18n.py:24
+msgid "ThisIsAnUntranslatedString999"
+msgstr "ThisIsAnUntranslatedString999"
+
+#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+msgid "Built-in"
+msgstr "Yerleşik"
+
+#: plugin/tests/test_i18n.py:215
+msgid "Backend"
+msgstr "Arka Uç"
+
+#: plugin/main.py:354
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} geçti, {2} başarısız."
+
+#: plugin/main.py:357
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Çalıştırılamayan testler: {0}"
+
+#: plugin/main.py:432
+msgid "Extend Selection"
+msgstr "Seçimi Genişlet"
+
+#: plugin/main.py:433
+msgid "Edit Selection"
+msgstr "Seçimi Düzenle"
+
+#: plugin/main.py:435
+msgid "Toggle MCP Server"
+msgstr "MCP Sunucusunu Aç/Kapat"
+
+#: plugin/main.py:436
+msgid "MCP Server Status"
+msgstr "MCP Sunucu Durumu"
+
+#: plugin/main.py:438
+msgid "Run format tests"
+msgstr "Format testlerini çalıştır"
+
+#: plugin/main.py:439
+msgid "Run calc tests"
+msgstr "Hesap testlerini çalıştır"
+
+#: plugin/main.py:440
+msgid "Run Calc API integration tests"
+msgstr "Calc API entegrasyon testlerini çalıştır"
+
+#: plugin/main.py:441
+msgid "Run draw tests"
+msgstr "Çizim testlerini çalıştır"
+
+#: plugin/main.py:442
+msgid "Evaluation Dashboard"
+msgstr "Değerlendirme Gösterge Tablosu"
+
+#: plugin/main.py:829
+msgid "Dispatch Error"
+msgstr "Dağıtım Hatası"
+
+#: plugin/xdl_strings.py:4
+msgid "-1"
+msgstr "-1"
+
+#: plugin/xdl_strings.py:5
+msgid "7.5"
+msgstr "7.5"
+
+#: plugin/xdl_strings.py:6
+msgid "AI Horde API Key:"
+msgstr "AI Horde API Anahtarı:"
+
+#: plugin/xdl_strings.py:7
+msgid "AI Model:"
+msgstr "AI Modeli:"
+
+#: plugin/xdl_strings.py:8
+msgid "API Key:"
+msgstr "API Anahtarı:"
+
+#: plugin/xdl_strings.py:9
+msgid "Additional Instructions (History):"
+msgstr "Ek Talimatlar (Geçmiş):"
+
+#: plugin/xdl_strings.py:10
+msgid "Additional Instructions:"
+msgstr "Ek Talimatlar:"
+
+#: plugin/xdl_strings.py:11
+msgid "Allow NSFW"
+msgstr "NSFW'ye İzin Ver"
+
+#: plugin/xdl_strings.py:12
+msgid "Ask / instruct:"
+msgstr "Sor / talimat ver:"
+
+#: plugin/xdl_strings.py:13
+msgid "Aspect Ratio:"
+msgstr "En Boy Oranı:"
+
+#: plugin/xdl_strings.py:14
+msgid "Audio Model:"
+msgstr "Ses Modeli:"
+
+#: plugin/xdl_strings.py:15
+msgid "Auto Gallery"
+msgstr "Otomatik Galeri"
+
+#: plugin/xdl_strings.py:16
+msgid "Base Size:"
+msgstr "Taban Boyut:"
+
+#: plugin/xdl_strings.py:17
+msgid "Base:"
+msgstr "Taban:"
+
+#: plugin/xdl_strings.py:18
+msgid "CFG Scale:"
+msgstr "CFG Ölçeği:"
+
+#: plugin/xdl_strings.py:19
+msgid "Calc"
+msgstr "Hesapla"
+
+#: plugin/xdl_strings.py:20
+msgid "Categories:"
+msgstr "Kategoriler:"
+
+#: plugin/xdl_strings.py:21
+msgid "Censor NSFW"
+msgstr "NSFW'yi Sansürle"
+
+#: plugin/xdl_strings.py:22
+msgid "Chat (Testing):"
+msgstr "Sohbet (Test):"
+
+#: plugin/xdl_strings.py:23
+msgid "Clear"
+msgstr "Temizle"
+
+#: plugin/xdl_strings.py:24
+msgid "Close"
+msgstr "Kapat"
+
+#: plugin/xdl_strings.py:25
+msgid "Context Len:"
+msgstr "Bağlam Uzunluğu:"
+
+#: plugin/xdl_strings.py:26
+msgid "Draw"
+msgstr "Çiz"
+
+#: plugin/xdl_strings.py:27
+msgid "Edit config file (JSON)…"
+msgstr "Yapılandırma dosyasını düzenle (JSON)…"
+
+#: plugin/xdl_strings.py:28
+msgid "Endpoint URL (/v1 added):"
+msgstr "Uç nokta URL (/v1 eklendi):"
+
+#: plugin/xdl_strings.py:29
+msgid "Endpoint URL:"
+msgstr "Uç nokta URL:"
+
+#: plugin/xdl_strings.py:30
+msgid "General"
+msgstr "Genel"
+
+#: plugin/xdl_strings.py:31
+msgid "Image Model:"
+msgstr "Görüntü Modeli:"
+
+#: plugin/xdl_strings.py:32
+msgid "Image Settings"
+msgstr "Görüntü Ayarları"
+
+#: plugin/xdl_strings.py:34
+msgid "Insert Frame"
+msgstr "Çerçeve Ekle"
+
+#: plugin/xdl_strings.py:35
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent Değerlendirme Gösterge Paneli"
+
+#: plugin/xdl_strings.py:36
+msgid "Max Tokens:"
+msgstr "Maks. Token:"
+
+#: plugin/xdl_strings.py:37
+msgid "Max Wait (s):"
+msgstr "Maks. Bekleme (s):"
+
+#: plugin/xdl_strings.py:38
+msgid "Models to Test:"
+msgstr "Test Edilecek Modeller:"
+
+#: plugin/xdl_strings.py:39
+msgid "Multimodal"
+msgstr "Çokmodlu"
+
+#: plugin/xdl_strings.py:41
+msgid "Please enter edit instructions:"
+msgstr "Lütfen düzenleme talimatlarını girin:"
+
+#: plugin/xdl_strings.py:43
+msgid "Run Benchmark"
+msgstr "Benchmark Çalıştır"
+
+#: plugin/xdl_strings.py:44
+msgid "Seed:"
+msgstr "Tohum:"
+
+#: plugin/xdl_strings.py:47
+msgid "Square"
+msgstr "Kare"
+
+#: plugin/xdl_strings.py:48
+msgid "Steps:"
+msgstr "Adımlar:"
+
+#: plugin/xdl_strings.py:49
+msgid "Stop"
+msgstr "Durdur"
+
+#: plugin/xdl_strings.py:50
+msgid "Temperature:"
+msgstr "Sıcaklık:"
+
+#: plugin/xdl_strings.py:51
+msgid "Text/Chat Model:"
+msgstr "Metin/Sohbet Modeli:"
+
+#: plugin/xdl_strings.py:52
+msgid "Timeout (s):"
+msgstr "Zaman Aşımı (s):"
+
+#: plugin/xdl_strings.py:53
+msgid "Translate Prompt"
+msgstr "İstem Çevir"
+
+#: plugin/xdl_strings.py:54
+msgid "Translate from (e.g. es):"
+msgstr "Kaynak (ör. es):"
+
+#: plugin/xdl_strings.py:55
+msgid "Use AI Horde for Image Generation"
+msgstr "Görüntü Üretimi için AI Horde Kullan"
+
+#: plugin/xdl_strings.py:56
+msgid "Use Image model"
+msgstr "Görüntü modelini kullan"
+
+#: plugin/xdl_strings.py:57
+msgid "Web Research"
+msgstr "Web Araştırması"
+
+#: plugin/xdl_strings.py:58
+msgid "Writer"
+msgstr "Yazar"
+
+msgid "Agent backends"
+msgstr "Ajan arka uçları"
+
+msgid "Hermes"
+msgstr "Hermes"
+
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgid "Mistral Vibe (ACP)"
+msgstr "Mistral Vibe (ACP)"
+
+msgid "Path / URL"
+msgstr "Yol / URL"
+
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"Arka uç CLI yol'u (ör. aider) veya ACP sunucu URL'si (ör. Hermes için http://"
+"localhost:8000). Boş = varsayılanı dene."
+
+msgid "Extra arguments"
+msgstr "Ek argümanlar"
+
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr "Seçilen arka uç için isteğe bağlı argümanlar (boşlukla ayrılmış)."
+
+msgid "ACP agent name"
+msgstr "ACP ajan adı"
+
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr ""
+"ACP sunucusundaki ajan adı (ör. hermes). Boş = ilk ajanı otomatik keşfet."
+
+msgid "Calc spreadsheet tools"
+msgstr "Calc elektronik tablo araçları"
+
+msgid "Max Rows Display"
+msgstr "Maksimum Satır Gösterimi"
+
+msgid "Sidebar"
+msgstr "Yan Çubuk"
+
+msgid "Max Tool Rounds"
+msgstr "Maksimum Araç Turu"
+
+msgid "Document Context Strategy"
+msgstr "Belge Bağlam Stratejisi"
+
+msgid "How much document content to include in LLM context"
+msgstr "LLM bağlamına dahil edilecek belge içeriği miktarı"
+
+msgid "Auto (by document size)"
+msgstr "Otomatik (belge boyutuna göre)"
+
+msgid "Full document text"
+msgstr "Tam belge metni"
+
+msgid "Pages around cursor"
+msgstr "İmleç çevresindeki sayfalar"
+
+msgid "Outline + excerpt"
+msgstr "Anahat + alıntı"
+
+msgid "Stats + outline only"
+msgstr "Yalnızca istatistikler + anahat"
+
+msgid "Extend Selection Max Tokens"
+msgstr "Seçimi Genişletme Maks. Token"
+
+msgid "Edit Selection Extra Tokens"
+msgstr "Düzenleme Seçimi Ekstra Token"
+
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Orijinal metin uzunluğunun ötesinde ekstra tokenler. 0 = orijinalle aynı "
+"uzunluk."
+
+msgid "Show Web Search Thinking"
+msgstr "Web Arama Düşünme Sürecini Göster"
+
+msgid "Prompt for Web Research"
+msgstr "Web Araştırması için İstem"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Web arama sorgusunu göndermeden önce onay iste"
+
+msgid "Web Cache Max Size (MB)"
+msgstr "Web Önbellek Maks. Boyut (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr ""
+"Web arama önbelleği için maks. disk boyutu (0 devre dışı bırakmak için)"
+
+msgid "Web Cache Validity (Days)"
+msgstr "Web Önbellek Geçerliliği (Gün)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Önbellek girdilerinin kaç gün geçerli sayılması gerektiği."
+
+msgid "Doc"
+msgstr "Doküman"
+
+msgid "Enable AI grammar checker (Writer)"
+msgstr "AI dilbilgisi denetleyicisini etkinleştir (Writer)"
+
+msgid ""
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
+msgstr ""
+"Açık olduğunda, WriterAgent AI dilbilgisi düzeltme okuyucusunu Linguistic "
+"ile kaydeder; denetlenmiş metin API'nizi kullanır (Araçlar → Seçenekler → "
+"AI). Alt çizgiler yazmayı duraklattıktan kısa süre sonra görünür. Varsayılan "
+"olarak kapalı."
+
+msgid "Grammar check wait timeout (ms)"
+msgstr "Dilbilgisi kontrolü bekleme zaman aşımı (ms)"
+
+msgid ""
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
+msgstr ""
+"Olası gelecekteki kullanım için ayrılmıştır. Düzeltmen, önbellek "
+"kaçırıldığında (asenkron) hemen döner; sonuçlar, cümle önbelleği "
+"doldurulduktan sonra sonraki Yazar geçişinde görünür."
+
+msgid "Grammar check model (optional)"
+msgstr "Dilbilgisi kontrolü modeli (isteğe bağlı)"
+
+msgid "Leave empty to use the same text model as chat."
+msgstr "Sohbetle aynı metin modelini kullanmak için boş bırakın."
+
+msgid "Pause grammar while chat/agent runs"
+msgstr "Sohbet/ajan çalışırken dilbilgisini duraklat"
+
+msgid ""
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
+msgstr ""
+"Açıkken, AI dilbilgisi yan çubuk sohbeti veya ajan çalışırken arka plan "
+"isteklerini atlar, eşzamanlı API çağrılarını önlemek için."
+
+msgid "Draw and Impress tools"
+msgstr "Çizim ve Sunum araçları"
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Enable MCP Server"
+msgstr "MCP Sunucusunu Etkinleştir"
+
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr ""
+"Yalnızca localhost, kimlik doğrulaması yok. Stdio üzerinden erişim her zaman "
+"etkin."
+
+msgid "MCP Port"
+msgstr "MCP Portu"
+
+msgid "Writer document tools (including navigation and search)"
+msgstr "Writer belge araçları (gezinti ve arama dahil)"

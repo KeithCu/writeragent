@@ -436,4 +436,4 @@ def _meilisearch_search(self, query):
 
 WriterAgent's search system is designed for **flexibility without complexity**. By using JSON configs and a built-in dispatcher, you can integrate almost any search engine without writing Python code. This approach keeps the plugin **secure, maintainable, and extensible** while empowering users to customize their experience.
 
-For questions or contributions, open an issue on [GitHub](https://github.com/KeithCu/WriterAgent).
+For questions or contributions, open an issue on [GitHub](https://github.com/KeithCu/writeragent).

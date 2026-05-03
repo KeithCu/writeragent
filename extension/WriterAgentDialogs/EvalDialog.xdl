@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
-<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script" dlg:id="EvalDialog" dlg:left="101" dlg:top="52" dlg:width="300" dlg:height="250" dlg:closeable="true" dlg:moveable="true" dlg:title="LocalWriter Evaluation Dashboard">
+<dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script" dlg:id="EvalDialog" dlg:left="101" dlg:top="52" dlg:width="300" dlg:height="250" dlg:closeable="true" dlg:moveable="true" dlg:title="WriterAgent Evaluation Dashboard">
  <dlg:bulletinboard>
   <dlg:text dlg:id="lbl_endpoint" dlg:left="10" dlg:top="10" dlg:width="60" dlg:height="10" dlg:value="Endpoint URL:"/>
   <dlg:textfield dlg:id="endpoint" dlg:left="75" dlg:top="9" dlg:width="215" dlg:height="12"/>

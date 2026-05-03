@@ -1,0 +1,1126 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: WriterAgent 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: \n"
+"Language-Team: Dutch\n"
+"Language: nl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/contrib/aihordeclient/__init__.py:262
+#: plugin/modules/chatbot/panel.py:790
+msgid "Starting..."
+msgstr "Starten..."
+
+#: plugin/contrib/aihordeclient/__init__.py:370
+msgid "Updating model requirements..."
+msgstr "Modelvereisten bijwerken..."
+
+#: plugin/contrib/aihordeclient/__init__.py:517
+msgid "Updating Models..."
+msgstr "Modellen bijwerken..."
+
+#: plugin/contrib/aihordeclient/__init__.py:610
+msgid "Register at "
+msgstr "Registreer bij "
+
+#: plugin/contrib/aihordeclient/__init__.py:617
+#, python-brace-format
+msgid "You have {} kudos"
+msgstr "Je hebt {} kudos"
+
+#: plugin/contrib/aihordeclient/__init__.py:625
+#, python-brace-format
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr ""
+"«{}» is geen geldige API-sleutel, controleer deze nogmaals of maak een "
+"nieuwe aan"
+
+#: plugin/contrib/aihordeclient/__init__.py:632
+#: plugin/contrib/aihordeclient/__init__.py:675
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr ""
+"Op dit moment kunnen we je verzoek niet verwerken, probeer het later "
+"opnieuw. Als dit lang aanhoudt, laat het ons weten via Discord"
+
+#: plugin/contrib/aihordeclient/__init__.py:638
+msgid "Problem requesting kudos"
+msgstr "Probleem bij het aanvragen van kudos"
+
+#: plugin/contrib/aihordeclient/__init__.py:648
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+"De Horde is in onderhoudsmodus, probeer het later opnieuw. Als je het hebt "
+"geprobeerd en de service urenlang niet reageert, neem dan contact op via "
+"Discord"
+
+#: plugin/contrib/aihordeclient/__init__.py:656
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr ""
+"Je hebt te veel verzoeken gedaan, wacht tot ze zijn voltooid en probeer het "
+"later opnieuw"
+
+#: plugin/contrib/aihordeclient/__init__.py:662
+#, python-brace-format
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr ""
+"Het lijkt erop dat «{}» problemen heeft, controleer het nog eens, maak een "
+"nieuwe aan of sluit je aan bij Discord voor hulp"
+
+#: plugin/contrib/aihordeclient/__init__.py:670
+msgid "We hit an error, still: "
+msgstr "Er is een fout opgetreden, maar: "
+
+#: plugin/contrib/aihordeclient/__init__.py:681
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr "Niet meer geldig, probeer het opnieuw. Je verzoek duurde te lang"
+
+#: plugin/contrib/aihordeclient/__init__.py:724
+msgid "Contacting the Horde..."
+msgstr "Neem contact op met de Horde..."
+
+#: plugin/contrib/aihordeclient/__init__.py:803
+msgid "Horde Contacted"
+msgstr "Horde gecontacteerd"
+
+#: plugin/contrib/aihordeclient/__init__.py:821
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr ""
+"Bij het proberen een afbeelding op te vragen, was de Horde te traag, probeer "
+"later opnieuw"
+
+#: plugin/contrib/aihordeclient/__init__.py:843
+msgid "to learn to earn kudos. Detail:"
+msgstr "om te leren kudos te verdienen. Detail:"
+
+#: plugin/contrib/aihordeclient/__init__.py:865
+#: plugin/contrib/aihordeclient/__init__.py:884
+msgid "Service failed: "
+msgstr "Service mislukt: "
+
+#: plugin/contrib/aihordeclient/__init__.py:935
+msgid "Downloading generated image..."
+msgstr "Downloaden van gegenereerde afbeelding..."
+
+#: plugin/contrib/aihordeclient/__init__.py:941
+msgid "You are first in the queue"
+msgstr "Je bent eerste in de rij"
+
+#: plugin/contrib/aihordeclient/__init__.py:943
+msgid "Queue position: "
+msgstr "Positie in de wachtrij: "
+
+#: plugin/contrib/aihordeclient/__init__.py:946
+msgid "Generating..."
+msgstr "Genereren..."
+
+#: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
+msgid "Get a free API Key at "
+msgstr "Haal een gratis API-sleutel op bij "
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "."
+msgstr "."
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "This model takes more time than your current configuration."
+msgstr "Dit model heeft meer tijd nodig dan je huidige configuratie."
+
+#: plugin/contrib/aihordeclient/__init__.py:970
+#, python-brace-format
+msgid "Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Probeer een ander model. {0} zou meer tijd kosten dan je hebt geconfigureerd."
+
+#: plugin/contrib/aihordeclient/__init__.py:974
+#: plugin/contrib/aihordeclient/__init__.py:994
+#: plugin/contrib/aihordeclient/__init__.py:1011
+#: plugin/contrib/aihordeclient/__init__.py:1018
+msgid "Please try again later."
+msgstr "Probeer het later opnieuw."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "Er zijn geen workers beschikbaar met deze instellingen."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "Waarschijnlijk duurt je afbeelding nog één minuut extra."
+
+#: plugin/contrib/aihordeclient/__init__.py:1016
+#, python-brace-format
+msgid "Probably your image will take {} additional minutes."
+msgstr "Waarschijnlijk duurt je afbeelding nog {} minuten extra."
+
+#: plugin/contrib/aihordeclient/__init__.py:1030
+msgid "Fetching images..."
+msgstr "Beelden ophalen..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1040
+msgid " is censored, try changing the prompt wording"
+msgstr " is gecensureerd, probeer de prompt anders te formuleren"
+
+#: plugin/contrib/aihordeclient/__init__.py:1068
+msgid "Downloading result..."
+msgstr "Resultaat downloaden..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1071
+msgid "Downloading image"
+msgstr "Afbeelding downloaden"
+
+#: plugin/contrib/aihordeclient/__init__.py:1087
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr ""
+"Je moet mogelijk je instellingen verlagen of een ander model kiezen, of je "
+"bent gecensureerd. Horde-bericht"
+
+#: plugin/contrib/aihordeclient/__init__.py:1114
+#: plugin/contrib/aihordeclient/__init__.py:1126
+msgid " generated by "
+msgstr " gegenereerd door "
+
+#: plugin/contrib/aihordeclient/__init__.py:1124
+msgid " with "
+msgstr " met "
+
+#: plugin/framework/dialogs.py:107
+msgid "Agent requests approval"
+msgstr "Agent vraagt goedkeuring"
+
+#: plugin/framework/dialogs.py:108
+msgid "Proceed with this action?"
+msgstr "Doorgaan met deze actie?"
+
+#: plugin/framework/dialogs.py:109
+#: plugin/modules/chatbot/web_research_chat.py:33
+#: plugin/modules/chatbot/web_research_chat.py:38
+#, python-format
+msgid "Tool: %s"
+msgstr "Hulpmiddel: %s"
+
+#: plugin/framework/dialogs.py:154
+msgid "Edit search query"
+msgstr "Zoekopdracht bewerken"
+
+#: plugin/framework/dialogs.py:159
+msgid "Search query:"
+msgstr "Zoekopdracht:"
+
+#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
+#: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
+#: plugin/xdl_strings.py:40
+msgid "OK"
+msgstr "OK"
+
+#: plugin/framework/dialogs.py:168
+msgid "Cancel"
+msgstr "Annuleren"
+
+#: plugin/framework/dialogs.py:335
+msgid "Copy"
+msgstr "Kopiëren"
+
+#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
+msgid "Copied!"
+msgstr "Gekopieerd!"
+
+#: plugin/framework/dialogs.py:403
+msgid "Copy URL"
+msgstr "URL kopiëren"
+
+#: plugin/framework/errors.py:52
+#, python-brace-format
+msgid "{resource_type} not found: {identifier}"
+msgstr "{resource_type} niet gevonden: {identifier}"
+
+#: plugin/framework/legacy_ui.py:509 plugin/main.py:434
+#: plugin/xdl_strings.py:46
+msgid "Settings"
+msgstr "Instellingen"
+
+#: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
+#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py:96
+#: plugin/framework/external_editor.py:105
+#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:866
+#: plugin/modules/chatbot/send_handlers.py:365
+#: plugin/modules/chatbot/send_handlers.py:375
+#: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
+msgid "Error"
+msgstr "Fout"
+
+#: plugin/framework/legacy_ui.py:561
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Kon Instellingen niet openen: {0}"
+
+#: plugin/framework/specialized_base.py:94
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Tool call overgeschakeld naar '{0}'. U bevindt zich in een gespecialiseerde "
+"toolset-modus. Roep 'specialized_workflow_finished' aan wanneer u klaar bent "
+"om de volledige set API's te herstellen."
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Invalid Setting"
+msgstr "Ongeldige Instelling"
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatuur moet <= 1.0 zijn"
+
+#: plugin/framework/constants.py:287
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+"AI: Ik kan je document direct bewerken of vertalen met professionele opmaak "
+"en kleur. Probeer me!"
+
+#: plugin/framework/constants.py:288
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: Ik kan je helpen met formules, data-analyse en kleurrijke grafieken. "
+"Probeer me!"
+
+#: plugin/framework/constants.py:289
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+"AI: Ik kan je helpen om gepolijste, kleurrijke vormen te maken en te "
+"bewerken in Draw en Impress. Probeer me uit!"
+
+#: plugin/framework/constants.py:290
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Ik kan webonderzoek doen om elke vraag te beantwoorden of een webpagina "
+"samen te vatten, zonder je document te zien of te wijzigen. Laten we chatten."
+
+#: plugin/framework/external_editor.py:83
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Kon configuratiebestand niet aanmaken: {0}"
+
+#: plugin/framework/external_editor.py:97
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Kon geen editor openen. Pad:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:107
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Geen editor gevonden (installeer Kate of Gedit, of stel EDITOR in). Pad:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:114
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Kon editor niet starten: {0}"
+
+#: plugin/framework/extension_update_check.py:150
+msgid "Update available"
+msgstr "Update beschikbaar"
+
+#: plugin/framework/extension_update_check.py:152
+#, python-format
+msgid ""
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
+msgstr ""
+"Een nieuwere WriterAgent (%s) is beschikbaar. Gebruik Extra's → "
+"Extensiebeheer om te controleren op updates en de nieuwste extensie te "
+"installeren."
+
+#: plugin/modules/http/errors.py:14
+#, python-brace-format
+msgid "TLS/SSL Error: {0}"
+msgstr "TLS/SSL-fout: {0}"
+
+#: plugin/modules/http/errors.py:25
+msgid "Invalid API Key. Please check your settings."
+msgstr "Ongeldige API-sleutel. Controleer je instellingen."
+
+#: plugin/modules/http/errors.py:27
+msgid "API access Forbidden. Your key may lack permissions for this model."
+msgstr ""
+"API-toegang verboden. Uw sleutel heeft mogelijk geen machtigingen voor dit "
+"model."
+
+#: plugin/modules/http/errors.py:29
+msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr "Eindpunt niet gevonden (404). Controleer uw URL en modelnaam."
+
+#: plugin/modules/http/errors.py:31
+#, python-brace-format
+msgid "Server error ({0}). The AI provider is having issues."
+msgstr "Serverfout ({0}). De AI-provider heeft problemen."
+
+#: plugin/modules/http/errors.py:32
+#, python-brace-format
+msgid "HTTP Error {0}: {1}"
+msgstr "HTTP-fout {0}: {1}"
+
+#: plugin/modules/http/errors.py:35
+msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+msgstr "Verzoek verlopen. Verhoog 'Request Timeout' in Instellingen."
+
+#: plugin/modules/http/errors.py:43
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "Verbinding geweigerd. Draait uw lokale AI-server (Ollama/LM Studio)?"
+
+#: plugin/modules/http/errors.py:45
+msgid "DNS Error. Could not resolve the endpoint URL."
+msgstr "DNS-fout. Kon de eindpunt-URL niet oplossen."
+
+#: plugin/modules/http/errors.py:46
+#, python-brace-format
+msgid "Connection Error: {0}"
+msgstr "Verbindingsfout: {0}"
+
+#: plugin/modules/http/errors.py:49
+msgid "The AI provider reported an error. Try again."
+msgstr "De AI-provider meldde een fout. Probeer het opnieuw."
+
+#: plugin/modules/http/errors.py:56
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "HTTP-fout {0} van AI-provider: {1}"
+
+#: plugin/modules/http/errors.py:77
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Fout: {0}"
+
+#: plugin/modules/http/client.py:790
+msgid "Stream ended with finish_reason=error"
+msgstr "Stream geëindigd met finish_reason=error"
+
+#: plugin/modules/http/client.py:803
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Het model herhaalt hetzelfde chunk (oneindige lus). Probeer het opnieuw of "
+"gebruik een ander model."
+
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "MCP-server stoppen"
+
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "MCP-server starten"
+
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "MCP-server gestopt"
+
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "MCP-server gestart"
+
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "MCP-server starten mislukt"
+
+#: plugin/modules/http/__init__.py:278
+msgid "Check ~/localwriter.log"
+msgstr "Controleer ~/localwriter.log"
+
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
+msgid "MCP server is not running"
+msgstr "MCP-server draait niet"
+
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "MCP-server draait"
+
+#: plugin/modules/http/__init__.py:299
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Routes: {0}"
+
+#: plugin/modules/http/__init__.py:310
+msgid "Server Status"
+msgstr "Serverstatus"
+
+#: plugin/modules/http/__init__.py:331
+#, python-brace-format
+msgid "URL: {0}"
+msgstr "URL: {0}"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+msgid "Please enter edit instructions!"
+msgstr "Voer bewerkingsinstructies in!"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/xdl_strings.py:33
+msgid "Input"
+msgstr "Invoer"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Selectie bewerken (Calc)"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Selectie uitbreiden (Calc)"
+
+#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
+#: plugin/modules/chatbot/selection.py:90
+#: plugin/modules/chatbot/selection.py:177
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Selectie uitbreiden"
+
+#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
+#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
+#: plugin/modules/chatbot/selection.py:286
+#: plugin/modules/chatbot/selection.py:297
+#: plugin/modules/chatbot/selection.py:411
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Selectie bewerken"
+
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+msgid "Ready"
+msgstr "Klaar"
+
+#: plugin/modules/chatbot/tool_loop.py:931
+msgid "Error: Toolkit unavailable"
+msgstr "Fout: Toolkit niet beschikbaar"
+
+#: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
+msgid "Accept"
+msgstr "Accepteren"
+
+#: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
+msgid "Change"
+msgstr "Wijzigen"
+
+#: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
+msgid "Reject"
+msgstr "Afwijzen"
+
+#: plugin/modules/chatbot/panel.py:429
+msgid "Waiting for approval…"
+msgstr "Wachten op goedkeuring…"
+
+#: plugin/modules/chatbot/panel.py:771
+msgid "Record"
+msgstr "Opnemen"
+
+#: plugin/modules/chatbot/panel.py:773
+msgid "Stop Rec"
+msgstr "Opname stoppen"
+
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+msgid "Send"
+msgstr "Verzenden"
+
+#: plugin/modules/chatbot/panel.py:799
+msgid "Getting document..."
+msgstr "Document ophalen..."
+
+#: plugin/modules/chatbot/panel.py:803
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[Geen compatibel LibreOffice-document (Writer, Calc of Draw) gevonden in het "
+"actieve venster.]"
+
+#: plugin/modules/chatbot/panel.py:812
+#, python-brace-format
+msgid ""
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
+msgstr ""
+"[Interne fout: Documenttype gewijzigd van {0} naar {1}! Meld dit als fout.]"
+
+#: plugin/modules/chatbot/panel.py:819
+#, python-brace-format
+msgid ""
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr ""
+"[Interne fout: Kan documenttype voor {0} niet identificeren. Rapporteer dit!]"
+
+#: plugin/modules/chatbot/panel.py:863
+#, python-brace-format
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr ""
+"[Model {0} ondersteunt geen native audio. Selecteer een STT-model in "
+"Instellingen.]"
+
+#: plugin/modules/chatbot/web_research_chat.py:15
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Deze zoekopdracht '%s' wordt naar de zoekmachine gestuurd."
+
+#: plugin/modules/chatbot/web_research_chat.py:28
+msgid "[Web search — approval required]"
+msgstr "[Webzoekopdracht — goedkeuring vereist]"
+
+#: plugin/modules/chatbot/web_research_chat.py:30
+msgid "[Web search]"
+msgstr "[Webzoekopdracht]"
+
+#: plugin/modules/chatbot/web_research_chat.py:37
+msgid "[Additional web search]"
+msgstr "[Aanvullende webzoekopdracht]"
+
+#: plugin/modules/chatbot/web_research_chat.py:59
+msgid "[Web research]"
+msgstr "[Webonderzoek]"
+
+#: plugin/modules/chatbot/web_research_chat.py:60
+msgid "Research request:"
+msgstr "Onderzoeksverzoek:"
+
+#: plugin/modules/chatbot/web_research_chat.py:65
+msgid "Context for the research agent:"
+msgstr "Context voor de onderzoekagent:"
+
+#: plugin/modules/chatbot/web_research.py:232
+msgid "Web research completed."
+msgstr "Webonderzoek voltooid."
+
+#: plugin/modules/chatbot/send_handlers.py:109
+msgid "Transcribing audio..."
+msgstr "Audio wordt getranscribeerd..."
+
+#: plugin/modules/chatbot/send_handlers.py:121
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transcriptiefout: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:363
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Documentcontextfout: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:373
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Agent backend '{0}' niet gevonden.]"
+
+#: plugin/modules/chatbot/send_handlers.py:380
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Agent backend '{0}' niet beschikbaar. Controleer Instellingen (pad, "
+"installatie).]"
+
+#: plugin/modules/chatbot/send_handlers.py:626
+#: plugin/modules/chatbot/send_handlers.py:634
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Bibliothecaris: {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:633
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfect! Ik schakel je nu door naar de hoofdassistent."
+
+#: plugin/modules/chatbot/send_handlers.py:639
+msgid "Unknown librarian error."
+msgstr "Onbekende bibliothecarisfout."
+
+#: plugin/modules/chatbot/send_handlers.py:640
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Bibliothecarisfout: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:664
+#, python-brace-format
+msgid "AI (research): {0}"
+msgstr "KI (onderzoek): {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:670
+msgid "Unknown research error."
+msgstr "Onbekende onderzoeksfout."
+
+#: plugin/modules/chatbot/send_handlers.py:671
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Onderzoeksfout: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:80
+msgid "Switching to document mode..."
+msgstr "Schakelen naar documentmodus..."
+
+#: plugin/modules/chatbot/panel_factory.py:517
+msgid "Size:"
+msgstr "Grootte:"
+
+#: plugin/modules/chatbot/panel_factory.py:518
+msgid "Height:"
+msgstr "Hoogte:"
+
+#: plugin/modules/chatbot/panel_factory.py:519
+msgid "Width:"
+msgstr "Breedte:"
+
+#: plugin/tests/test_i18n.py:24
+msgid "ThisIsAnUntranslatedString999"
+msgstr "DitIsEenOnvertaaldeString999"
+
+#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+msgid "Built-in"
+msgstr "Ingebouwd"
+
+#: plugin/tests/test_i18n.py:215
+msgid "Backend"
+msgstr "Backend"
+
+#: plugin/main.py:354
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} geslaagd, {2} mislukt."
+
+#: plugin/main.py:357
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Tests konden niet worden uitgevoerd: {0}"
+
+#: plugin/main.py:432
+msgid "Extend Selection"
+msgstr "Selectie uitbreiden"
+
+#: plugin/main.py:433
+msgid "Edit Selection"
+msgstr "Selectie bewerken"
+
+#: plugin/main.py:435
+msgid "Toggle MCP Server"
+msgstr "MCP-server omschakelen"
+
+#: plugin/main.py:436
+msgid "MCP Server Status"
+msgstr "MCP-serverstatus"
+
+#: plugin/main.py:438
+msgid "Run format tests"
+msgstr "Formatteringstests uitvoeren"
+
+#: plugin/main.py:439
+msgid "Run calc tests"
+msgstr "Calculatortests uitvoeren"
+
+#: plugin/main.py:440
+msgid "Run Calc API integration tests"
+msgstr "Voer Calc API-integratietests uit"
+
+#: plugin/main.py:441
+msgid "Run draw tests"
+msgstr "Voer draw-tests uit"
+
+#: plugin/main.py:442
+msgid "Evaluation Dashboard"
+msgstr "Evaluatiedashboard"
+
+#: plugin/main.py:829
+msgid "Dispatch Error"
+msgstr "Dispatch-fout"
+
+#: plugin/xdl_strings.py:4
+msgid "-1"
+msgstr "-1"
+
+#: plugin/xdl_strings.py:5
+msgid "7.5"
+msgstr "7.5"
+
+#: plugin/xdl_strings.py:6
+msgid "AI Horde API Key:"
+msgstr "AI Horde API-sleutel:"
+
+#: plugin/xdl_strings.py:7
+msgid "AI Model:"
+msgstr "AI-model:"
+
+#: plugin/xdl_strings.py:8
+msgid "API Key:"
+msgstr "API-sleutel:"
+
+#: plugin/xdl_strings.py:9
+msgid "Additional Instructions (History):"
+msgstr "Aanvullende instructies (geschiedenis):"
+
+#: plugin/xdl_strings.py:10
+msgid "Additional Instructions:"
+msgstr "Aanvullende instructies:"
+
+#: plugin/xdl_strings.py:11
+msgid "Allow NSFW"
+msgstr "NSFW toestaan"
+
+#: plugin/xdl_strings.py:12
+msgid "Ask / instruct:"
+msgstr "Vragen / instrueren:"
+
+#: plugin/xdl_strings.py:13
+msgid "Aspect Ratio:"
+msgstr "Aspectverhouding:"
+
+#: plugin/xdl_strings.py:14
+msgid "Audio Model:"
+msgstr "Audiomodel:"
+
+#: plugin/xdl_strings.py:15
+msgid "Auto Gallery"
+msgstr "Autogalerij"
+
+#: plugin/xdl_strings.py:16
+msgid "Base Size:"
+msgstr "Basisgrootte:"
+
+#: plugin/xdl_strings.py:17
+msgid "Base:"
+msgstr "Basis:"
+
+#: plugin/xdl_strings.py:18
+msgid "CFG Scale:"
+msgstr "CFG-schaal:"
+
+#: plugin/xdl_strings.py:19
+msgid "Calc"
+msgstr "Bereken"
+
+#: plugin/xdl_strings.py:20
+msgid "Categories:"
+msgstr "Categorieën:"
+
+#: plugin/xdl_strings.py:21
+msgid "Censor NSFW"
+msgstr "NSFW censureren"
+
+#: plugin/xdl_strings.py:22
+msgid "Chat (Testing):"
+msgstr "Chat (Testen):"
+
+#: plugin/xdl_strings.py:23
+msgid "Clear"
+msgstr "Wissen"
+
+#: plugin/xdl_strings.py:24
+msgid "Close"
+msgstr "Sluiten"
+
+#: plugin/xdl_strings.py:25
+msgid "Context Len:"
+msgstr "Contextlengte:"
+
+#: plugin/xdl_strings.py:26
+msgid "Draw"
+msgstr "Tekenen"
+
+#: plugin/xdl_strings.py:27
+msgid "Edit config file (JSON)…"
+msgstr "Configuratiebestand bewerken (JSON)…"
+
+#: plugin/xdl_strings.py:28
+msgid "Endpoint URL (/v1 added):"
+msgstr "Endpoint-URL (/v1 toegevoegd):"
+
+#: plugin/xdl_strings.py:29
+msgid "Endpoint URL:"
+msgstr "Endpoint-URL:"
+
+#: plugin/xdl_strings.py:30
+msgid "General"
+msgstr "Algemeen"
+
+#: plugin/xdl_strings.py:31
+msgid "Image Model:"
+msgstr "Afbeeldingsmodel:"
+
+#: plugin/xdl_strings.py:32
+msgid "Image Settings"
+msgstr "Afbeeldingsinstellingen"
+
+#: plugin/xdl_strings.py:34
+msgid "Insert Frame"
+msgstr "Frame invoegen"
+
+#: plugin/xdl_strings.py:35
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent Evaluatiedashboard"
+
+#: plugin/xdl_strings.py:36
+msgid "Max Tokens:"
+msgstr "Max. tokens:"
+
+#: plugin/xdl_strings.py:37
+msgid "Max Wait (s):"
+msgstr "Max. wachttijd (s):"
+
+#: plugin/xdl_strings.py:38
+msgid "Models to Test:"
+msgstr "Modellen om te testen:"
+
+#: plugin/xdl_strings.py:39
+msgid "Multimodal"
+msgstr "Multimodaal"
+
+#: plugin/xdl_strings.py:41
+msgid "Please enter edit instructions:"
+msgstr "Voer bewerkingsinstructies in:"
+
+#: plugin/xdl_strings.py:43
+msgid "Run Benchmark"
+msgstr "Benchmark uitvoeren"
+
+#: plugin/xdl_strings.py:44
+msgid "Seed:"
+msgstr "Seed:"
+
+#: plugin/xdl_strings.py:47
+msgid "Square"
+msgstr "Vierkant"
+
+#: plugin/xdl_strings.py:48
+msgid "Steps:"
+msgstr "Stappen:"
+
+#: plugin/xdl_strings.py:49
+msgid "Stop"
+msgstr "Stop"
+
+#: plugin/xdl_strings.py:50
+msgid "Temperature:"
+msgstr "Temperatuur:"
+
+#: plugin/xdl_strings.py:51
+msgid "Text/Chat Model:"
+msgstr "Tekst-/chatmodel:"
+
+#: plugin/xdl_strings.py:52
+msgid "Timeout (s):"
+msgstr "Time-out (s):"
+
+#: plugin/xdl_strings.py:53
+msgid "Translate Prompt"
+msgstr "Prompt vertalen"
+
+#: plugin/xdl_strings.py:54
+msgid "Translate from (e.g. es):"
+msgstr "Vertalen van (bijv. es):"
+
+#: plugin/xdl_strings.py:55
+msgid "Use AI Horde for Image Generation"
+msgstr "Gebruik AI Horde voor beeldgeneratie"
+
+#: plugin/xdl_strings.py:56
+msgid "Use Image model"
+msgstr "Gebruik beeldmodel"
+
+#: plugin/xdl_strings.py:57
+msgid "Web Research"
+msgstr "Webonderzoek"
+
+#: plugin/xdl_strings.py:58
+msgid "Writer"
+msgstr "Schrijver"
+
+msgid "Agent backends"
+msgstr "Agent back-ends"
+
+msgid "Hermes"
+msgstr "Hermes"
+
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgid "Mistral Vibe (ACP)"
+msgstr "Mistral Vibe (ACP)"
+
+msgid "Path / URL"
+msgstr "Pad / URL"
+
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"Pad naar backend CLI (bijv. aider) of ACP-server-URL (bijv. http://"
+"localhost:8000 voor Hermes). Leeg = probeer standaard."
+
+msgid "Extra arguments"
+msgstr "Extra argumenten"
+
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr ""
+"Optionele argumenten voor de geselecteerde backend (spatie-gescheiden)."
+
+msgid "ACP agent name"
+msgstr "ACP-agentnaam"
+
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr ""
+"Agentnaam op de ACP-server (bijv. hermes). Leeg = eerste agent automatisch "
+"ontdekken."
+
+msgid "Calc spreadsheet tools"
+msgstr "Calc-rekenbladtools"
+
+msgid "Max Rows Display"
+msgstr "Max. rijen weergeven"
+
+msgid "Sidebar"
+msgstr "Zijbalk"
+
+msgid "Max Tool Rounds"
+msgstr "Max. toolrondes"
+
+msgid "Document Context Strategy"
+msgstr "Documentcontextstrategie"
+
+msgid "How much document content to include in LLM context"
+msgstr "Hoeveel documentinhoud op te nemen in LLM-context"
+
+msgid "Auto (by document size)"
+msgstr "Auto (op basis van documentgrootte)"
+
+msgid "Full document text"
+msgstr "Volledige documenttekst"
+
+msgid "Pages around cursor"
+msgstr "Pagina's rond cursor"
+
+msgid "Outline + excerpt"
+msgstr "Overzicht + uittreksel"
+
+msgid "Stats + outline only"
+msgstr "Statistieken + overzicht alleen"
+
+msgid "Extend Selection Max Tokens"
+msgstr "Selectie uitbreiden Max Tokens"
+
+msgid "Edit Selection Extra Tokens"
+msgstr "Selectie bewerken Extra Tokens"
+
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Extra tokens voorbij oorspronkelijke tekstlengte. 0 = dezelfde lengte als "
+"origineel."
+
+msgid "Show Web Search Thinking"
+msgstr "Webzoekdenken tonen"
+
+msgid "Prompt for Web Research"
+msgstr "Prompt voor webonderzoek"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Vraag om bevestiging voordat een webzoekopdracht wordt verzonden"
+
+msgid "Web Cache Max Size (MB)"
+msgstr "Maximale grootte webcache (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Maximale schijfgrootte voor webzoekcache (0 om uit te schakelen)"
+
+msgid "Web Cache Validity (Days)"
+msgstr "Geldigheid webcache (dagen)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Hoeveel dagen cache-items als geldig moeten worden beschouwd."
+
+msgid "Doc"
+msgstr "Doc"
+
+msgid "Enable AI grammar checker (Writer)"
+msgstr "AI-grammaticacontrole inschakelen (Writer)"
+
+msgid ""
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
+msgstr ""
+"Wanneer ingeschakeld, registreert WriterAgent zijn AI-grammaticaproeflezer "
+"bij Linguistic; gecontroleerde tekst gebruikt uw API (Extra → Opties → AI). "
+"Onderstrepingen verschijnen kort nadat u bent gestopt met typen. Standaard "
+"uitgeschakeld."
+
+msgid "Grammar check wait timeout (ms)"
+msgstr "Wachttijd grammaticacontrole (ms)"
+
+msgid ""
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
+msgstr ""
+"Gereserveerd voor mogelijk toekomstig gebruik. De proeflezer keert "
+"onmiddellijk terug bij cache-miss (async); resultaten verschijnen in een "
+"latere Writer-doorloop zodra de zin-cache is gevuld."
+
+msgid "Grammar check model (optional)"
+msgstr "Grammaticacontrole model (optioneel)"
+
+msgid "Leave empty to use the same text model as chat."
+msgstr "Leeg laten om hetzelfde tekstmodel als chat te gebruiken."
+
+msgid "Pause grammar while chat/agent runs"
+msgstr "Grammatica pauzeren tijdens chat/agent"
+
+msgid ""
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
+msgstr ""
+"Wanneer ingeschakeld, slaat AI-grammatica achtergrondverzoeken over terwijl "
+"zijbalkchat of agent draait, om gelijktijdige API-oproepen te vermijden."
+
+msgid "Draw and Impress tools"
+msgstr "Draw- en Impress-tools"
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Enable MCP Server"
+msgstr "MCP-server inschakelen"
+
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr ""
+"Alleen localhost, geen authenticatie. Toegang via stdio is altijd "
+"ingeschakeld."
+
+msgid "MCP Port"
+msgstr "MCP-poort"
+
+msgid "Writer document tools (including navigation and search)"
+msgstr "Writer-documenttools (inclusief navigatie en zoeken)"

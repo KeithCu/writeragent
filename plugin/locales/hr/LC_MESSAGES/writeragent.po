@@ -1,0 +1,1126 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: WriterAgent 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: \n"
+"Language-Team: Croatian\n"
+"Language: hr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/contrib/aihordeclient/__init__.py:262
+#: plugin/modules/chatbot/panel.py:790
+msgid "Starting..."
+msgstr "Pokrećem..."
+
+#: plugin/contrib/aihordeclient/__init__.py:370
+msgid "Updating model requirements..."
+msgstr "Ažuriram zahtjeve modela..."
+
+#: plugin/contrib/aihordeclient/__init__.py:517
+msgid "Updating Models..."
+msgstr "Ažuriram modele..."
+
+#: plugin/contrib/aihordeclient/__init__.py:610
+msgid "Register at "
+msgstr "Registrirajte se na "
+
+#: plugin/contrib/aihordeclient/__init__.py:617
+#, python-brace-format
+msgid "You have {} kudos"
+msgstr "Imate {} kudos"
+
+#: plugin/contrib/aihordeclient/__init__.py:625
+#, python-brace-format
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr "«{}» nije valjani API ključ, provjerite ga ponovno ili kreirajte novi"
+
+#: plugin/contrib/aihordeclient/__init__.py:632
+#: plugin/contrib/aihordeclient/__init__.py:675
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr ""
+"Trenutno ne možemo obraditi vaš zahtjev, molimo pokušajte ponovno kasnije. "
+"Ako se to događa dugo vremena, javite nam preko Discord-a"
+
+#: plugin/contrib/aihordeclient/__init__.py:638
+msgid "Problem requesting kudos"
+msgstr "Problem pri zahtjevu za kudos"
+
+#: plugin/contrib/aihordeclient/__init__.py:648
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+"Horde je u modu održavanja, molimo pokušajte ponovno kasnije, ako ste "
+"pokušali i usluga ne odgovara satima, kontaktirajte nas preko Discord-a"
+
+#: plugin/contrib/aihordeclient/__init__.py:656
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr ""
+"Napravili ste previše zahtjeva, pričekajte da se završe i pokušajte ponovno "
+"kasnije"
+
+#: plugin/contrib/aihordeclient/__init__.py:662
+#, python-brace-format
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr ""
+"Čini se da «{}» ima problema, provjeri ga ponovno, stvori novi ili se "
+"pridruži Discordu da zatražiš pomoć"
+
+#: plugin/contrib/aihordeclient/__init__.py:670
+msgid "We hit an error, still: "
+msgstr "Naišli smo na grešku, ipak: "
+
+#: plugin/contrib/aihordeclient/__init__.py:681
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr ""
+"Više nije valjano, molimo pokušajte ponovno. Vaš zahtjev je trajao predugo"
+
+#: plugin/contrib/aihordeclient/__init__.py:724
+msgid "Contacting the Horde..."
+msgstr "Kontaktiram Horde..."
+
+#: plugin/contrib/aihordeclient/__init__.py:803
+msgid "Horde Contacted"
+msgstr "Horde kontaktiran"
+
+#: plugin/contrib/aihordeclient/__init__.py:821
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr ""
+"Prilikom pokušaja traženja slike, Horde je bio previše spor, pokušajte "
+"ponovno kasnije"
+
+#: plugin/contrib/aihordeclient/__init__.py:843
+msgid "to learn to earn kudos. Detail:"
+msgstr "da naučiš kako zaraditi kudos. Detalj:"
+
+#: plugin/contrib/aihordeclient/__init__.py:865
+#: plugin/contrib/aihordeclient/__init__.py:884
+msgid "Service failed: "
+msgstr "Usluga nije uspjela: "
+
+#: plugin/contrib/aihordeclient/__init__.py:935
+msgid "Downloading generated image..."
+msgstr "Preuzimam generiranu sliku..."
+
+#: plugin/contrib/aihordeclient/__init__.py:941
+msgid "You are first in the queue"
+msgstr "Vi ste prvi u redu"
+
+#: plugin/contrib/aihordeclient/__init__.py:943
+msgid "Queue position: "
+msgstr "Pozicija u redu: "
+
+#: plugin/contrib/aihordeclient/__init__.py:946
+msgid "Generating..."
+msgstr "Generiram..."
+
+#: plugin/contrib/aihordeclient/__init__.py:963
+#: plugin/contrib/aihordeclient/__init__.py:999
+msgid "Get a free API Key at "
+msgstr "Dobijte besplatni API ključ na "
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "."
+msgstr "."
+
+#: plugin/contrib/aihordeclient/__init__.py:965
+#: plugin/contrib/aihordeclient/__init__.py:1001
+msgid "This model takes more time than your current configuration."
+msgstr "Ovaj model zahtijeva više vremena od vaše trenutne konfiguracije."
+
+#: plugin/contrib/aihordeclient/__init__.py:970
+#, python-brace-format
+msgid "Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Pokušajte s drugim modelom. {0} bi trajalo duže nego što ste konfigurirali."
+
+#: plugin/contrib/aihordeclient/__init__.py:974
+#: plugin/contrib/aihordeclient/__init__.py:994
+#: plugin/contrib/aihordeclient/__init__.py:1011
+#: plugin/contrib/aihordeclient/__init__.py:1018
+msgid "Please try again later."
+msgstr "Pokušajte ponovno kasnije."
+
+#: plugin/contrib/aihordeclient/__init__.py:992
+msgid "There are no workers available with these settings."
+msgstr "Nema dostupnih radnika s ovim postavkama."
+
+#: plugin/contrib/aihordeclient/__init__.py:1009
+msgid "Probably your image will take one additional minute."
+msgstr "Vjerojatno će vaša slika potrajati još jednu minutu."
+
+#: plugin/contrib/aihordeclient/__init__.py:1016
+#, python-brace-format
+msgid "Probably your image will take {} additional minutes."
+msgstr "Vjerojatno će vaša slika potrajati {} dodatnih minuta."
+
+#: plugin/contrib/aihordeclient/__init__.py:1030
+msgid "Fetching images..."
+msgstr "Dohvaćam slike..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1040
+msgid " is censored, try changing the prompt wording"
+msgstr " je cenzurirano, pokušajte promijeniti formulaciju upita"
+
+#: plugin/contrib/aihordeclient/__init__.py:1068
+msgid "Downloading result..."
+msgstr "Preuzimam rezultat..."
+
+#: plugin/contrib/aihordeclient/__init__.py:1071
+msgid "Downloading image"
+msgstr "Preuzimam sliku"
+
+#: plugin/contrib/aihordeclient/__init__.py:1087
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr ""
+"Možda trebate smanjiti postavke ili odabrati drugi model, ili ste možda bili "
+"cenzurirani. Poruka Horde"
+
+#: plugin/contrib/aihordeclient/__init__.py:1114
+#: plugin/contrib/aihordeclient/__init__.py:1126
+msgid " generated by "
+msgstr " generirano od strane "
+
+#: plugin/contrib/aihordeclient/__init__.py:1124
+msgid " with "
+msgstr " s "
+
+#: plugin/framework/dialogs.py:107
+msgid "Agent requests approval"
+msgstr "Agent traži odobrenje"
+
+#: plugin/framework/dialogs.py:108
+msgid "Proceed with this action?"
+msgstr "Nastaviti s ovom radnjom?"
+
+#: plugin/framework/dialogs.py:109
+#: plugin/modules/chatbot/web_research_chat.py:33
+#: plugin/modules/chatbot/web_research_chat.py:38
+#, python-format
+msgid "Tool: %s"
+msgstr "Alat: %s"
+
+#: plugin/framework/dialogs.py:154
+msgid "Edit search query"
+msgstr "Uredi upit pretrage"
+
+#: plugin/framework/dialogs.py:159
+msgid "Search query:"
+msgstr "Upit pretrage:"
+
+#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
+#: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
+#: plugin/xdl_strings.py:40
+msgid "OK"
+msgstr "OK"
+
+#: plugin/framework/dialogs.py:168
+msgid "Cancel"
+msgstr "Otkaži"
+
+#: plugin/framework/dialogs.py:335
+msgid "Copy"
+msgstr "Kopiraj"
+
+#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
+msgid "Copied!"
+msgstr "Kopirano!"
+
+#: plugin/framework/dialogs.py:403
+msgid "Copy URL"
+msgstr "Kopiraj URL"
+
+#: plugin/framework/errors.py:52
+#, python-brace-format
+msgid "{resource_type} not found: {identifier}"
+msgstr "{resource_type} nije pronađen: {identifier}"
+
+#: plugin/framework/legacy_ui.py:509 plugin/main.py:434
+#: plugin/xdl_strings.py:46
+msgid "Settings"
+msgstr "Postavke"
+
+#: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
+#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py:96
+#: plugin/framework/external_editor.py:105
+#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:866
+#: plugin/modules/chatbot/send_handlers.py:365
+#: plugin/modules/chatbot/send_handlers.py:375
+#: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
+msgid "Error"
+msgstr "Greška"
+
+#: plugin/framework/legacy_ui.py:561
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Nije uspjelo otvoriti postavke: {0}"
+
+#: plugin/framework/specialized_base.py:94
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Poziv alata prebačen na '{0}'. Nalazite se u modu specijaliziranog sklopa "
+"alata. Morate pozvati 'specialized_workflow_finished' kada završite da biste "
+"vratili puni skup API-ja."
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Invalid Setting"
+msgstr "Neispravna postavka"
+
+#: plugin/framework/settings_dialog.py:172
+msgid "Temperature must be <= 1.0"
+msgstr "Temperatura mora biti <= 1.0"
+
+#: plugin/framework/constants.py:287
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+"AI: Mogu trenutačno uređivati ili prevesti vaš dokument s profesionalnim "
+"formatiranjem i bojama. Isprobajte me!"
+
+#: plugin/framework/constants.py:288
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: Mogu vam pomoći s formulama, analizom podataka i šarenim grafikonima. "
+"Isprobajte me!"
+
+#: plugin/framework/constants.py:289
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+"AI: Mogu vam pomoći stvoriti i uređivati uglađene, šarene oblike u Drawu i "
+"Impressu. Isprobajte me!"
+
+#: plugin/framework/constants.py:290
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Mogu obaviti istraživanje na webu kako bih odgovorio na bilo koje "
+"pitanje ili sažeo web stranicu, bez pregledavanja ili mijenjanja vašeg "
+"dokumenta. Razgovarajmo."
+
+#: plugin/framework/external_editor.py:83
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Nije moguće stvoriti datoteku konfiguracije: {0}"
+
+#: plugin/framework/external_editor.py:97
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Nije moguće otvoriti uređivač. Putanja:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:107
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Nije pronađen uređivač (instalirajte Kate ili Gedit ili postavite EDITOR). "
+"Putanja:\n"
+"{0}"
+
+#: plugin/framework/external_editor.py:114
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Nije moguće pokrenuti uređivač: {0}"
+
+#: plugin/framework/extension_update_check.py:150
+msgid "Update available"
+msgstr "Dostupno ažuriranje"
+
+#: plugin/framework/extension_update_check.py:152
+#, python-format
+msgid ""
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
+msgstr ""
+"Nova WriterAgent (%s) je dostupna. Koristite Alati → Upravitelj dodataka za "
+"provjeru ažuriranja i instalaciju najnovije ekstenzije."
+
+#: plugin/modules/http/errors.py:14
+#, python-brace-format
+msgid "TLS/SSL Error: {0}"
+msgstr "Greška TLS/SSL: {0}"
+
+#: plugin/modules/http/errors.py:25
+msgid "Invalid API Key. Please check your settings."
+msgstr "Nevažeći API ključ. Provjerite postavke."
+
+#: plugin/modules/http/errors.py:27
+msgid "API access Forbidden. Your key may lack permissions for this model."
+msgstr "Pristup API-u zabranjen. Vaš ključ možda nema dozvole za ovaj model."
+
+#: plugin/modules/http/errors.py:29
+msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr "Endpoint nije pronađen (404). Provjerite svoj URL i naziv modela."
+
+#: plugin/modules/http/errors.py:31
+#, python-brace-format
+msgid "Server error ({0}). The AI provider is having issues."
+msgstr "Greška poslužitelja ({0}). Pružatelj usluge AI ima problema."
+
+#: plugin/modules/http/errors.py:32
+#, python-brace-format
+msgid "HTTP Error {0}: {1}"
+msgstr "HTTP greška {0}: {1}"
+
+#: plugin/modules/http/errors.py:35
+msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+msgstr "Zahtjev istekao. Pokušajte povećati 'Request Timeout' u postavkama."
+
+#: plugin/modules/http/errors.py:43
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Povezivanje odbijeno. Je li vaš lokalni AI poslužitelj (Ollama/LM Studio) "
+"pokrenut?"
+
+#: plugin/modules/http/errors.py:45
+msgid "DNS Error. Could not resolve the endpoint URL."
+msgstr "Greška DNS-a. Nije moguće razriješiti URL endpointa."
+
+#: plugin/modules/http/errors.py:46
+#, python-brace-format
+msgid "Connection Error: {0}"
+msgstr "Greška povezivanja: {0}"
+
+#: plugin/modules/http/errors.py:49
+msgid "The AI provider reported an error. Try again."
+msgstr "Pružatelj usluge AI prijavio je grešku. Pokušajte ponovno."
+
+#: plugin/modules/http/errors.py:56
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "HTTP greška {0} od pružatelja AI: {1}"
+
+#: plugin/modules/http/errors.py:77
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Greška: {0}"
+
+#: plugin/modules/http/client.py:790
+msgid "Stream ended with finish_reason=error"
+msgstr "Strumena se završila s finish_reason=error"
+
+#: plugin/modules/http/client.py:803
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Model ponavlja isti dio (beskonačna petlja). Pokušajte ponovno ili koristite "
+"drugi model."
+
+#: plugin/modules/http/__init__.py:243
+msgid "Stop MCP Server"
+msgstr "Zaustavi MCP poslužitelj"
+
+#: plugin/modules/http/__init__.py:244
+msgid "Start MCP Server"
+msgstr "Pokreni MCP poslužitelj"
+
+#: plugin/modules/http/__init__.py:267
+msgid "MCP server stopped"
+msgstr "MCP poslužitelj zaustavljen"
+
+#: plugin/modules/http/__init__.py:275
+msgid "MCP server started"
+msgstr "MCP poslužitelj pokrenut"
+
+#: plugin/modules/http/__init__.py:278
+msgid "MCP server failed to start"
+msgstr "Pokretanje MCP poslužitelja nije uspjelo"
+
+#: plugin/modules/http/__init__.py:278
+msgid "Check ~/localwriter.log"
+msgstr "Provjerite ~/localwriter.log"
+
+#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
+msgid "MCP server is not running"
+msgstr "MCP poslužitelj nije pokrenut"
+
+#: plugin/modules/http/__init__.py:299
+msgid "MCP server running"
+msgstr "MCP poslužitelj pokrenut"
+
+#: plugin/modules/http/__init__.py:299
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Rute: {0}"
+
+#: plugin/modules/http/__init__.py:310
+msgid "Server Status"
+msgstr "Status poslužitelja"
+
+#: plugin/modules/http/__init__.py:331
+#, python-brace-format
+msgid "URL: {0}"
+msgstr "URL: {0}"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+msgid "Please enter edit instructions!"
+msgstr "Unesite upute za uređivanje!"
+
+#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/xdl_strings.py:33
+msgid "Input"
+msgstr "Unos"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Uređivanje odabira (Calc)"
+
+#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Proširenje odabira (Calc)"
+
+#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
+#: plugin/modules/chatbot/selection.py:90
+#: plugin/modules/chatbot/selection.py:177
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Proširenje odabira"
+
+#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
+#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
+#: plugin/modules/chatbot/selection.py:286
+#: plugin/modules/chatbot/selection.py:297
+#: plugin/modules/chatbot/selection.py:411
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Uređivanje odabira"
+
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+msgid "Ready"
+msgstr "Spremno"
+
+#: plugin/modules/chatbot/tool_loop.py:931
+msgid "Error: Toolkit unavailable"
+msgstr "Greška: Toolkit nije dostupan"
+
+#: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
+msgid "Accept"
+msgstr "Prihvati"
+
+#: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
+msgid "Change"
+msgstr "Promijeni"
+
+#: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
+msgid "Reject"
+msgstr "Odbij"
+
+#: plugin/modules/chatbot/panel.py:429
+msgid "Waiting for approval…"
+msgstr "Čekanje odobrenja…"
+
+#: plugin/modules/chatbot/panel.py:771
+msgid "Record"
+msgstr "Snimi"
+
+#: plugin/modules/chatbot/panel.py:773
+msgid "Stop Rec"
+msgstr "Zaustavi snim."
+
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+msgid "Send"
+msgstr "Pošalji"
+
+#: plugin/modules/chatbot/panel.py:799
+msgid "Getting document..."
+msgstr "Dohvaćam dokument..."
+
+#: plugin/modules/chatbot/panel.py:803
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[Nema kompatibilnog LibreOffice dokumenta (Writer, Calc ili Draw) u aktivnom "
+"prozoru.]"
+
+#: plugin/modules/chatbot/panel.py:812
+#, python-brace-format
+msgid ""
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
+msgstr ""
+"[Interna greška: Tip dokumenta promijenjen s {0} na {1}! Molimo prijavite "
+"grešku.]"
+
+#: plugin/modules/chatbot/panel.py:819
+#, python-brace-format
+msgid ""
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr ""
+"[Interna greška: Nije moguće identificirati tip dokumenta za {0}. Molimo "
+"prijavite ovo!]"
+
+#: plugin/modules/chatbot/panel.py:863
+#, python-brace-format
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr ""
+"[Model {0} ne podržava nativni audio. Molimo odaberite STT Model u "
+"Postavkama.]"
+
+#: plugin/modules/chatbot/web_research_chat.py:15
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Ova pretražna upita '%s' će biti poslana pretraživaču."
+
+#: plugin/modules/chatbot/web_research_chat.py:28
+msgid "[Web search — approval required]"
+msgstr "[Web pretraga — potrebno odobrenje]"
+
+#: plugin/modules/chatbot/web_research_chat.py:30
+msgid "[Web search]"
+msgstr "[Web pretraga]"
+
+#: plugin/modules/chatbot/web_research_chat.py:37
+msgid "[Additional web search]"
+msgstr "[Dodatna web pretraga]"
+
+#: plugin/modules/chatbot/web_research_chat.py:59
+msgid "[Web research]"
+msgstr "[Web istraživanje]"
+
+#: plugin/modules/chatbot/web_research_chat.py:60
+msgid "Research request:"
+msgstr "Zahtjev za istraživanjem:"
+
+#: plugin/modules/chatbot/web_research_chat.py:65
+msgid "Context for the research agent:"
+msgstr "Kontekst za agenta za istraživanje:"
+
+#: plugin/modules/chatbot/web_research.py:232
+msgid "Web research completed."
+msgstr "Web istraživanje završeno."
+
+#: plugin/modules/chatbot/send_handlers.py:109
+msgid "Transcribing audio..."
+msgstr "Transkribiram audio..."
+
+#: plugin/modules/chatbot/send_handlers.py:121
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Greška transkripcije: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:363
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Greška konteksta dokumenta: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:373
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Backend agenta '{0}' nije pronađen.]"
+
+#: plugin/modules/chatbot/send_handlers.py:380
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Backend agenta '{0}' nije dostupan. Provjerite postavke (putanja, "
+"instalacija).]"
+
+#: plugin/modules/chatbot/send_handlers.py:626
+#: plugin/modules/chatbot/send_handlers.py:634
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Knjižničar: {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:633
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Savršeno! Sada vas prebacujem na glavnog asistenta."
+
+#: plugin/modules/chatbot/send_handlers.py:639
+msgid "Unknown librarian error."
+msgstr "Nepoznata greška knjižničara."
+
+#: plugin/modules/chatbot/send_handlers.py:640
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Greška knjižničara: {0}]"
+
+#: plugin/modules/chatbot/send_handlers.py:664
+#, python-brace-format
+msgid "AI (research): {0}"
+msgstr "AI (istraživanje): {0}"
+
+#: plugin/modules/chatbot/send_handlers.py:670
+msgid "Unknown research error."
+msgstr "Nepoznata greška istraživanja."
+
+#: plugin/modules/chatbot/send_handlers.py:671
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Greška istraživanja: {0}]"
+
+#: plugin/modules/chatbot/librarian.py:80
+msgid "Switching to document mode..."
+msgstr "Prebacivanje u dokumentni način..."
+
+#: plugin/modules/chatbot/panel_factory.py:517
+msgid "Size:"
+msgstr "Veličina:"
+
+#: plugin/modules/chatbot/panel_factory.py:518
+msgid "Height:"
+msgstr "Visina:"
+
+#: plugin/modules/chatbot/panel_factory.py:519
+msgid "Width:"
+msgstr "Širina:"
+
+#: plugin/tests/test_i18n.py:24
+msgid "ThisIsAnUntranslatedString999"
+msgstr "ThisIsAnUntranslatedString999"
+
+#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+msgid "Built-in"
+msgstr "Ugrađen"
+
+#: plugin/tests/test_i18n.py:215
+msgid "Backend"
+msgstr "Backend"
+
+#: plugin/main.py:354
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} prošlo, {2} neprošlo."
+
+#: plugin/main.py:357
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testovi nisu mogli biti pokrenuti: {0}"
+
+#: plugin/main.py:432
+msgid "Extend Selection"
+msgstr "Proširi odabir"
+
+#: plugin/main.py:433
+msgid "Edit Selection"
+msgstr "Uredi odabir"
+
+#: plugin/main.py:435
+msgid "Toggle MCP Server"
+msgstr "Preklopi MCP poslužitelj"
+
+#: plugin/main.py:436
+msgid "MCP Server Status"
+msgstr "Status MCP poslužitelja"
+
+#: plugin/main.py:438
+msgid "Run format tests"
+msgstr "Pokreni testove formatiranja"
+
+#: plugin/main.py:439
+msgid "Run calc tests"
+msgstr "Pokreni testove izračuna"
+
+#: plugin/main.py:440
+msgid "Run Calc API integration tests"
+msgstr "Pokreni integracijske testove Calc API"
+
+#: plugin/main.py:441
+msgid "Run draw tests"
+msgstr "Pokreni testove crtanja"
+
+#: plugin/main.py:442
+msgid "Evaluation Dashboard"
+msgstr "Evaluacijska kontrolna ploča"
+
+#: plugin/main.py:829
+msgid "Dispatch Error"
+msgstr "Greška dispečera"
+
+#: plugin/xdl_strings.py:4
+msgid "-1"
+msgstr "-1"
+
+#: plugin/xdl_strings.py:5
+msgid "7.5"
+msgstr "7.5"
+
+#: plugin/xdl_strings.py:6
+msgid "AI Horde API Key:"
+msgstr "Ključ API-ja AI Horde:"
+
+#: plugin/xdl_strings.py:7
+msgid "AI Model:"
+msgstr "Model AI:"
+
+#: plugin/xdl_strings.py:8
+msgid "API Key:"
+msgstr "Ključ API-ja:"
+
+#: plugin/xdl_strings.py:9
+msgid "Additional Instructions (History):"
+msgstr "Dodatne upute (Povijest):"
+
+#: plugin/xdl_strings.py:10
+msgid "Additional Instructions:"
+msgstr "Dodatne upute:"
+
+#: plugin/xdl_strings.py:11
+msgid "Allow NSFW"
+msgstr "Dozvoli NSFW"
+
+#: plugin/xdl_strings.py:12
+msgid "Ask / instruct:"
+msgstr "Pitaj / uputi:"
+
+#: plugin/xdl_strings.py:13
+msgid "Aspect Ratio:"
+msgstr "Razmjer stranica:"
+
+#: plugin/xdl_strings.py:14
+msgid "Audio Model:"
+msgstr "Audio model:"
+
+#: plugin/xdl_strings.py:15
+msgid "Auto Gallery"
+msgstr "Automatska galerija"
+
+#: plugin/xdl_strings.py:16
+msgid "Base Size:"
+msgstr "Osnovna veličina:"
+
+#: plugin/xdl_strings.py:17
+msgid "Base:"
+msgstr "Baza:"
+
+#: plugin/xdl_strings.py:18
+msgid "CFG Scale:"
+msgstr "CFG skala:"
+
+#: plugin/xdl_strings.py:19
+msgid "Calc"
+msgstr "Izračun"
+
+#: plugin/xdl_strings.py:20
+msgid "Categories:"
+msgstr "Kategorije:"
+
+#: plugin/xdl_strings.py:21
+msgid "Censor NSFW"
+msgstr "Cenzuriraj NSFW"
+
+#: plugin/xdl_strings.py:22
+msgid "Chat (Testing):"
+msgstr "Razgovor (Testiranje):"
+
+#: plugin/xdl_strings.py:23
+msgid "Clear"
+msgstr "Očisti"
+
+#: plugin/xdl_strings.py:24
+msgid "Close"
+msgstr "Zatvori"
+
+#: plugin/xdl_strings.py:25
+msgid "Context Len:"
+msgstr "Duljina konteksta:"
+
+#: plugin/xdl_strings.py:26
+msgid "Draw"
+msgstr "Crtaj"
+
+#: plugin/xdl_strings.py:27
+msgid "Edit config file (JSON)…"
+msgstr "Uredi konfiguracijsku datoteku (JSON)…"
+
+#: plugin/xdl_strings.py:28
+msgid "Endpoint URL (/v1 added):"
+msgstr "URL krajnje točke (/v1 dodano):"
+
+#: plugin/xdl_strings.py:29
+msgid "Endpoint URL:"
+msgstr "URL krajnje točke:"
+
+#: plugin/xdl_strings.py:30
+msgid "General"
+msgstr "Općenito"
+
+#: plugin/xdl_strings.py:31
+msgid "Image Model:"
+msgstr "Model slike:"
+
+#: plugin/xdl_strings.py:32
+msgid "Image Settings"
+msgstr "Postavke slike"
+
+#: plugin/xdl_strings.py:34
+msgid "Insert Frame"
+msgstr "Umetni okvir"
+
+#: plugin/xdl_strings.py:35
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Nadzorna ploča za evaluaciju WriterAgent"
+
+#: plugin/xdl_strings.py:36
+msgid "Max Tokens:"
+msgstr "Maksimalni tokeni:"
+
+#: plugin/xdl_strings.py:37
+msgid "Max Wait (s):"
+msgstr "Maksimalno čekanje (s):"
+
+#: plugin/xdl_strings.py:38
+msgid "Models to Test:"
+msgstr "Modeli za testiranje:"
+
+#: plugin/xdl_strings.py:39
+msgid "Multimodal"
+msgstr "Multimodalno"
+
+#: plugin/xdl_strings.py:41
+msgid "Please enter edit instructions:"
+msgstr "Molimo unesite upute za uređivanje:"
+
+#: plugin/xdl_strings.py:43
+msgid "Run Benchmark"
+msgstr "Pokreni benchmark"
+
+#: plugin/xdl_strings.py:44
+msgid "Seed:"
+msgstr "Sjeme:"
+
+#: plugin/xdl_strings.py:47
+msgid "Square"
+msgstr "Kvadrat"
+
+#: plugin/xdl_strings.py:48
+msgid "Steps:"
+msgstr "Koraci:"
+
+#: plugin/xdl_strings.py:49
+msgid "Stop"
+msgstr "Zaustavi"
+
+#: plugin/xdl_strings.py:50
+msgid "Temperature:"
+msgstr "Temperatura:"
+
+#: plugin/xdl_strings.py:51
+msgid "Text/Chat Model:"
+msgstr "Model za tekst/čat:"
+
+#: plugin/xdl_strings.py:52
+msgid "Timeout (s):"
+msgstr "Istek (s):"
+
+#: plugin/xdl_strings.py:53
+msgid "Translate Prompt"
+msgstr "Prevedi upit"
+
+#: plugin/xdl_strings.py:54
+msgid "Translate from (e.g. es):"
+msgstr "Prevedi iz (npr. es):"
+
+#: plugin/xdl_strings.py:55
+msgid "Use AI Horde for Image Generation"
+msgstr "Koristite AI Horde za generiranje slika"
+
+#: plugin/xdl_strings.py:56
+msgid "Use Image model"
+msgstr "Koristite model za slike"
+
+#: plugin/xdl_strings.py:57
+msgid "Web Research"
+msgstr "Web istraživanje"
+
+#: plugin/xdl_strings.py:58
+msgid "Writer"
+msgstr "Pisac"
+
+msgid "Agent backends"
+msgstr "Backendovi agenata"
+
+msgid "Hermes"
+msgstr "Hermes"
+
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgid "Mistral Vibe (ACP)"
+msgstr "Mistral Vibe (ACP)"
+
+msgid "Path / URL"
+msgstr "Putanja / URL"
+
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"Putanja do CLI-ja backend-a (npr. aider) ili URL servera ACP-a (npr. http://"
+"localhost:8000 za Hermes). Prazno = pokušaj zadane postavke."
+
+msgid "Extra arguments"
+msgstr "Dodatni argumenti"
+
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr "Opcionalni argumenti za odabrani backend (razdvojeni razmacima)."
+
+msgid "ACP agent name"
+msgstr "Naziv ACP agenta"
+
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr ""
+"Naziv agenta na ACP poslužitelju (npr. hermes). Prazno = automatski otkrij "
+"prvog agenta."
+
+msgid "Calc spreadsheet tools"
+msgstr "Alati za Calc tablice"
+
+msgid "Max Rows Display"
+msgstr "Maksimalni broj redaka za prikaz"
+
+msgid "Sidebar"
+msgstr "Bočni panel"
+
+msgid "Max Tool Rounds"
+msgstr "Maksimalni broj rundi alata"
+
+msgid "Document Context Strategy"
+msgstr "Strategija konteksta dokumenta"
+
+msgid "How much document content to include in LLM context"
+msgstr "Koliko sadržaja dokumenta uključiti u kontekst LLM-a"
+
+msgid "Auto (by document size)"
+msgstr "Automatski (prema veličini dokumenta)"
+
+msgid "Full document text"
+msgstr "Cijeli tekst dokumenta"
+
+msgid "Pages around cursor"
+msgstr "Stranice oko kursora"
+
+msgid "Outline + excerpt"
+msgstr "Osnovna struktura + isječak"
+
+msgid "Stats + outline only"
+msgstr "Statistike + samo osnovna struktura"
+
+msgid "Extend Selection Max Tokens"
+msgstr "Proširenje odabira - Maks. tokeni"
+
+msgid "Edit Selection Extra Tokens"
+msgstr "Uređivanje odabira - Dodatni tokeni"
+
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Dodatni tokeni izvan duljine originalnog teksta. 0 = ista duljina kao "
+"original."
+
+msgid "Show Web Search Thinking"
+msgstr "Prikaži razmišljanje o web pretrazi"
+
+msgid "Prompt for Web Research"
+msgstr "Upit za web istraživanje"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Zatraži potvrdu prije slanja upita za pretragu weba"
+
+msgid "Web Cache Max Size (MB)"
+msgstr "Maksimalna veličina web predmemorije (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr ""
+"Maksimalna veličina diska za predmemoriju pretrage weba (0 za onemogućavanje)"
+
+msgid "Web Cache Validity (Days)"
+msgstr "Važećnost web predmemorije (dani)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Koliko dana se unosi predmemorije smatraju valjanima."
+
+msgid "Doc"
+msgstr "Dok"
+
+msgid "Enable AI grammar checker (Writer)"
+msgstr "Omogući AI provjeru gramatike (Writer)"
+
+msgid ""
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
+msgstr ""
+"Kada je uključeno, WriterAgent registrira svoj AI provjerivač gramatike s "
+"Linguisticom; provjereni tekst koristi vaš API (Alati → Opcije → AI). "
+"Podcrtavanja se pojavljuju ubrzo nakon što prestanete tipkati. Isključeno po "
+"zadanim postavkama."
+
+msgid "Grammar check wait timeout (ms)"
+msgstr "Timeout čekanja provjere gramatike (ms)"
+
+msgid ""
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
+msgstr ""
+"Rezervirano za moguću buduću upotrebu. Lektor se vraća odmah kod propuštanja "
+"u kešu (asinkrono); rezultati se pojavljuju u kasnijem prolazu Writer-a čim "
+"se popuni keš rečenica."
+
+msgid "Grammar check model (optional)"
+msgstr "Model provjere gramatike (neobavezno)"
+
+msgid "Leave empty to use the same text model as chat."
+msgstr "Ostavite prazno da biste koristili isti model teksta kao za chat."
+
+msgid "Pause grammar while chat/agent runs"
+msgstr "Pauziraj gramatiku dok chat/agent radi"
+
+msgid ""
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
+msgstr ""
+"Kada je uključeno, AI gramatika preskače pozadinske zahtjeve dok sidebar "
+"chat ili agent rade, kako bi se izbjegli istovremeni API pozivi."
+
+msgid "Draw and Impress tools"
+msgstr "Alati Draw i Impress"
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Enable MCP Server"
+msgstr "Omogući MCP poslužitelj"
+
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr ""
+"Samo localhost, bez autentifikacije. Pristup putem stdio uvijek je omogućen."
+
+msgid "MCP Port"
+msgstr "MCP port"
+
+msgid "Writer document tools (including navigation and search)"
+msgstr "Alati za Writer dokumente (uključujući navigaciju i pretragu)"

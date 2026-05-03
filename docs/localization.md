@@ -46,6 +46,17 @@ Optional automation for translators:
 - Sends strings to an OpenAI-compatible chat API (default model `x-ai/grok-4.1-fast`, default endpoint OpenRouter) in batches; uses project auth helpers / `writeragent.json` keys / `OPENROUTER_API_KEY` when available.
 - Preserves leading/trailing whitespace on strings by peeling it before the API call and re-applying it to results.
 
+### AI-assisted translation review (`--review`)
+
+Same script as gap fill; **does not modify** any `.po` or `.mo` file.
+
+- **`--review`**: sends every **non-empty** translation (including **fuzzy**) to the model for critique. You must pass **`--model <name>`** (no default on this path—use a different model than gap-fill if you want independent suggestions).
+- **`--execute`** still defaults to `x-ai/grok-4.1-fast` when `--model` is omitted.
+- **`--output PATH`**: optional; default file name is `translation_review_<locale>.json` or `translation_review_<l1>_<l2>_….json` with **sorted** locale directory names when multiple locales are reviewed.
+- While running, each finished batch prints **one line per string** to **stdout** (dense: batch size in = lines out). Acceptable rows show the fixed phrase **`No Errors`**; only `suggest` rows include current text, suggestion, and English reasoning.
+- The model returns a JSON array of exactly that many objects (`action`: `ok` or `suggest`). For `ok`, `reasoning_en` must be exactly `No Errors` (the script also normalizes verbose “keep” replies to that literal).
+- Report JSON includes `generated_at`, `model`, `endpoint`, `locales`, `reviewed_string_count` (how many strings were reviewed), and **`suggestions`**: only rows with `action` **`suggest`** or **`error`** (no `ok` / `No Errors` rows in the file).
+
 This is a productivity aid, not a substitute for human review of tone and terminology.
 
 ## Extension menus and registry (`.xcu`)
