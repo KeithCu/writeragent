@@ -135,10 +135,10 @@ class _GrammarWorkQueue:
     Solves two problems:
     1. **Stampede**: N cache misses no longer spawn N workers that all
        contend for ``llm_request_lane`` simultaneously.
-    2. **Prefix waste**: when the user types, successive calls produce
-       growing text ("This is" → "This is a" → "This is a story.").
-       At dequeue time, shorter prefixes are dropped in favor of the
-       longest text for the same ``(doc_id, locale)`` group.
+    2. **Prefix waste**: when the user types, successive calls may produce
+       growing or edited text. At dequeue time, same ``inflight_key`` keeps only
+       the newest item; prefix-related slices in one batch also collapse to the
+       newest within each ``(doc_id, locale)`` group.
     """
 
     def __init__(self) -> None:
@@ -867,16 +867,18 @@ class WriterAgentAiGrammarProofreader(
                     uncached_count,
                 )
 
-            fp = engine.fingerprint_for_text(slice_txt)
-            inflight_key = f"{aDocumentIdentifier}|{loc_key}|{fp}"
+            # inflight_key must not include slice text fingerprint: mid-sentence edits
+            # change content without prefix relation, so same-key supersede + _latest_seq
+            # stale checks would never fire and every keystroke would run an LLM call.
+            inflight_key = f"{aDocumentIdentifier}|{loc_key}"
             global _ENQUEUE_SEQ
             with _ENQUEUE_SEQ_LOCK:
                 _ENQUEUE_SEQ += 1
                 seq = _ENQUEUE_SEQ
             log.info(
-                "[grammar] cache MISS enqueuing slice_len=%s fp=%s… seq=%s",
+                "[grammar] cache MISS enqueuing slice_len=%s key=%s seq=%s",
                 len(slice_txt),
-                fp[:12],
+                inflight_key,
                 seq,
             )
             _emit_grammar_status("start", slice_txt, result="queued")

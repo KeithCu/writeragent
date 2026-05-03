@@ -22,7 +22,7 @@ def _make_item(
 ) -> GrammarWorkItem:
     """Helper to build a work item with sensible defaults."""
     if not inflight_key:
-        inflight_key = f"{doc_id}|{locale}|fp_{hash(text)}"
+        inflight_key = f"{doc_id}|{locale}"
     return GrammarWorkItem(
         ctx=None,
         full_text=text,
@@ -34,6 +34,20 @@ def _make_item(
         inflight_key=inflight_key,
         enqueue_seq=seq,
     )
+
+
+def test_mid_sentence_typing_dedup() -> None:
+    """Mid-sentence edits are not prefix-related; same inflight_key must supersede."""
+    key = "doc1|en-US"
+    items = [
+        _make_item("Hello world.", seq=1, inflight_key=key),
+        _make_item("Hello Xworld.", seq=2, inflight_key=key),
+        _make_item("Hello XYworld.", seq=3, inflight_key=key),
+    ]
+    result = deduplicate_grammar_batch(items)
+    assert len(result) == 1
+    assert result[0].enqueue_seq == 3
+    assert result[0].full_text[result[0].n_start : result[0].n_end] == "Hello XYworld."
 
 
 def test_prefix_dedup_typing_sequence() -> None:
@@ -52,8 +66,8 @@ def test_prefix_dedup_typing_sequence() -> None:
 def test_prefix_dedup_different_paragraphs() -> None:
     """Two different paragraphs (non-prefix) should both survive."""
     items = [
-        _make_item("Hello world.", seq=1),
-        _make_item("Goodbye world.", seq=2),
+        _make_item("Hello world.", seq=1, doc_id="para_a"),
+        _make_item("Goodbye world.", seq=2, doc_id="para_b"),
     ]
     result = deduplicate_grammar_batch(items)
     texts = {r.full_text[r.n_start : r.n_end] for r in result}
@@ -62,7 +76,7 @@ def test_prefix_dedup_different_paragraphs() -> None:
 
 def test_supersede_same_key() -> None:
     """Same inflight_key with different sequences -> only highest seq survives."""
-    key = "doc1|en-US|fp_abc"
+    key = "doc1|en-US"
     items = [
         _make_item("Same text.", seq=1, inflight_key=key),
         _make_item("Same text.", seq=3, inflight_key=key),
@@ -75,21 +89,22 @@ def test_supersede_same_key() -> None:
 
 def test_mixed_dedup() -> None:
     """Combination of prefix dedup + supersede in one batch."""
-    key = "doc1|en-US|fp_short"
+    key = "doc_short|en-US"
     items = [
         # Two versions of the same key (supersede: keep seq=5)
-        _make_item("Short.", seq=3, inflight_key=key),
-        _make_item("Short.", seq=5, inflight_key=key),
-        # A prefix chain (prefix dedup: keep longest)
-        _make_item("The cat", seq=6),
-        _make_item("The cat sat on the mat.", seq=7),
+        _make_item("Short.", seq=3, doc_id="doc_short", inflight_key=key),
+        _make_item("Short.", seq=5, doc_id="doc_short", inflight_key=key),
+        # A prefix chain (prefix dedup: keep newest)
+        _make_item("The cat", seq=6, doc_id="doc_cat"),
+        _make_item("The cat sat on the mat.", seq=7, doc_id="doc_cat"),
         # Unrelated paragraph
-        _make_item("Unrelated paragraph.", seq=8),
+        _make_item("Unrelated paragraph.", seq=8, doc_id="doc_other"),
     ]
     result = deduplicate_grammar_batch(items)
     texts = {r.full_text[r.n_start : r.n_end] for r in result}
     # "Short." survives (seq=5), "The cat" dropped (older prefix-related),
     # "The cat sat on the mat." survives (newer), "Unrelated paragraph." survives
+    # (distinct doc_id so inflight_key does not collapse unrelated paragraphs).
     assert "Short." in texts
     assert "The cat sat on the mat." in texts
     assert "Unrelated paragraph." in texts

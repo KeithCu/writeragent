@@ -501,9 +501,8 @@ def deduplicate_grammar_batch(
     length. This avoids cases where an older longer text wins over a newer
     shorter text from the same typing timeline.
 
-    Additionally, if two items share the same
-    ``inflight_key`` (same fingerprint), the one with the lower ``enqueue_seq``
-    is dropped.
+    Additionally, if two items share the same ``inflight_key`` (same document
+    identifier + locale), the one with the lower ``enqueue_seq`` is dropped.
     """
     from collections import defaultdict
 

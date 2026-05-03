@@ -157,7 +157,7 @@ def test_queue_stale_check_uses_latest_sequence() -> None:
         grammar_bcp47="en-US",
         partial_sentence=False,
         doc_id="doc-1",
-        inflight_key="doc-1|en-US|fp_x",
+        inflight_key="doc-1|en-US",
         enqueue_seq=7,
     )
     q._latest_seq[item.inflight_key] = 9
@@ -174,7 +174,7 @@ def test_queue_stale_check_allows_latest_item() -> None:
         grammar_bcp47="en-US",
         partial_sentence=False,
         doc_id="doc-1",
-        inflight_key="doc-1|en-US|fp_x",
+        inflight_key="doc-1|en-US",
         enqueue_seq=9,
     )
     q._latest_seq[item.inflight_key] = 9
