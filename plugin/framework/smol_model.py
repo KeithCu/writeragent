@@ -45,8 +45,12 @@ class WriterAgentSmolModel(Model):
         )
         
         msg_dicts = completion_kwargs.get("messages", [])
-        tools = completion_kwargs.get("tools", None)
-        
+        # Do not forward OpenAI ``tools`` to the HTTP layer. ``_prepare_completion_kwargs`` still
+        # built tool JSON for the smol agents system prompt (__TOOLS_LIST__); that is enough for the
+        # model. Sending ``tools`` in the request body makes some local servers (e.g. llama.cpp)
+        # run constrained / PEG tool parsers that 500 on Harmony-style output. Smol agents parse
+        # tool calls from plain text via ``Model.parse_tool_calls`` / ``parse_json_blob`` instead.
+
         # Push heartbeat so the UI drain loop stays active during this blocking call
         if self._status_callback:
             self._status_callback("Thinking...")
@@ -55,7 +59,7 @@ class WriterAgentSmolModel(Model):
         result = self.api.request_with_tools(
             msg_dicts,
             max_tokens=self.max_tokens,
-            tools=tools,
+            tools=None,
             prepend_dev_build_system_prefix=False,
         )
         
