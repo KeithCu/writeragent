@@ -48,7 +48,7 @@ More than just a chatbot, this is a "Document Agent." It doesn't just read your 
 - **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name and favorite colors) and give tips. The librarian and general chat agent use the `upsert_memory` tool to store user preferences.
 - **Multilingual & HiDPI**: Ships with support for 34 locales (`de`, `es`, `fr`, `it`, `ja`, `ko`, `pl`, `pt`, `ru`, `zh_CN`, `zh_TW`, `hi_IN`, `id`, `bn_IN`, `ur_PK`, `nl`, `sv`, `da`, `fi`, `ca`, `el`, `cs`, `hu`, `ro`, `nb_NO`, `nn_NO`, `uk`, `tr`, `sk`, `bg`, `hr`, `lt`, `lv`, `et`); Optimized for modern high-resolution displays using device-independent units.
 - **Writer math in HTML**: **MathML** (`<math>…</math>`) and common **TeX** delimiters (`$…$`, `$$…$$`, `\(...\)`, `\[...\]`) are turned into **editable LibreOffice Math** formulas (OLE objects), not screenshots. Details: [libreoffice-html-math-dev-plan.md](docs/libreoffice-html-math-dev-plan.md).
-- **Experimental real-time grammar checker**: An experimental Linguistic2-backed grammar proofreader runs **asynchronously**—results show up shortly after you type, then you can right-click suggestions and apply fixes. Enable in Settings - Doc.
+- **Real-time grammar checker**: An experimental Linguistic2-backed grammar proofreader runs **asynchronously**—results show up shortly after you type, then you can right-click suggestions and apply fixes. Enable in Settings - Doc.
 - **LibreOffice Resource**: Many models know LibreOffice well, so you can ask questions like: *What is the page gutter feature?*
 
 #### Showcase
