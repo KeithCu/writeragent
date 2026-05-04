@@ -9,16 +9,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from plugin.contrib.smolagents.agents import ToolCallingAgent
-from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.smol_model import WriterAgentSmolModel
 from plugin.modules.http.client import LlmClient
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from plugin.contrib.smolagents.tools import Tool as SmolTool
     from plugin.framework.tool_context import ToolContext
 
 

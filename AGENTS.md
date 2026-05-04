@@ -303,7 +303,7 @@ Use `WriterAgentException` hierarchy and **`format_error_payload`** ([`plugin/fr
 
 Primary workflow and patterns: [`docs/type-checking.md`](docs/type-checking.md). **`make check`** → **`ty`** only; **`make build`** → **`ty`** + **`ruff`**; **`make typecheck`** → **`ty` + mypy + pyright**; **`make test`** adds **`bandit`** then pytest (see §1). **`types-unopy`** (dev) for UNO stubs. Run **`make fix-uno`** so `import uno` / `com.sun.star` resolve in `.venv`. **`make pyrefly`** is an optional [Pyrefly](https://pyrefly.org/) pass (same scope; not in **`make test`**).
 
-**Common fixes**: use **`Protocol`** for mixin hosts (`self: ToolLoopHost`); `TYPE_CHECKING` for heavy imports; `cast(Any, …)` / `cast(Iterable, …)` where stubs are thin; explicit `None` checks before narrowing. **UNO interface overrides**: match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or `ty`/pyright report `invalid-method-override`.
+**Common fixes**: use **`Protocol`** for mixin hosts (`self: ToolLoopHost`); `TYPE_CHECKING` for heavy imports (and any standard library or application imports used only in type hints, to satisfy **`ruff`** `TC` rules); `cast(Any, …)` / `cast(Iterable, …)` where stubs are thin; explicit `None` checks before narrowing. **UNO interface overrides**: match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or `ty`/pyright report `invalid-method-override`.
 
 ---
 

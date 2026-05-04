@@ -13,9 +13,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from plugin.contrib.smolagents.tools import Tool as SmolTool
-from plugin.framework.tool_base import ToolBase
 
 if TYPE_CHECKING:
+    from plugin.framework.tool_base import ToolBase
     from plugin.framework.tool_context import ToolContext
 
 # Match ``writeragent.specialized`` messages when ``safe=True`` (delegation path).
