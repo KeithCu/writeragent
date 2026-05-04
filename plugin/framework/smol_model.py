@@ -45,7 +45,10 @@ class WriterAgentSmolModel(Model):
             self._status_callback("Thinking...")
 
         # Keeps smolagents' text-based tool parsing while gaining LlmClient's stripping/shims/pacing.
-        # Do not forward OpenAI ``tools`` to the HTTP layer (some local servers 500 on Harmony output).
+        # Do not forward OpenAI ``tools`` to the HTTP layer (many local servers 500). Tool schemas still
+        # live in the smol system prompt via ``__TOOLS_LIST__``. Developers may replace ``None`` with
+        # ``completion_kwargs.get("tools")`` locally when experimenting with wire tools—never ship that
+        # as default user behavior without validating the endpoint.
         result = self.api.request_with_tools(
             msg_dicts,
             max_tokens=self.max_tokens,
