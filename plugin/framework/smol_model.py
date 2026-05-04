@@ -16,13 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from typing import Any, cast
 
-from plugin.contrib.smolagents.models import Model, ChatMessage, MessageRole
+from plugin.contrib.smolagents.models import Model, ChatMessage, TokenUsage
 
-
-class DummyTokenUsage:
-    def __init__(self, input_tokens=0, output_tokens=0):
-        self.input_tokens = input_tokens
-        self.output_tokens = output_tokens
 
 class WriterAgentSmolModel(Model):
     """
@@ -45,69 +40,40 @@ class WriterAgentSmolModel(Model):
         )
         
         msg_dicts = completion_kwargs.get("messages", [])
-        # Do not forward OpenAI ``tools`` to the HTTP layer. ``_prepare_completion_kwargs`` still
-        # built tool JSON for the smol agents system prompt (__TOOLS_LIST__); that is enough for the
-        # model. Sending ``tools`` in the request body makes some local servers (e.g. llama.cpp)
-        # run constrained / PEG tool parsers that 500 on Harmony-style output. Smol agents parse
-        # tool calls from plain text via ``Model.parse_tool_calls`` / ``parse_json_blob`` instead.
 
-        # Push heartbeat so the UI drain loop stays active during this blocking call
         if self._status_callback:
             self._status_callback("Thinking...")
 
-        # Smol agents carry their own system instructions; skip dev-build LLM prefix (see make_chat_request).
+        # Keeps smolagents' text-based tool parsing while gaining LlmClient's stripping/shims/pacing.
+        # Do not forward OpenAI ``tools`` to the HTTP layer (some local servers 500 on Harmony output).
         result = self.api.request_with_tools(
             msg_dicts,
             max_tokens=self.max_tokens,
             tools=None,
+            model=self.model_id,
+            response_format=response_format,
             prepend_dev_build_system_prefix=False,
         )
         
         if self._status_callback:
             self._status_callback("Model responded, processing...")
 
-        content = result.get("content") or ""
-        tool_calls_dict = result.get("tool_calls")
-        
-        smol_tool_calls = []
-        if tool_calls_dict:
-            from plugin.contrib.smolagents.models import ChatMessageToolCall, ChatMessageToolCallFunction
-            for tc in tool_calls_dict:
-                func_data = tc.get("function", {})
-                smol_tool_calls.append(
-                    ChatMessageToolCall(
-                        id=tc.get("id", "call_0"),
-                        type=tc.get("type", "function"),
-                        function=ChatMessageToolCallFunction(
-                            name=func_data.get("name", ""),
-                            arguments=func_data.get("arguments", "")
-                        )
-                    )
-                )
-
-        usage_dict = result.get("usage", {})
-        if usage_dict:
-            try:
-                from plugin.contrib.smolagents.models import TokenUsage
-                token_usage = TokenUsage(
-                    input_tokens=usage_dict.get("prompt_tokens", 0),
-                    output_tokens=usage_dict.get("completion_tokens", 0)
-                )
-            except ImportError:
-                token_usage = DummyTokenUsage(
-                    input_tokens=usage_dict.get("prompt_tokens", 0),
-                    output_tokens=usage_dict.get("completion_tokens", 0)
-                )
-        else:
-            token_usage = None
-
-        msg = ChatMessage(
-            role=MessageRole.ASSISTANT,
-            content=content,
-            tool_calls=smol_tool_calls if smol_tool_calls else None
+        usage = result.get("usage") or {}
+        token_usage = (
+            TokenUsage(
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
+            )
+            if usage
+            else None
         )
-        if token_usage:
-            import typing
-            msg.token_usage = typing.cast("typing.Any", token_usage)
-        return msg
+        return ChatMessage.from_dict(
+            {
+                "role": "assistant",
+                "content": result.get("content") or "",
+                "tool_calls": result.get("tool_calls") or None,
+            },
+            raw=result,
+            token_usage=token_usage,
+        )
 
