@@ -5,49 +5,13 @@
 
 import logging
 import traceback
-from typing import TYPE_CHECKING, Iterable, cast
+from typing import Iterable, cast
 
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.chatbot.memory import format_upsert_memory_chat_line_from_arguments
 
-if TYPE_CHECKING:
-    from plugin.contrib.smolagents.tools import Tool as SmolTool
-
 log = logging.getLogger(__name__)
 
-
-class SmolToolAdapter:
-    """Adapts a WriterAgent ToolBase to smolagents.tools.Tool."""
-    def __new__(cls, tool_instance, tctx):
-        from plugin.contrib.smolagents.tools import Tool as SmolTool
-        
-        class Adapted(SmolTool):
-            name = tool_instance.name
-            description = tool_instance.description
-            
-            # ToolBase.parameters is JSON Schema
-            # smolagents.Tool.inputs is {name: {"type": ..., "description": ...}}
-            inputs = {}
-            props = tool_instance.parameters.get("properties", {})
-            required = tool_instance.parameters.get("required", [])
-            for p_name, p_schema in props.items():
-                inputs[p_name] = {
-                    "type": p_schema.get("type", "string"),
-                    "description": p_schema.get("description", ""),
-                    "nullable": p_name not in required
-                }
-            output_type = "any"
-            skip_forward_signature_validation = True
-            
-            def __init__(self, inner_tool, inner_tctx):
-                super().__init__()
-                self._inner_tool = inner_tool
-                self._inner_tctx = inner_tctx
-
-            def forward(self, **kwargs):
-                return self._inner_tool.execute(self._inner_tctx, **kwargs)
-
-        return Adapted(tool_instance, tctx)
 
 class SwitchToDocumentModeTool(ToolBase):
     name = "switch_to_document_mode"
@@ -111,10 +75,8 @@ class LibrarianOnboardingTool(ToolBase):
         from plugin.framework.errors import format_error_payload, ToolExecutionError
 
         try:
-            from plugin.framework.config import get_api_config, get_config_int
-            from plugin.modules.http.client import LlmClient
-            from plugin.framework.smol_model import WriterAgentSmolModel
-            from plugin.contrib.smolagents.agents import ToolCallingAgent
+            from plugin.framework.smol_agent_factory import build_toolcalling_agent
+            from plugin.framework.smol_tool_adapter import SmolToolAdapter
             from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
             from plugin.contrib.smolagents.toolcalling_agent_prompts import LIBRARIAN_EXAMPLES_BLOCK
             from plugin.modules.chatbot.memory import MemoryTool
@@ -133,14 +95,6 @@ class LibrarianOnboardingTool(ToolBase):
         try:
             if status_callback:
                 status_callback("Librarian is thinking...")
-
-            config = get_api_config(ctx.ctx)
-            max_tokens = get_config_int(ctx.ctx, "chat_max_tokens")
-
-            smol_model = WriterAgentSmolModel(
-                LlmClient(config, ctx.ctx), max_tokens=max_tokens,
-                status_callback=status_callback,
-            )
 
             instructions = """
 LIBRARIAN PERSONALITY:
@@ -179,18 +133,16 @@ TOOLS FOR COMPLETION:
 - Use 'switch_to_document_mode' with a friendly 'message' to END the onboarding and hand over to the document assistant.
 
 """
-            max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")
-
-            agent = ToolCallingAgent(
-                tools=cast("list[SmolTool]", [
-                    SmolToolAdapter(MemoryTool(), ctx),
-                    SmolToolAdapter(SwitchToDocumentModeTool(), ctx)
-                ]),
-                model=smol_model,
-                max_steps=max_steps,
+            agent = build_toolcalling_agent(
+                ctx,
+                [
+                    SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"),
+                    SmolToolAdapter(SwitchToDocumentModeTool(), ctx, safe=False, inputs_style="librarian"),
+                ],
                 instructions=instructions,
                 final_answer_tool_name="reply_to_user",
-                system_prompt_examples=LIBRARIAN_EXAMPLES_BLOCK,
+                examples_block=LIBRARIAN_EXAMPLES_BLOCK,
+                status_callback=status_callback,
             )
 
             task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"

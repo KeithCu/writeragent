@@ -22,13 +22,10 @@ from typing import cast, Type, ClassVar
 from plugin.framework.tool_base import ToolBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
 from plugin.framework.i18n import _
-from plugin.framework.config import get_api_config, get_config_int
-from plugin.modules.http.client import LlmClient
-from plugin.framework.smol_model import WriterAgentSmolModel
-from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
-from plugin.contrib.smolagents.tools import Tool as SmolTool
+from plugin.framework.smol_agent_factory import build_toolcalling_agent
 from plugin.framework.smol_executor import SmolAgentExecutor
+from plugin.framework.smol_tool_adapter import SmolToolAdapter
 from plugin.framework.specialized_shapes_context import format_shapes_canvas_context
 
 log = logging.getLogger("writeragent.specialized")
@@ -127,61 +124,10 @@ class DelegateToSpecializedBase(ToolBase):
                 f"Ensure the tools are implemented and registered."
             )
 
-        # Create a simple wrapper for each ToolBase to expose it to smolagents
-        class WrappedSmolTool(SmolTool):
-            skip_forward_signature_validation = True
-
-            def __init__(self, writer_tool, ctx):
-                self.writer_tool = writer_tool
-                self.ctx = ctx
-                self.name = writer_tool.name
-                self.description = writer_tool.description
-                # Convert JSON Schema parameters to smolagents inputs
-                self.inputs = {}
-                params = getattr(writer_tool, "parameters", {}) or {}
-                props = params.get("properties", {})
-                for param_name, spec in props.items():
-                    # smolagents expects a dict with 'type' and 'description'
-                    self.inputs[param_name] = {**spec}
-                    self.inputs[param_name]["type"] = spec.get("type", "any")
-                    self.inputs[param_name]["description"] = spec.get("description", "")
-
-                self.output_type = "object"
-                super().__init__()
-
-            def __call__(self, *args, **kwargs):
-                return self.forward(*args, **kwargs)
-
-            def forward(self, *args, **kwargs):
-                from plugin.framework.queue_executor import execute_on_main_thread
-
-                tool = self.writer_tool
-                if getattr(tool, "is_async", lambda: False)():
-                    log.debug(
-                        "Specialized agent executing async tool '%s' on worker",
-                        self.name,
-                    )
-                    res = tool.execute_safe(self.ctx, **kwargs)
-                else:
-                    log.debug(
-                        "Specialized agent executing sync tool '%s' on main thread",
-                        self.name,
-                    )
-                    res = execute_on_main_thread(
-                        tool.execute_safe, self.ctx, **kwargs
-                    )
-                return res
-
-        smol_tools = [WrappedSmolTool(t, ctx) for t in domain_tools]
-
-        config = get_api_config(ctx.ctx)
-        max_tokens = get_config_int(ctx.ctx, "chat_max_tokens")
-
-        # Using the same model configuration as the main chat
-        smol_model = WriterAgentSmolModel(
-            LlmClient(config, ctx.ctx), max_tokens=max_tokens,
-            status_callback=status_callback,
-        )
+        smol_tools = [
+            SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+            for t in domain_tools
+        ]
 
         footnotes_hint = ""
         if domain == "footnotes":
@@ -203,15 +149,13 @@ class DelegateToSpecializedBase(ToolBase):
             f"{shapes_canvas}"
         )
 
-        max_steps = get_config_int(ctx.ctx, "chat_max_tool_rounds")
-
-        agent = ToolCallingAgent(
-            tools=cast("list[SmolTool]", smol_tools),
-            model=smol_model,
-            max_steps=max_steps,
+        agent = build_toolcalling_agent(
+            ctx,
+            smol_tools,
             instructions=instructions,
             final_answer_tool_name="specialized_workflow_finished",
-            system_prompt_examples=SPECIALIZED_EXAMPLES_BLOCK,
+            examples_block=SPECIALIZED_EXAMPLES_BLOCK,
+            status_callback=status_callback,
         )
 
         executor = SmolAgentExecutor(ctx)

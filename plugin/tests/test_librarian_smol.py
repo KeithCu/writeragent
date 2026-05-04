@@ -1,8 +1,8 @@
 import unittest
 import time
 from unittest.mock import MagicMock, patch
+from plugin.framework.smol_tool_adapter import SmolToolAdapter
 from plugin.modules.chatbot.librarian import (
-    SmolToolAdapter,
     SwitchToDocumentModeTool,
     LibrarianOnboardingTool,
 )
@@ -19,8 +19,8 @@ class TestLibrarianSmol(unittest.TestCase):
         memory_tool = MemoryTool()
         switch_tool = SwitchToDocumentModeTool()
         
-        smol_memory = SmolToolAdapter(memory_tool, ctx)
-        smol_switch = SmolToolAdapter(switch_tool, ctx)
+        smol_memory = SmolToolAdapter(memory_tool, ctx, safe=False, inputs_style="librarian")
+        smol_switch = SmolToolAdapter(switch_tool, ctx, safe=False, inputs_style="librarian")
         
         # Verify that they are instances of smolagents.tools.BaseTool
         from plugin.contrib.smolagents.tools import BaseTool
@@ -47,8 +47,8 @@ class TestLibrarianSmol(unittest.TestCase):
         model = MagicMock()
         
         tools = [
-            SmolToolAdapter(MemoryTool(), ctx),
-            SmolToolAdapter(SwitchToDocumentModeTool(), ctx)
+            SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"),
+            SmolToolAdapter(SwitchToDocumentModeTool(), ctx, safe=False, inputs_style="librarian"),
         ]
         
         # This shouldn't raise "All elements must be instance of BaseTool"
@@ -66,7 +66,7 @@ class TestLibrarianSmol(unittest.TestCase):
         ctx.stop_checker.return_value = False
         
         # Mock ToolCallingAgent to simulate a switch_mode observation
-        with patch('plugin.contrib.smolagents.agents.ToolCallingAgent') as mock_agent_class:
+        with patch("plugin.framework.smol_agent_factory.ToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
             
             # Simulate steps: one ActionStep with switch_mode
@@ -97,7 +97,7 @@ class TestLibrarianSmol(unittest.TestCase):
         )
         fa = FinalAnswerStep(output="Hello")
 
-        with patch("plugin.contrib.smolagents.agents.ToolCallingAgent") as mock_agent_class:
+        with patch("plugin.framework.smol_agent_factory.ToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
             mock_agent.run.return_value = [tc, fa]
 
