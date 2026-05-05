@@ -33,7 +33,7 @@ class ToolWriterWebResearchBase(ToolBase):
         "Perform deep web research to answer complex questions. "
         "Bypasses document context to search the live web."
     )
-    doc_types = ["Writer"]
+    doc_types = ["writer"]
     parameters = {
         "type": "object",
         "properties": {
@@ -54,11 +54,11 @@ class ToolWriterWebResearchBase(ToolBase):
 
 
 class ToolCalcWebResearchBase(ToolWriterWebResearchBase):
-    doc_types = ["Calc"]
+    doc_types = ["calc"]
 
 
 class ToolDrawWebResearchBase(ToolWriterWebResearchBase):
-    doc_types = ["Draw", "Impress"]
+    doc_types = ["draw", "impress"]
 
 
 class WebResearchToolCallingAgent(ToolCallingAgent):
@@ -97,6 +97,8 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
 
 
 class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
+    doc_types = ["writer", "calc", "draw", "impress"]
+
     def execute(self, ctx, **kwargs):
         query = kwargs.get("query")
         history_text = kwargs.get("history_text")
