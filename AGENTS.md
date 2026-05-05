@@ -250,6 +250,8 @@ Restart LibreOffice after deploy.
 
 **In-process LO tests** (`$(LO_PYTHON) -m plugin.testing_runner`): [`plugin/testing_runner.py`](plugin/testing_runner.py) snapshots/restores `sys.modules` keys in [`plugin/tests/testing_utils.py`](plugin/tests/testing_utils.py) `NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS` between each `plugin/tests/uno/` module so pytest-oriented `setup_uno_mocks()` state does not leak. When real PyUNO is loaded, `setup_uno_mocks()` returns immediately (it must not replace `uno` with `MagicMock`).
 
+**Debug menu test suites** (WriterAgent → Run format tests / calc / draw): [`plugin/main.py`](plugin/main.py) `_run_test_suite` calls `run_module_suite` **on the UI thread** so synchronous UNO tools satisfy [`ToolBase.execute_safe`](plugin/framework/tool_base.py); do not wrap that path in `run_blocking_in_thread`.
+
 ---
 
 ## 15. MCP server (essentials)
