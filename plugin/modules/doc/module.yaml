@@ -32,3 +32,10 @@ config:
     widget: checkbox
     label: Pause grammar while chat/agent runs
     helper: "When on, AI grammar skips background requests while sidebar chat or agent runs, to avoid concurrent API calls."
+
+  chat_enter_key_sends_message:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Enter key sends sidebar chat message
+    helper: "When on, Enter in the sidebar query runs the same action as Send; Shift+Enter inserts a newline. When off, Enter inserts a newline."

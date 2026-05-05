@@ -175,7 +175,7 @@ class ChatSession:
 # QueryTextListener - dynamic button toggling
 # ---------------------------------------------------------------------------
 
-from plugin.framework.listeners import BaseTextListener, BaseActionListener
+from plugin.framework.listeners import BaseActionListener, BaseKeyListener, BaseTextListener
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.modules.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, StartRecordingEffect, StartSendEffect, StopRecordingEffect, StopSendEffect, UpdateUIEffect
 from plugin.modules.chatbot.sidebar_state import LogSidebarEffect, SidebarCompositeState, SidebarEvent, SidebarEventKind, sidebar_next_state
@@ -213,6 +213,48 @@ class QueryTextListener(BaseTextListener):
 
         # Dispatch event to the state machine
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))
+
+
+# UNO Key.RETURN / KeyModifier.SHIFT (test-friendly integer codes)
+_QUERY_KEY_RETURN = 1280
+_QUERY_KEY_MODIFIER_SHIFT = 1
+
+
+def query_enter_triggers_primary_send(key_code: int, modifiers: int) -> bool:
+    """True when this key event should run the same primary action as Send (Enter without Shift)."""
+    return bool(key_code == _QUERY_KEY_RETURN and (modifiers & _QUERY_KEY_MODIFIER_SHIFT) == 0)
+
+
+_DOC_CHAT_ENTER_SENDS = "doc.chat_enter_key_sends_message"
+
+
+class QueryKeyListener(BaseKeyListener):
+    """Enter in the query field triggers Send when enabled in Settings (Shift+Enter inserts a newline)."""
+
+    def __init__(self, send_listener):
+        self.send_listener = send_listener
+
+    def on_key_pressed(self, e):
+        if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
+            return
+        try:
+            from plugin.framework.config import get_config_bool
+
+            if not get_config_bool(self.send_listener.ctx, _DOC_CHAT_ENTER_SENDS):
+                return
+        except Exception:
+            pass
+        sc = self.send_listener.send_control
+        if not sc or not sc.getModel():
+            return
+        if not sc.getModel().Enabled:
+            return
+        try:
+            if hasattr(e, "Consume"):
+                setattr(e, "Consume", True)
+        except Exception:
+            pass
+        self.send_listener.on_action_performed(e)
 
 
 # ---------------------------------------------------------------------------

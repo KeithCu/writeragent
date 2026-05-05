@@ -23,7 +23,7 @@ try/except logging blocks around the main event callbacks.
 import logging
 import functools
 import unohelper
-from com.sun.star.awt import XActionListener, XItemListener, XTextListener, XWindowListener
+from com.sun.star.awt import XActionListener, XItemListener, XKeyListener, XTextListener, XWindowListener
 from com.sun.star.lang import XEventListener
 
 log = logging.getLogger(__name__)
@@ -88,6 +88,26 @@ class BaseTextListener(BaseListener, XTextListener):
 
     def on_text_changed(self, rEvent):
         """Override this method to handle the text changed event."""
+        pass
+
+
+class BaseKeyListener(BaseListener, XKeyListener):
+    """Base class for XKeyListener that catches and logs exceptions."""
+
+    @_catch_and_log
+    def keyPressed(self, e):
+        self.on_key_pressed(e)
+
+    @_catch_and_log
+    def keyReleased(self, e):
+        self.on_key_released(e)
+
+    def on_key_pressed(self, e):
+        """Override this method to handle key pressed."""
+        pass
+
+    def on_key_released(self, e):
+        """Override this method to handle key released."""
         pass
 
 

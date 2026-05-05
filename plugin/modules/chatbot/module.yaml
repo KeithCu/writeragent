@@ -91,13 +91,6 @@ config:
     label: Web Cache Validity (Days)
     helper: "How many days cache entries should be considered valid."
 
-#  enter_sends:
-#    type: boolean
-#    default: true
-#    widget: checkbox
-#    label: Enter Sends Message
-#    helper: "Press Enter to send, Shift+Enter for newline"
-
 #  api_enabled:
 #    type: boolean
 #    default: false

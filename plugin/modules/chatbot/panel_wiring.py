@@ -170,6 +170,10 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 query_text_listener = QueryTextListener(self.send_listener)
                 controls["query"].addTextListener(query_text_listener)
 
+                from plugin.modules.chatbot.panel import QueryKeyListener
+
+                controls["query"].addKeyListener(QueryKeyListener(self.send_listener))
+
                 # The label update logic is now handled correctly by the state machine
                 # so we can just trigger a fake text update event to sync the state
                 has_text = bool(get_control_text(controls["query"]).strip())

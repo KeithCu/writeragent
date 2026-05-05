@@ -122,6 +122,11 @@ def setup_uno_mocks():
 
     setattr(sys.modules["com.sun.star.awt"], "XWindowListener", MockXWindowListener)
 
+    class MockXKeyListener(object):
+        pass
+
+    setattr(sys.modules["com.sun.star.awt"], "XKeyListener", MockXKeyListener)
+
     class MockXEventListener(object):
         pass
 

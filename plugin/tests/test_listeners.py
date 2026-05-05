@@ -22,6 +22,11 @@ class MockXTextListener:
 class MockXWindowListener:
     pass
 
+
+class MockXKeyListener:
+    pass
+
+
 @pytest.fixture(autouse=True)
 def mock_uno_modules():
     """Mocks the necessary UNO modules and classes for the tests using patch.dict.
@@ -37,6 +42,7 @@ def mock_uno_modules():
     mock_awt_module.XItemListener = MockXItemListener
     mock_awt_module.XTextListener = MockXTextListener
     mock_awt_module.XWindowListener = MockXWindowListener
+    mock_awt_module.XKeyListener = MockXKeyListener
 
     mock_lang_module = MagicMock()
     mock_lang_module.XEventListener = MockXEventListener
