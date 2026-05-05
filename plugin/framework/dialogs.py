@@ -482,16 +482,7 @@ def translate_dialog(dlg):
     """
 
     # Map control types to their translatable properties
-    control_types = {
-        "FixedText": ("Text", "Label"),
-        "Button": ("Label",),
-        "CheckBox": ("Label",),
-        "RadioButton": ("Label",),
-        "ListBox": ("StringItemList",),
-        "ComboBox": ("StringItemList",),
-        "GroupBox": ("Label",),
-        "FixedLine": ("Label",),
-    }
+    control_types = {"FixedText": ("Text", "Label"), "Button": ("Label",), "CheckBox": ("Label",), "RadioButton": ("Label",), "ListBox": ("StringItemList",), "ComboBox": ("StringItemList",), "GroupBox": ("Label",), "FixedLine": ("Label",)}
 
     _xcc_root = None
     root_child_count = 0

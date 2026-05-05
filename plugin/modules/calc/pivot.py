@@ -131,11 +131,7 @@ class CreatePivotTable(ToolCalcPivotBase):
     """Create a DataPilot (pivot) table from a rectangular source range."""
 
     name = "create_pivot_table"
-    description = (
-        "Create a pivot table (DataPilot) from a source data range. "
-        "Field names must match the header row column titles in the source range. "
-        "Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first)."
-    )
+    description = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first)."
     parameters = {
         "type": "object",
         "properties": {
@@ -209,13 +205,7 @@ class CreatePivotTable(ToolCalcPivotBase):
             if dpt is not None:
                 dpt.refresh()
 
-            return {
-                "status": "ok",
-                "message": f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.",
-                "pivot_table_name": pivot_name,
-                "destination_sheet": dest_sheet.getName(),
-                "destination_cell": dest_cell,
-            }
+            return {"status": "ok", "message": f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.", "pivot_table_name": pivot_name, "destination_sheet": dest_sheet.getName(), "destination_cell": dest_cell}
         except (ToolExecutionError, UnoObjectError):
             raise
         except Exception as e:
@@ -228,14 +218,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 
     name = "refresh_pivot_table"
     description = "Reload pivot table data from the source range. If sheet_name is omitted, searches all sheets for pivot_table_name."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "pivot_table_name": {"type": "string", "description": "Name of the pivot table."},
-            "sheet_name": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."},
-        },
-        "required": ["pivot_table_name"],
-    }
+    parameters = {"type": "object", "properties": {"pivot_table_name": {"type": "string", "description": "Name of the pivot table."}, "sheet_name": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["pivot_table_name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

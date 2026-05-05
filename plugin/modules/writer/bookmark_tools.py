@@ -128,11 +128,7 @@ class DeleteBookmark(ToolWriterBookmarkBase):
 class RenameBookmark(ToolWriterBookmarkBase):
     name = "rename_bookmark"
     description = "Rename an existing bookmark."
-    parameters = {
-        "type": "object",
-        "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}},
-        "required": ["old_name", "new_name"],
-    }
+    parameters = {"type": "object", "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}}, "required": ["old_name", "new_name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -195,9 +191,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
 
     name = "resolve_bookmark"
     intent = "navigate"
-    description = (
-        "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
-    )
+    description = "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
     parameters = {"type": "object", "properties": {"bookmark_name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["bookmark_name"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 

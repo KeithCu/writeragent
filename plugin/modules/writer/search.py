@@ -128,13 +128,7 @@ def _build_match(text, para_idx, ctx_paras, para_count, para_texts):
 class AdvancedSearch(ToolBaseDummy):
     name = "advanced_search"
     intent = "navigate"
-    description = (
-        "Full-text search with Snowball stemming. Supports boolean queries: "
-        "AND (default), OR, NOT, NEAR/N. "
-        "Language auto-detected from document locale. "
-        "Returns matching paragraphs with context and nearest heading bookmark. "
-        "Use around_page to restrict results near a specific page."
-    )
+    description = "Full-text search with Snowball stemming. Supports boolean queries: AND (default), OR, NOT, NEAR/N. Language auto-detected from document locale. Returns matching paragraphs with context and nearest heading bookmark. Use around_page to restrict results near a specific page."
     parameters = {
         "type": "object",
         "properties": {

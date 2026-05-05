@@ -128,10 +128,7 @@ class CreateFormControl(ToolWriterFormBase):
 
     name = "create_form_control"
     uno_services = _FORM_DOC_SERVICES
-    description = (
-        "Creates a single interactive form control (checkbox, text field, radio button, date field, combobox, or button). "
-        "In Writer: anchored 'As Character' at the cursor. In Calc: placed on the active sheet draw page (stacked below existing shapes)."
-    )
+    description = "Creates a single interactive form control (checkbox, text field, radio button, date field, combobox, or button). In Writer: anchored 'As Character' at the cursor. In Calc: placed on the active sheet draw page (stacked below existing shapes)."
     parameters = {
         "type": "object",
         "properties": {
@@ -284,10 +281,7 @@ class GenerateForm(ToolWriterFormBase):
 
     name = "generate_form"
     uno_services = _FORM_DOC_SERVICES
-    description = (
-        "Generates a document or sheet layout with interactive form fields from a description. "
-        "Writer: HTML inserted at the cursor. Calc: plain text is inserted into the active cell area; fields go on the active sheet draw page."
-    )
+    description = "Generates a document or sheet layout with interactive form fields from a description. Writer: HTML inserted at the cursor. Calc: plain text is inserted into the active cell area; fields go on the active sheet draw page."
     parameters = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
 
     def execute(self, ctx, **kwargs):

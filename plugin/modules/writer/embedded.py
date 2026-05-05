@@ -15,12 +15,7 @@ from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
     name = "embedded_insert"
-    description = (
-        "Insert an embedded object (e.g. Calc spreadsheet) into the document. "
-        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
-        "Use target='search' with old_content to find and replace text. "
-        "Planned: CLSID-based insert + in-place activation."
-    )
+    description = "Insert an embedded object (e.g. Calc spreadsheet) into the document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Planned: CLSID-based insert + in-place activation."
     parameters = {
         "type": "object",
         "properties": {

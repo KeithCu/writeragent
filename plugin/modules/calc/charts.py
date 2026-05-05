@@ -427,9 +427,7 @@ class CreateChart(ToolBase):
         cell_range = bridge.get_cell_range(sheet, data_range)
         addr = cell_range.getRangeAddress()
 
-        logger.debug(
-            "Creating Calc chart: name=Chart_N, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", rect.X, rect.Y, rect.Width, rect.Height, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow
-        )
+        logger.debug("Creating Calc chart: name=Chart_N, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", rect.X, rect.Y, rect.Width, rect.Height, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
 
         charts = sheet.getCharts()
         name = f"Chart_{len(charts)}"

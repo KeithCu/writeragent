@@ -19,20 +19,7 @@
 from plugin.framework.module_base import ModuleBase
 
 from . import bookmarks, tree, proximity, index
-from . import (
-    base as base,
-    specialized as specialized,
-    styles as styles,
-    shapes as shapes,
-    charts as charts,
-    bookmark_tools as bookmark_tools,
-    indexes as indexes,
-    fields as fields,
-    footnotes as footnotes,
-    embedded as embedded,
-    tracking as tracking,
-    forms as forms,
-)
+from . import base as base, specialized as specialized, styles as styles, shapes as shapes, charts as charts, bookmark_tools as bookmark_tools, indexes as indexes, fields as fields, footnotes as footnotes, embedded as embedded, tracking as tracking, forms as forms
 
 
 class WriterModule(ModuleBase):

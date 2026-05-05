@@ -323,12 +323,7 @@ class MCPProtocolHandler:
             "protocolVersion": client_version,
             "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
             "serverInfo": {"name": "WriterAgent MCP", "version": self.version},
-            "instructions": (
-                "WriterAgent MCP — AI document workspace. "
-                "WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
-                "2) Tools are filtered by document type (writer/calc/draw). "
-                "3) All UNO operations run on the main thread for thread safety."
-            ),
+            "instructions": ("WriterAgent MCP — AI document workspace. WORKFLOW: 1) Use tools to interact with LibreOffice documents. 2) Tools are filtered by document type (writer/calc/draw). 3) All UNO operations run on the main thread for thread safety."),
         }
 
     def _mcp_ping(self, params):
@@ -430,14 +425,7 @@ class MCPProtocolHandler:
         if req_id is None:
             return None
 
-        handler = {
-            "initialize": self._mcp_initialize,
-            "ping": self._mcp_ping,
-            "tools/list": self._mcp_tools_list,
-            "tools/call": self._mcp_tools_call,
-            "resources/list": self._mcp_resources_list,
-            "prompts/list": self._mcp_prompts_list,
-        }.get(method)
+        handler = {"initialize": self._mcp_initialize, "ping": self._mcp_ping, "tools/list": self._mcp_tools_list, "tools/call": self._mcp_tools_call, "resources/list": self._mcp_resources_list, "prompts/list": self._mcp_prompts_list}.get(method)
 
         log.debug(f"*** MCP INCOMING METHOD: {method} (id={req_id}) ***")
 
@@ -528,12 +516,7 @@ class MCPProtocolHandler:
             if document_url:
                 doc, doc_type = doc_svc.resolve_document_by_url(document_url)
                 if doc is None:
-                    return {
-                        "status": "error",
-                        "code": "DOCUMENT_NOT_FOUND",
-                        "message": "No document open matching X-Document-URL: %s" % (document_url or ""),
-                        "details": {"document_url": document_url},
-                    }
+                    return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": "No document open matching X-Document-URL: %s" % (document_url or ""), "details": {"document_url": document_url}}
             else:
                 doc = doc_svc.get_active_document()
                 if doc:

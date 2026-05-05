@@ -53,14 +53,7 @@ class SendHandlerHost(Protocol):
     def _get_doc_type_str(self, model: Any) -> str: ...
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None: ...
     def _run_unified_worker_drain_loop(
-        self,
-        q: "queue.Queue[Any]",
-        worker_fn: Callable[[], None],
-        current_state: "SendHandlerState",
-        interpreter: "EffectInterpreter",
-        show_thinking: bool = True,
-        on_stopped_callback: Callable[[], None] | None = None,
-        on_approval_callback: Callable[[Any], None] | None = None,
+        self, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None: ...
     def _get_mcp_url(self) -> str | None: ...
     def _do_send_direct_image(self, query_text: str, model: Any) -> None: ...
@@ -128,14 +121,7 @@ class SendHandlersMixin:
             self.audio_wav_path = None
 
     def _run_unified_worker_drain_loop(
-        self: SendHandlerHost,
-        q: "queue.Queue[Any]",
-        worker_fn: Callable[[], None],
-        current_state: "SendHandlerState",
-        interpreter: "EffectInterpreter",
-        show_thinking: bool = True,
-        on_stopped_callback: Callable[[], None] | None = None,
-        on_approval_callback: Callable[[Any], None] | None = None,
+        self: SendHandlerHost, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None:
         from plugin.framework.async_stream import run_async_worker_with_drain
 
@@ -172,18 +158,7 @@ class SendHandlersMixin:
             # BUT, it's better to refactor the workers to use the passed queue.
             worker_fn()
 
-        run_async_worker_with_drain(
-            self.ctx,
-            worker_wrapper,
-            apply_chunk,
-            on_stream_done,
-            on_error,
-            on_status_fn=self._set_status,
-            stop_checker=lambda: self.stop_requested,
-            on_stopped_fn=on_stopped,
-            name="chatbot-send-handler",
-            q=q,
-        )
+        run_async_worker_with_drain(self.ctx, worker_wrapper, apply_chunk, on_stream_done, on_error, on_status_fn=self._set_status, stop_checker=lambda: self.stop_requested, on_stopped_fn=on_stopped, name="chatbot-send-handler", q=q)
 
     def _do_send_direct_image(self: SendHandlerHost, query_text: str, model: Any) -> None:
         interpreter = EffectInterpreter(self)
@@ -228,15 +203,7 @@ class SendHandlersMixin:
                 from plugin.main import get_tools
                 from plugin.framework.tool_context import ToolContext
 
-                tctx = ToolContext(
-                    doc=model,
-                    ctx=self.ctx,
-                    stop_checker=lambda: self.stop_requested,
-                    doc_type="writer",
-                    services=get_tools()._services,
-                    caller="chat",
-                    status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)),
-                )
+                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type="writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)))
                 try:
                     from plugin.framework.config import update_lru_history
 
@@ -258,9 +225,7 @@ class SendHandlersMixin:
                 import json
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
-                res = get_tools().execute(
-                    "generate_image", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text}
-                )
+                res = get_tools().execute("generate_image", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text})
                 if isinstance(res, dict) and res.get("status") == "error":
                     log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
@@ -365,10 +330,7 @@ class SendHandlersMixin:
                 mcp_instructions = ""
                 if mcp_url and as_bool(get_config(self.ctx, "http.mcp_enabled")):
                     mcp_instructions = (
-                        f"\n\n[MCP SERVER AVAILABLE]\n"
-                        f"A Model Context Protocol (MCP) server is running at: {mcp_url}\n"
-                        f"You can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\n"
-                        f"Target the current document by passing the 'X-Document-URL' header: {document_url}\n"
+                        f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )
 
                 lean_system_prompt = f"{CORE_DIRECTIVES}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
@@ -379,15 +341,7 @@ class SendHandlersMixin:
                     lean_system_prompt += "\n\n" + extra
 
                 with llm_request_lane():
-                    adapter.send(
-                        queue=q,
-                        user_message=query_text,
-                        document_context=doc_context,
-                        document_url=document_url,
-                        system_prompt=lean_system_prompt,
-                        mcp_url=mcp_url,
-                        stop_checker=lambda: self.stop_requested,
-                    )
+                    adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=lambda: self.stop_requested)
             except Exception as e:
                 log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s", backend_id, doc_type_str, e)
                 from plugin.framework.errors import format_error_payload
@@ -530,18 +484,7 @@ class SendHandlersMixin:
 
                 from plugin.framework.tool_context import ToolContext
 
-                tctx = ToolContext(
-                    doc=model,
-                    ctx=self.ctx,
-                    stop_checker=lambda: self.stop_requested,
-                    doc_type=doc_type,
-                    services=get_tools()._services,
-                    caller="chat",
-                    status_callback=status_cb,
-                    append_thinking_callback=thinking_cb,
-                    approval_callback=approval_cb,
-                    chat_append_callback=chat_append_cb,
-                )
+                tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb)
 
                 import json
 

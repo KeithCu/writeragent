@@ -205,11 +205,7 @@ def _install_global_exception_hooks():
 
         def _localwriter_threading_excepthook(args):
             try:
-                msg = "Unhandled exception in thread %s: %s\n%s" % (
-                    getattr(args, "thread", None),
-                    getattr(args, "exc_type", args),
-                    "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)) if getattr(args, "exc_type", None) else "",
-                )
+                msg = "Unhandled exception in thread %s: %s\n%s" % (getattr(args, "thread", None), getattr(args, "exc_type", args), "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)) if getattr(args, "exc_type", None) else "")
                 try:
                     payload = format_error_payload(args.exc_value)
                     msg += f"\nPayload context: {payload.get('details', {})}"

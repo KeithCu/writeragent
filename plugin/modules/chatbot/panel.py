@@ -227,23 +227,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     initial_doc_type: str | None
 
     def __init__(
-        self,
-        ctx,
-        frame,
-        send_control,
-        stop_control,
-        query_control,
-        response_control,
-        image_model_selector,
-        model_selector,
-        status_control,
-        session,
-        direct_image_checkbox=None,
-        aspect_ratio_selector=None,
-        base_size_input=None,
-        web_research_checkbox=None,
-        ensure_path_fn=None,
-        clear_control=None,
+        self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_research_checkbox=None, ensure_path_fn=None, clear_control=None
     ):
         self.ctx = ctx
         self.frame = frame
@@ -793,9 +777,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         if doc_type_str == "Unknown":
-            err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(
-                model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown"
-            )
+            err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
             log.error("_do_send ERROR: %s" % err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"

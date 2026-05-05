@@ -23,9 +23,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool_context import ToolContext
 
 
-def build_toolcalling_agent(
-    ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None
-) -> ToolCallingAgent:
+def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     uno_ctx = ctx.ctx
     config = get_api_config(uno_ctx)

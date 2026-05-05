@@ -559,15 +559,7 @@ class LlmClient:
                 with open(wav_path, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."},
-                            {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}},
-                        ],
-                    }
-                ]
+                messages = [{"role": "user", "content": [{"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."}, {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}}]}]
 
                 # Using synchronous chat completion with model override
                 return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
@@ -764,20 +756,7 @@ class LlmClient:
         method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker)
 
-    def request_with_tools(
-        self,
-        messages,
-        max_tokens=512,
-        tools=None,
-        append_callback=None,
-        append_thinking_callback=None,
-        stop_checker=None,
-        body_override=None,
-        model=None,
-        stream=False,
-        response_format=None,
-        prepend_dev_build_system_prefix: bool = True,
-    ):
+    def request_with_tools(self, messages, max_tokens=512, tools=None, append_callback=None, append_thinking_callback=None, stop_checker=None, body_override=None, model=None, stream=False, response_format=None, prepend_dev_build_system_prefix: bool = True):
         """Chat request with support for tools and streaming.
 
         If stream=True, uses callbacks to stream deltas & accumulates tool_calls.
@@ -789,9 +768,7 @@ class LlmClient:
         eff_model = model or self.config.get("model", "")
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
         log.debug("request_with_tools: model=%s stream=%s n_messages=%s n_tool_defs=%s", eff_model, stream, len(messages), n_tool_defs)
-        method, path, body, headers = self.make_chat_request(
-            messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix
-        )
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
@@ -808,9 +785,7 @@ class LlmClient:
 
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(
-                    method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=lambda d: accumulate_delta(message_snapshot, d), stop_checker=stop_checker
-                )
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=lambda d: accumulate_delta(message_snapshot, d), stop_checker=stop_checker)
             except NetworkError:
                 raise
             except Exception as e:

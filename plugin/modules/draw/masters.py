@@ -68,14 +68,7 @@ class SetSlideMaster(ToolBase):
     name = "set_slide_master"
     intent = "edit"
     description = "Assign a master slide to a specific slide by master name. Use list_master_slides to see available masters."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
-            "master_name": {"type": "string", "description": "Name of the master slide to assign."},
-        },
-        "required": ["master_name"],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "master_name": {"type": "string", "description": "Name of the master slide to assign."}}, "required": ["master_name"]}
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 

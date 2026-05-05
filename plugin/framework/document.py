@@ -44,12 +44,7 @@ class DocumentType(Enum):
     IMPRESS = auto()
 
 
-_DOCUMENT_SERVICE_MAP = {
-    DocumentType.WRITER: "com.sun.star.text.TextDocument",
-    DocumentType.CALC: "com.sun.star.sheet.SpreadsheetDocument",
-    DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument",
-    DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument",
-}
+_DOCUMENT_SERVICE_MAP = {DocumentType.WRITER: "com.sun.star.text.TextDocument", DocumentType.CALC: "com.sun.star.sheet.SpreadsheetDocument", DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument", DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument"}
 
 
 @safe_uno_call(default=DocumentType.UNKNOWN)
@@ -140,12 +135,7 @@ def get_string_without_tracked_deletions(text_range) -> str:
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
     """Return a direct rewrite prompt for Writer selection edits."""
-    return (
-        "Rewrite the following text according to the instructions below. "
-        "Output only the rewritten text with no labels, headings, or explanations.\n\n"
-        f"Instructions: {instructions}\n\n"
-        f"Text to rewrite:\n{original_text}"
-    )
+    return f"Rewrite the following text according to the instructions below. Output only the rewritten text with no labels, headings, or explanations.\n\nInstructions: {instructions}\n\nText to rewrite:\n{original_text}"
 
 
 class WriterCompoundUndo:

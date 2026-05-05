@@ -191,11 +191,7 @@ def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[Se
 
 @deal.pre(lambda state, event: state.round_num <= state.max_rounds)
 @deal.post(lambda result: result.state.round_num <= result.state.max_rounds)
-@deal.ensure(
-    lambda state, event, result: (
-        not (isinstance(event, StopRequestedEvent) and any(isinstance(e, (SpawnAudioWorkerEffect, SpawnDirectImageEffect, SpawnAgentWorkerEffect, SpawnWebWorkerEffect)) for e in result.effects))
-    )
-)
+@deal.ensure(lambda state, event, result: not (isinstance(event, StopRequestedEvent) and any(isinstance(e, (SpawnAudioWorkerEffect, SpawnDirectImageEffect, SpawnAgentWorkerEffect, SpawnWebWorkerEffect)) for e in result.effects)))
 def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransition[SendHandlerState]:
     """Pure state transition - NO SIDE EFFECTS"""
 
@@ -210,17 +206,7 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             if state.handler_type == "agent":
                 effects.append(SendHandlerUIEffect("append", "\n[Stopped by user]\n"))
             effects.append(CompleteJobEffect("Stopped"))
-            new_state = SendHandlerState(
-                handler_type=state.handler_type,
-                status="stopped",
-                query_text=state.query_text,
-                model=state.model,
-                doc_type_str=state.doc_type_str,
-                round_num=state.round_num,
-                pending_tools=state.pending_tools,
-                max_rounds=state.max_rounds,
-                recent_effects=tuple(effects),
-            )
+            new_state = SendHandlerState(handler_type=state.handler_type, status="stopped", query_text=state.query_text, model=state.model, doc_type_str=state.doc_type_str, round_num=state.round_num, pending_tools=state.pending_tools, max_rounds=state.max_rounds, recent_effects=tuple(effects))
             return FsmTransition(new_state, effects)
 
         case ErrorEvent():
@@ -228,17 +214,7 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
 
         case StreamChunkEvent(chunk_text=text, is_thinking=thinking):
             effects.append(SendHandlerUIEffect("append", text, is_thinking=thinking))
-            new_state = SendHandlerState(
-                handler_type=state.handler_type,
-                status=state.status,
-                query_text=state.query_text,
-                model=state.model,
-                doc_type_str=state.doc_type_str,
-                round_num=state.round_num,
-                pending_tools=state.pending_tools,
-                max_rounds=state.max_rounds,
-                recent_effects=tuple(effects),
-            )
+            new_state = SendHandlerState(handler_type=state.handler_type, status=state.status, query_text=state.query_text, model=state.model, doc_type_str=state.doc_type_str, round_num=state.round_num, pending_tools=state.pending_tools, max_rounds=state.max_rounds, recent_effects=tuple(effects))
             return FsmTransition(new_state, effects)
 
         case StreamDoneEvent(response=resp):
@@ -260,17 +236,7 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
                 effects.append(SendHandlerUIEffect("status", "Ready"))
                 effects.append(CompleteJobEffect("Ready"))
 
-            new_state = SendHandlerState(
-                handler_type=state.handler_type,
-                status="done",
-                query_text=state.query_text,
-                model=state.model,
-                doc_type_str=state.doc_type_str,
-                round_num=state.round_num,
-                pending_tools=state.pending_tools,
-                max_rounds=state.max_rounds,
-                recent_effects=tuple(effects),
-            )
+            new_state = SendHandlerState(handler_type=state.handler_type, status="done", query_text=state.query_text, model=state.model, doc_type_str=state.doc_type_str, round_num=state.round_num, pending_tools=state.pending_tools, max_rounds=state.max_rounds, recent_effects=tuple(effects))
             return FsmTransition(new_state, effects)
 
         case StartEvent(query_text=q_text, model=mod, doc_type_str=doc_type, wav_path=w_path, stt_model=stt_mod):
@@ -297,17 +263,7 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
                 effects.append(SendHandlerUIEffect("status", "Starting research..."))
                 effects.append(SpawnWebWorkerEffect(q_text, mod))
 
-            new_state = SendHandlerState(
-                handler_type=state.handler_type,
-                status="starting",
-                query_text=q_text,
-                model=mod,
-                doc_type_str=doc_type,
-                round_num=state.round_num,
-                pending_tools=state.pending_tools,
-                max_rounds=state.max_rounds,
-                recent_effects=tuple(effects),
-            )
+            new_state = SendHandlerState(handler_type=state.handler_type, status="starting", query_text=q_text, model=mod, doc_type_str=doc_type, round_num=state.round_num, pending_tools=state.pending_tools, max_rounds=state.max_rounds, recent_effects=tuple(effects))
             return FsmTransition(new_state, effects)
 
     return FsmTransition(state, effects)

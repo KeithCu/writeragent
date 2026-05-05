@@ -19,20 +19,7 @@ if TYPE_CHECKING:
 from plugin.framework.async_stream import run_stream_drain_loop, StreamQueueKind
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.modules.http.errors import format_error_message, is_audio_unsupported_error
-from plugin.framework.config import (
-    get_api_config,
-    get_config,
-    get_config_int,
-    get_config_bool,
-    get_config_str,
-    get_current_endpoint,
-    get_stt_model,
-    get_text_model,
-    set_image_model,
-    set_native_audio_support,
-    update_lru_history,
-    validate_api_config,
-)
+from plugin.framework.config import get_api_config, get_config, get_config_int, get_config_bool, get_config_str, get_current_endpoint, get_stt_model, get_text_model, set_image_model, set_native_audio_support, update_lru_history, validate_api_config
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.document import get_document_context_for_chat
 from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError
@@ -99,9 +86,7 @@ class ToolLoopHost(Protocol):
     def _sm_state(self, value: "ToolLoopState | None") -> None: ...
 
     # Mixin methods called on self
-    def _start_tool_calling_async(
-        self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None
-    ) -> None: ...
+    def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None: ...
     def _spawn_llm_worker(self, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None: ...
     def _spawn_final_stream(self, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int) -> None: ...
     def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None: ...
@@ -184,10 +169,7 @@ class ToolCallingMixin:
                 safe_args = args if isinstance(args, dict) else {}
                 # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
                 # they must receive the same HITL wiring as the outer web_research tool.
-                needs_web_research_ui = name == "web_research" or (
-                    name in ("delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset")
-                    and str(safe_args.get("domain") or "") == "web_research"
-                )
+                needs_web_research_ui = name == "web_research" or (name in ("delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset") and str(safe_args.get("domain") or "") == "web_research")
                 if needs_web_research_ui:
 
                     def _web_append(text):
@@ -250,9 +232,7 @@ class ToolCallingMixin:
                     import traceback
 
                     tb = traceback.format_exc()
-                    wrapped_error = ToolExecutionError(
-                        "Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb}
-                    )
+                    wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
                     log.error("Unexpected tool error: %s" % wrapped_error)
                     return json.dumps(format_error_payload(wrapped_error))
 
@@ -308,12 +288,7 @@ class ToolCallingMixin:
         try:
             doc_text = get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=self.ctx)
             log.debug("_do_send: document context length=%d" % len(doc_text))
-            agent_log(
-                "chat_panel.py:doc_context",
-                "Document context for AI",
-                data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": max_context},
-                hypothesis_id="B",
-            )
+            agent_log("chat_panel.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": max_context}, hypothesis_id="B")
             self.session.update_document_context(doc_text)
         except UnoObjectError as e:
             log.error("Document unavailable: %s" % e, extra={"context": "document_context"})
@@ -417,14 +392,7 @@ class ToolCallingMixin:
                 from plugin.framework.llm_concurrency import llm_request_lane
 
                 with llm_request_lane():
-                    response = client.stream_request_with_tools(
-                        self.session.messages,
-                        max_tokens,
-                        tools=tools,
-                        append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)),
-                        append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)),
-                        stop_checker=lambda: self.stop_requested,
-                    )
+                    response = client.stream_request_with_tools(self.session.messages, max_tokens, tools=tools, append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)), append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)), stop_checker=lambda: self.stop_requested)
                 if self.stop_requested:
                     q.put((StreamQueueKind.STOPPED,))
                 else:
@@ -513,16 +481,7 @@ class ToolCallingMixin:
                             log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
                     except ImportError:
                         pass
-            return ToolLoopEvent(
-                kind=EventKind.TOOL_RESULT,
-                data={
-                    "call_id": s[1] if ln > 1 else None,
-                    "func_name": s[2] if ln > 2 else None,
-                    "func_args_str": s[3] if ln > 3 else None,
-                    "result": s[4] if ln > 4 else None,
-                    "mutates_document": mutates,
-                },
-            )
+            return ToolLoopEvent(kind=EventKind.TOOL_RESULT, data={"call_id": s[1] if ln > 1 else None, "func_name": s[2] if ln > 2 else None, "func_args_str": s[3] if ln > 3 else None, "result": s[4] if ln > 4 else None, "mutates_document": mutates})
         elif kind == StreamQueueKind.FINAL_DONE:
             return ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
         elif kind == StreamQueueKind.ERROR:
@@ -613,15 +572,7 @@ class ToolCallingMixin:
                             self._active_q.put((StreamQueueKind.TOOL_THINKING, msg))
 
                         if self._active_supports_status:
-                            res = self._active_execute_tool_fn(
-                                func_name,
-                                func_args,
-                                self._active_model,
-                                self.ctx,
-                                status_callback=tool_status_callback,
-                                append_thinking_callback=tool_thinking_callback,
-                                stop_checker=lambda: self.stop_requested,
-                            )
+                            res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, status_callback=tool_status_callback, append_thinking_callback=tool_thinking_callback, stop_checker=lambda: self.stop_requested)
                         else:
                             res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, stop_checker=lambda: self.stop_requested)
                         self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
@@ -736,16 +687,7 @@ class ToolCallingMixin:
             self.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
-    def _start_tool_calling_async(
-        self: ToolLoopHost,
-        client: "LlmClient",
-        model: Any,
-        max_tokens: int,
-        tools: list[dict[str, Any]],
-        execute_tool_fn: Callable[..., Any],
-        max_tool_rounds: int | None = None,
-        query_text: str | None = None,
-    ) -> None:
+    def _start_tool_calling_async(self: ToolLoopHost, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None:
         """Tool-calling event loop: single queue, single main-thread loop.
 
         Background threads push messages onto q. The main thread dispatches

@@ -63,11 +63,7 @@ class GetPageObjects(ToolBase):
     description = "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph_index."
     parameters = {
         "type": "object",
-        "properties": {
-            "page": {"type": "integer", "description": "1-based page number to analyze"},
-            "locator": {"type": "string", "description": "Locator to determine page"},
-            "paragraph_index": {"type": "integer", "description": "Paragraph index to determine page"},
-        },
+        "properties": {"page": {"type": "integer", "description": "1-based page number to analyze"}, "locator": {"type": "string", "description": "Locator to determine page"}, "paragraph_index": {"type": "integer", "description": "Paragraph index to determine page"}},
         "required": [],
     }
     uno_services = ["com.sun.star.text.TextDocument"]

@@ -37,11 +37,7 @@ class SwitchToDocumentModeTool(ToolBase):
 class LibrarianOnboardingTool(ToolBase):
     name = "librarian_onboarding"
     description = "Librarian agent for new user onboarding."
-    parameters = {
-        "type": "object",
-        "properties": {"query": {"type": "string", "description": "User message"}, "history_text": {"type": "string", "description": "Previous conversation text"}},
-        "required": ["query"],
-    }
+    parameters = {"type": "object", "properties": {"query": {"type": "string", "description": "User message"}, "history_text": {"type": "string", "description": "Previous conversation text"}}, "required": ["query"]}
     # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
     tier = "specialized_control"
     is_mutation = False

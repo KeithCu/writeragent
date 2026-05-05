@@ -19,18 +19,7 @@ import sys
 import wave
 import tempfile
 
-from plugin.modules.chatbot.audio_recorder_state import (
-    AudioRecorderState,
-    StartRequestedEvent,
-    DeviceReadyEvent,
-    StopRequestedEvent,
-    ErrorOccurredEvent,
-    InitializeDeviceEffect,
-    StartRecordingEffect,
-    StopRecordingEffect,
-    ReportErrorEffect,
-    next_state,
-)
+from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState, StartRequestedEvent, DeviceReadyEvent, StopRequestedEvent, ErrorOccurredEvent, InitializeDeviceEffect, StartRecordingEffect, StopRecordingEffect, ReportErrorEffect, next_state
 
 
 class AudioRecorder:

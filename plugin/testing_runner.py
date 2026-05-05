@@ -43,27 +43,14 @@ def teardown(func):
     return func
 
 
-def _run_suite(
-    ctx: Any,
-    suites: List[Dict[str, Any]],
-    name: str,
-    module,
-    *args,
-) -> None:
+def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module, *args) -> None:
     """Run a test module using the decorator-based native runner.
 
     Collects functions marked with @setup, @teardown, and @native_test.
     Executes setup(ctx), then all tests(ctx), then teardown(ctx).
     """
     passed, failed, suite_log = run_module_suite(ctx, module, name, *args)
-    suites.append(
-        {
-            "name": name,
-            "passed": passed,
-            "failed": failed,
-            "log": suite_log,
-        }
-    )
+    suites.append({"name": name, "passed": passed, "failed": failed, "log": suite_log})
 
 
 def run_module_suite(ctx, module, name, doc_model=None):
@@ -309,11 +296,7 @@ def run_all_tests(ctx: Any) -> str:
         total_passed += int(suite.get("passed", 0) or 0)
         total_failed += int(suite.get("failed", 0) or 0)
 
-    summary: Dict[str, Any] = {
-        "total_passed": total_passed,
-        "total_failed": total_failed,
-        "suites": suites,
-    }
+    summary: Dict[str, Any] = {"total_passed": total_passed, "total_failed": total_failed, "suites": suites}
     return json.dumps(summary, ensure_ascii=False, indent=2)
 
 
@@ -337,10 +320,7 @@ def main() -> int:
         ctx = officehelper.bootstrap()
     except Exception as e:
         # Typical in CI/headless shells: no soffice pipe (BootstrapException, NoConnectException, etc.)
-        print(
-            f"SKIP: LibreOffice UNO bootstrap failed; skipping in-LO tests.\n  ({type(e).__name__}: {e})",
-            flush=True,
-        )
+        print(f"SKIP: LibreOffice UNO bootstrap failed; skipping in-LO tests.\n  ({type(e).__name__}: {e})", flush=True)
         return 0
 
     if ctx is None:

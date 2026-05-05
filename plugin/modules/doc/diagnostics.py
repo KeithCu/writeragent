@@ -46,15 +46,7 @@ class DocumentHealthCheck(ToolBaseDummy):
 
                 # --- Empty heading check ---
                 if not text.strip():
-                    issues.append(
-                        {
-                            "type": "empty_heading",
-                            "severity": "warning",
-                            "paragraph_index": i,
-                            "message": ("Empty heading level %d at paragraph %d." % (outline_level, i)),
-                            "detail": "Heading level %d is empty." % outline_level,
-                        }
-                    )
+                    issues.append({"type": "empty_heading", "severity": "warning", "paragraph_index": i, "message": ("Empty heading level %d at paragraph %d." % (outline_level, i)), "detail": "Heading level %d is empty." % outline_level})
 
                 # --- Heading level jump check ---
                 if last_heading_level > 0 and outline_level > last_heading_level + 1:
@@ -64,9 +56,7 @@ class DocumentHealthCheck(ToolBaseDummy):
                             "severity": "info",
                             "paragraph_index": i,
                             "message": ("Heading jumps from level %d to %d at paragraph %d: '%s'" % (last_heading_level, outline_level, i, heading_preview)),
-                            "detail": (
-                                "Heading jumps from level %d to %d (skips %s)." % (last_heading_level, outline_level, ", ".join(str(lv) for lv in range(last_heading_level + 1, outline_level)))
-                            ),
+                            "detail": ("Heading jumps from level %d to %d (skips %s)." % (last_heading_level, outline_level, ", ".join(str(lv) for lv in range(last_heading_level + 1, outline_level)))),
                         }
                     )
 
@@ -109,25 +99,9 @@ class DocumentHealthCheck(ToolBaseDummy):
                         bm = bookmarks.getByName(name)
                         anchor = bm.getAnchor()
                         if anchor is None or not anchor.getString():
-                            issues.append(
-                                {
-                                    "type": "broken_bookmark",
-                                    "severity": "warning",
-                                    "paragraph_index": -1,
-                                    "message": ("Bookmark '%s' has an empty anchor." % name),
-                                    "detail": ("Bookmark '%s' has an empty anchor." % name),
-                                }
-                            )
+                            issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                     except Exception:
-                        issues.append(
-                            {
-                                "type": "broken_bookmark",
-                                "severity": "warning",
-                                "paragraph_index": -1,
-                                "message": ("Bookmark '%s' could not be read." % name),
-                                "detail": ("Bookmark '%s' could not be read." % name),
-                            }
-                        )
+                        issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
         except Exception:
             pass
 
@@ -153,15 +127,7 @@ class DocumentHealthCheck(ToolBaseDummy):
                             except Exception:
                                 pass
                             if not has_graphic:
-                                issues.append(
-                                    {
-                                        "type": "orphan_image",
-                                        "severity": "warning",
-                                        "paragraph_index": -1,
-                                        "message": ("Graphic object '%s' has no image data." % name),
-                                        "detail": ("Graphic object '%s' has no image data." % name),
-                                    }
-                                )
+                                issues.append({"type": "orphan_image", "severity": "warning", "paragraph_index": -1, "message": ("Graphic object '%s' has no image data." % name), "detail": ("Graphic object '%s' has no image data." % name)})
                     except Exception:
                         pass
         except Exception:
@@ -176,11 +142,7 @@ class SetDocumentProtection(ToolBaseDummy):
     name = "set_document_protection"
     intent = "review"
     description = "Set or remove document section protection."
-    parameters = {
-        "type": "object",
-        "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}},
-        "required": ["enabled"],
-    }
+    parameters = {"type": "object", "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}}, "required": ["enabled"]}
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 

@@ -33,11 +33,7 @@ class ListComments(ToolWriterCommentBase):
     name = "list_comments"
     intent = "review"
     description = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
-    parameters = {
-        "type": "object",
-        "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -77,11 +73,7 @@ class AddComment(ToolBase):
     name = "add_comment"
     intent = "review"
     description = "Add a comment/annotation. Anchor the comment to text matching search_text."
-    parameters = {
-        "type": "object",
-        "properties": {"content": {"type": "string", "description": "The comment text."}, "search_text": {"type": "string", "description": "Anchor the comment to text containing this string."}},
-        "required": ["content", "search_text"],
-    }
+    parameters = {"type": "object", "properties": {"content": {"type": "string", "description": "The comment text."}, "search_text": {"type": "string", "description": "Anchor the comment to text containing this string."}}, "required": ["content", "search_text"]}
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
@@ -120,17 +112,8 @@ class DeleteComment(ToolWriterCommentBase):
 
     name = "delete_comment"
     intent = "review"
-    description = (
-        "Delete comments by name or author. Use comment_name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "comment_name": {"type": "string", "description": "The 'name' field returned by list_comments."},
-            "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")},
-        },
-        "required": [],
-    }
+    description = "Delete comments by name or author. Use comment_name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
+    parameters = {"type": "object", "properties": {"comment_name": {"type": "string", "description": "The 'name' field returned by list_comments."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
@@ -236,11 +219,7 @@ class Workflow(ToolWriterCommentBase):
 
     name = "workflow"
     intent = "review"
-    description = (
-        "Workflow and task operations. action: scan_tasks (find TODO-AI, FIX, etc. in comments), "
-        "get_status (read MCP-WORKFLOW dashboard), set_status (write key: value lines), "
-        "check_stop (detect STOP/CANCEL comments or workflow stop/pause)."
-    )
+    description = "Workflow and task operations. action: scan_tasks (find TODO-AI, FIX, etc. in comments), get_status (read MCP-WORKFLOW dashboard), set_status (write key: value lines), check_stop (detect STOP/CANCEL comments or workflow stop/pause)."
     parameters = {
         "type": "object",
         "properties": {

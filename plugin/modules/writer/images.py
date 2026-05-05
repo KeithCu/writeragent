@@ -241,16 +241,7 @@ class ListImages(ToolWriterImageBase):
                     except Exception:
                         pass
 
-                entry = {
-                    "name": name,
-                    "width_mm": size.Width / 100.0,
-                    "height_mm": size.Height / 100.0,
-                    "width_100mm": size.Width,
-                    "height_100mm": size.Height,
-                    "title": title,
-                    "description": description,
-                    "paragraph_index": paragraph_index,
-                }
+                entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
                 if page is not None:
                     entry["page"] = page
                 images.append(entry)
@@ -479,11 +470,7 @@ class DownloadImage(ToolWriterImageBase):
     description = "Download an image from URL to local cache. Returns local path for insert_image/replace_image."
     parameters = {
         "type": "object",
-        "properties": {
-            "url": {"type": "string", "description": "URL of the image to download."},
-            "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."},
-            "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."},
-        },
+        "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
         "required": ["url"],
     }
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
@@ -608,14 +595,7 @@ class DeleteImage(ToolWriterImageBase):
     name = "delete_image"
     intent = "media"
     description = "Delete an image from the document."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "image_name": {"type": "string", "description": "Name of the image to delete (from list_images)."},
-            "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."},
-        },
-        "required": ["image_name"],
-    }
+    parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image to delete (from list_images)."}, "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."}}, "required": ["image_name"]}
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 

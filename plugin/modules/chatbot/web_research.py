@@ -31,11 +31,7 @@ class ToolWriterWebResearchBase(ToolBase):
     name = "web_research"
     description = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
     doc_types = ["writer"]
-    parameters = {
-        "type": "object",
-        "properties": {"query": {"type": "string", "description": "The research query or question."}, "history_text": {"type": "string", "description": "Recent conversation history for context."}},
-        "required": ["query"],
-    }
+    parameters = {"type": "object", "properties": {"query": {"type": "string", "description": "The research query or question."}, "history_text": {"type": "string", "description": "Recent conversation history for context."}}, "required": ["query"]}
 
     def is_async(self):
         return True
@@ -138,10 +134,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         instructions = f"{base_intro}\n\n{budget_text}"
 
         agent = WebResearchToolCallingAgent(
-            tools=[
-                DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days),
-                VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days),
-            ],
+            tools=[DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days), VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)],
             model=smol_model,
             max_steps=max_steps,
             instructions=instructions,

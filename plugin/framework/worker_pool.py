@@ -55,11 +55,7 @@ def run_in_background(func, *args, name=None, error_callback=None, daemon=True, 
             error_id = str(uuid.uuid4())
             log.error(f"Task {task_id} failed: {str(e)}\n{traceback.format_exc()}", extra={"task_id": task_id, "task_name": task_name, "error_id": error_id, "error_type": type(e).__name__})
 
-            wrapped_error = WorkerPoolError(
-                f"Task '{task_name}' failed",
-                code="WORKER_TASK_FAILED",
-                details={"task_id": task_id, "task_name": task_name, "error_id": error_id, "original_error": str(e), "error_type": type(e).__name__},
-            )
+            wrapped_error = WorkerPoolError(f"Task '{task_name}' failed", code="WORKER_TASK_FAILED", details={"task_id": task_id, "task_name": task_name, "error_id": error_id, "original_error": str(e), "error_type": type(e).__name__})
 
             if error_callback:
                 try:

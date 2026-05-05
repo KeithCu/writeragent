@@ -32,11 +32,7 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     """
 
     name = "delegate_to_specialized_draw_toolset"
-    description = (
-        "Delegates a specialized task to a sub-agent with a focused toolset. "
-        "Use this for complex Draw operations like creating and editing shapes, "
-        "charts, and other page elements. Including inserting math formulas (domain='math')."
-    )
+    description = "Delegates a specialized task to a sub-agent with a focused toolset. Use this for complex Draw operations like creating and editing shapes, charts, and other page elements. Including inserting math formulas (domain='math')."
 
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     _special_base_class = ToolDrawSpecialBase

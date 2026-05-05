@@ -65,11 +65,7 @@ class AddCellComment(ToolCalcCommentBase):
     description = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters = {
         "type": "object",
-        "properties": {
-            "cell": {"type": "string", "description": "Cell address (e.g. 'B3')."},
-            "text": {"type": "string", "description": "Comment text."},
-            "sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
-        },
+        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3')."}, "text": {"type": "string", "description": "Comment text."}, "sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
         "required": ["cell", "text"],
     }
     is_mutation = True
@@ -110,11 +106,7 @@ class DeleteCellComment(ToolCalcCommentBase):
     name = "delete_cell_comment"
     intent = "review"
     description = "Delete the comment (annotation) from a specific cell."
-    parameters = {
-        "type": "object",
-        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3')."}, "sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
-        "required": ["cell"],
-    }
+    parameters = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3')."}, "sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

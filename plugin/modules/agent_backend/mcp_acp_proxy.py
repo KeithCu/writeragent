@@ -109,11 +109,7 @@ class MCPACPProxy(AgentBackend):
         # Get available tools
         tools = self._get_tools()
 
-        return {
-            "protocol_version": 1,
-            "agent_name": "WriterAgent",
-            "capabilities": {"tools": [{"name": tool["name"], "description": tool["description"], "input_schema": tool.get("inputSchema", {})} for tool in tools]},
-        }
+        return {"protocol_version": 1, "agent_name": "WriterAgent", "capabilities": {"tools": [{"name": tool["name"], "description": tool["description"], "input_schema": tool.get("inputSchema", {})} for tool in tools]}}
 
     def new_session(self, cwd: str, mcp_servers: List[str]) -> str:
         """ACP new_session call."""

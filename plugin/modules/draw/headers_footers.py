@@ -254,10 +254,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
     parameters = {
         "type": "object",
         "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index)."),
-            },
+            "page_index": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).")},
             "is_master_page": {"type": "boolean", "description": "If True, read the master page linked to the slide at page_index. Defaults to False."},
         },
         "required": ["page_index"],
@@ -351,8 +348,4 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                     except Exception as e:
                         log.debug("Could not set property %s: %s", prop_name, e)
 
-        return {
-            "status": "ok",
-            "updated_properties": updated_count,
-            "message": f"Successfully updated {updated_count} header/footer properties on {'master page' if is_master_page else 'slide'} {page_index}.",
-        }
+        return {"status": "ok", "updated_properties": updated_count, "message": f"Successfully updated {updated_count} header/footer properties on {'master page' if is_master_page else 'slide'} {page_index}."}

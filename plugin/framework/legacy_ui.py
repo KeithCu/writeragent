@@ -110,16 +110,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 def settings_box(ctx, title="Settings", x=None, y=None):
 
     from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
-    from plugin.framework.config import (
-        populate_combobox_with_lru,
-        populate_image_model_selector,
-        endpoint_from_selector_text,
-        get_api_key_for_endpoint,
-        populate_endpoint_selector,
-        as_bool,
-        endpoint_url_suitable_for_v1_models_fetch,
-        fetch_available_models,
-    )
+    from plugin.framework.config import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool, endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.framework.worker_pool import run_in_background
 
@@ -428,12 +419,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                         display_val = str(field.get("value", ""))
                         fn = field.get("name", "")
                         if "Project-Id-Version" in display_val or "Report-Msgid-Bugs-To" in display_val:
-                            log.warning(
-                                "settings_box: field %r value still looks like PO/header junk from config (len=%s): %s",
-                                fn,
-                                len(display_val),
-                                display_val[:300] + ("..." if len(display_val) > 300 else ""),
-                            )
+                            log.warning("settings_box: field %r value still looks like PO/header junk from config (len=%s): %s", fn, len(display_val), display_val[:300] + ("..." if len(display_val) > 300 else ""))
                         ctrl.setText(display_val)
                     else:
                         try:

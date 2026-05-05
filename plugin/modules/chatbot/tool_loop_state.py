@@ -151,14 +151,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             if has_audio:
                 effects.append(CleanupAudioEffect())
 
-            effects.append(
-                LogAgentEffect(
-                    location="chat_panel.py:tool_round",
-                    message="Tool loop round response",
-                    data={"round": state.round_num, "has_tool_calls": bool(tool_calls), "num_tool_calls": len(tool_calls) if tool_calls else 0},
-                    hypothesis_id="A",
-                )
-            )
+            effects.append(LogAgentEffect(location="chat_panel.py:tool_round", message="Tool loop round response", data={"round": state.round_num, "has_tool_calls": bool(tool_calls), "num_tool_calls": len(tool_calls) if tool_calls else 0}, hypothesis_id="A"))
 
             if not tool_calls:
                 effects.append(LogAgentEffect(location="chat_panel.py:exit_no_tools", message="Exiting loop: no tool_calls", data={"round": state.round_num}, hypothesis_id="A"))

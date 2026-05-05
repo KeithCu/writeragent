@@ -121,10 +121,7 @@ class _PanelResizeListener(BaseWindowListener):
                 info["bottom_bottom"] = cast("int", info["resp_bottom"])
                 info["gap_below_response"] = 2
 
-        _resize_debug(
-            "_capture_initial: win=(%d,%d) resp_bottom=%s bottom_top=%s gap=%s"
-            % (info["win_w"], info["win_h"], str(info.get("resp_bottom")), str(info.get("bottom_top")), str(info.get("gap_below_response")))
-        )
+        _resize_debug("_capture_initial: win=(%d,%d) resp_bottom=%s bottom_top=%s gap=%s" % (info["win_w"], info["win_h"], str(info.get("resp_bottom")), str(info.get("bottom_top")), str(info.get("gap_below_response"))))
         # Lightweight per-control width summary for debugging GTK issues.
         try:
             summary_names = ("response", "query", "send", "clear", "model_selector")

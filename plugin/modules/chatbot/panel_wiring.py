@@ -117,16 +117,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
 
-        self._wire_image_ui(
-            controls["aspect_ratio_selector"],
-            controls["base_size_input"],
-            controls["base_size_label"],
-            controls["direct_image_check"],
-            controls["web_research_check"],
-            controls["model_label"],
-            controls["model_selector"],
-            controls["image_model_selector"],
-        )
+        self._wire_image_ui(controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"], controls["direct_image_check"], controls["web_research_check"], controls["model_label"], controls["model_selector"], controls["image_model_selector"])
     except Exception as e:
         import traceback
 

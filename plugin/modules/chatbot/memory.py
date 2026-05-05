@@ -95,24 +95,13 @@ class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""
 
     name = "upsert_memory"
-    description = (
-        "Persistent memory for the agent. Stores user profile, preferences, and quirks. "
-        "Inserts or updates a specific key in a YAML/JSON-like key: value structure. "
-        "To delete a memory, update it with an empty string."
-    )
+    description = "Persistent memory for the agent. Stores user profile, preferences, and quirks. Inserts or updates a specific key in a YAML/JSON-like key: value structure. To delete a memory, update it with an empty string."
     uno_services = None
     tier = "core"
     intent = "navigate"
     is_mutation = False
 
-    parameters = {
-        "type": "object",
-        "properties": {
-            "key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."},
-            "content": {"type": "string", "description": "The new value to associate with the key."},
-        },
-        "required": ["key", "content"],
-    }
+    parameters = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
 
     def execute(self, ctx, **kwargs):
         import json

@@ -103,9 +103,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
 
         effects.append(ParseRequestEffect())
         effects.append(ResolveDocumentEffect(document_url=document_url, is_long_running=is_long_running))
-        return FsmTransition(
-            dataclasses.replace(state, status=MCPStateStr.RESOLVING_DOCUMENT, tool_name=tool_name, arguments=arguments, document_url=document_url, is_long_running=is_long_running), effects
-        )
+        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.RESOLVING_DOCUMENT, tool_name=tool_name, arguments=arguments, document_url=document_url, is_long_running=is_long_running), effects)
 
     elif event.kind == EventKind.DOCUMENT_RESOLVED:
         doc_context = event.data.get("doc_context")
@@ -121,17 +119,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         # Move to executing tool
         import typing
 
-        effects.append(
-            ExecuteToolEffect(
-                tool_name=typing.cast("str", state.tool_name),
-                arguments=state.arguments,
-                doc_context=doc_context,
-                doc_type=doc_type,
-                uno_ctx=uno_ctx,
-                is_long_running=state.is_long_running,
-                document_url=state.document_url,
-            )
-        )
+        effects.append(ExecuteToolEffect(tool_name=typing.cast("str", state.tool_name), arguments=state.arguments, doc_context=doc_context, doc_type=doc_type, uno_ctx=uno_ctx, is_long_running=state.is_long_running, document_url=state.document_url))
         return FsmTransition(dataclasses.replace(state, status=MCPStateStr.EXECUTING_TOOL, doc_context=doc_context, doc_type=doc_type, uno_ctx=uno_ctx), effects)
 
     elif event.kind == EventKind.TOOL_EXECUTION_STARTED:

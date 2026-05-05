@@ -102,14 +102,7 @@ class ProximityService(ServiceBase):
         return chain
 
     def _build_heading_result(self, node, bookmark_map):
-        return {
-            "level": node["level"],
-            "text": node["text"],
-            "para_index": node["para_index"],
-            "bookmark": bookmark_map.get(node["para_index"]),
-            "body_paragraphs": node.get("body_paragraphs", 0),
-            "children_count": len(node.get("children", [])),
-        }
+        return {"level": node["level"], "text": node["text"], "para_index": node["para_index"], "bookmark": bookmark_map.get(node["para_index"]), "body_paragraphs": node.get("body_paragraphs", 0), "children_count": len(node.get("children", []))}
 
     # ==================================================================
     # navigate_heading

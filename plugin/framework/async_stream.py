@@ -253,9 +253,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
     state.flush_buffers()
 
 
-def run_stream_drain_loop(
-    q, toolkit, job_done, apply_chunk_fn, on_stream_done, on_stopped, on_error, on_status_fn=None, ctx=None, show_search_thinking=False, on_approval_required=None, stop_checker=None
-):
+def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, on_stopped, on_error, on_status_fn=None, ctx=None, show_search_thinking=False, on_approval_required=None, stop_checker=None):
     """
     Main-thread drain loop: batches items from queue, manages thinking/chunk buffers,
     and dispatches to callbacks. Keeps UI responsive via processEventsToIdle().
@@ -276,17 +274,7 @@ def run_stream_drain_loop(
     - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """
-    state = _DrainState(
-        q=q,
-        apply_chunk_fn=apply_chunk_fn,
-        on_stream_done=on_stream_done,
-        on_stopped=on_stopped,
-        on_error=on_error,
-        on_status_fn=on_status_fn,
-        on_approval_required=on_approval_required,
-        show_search_thinking=show_search_thinking,
-        job_done=job_done,
-    )
+    state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     try:
         while not job_done[0]:
             if stop_checker and stop_checker():
@@ -412,18 +400,7 @@ def run_async_worker_with_drain(
     resolved_on_error = on_error_fn or _noop_error
     resolved_on_stopped = on_stopped_fn or ((lambda: on_done_fn()) if on_done_fn else _noop_stopped)
 
-    run_stream_drain_loop(
-        q,
-        toolkit,
-        job_done,
-        apply_chunk_fn,
-        on_stream_done=on_stream_done_wrapper,
-        on_stopped=resolved_on_stopped,
-        on_error=resolved_on_error,
-        on_status_fn=on_status_fn,
-        ctx=ctx,
-        stop_checker=stop_checker,
-    )
+    run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, ctx=ctx, stop_checker=stop_checker)
 
 
 def _run_client_stream(
@@ -446,11 +423,7 @@ def _run_client_stream(
     """
 
     def worker(q: queue.Queue) -> None:
-        kwargs: dict[str, Any] = {
-            "append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)),
-            "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)),
-            "stop_checker": stop_checker,
-        }
+        kwargs: dict[str, Any] = {"append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)), "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)), "stop_checker": stop_checker}
         if include_status:
             kwargs["status_callback"] = lambda t: q.put((StreamQueueKind.STATUS, t))
         client_call(**kwargs)
@@ -466,17 +439,7 @@ def run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, 
     def client_call(**cb_kwargs):
         client.stream_completion(prompt, system_prompt, max_tokens, **cb_kwargs)
 
-    _run_client_stream(
-        ctx,
-        client_call,
-        apply_chunk_fn=apply_chunk_fn,
-        on_done_fn=on_done_fn,
-        on_error_fn=on_error_fn,
-        on_status_fn=on_status_fn,
-        stop_checker=stop_checker,
-        name="stream-completion",
-        include_status=True,
-    )
+    _run_client_stream(ctx, client_call, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, on_status_fn=on_status_fn, stop_checker=stop_checker, name="stream-completion", include_status=True)
 
 
 def run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=None, on_done_fn=None, on_error_fn=None, max_tokens=None, stop_checker=None):

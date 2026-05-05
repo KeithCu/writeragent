@@ -77,11 +77,7 @@ class GetDocumentContent(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "scope": {
-                "type": "string",
-                "enum": ["full", "selection", "range"],
-                "description": ("Return full document (default), current selection/cursor region, or a character range (requires start and end)."),
-            },
+            "scope": {"type": "string", "enum": ["full", "selection", "range"], "description": ("Return full document (default), current selection/cursor region, or a character range (requires start and end).")},
             "max_chars": {"type": "integer", "description": "Maximum characters to return."},
             "start": {"type": "integer", "description": "Start character offset (0-based). Required for scope 'range'."},
             "end": {"type": "integer", "description": "End character offset (exclusive). Required for scope 'range'."},
@@ -155,20 +151,11 @@ class ApplyDocumentContent(ToolBase):
     """
 
     name = "apply_document_content"
-    description = (
-        "Insert or replace content. "
-        "Use target='full_document' to replace the whole document. "
-        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
-        "Use target='search' with old_content to find and replace text. "
-    )
+    description = "Insert or replace content. Use target='full_document' to replace the whole document. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. "
     parameters = {
         "type": "object",
         "properties": {
-            "content": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per system prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown."),
-            },
+            "content": {"type": "array", "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per system prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown.")},
             "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the content."},
             "old_content": {"type": "string", "description": ("Text to find and replace with content if target = 'search'.")},
             "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search'."},
@@ -304,13 +291,7 @@ class CloneHeadingBlock(ToolBaseDummy):
     name = "clone_heading_block"
     intent = "edit"
     description = "Clone an entire heading block (heading + all sub-headings + body). The clone is inserted right after the original block."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")},
-            "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."},
-        },
-    }
+    parameters = {"type": "object", "properties": {"locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")}, "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."}}}
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 

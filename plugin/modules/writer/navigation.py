@@ -22,9 +22,7 @@ from plugin.modules.writer.base import ToolWriterStructuralBase
 class NavigateHeading(ToolWriterStructuralBase):
     name = "navigate_heading"
     intent = "navigate"
-    description = (
-        "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing."
-    )
+    description = "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing."
     parameters = {
         "type": "object",
         "properties": {

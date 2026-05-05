@@ -219,19 +219,9 @@ class _GrammarWorkQueue:
         with self._seq_lock:
             prev_seq = self._latest_seq.get(item.inflight_key)
             if prev_seq is not None and item.enqueue_seq < prev_seq:
-                log.error(
-                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, prev_seq
-                )
+                log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, prev_seq)
             self._latest_seq[item.inflight_key] = item.enqueue_seq
-        log.info(
-            "[grammar] queue enqueue doc_id=%s locale=%s seq=%s key=%s len=%s preview=%r",
-            item.doc_id,
-            item.grammar_bcp47,
-            item.enqueue_seq,
-            item.inflight_key,
-            len(item.full_text[item.n_start : item.n_end]),
-            self._slice_preview(item),
-        )
+        log.info("[grammar] queue enqueue doc_id=%s locale=%s seq=%s key=%s len=%s preview=%r", item.doc_id, item.grammar_bcp47, item.enqueue_seq, item.inflight_key, len(item.full_text[item.n_start : item.n_end]), self._slice_preview(item))
 
         # Enqueue-time replace-in-place (O(1) tail check using queue.Queue internals).
         # In a typing burst, the most recent item is almost always the one
@@ -281,27 +271,10 @@ class _GrammarWorkQueue:
             for item in survivors:
                 latest = self._latest_seq_for(item.inflight_key)
                 if self._is_stale(item):
-                    log.info(
-                        "[grammar] queue stale-skip doc_id=%s locale=%s seq=%s latest=%s key=%s preview=%r",
-                        item.doc_id,
-                        item.grammar_bcp47,
-                        item.enqueue_seq,
-                        latest,
-                        item.inflight_key,
-                        self._slice_preview(item),
-                    )
+                    log.info("[grammar] queue stale-skip doc_id=%s locale=%s seq=%s latest=%s key=%s preview=%r", item.doc_id, item.grammar_bcp47, item.enqueue_seq, latest, item.inflight_key, self._slice_preview(item))
                     continue
                 try:
-                    log.info(
-                        "[grammar] queue execute doc_id=%s locale=%s seq=%s latest=%s key=%s len=%s preview=%r",
-                        item.doc_id,
-                        item.grammar_bcp47,
-                        item.enqueue_seq,
-                        latest,
-                        item.inflight_key,
-                        len(item.full_text[item.n_start : item.n_end]),
-                        self._slice_preview(item),
-                    )
+                    log.info("[grammar] queue execute doc_id=%s locale=%s seq=%s latest=%s key=%s len=%s preview=%r", item.doc_id, item.grammar_bcp47, item.enqueue_seq, latest, item.inflight_key, len(item.full_text[item.n_start : item.n_end]), self._slice_preview(item))
                     _run_llm_and_cache(item.ctx, item.full_text, item.n_start, item.n_end, item.enqueue_seq, item.inflight_key, item.grammar_bcp47, partial_sentence=item.partial_sentence)
                 except Exception as e:
                     log.error("[grammar] queue worker item failed: %s", e, exc_info=True)
@@ -316,12 +289,7 @@ def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...]) -> tuple[Any
     ignored_now = engine.ignored_rules_snapshot()
     norms = [
         engine.NormalizedProofError(
-            n_error_start=int(d["n_error_start"]),
-            n_error_length=int(d["n_error_length"]),
-            suggestions=tuple(d.get("suggestions") or ()),
-            short_comment=str(d.get("short_comment", "")),
-            full_comment=str(d.get("full_comment", "")),
-            rule_identifier=str(d.get("rule_identifier", "")),
+            n_error_start=int(d["n_error_start"]), n_error_length=int(d["n_error_length"]), suggestions=tuple(d.get("suggestions") or ()), short_comment=str(d.get("short_comment", "")), full_comment=str(d.get("full_comment", "")), rule_identifier=str(d.get("rule_identifier", ""))
         )
         for d in cached
         if str(d.get("rule_identifier", "")) not in ignored_now
@@ -389,11 +357,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
-    log.info(
-        "[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the "
-        "active grammar checker under Tools → Options → Language Settings → Writing aids for the "
-        "document language (same locales as the extension’s UI translation set)."
-    )
+    log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
 
 
 @no_type_check
@@ -555,14 +519,7 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
         if partial_sentence:
             sys_prompt += " The input may be a partial sentence; prefer conservative grammar suggestions and avoid broad rewrites."
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": llm_text}]
-        log.info(
-            "[grammar] LLM request llm_text_len=%s (uncached %s/%s sent) max_tokens=%s model=%s",
-            len(llm_text),
-            len(uncached),
-            len(sentences) if sentences else 1,
-            max_tok,
-            model or "(default text model)",
-        )
+        log.info("[grammar] LLM request llm_text_len=%s (uncached %s/%s sent) max_tokens=%s model=%s", len(llm_text), len(uncached), len(sentences) if sentences else 1, max_tok, model or "(default text model)")
         request_start = time.monotonic()
         _emit_grammar_status("request", llm_text, result="LLM request")
         from plugin.modules.http.client import LlmClient
@@ -685,16 +642,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 return a_res
             proofread_batch_end = min(len(aText), GRAMMAR_PROOFREAD_MAX_CHARS)
             _finalize_proofreading_sentence_positions(a_res, aText, nSuggestedBehindEndOfSentencePosition, proofread_batch_end)
-            log.info(
-                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) batch_end=%s enabled=%s",
-                aDocumentIdentifier,
-                len(aText),
-                loc_key,
-                nStartOfSentencePosition,
-                nSuggestedBehindEndOfSentencePosition,
-                proofread_batch_end,
-                enabled,
-            )
+            log.info("[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) batch_end=%s enabled=%s", aDocumentIdentifier, len(aText), loc_key, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition, proofread_batch_end, enabled)
             n_start = max(0, nStartOfSentencePosition)
             n_end = proofread_batch_end
             if n_end <= n_start:
@@ -748,13 +696,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
                     except Exception as e:
                         log.exception("[grammar] doProofreading: partial cache path failed: %s", e)
-                log.info(
-                    "[grammar] per-sentence cache PARTIAL HIT: %s/%s cached (%s error(s) returned), %s uncached → enqueueing",
-                    len(sentences) - uncached_count,
-                    len(sentences),
-                    len(combined_errors),
-                    uncached_count,
-                )
+                log.info("[grammar] per-sentence cache PARTIAL HIT: %s/%s cached (%s error(s) returned), %s uncached → enqueueing", len(sentences) - uncached_count, len(sentences), len(combined_errors), uncached_count)
 
             # inflight_key must not include slice text fingerprint: mid-sentence edits
             # change content without prefix relation, so same-key supersede + _latest_seq
@@ -766,19 +708,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 seq = _ENQUEUE_SEQ
             log.info("[grammar] cache MISS enqueuing slice_len=%s key=%s seq=%s", len(slice_txt), inflight_key, seq)
             _emit_grammar_status("start", slice_txt, result="queued")
-            _grammar_queue.enqueue(
-                _GrammarWorkItem(
-                    ctx=self.ctx,
-                    full_text=aText,
-                    n_start=n_start,
-                    n_end=n_end,
-                    grammar_bcp47=grammar_bcp47,
-                    partial_sentence=not complete_sentence,
-                    doc_id=aDocumentIdentifier,
-                    inflight_key=inflight_key,
-                    enqueue_seq=seq,
-                )
-            )
+            _grammar_queue.enqueue(_GrammarWorkItem(ctx=self.ctx, full_text=aText, n_start=n_start, n_end=n_end, grammar_bcp47=grammar_bcp47, partial_sentence=not complete_sentence, doc_id=aDocumentIdentifier, inflight_key=inflight_key, enqueue_seq=seq))
             # Async path: never wait or pump here — keeps menus/dialogs responsive. Squiggles on a later pass.
             log.info("[grammar] doProofreading: async miss returning empty errors; sentence cache fills in background")
             return a_res

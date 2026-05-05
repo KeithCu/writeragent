@@ -65,11 +65,7 @@ class ReadCellRange(ToolBase):
 
     name = "read_cell_range"
     description = "Reads values from the specified cell range(s). Supports lists for non-contiguous areas."
-    parameters = {
-        "type": "object",
-        "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.')}},
-        "required": ["range_name"],
-    }
+    parameters = {"type": "object", "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.')}}, "required": ["range_name"]}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
     is_mutation = False
@@ -93,24 +89,14 @@ class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
     name = "write_formula_range"
-    description = (
-        "Writes formulas or values to a cell range(s) efficiently. "
-        "Single string fills entire range; JSON array must match range size "
-        "exactly (one value per cell). Use an empty string or empty array to "
-        "clear contents. Supports lists for non-contiguous areas."
-    )
+    description = "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; JSON array must match range size exactly (one value per cell). Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas."
     parameters = {
         "type": "object",
         "properties": {
             "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Target range(s) (e.g. ["A1:A10"] or ["A1", "B2:D2"]) for one or more ranges.')},
             "formula_or_values": {
                 "type": "string",
-                "description": (
-                    "Single string: fills the entire range with that value or formula "
-                    "(use '=' prefix for formulas). JSON array: must have exactly as "
-                    'many elements as cells in the range (e.g. \'["a", "b"]\' for 2 cells). '
-                    "Empty string/array clears the range."
-                ),
+                "description": ("Single string: fills the entire range with that value or formula (use '=' prefix for formulas). JSON array: must have exactly as many elements as cells in the range (e.g. '[\"a\", \"b\"]' for 2 cells). Empty string/array clears the range."),
             },
         },
         "required": ["range_name", "formula_or_values"],
@@ -146,19 +132,8 @@ class InsertCellHtml(ToolBase):
 
     name = "insert_cell_html"
     intent = "edit"
-    description = (
-        "Parses HTML with the same filter as Writer and pastes rich text into "
-        "one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). "
-        "Does not support images or embedded objects. Clears existing cell text."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "cell_address": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'},
-            "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."},
-        },
-        "required": ["cell_address", "html"],
-    }
+    description = "Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text."
+    parameters = {"type": "object", "properties": {"cell_address": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell_address", "html"]}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "extended"
     is_mutation = True
@@ -279,17 +254,8 @@ class MergeCells(ToolBase):
 
     name = "merge_cells"
     intent = "edit"
-    description = (
-        "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')},
-            "center": {"type": "boolean", "description": "Center content (default: true)"},
-        },
-        "required": ["range_name"],
-    }
+    description = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
+    parameters = {"type": "object", "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}}, "required": ["range_name"]}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 

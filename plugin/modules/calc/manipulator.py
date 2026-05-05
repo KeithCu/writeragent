@@ -330,11 +330,7 @@ class CellManipulator:
                 except Exception as e:
                     # Formula error
                     error_code = cell.getError()
-                    raise CalcError(
-                        f"Formula error in {cell_address}: {self._get_error_name(error_code)}",
-                        code="CALC_FORMULA_ERROR",
-                        details={"address": cell_address, "error_code": error_code, "error_name": self._get_error_name(error_code)},
-                    ) from e
+                    raise CalcError(f"Formula error in {cell_address}: {self._get_error_name(error_code)}", code="CALC_FORMULA_ERROR", details={"address": cell_address, "error_code": error_code, "error_name": self._get_error_name(error_code)}) from e
             else:
                 raise CalcError(f"Unknown cell type: {cell_type}", code="CALC_UNKNOWN_CELL_TYPE", details={"address": cell_address, "type": cell_type})
 
@@ -415,18 +411,7 @@ class CellManipulator:
         """
         try:
             if ":" in address_or_range:
-                self._set_range_style(
-                    address_or_range,
-                    bold=bold,
-                    italic=italic,
-                    bg_color=bg_color,
-                    font_color=font_color,
-                    font_size=font_size,
-                    h_align=h_align,
-                    v_align=v_align,
-                    wrap_text=wrap_text,
-                    border_color=border_color,
-                )
+                self._set_range_style(address_or_range, bold=bold, italic=italic, bg_color=bg_color, font_color=font_color, font_size=font_size, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color)
                 if number_format:
                     self._set_range_number_format(address_or_range, number_format)
                 logger.info("Range %s style updated.", address_or_range.upper())
@@ -599,12 +584,7 @@ class CellManipulator:
                     formula_or_values = flat_vals
 
                 if len(formula_or_values) != total_cells:
-                    raise UnoObjectError(
-                        f"Array has {len(formula_or_values)} values but range has "
-                        f"{total_cells} cells. Use a single string to fill the whole "
-                        "range, or an array with exactly that many values for "
-                        "cell-by-cell control."
-                    )
+                    raise UnoObjectError(f"Array has {len(formula_or_values)} values but range has {total_cells} cells. Use a single string to fill the whole range, or an array with exactly that many values for cell-by-cell control.")
                 values = formula_or_values
             else:
                 values = [formula_or_values] * total_cells

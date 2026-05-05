@@ -137,11 +137,7 @@ class ApplySheetFilter(ToolCalcSheetFilterBase):
 
     name = "apply_sheet_filter"
     intent = "edit"
-    description = (
-        "Hide rows that do not match a standard Calc filter (not conditional formatting). "
-        "delegate_to_specialized_calc_toolset(domain='sheet_filter'). "
-        "One column per criterion; chain with connection (AND default) after the first."
-    )
+    description = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheet_filter'). One column per criterion; chain with connection (AND default) after the first."
     parameters = {
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
@@ -191,17 +187,10 @@ class ClearSheetFilter(ToolCalcSheetFilterBase):
 
     name = "clear_sheet_filter"
     intent = "edit"
-    description = (
-        "Remove the active standard sheet filter on a range so all rows show again. "
-        "Use the same range_name (and contains_header) as apply_sheet_filter. "
-        "delegate_to_specialized_calc_toolset(domain='sheet_filter')."
-    )
+    description = "Remove the active standard sheet filter on a range so all rows show again. Use the same range_name (and contains_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheet_filter')."
     parameters = {
         "type": "object",
-        "properties": {
-            "range_name": {"type": "string", "description": "Same data range string used when applying the filter (e.g. 'A1:D20')."},
-            "contains_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."},
-        },
+        "properties": {"range_name": {"type": "string", "description": "Same data range string used when applying the filter (e.g. 'A1:D20')."}, "contains_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."}},
         "required": ["range_name"],
     }
     is_mutation = True

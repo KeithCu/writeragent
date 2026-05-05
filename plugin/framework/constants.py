@@ -103,9 +103,7 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 Prioritize what reduces future user steering."""
 
 # Brief hint for gateway tool JSON schemas (full rules: WRITER_SPECIALIZED_DELEGATION_TEMPLATE).
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
-    "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). Be specific enough to use that power—vague tasks leave choices underspecified."
-)
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). Be specific enough to use that power—vague tasks leave choices underspecified."
 
 # Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED WRITER (nested tools):
@@ -170,11 +168,7 @@ def get_writer_eval_chat_system_prompt() -> str:
     eval harness: ``get_document_content``, ``apply_document_content``, ``find_text``.
     Omits web research, specialized delegation, memory, and tools not wired in ``tools_lo``.
     """
-    eval_scope = (
-        "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. "
-        "Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, "
-        "apply_style, or add_comment."
-    )
+    eval_scope = "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, apply_style, or add_comment."
     eval_tool_patterns = """TOOL USAGE PATTERNS (eval harness):
 - Use find_text to locate passages; use apply_document_content (often with old_content) to replace HTML.
 - Re-read with get_document_content after substantive edits if needed."""

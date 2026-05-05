@@ -146,15 +146,7 @@ class ACPBackend(AgentBackend):
 
         # Initialize handshake
         try:
-            result = self._conn.send_request(
-                "initialize",
-                {
-                    "protocolVersion": _ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {"fs": {"read_text_file": False, "write_text_file": False}, "terminal": False},
-                    "clientInfo": {"name": "WriterAgent", "version": "1.0"},
-                },
-                timeout=15,
-            )
+            result = self._conn.send_request("initialize", {"protocolVersion": _ACP_PROTOCOL_VERSION, "clientCapabilities": {"fs": {"read_text_file": False, "write_text_file": False}, "terminal": False}, "clientInfo": {"name": "WriterAgent", "version": "1.0"}}, timeout=15)
             log.info(f"ACP initialized: {result}")
         except Exception as e:
             log.error(f"ACP initialize failed: {e}")
@@ -183,9 +175,7 @@ class ACPBackend(AgentBackend):
             log.error(f"ACP session creation failed: {e}")
             raise
 
-    def _build_prompt_blocks(
-        self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, selection_text: Optional[str] = None, document_url: Optional[str] = None
-    ) -> List[Dict]:
+    def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, selection_text: Optional[str] = None, document_url: Optional[str] = None) -> List[Dict]:
         """Build ACP prompt content blocks."""
         prompt_blocks = []
         is_slash_command = user_message.strip().startswith("/")

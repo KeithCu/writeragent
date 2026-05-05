@@ -48,11 +48,7 @@ def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, show: bool) -> 
     _ = show
     return {
         "status": "ok",
-        "message": (
-            "Calc: showing or hiding tracked-change markup from WriterAgent is not supported "
-            "yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. "
-            "track_changes_start / track_changes_stop still control recording."
-        ),
+        "message": ("Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."),
         "calc_track_changes_show_unsupported": True,
     }
 
@@ -141,11 +137,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_show"
-    description = (
-        "Show or hide tracked changes markup in the document view (Writer). "
-        "On Calc, recording still works; this call returns guidance to use LibreOffice "
-        "menus for show/hide markup until UNO support is implemented."
-    )
+    description = "Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented."
     parameters = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
     is_mutation = True
 
@@ -297,14 +289,7 @@ class TrackChangesCommentInsert(WriterAgentSpecialTracking):
 
     name = "track_changes_comment_insert"
     description = "Insert a comment (annotation) at the current cursor selection."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "content": {"type": "string", "description": "The text content of the comment."},
-            "author": {"type": "string", "description": "The author's name for the comment (e.g., 'WriterAgent')."},
-        },
-        "required": ["content", "author"],
-    }
+    parameters = {"type": "object", "properties": {"content": {"type": "string", "description": "The text content of the comment."}, "author": {"type": "string", "description": "The author's name for the comment (e.g., 'WriterAgent')."}}, "required": ["content", "author"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

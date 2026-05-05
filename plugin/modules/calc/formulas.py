@@ -38,13 +38,7 @@ class DetectErrors(ToolBase):
     name = "detect_and_explain_errors"
     intent = "edit"
     description = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = False
 

@@ -61,9 +61,7 @@ class ListTextFrames(ToolWriterTextFramesBase):
                 except Exception:
                     pass
 
-                frames.append(
-                    {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview}
-                )
+                frames.append({"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview})
             except Exception as e:
                 log.debug("list_text_frames: skip '%s': %s", name, e)
 

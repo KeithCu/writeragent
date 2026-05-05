@@ -100,25 +100,7 @@ def _log_shape_uno_snapshot(phase: str, shape) -> None:
             parts.append(f"size=({sz.Width}x{sz.Height})")
         except Exception as ex:
             parts.append(f"size_err={ex!r}")
-        for name in (
-            "AnchorType",
-            "AnchorPageNo",
-            "HoriOrient",
-            "VertOrient",
-            "HoriOrientPosition",
-            "VertOrientPosition",
-            "Visible",
-            "Opaque",
-            "FillStyle",
-            "FillColor",
-            "LineColor",
-            "LineWidth",
-            "CustomShapeEngine",
-            "ZOrder",
-            "TextWrap",
-            "SurroundContour",
-            "IsFollowingTextFlow",
-        ):
+        for name in ("AnchorType", "AnchorPageNo", "HoriOrient", "VertOrient", "HoriOrientPosition", "VertOrientPosition", "Visible", "Opaque", "FillStyle", "FillColor", "LineColor", "LineWidth", "CustomShapeEngine", "ZOrder", "TextWrap", "SurroundContour", "IsFollowingTextFlow"):
             try:
                 v = shape.getPropertyValue(name)
                 parts.append(f"{name}={v!r}")
@@ -218,12 +200,7 @@ def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
         shape.setPropertyValue("VertOrientRelation", 8)  # PAGE_PRINT_AREA
         log.debug("create_shape writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0", anchor_no, idx)
         try:
-            log.debug(
-                "create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r",
-                shape.getPropertyValue("AnchorPageNo"),
-                shape.getPropertyValue("HoriOrient"),
-                shape.getPropertyValue("VertOrient"),
-            )
+            log.debug("create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r", shape.getPropertyValue("AnchorPageNo"), shape.getPropertyValue("HoriOrient"), shape.getPropertyValue("VertOrient"))
         except Exception as ex:
             log.debug("create_shape writer_at_page_finalize: readback failed: %s", ex)
     except Exception as ex:
@@ -501,11 +478,7 @@ class DrawShapes:
             raise
         except Exception as e:
             # Wrap other exceptions
-            raise DrawError(
-                f"Failed to create shape: {str(e)}",
-                code="DRAW_SHAPE_CREATION_ERROR",
-                details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__},
-            ) from e
+            raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
 
 
 def _apply_shape_properties(shape, kwargs):
@@ -691,14 +664,7 @@ class CreateShape(ToolDrawShapeBase):
             is_custom_shape = True
             custom_shape_type = shape_type_raw
 
-        log.debug(
-            "create_shape branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r "
-            "(rectangle path uses RectangleShape + no enhanced geometry; octagon uses CustomShape + geometry before add)",
-            shape_type_raw,
-            uno_type,
-            is_custom_shape,
-            custom_shape_type if is_custom_shape else None,
-        )
+        log.debug("create_shape branch: raw=%r resolved_uno=%r is_custom_catalog=%s catalog_name=%r (rectangle path uses RectangleShape + no enhanced geometry; octagon uses CustomShape + geometry before add)", shape_type_raw, uno_type, is_custom_shape, custom_shape_type if is_custom_shape else None)
 
         draw_shapes = DrawShapes()
 
@@ -871,14 +837,7 @@ class GroupShapes(ToolDrawShapeBase):
     name = "shapes_group"
     intent = "edit"
     description = "Groups multiple shapes together on the same page."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "shape_indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."},
-            "page_index": {"type": "integer", "description": "Page index containing the shapes"},
-        },
-        "required": ["shape_indices"],
-    }
+    parameters = {"type": "object", "properties": {"shape_indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page_index": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["shape_indices"]}
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     is_mutation = True

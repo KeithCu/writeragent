@@ -33,34 +33,9 @@ class ToolContext:
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
     """
 
-    __slots__ = (
-        "doc",
-        "ctx",
-        "doc_type",
-        "services",
-        "caller",
-        "status_callback",
-        "append_thinking_callback",
-        "stop_checker",
-        "approval_callback",
-        "chat_append_callback",
-        "set_active_domain_callback",
-    )
+    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback")
 
-    def __init__(
-        self,
-        doc,
-        ctx,
-        doc_type,
-        services,
-        caller="",
-        status_callback=None,
-        append_thinking_callback=None,
-        stop_checker=None,
-        approval_callback=None,
-        chat_append_callback=None,
-        set_active_domain_callback=None,
-    ):
+    def __init__(self, doc, ctx, doc_type, services, caller="", status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None):
         self.doc = doc
         self.ctx = ctx
         self.doc_type = doc_type

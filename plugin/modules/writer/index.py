@@ -131,46 +131,7 @@ _STOP_WORDS = {
             "vous",
         }
     ),
-    "english": frozenset(
-        {
-            "a",
-            "an",
-            "and",
-            "are",
-            "as",
-            "at",
-            "be",
-            "but",
-            "by",
-            "for",
-            "from",
-            "had",
-            "has",
-            "he",
-            "her",
-            "his",
-            "if",
-            "in",
-            "is",
-            "it",
-            "its",
-            "my",
-            "no",
-            "not",
-            "of",
-            "on",
-            "or",
-            "our",
-            "she",
-            "so",
-            "the",
-            "to",
-            "up",
-            "us",
-            "was",
-            "we",
-        }
-    ),
+    "english": frozenset({"a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from", "had", "has", "he", "her", "his", "if", "in", "is", "it", "its", "my", "no", "not", "of", "on", "or", "our", "she", "so", "the", "to", "up", "us", "was", "we"}),
     "german": frozenset(
         {
             "aber",
@@ -553,15 +514,7 @@ class IndexService(ServiceBase):
                 entry["nearest_heading"] = nearest
             results.append(entry)
 
-        resp = {
-            "query": query,
-            "mode": mode,
-            "language": idx.language,
-            "total_found": total,
-            "returned": len(results),
-            "matches": results,
-            "index": {"paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached},
-        }
+        resp = {"query": query, "mode": mode, "language": idx.language, "total_found": total, "returned": len(results), "matches": results, "index": {"paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached}}
         if near:
             resp["near"] = {"left": near[0][0], "right": near[0][1], "distance": near[0][2]}
         if parsed["dropped_stops"]:
@@ -574,11 +527,4 @@ class IndexService(ServiceBase):
 
         top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:20]
 
-        return {
-            "language": idx.language,
-            "paragraphs": idx.para_count,
-            "unique_stems": len(idx.terms),
-            "build_ms": idx.build_ms,
-            "cached": was_cached,
-            "top_stems": [{"stem": t, "paragraphs": len(s)} for t, s in top],
-        }
+        return {"language": idx.language, "paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached, "top_stems": [{"stem": t, "paragraphs": len(s)} for t, s in top]}

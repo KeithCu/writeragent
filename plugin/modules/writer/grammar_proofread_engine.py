@@ -204,9 +204,7 @@ def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list
     return re.findall(r"\w+|\W+", text)
 
 
-def normalize_errors_for_text(
-    full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ignored: set[str] | None = None, ctx: Any = None, loc_key: str | None = None
-) -> list[NormalizedProofError]:
+def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ignored: set[str] | None = None, ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
     ignored = ignored or set()
     slice_end = min(n_slice_end, len(full_text))

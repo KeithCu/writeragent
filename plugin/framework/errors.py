@@ -120,9 +120,7 @@ def safe_uno_call(default=None):
                 # Catch potential DisposedException and RuntimeException from UNO bridge
                 e_name = type(e).__name__
                 if "DisposedException" in e_name or "RuntimeException" in e_name:
-                    raise DocumentDisposedError(
-                        f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}
-                    ) from e
+                    raise DocumentDisposedError(f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}) from e
                 else:
                     raise UnoObjectError(f"UNO call {func.__name__} failed", details={"error": str(e), "type": e_name}) from e
 

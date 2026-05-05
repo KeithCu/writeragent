@@ -122,11 +122,7 @@ class ToolBase(ABC):
                 import threading
 
                 if threading.current_thread() is not threading.main_thread():
-                    raise RuntimeError(
-                        f"Thread Safety Violation: Synchronous tool '{self.name}' was executed from a background thread. "
-                        "Synchronous tools execute UNO APIs which are not thread-safe. You must wrap this call "
-                        "using `execute_on_main_thread` from `plugin.framework.queue_executor`."
-                    )
+                    raise RuntimeError(f"Thread Safety Violation: Synchronous tool '{self.name}' was executed from a background thread. Synchronous tools execute UNO APIs which are not thread-safe. You must wrap this call using `execute_on_main_thread` from `plugin.framework.queue_executor`.")
             return self.execute(ctx, **kwargs)
         except Exception as e:
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")

@@ -59,11 +59,7 @@ class HttpModule(ModuleBase):
                 self._mcp_routes_registered = prim._mcp_routes_registered
                 self._srv_lock = prim._srv_lock
                 services.register("http_routes", self._registry)
-                log.info(
-                    "HttpModule initialize: reusing primary HTTP/MCP (mcp_enabled=%s, server=%s)",
-                    services.config.proxy_for(self.name).get("mcp_enabled"),
-                    "running" if (_shared_http_server and _shared_http_server.is_running()) else "stopped",
-                )
+                log.info("HttpModule initialize: reusing primary HTTP/MCP (mcp_enabled=%s, server=%s)", services.config.proxy_for(self.name).get("mcp_enabled"), "running" if (_shared_http_server and _shared_http_server.is_running()) else "stopped")
                 return
 
             self._registry = HttpRouteRegistry()
@@ -139,14 +135,7 @@ class HttpModule(ModuleBase):
             cfg = services.config.proxy_for(self.name)
             event_bus = getattr(services, "events", None)
 
-            srv = HttpServer(
-                route_registry=self._registry,
-                port=cfg.get("port") or cfg.get("mcp_port") or 8765,
-                host=cfg.get("host") or "localhost",
-                use_ssl=cfg.get("use_ssl") or False,
-                ssl_cert=cfg.get("ssl_cert") or "",
-                ssl_key=cfg.get("ssl_key") or "",
-            )
+            srv = HttpServer(route_registry=self._registry, port=cfg.get("port") or cfg.get("mcp_port") or 8765, host=cfg.get("host") or "localhost", use_ssl=cfg.get("use_ssl") or False, ssl_cert=cfg.get("ssl_cert") or "", ssl_key=cfg.get("ssl_key") or "")
             try:
                 srv.start()
                 if event_bus:

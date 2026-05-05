@@ -253,25 +253,13 @@ def _register_core_handlers():
 
     register_action_handler("main", "EvaluationDashboard", lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
-    register_action_handler(
-        "main",
-        "RunFormatTests",
-        lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.format_tests"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"),
-    )
+    register_action_handler("main", "RunFormatTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.format_tests"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
 
-    register_action_handler(
-        "main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests")
-    )
+    register_action_handler("main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests"))
 
-    register_action_handler(
-        "main",
-        "RunCalcIntegrationTests",
-        lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"),
-    )
+    register_action_handler("main", "RunCalcIntegrationTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
 
-    register_action_handler(
-        "main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_draw"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests")
-    )
+    register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_draw"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
 
     register_action_handler("main", "NoOp", lambda: None)
 

@@ -341,11 +341,7 @@ class SolverTool(ToolCalcAnalysisBase):
 
             if solver.Success:
                 # The solution is already applied to the document by solver.solve()
-                return {
-                    "status": "ok",
-                    "message": f"Solver success. Objective value: {solver.ResultValue}",
-                    "result": {"success": True, "result_value": solver.ResultValue, "solution": list(solver.Solution)},
-                }
+                return {"status": "ok", "message": f"Solver success. Objective value: {solver.ResultValue}", "result": {"success": True, "result_value": solver.ResultValue, "solution": list(solver.Solution)}}
             else:
                 return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
 

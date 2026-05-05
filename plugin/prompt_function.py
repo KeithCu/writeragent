@@ -181,11 +181,7 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    PromptFunction,
-    "org.extension.writeragent.PromptFunction",
-    ("com.sun.star.sheet.AddIn",),
-)
+g_ImplementationHelper.addImplementation(PromptFunction, "org.extension.writeragent.PromptFunction", ("com.sun.star.sheet.AddIn",))
 
 
 # Test function registration

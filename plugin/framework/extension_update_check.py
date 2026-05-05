@@ -83,12 +83,7 @@ def run_extension_update_check(ctx: Any) -> None:
                 last_ts = float(str(raw_last))
                 age = now - last_ts
                 if age < WEEK_SECONDS:
-                    log.info(
-                        "extension update check: skipped (last attempt %.1f h ago; next fetch in %.1f h). Remove key %r from writeragent.json to force a run sooner.",
-                        age / 3600.0,
-                        (WEEK_SECONDS - age) / 3600.0,
-                        CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH,
-                    )
+                    log.info("extension update check: skipped (last attempt %.1f h ago; next fetch in %.1f h). Remove key %r from writeragent.json to force a run sooner.", age / 3600.0, (WEEK_SECONDS - age) / 3600.0, CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH)
                     return
             except (TypeError, ValueError):
                 log.info("extension update check: ignoring invalid %r value %r", CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH, raw_last)

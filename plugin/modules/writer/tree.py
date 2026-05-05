@@ -186,15 +186,7 @@ class TreeService(ServiceBase):
             node["body_text"] = self._get_full_body_text(doc, para_idx)
 
     def _serialize_tree_node(self, child, doc, content_strategy, depth, current_depth=1, bookmark_map=None):
-        node = {
-            "type": "heading",
-            "level": child["level"],
-            "text": child["text"],
-            "para_index": child["para_index"],
-            "bookmark": (bookmark_map or {}).get(child["para_index"]),
-            "children_count": self._count_all_children(child),
-            "body_paragraphs": child["body_paragraphs"],
-        }
+        node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": self._count_all_children(child), "body_paragraphs": child["body_paragraphs"]}
         self._apply_content_strategy(node, doc, content_strategy)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
@@ -225,15 +217,7 @@ class TreeService(ServiceBase):
 
         page_count = self._doc_svc.get_page_count(doc)
 
-        return {
-            "status": "ok",
-            "content_strategy": content_strategy,
-            "depth": depth,
-            "children": children,
-            "body_before_first_heading": tree["body_paragraphs"],
-            "total_paragraphs": total,
-            "page_count": page_count,
-        }
+        return {"status": "ok", "content_strategy": content_strategy, "depth": depth, "children": children, "body_before_first_heading": tree["body_paragraphs"], "total_paragraphs": total, "page_count": page_count}
 
     def get_heading_children(self, doc, heading_para_index=None, heading_bookmark=None, locator=None, content_strategy="first_lines", depth=1):
         """Get children of a heading (body paragraphs + sub-headings)."""
@@ -299,13 +283,7 @@ class TreeService(ServiceBase):
             node = self._serialize_tree_node(child, doc, content_strategy, depth, bookmark_map=bookmark_map)
             children.append(node)
 
-        return {
-            "status": "ok",
-            "parent": {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])},
-            "content_strategy": content_strategy,
-            "depth": depth,
-            "children": children,
-        }
+        return {"status": "ok", "parent": {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])}, "content_strategy": content_strategy, "depth": depth, "children": children}
 
     # ── Locator resolution (called by document.resolve_locator) ────
 

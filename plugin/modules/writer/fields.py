@@ -117,11 +117,7 @@ class FieldsDelete(ToolWriterFieldBase):
     name = "fields_delete"
     intent = "edit"
     description = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
-    parameters = {
-        "type": "object",
-        "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}},
-        "required": ["ids"],
-    }
+    parameters = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -173,21 +169,8 @@ class FieldsInsert(ToolWriterFieldBase):
     parameters = {
         "type": "object",
         "properties": {
-            "field_type": {
-                "type": "string",
-                "description": (
-                    "The exact name of the text field service to create, excluding the "
-                    "'com.sun.star.text.textfield.' prefix. Examples: 'PageNumber', "
-                    "'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount'."
-                ),
-            },
-            "properties": {
-                "type": "object",
-                "description": (
-                    "Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field."
-                ),
-                "default": {},
-            },
+            "field_type": {"type": "string", "description": ("The exact name of the text field service to create, excluding the 'com.sun.star.text.textfield.' prefix. Examples: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount'.")},
+            "properties": {"type": "object", "description": ("Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field."), "default": {}},
             "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the field."},
             "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
         },

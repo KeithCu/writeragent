@@ -101,11 +101,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 
     name = "list_conditional_formats"
     intent = "navigate"
-    description = (
-        "List conditional formatting rules on a Calc cell range. "
-        "Returns operator, formulas, and applied cell style for each rule. "
-        "Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
-    )
+    description = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
     parameters = {"type": "object", "properties": {"range_name": {"type": "string", "description": "Cell range (e.g. 'A1:D10'). If omitted, scans used area."}}, "required": []}
 
     def execute(self, ctx, **kwargs):
@@ -155,17 +151,8 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "type": "object",
         "properties": {
             "range_name": {"type": "string", "description": "Cell range to apply the rule to (e.g. 'A1:D10')."},
-            "operator": {
-                "type": "string",
-                "enum": ["EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE"],
-                "description": "Condition operator.",
-            },
-            "formula1": {
-                "type": "string",
-                "description": (
-                    "First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE."
-                ),
-            },
+            "operator": {"type": "string", "enum": ["EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE"], "description": "Condition operator."},
+            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style_name": {"type": "string", "description": ("Cell style to apply when condition is true. Use list_styles with family='CellStyles' to see available styles.")},
         },
@@ -194,20 +181,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
                 dup_a, dup_b = 10, 11
 
             op_upper = operator.upper()
-            op_map = {
-                "NONE": NONE,
-                "EQUAL": EQUAL,
-                "NOT_EQUAL": NOT_EQUAL,
-                "GREATER": GREATER,
-                "GREATER_EQUAL": GREATER_EQUAL,
-                "LESS": LESS,
-                "LESS_EQUAL": LESS_EQUAL,
-                "BETWEEN": BETWEEN,
-                "NOT_BETWEEN": NOT_BETWEEN,
-                "FORMULA": FORMULA,
-                "DUPLICATE": dup_a,
-                "NOT_DUPLICATE": dup_b,
-            }
+            op_map = {"NONE": NONE, "EQUAL": EQUAL, "NOT_EQUAL": NOT_EQUAL, "GREATER": GREATER, "GREATER_EQUAL": GREATER_EQUAL, "LESS": LESS, "LESS_EQUAL": LESS_EQUAL, "BETWEEN": BETWEEN, "NOT_BETWEEN": NOT_BETWEEN, "FORMULA": FORMULA, "DUPLICATE": dup_a, "NOT_DUPLICATE": dup_b}
 
             op_val = op_map.get(op_upper)
             if op_val is None:
@@ -261,17 +235,8 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
 
     name = "remove_conditional_formats"
     intent = "edit"
-    description = (
-        "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "range_name": {"type": "string", "description": "Cell range (e.g. 'A1:D10')."},
-            "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."},
-        },
-        "required": ["range_name"],
-    }
+    description = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
+    parameters = {"type": "object", "properties": {"range_name": {"type": "string", "description": "Cell range (e.g. 'A1:D10')."}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}}, "required": ["range_name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

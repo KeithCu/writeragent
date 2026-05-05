@@ -208,11 +208,7 @@ def capability_mismatch_warning(openrouter_id: str, display_name: str, existing_
     only_def = existing_int & ~orca_int
     only_orc = orca_int & ~existing_int
     return (
-        f"openrouter {openrouter_id!r} ({display_name}): capability differs — "
-        f"default_models=[{format_capability_labels(existing_int)}] "
-        f"Orca=[{format_capability_labels(orca_int)}] "
-        f"(only in default_models: [{format_capability_labels(only_def)}]; "
-        f"only in Orca: [{format_capability_labels(only_orc)}])"
+        f"openrouter {openrouter_id!r} ({display_name}): capability differs — default_models=[{format_capability_labels(existing_int)}] Orca=[{format_capability_labels(orca_int)}] (only in default_models: [{format_capability_labels(only_def)}]; only in Orca: [{format_capability_labels(only_orc)}])"
     )
 
 

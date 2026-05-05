@@ -205,12 +205,4 @@ class HttpServer:
 
     def get_status(self):
         scheme = "https" if self.use_ssl else "http"
-        return {
-            "running": self._running,
-            "host": self.host,
-            "port": self.port,
-            "ssl": self.use_ssl,
-            "url": "%s://%s:%s" % (scheme, self.host, self.port),
-            "routes": self.route_registry.route_count,
-            "thread_alive": (self._thread.is_alive() if self._thread else False),
-        }
+        return {"running": self._running, "host": self.host, "port": self.port, "ssl": self.use_ssl, "url": "%s://%s:%s" % (scheme, self.host, self.port), "routes": self.route_registry.route_count, "thread_alive": (self._thread.is_alive() if self._thread else False)}

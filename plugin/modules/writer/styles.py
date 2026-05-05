@@ -47,11 +47,7 @@ class ListStyles(ToolBase):
 
     name = "list_styles"
     description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
-    parameters = {
-        "type": "object",
-        "properties": {"family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles.")}},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles.")}}, "required": []}
 
     def execute(self, ctx, **kwargs):
         family = kwargs.get("family")
@@ -160,11 +156,7 @@ class GetStyleInfo(ToolBase):
 
     name = "get_style_info"
     description = "Get detailed properties of a specific style (font, size, margins, etc.)."
-    parameters = {
-        "type": "object",
-        "properties": {"style_name": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles."}},
-        "required": ["style_name"],
-    }
+    parameters = {"type": "object", "properties": {"style_name": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles."}}, "required": ["style_name"]}
 
     def execute(self, ctx, **kwargs):
         style_name = kwargs.get("style_name", "")

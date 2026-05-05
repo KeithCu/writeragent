@@ -230,16 +230,9 @@ class AIHordeImageProvider(ImageProvider):
         self.informer = SimpleInformer(self.callback_context)
 
         # Build a settings dict from config accessors for AiHordeClient compatibility
-        horde_settings = {
-            "aihorde_api_key": get_config_str(ctx, "aihorde_api_key"),
-            "image_nsfw": get_config_bool(ctx, "image_nsfw"),
-            "image_censor_nsfw": get_config_bool(ctx, "image_censor_nsfw"),
-            "image_max_wait": get_config_int(ctx, "image_max_wait"),
-        }
+        horde_settings = {"aihorde_api_key": get_config_str(ctx, "aihorde_api_key"), "image_nsfw": get_config_bool(ctx, "image_nsfw"), "image_censor_nsfw": get_config_bool(ctx, "image_censor_nsfw"), "image_max_wait": get_config_int(ctx, "image_max_wait")}
 
-        self.client = AiHordeClient(
-            client_version="1.0.0", url_version_update="", client_help_url="", client_download_url="", settings=horde_settings, client_name="WriterAgent_Horde_Client", informer=self.informer
-        )
+        self.client = AiHordeClient(client_version="1.0.0", url_version_update="", client_help_url="", client_download_url="", settings=horde_settings, client_name="WriterAgent_Horde_Client", informer=self.informer)
         # We need to manually inject the toolkit because SimpleInformer.__init__
         # expects an object with ServiceManager if we passed ctx directly.
         # Actually SimpleInformer above takes outer_ctx which is expected to be the UNO component context.

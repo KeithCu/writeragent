@@ -192,8 +192,4 @@ def get_text_cursor_at_range(model, start, end):
         raise
     except Exception as e:
         log.debug("get_text_cursor_at_range: failed", exc_info=True)
-        raise WriterError(
-            f"Failed to get text cursor at range: {str(e)}",
-            code="WRITER_CURSOR_RANGE_ERROR",
-            details={"operation": "get_text_cursor_at_range", "start": start, "end": end, "original_error": str(e), "error_type": type(e).__name__},
-        ) from e
+        raise WriterError(f"Failed to get text cursor at range: {str(e)}", code="WRITER_CURSOR_RANGE_ERROR", details={"operation": "get_text_cursor_at_range", "start": start, "end": end, "original_error": str(e), "error_type": type(e).__name__}) from e

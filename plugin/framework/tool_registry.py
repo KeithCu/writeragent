@@ -118,14 +118,7 @@ class ToolRegistry:
             # worth having exposed to the AI, so we explicitly skip registering them.
             # Must be defined in this module to avoid double registration from imports
             # Also exclude abstract classes or classes without a defined 'name'
-            if (
-                issubclass(obj, ToolBase)
-                and obj is not ToolBase
-                and not issubclass(obj, ToolBaseDummy)
-                and obj.__module__ == module.__name__
-                and not inspect.isabstract(obj)
-                and getattr(obj, "name", None)
-            ):
+            if issubclass(obj, ToolBase) and obj is not ToolBase and not issubclass(obj, ToolBaseDummy) and obj.__module__ == module.__name__ and not inspect.isabstract(obj) and getattr(obj, "name", None):
                 try:
                     tool_instance = obj()
                     self.register(tool_instance)
@@ -266,9 +259,7 @@ class ToolRegistry:
             return func(**kwargs)
 
         if not run_threaded:
-            log.warning(
-                "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored (would trip the main-thread guard). Set is_async() to True to enable timeout enforcement.", tool_name, timeout
-            )
+            log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored (would trip the main-thread guard). Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
             return func(**kwargs)
 
         result_queue: queue.Queue = queue.Queue()
@@ -396,12 +387,7 @@ class ToolRegistry:
             log.exception("Tool execution failed: %s", tool_name)
             if bus:
                 bus.emit("tool:failed", name=tool_name, error=str(e), caller=ctx.caller)
-            return {
-                "status": "error",
-                "code": "TOOL_REGISTRY_ERROR",
-                "message": f"Failed to execute tool '{tool_name}'",
-                "details": {"tool_name": tool_name, "error": str(e), "type": type(e).__name__},
-            }
+            return {"status": "error", "code": "TOOL_REGISTRY_ERROR", "message": f"Failed to execute tool '{tool_name}'", "details": {"tool_name": tool_name, "error": str(e), "type": type(e).__name__}}
 
     @property
     def tool_names(self):

@@ -142,15 +142,7 @@ class GetSlideTransition(ToolBase):
         except Exception:
             pass
 
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "effect": effect,
-            "speed": speed,
-            "duration": duration,
-            "transition_duration": transition_duration,
-            "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click"),
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "effect": effect, "speed": speed, "duration": duration, "transition_duration": transition_duration, "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click")}
 
 
 class SetSlideTransition(ToolBase):
@@ -313,21 +305,9 @@ class SetSlideLayout(ToolBase):
     name = "set_slide_layout"
     intent = "edit"
     description = (
-        "Set the layout of an Impress slide. "
-        "Layouts: blank, title, text, title_only, two_column_text, "
-        "text_and_chart, chart, text_and_object, object, "
-        "text_and_clipart, large_object, four_objects, "
-        "vertical_text, two_objects, and more. "
-        "Use get_slide_layout to see all available layout names."
+        "Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use get_slide_layout to see all available layout names."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
-            "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."},
-        },
-        "required": ["layout"],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."}}, "required": ["layout"]}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 

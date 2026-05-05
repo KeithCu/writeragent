@@ -31,11 +31,7 @@ class GetPageStyleProperties(ToolWriterPageBase):
 
     name = "get_page_style_properties"
     description = "Get dimensions, margins, and header/footer states of a page style."
-    parameters = {
-        "type": "object",
-        "properties": {"style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx, **kwargs):
         style_name = kwargs.get("style_name", "Standard")
@@ -231,10 +227,7 @@ class GetHeaderFooterText(ToolWriterPageBase):
     description = "Retrieve the text content of a page style's header or footer."
     parameters = {
         "type": "object",
-        "properties": {
-            "style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
-            "region": {"type": "string", "enum": ["header", "footer"], "description": "Whether to get the header or footer text."},
-        },
+        "properties": {"style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}, "region": {"type": "string", "enum": ["header", "footer"], "description": "Whether to get the header or footer text."}},
         "required": ["region"],
     }
 

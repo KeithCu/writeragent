@@ -49,9 +49,7 @@ def get_lo_locale(ctx=None):
             ctx = uno.getComponentContext()
         smgr = cast("Any", ctx).getServiceManager()
         config_provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
-        ca = config_provider.createInstanceWithArguments(
-            "com.sun.star.configuration.ConfigurationAccess", (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/L10N"),)
-        )
+        ca = config_provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/L10N"),))
 
         locale = ca.getPropertyValue("ooLocale")
         if locale:

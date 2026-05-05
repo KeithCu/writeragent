@@ -45,10 +45,7 @@ class GetDocumentTree(ToolBase):
     )
     parameters = {
         "type": "object",
-        "properties": {
-            "content_strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content to include with headings (default: first_lines)"},
-            "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"},
-        },
+        "properties": {"content_strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content to include with headings (default: first_lines)"}, "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"}},
         "required": [],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -62,9 +59,7 @@ class GetDocumentTree(ToolBase):
 class GetHeadingChildren(ToolWriterStructuralBase):
     name = "get_heading_children"
     intent = "navigate"
-    description = (
-        "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading_text:Title'), heading_para_index, or heading_bookmark."
-    )
+    description = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading_text:Title'), heading_para_index, or heading_bookmark."
     parameters = {
         "type": "object",
         "properties": {
@@ -81,14 +76,7 @@ class GetHeadingChildren(ToolWriterStructuralBase):
     def execute(self, ctx, **kwargs):
         tree_svc = ctx.services.writer_tree
         try:
-            result = tree_svc.get_heading_children(
-                ctx.doc,
-                heading_para_index=kwargs.get("heading_para_index"),
-                heading_bookmark=kwargs.get("heading_bookmark"),
-                locator=kwargs.get("locator"),
-                content_strategy=kwargs.get("content_strategy", "first_lines"),
-                depth=kwargs.get("depth", 1),
-            )
+            result = tree_svc.get_heading_children(ctx.doc, heading_para_index=kwargs.get("heading_para_index"), heading_bookmark=kwargs.get("heading_bookmark"), locator=kwargs.get("locator"), content_strategy=kwargs.get("content_strategy", "first_lines"), depth=kwargs.get("depth", 1))
             return {"status": "ok", **result}
         except ValueError as e:
             return self._tool_error(str(e))

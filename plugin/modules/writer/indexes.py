@@ -164,12 +164,7 @@ class IndexesCreate(ToolWriterIndexBase):
 class IndexesAddMark(ToolWriterIndexBase):
     name = "indexes_add_mark"
     intent = "edit"
-    description = (
-        "Add an index mark (e.g. alphabetical index entry). "
-        "Use target='beginning', 'end', or 'selection' to insert at those positions. "
-        "Use target='search' with old_content to find and replace text. "
-        "Can specify primary/secondary keys for alphabetical indexes."
-    )
+    description = "Add an index mark (e.g. alphabetical index entry). Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Can specify primary/secondary keys for alphabetical indexes."
     parameters = {
         "type": "object",
         "properties": {

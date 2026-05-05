@@ -51,14 +51,7 @@ class DelegateToSpecializedBase(ToolBase):
             if domain:
                 domains.append(domain)
 
-        self.parameters = {
-            "type": "object",
-            "properties": {
-                "domain": {"type": "string", "enum": domains, "description": "The specialized domain to activate."},
-                "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT},
-            },
-            "required": ["domain", "task"],
-        }
+        self.parameters = {"type": "object", "properties": {"domain": {"type": "string", "enum": domains, "description": "The specialized domain to activate."}, "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT}}, "required": ["domain", "task"]}
 
     def is_async(self):
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
@@ -111,27 +104,15 @@ class DelegateToSpecializedBase(ToolBase):
 
         footnotes_hint = ""
         if domain == "footnotes":
-            footnotes_hint = (
-                " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
-                "pass that exact string as insert_after_text so the note is placed after that text; "
-                "the sub-agent cannot move the view cursor."
-            )
+            footnotes_hint = " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after_text so the note is placed after that text; the sub-agent cannot move the view cursor."
         shapes_canvas = ""
         if domain == "shapes":
             canvas = format_shapes_canvas_context(getattr(ctx, "doc", None))
             if canvas:
                 shapes_canvas = canvas
-        instructions = (
-            f"You are a specialized {self._agent_label} agent focused on the '{domain}' domain. "
-            f"You have a focused set of tools to accomplish your task. "
-            f"Use them to fulfill the user's request."
-            f"{footnotes_hint}"
-            f"{shapes_canvas}"
-        )
+        instructions = f"You are a specialized {self._agent_label} agent focused on the '{domain}' domain. You have a focused set of tools to accomplish your task. Use them to fulfill the user's request.{footnotes_hint}{shapes_canvas}"
 
-        agent = build_toolcalling_agent(
-            ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=SPECIALIZED_EXAMPLES_BLOCK, status_callback=status_callback
-        )
+        agent = build_toolcalling_agent(ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=SPECIALIZED_EXAMPLES_BLOCK, status_callback=status_callback)
 
         executor = SmolAgentExecutor(ctx)
 

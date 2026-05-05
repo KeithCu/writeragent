@@ -45,7 +45,7 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 200
+line-length = 300
 extend-exclude = [
     "plugin/contrib",
     "plugin/lib",

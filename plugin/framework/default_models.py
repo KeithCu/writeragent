@@ -66,20 +66,9 @@ def get_provider_defaults(provider):
 DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "DeepSeek V3", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 163840, "ids": {"deepseek": "deepseek-chat"}, "default_text": True},
     {"display_name": "MiniMax M2.7", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 197000, "ids": {"together": "MiniMaxAI/MiniMax-M2.7"}, "default_text": True},
-    {
-        "display_name": "GPT-OSS 120B",
-        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
-        "context_length": 131072,
-        "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b"},
-        "default_text": True,
-    },
+    {"display_name": "GPT-OSS 120B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 131072, "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b"}, "default_text": True},
     {"display_name": "GPT-OSS 20B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 128000, "ids": {"together": "openai/gpt-oss-20b"}, "default_text": True},
-    {
-        "display_name": "Mistral Large 3",
-        "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS,
-        "context_length": 262144,
-        "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"},
-    },
+    {"display_name": "Mistral Large 3", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 262144, "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"}},
     {
         "display_name": "Gemini 3.1 Flash Lite Preview",
         "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS,

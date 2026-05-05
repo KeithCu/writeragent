@@ -33,13 +33,7 @@ GALLERY_IMAGE_DIR = GALLERY_NAME
 
 
 def get_type_doc(doc):
-    TYPE_DOC = {
-        "calc": "com.sun.star.sheet.SpreadsheetDocument",
-        "draw": "com.sun.star.drawing.DrawingDocument",
-        "impress": "com.sun.star.presentation.PresentationDocument",
-        "web": "com.sun.star.text.WebDocument",
-        "writer": "com.sun.star.text.TextDocument",
-    }
+    TYPE_DOC = {"calc": "com.sun.star.sheet.SpreadsheetDocument", "draw": "com.sun.star.drawing.DrawingDocument", "impress": "com.sun.star.presentation.PresentationDocument", "web": "com.sun.star.text.WebDocument", "writer": "com.sun.star.text.TextDocument"}
     for k, v in TYPE_DOC.items():
         if doc.supportsService(v):
             return k

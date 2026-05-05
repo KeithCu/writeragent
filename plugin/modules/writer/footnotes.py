@@ -166,11 +166,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 class FootnotesList(ToolWriterFootnoteBase):
     name = "footnotes_list"
     description = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting."
-    parameters = {
-        "type": "object",
-        "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to list footnotes or endnotes."}},
-        "required": ["note_type"],
-    }
+    parameters = {"type": "object", "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to list footnotes or endnotes."}}, "required": ["note_type"]}
     is_mutation = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -195,11 +191,7 @@ class FootnotesList(ToolWriterFootnoteBase):
 
 class FootnotesEdit(ToolWriterFootnoteBase):
     name = "footnotes_edit"
-    description = (
-        "Edits an existing footnote or endnote. You must provide the index (from footnotes_list) "
-        "and the new text content. You can optionally provide a new custom label, or set it to an "
-        "empty string to revert to auto-numbering."
-    )
+    description = "Edits an existing footnote or endnote. You must provide the index (from footnotes_list) and the new text content. You can optionally provide a new custom label, or set it to an empty string to revert to auto-numbering."
     parameters = {
         "type": "object",
         "properties": {
@@ -245,10 +237,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
     description = "Deletes an existing footnote or endnote based on its index (from footnotes_list)."
     parameters = {
         "type": "object",
-        "properties": {
-            "note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to delete a footnote or an endnote."},
-            "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnotes_list)."},
-        },
+        "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to delete a footnote or an endnote."}, "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnotes_list)."}},
         "required": ["note_type", "index"],
     }
     is_mutation = True
@@ -284,11 +273,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
 class FootnotesSettingsGet(ToolWriterFootnoteBase):
     name = "footnotes_settings_get"
     description = "Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles."
-    parameters = {
-        "type": "object",
-        "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to get settings for footnotes or endnotes."}},
-        "required": ["note_type"],
-    }
+    parameters = {"type": "object", "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to get settings for footnotes or endnotes."}}, "required": ["note_type"]}
     is_mutation = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -327,10 +312,7 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
     description = "Updates the formatting and numbering settings for footnotes or endnotes. You can specify which properties to change (e.g., Prefix, Suffix, StartAt, NumberingType)."
     parameters = {
         "type": "object",
-        "properties": {
-            "note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to update settings for footnotes or endnotes."},
-            "properties": {"type": "object", "description": "A dictionary of properties to update (e.g., {'Prefix': '[', 'Suffix': ']'})"},
-        },
+        "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to update settings for footnotes or endnotes."}, "properties": {"type": "object", "description": "A dictionary of properties to update (e.g., {'Prefix': '[', 'Suffix': ']'})"}},
         "required": ["note_type", "properties"],
     }
     is_mutation = True

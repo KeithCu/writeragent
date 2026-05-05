@@ -90,14 +90,7 @@ class CreateSheet(ToolCalcSheetBase):
     name = "create_sheet"
     intent = "edit"
     description = "Creates a new sheet."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "sheet_name": {"type": "string", "description": "New sheet name"},
-            "position": {"type": "integer", "description": ("Sheet position (0-based). Appended to end if not specified.")},
-        },
-        "required": ["sheet_name"],
-    }
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "New sheet name"}, "position": {"type": "integer", "description": ("Sheet position (0-based). Appended to end if not specified.")}}, "required": ["sheet_name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
