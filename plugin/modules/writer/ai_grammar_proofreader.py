@@ -64,8 +64,73 @@ GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # Locale-agnostic sentence terminators used as a conservative fallback signal.
-_SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
-_TRAILING_CLOSERS = frozenset(("\"", "'", ")", "]", "}", ">", "»", "“", "‘", "」", "』", "）", "］", "〉", "》", "】", "〕", "〗", "〛"))
+# Full Unicode 15.1 Sentence_Terminal (STerm) property set — equivalent to \p{STerm}.
+# Source: https://www.unicode.org/Public/15.1.0/ucd/PropList.txt
+_SENTENCE_TERMINATORS = frozenset((
+    "!", ".", "?",              # ASCII
+    "…",                        # Horizontal ellipsis
+    "։",                        # Armenian full stop
+    "؟", "۔",                   # Arabic question mark / full stop
+    "܀", "܁", "܂",              # Syriac
+    "߹",                        # NKo exclamation mark
+    "।", "॥",                   # Devanagari danda / double danda
+    "၊", "။",                   # Myanmar
+    "።", "፧", "፨",              # Ethiopic
+    "᙮",                        # Canadian syllabics full stop
+    "᠃", "᠉",                   # Mongolian full stop / Manchu full stop
+    "᥄", "᥅",                   # Limbu
+    "᪨", "᪩", "᪪", "᪫",        # Tai Tham
+    "᭚", "᭛", "᭞", "᭟", "᭽", "᭾",  # Balinese
+    "᰻",                        # Lepcha
+    "᱾", "᱿",                   # Ol Chiki
+    "‼", "‽", "⁇", "⁈", "⁉",   # Double/combined punctuation
+    "⳹", "⳺", "⳻", "⳾",         # Coptic
+    "⸮", "⸼",                   # Reversed question mark / stenographic full stop
+    "。",                        # Ideographic full stop
+    "꓿",                        # Lisu
+    "꘎", "꘏",                   # Vai
+    "꛳", "꛷",                   # Bamum
+    "︑", "︒", "︕", "︖", "︙",  # Presentation forms (vertical)
+    "﹒", "﹖", "﹗",             # Small forms
+    "！", "．", "？",             # Fullwidth
+    "｡",                        # Halfwidth ideographic full stop
+    "𑅃",                        # Chakma question mark
+    "𖫵",                        # Bassa Vah full stop
+    "𖺘", "𖺚",                  # Medefaidrin
+    "𛲟",                        # Duployan
+    "𝪈",                        # Signwriting full stop
+    "𞥞", "𞥟",                  # Adlam
+))
+# Pe+Pf spans 87 chars; hardcoded from Unicode 15 Pe+Pf property set.
+# ASCII ", ', > are informal closers not classified Pe/Pf but common in prose.
+# To regenerate after a Unicode update, run:
+#   import sys, unicodedata
+#   chars = sorted(chr(cp) for cp in range(sys.maxunicode + 1)
+#                  if unicodedata.category(chr(cp)) in ('Pe', 'Pf'))
+#   print(frozenset(chars) | frozenset('"\'>'))
+
+_TRAILING_CLOSERS: frozenset[str] = frozenset((
+    # ASCII Pe
+    ")", "]", "}",
+    # Pf: closing quotes (», ›, curly " ', and scholarly brackets)
+    "»", "’", "”", "›", "⸃", "⸅", "⸊", "⸍", "⸝", "⸡",
+    # CJK / fullwidth / halfwidth Pe
+    "〉", "》", "」", "』", "】", "〕", "〗", "〙", "〛", "〞", "〟",
+    "﴾", "︘", "︶", "︸", "︺", "︼", "︾", "﹀", "﹂", "﹄", "﹈",
+    "﹚", "﹜", "﹞", "）", "］", "｝", "｠", "｣",
+    # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
+    "༻", "༽", "᚜",
+    "⁆", "⁾", "₎", "⌉", "⌋",
+    "❩", "❫", "❭", "❯", "❱", "❳", "❵",
+    "⟆", "⟧", "⟩", "⟫", "⟭", "⟯",
+    "⦄", "⦆", "⦈", "⦊", "⦌", "⦎", "⦐", "⦒", "⦔", "⦖", "⦘",
+    "⧙", "⧛", "⧽",
+    "⸣", "⸥", "⸧", "⸩",
+    "⹖", "⹘", "⹚", "⹜",
+    # ASCII informal closers (not Pe/Pf in Unicode but common in prose)
+    '"', "'", ">",
+))
+
 _NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
 uno_mod: Any
