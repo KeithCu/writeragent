@@ -40,7 +40,7 @@ _ACP_PROTOCOL_VERSION = 1
 
 class ACPBackend(AgentBackend):
     """Base class for ACP-based agent backends.
-    
+
     Subclasses must implement:
     - get_binary_name(): return binary name (e.g., "hermes")
     - get_display_name(): return UI display name
@@ -62,6 +62,7 @@ class ACPBackend(AgentBackend):
         """Load configuration from WriterAgent settings."""
         try:
             from plugin.framework.config import get_config
+
             path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
             if path and os.path.isfile(path):
                 self._binary_path = path
@@ -76,12 +77,12 @@ class ACPBackend(AgentBackend):
     def _find_binary(self):
         """Find the binary in PATH or common locations."""
         binary_name = self.get_binary_name()
-        
+
         # Try the binary name directly
         path = shutil.which(binary_name)
         if path:
             return path
-        
+
         # Check common install locations
         home = os.path.expanduser("~")
         for candidate in (
@@ -90,7 +91,7 @@ class ACPBackend(AgentBackend):
         ):
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
-        
+
         return None
 
     def get_binary_name(self) -> str:
@@ -130,10 +131,7 @@ class ACPBackend(AgentBackend):
         if self._conn and self._conn.is_alive:
             return
         if not self._binary_path:
-            raise RuntimeError(
-                f"{self.get_display_name()} binary not found. "
-                f"Install {self.get_binary_name()} and ensure it's in PATH."
-            )
+            raise RuntimeError(f"{self.get_display_name()} binary not found. Install {self.get_binary_name()} and ensure it's in PATH.")
 
         cmd_line = [self._binary_path]
         cmd_line.extend(self._extra_args)
@@ -151,14 +149,18 @@ class ACPBackend(AgentBackend):
 
         # Initialize handshake
         try:
-            result = self._conn.send_request("initialize", {
-                "protocolVersion": _ACP_PROTOCOL_VERSION,
-                "clientCapabilities": {
-                    "fs": {"read_text_file": False, "write_text_file": False},
-                    "terminal": False,
+            result = self._conn.send_request(
+                "initialize",
+                {
+                    "protocolVersion": _ACP_PROTOCOL_VERSION,
+                    "clientCapabilities": {
+                        "fs": {"read_text_file": False, "write_text_file": False},
+                        "terminal": False,
+                    },
+                    "clientInfo": {"name": "WriterAgent", "version": "1.0"},
                 },
-                "clientInfo": {"name": "WriterAgent", "version": "1.0"},
-            }, timeout=15)
+                timeout=15,
+            )
             log.info(f"ACP initialized: {result}")
         except Exception as e:
             log.error(f"ACP initialize failed: {e}")
@@ -174,12 +176,14 @@ class ACPBackend(AgentBackend):
         # mcp_servers is required by the ACP schema
         mcp_servers = []
         if mcp_url:
-            mcp_servers.append({
-                "url": mcp_url,
-                "name": "writeragent",
-                "type": "http",
-                "headers": [],
-            })
+            mcp_servers.append(
+                {
+                    "url": mcp_url,
+                    "name": "writeragent",
+                    "type": "http",
+                    "headers": [],
+                }
+            )
 
         params = {
             "cwd": os.getcwd(),
@@ -196,12 +200,7 @@ class ACPBackend(AgentBackend):
             raise
 
     def _build_prompt_blocks(
-        self,
-        user_message: str,
-        document_context: Optional[str] = None,
-        system_prompt: Optional[str] = None,
-        selection_text: Optional[str] = None,
-        document_url: Optional[str] = None
+        self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, selection_text: Optional[str] = None, document_url: Optional[str] = None
     ) -> List[Dict]:
         """Build ACP prompt content blocks."""
         prompt_blocks = []
@@ -209,40 +208,47 @@ class ACPBackend(AgentBackend):
 
         if is_slash_command:
             # For slash commands, only send the command itself
-            prompt_blocks.append({
-                "type": "text",
-                "text": user_message
-            })
+            prompt_blocks.append({"type": "text", "text": user_message})
         else:
             # Add system prompt if provided
             if system_prompt:
-                prompt_blocks.append({
-                    "type": "text",
-                    "text": system_prompt,
-                })
+                prompt_blocks.append(
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                    }
+                )
             # Add document context if provided
             if document_context:
-                prompt_blocks.append({
-                    "type": "text",
-                    "text": f"[DOCUMENT CONTENT]\n{document_context}",
-                })
+                prompt_blocks.append(
+                    {
+                        "type": "text",
+                        "text": f"[DOCUMENT CONTENT]\n{document_context}",
+                    }
+                )
             # Add selection text if provided
             if selection_text:
-                prompt_blocks.append({
-                    "type": "text",
-                    "text": f"[SELECTED TEXT]\n{selection_text}",
-                })
+                prompt_blocks.append(
+                    {
+                        "type": "text",
+                        "text": f"[SELECTED TEXT]\n{selection_text}",
+                    }
+                )
             # Add document URL if provided
             if document_url:
-                prompt_blocks.append({
-                    "type": "text",
-                    "text": f"Document URL: {document_url}",
-                })
+                prompt_blocks.append(
+                    {
+                        "type": "text",
+                        "text": f"Document URL: {document_url}",
+                    }
+                )
             # Always add the user message last
-            prompt_blocks.append({
-                "type": "text",
-                "text": user_message,
-            })
+            prompt_blocks.append(
+                {
+                    "type": "text",
+                    "text": user_message,
+                }
+            )
 
         return prompt_blocks
 
@@ -253,7 +259,7 @@ class ACPBackend(AgentBackend):
             if "content" in update:
                 content = update["content"]
                 log.info(f"Found content: {content}")  # DEBUG: Log content
-                
+
                 # Handle both list format and direct dict format
                 if isinstance(content, list):
                     # List format: [{"type": "text", "text": "..."}, ...]
@@ -293,7 +299,7 @@ class ACPBackend(AgentBackend):
             if "content" in update:
                 content = update["content"]
                 log.info(f"Found content in agent update: {content}")  # DEBUG: Log content
-                
+
                 # Handle both list format and direct dict format
                 if isinstance(content, list):
                     # List format: [{"type": "text", "text": "..."}, ...]
@@ -326,18 +332,7 @@ class ACPBackend(AgentBackend):
             else:
                 log.info(f"Agent update has no 'content' field. Keys: {list(update.keys())}")  # DEBUG
 
-    def send(
-        self,
-        queue,
-        user_message,
-        document_context,
-        document_url,
-        system_prompt=None,
-        mcp_url=None,
-        selection_text=None,
-        stop_checker=None,
-        **kwargs
-    ):
+    def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
         """Send a message via ACP stdio."""
         self._stop_requested = False
         self._prompt_done.clear()
@@ -347,10 +342,7 @@ class ACPBackend(AgentBackend):
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(
-                f"Cannot start {self.get_display_name()} ACP. "
-                f"Is {self.get_binary_name()} installed? Error: {e}"
-            ))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"Cannot start {self.get_display_name()} ACP. Is {self.get_binary_name()} installed? Error: {e}"))))
             return
 
         try:
@@ -362,13 +354,7 @@ class ACPBackend(AgentBackend):
         queue.put((StreamQueueKind.STATUS, f"Sending to {self.get_display_name()}..."))
 
         # Build prompt content blocks
-        prompt_blocks = self._build_prompt_blocks(
-            user_message=user_message,
-            document_context=document_context,
-            system_prompt=system_prompt,
-            selection_text=selection_text,
-            document_url=document_url
-        )
+        prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url)
 
         # Set up notification handler for streaming updates
         def on_notification(method, params, msg_id=None):
@@ -392,10 +378,14 @@ class ACPBackend(AgentBackend):
         # Send prompt
         try:
             if self._conn:
-                result = self._conn.send_request("session/prompt", {
-                    "sessionId": self._session_id,
-                    "prompt": prompt_blocks,
-                }, timeout=600)
+                result = self._conn.send_request(
+                    "session/prompt",
+                    {
+                        "sessionId": self._session_id,
+                        "prompt": prompt_blocks,
+                    },
+                    timeout=600,
+                )
 
                 # Process the final response
                 if result:
@@ -423,9 +413,7 @@ class ACPBackend(AgentBackend):
         if self._conn:
             try:
                 # Send interrupt notification if supported
-                self._conn.send_notification("session/interrupt", {
-                    "sessionId": self._session_id
-                })
+                self._conn.send_notification("session/interrupt", {"sessionId": self._session_id})
             except Exception:
                 pass
         self._prompt_done.set()
@@ -435,7 +423,7 @@ class ACPBackend(AgentBackend):
         if not self._conn or not self._conn.is_alive:
             log.warning("Cannot submit approval, ACP connection is dead")
             return
-            
+
         try:
             self._conn.send_response(request_id, result={"approved": approved})
         except Exception as e:

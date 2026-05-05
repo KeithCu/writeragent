@@ -33,14 +33,25 @@ _STYLE_FAMILIES = [
 # Properties to read per style family.
 _FAMILY_PROPS = {
     "ParagraphStyles": [
-        "ParentStyle", "FollowStyle",
-        "CharFontName", "CharHeight", "CharWeight",
-        "ParaAdjust", "ParaTopMargin", "ParaBottomMargin",
+        "ParentStyle",
+        "FollowStyle",
+        "CharFontName",
+        "CharHeight",
+        "CharWeight",
+        "ParaAdjust",
+        "ParaTopMargin",
+        "ParaBottomMargin",
     ],
     "CharacterStyles": [
-        "ParentStyle", "CharFontName", "CharHeight",
-        "CharWeight", "CharPosture", "CharColor",
-        "CharUnderline", "CharStrikeout", "CharCaseMap",
+        "ParentStyle",
+        "CharFontName",
+        "CharHeight",
+        "CharWeight",
+        "CharPosture",
+        "CharColor",
+        "CharUnderline",
+        "CharStrikeout",
+        "CharCaseMap",
     ],
 }
 
@@ -57,20 +68,14 @@ class ListStyles(ToolBase):
     """List available styles in a given family."""
 
     name = "list_styles"
-    description = (
-        "List available styles in the document. "
-        "Omit family to list all style family names; set family to list styles in that family."
-    )
+    description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
     parameters = {
         "type": "object",
         "properties": {
             "family": {
                 "type": "string",
                 "enum": ["ParagraphStyles", "CharacterStyles"],
-                "description": (
-                    "Style family (ParagraphStyles or CharacterStyles). "
-                    "Default: ParagraphStyles."
-                ),
+                "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles."),
             },
         },
         "required": [],
@@ -91,11 +96,7 @@ class ListStyles(ToolBase):
             }
 
         family = str(family or "ParagraphStyles").strip()
-        style_family = self.get_item(
-            doc, "getStyleFamilies", family,
-            missing_msg="Document does not support style families.",
-            not_found_msg="Unknown style family: %s" % family
-        )
+        style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
         if isinstance(style_family, dict):
             # To match old behavior returning available_families instead of available
             if "available" in style_family:
@@ -108,7 +109,7 @@ class ListStyles(ToolBase):
 
         for name in element_names:
             style = style_family.getByName(name)
-            
+
             # Predicates for language-agnostic filtering
             in_use = style.isInUse()
             user_defined = style.isUserDefined()
@@ -121,7 +122,7 @@ class ListStyles(ToolBase):
 
             # Core visibility logic:
             show = in_use or user_defined or is_physical
-            
+
             # 1. Core structural fallback:
             if not show:
                 if family == "ParagraphStyles":
@@ -142,24 +143,24 @@ class ListStyles(ToolBase):
             if show and family == "ParagraphStyles":
                 try:
                     cat = style.getPropertyValue("Category")
-                    
+
                     # BLOCK List, Index, Extra, and HTML categories unless used/custom.
                     if cat in (2, 3, 4, 5) and not (in_use or user_defined):
                         show = False
-                    
+
                     # BLOCK abstract 'Heading' parent and the 'Standard' base style.
                     elif name in ("Heading", "Standard", "Default Paragraph Style"):
                         show = False
-                    
+
                     # BLOCK deep headings (> 5) unless used/custom.
                     elif cat == 1 and not (in_use or user_defined):
                         try:
-                            level = int(name[len("Heading "):])
+                            level = int(name[len("Heading ") :])
                             if level > 5:
                                 show = False
                         except (ValueError, TypeError):
                             pass
-                    
+
                     # For Category 0 (TEXT), only show "Core" styles if not used/custom.
                     # This prunes Salutation, Appendix, Marginalia, etc.
                     elif cat == 0 and not (in_use or user_defined):
@@ -171,7 +172,6 @@ class ListStyles(ToolBase):
 
             if not show:
                 continue
-
 
             entry = {
                 "name": name,
@@ -200,10 +200,7 @@ class GetStyleInfo(ToolBase):
     """Get detailed properties of a named style."""
 
     name = "get_style_info"
-    description = (
-        "Get detailed properties of a specific style "
-        "(font, size, margins, etc.)."
-    )
+    description = "Get detailed properties of a specific style (font, size, margins, etc.)."
     parameters = {
         "type": "object",
         "properties": {
@@ -224,11 +221,7 @@ class GetStyleInfo(ToolBase):
         family = kwargs.get("family", "ParagraphStyles")
 
         doc = ctx.doc
-        style_family = self.get_item(
-            doc, "getStyleFamilies", family,
-            missing_msg="Document does not support style families.",
-            not_found_msg="Unknown style family: %s" % family
-        )
+        style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
         if isinstance(style_family, dict):
             return style_family
 
@@ -250,8 +243,6 @@ class GetStyleInfo(ToolBase):
                 pass
 
         return {"status": "ok", **info}
-
-
 
 
 class ApplyStyle(FrameworkToolBase):
@@ -278,9 +269,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": {
                 "type": "string",
                 "enum": ["ParagraphStyles", "CharacterStyles"],
-                "description": (
-                    "Style family. Default: ParagraphStyles."
-                ),
+                "description": ("Style family. Default: ParagraphStyles."),
             },
             "target": {
                 "type": "string",
@@ -311,10 +300,7 @@ class ApplyStyle(FrameworkToolBase):
         family = kwargs.get("family", "ParagraphStyles")
         uno_prop = self._PROPERTY_MAP.get(family)
         if not uno_prop:
-            return self._tool_error(
-                "Unknown family: %s. Use ParagraphStyles or CharacterStyles." % family
-            )
-
+            return self._tool_error("Unknown family: %s. Use ParagraphStyles or CharacterStyles." % family)
 
         # UNO quirk: the default character style is applied by setting
         # CharStyleName to an empty string.
@@ -334,7 +320,5 @@ class ApplyStyle(FrameworkToolBase):
         try:
             cursor.setPropertyValue(uno_prop, uno_value)
         except Exception as e:
-            return self._tool_error(
-                "Could not apply style: %s" % e
-            )
+            return self._tool_error("Could not apply style: %s" % e)
         return {"status": "ok", "style_name": style_name, "family": family}

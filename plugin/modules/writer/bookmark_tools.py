@@ -17,10 +17,7 @@ from plugin.modules.writer.base import ToolWriterBookmarkBase
 
 class ListBookmarks(ToolWriterBookmarkBase):
     name = "list_bookmarks"
-    description = (
-        "List all bookmarks in the document with their anchor text preview. "
-        "Includes both user bookmarks and _mcp_ heading bookmarks."
-    )
+    description = "List all bookmarks in the document with their anchor text preview. Includes both user bookmarks and _mcp_ heading bookmarks."
     parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
@@ -34,10 +31,12 @@ class ListBookmarks(ToolWriterBookmarkBase):
             for name in names:
                 bm = bookmarks.getByName(name)
                 anchor_text = bm.getAnchor().getString()
-                result.append({
-                    "name": name,
-                    "text": anchor_text[:100] if anchor_text else "",
-                })
+                result.append(
+                    {
+                        "name": name,
+                        "text": anchor_text[:100] if anchor_text else "",
+                    }
+                )
             return {"status": "ok", "bookmarks": result, "count": len(result)}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -45,10 +44,7 @@ class ListBookmarks(ToolWriterBookmarkBase):
 
 class CleanupBookmarks(ToolWriterBookmarkBase):
     name = "cleanup_bookmarks"
-    description = (
-        "Remove all _mcp_* bookmarks from the document. "
-        "Use when bookmarks become stale after major edits."
-    )
+    description = "Remove all _mcp_* bookmarks from the document. Use when bookmarks become stale after major edits."
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
@@ -60,10 +56,7 @@ class CleanupBookmarks(ToolWriterBookmarkBase):
 
 class CreateBookmark(ToolWriterBookmarkBase):
     name = "create_bookmark"
-    description = (
-        "Create a new bookmark at the current cursor or selection in Writer. "
-        "If text is selected, the bookmark will span the selection."
-    )
+    description = "Create a new bookmark at the current cursor or selection in Writer. If text is selected, the bookmark will span the selection."
     parameters = {
         "type": "object",
         "properties": {
@@ -168,7 +161,7 @@ class RenameBookmark(ToolWriterBookmarkBase):
             "new_name": {
                 "type": "string",
                 "description": "The new name for the bookmark.",
-            }
+            },
         },
         "required": ["old_name", "new_name"],
     }
@@ -238,7 +231,7 @@ class GetBookmark(ToolWriterBookmarkBase):
                 "bookmark": {
                     "name": name,
                     "text": text_content,
-                }
+                },
             }
         except Exception as e:
             return self._tool_error(f"Failed to get bookmark details: {str(e)}")
@@ -250,9 +243,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
     name = "resolve_bookmark"
     intent = "navigate"
     description = (
-        "Resolve a bookmark to its current paragraph index and text. "
-        "Most tools accept 'bookmark:NAME' as locator directly -- use "
-        "resolve_bookmark only when you need the raw paragraph index."
+        "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
     )
     parameters = {
         "type": "object",
@@ -279,16 +270,8 @@ class ResolveBookmark(ToolWriterBookmarkBase):
         if not bookmarks.hasByName(bookmark_name):
             hint = "Bookmark '%s' not found." % bookmark_name
             if bookmark_name.startswith("_mcp_"):
-                hint += (
-                    " It may have been deleted or the document changed. "
-                    "Use heading_text:<text> locator for resilient "
-                    "heading addressing, or call get_document_tree "
-                    "to refresh bookmarks."
-                )
-                existing = [
-                    n for n in bookmarks.getElementNames()
-                    if n.startswith("_mcp_")
-                ]
+                hint += " It may have been deleted or the document changed. Use heading_text:<text> locator for resilient heading addressing, or call get_document_tree to refresh bookmarks."
+                existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: %s" % ", ".join(existing[:10])
             return self._tool_error(hint)
@@ -300,9 +283,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
         doc_svc = ctx.services.document
         para_ranges = doc_svc.get_paragraph_ranges(doc)
         text_obj = doc.getText()
-        para_idx = doc_svc.find_paragraph_for_range(
-            anchor, para_ranges, text_obj
-        )
+        para_idx = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
 
         result = {
             "status": "ok",
@@ -316,9 +297,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
             if element.supportsService("com.sun.star.text.Paragraph"):
                 try:
                     result["text"] = element.getString()
-                    result["outline_level"] = element.getPropertyValue(
-                        "OutlineLevel"
-                    )
+                    result["outline_level"] = element.getPropertyValue("OutlineLevel")
                 except Exception:
                     pass
 

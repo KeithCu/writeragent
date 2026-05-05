@@ -47,9 +47,15 @@ def _parse_color(color_str):
         return None
     color_str = color_str.strip().lower()
     color_names = {
-        "red": 0xFF0000, "green": 0x00FF00, "blue": 0x0000FF,
-        "yellow": 0xFFFF00, "white": 0xFFFFFF, "black": 0x000000,
-        "orange": 0xFF8C00, "purple": 0x800080, "gray": 0x808080,
+        "red": 0xFF0000,
+        "green": 0x00FF00,
+        "blue": 0x0000FF,
+        "yellow": 0xFFFF00,
+        "white": 0xFFFFFF,
+        "black": 0x000000,
+        "orange": 0xFF8C00,
+        "purple": 0x800080,
+        "gray": 0x808080,
     }
     if color_str in color_names:
         return color_names[color_str]
@@ -68,20 +74,14 @@ class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
     name = "read_cell_range"
-    description = (
-        "Reads values from the specified cell range(s). "
-        "Supports lists for non-contiguous areas."
-    )
+    description = "Reads values from the specified cell range(s). Supports lists for non-contiguous areas."
     parameters = {
         "type": "object",
         "properties": {
             "range_name": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "Cell range(s) (e.g. [\"A1:D10\"] or [\"A1\", \"C2:E5\"]) "
-                    "for one or more ranges/cells."
-                ),
+                "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.'),
             },
         },
         "required": ["range_name"],
@@ -104,6 +104,7 @@ class ReadCellRange(ToolBase):
         results = [inspector.read_range(r) for r in rn]
         return {"status": "ok", "result": results}
 
+
 class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
@@ -120,17 +121,14 @@ class WriteCellRange(ToolBase):
             "range_name": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "Target range(s) (e.g. [\"A1:A10\"] or [\"A1\", \"B2:D2\"]) "
-                    "for one or more ranges."
-                ),
+                "description": ('Target range(s) (e.g. ["A1:A10"] or ["A1", "B2:D2"]) for one or more ranges.'),
             },
             "formula_or_values": {
                 "type": "string",
                 "description": (
                     "Single string: fills the entire range with that value or formula "
                     "(use '=' prefix for formulas). JSON array: must have exactly as "
-                    "many elements as cells in the range (e.g. '[\"a\", \"b\"]' for 2 cells). "
+                    'many elements as cells in the range (e.g. \'["a", "b"]\' for 2 cells). '
                     "Empty string/array clears the range."
                 ),
             },
@@ -230,20 +228,14 @@ class SetCellStyle(ToolBase):
 
     name = "set_style"
     intent = "edit"
-    description = (
-        "Applies style and formatting to the specified cell(s) or "
-        "range(s). Supports lists for non-contiguous areas."
-    )
+    description = "Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas."
     parameters = {
         "type": "object",
         "properties": {
             "range_name": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "Target cell(s) or range(s) (e.g. [\"A1:D10\"] or "
-                    "[\"A1\", \"B2\"])."
-                ),
+                "description": ('Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).'),
             },
             "bold": {"type": "boolean", "description": "Bold font"},
             "italic": {"type": "boolean", "description": "Italic font"},
@@ -269,10 +261,7 @@ class SetCellStyle(ToolBase):
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
             "border_color": {
                 "type": "string",
-                "description": (
-                    "Border color (hex or name). Draws a frame around "
-                    "the cell/range."
-                ),
+                "description": ("Border color (hex or name). Draws a frame around the cell/range."),
             },
             "number_format": {
                 "type": "string",
@@ -346,16 +335,14 @@ class SetCellStyle(ToolBase):
             "message": f"Style applied to {len(rn)} ranges",
         }
 
+
 class MergeCells(ToolBase):
     """Merge a cell range."""
 
     name = "merge_cells"
     intent = "edit"
     description = (
-        "Merges the specified cell range(s). Typically used for main "
-        "headers. Write text with write_formula_range and style with "
-        "set_style after merging. Supports lists for non-contiguous "
-        "areas."
+        "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
     )
     parameters = {
         "type": "object",
@@ -363,9 +350,7 @@ class MergeCells(ToolBase):
             "range_name": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "Range(s) to merge (e.g. [\"A1:D1\"] or [\"A1:B1\", \"C1:D1\"])."
-                ),
+                "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).'),
             },
             "center": {
                 "type": "boolean",
@@ -396,45 +381,32 @@ class MergeCells(ToolBase):
             "message": f"Merged cells in {len(rn)} ranges",
         }
 
+
 class SortRange(ToolBase):
     """Sort a range by a column."""
 
     name = "sort_range"
     intent = "edit"
-    description = (
-        "Sorts the specified range(s) by a column. Use for ordering "
-        "rows by values in one column. Supports lists for non-contiguous "
-        "areas."
-    )
+    description = "Sorts the specified range(s) by a column. Use for ordering rows by values in one column. Supports lists for non-contiguous areas."
     parameters = {
         "type": "object",
         "properties": {
             "range_name": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "Range(s) to sort (e.g. [\"A1:D10\"] or [\"A1:B10\", \"D1:E10\"])."
-                ),
+                "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).'),
             },
             "sort_column": {
                 "type": "integer",
-                "description": (
-                    "0-based column index within the range to sort by "
-                    "(default: 0)"
-                ),
+                "description": ("0-based column index within the range to sort by (default: 0)"),
             },
             "ascending": {
                 "type": "boolean",
-                "description": (
-                    "True for ascending, False for descending (default: true)"
-                ),
+                "description": ("True for ascending, False for descending (default: true)"),
             },
             "has_header": {
                 "type": "boolean",
-                "description": (
-                    "Is the first row a header that should not be sorted? "
-                    "(default: true)"
-                ),
+                "description": ("Is the first row a header that should not be sorted? (default: true)"),
             },
         },
         "required": ["range_name"],
@@ -455,29 +427,31 @@ class SortRange(ToolBase):
             return self._tool_error("range_name is required")
         if len(rn) == 1:
             result = manipulator.sort_range(
-                rn[0], sort_column=sort_column,
-                ascending=ascending, has_header=has_header,
+                rn[0],
+                sort_column=sort_column,
+                ascending=ascending,
+                has_header=has_header,
             )
             return {"status": "ok", "message": result}
         for r in rn:
             manipulator.sort_range(
-                r, sort_column=sort_column,
-                ascending=ascending, has_header=has_header,
+                r,
+                sort_column=sort_column,
+                ascending=ascending,
+                has_header=has_header,
             )
         return {
             "status": "ok",
             "message": f"Sorted {len(rn)} ranges",
         }
 
+
 class DeleteStructure(ToolBase):
     """Delete rows or columns."""
 
     name = "delete_structure"
     intent = "edit"
-    description = (
-        "Deletes rows or columns. Use for structural changes; "
-        "prefer ranges for data operations."
-    )
+    description = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
     parameters = {
         "type": "object",
         "properties": {
@@ -488,10 +462,7 @@ class DeleteStructure(ToolBase):
             },
             "start": {
                 "type": "string",
-                "description": (
-                    "For rows: 1-based row number (e.g. \"5\"); for columns: "
-                    "column letter (e.g. \"C\")."
-                ),
+                "description": ('For rows: 1-based row number (e.g. "5"); for columns: column letter (e.g. "C").'),
             },
             "count": {
                 "type": "integer",

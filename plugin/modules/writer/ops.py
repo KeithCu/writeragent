@@ -38,33 +38,17 @@ def find_paragraph_for_range(anchor, para_ranges, text_obj):
     """
     try:
         if not anchor:
-            raise WriterError(
-                "Anchor is None",
-                code="WRITER_ANCHOR_NULL",
-                details={"operation": "find_paragraph_for_range"}
-            )
+            raise WriterError("Anchor is None", code="WRITER_ANCHOR_NULL", details={"operation": "find_paragraph_for_range"})
         if not para_ranges:
-            raise WriterError(
-                "Paragraph ranges list is empty or None",
-                code="WRITER_PARA_RANGES_EMPTY",
-                details={"operation": "find_paragraph_for_range"}
-            )
+            raise WriterError("Paragraph ranges list is empty or None", code="WRITER_PARA_RANGES_EMPTY", details={"operation": "find_paragraph_for_range"})
         if not text_obj:
-            raise WriterError(
-                "Text object is None",
-                code="WRITER_TEXT_OBJ_NULL",
-                details={"operation": "find_paragraph_for_range"}
-            )
+            raise WriterError("Text object is None", code="WRITER_TEXT_OBJ_NULL", details={"operation": "find_paragraph_for_range"})
 
         match_start = anchor.getStart()
         for i, para in enumerate(para_ranges):
             try:
-                cmp_start = text_obj.compareRegionStarts(
-                    match_start, para.getStart()
-                )
-                cmp_end = text_obj.compareRegionStarts(
-                    match_start, para.getEnd()
-                )
+                cmp_start = text_obj.compareRegionStarts(match_start, para.getStart())
+                cmp_end = text_obj.compareRegionStarts(match_start, para.getEnd())
                 if cmp_start <= 0 and cmp_end >= 0:
                     return i
             except Exception as e:
@@ -75,11 +59,7 @@ def find_paragraph_for_range(anchor, para_ranges, text_obj):
         raise
     except Exception as e:
         log.debug("find_paragraph_for_range: failed", exc_info=True)
-        raise WriterError(
-            f"Failed to find paragraph for range: {str(e)}",
-            code="WRITER_FIND_PARA_ERROR",
-            details={"original_error": str(e), "error_type": type(e).__name__}
-        ) from e
+        raise WriterError(f"Failed to find paragraph for range: {str(e)}", code="WRITER_FIND_PARA_ERROR", details={"original_error": str(e), "error_type": type(e).__name__}) from e
     return 0
 
 
@@ -91,19 +71,11 @@ def get_selection_range(model):
     """
     try:
         if not model:
-            raise WriterError(
-                "Document model is None",
-                code="WRITER_MODEL_NULL",
-                details={"operation": "get_selection_range"}
-            )
+            raise WriterError("Document model is None", code="WRITER_MODEL_NULL", details={"operation": "get_selection_range"})
 
         ctrl = model.getCurrentController()
         if not ctrl:
-            raise WriterError(
-                "Document controller is None",
-                code="WRITER_CONTROLLER_NULL",
-                details={"operation": "get_selection_range"}
-            )
+            raise WriterError("Document controller is None", code="WRITER_CONTROLLER_NULL", details={"operation": "get_selection_range"})
 
         sel = ctrl.getSelection()
         if not sel or sel.getCount() == 0:
@@ -116,11 +88,7 @@ def get_selection_range(model):
 
         text = model.getText()
         if not text:
-            raise WriterError(
-                "Text object not found in model",
-                code="WRITER_TEXT_NOT_FOUND",
-                details={"operation": "get_selection_range"}
-            )
+            raise WriterError("Text object not found in model", code="WRITER_TEXT_NOT_FOUND", details={"operation": "get_selection_range"})
 
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
@@ -136,11 +104,7 @@ def get_selection_range(model):
         raise
     except Exception as e:
         log.debug("get_selection_range: failed", exc_info=True)
-        raise WriterError(
-            f"Failed to get selection range: {str(e)}",
-            code="WRITER_SELECTION_RANGE_ERROR",
-            details={"original_error": str(e), "error_type": type(e).__name__}
-        ) from e
+        raise WriterError(f"Failed to get selection range: {str(e)}", code="WRITER_SELECTION_RANGE_ERROR", details={"original_error": str(e), "error_type": type(e).__name__}) from e
 
 
 # goRight(nCount, bExpand) takes a short; max 32767 per call.
@@ -154,17 +118,9 @@ def insert_html_at_cursor(cursor, html_content):
     """
     try:
         if not cursor:
-            raise WriterError(
-                "Cursor is None",
-                code="WRITER_CURSOR_NULL",
-                details={"operation": "insert_html_at_cursor"}
-            )
+            raise WriterError("Cursor is None", code="WRITER_CURSOR_NULL", details={"operation": "insert_html_at_cursor"})
         if not html_content:
-            raise WriterError(
-                "HTML content is empty",
-                code="WRITER_HTML_CONTENT_EMPTY",
-                details={"operation": "insert_html_at_cursor"}
-            )
+            raise WriterError("HTML content is empty", code="WRITER_HTML_CONTENT_EMPTY", details={"operation": "insert_html_at_cursor"})
 
         import tempfile
         import os
@@ -176,9 +132,7 @@ def insert_html_at_cursor(cursor, html_content):
 
         try:
             file_url = "file://" + tmp_path.replace("\\", "/")
-            props = (
-                PropertyValue(Name="FilterName", Value="HTML (StarWriter)"),
-            )
+            props = (PropertyValue(Name="FilterName", Value="HTML (StarWriter)"),)
             cursor.insertDocumentFromURL(file_url, props)
         finally:
             if os.path.exists(tmp_path):
@@ -188,11 +142,7 @@ def insert_html_at_cursor(cursor, html_content):
         raise
     except Exception as e:
         log.debug("insert_html_at_cursor: failed", exc_info=True)
-        raise WriterError(
-            f"Failed to insert HTML at cursor: {str(e)}",
-            code="WRITER_HTML_INSERT_ERROR",
-            details={"original_error": str(e), "error_type": type(e).__name__}
-        ) from e
+        raise WriterError(f"Failed to insert HTML at cursor: {str(e)}", code="WRITER_HTML_INSERT_ERROR", details={"original_error": str(e), "error_type": type(e).__name__}) from e
 
 
 def get_text_cursor_at_range(model, start, end):
@@ -206,17 +156,9 @@ def get_text_cursor_at_range(model, start, end):
     """
     try:
         if not model:
-            raise WriterError(
-                "Document model is None",
-                code="WRITER_MODEL_NULL",
-                details={"operation": "get_text_cursor_at_range"}
-            )
+            raise WriterError("Document model is None", code="WRITER_MODEL_NULL", details={"operation": "get_text_cursor_at_range"})
         if start is None or end is None:
-            raise WriterError(
-                f"Invalid start ({start}) or end ({end}) offset",
-                code="WRITER_INVALID_OFFSETS",
-                details={"operation": "get_text_cursor_at_range", "start": start, "end": end}
-            )
+            raise WriterError(f"Invalid start ({start}) or end ({end}) offset", code="WRITER_INVALID_OFFSETS", details={"operation": "get_text_cursor_at_range", "start": start, "end": end})
 
         from plugin.framework.document import get_document_length
 
@@ -228,11 +170,7 @@ def get_text_cursor_at_range(model, start, end):
 
         text = model.getText()
         if not text:
-            raise WriterError(
-                "Text object not found in model",
-                code="WRITER_TEXT_NOT_FOUND",
-                details={"operation": "get_text_cursor_at_range"}
-            )
+            raise WriterError("Text object not found in model", code="WRITER_TEXT_NOT_FOUND", details={"operation": "get_text_cursor_at_range"})
 
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
@@ -257,11 +195,5 @@ def get_text_cursor_at_range(model, start, end):
         raise WriterError(
             f"Failed to get text cursor at range: {str(e)}",
             code="WRITER_CURSOR_RANGE_ERROR",
-            details={
-                "operation": "get_text_cursor_at_range",
-                "start": start,
-                "end": end,
-                "original_error": str(e),
-                "error_type": type(e).__name__
-            }
+            details={"operation": "get_text_cursor_at_range", "start": start, "end": end, "original_error": str(e), "error_type": type(e).__name__},
         ) from e

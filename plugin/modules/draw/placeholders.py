@@ -146,10 +146,7 @@ class ListPlaceholders(ToolBase):
 
     name = "list_placeholders"
     intent = "navigate"
-    description = (
-        "List all text placeholders on a slide with their role "
-        "(title, subtitle, body), text content, and shape index."
-    )
+    description = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and shape index."
     parameters = {
         "type": "object",
         "properties": {
@@ -171,16 +168,14 @@ class ListPlaceholders(ToolBase):
             "placeholders": placeholders,
             "count": len(placeholders),
         }
+
+
 class GetPlaceholderText(ToolBase):
     """Get text from a slide placeholder by role or shape index."""
 
     name = "get_placeholder_text"
     intent = "navigate"
-    description = (
-        "Get text from a slide placeholder. "
-        "Specify role ('title', 'subtitle', 'body') or shape_index. "
-        "Use list_placeholders to see available placeholders."
-    )
+    description = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or shape_index. Use list_placeholders to see available placeholders."
     parameters = {
         "type": "object",
         "properties": {
@@ -229,16 +224,14 @@ class GetPlaceholderText(ToolBase):
             "role": role,
             "shape_index": shape_index,
         }
+
+
 class SetPlaceholderText(ToolBase):
     """Set text on a slide placeholder by role or shape index."""
 
     name = "set_placeholder_text"
     intent = "edit"
-    description = (
-        "Set text on a slide placeholder. "
-        "Specify role ('title', 'subtitle', 'body') or shape_index. "
-        "Use list_placeholders to see available placeholders."
-    )
+    description = "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or shape_index. Use list_placeholders to see available placeholders."
     parameters = {
         "type": "object",
         "properties": {

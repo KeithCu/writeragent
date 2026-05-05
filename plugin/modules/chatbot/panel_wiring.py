@@ -1,12 +1,7 @@
 import logging
 from typing import Any, Callable
 
-from plugin.framework.dialogs import (
-    get_optional as get_optional_control,
-    get_checkbox_state,
-    get_control_text,
-    set_control_text
-)
+from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, get_control_text, set_control_text
 from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
 log = logging.getLogger(__name__)
@@ -19,11 +14,7 @@ def _measure_send_button_max_width(send_ctrl, has_recording):
     try:
         m = send_ctrl.getModel()
         saved = m.Label
-        labels = (
-            ["Send", "Record", "Stop Rec", "Accept"]
-            if has_recording
-            else ["Send", "Accept"]
-        )
+        labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
         wmax = send_ctrl.getPosSize().Width
         for lab in labels:
             m.Label = lab
@@ -33,6 +24,7 @@ def _measure_send_button_max_width(send_ctrl, has_recording):
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
             log.debug("Failed to measure send button width (likely disposed): %s", e)
         else:
@@ -56,9 +48,9 @@ def _measure_aux_button_max_width(ctrl, labels):
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-            log.debug("Failed to measure aux button width '%s' (likely disposed): %s",
-                      ctrl.getName() if hasattr(ctrl, "getName") else "?", e)
+            log.debug("Failed to measure aux button width '%s' (likely disposed): %s", ctrl.getName() if hasattr(ctrl, "getName") else "?", e)
         else:
             log.debug("Unexpected error measuring aux button width: %s", e)
         return None
@@ -75,6 +67,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         return get_optional_control(root_window, name)
 
     from plugin.framework.dialogs import translate_dialog
+
     translate_dialog(root_window)
 
     controls = {
@@ -108,6 +101,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to show init error on response control (likely disposed): %s", e)
             else:
@@ -118,17 +112,24 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 1. Config, Models, and UI
     try:
         from plugin.framework.config import get_config
+
         extra_instructions = get_config(self.ctx, "additional_instructions")
-        
+
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
-        
+
         self._wire_image_ui(
-            controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"],
-            controls["direct_image_check"], controls["web_research_check"], controls["model_label"], 
-            controls["model_selector"], controls["image_model_selector"]
+            controls["aspect_ratio_selector"],
+            controls["base_size_input"],
+            controls["base_size_label"],
+            controls["direct_image_check"],
+            controls["web_research_check"],
+            controls["model_label"],
+            controls["model_selector"],
+            controls["image_model_selector"],
         )
     except Exception as e:
         import traceback
+
         _show_init_error("Config: %s" % e)
         log.error(traceback.format_exc())
         extra_instructions = ""
@@ -140,17 +141,20 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     # 3. Determine Mode & Greeting
     from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
     from plugin.framework.i18n import _
+
     web_checked = False
     if controls["web_research_check"]:
-        try: web_checked = (get_checkbox_state(controls["web_research_check"]) == 1)
+        try:
+            web_checked = get_checkbox_state(controls["web_research_check"]) == 1
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to read web_research_check state (likely disposed): %s", e)
             else:
                 log.exception("Error reading web_research_check state: %s", e)
-        
+
     if web_checked:
         self.session = self.web_session
         active_greeting = _(DEFAULT_RESEARCH_GREETING)
@@ -168,6 +172,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     if controls.get("query") and controls.get("send"):
         try:
             from plugin.modules.chatbot.panel import QueryTextListener
+
             # Pass the send_listener stored on self from _wire_buttons instead of the send control.
             # _wire_buttons runs before this in _wireControls, so self.send_listener is available.
             if hasattr(self, "send_listener") and self.send_listener:
@@ -178,6 +183,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 # so we can just trigger a fake text update event to sync the state
                 has_text = bool(get_control_text(controls["query"]).strip())
                 from plugin.modules.chatbot.send_state import SendEvent, SendEventKind
+
                 self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": has_text}))
             else:
                 log.warning("No send_listener available for QueryTextListener setup")
@@ -187,21 +193,19 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     if controls["status"] and hasattr(controls["status"], "setText"):
         try:
             from plugin.framework.i18n import _
+
             controls["status"].setText(_("Ready"))
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to set status text on init (likely disposed): %s", e)
             else:
                 log.exception("Error setting status text: %s", e)
 
-
     try:
-        log.debug(
-            "Attaching _PanelResizeListener to root_window; controls=%s"
-            % (sorted(k for k, v in controls.items() if v))
-        )
+        log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _parent = None
         _tp = getattr(self, "toolpanel", None)
         _deck_getter: Callable[[], Any | None] | None
@@ -214,9 +218,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             _deck_getter = _last_deck_w
         else:
             _deck_getter = None
-        _resize = _PanelResizeListener(
-            controls, parent_window=_parent, deck_w_getter=_deck_getter
-        )
+        _resize = _PanelResizeListener(controls, parent_window=_parent, deck_w_getter=_deck_getter)
         root_window.addWindowListener(_resize)
         if _tp is not None:
             _tp.resize_listener = _resize
@@ -233,6 +235,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("send button width stabilize skipped (likely disposed): %s", e)
                 else:
@@ -251,6 +254,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("stop/clear button width stabilize skipped (likely disposed): %s", e)
                 else:
@@ -263,14 +267,17 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     # 6. Global Config Listener
     from plugin.framework.event_bus import global_event_bus
+
     global_event_bus.subscribe("config:changed", self._on_config_changed, weak=True)
 
     # Weekly extension update check: run once per process, late (after sidebar UI is wired)
     # so logging is initialized and AsyncCallback/msgbox are reliable.
     try:
         from plugin.framework.logging import init_logging
+
         init_logging(self.ctx)
         from plugin.main import _schedule_extension_update_check_once
+
         _schedule_extension_update_check_once(self.ctx)
     except Exception as e:
         log.warning("extension update check schedule failed: %s", e)

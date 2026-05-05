@@ -150,7 +150,7 @@ def _log_custom_shape_geometry_dump(shape, phase: str) -> None:
     """Detailed ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
     try:
         g = shape.getPropertyValue("CustomShapeGeometry")
-        
+
         details = []
         if g is not None:
             # `g` is typically a tuple of PropertyValue
@@ -166,7 +166,7 @@ def _log_custom_shape_geometry_dump(shape, phase: str) -> None:
                             nested.append(repr(np))
                     val = "{" + ", ".join(nested) + "}"
                 details.append(f"{p.Name}={val}")
-        
+
         log.debug("create_shape geometry_dump [%s] FULL: %s", phase, " | ".join(details))
     except Exception as ex:
         log.debug("create_shape geometry_dump [%s]: %s", phase, ex)
@@ -417,11 +417,13 @@ def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bo
     """Set EnhancedCustomShape engine and geometry ``Type`` so names like ``octagon`` render."""
     from com.sun.star.beans import PropertyValue
     import uno
+
     prop = PropertyValue()
     prop.Name = "Type"
     prop.Value = custom_shape_type
     try:
         import typing
+
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
         prop_seq = uno.Any("[]com.sun.star.beans.PropertyValue", (prop,))  # type: ignore
         uno.invoke(shape, "setPropertyValue", typing.cast("typing.Any", ("CustomShapeGeometry", prop_seq)))
@@ -454,6 +456,7 @@ class ListPages(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
+
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
         return {
@@ -485,13 +488,10 @@ class GetDrawSummary(ToolDrawShapeBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
+
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page_index")
-        page = (
-            bridge.get_pages().getByIndex(idx)
-            if idx is not None
-            else bridge.get_active_page()
-        )
+        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
         if page is None:
             return self._tool_error("No draw page available or invalid page index.")
         shapes = []
@@ -544,32 +544,16 @@ class DrawShapes:
         """
         try:
             if doc is None:
-                raise DrawError(
-                    "Document is None",
-                    code="DRAW_DOC_NULL",
-                    details={"operation": "create_shape", "shape_type": shape_type}
-                )
+                raise DrawError("Document is None", code="DRAW_DOC_NULL", details={"operation": "create_shape", "shape_type": shape_type})
             # UNO XDrawPage can be falsy when it has zero shapes — use `is None`.
             if page is None:
-                raise DrawError(
-                    "Page is None",
-                    code="DRAW_PAGE_NULL",
-                    details={"operation": "create_shape", "shape_type": shape_type}
-                )
+                raise DrawError("Page is None", code="DRAW_PAGE_NULL", details={"operation": "create_shape", "shape_type": shape_type})
 
             if not self._is_valid_position(position):
-                raise DrawError(
-                    f"Invalid position: {position}",
-                    code="DRAW_INVALID_POSITION",
-                    details={"position": position}
-                )
+                raise DrawError(f"Invalid position: {position}", code="DRAW_INVALID_POSITION", details={"position": position})
 
             if not self._is_valid_size(size):
-                raise DrawError(
-                    f"Invalid size: {size}",
-                    code="DRAW_INVALID_SIZE",
-                    details={"size": size}
-                )
+                raise DrawError(f"Invalid size: {size}", code="DRAW_INVALID_SIZE", details={"size": size})
 
             # Create shape (document MSF — same as DrawBridge.create_shape)
             if shape_type.startswith("com.sun.star."):
@@ -579,11 +563,7 @@ class DrawShapes:
 
             shape = doc.createInstance(full_type)
             if shape is None:
-                raise DrawError(
-                    f"Failed to create shape of type: {shape_type}",
-                    code="DRAW_SHAPE_CREATION_FAILED",
-                    details={"shape_type": shape_type}
-                )
+                raise DrawError(f"Failed to create shape of type: {shape_type}", code="DRAW_SHAPE_CREATION_FAILED", details={"shape_type": shape_type})
 
             shape.setPosition(position)
             shape.setSize(size)
@@ -591,9 +571,7 @@ class DrawShapes:
             geometry_applied: bool | None = None
             geometry_error: str | None = None
             if custom_shape_type:
-                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(
-                    shape, custom_shape_type
-                )
+                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
                 if not geometry_applied:
                     log.warning(
                         "create_shape safe_create: enhanced geometry failed before add type=%s err=%s",
@@ -627,13 +605,7 @@ class DrawShapes:
             raise DrawError(
                 f"Failed to create shape: {str(e)}",
                 code="DRAW_SHAPE_CREATION_ERROR",
-                details={
-                    "shape_type": shape_type,
-                    "position": position,
-                    "size": size,
-                    "original_error": str(e),
-                    "error_type": type(e).__name__
-                }
+                details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__},
             ) from e
 
 
@@ -649,6 +621,7 @@ def _apply_shape_properties(shape, kwargs):
         if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
             try:
                 from com.sun.star.drawing import FillStyle
+
                 shape.setPropertyValue("FillStyle", FillStyle.NONE)
             except Exception:
                 pass
@@ -666,9 +639,11 @@ def _apply_shape_properties(shape, kwargs):
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
         try:
             import sys
+
             fill_enum = sys.modules.get("com.sun.star.drawing.FillStyle")
             if not fill_enum:
                 from com.sun.star.drawing import FillStyle
+
                 fill_enum = FillStyle
             style_str = kwargs["fill_style"].lower()
             if style_str == "none" or style_str == "transparent":
@@ -698,6 +673,7 @@ def _apply_shape_properties(shape, kwargs):
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
         try:
             import sys
+
             line_enum = sys.modules.get("com.sun.star.drawing.LineStyle")
             if not line_enum:
                 from com.sun.star.drawing import LineStyle as line_enum
@@ -745,7 +721,7 @@ def _apply_shape_properties(shape, kwargs):
 # flowchart-terminator
 #    "flowchart-* (e.g. flowchart-process, flowchart-decision; full set omitted for brevity); "
 #   "fontwork-*; scrollbars (horizontal-scroll, vertical-scroll); "
- 
+
 _CREATE_SHAPE_SHAPE_TYPE_DESC = (
     "Type of shape. "
     "Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. "
@@ -934,26 +910,23 @@ class EditShape(ToolDrawShapeBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
+
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page_index")
-        page = (
-            bridge.get_pages().getByIndex(idx)
-            if idx is not None
-            else bridge.get_active_page()
-        )
+        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
         if page is None:
             return self._tool_error("No draw page available or invalid page index.")
         shape = page.getByIndex(kwargs["shape_index"])
         if "x" in kwargs or "y" in kwargs:
             from com.sun.star.awt import Point
+
             pos = shape.getPosition()
             shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
         if "width" in kwargs or "height" in kwargs:
             from com.sun.star.awt import Size
+
             size = shape.getSize()
-            shape.setSize(
-                Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height))
-            )
+            shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
         _apply_shape_properties(shape, kwargs)
 
@@ -962,6 +935,7 @@ class EditShape(ToolDrawShapeBase):
 
 class ConnectShapes(ToolDrawShapeBase):
     """Connect two shapes with a connector."""
+
     name = "shapes_connect"
     intent = "edit"
     description = "Connect two shapes on the same page with a connector."
@@ -976,10 +950,7 @@ class ConnectShapes(ToolDrawShapeBase):
                 "type": "integer",
                 "description": "Index of the ending shape.",
             },
-            "page_index": {
-                "type": "integer",
-                "description": "Page index containing the shapes"
-            },
+            "page_index": {"type": "integer", "description": "Page index containing the shapes"},
             "line_color": {"type": "string", "description": "Color of the connector line"},
             "line_width": {"type": "integer", "description": "Line width (100ths of mm)"},
         },
@@ -998,11 +969,7 @@ class ConnectShapes(ToolDrawShapeBase):
 
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page_index")
-        page = (
-            bridge.get_pages().getByIndex(idx)
-            if idx is not None
-            else bridge.get_active_page()
-        )
+        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
         if page is None:
             return self._tool_error("No draw page available or invalid page index.")
 
@@ -1018,9 +985,7 @@ class ConnectShapes(ToolDrawShapeBase):
         draw_shapes = DrawShapes()
         try:
             # position and size are technically ignored since it's a connector, but safe_create_shape expects them
-            shape, _, _ = draw_shapes.safe_create_shape(
-                ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100)
-            )
+            shape, _, _ = draw_shapes.safe_create_shape(ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100))
         except DrawError as e:
             return self._tool_error(e.message)
 
@@ -1040,6 +1005,7 @@ class ConnectShapes(ToolDrawShapeBase):
 
 class GroupShapes(ToolDrawShapeBase):
     """Group multiple shapes together."""
+
     name = "shapes_group"
     intent = "edit"
     description = "Groups multiple shapes together on the same page."
@@ -1070,11 +1036,7 @@ class GroupShapes(ToolDrawShapeBase):
 
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page_index")
-        page = (
-            bridge.get_pages().getByIndex(idx)
-            if idx is not None
-            else bridge.get_active_page()
-        )
+        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
         if page is None:
             return self._tool_error("No draw page available or invalid page index.")
 
@@ -1097,7 +1059,7 @@ class GroupShapes(ToolDrawShapeBase):
         return {
             "status": "ok",
             "message": f"Grouped {len(indices)} shapes.",
-            "group_shape_index": page.getCount() - 1 # Note: Grouping usually replaces the individual shapes with the group shape
+            "group_shape_index": page.getCount() - 1,  # Note: Grouping usually replaces the individual shapes with the group shape
         }
 
 
@@ -1121,13 +1083,10 @@ class DeleteShape(ToolDrawShapeBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
+
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page_index")
-        page = (
-            bridge.get_pages().getByIndex(idx)
-            if idx is not None
-            else bridge.get_active_page()
-        )
+        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
         if page is None:
             return self._tool_error("No draw page available or invalid page index.")
         shape = page.getByIndex(kwargs["shape_index"])

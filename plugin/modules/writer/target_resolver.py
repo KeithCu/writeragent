@@ -6,8 +6,6 @@ from plugin.modules.writer.format_support import content_has_markup, html_to_pla
 log = logging.getLogger("writeragent.writer")
 
 
-
-
 def resolve_target_cursor(ctx, target, old_content):
     """
     Resolves the `target` ("beginning", "end", "selection", "search")
@@ -49,7 +47,6 @@ def resolve_target_cursor(ctx, target, old_content):
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
         return cursor
-
 
     # target == "search" or fallback to search if old_content is provided
 

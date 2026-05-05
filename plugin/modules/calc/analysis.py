@@ -59,13 +59,7 @@ def _impl_name_is_java_nlp_headless_unsafe(impl_name: str) -> bool:
     if not impl_name:
         return False
     n = impl_name
-    return (
-        "NLPSolver" in n
-        or "DEPSSolver" in n
-        or "SCOSolver" in n
-        or "EvolutionarySolver" in n
-        or "BaseEvolutionary" in n
-    )
+    return "NLPSolver" in n or "DEPSSolver" in n or "SCOSolver" in n or "EvolutionarySolver" in n or "BaseEvolutionary" in n
 
 
 def _user_requested_java_nlp_engine(engine_name: str | None) -> bool:
@@ -105,7 +99,7 @@ def _get_cell_address(doc, address_str: str) -> CellAddress:
         cell_part = address_str
 
     col, row = parse_address(cell_part)
-    
+
     sheets = doc.getSheets()
     if sheet_part:
         if not sheets.hasByName(sheet_part):
@@ -118,7 +112,7 @@ def _get_cell_address(doc, address_str: str) -> CellAddress:
             sheet = controller.getActiveSheet()
         else:
             sheet = sheets.getByIndex(0)
-    
+
     # Get sheet index. Sheet objects have a RangeAddress property which includes the sheet index.
     # Or we can get it via the index in the sheets collection if we search for it.
     # Actually, XCell has getCellAddress() if we fetch the cell first.
@@ -130,9 +124,7 @@ class GoalSeekTool(ToolCalcAnalysisBase):
     """Find the value of a variable cell that results in a target formula value."""
 
     name = "calc_goal_seek"
-    description = (
-        "Finds the value for a variable cell that makes a formula cell reach a target value."
-    )
+    description = "Finds the value for a variable cell that makes a formula cell reach a target value."
     parameters = {
         "type": "object",
         "properties": {
@@ -169,20 +161,20 @@ class GoalSeekTool(ToolCalcAnalysisBase):
         try:
             bridge = CalcBridge(ctx.doc)
             doc = bridge.get_active_document()
-            
+
             formula_addr = _get_cell_address(doc, formula_str)
             variable_addr = _get_cell_address(doc, variable_str)
-            
+
             # SpreadsheetDocument implements XGoalSeek directly
             if not hasattr(doc, "seekGoal"):
-                 return self._tool_error("Document does not support Goal Seek")
-            
+                return self._tool_error("Document does not support Goal Seek")
+
             # seekGoal returns a GoalResult struct: {Result: float, Divergence: float}
             gs_result = doc.seekGoal(formula_addr, variable_addr, target_value)
-            
+
             result_val = gs_result.Result
             divergence = gs_result.Divergence
-            
+
             if apply_result:
                 sheets = doc.getSheets()
                 sheet = sheets.getByIndex(variable_addr.Sheet)
@@ -192,14 +184,7 @@ class GoalSeekTool(ToolCalcAnalysisBase):
             else:
                 message = f"Goal Seek success. Found result {result_val} for {variable_str}."
 
-            return {
-                "status": "ok",
-                "message": message,
-                "result": {
-                    "value": result_val,
-                    "divergence": divergence
-                }
-            }
+            return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
         except Exception as e:
             logger.error("Goal Seek error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
@@ -209,10 +194,7 @@ class SolverTool(ToolCalcAnalysisBase):
     """Solve an optimization problem with multiple variables and constraints."""
 
     name = "calc_solver"
-    description = (
-        "Solves an optimization problem to maximize, minimize, or reach a value "
-        "for an objective cell by changing multiple variable cells subject to constraints."
-    )
+    description = "Solves an optimization problem to maximize, minimize, or reach a value for an objective cell by changing multiple variable cells subject to constraints."
     parameters = {
         "type": "object",
         "properties": {
@@ -274,10 +256,10 @@ class SolverTool(ToolCalcAnalysisBase):
         try:
             bridge = CalcBridge(ctx.doc)
             doc = bridge.get_active_document()
-            
+
             objective_addr = _get_cell_address(doc, objective_str)
             variable_addrs = tuple(_get_cell_address(doc, v) for v in variable_strs)
-            
+
             smgr = ctx.ctx.ServiceManager
             solver = None
             selected_engine_label: str | None = None
@@ -375,50 +357,38 @@ class SolverTool(ToolCalcAnalysisBase):
             solver.Variables = variable_addrs
 
             # Process constraints
-            op_map = {
-                "EQUAL": EQUAL,
-                "GREATER_EQUAL": GREATER_EQUAL,
-                "LESS_EQUAL": LESS_EQUAL
-            }
-            
+            op_map = {"EQUAL": EQUAL, "GREATER_EQUAL": GREATER_EQUAL, "LESS_EQUAL": LESS_EQUAL}
+
             solver_constraints = []
             for c in constraints_raw:
                 constraint = SolverConstraint()
                 constraint.Left = _get_cell_address(doc, c["left"])
                 constraint.Operator = op_map[c["operator"]]
-                
+
                 right_val = c["right"]
                 # Try to parse as float (constant), otherwise assume it's a cell address
                 try:
                     constraint.Right = float(right_val)
                 except ValueError:
                     constraint.Right = _get_cell_address(doc, right_val)
-                
+
                 solver_constraints.append(constraint)
-            
+
             solver.Constraints = tuple(solver_constraints)
-            
+
             # Execute Solver
             solver.solve()
-            
+
             if solver.Success:
                 # The solution is already applied to the document by solver.solve()
                 return {
                     "status": "ok",
                     "message": f"Solver success. Objective value: {solver.ResultValue}",
-                    "result": {
-                        "success": True,
-                        "result_value": solver.ResultValue,
-                        "solution": list(solver.Solution)
-                    }
+                    "result": {"success": True, "result_value": solver.ResultValue, "solution": list(solver.Solution)},
                 }
             else:
-                return {
-                    "status": "error",
-                    "message": "Solver failed to find a solution.",
-                    "result": {"success": False}
-                }
-                
+                return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
+
         except Exception as e:
             logger.error("Solver error: %s", str(e))
             raise ToolExecutionError(str(e)) from e

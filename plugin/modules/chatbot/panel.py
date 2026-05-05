@@ -88,6 +88,7 @@ def format_grammar_status(data: dict[str, Any]) -> str:
 # ChatSession - holds conversation history for multi-turn chat
 # ---------------------------------------------------------------------------
 
+
 class ChatSession:
     """Maintains the message history for one sidebar chat session."""
 
@@ -95,7 +96,7 @@ class ChatSession:
         self.session_id = session_id
         self.db = None
         self.messages = []
-        
+
         self.active_specialized_domain = None
 
         if session_id:
@@ -104,6 +105,7 @@ class ChatSession:
                 self.messages = self.db.get_messages()
             except Exception as e:
                 from plugin.framework.errors import WriterAgentException
+
                 if isinstance(e, WriterAgentException):
                     log.error("ChatSession history load WriterAgentException: %s" % e)
                 else:
@@ -134,12 +136,14 @@ class ChatSession:
             self.db.add_message("assistant", content)
 
     def add_tool_result(self, tool_call_id, content):
-        self.messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": content,
-        })
-        # Note: We do NOT persist tool results to history_db. 
+        self.messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": content,
+            }
+        )
+        # Note: We do NOT persist tool results to history_db.
         # This keeps the persistent history clean of tool formatting requirements.
 
     def update_document_context(self, doc_text):
@@ -236,13 +240,32 @@ class QueryTextListener(BaseTextListener):
 # SendButtonListener - handles Send button click with tool-calling loop
 # ---------------------------------------------------------------------------
 
+
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
     client: LlmClient | None
     initial_doc_type: str | None
 
-    def __init__(self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, direct_image_checkbox=None, aspect_ratio_selector=None, base_size_input=None, web_research_checkbox=None, ensure_path_fn=None, clear_control=None):
+    def __init__(
+        self,
+        ctx,
+        frame,
+        send_control,
+        stop_control,
+        query_control,
+        response_control,
+        image_model_selector,
+        model_selector,
+        status_control,
+        session,
+        direct_image_checkbox=None,
+        aspect_ratio_selector=None,
+        base_size_input=None,
+        web_research_checkbox=None,
+        ensure_path_fn=None,
+        clear_control=None,
+    ):
         self.ctx = ctx
         self.frame = frame
         self.send_control = send_control
@@ -307,6 +330,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             from plugin.main import get_tools
             from plugin.framework.event_bus import global_event_bus
+
             event_bus = getattr(get_tools()._services, "events", None)
             if event_bus:
                 event_bus.subscribe("mcp:request", self._on_mcp_request)
@@ -333,14 +357,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         if self.audio_recorder is None:
             return
-        self.sidebar_state = dataclasses.replace(
-            self.sidebar_state, audio=self.audio_recorder.state
-        )
+        self.sidebar_state = dataclasses.replace(self.sidebar_state, audio=self.audio_recorder.state)
 
     def set_session(self, session):
         """Update the active session (e.g. when switching between Document and Research chat)."""
         self.session = session
-        self.client = None # Force client recreation if needed, though they usually share same config
+        self.client = None  # Force client recreation if needed, though they usually share same config
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Replace Send/Stop/Clear with Accept/Change/Reject (all enabled). Unblock ``event`` when user chooses.
@@ -381,6 +403,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("begin_inline_web_approval backup (likely disposed): %s", e)
             else:
@@ -395,12 +418,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     try:
                         r = self.send_control.getPosSize()
                         if r.Width != self._fixed_send_width:
-                            self.send_control.setPosSize(
-                                r.X, r.Y, self._fixed_send_width, r.Height, 15
-                            )
+                            self.send_control.setPosSize(r.X, r.Y, self._fixed_send_width, r.Height, 15)
                     except Exception as e:
                         from com.sun.star.lang import DisposedException
                         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                             log.debug("begin_inline_web_approval setPosSize (likely disposed): %s", e)
             if self.stop_control and self.stop_control.getModel():
@@ -414,6 +436,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("begin_inline_web_approval error (likely disposed): %s", e)
             else:
@@ -476,6 +499,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("_finish_inline_web_approval restore (likely disposed): %s", e)
             else:
@@ -504,6 +528,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("_set_status('%s', level=logging.DEBUG) likely disposed: %s" % (text, e))
             else:
@@ -531,11 +556,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if model and hasattr(self.response_control, "setSelection"):
                     text = model.Text or ""
                     length = len(text)
-                    self.response_control.setSelection(
-                        uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
+                    self.response_control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("_scroll_response_to_bottom failed (likely disposed): %s", e)
 
@@ -544,12 +569,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             if self.response_control and self.response_control.getModel():
                 from plugin.framework.dialogs import get_control_text, set_control_text
+
                 current = get_control_text(self.response_control) or ""
                 set_control_text(self.response_control, current + text)
                 self._scroll_response_to_bottom()
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("_append_response failed (likely disposed): %s", e)
 
@@ -557,27 +584,28 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Handle MCP request events from the bus (background thread)."""
         try:
             from plugin.framework.logging import format_tool_call_for_display
+
             fmt_str = format_tool_call_for_display(tool, args, method)
             log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
         except Exception as e:
-                        log.error("_on_mcp_request error: %s" % e)
+            log.error("_on_mcp_request error: %s" % e)
 
     def _on_mcp_result(self, tool="", result_snippet="", **kwargs):
         """Handle MCP result events from the bus (background thread)."""
 
-
         def _update_ui():
             try:
                 from plugin.framework.logging import format_tool_result_for_display
+
                 fmt_str = format_tool_result_for_display(tool, result_snippet, args=kwargs.get("args"))
                 self._append_response(f"[MCP Result] {fmt_str}\n")
             except Exception as e:
-                                log.error("_on_mcp_result UI update error: %s" % e)
+                log.error("_on_mcp_result UI update error: %s" % e)
 
         try:
             self.queue_executor.post(_update_ui)
         except Exception as e:
-                        log.error("_on_mcp_result post error: %s" % e)
+            log.error("_on_mcp_result post error: %s" % e)
 
     def _get_document_model(self):
         """Get the Writer document model.
@@ -601,6 +629,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         model = frame_model if frame_model is not None else desktop_model
 
         from plugin.framework.document import is_writer, is_calc, is_draw
+
         if model and (is_writer(model) or is_calc(model) or is_draw(model)):
             return model
 
@@ -611,9 +640,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             "desktop_current=%s" % _uno_model_probe_for_log(desktop_model),
         ]
         if frame_exc is not None:
-            detail_parts.append(
-                "frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc)
-            )
+            detail_parts.append("frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc))
         if model is not None:
             detail_parts.append(
                 "reject_reason=unsupported_component source=%s probe=%s"
@@ -639,6 +666,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to set send_control enabled state (likely disposed): %s", e)
         if self.stop_control and self.stop_control.getModel():
@@ -647,6 +675,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to set stop_control enabled state (likely disposed): %s", e)
 
@@ -680,12 +709,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         try:
                             r = self.send_control.getPosSize()
                             if r.Width != self._fixed_send_width:
-                                self.send_control.setPosSize(
-                                    r.X, r.Y, self._fixed_send_width, r.Height, 15
-                                )
+                                self.send_control.setPosSize(r.X, r.Y, self._fixed_send_width, r.Height, 15)
                         except Exception as e:
                             from com.sun.star.lang import DisposedException
                             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                                 log.debug("Failed to set pos size for send_control (likely disposed): %s", e)
 
@@ -709,6 +737,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self.audio_wav_path = self.audio_recorder.stop_recording()
                 except Exception as e:
                     from plugin.framework.errors import WriterAgentException
+
                     if isinstance(e, WriterAgentException):
                         log.error(f"WriterAgentException stopping recording: {e}")
                     else:
@@ -725,6 +754,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._do_send()
                 except Exception as e:
                     import traceback
+
                     tb = traceback.format_exc()
                     doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
                     log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
@@ -758,9 +788,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case _:
                 log.debug("SendButtonListener: unhandled effect type %s", type(effect).__name__)
 
-
     def on_action_performed(self, rEvent):
         from plugin.framework.i18n import _
+
         if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
             if self.send_control.getModel().Label == _("Accept"):
                 self._finish_inline_web_approval(True)
@@ -779,14 +809,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _get_doc_type_str(self, model):
         from plugin.framework.document import get_document_type, DocumentType
+
         doc_type = get_document_type(model)
-        if doc_type == DocumentType.CALC: return "Calc"
-        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS): return "Draw"
-        if doc_type == DocumentType.WRITER: return "Writer"
+        if doc_type == DocumentType.CALC:
+            return "Calc"
+        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+            return "Draw"
+        if doc_type == DocumentType.WRITER:
+            return "Writer"
         return "Unknown"
 
     def _do_send(self):
         from plugin.framework.i18n import _
+
         self._set_status(_("Starting..."))
         update_activity_state("do_send")
         log.info("=== _do_send START ===")
@@ -807,7 +842,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         doc_type_str = self._get_doc_type_str(model)
         log.debug("_do_send: detected document type: %s" % doc_type_str)
-        
+
         if self.initial_doc_type and doc_type_str != self.initial_doc_type:
             err_msg = _("[Internal Error: Document type changed from {0} to {1}! Please file an error.]").format(self.initial_doc_type, doc_type_str)
             log.error("_do_send ERROR: %s" % err_msg)
@@ -816,7 +851,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         if doc_type_str == "Unknown":
-            err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
+            err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(
+                model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown"
+            )
             log.error("_do_send ERROR: %s" % err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"
@@ -826,6 +863,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         query_text = ""
         if self.query_control and self.query_control.getModel():
             from plugin.framework.dialogs import get_control_text
+
             query_text = (get_control_text(self.query_control) or "").strip()
 
         # Audio implies we have input even if text is empty
@@ -835,14 +873,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         if self.query_control and self.query_control.getModel():
             from plugin.framework.dialogs import set_control_text
+
             set_control_text(self.query_control, "")
 
         # Transcription Fallback check
         if self.audio_wav_path:
             from plugin.framework.config import get_text_model, get_current_endpoint, has_native_audio, get_stt_model
+
             current_model = get_text_model(self.ctx)
             current_endpoint = get_current_endpoint(self.ctx)
-            
+
             if has_native_audio(self.ctx, current_model, current_endpoint) is False:
                 stt_model = get_stt_model(self.ctx)
                 if stt_model:
@@ -853,6 +893,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
                     except Exception as e:
                         from plugin.framework.errors import NetworkError
+
                         if isinstance(e, NetworkError):
                             log.error("NetworkError during STT fallback: %s" % e)
                         else:
@@ -872,10 +913,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         web_research_checked = False
         if self.web_research_checkbox:
             try:
-                web_research_checked = (get_checkbox_state(self.web_research_checkbox) == 1)
+                web_research_checked = get_checkbox_state(self.web_research_checkbox) == 1
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to read web_research_checkbox (likely disposed): %s", e)
         if web_research_checked:
@@ -887,7 +929,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         direct_image_checked = False
         if self.direct_image_checkbox:
             try:
-                direct_image_checked = (get_checkbox_state(self.direct_image_checkbox) == 1)
+                direct_image_checked = get_checkbox_state(self.direct_image_checkbox) == 1
             except Exception as e:
                 log.error("_do_send: Use Image model checkbox read error: %s" % e)
         if direct_image_checked:
@@ -899,6 +941,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             from plugin.framework.config import get_config
             from plugin.modules.agent_backend.registry import normalize_backend_id
+
             agent_backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
             if agent_backend_id and agent_backend_id != "builtin":
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
@@ -915,6 +958,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Check if USER.md exists for Librarian Onboarding entry
         user_md_exists = False
         from plugin.modules.chatbot.memory import MemoryStore
+
         store = MemoryStore(self.ctx)
         if store.read("user"):
             user_md_exists = True
@@ -943,7 +987,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     # _run_web_research is provided by SendHandlersMixin.
 
-
     def _get_mcp_url(self) -> str | None:
         return None
 
@@ -954,13 +997,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     @_sm_state.setter
     def _sm_state(self, value: Any) -> None:
         import dataclasses
+
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
-
-
 
     def disposing(self, Source):
         try:
             from plugin.framework.event_bus import global_event_bus
+
             global_event_bus.unsubscribe("mcp:request", self._on_mcp_request)
             global_event_bus.unsubscribe("mcp:result", self._on_mcp_result)
             global_event_bus.unsubscribe("grammar:status", self._on_grammar_status)
@@ -972,6 +1015,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 # StopButtonListener - allows user to cancel the AI request
 # ---------------------------------------------------------------------------
 
+
 class StopButtonListener(BaseActionListener):
     """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
 
@@ -981,18 +1025,11 @@ class StopButtonListener(BaseActionListener):
     def on_action_performed(self, rEvent):
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             from plugin.framework.i18n import _
-            if (
-                self.send_listener.stop_control
-                and self.send_listener.stop_control.getModel()
-                and self.send_listener.stop_control.getModel().Label == _("Change")
-            ):
+
+            if self.send_listener.stop_control and self.send_listener.stop_control.getModel() and self.send_listener.stop_control.getModel().Label == _("Change"):
                 self.send_listener._open_web_search_change_dialog()
                 return
-            if (
-                self.send_listener.stop_control
-                and self.send_listener.stop_control.getModel()
-                and self.send_listener.stop_control.getModel().Label == _("Reject")
-            ):
+            if self.send_listener.stop_control and self.send_listener.stop_control.getModel() and self.send_listener.stop_control.getModel().Label == _("Reject"):
                 self.send_listener._finish_inline_web_approval(False)
                 return
         if self.send_listener:
@@ -1002,6 +1039,7 @@ class StopButtonListener(BaseActionListener):
 # ---------------------------------------------------------------------------
 # ClearButtonListener - resets the conversation
 # ---------------------------------------------------------------------------
+
 
 class ClearButtonListener(BaseActionListener):
     """Listener for the Clear button - resets conversation history."""
@@ -1032,6 +1070,7 @@ class ClearButtonListener(BaseActionListener):
         self.session.clear()
         if self.response_control and self.response_control.getModel():
             from plugin.framework.dialogs import set_control_text
+
             text = self.greeting + "\n" if self.greeting else ""
             set_control_text(self.response_control, text)
         if self.status_control:

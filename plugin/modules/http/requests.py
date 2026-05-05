@@ -11,6 +11,7 @@ from plugin.modules.http.errors import _format_http_error_response, format_error
 
 log = logging.getLogger(__name__)
 
+
 def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     """
     Blocking HTTP GET or POST. Shared by aihordeclient and other code.
@@ -50,6 +51,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
     parsed = urlparse(str(full_url))
     host = get_url_hostname(str(full_url))
     is_local_https = parsed.scheme.lower() == "https" and _is_local_host(host)
+
     def _read_with_context(context):
         log.debug(f"About to open URL: {getattr(req, 'full_url', url)}")
         with urlopen(req, timeout=timeout, context=context) as resp:

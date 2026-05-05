@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from plugin.framework.state import BaseState, FsmTransition
 
+
 # --- States ---
 class MCPStateStr(Enum):
     IDLE = "idle"
@@ -13,6 +14,7 @@ class MCPStateStr(Enum):
     STREAMING_RESPONSE = "streaming_response"  # Despite name, we send a single JSON-RPC response
     ERROR = "error"
 
+
 @dataclasses.dataclass(frozen=True)
 class MCPState(BaseState):
     status: MCPStateStr
@@ -21,12 +23,13 @@ class MCPState(BaseState):
     document_url: Optional[str] = None
     doc_type: Optional[str] = None
     doc_context: Any = None  # The resolved document UNO context, if any
-    uno_ctx: Any = None      # The UNO component context, if any
-    result: Any = None       # The final result payload
+    uno_ctx: Any = None  # The UNO component context, if any
+    result: Any = None  # The final result payload
     error_message: Optional[str] = None
     error_code: Optional[str] = None
     is_long_running: bool = False
     is_error: bool = False
+
 
 # --- Events ---
 class EventKind(Enum):
@@ -36,21 +39,26 @@ class EventKind(Enum):
     TOOL_COMPLETED = auto()
     REQUEST_ERROR = auto()
 
+
 @dataclasses.dataclass(frozen=True)
 class MCPEvent:
     kind: EventKind
     data: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
+
 # --- Effects ---
+
 
 @dataclasses.dataclass(frozen=True)
 class ParseRequestEffect:
     pass
 
+
 @dataclasses.dataclass(frozen=True)
 class ResolveDocumentEffect:
     document_url: Optional[str]
     is_long_running: bool
+
 
 @dataclasses.dataclass(frozen=True)
 class ExecuteToolEffect:
@@ -62,17 +70,21 @@ class ExecuteToolEffect:
     is_long_running: bool
     document_url: Optional[str] = None
 
+
 @dataclasses.dataclass(frozen=True)
 class StreamResponseEffect:
     result: Any
     is_error: bool
+
 
 @dataclasses.dataclass(frozen=True)
 class SendErrorEffect:
     message: str
     code: str
 
+
 # --- State Machine Transition ---
+
 
 def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
     """Pure transition function for the MCP tool-calling loop."""
@@ -124,15 +136,18 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
 
         # Move to executing tool
         import typing
-        effects.append(ExecuteToolEffect(
-            tool_name=typing.cast("str", state.tool_name),
-            arguments=state.arguments,
-            doc_context=doc_context,
-            doc_type=doc_type,
-            uno_ctx=uno_ctx,
-            is_long_running=state.is_long_running,
-            document_url=state.document_url
-        ))
+
+        effects.append(
+            ExecuteToolEffect(
+                tool_name=typing.cast("str", state.tool_name),
+                arguments=state.arguments,
+                doc_context=doc_context,
+                doc_type=doc_type,
+                uno_ctx=uno_ctx,
+                is_long_running=state.is_long_running,
+                document_url=state.document_url,
+            )
+        )
         return FsmTransition(
             dataclasses.replace(
                 state,
@@ -169,11 +184,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
 
         # Determine if we should send a raw exception bubble-up or stream response effect
         # For simplicity, we can trigger StreamResponseEffect with an error payload
-        err_payload = {
-            "status": "error",
-            "code": code,
-            "message": message
-        }
+        err_payload = {"status": "error", "code": code, "message": message}
         effects.append(StreamResponseEffect(result=err_payload, is_error=True))
         return FsmTransition(
             dataclasses.replace(

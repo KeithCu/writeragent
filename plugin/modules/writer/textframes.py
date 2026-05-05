@@ -65,14 +65,16 @@ class ListTextFrames(ToolWriterTextFramesBase):
                 except Exception:
                     pass
 
-                frames.append({
-                    "name": name,
-                    "width_mm": size.Width / 100.0,
-                    "height_mm": size.Height / 100.0,
-                    "width_100mm": size.Width,
-                    "height_100mm": size.Height,
-                    "content_preview": content_preview,
-                })
+                frames.append(
+                    {
+                        "name": name,
+                        "width_mm": size.Width / 100.0,
+                        "height_mm": size.Height / 100.0,
+                        "width_100mm": size.Width,
+                        "height_100mm": size.Height,
+                        "content_preview": content_preview,
+                    }
+                )
             except Exception as e:
                 log.debug("list_text_frames: skip '%s': %s", name, e)
 
@@ -82,6 +84,7 @@ class ListTextFrames(ToolWriterTextFramesBase):
 # ------------------------------------------------------------------
 # GetTextFrameInfo
 # ------------------------------------------------------------------
+
 
 class GetTextFrameInfo(ToolWriterTextFramesBase):
     """Get detailed info about a text frame."""
@@ -104,11 +107,7 @@ class GetTextFrameInfo(ToolWriterTextFramesBase):
         if not frame_name:
             return self._tool_error("frame_name is required.")
 
-        frame = self.get_item(
-            ctx.doc, "getTextFrames", frame_name,
-            missing_msg="Document does not support text frames.",
-            not_found_msg="Text frame '%s' not found." % frame_name
-        )
+        frame = self.get_item(ctx.doc, "getTextFrames", frame_name, missing_msg="Document does not support text frames.", not_found_msg="Text frame '%s' not found." % frame_name)
         if isinstance(frame, dict):
             return frame
 
@@ -154,9 +153,7 @@ class GetTextFrameInfo(ToolWriterTextFramesBase):
             doc_svc = ctx.services.document
             para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
             text_obj = ctx.doc.getText()
-            paragraph_index = doc_svc.find_paragraph_for_range(
-                anchor, para_ranges, text_obj
-            )
+            paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
         except Exception:
             pass
 
@@ -178,6 +175,7 @@ class GetTextFrameInfo(ToolWriterTextFramesBase):
 # ------------------------------------------------------------------
 # SetTextFrameProperties
 # ------------------------------------------------------------------
+
 
 class SetTextFrameProperties(ToolWriterTextFramesBase):
     """Resize or reposition a text frame."""
@@ -201,10 +199,7 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
             },
             "anchor_type": {
                 "type": "integer",
-                "description": (
-                    "Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, "
-                    "2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."
-                ),
+                "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
             },
             "hori_orient": {
                 "type": "integer",
@@ -224,11 +219,7 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
         if not frame_name:
             return self._tool_error("frame_name is required.")
 
-        frame = self.get_item(
-            ctx.doc, "getTextFrames", frame_name,
-            missing_msg="Document does not support text frames.",
-            not_found_msg="Text frame '%s' not found." % frame_name
-        )
+        frame = self.get_item(ctx.doc, "getTextFrames", frame_name, missing_msg="Document does not support text frames.", not_found_msg="Text frame '%s' not found." % frame_name)
         if isinstance(frame, dict):
             return frame
 
@@ -239,6 +230,7 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
+
             current = frame.getPropertyValue("Size")
             new_size = Size()
             new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
@@ -250,8 +242,13 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
             from com.sun.star.text.TextContentAnchorType import (
-                AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER,
+                AT_PARAGRAPH,
+                AS_CHARACTER,
+                AT_PAGE,
+                AT_FRAME,
+                AT_CHARACTER,
             )
+
             anchor_map = {
                 0: AT_PARAGRAPH,
                 1: AS_CHARACTER,

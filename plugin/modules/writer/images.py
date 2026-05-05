@@ -43,7 +43,9 @@ from plugin.framework.config import (
     update_lru_history,
 )
 from plugin.framework.image_tools import (
-    insert_image, replace_image_in_place, get_selected_image_base64,
+    insert_image,
+    replace_image_in_place,
+    get_selected_image_base64,
     get_selected_image_dimensions_px,
 )
 
@@ -55,39 +57,15 @@ class GenerateImage(ToolWriterImageBase):
 
     name = "generate_image"
     intent = "media"
-    description = (
-        "Generate an image from a text prompt and insert it. "
-        "To edit an existing image, pass source_image='selection' and select an image first."
-    )
+    description = "Generate an image from a text prompt and insert it. To edit an existing image, pass source_image='selection' and select an image first."
     parameters = {
         "type": "object",
         "properties": {
-            "prompt": {
-                "type": "string",
-                "description": "Descriptive prompt for image generation or editing"
-            },
-            "source_image": {
-                "type": "string",
-                "description": (
-                    "Optional. Use 'selection' to edit the currently selected image (Img2Img). "
-                    "Omit to generate a new image."
-                )
-            },
-            "strength": {
-                "type": "number",
-                "description": "For editing: how much to change the image (0.0-1.0). Ignored when generating new.",
-                "default": 0.75
-            },
-            "aspect_ratio": {
-                "type": "string",
-                "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"],
-                "default": "square"
-            },
-            "base_size": {
-                "type": "integer",
-                "description": "Base dimension for scaling",
-                "default": 512
-            },
+            "prompt": {"type": "string", "description": "Descriptive prompt for image generation or editing"},
+            "source_image": {"type": "string", "description": ("Optional. Use 'selection' to edit the currently selected image (Img2Img). Omit to generate a new image.")},
+            "strength": {"type": "number", "description": "For editing: how much to change the image (0.0-1.0). Ignored when generating new.", "default": 0.75},
+            "aspect_ratio": {"type": "string", "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"], "default": "square"},
+            "base_size": {"type": "integer", "description": "Base dimension for scaling", "default": 512},
             "width": {"type": "integer", "description": "Override calculated width"},
             "height": {"type": "integer", "description": "Override calculated height"},
             "provider": {"type": "string", "description": "Override default provider"},
@@ -96,12 +74,11 @@ class GenerateImage(ToolWriterImageBase):
                 "description": "Override Settings image model for this request (endpoint / OpenRouter).",
             },
         },
-        "required": ["prompt"]
+        "required": ["prompt"],
     }
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
     long_running = True
-
 
     def is_async(self) -> bool:
         """HTTP generation runs on the tool worker; UNO is marshalled in execute()."""
@@ -125,6 +102,7 @@ class GenerateImage(ToolWriterImageBase):
         edit_width, edit_height = 512, 512
 
         if is_edit:
+
             def _read_selection_for_edit():
                 b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
                 if not b64:
@@ -136,11 +114,7 @@ class GenerateImage(ToolWriterImageBase):
 
             tag, payload = execute_on_main_thread(_read_selection_for_edit, timeout=mt_timeout)
             if tag == "no_selection":
-                return self._tool_error(
-                    "No image selected. Please select an image in the document first.",
-                    code="NO_SELECTION",
-                    action="edit_image"
-                )
+                return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
             if not isinstance(payload, tuple) or len(payload) != 3:
                 return self._tool_error(
                     "Could not read selected image.",
@@ -176,7 +150,7 @@ class GenerateImage(ToolWriterImageBase):
         width = args.get("width", edit_width if is_edit else w)
         height = args.get("height", edit_height if is_edit else h)
 
-        image_svc = ImageService(ctx.ctx, config=None) # ImageService should use accessors too, or we pass dict
+        image_svc = ImageService(ctx.ctx, config=None)  # ImageService should use accessors too, or we pass dict
         args_copy = {
             k: v
             for k, v in args.items()
@@ -205,29 +179,17 @@ class GenerateImage(ToolWriterImageBase):
         )
 
         if not paths:
-            return self._tool_error(
-                error_msg or "No image returned.",
-                code="PROVIDER_ERROR",
-                provider=provider
-            )
+            return self._tool_error(error_msg or "No image returned.", code="PROVIDER_ERROR", provider=provider)
 
         img_path = paths[0]
 
         def _insert_or_replace():
             if is_edit:
-                replaced = replace_image_in_place(
-                    ctx.ctx, ctx.doc, img_path, width, height, title=prompt,
-                    description="Edited by %s" % provider,
-                    add_to_gallery=add_to_gallery, add_frame=add_frame
-                )
+                replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
-                    insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt,
-                                 description="Edited by %s" % provider,
-                                 add_to_gallery=add_to_gallery, add_frame=add_frame)
+                    insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 return "Image edited and inserted from %s." % provider
-            insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt,
-                         description="Generated by %s" % provider,
-                         add_to_gallery=add_to_gallery, add_frame=add_frame)
+            insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Generated by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
             return "Image generated and inserted from %s." % provider
 
         msg = execute_on_main_thread(_insert_or_replace, timeout=mt_timeout)
@@ -240,6 +202,7 @@ class GenerateImage(ToolWriterImageBase):
 
         return {"status": "ok", "message": msg}
 
+
 # Persistent cache directory for downloaded images.
 _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
 
@@ -248,15 +211,13 @@ _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
 # ListImages
 # ------------------------------------------------------------------
 
+
 class ListImages(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
     name = "list_images"
     intent = "media"
-    description = (
-        "List all images/graphic objects in the document with name, "
-        "dimensions, title, and description."
-    )
+    description = "List all images/graphic objects in the document with name, dimensions, title, and description."
     parameters = {
         "type": "object",
         "properties": {},
@@ -310,9 +271,7 @@ class ListImages(ToolWriterImageBase):
                 if not is_calc and doc_svc:
                     try:
                         anchor = graphic.getAnchor()
-                        paragraph_index = doc_svc.find_paragraph_for_range(
-                            anchor, para_ranges, text_obj
-                        )
+                        paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     except Exception:
                         pass
 
@@ -350,6 +309,7 @@ class ListImages(ToolWriterImageBase):
 # GetImageInfo
 # ------------------------------------------------------------------
 
+
 def _get_graphic_object(ctx, doc, image_name):
     is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
     if is_calc:
@@ -368,15 +328,13 @@ def _get_graphic_object(ctx, doc, image_name):
             return graphics.getByName(image_name)
         return None
 
+
 class GetImageInfo(ToolWriterImageBase):
     """Get detailed info about a specific image."""
 
     name = "get_image_info"
     intent = "media"
-    description = (
-        "Get detailed info about a specific image: URL, dimensions, "
-        "anchor type, orientation, and paragraph index."
-    )
+    description = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, and paragraph index."
     parameters = {
         "type": "object",
         "properties": {
@@ -453,9 +411,7 @@ class GetImageInfo(ToolWriterImageBase):
                 doc_svc = ctx.services.document
                 para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
                 text_obj = ctx.doc.getText()
-                paragraph_index = doc_svc.find_paragraph_for_range(
-                    anchor, para_ranges, text_obj
-                )
+                paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
             except Exception:
                 pass
 
@@ -480,14 +436,13 @@ class GetImageInfo(ToolWriterImageBase):
 # SetImageProperties
 # ------------------------------------------------------------------
 
+
 class SetImageProperties(ToolWriterImageBase):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
     name = "set_image_properties"
     intent = "media"
-    description = (
-        "Resize, reposition, crop, or update caption/alt-text for an image."
-    )
+    description = "Resize, reposition, crop, or update caption/alt-text for an image."
     parameters = {
         "type": "object",
         "properties": {
@@ -513,10 +468,7 @@ class SetImageProperties(ToolWriterImageBase):
             },
             "anchor_type": {
                 "type": "integer",
-                "description": (
-                    "Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, "
-                    "2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."
-                ),
+                "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
             },
             "hori_orient": {
                 "type": "integer",
@@ -548,6 +500,7 @@ class SetImageProperties(ToolWriterImageBase):
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
+
             current = graphic.getPropertyValue("Size")
             new_size = Size()
             new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
@@ -571,8 +524,13 @@ class SetImageProperties(ToolWriterImageBase):
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
             from com.sun.star.text.TextContentAnchorType import (
-                AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER,
+                AT_PARAGRAPH,
+                AS_CHARACTER,
+                AT_PAGE,
+                AT_FRAME,
+                AT_CHARACTER,
             )
+
             anchor_map = {
                 0: AT_PARAGRAPH,
                 1: AS_CHARACTER,
@@ -606,15 +564,13 @@ class SetImageProperties(ToolWriterImageBase):
 # DownloadImage
 # ------------------------------------------------------------------
 
+
 class DownloadImage(ToolWriterImageBase):
     """Download an image from URL to local cache."""
 
     name = "download_image"
     intent = "media"
-    description = (
-        "Download an image from URL to local cache. Returns local path "
-        "for insert_image/replace_image."
-    )
+    description = "Download an image from URL to local cache. Returns local path for insert_image/replace_image."
     parameters = {
         "type": "object",
         "properties": {
@@ -653,30 +609,23 @@ class DownloadImage(ToolWriterImageBase):
 # InsertImage
 # ------------------------------------------------------------------
 
+
 class InsertImage(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
     name = "insert_image"
     intent = "media"
-    description = (
-        "Insert an image from local path or URL into the document. "
-        "URLs are auto-downloaded first."
-    )
+    description = "Insert an image from local path or URL into the document. URLs are auto-downloaded first."
     parameters = {
         "type": "object",
         "properties": {
             "image_path": {
                 "type": "string",
-                "description": (
-                    "Local file path or URL of the image to insert."
-                ),
+                "description": ("Local file path or URL of the image to insert."),
             },
             "locator": {
                 "type": "string",
-                "description": (
-                    "Unified locator for insertion point "
-                    "(e.g. 'bookmark:NAME', 'heading_text:Title')."
-                ),
+                "description": ("Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title')."),
             },
             "paragraph_index": {
                 "type": "integer",
@@ -713,11 +662,7 @@ class InsertImage(ToolWriterImageBase):
         if image_path.startswith("http://") or image_path.startswith("https://"):
             image_path = _download_image_to_cache(image_path)
         if not os.path.isfile(image_path):
-            return self._tool_error(
-                f"File not found: {image_path}",
-                code="FILE_NOT_FOUND",
-                path=image_path
-            )
+            return self._tool_error(f"File not found: {image_path}", code="FILE_NOT_FOUND", path=image_path)
 
         # Convert to file:// URL
         file_url = uno.systemPathToFileUrl(os.path.abspath(image_path))
@@ -731,6 +676,7 @@ class InsertImage(ToolWriterImageBase):
 
         # Set size
         from com.sun.star.awt import Size
+
         size = Size()
         size.Width = int(width_mm) * 100
         size.Height = int(height_mm) * 100
@@ -745,6 +691,7 @@ class InsertImage(ToolWriterImageBase):
             # Center or place it in the view if possible, otherwise just at 0,0
             # For now, we set a basic position
             from com.sun.star.awt import Point
+
             pos = Point()
             pos.X = 1000
             pos.Y = 1000
@@ -760,11 +707,7 @@ class InsertImage(ToolWriterImageBase):
             if paragraph_index is not None and doc_svc:
                 target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
                 if target is None:
-                    return self._tool_error(
-                        f"Paragraph {paragraph_index} not found.",
-                        code="PARAGRAPH_NOT_FOUND",
-                        paragraph_index=paragraph_index
-                    )
+                    return self._tool_error(f"Paragraph {paragraph_index} not found.", code="PARAGRAPH_NOT_FOUND", paragraph_index=paragraph_index)
                 cursor = doc_text.createTextCursorByRange(target.getEnd())
             else:
                 # Insert at current cursor position (end of document)
@@ -784,6 +727,7 @@ class InsertImage(ToolWriterImageBase):
 # ------------------------------------------------------------------
 # DeleteImage
 # ------------------------------------------------------------------
+
 
 class DeleteImage(ToolWriterImageBase):
     """Delete an image from the document."""
@@ -832,14 +776,13 @@ class DeleteImage(ToolWriterImageBase):
 # ReplaceImage
 # ------------------------------------------------------------------
 
+
 class ReplaceImage(ToolWriterImageBase):
     """Replace an image's source file keeping position and frame."""
 
     name = "replace_image"
     intent = "media"
-    description = (
-        "Replace an image's source file keeping position and frame."
-    )
+    description = "Replace an image's source file keeping position and frame."
     parameters = {
         "type": "object",
         "properties": {
@@ -879,11 +822,7 @@ class ReplaceImage(ToolWriterImageBase):
         if new_image_path.startswith("http://") or new_image_path.startswith("https://"):
             new_image_path = _download_image_to_cache(new_image_path)
         if not os.path.isfile(new_image_path):
-            return self._tool_error(
-                f"File not found: {new_image_path}",
-                code="FILE_NOT_FOUND",
-                path=new_image_path
-            )
+            return self._tool_error(f"File not found: {new_image_path}", code="FILE_NOT_FOUND", path=new_image_path)
 
         file_url = uno.systemPathToFileUrl(os.path.abspath(new_image_path))
 
@@ -894,6 +833,7 @@ class ReplaceImage(ToolWriterImageBase):
         height_mm = kwargs.get("height_mm")
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
+
             current = graphic.getPropertyValue("Size")
             new_size = Size()
             new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
@@ -909,6 +849,7 @@ class ReplaceImage(ToolWriterImageBase):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
 
 def _download_image_to_cache(url, verify_ssl=False, force=False):
     """Download an image URL to the local cache directory.

@@ -17,16 +17,7 @@ log = logging.getLogger(__name__)
 class SwitchToDocumentModeTool(ToolBase):
     name = "switch_to_document_mode"
     description = "Exits the Librarian onboarding flow and switches the user to the main document assistant mode. Use this when you are done or the user wants to work on the document."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "message": {
-                "type": "string",
-                "description": "A final friendly message to the user before switching."
-            }
-        },
-        "required": ["message"]
-    }
+    parameters = {"type": "object", "properties": {"message": {"type": "string", "description": "A final friendly message to the user before switching."}}, "required": ["message"]}
     # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
     tier = "specialized_control"
     is_mutation = False
@@ -40,27 +31,16 @@ class SwitchToDocumentModeTool(ToolBase):
 
         # If the tool is called, we will stop the Librarian flow.
         # It's an internal signal, we'll return a specific status.
-        return {
-            "status": "switch_mode",
-            "message": kwargs.get("message", _("Switching to document mode..."))
-        }
+        return {"status": "switch_mode", "message": kwargs.get("message", _("Switching to document mode..."))}
+
 
 class LibrarianOnboardingTool(ToolBase):
     name = "librarian_onboarding"
     description = "Librarian agent for new user onboarding."
     parameters = {
         "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "User message"
-            },
-            "history_text": {
-                "type": "string",
-                "description": "Previous conversation text"
-            }
-        },
-        "required": ["query"]
+        "properties": {"query": {"type": "string", "description": "User message"}, "history_text": {"type": "string", "description": "Previous conversation text"}},
+        "required": ["query"],
     }
     # Hide from the default main-chat tool surface; librarian onboarding owns this tool.
     tier = "specialized_control"
@@ -160,13 +140,9 @@ TOOLS FOR COMPLETION:
                         if callable(chat_append_callback):
                             chat_append_callback(line)
                         elif append_thinking_callback:
-                            append_thinking_callback(
-                                f"Running tool: {step.name} with {step.arguments}\n"
-                            )
+                            append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
                     elif append_thinking_callback:
-                        append_thinking_callback(
-                            f"Running tool: {step.name} with {step.arguments}\n"
-                        )
+                        append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
                     if status_callback:
                         status_callback(f"{step.name}...")
                 elif isinstance(step, ActionStep):

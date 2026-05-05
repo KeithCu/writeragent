@@ -45,10 +45,7 @@ class ListCellComments(ToolCalcCommentBase):
 
     name = "list_cell_comments"
     intent = "review"
-    description = (
-        "List all cell comments (annotations) in a Calc sheet. "
-        "Returns cell address, author, date, and comment text."
-    )
+    description = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
     parameters = {
         "type": "object",
         "properties": {
@@ -68,13 +65,15 @@ class ListCellComments(ToolCalcCommentBase):
         for i in range(annotations.getCount()):
             ann = annotations.getByIndex(i)
             pos = ann.getPosition()
-            comments.append({
-                "cell": _cell_label(pos.Column, pos.Row),
-                "author": ann.getAuthor(),
-                "date": ann.getDate(),
-                "text": ann.getString(),
-                "is_visible": ann.getIsVisible(),
-            })
+            comments.append(
+                {
+                    "cell": _cell_label(pos.Column, pos.Row),
+                    "author": ann.getAuthor(),
+                    "date": ann.getDate(),
+                    "text": ann.getString(),
+                    "is_visible": ann.getIsVisible(),
+                }
+            )
         return {
             "status": "ok",
             "comments": comments,
@@ -82,14 +81,13 @@ class ListCellComments(ToolCalcCommentBase):
             "sheet": sheet.getName(),
         }
 
+
 class AddCellComment(ToolCalcCommentBase):
     """Add a comment to a cell."""
 
     name = "add_cell_comment"
     intent = "review"
-    description = (
-        "Add a comment (annotation) to a specific cell in a Calc sheet."
-    )
+    description = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters = {
         "type": "object",
         "properties": {
@@ -123,6 +121,7 @@ class AddCellComment(ToolCalcCommentBase):
 
         # Insert or update annotation
         from com.sun.star.table import CellAddress
+
         addr = CellAddress()
         addr.Sheet = sheet.getRangeAddress().Sheet
         addr.Column = col
@@ -142,6 +141,7 @@ class AddCellComment(ToolCalcCommentBase):
             "text": text,
             "sheet": sheet.getName(),
         }
+
 
 class DeleteCellComment(ToolCalcCommentBase):
     """Delete a comment from a cell."""

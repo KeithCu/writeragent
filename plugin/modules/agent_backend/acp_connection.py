@@ -47,10 +47,10 @@ class ACPConnection:
         self._proc = None
         self._lock = threading.Lock()
         self._request_id = 0
-        self._pending = {}         # id -> threading.Event, response dict
+        self._pending = {}  # id -> threading.Event, response dict
         self._reader_thread = None
         self._running = False
-        self._notifications = []   # queue of notification dicts
+        self._notifications = []  # queue of notification dicts
         self._notify_callback = None
 
     def start(self):
@@ -70,9 +70,7 @@ class ACPConnection:
             cwd=self._cwd,
         )
         self._running = True
-        self._reader_thread = run_in_background(
-            self._reader_loop, daemon=True, name="acp-reader"
-        )
+        self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader")
 
     def stop(self):
         """Terminate the subprocess."""
@@ -176,7 +174,7 @@ class ACPConnection:
             msg["error"] = error
         else:
             msg["result"] = result or {}
-            
+
         line = json.dumps(msg) + "\n"
         try:
             if self._proc and self._proc.stdin:
@@ -203,11 +201,12 @@ class ACPConnection:
                 if not line:
                     continue
 
-                idx = line.find('{')
+                idx = line.find("{")
                 if idx >= 0:
                     line = line[idx:]
 
                 from plugin.framework.errors import safe_json_loads
+
                 msg = safe_json_loads(line)
                 if msg is None:
                     log.debug(f"Non-JSON output: {line[:200]}")

@@ -105,12 +105,7 @@ def _set_field_orientations(
     missing = [n for n in layout if n not in by_name]
     if missing:
         avail = sorted(by_name.keys())
-        raise ToolExecutionError(
-            "Unknown pivot field name(s): "
-            + ", ".join(missing)
-            + ". Available column headers: "
-            + ", ".join(avail)
-        )
+        raise ToolExecutionError("Unknown pivot field name(s): " + ", ".join(missing) + ". Available column headers: " + ", ".join(avail))
 
     for nm, fld in by_name.items():
         ps = _query_interface(fld, "com.sun.star.beans.XPropertySet")
@@ -279,10 +274,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
     """Refresh a DataPilot table from its current source range."""
 
     name = "refresh_pivot_table"
-    description = (
-        "Reload pivot table data from the source range. "
-        "If sheet_name is omitted, searches all sheets for pivot_table_name."
-    )
+    description = "Reload pivot table data from the source range. If sheet_name is omitted, searches all sheets for pivot_table_name."
     parameters = {
         "type": "object",
         "properties": {

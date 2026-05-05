@@ -36,6 +36,7 @@ class ToolCalcSpecialBase(ToolBase):
 
 # --- Domain-Specific Base Classes ---
 
+
 class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain = "images"
     intent = "media"

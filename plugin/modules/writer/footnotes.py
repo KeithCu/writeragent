@@ -40,9 +40,7 @@ def _cursor_after_nth_match(
     for _ in range(occurrence):
         found = doc.findNext(found, sd)
         if found is None:
-            raise ToolExecutionError(
-                f"No match for insert_after_text at occurrence {occurrence} (not enough occurrences)."
-            )
+            raise ToolExecutionError(f"No match for insert_after_text at occurrence {occurrence} (not enough occurrences).")
 
     t_cursor = found.getText().createTextCursorByRange(found)
     t_cursor.collapseToEnd()
@@ -60,6 +58,7 @@ def _get_note_supplier(doc: Any, note_type: str) -> Any:
         return doc.getEndnotes()
     else:
         raise ToolExecutionError(f"Invalid note_type '{note_type}'. Must be 'footnote' or 'endnote'.")
+
 
 def _get_note_settings(doc: Any, note_type: str) -> Any:
     if note_type == "footnote":
@@ -111,9 +110,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
             },
             "occurrence": {
                 "type": "integer",
-                "description": (
-                    "0-based index when insert_after_text matches multiple times (default 0 = first match)."
-                ),
+                "description": ("0-based index when insert_after_text matches multiple times (default 0 = first match)."),
             },
             "case_sensitive": {
                 "type": "boolean",
@@ -152,9 +149,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                 case_sensitive = bool(kwargs.get("case_sensitive", True))
 
                 try:
-                    t_cursor = _cursor_after_nth_match(
-                        doc, insert_after, occurrence, case_sensitive
-                    )
+                    t_cursor = _cursor_after_nth_match(doc, insert_after, occurrence, case_sensitive)
                 except ToolExecutionError as e:
                     return self._tool_error(str(e))
             else:
@@ -195,10 +190,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
 class FootnotesList(ToolWriterFootnoteBase):
     name = "footnotes_list"
-    description = (
-        "Lists all existing footnotes or endnotes in the document, including their indices, "
-        "labels (if custom), and text content. Use this index for editing or deleting."
-    )
+    description = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting."
     parameters = {
         "type": "object",
         "properties": {
@@ -225,11 +217,7 @@ class FootnotesList(ToolWriterFootnoteBase):
                 note = notes.getByIndex(i)
                 label = note.getLabel()
                 text = note.getString()
-                results.append({
-                    "index": i,
-                    "label": label,
-                    "text": text
-                })
+                results.append({"index": i, "label": label, "text": text})
 
             return {
                 "status": "ok",
@@ -305,9 +293,7 @@ class FootnotesEdit(ToolWriterFootnoteBase):
 
 class FootnotesDelete(ToolWriterFootnoteBase):
     name = "footnotes_delete"
-    description = (
-        "Deletes an existing footnote or endnote based on its index (from footnotes_list)."
-    )
+    description = "Deletes an existing footnote or endnote based on its index (from footnotes_list)."
     parameters = {
         "type": "object",
         "properties": {
@@ -358,10 +344,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
 
 class FootnotesSettingsGet(ToolWriterFootnoteBase):
     name = "footnotes_settings_get"
-    description = (
-        "Gets the current formatting and numbering settings for footnotes or endnotes. "
-        "These include prefix, suffix, starting number, and styles."
-    )
+    description = "Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles."
     parameters = {
         "type": "object",
         "properties": {
@@ -411,10 +394,7 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
 
 class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
     name = "footnotes_settings_update"
-    description = (
-        "Updates the formatting and numbering settings for footnotes or endnotes. "
-        "You can specify which properties to change (e.g., Prefix, Suffix, StartAt, NumberingType)."
-    )
+    description = "Updates the formatting and numbering settings for footnotes or endnotes. You can specify which properties to change (e.g., Prefix, Suffix, StartAt, NumberingType)."
     parameters = {
         "type": "object",
         "properties": {

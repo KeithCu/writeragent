@@ -157,16 +157,8 @@ class InsertMathDraw(ToolDrawSpecialBase):
 
         if formula_type == "latex":
             fstrip = formula.strip()
-            display_block = (
-                "\\displaystyle" in fstrip.lower()
-                or "\\int" in fstrip
-                or "\\iint" in fstrip
-                or "\\iiint" in fstrip
-                or "\\oint" in fstrip
-            )
-            res = convert_latex_to_starmath(
-                uno_ctx, fstrip, display_block=display_block
-            )
+            display_block = "\\displaystyle" in fstrip.lower() or "\\int" in fstrip or "\\iint" in fstrip or "\\iiint" in fstrip or "\\oint" in fstrip
+            res = convert_latex_to_starmath(uno_ctx, fstrip, display_block=display_block)
         elif formula_type == "mathml":
             res = convert_mathml_to_starmath(uno_ctx, formula.strip())
         else:

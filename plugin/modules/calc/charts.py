@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from typing import Any
+
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
 """
@@ -26,6 +27,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool_base import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
 import uno
+
 
 def supportsService(obj, service_name: str) -> bool:
     """Helper to check if a UNO object supports a service."""
@@ -100,6 +102,7 @@ def _chart_document_from_host(host: Any):
         pass
     return getattr(host, "Model", None)
 
+
 CHART_SERVICE_MAP = {
     "bar": "com.sun.star.chart.BarDiagram",
     "column": "com.sun.star.chart.BarDiagram",
@@ -129,13 +132,14 @@ def _axis_title_shape_string(shape, value: str | None) -> str | None:
 
 def _process_events(ctx=None):
     """Give LO a moment to process UI events and update object names/states."""
-    return    # try:
+    return  # try:
     #     from plugin.framework.uno_context import get_toolkit, get_ctx
     #     tk = get_toolkit(ctx or get_ctx())
     #     if tk:
     #         tk.processEventsToIdle()
     # except Exception:
     #     pass
+
 
 # Shared parameters for Create and Edit
 CHART_PROPERTIES = {
@@ -193,7 +197,7 @@ def _apply_chart_styling(chart_doc, **kwargs):
     # 3. Bar/Column Orientation
     chart_type = kwargs.get("chart_type")
     if chart_type in ["bar", "column"] and hasattr(diagram, "Vertical"):
-        diagram.Vertical = (chart_type == "bar")
+        diagram.Vertical = chart_type == "bar"
 
     # 4. Titles
     title = kwargs.get("title")
@@ -263,8 +267,7 @@ def _resolve_chart(doc, chart_name):
                         return shape
         except Exception:
             pass
-    elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or \
-         supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
+    elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
         # Iterate all pages and shapes
         for i in range(doc.getDrawPages().getCount()):
             page = doc.getDrawPages().getByIndex(i)
@@ -281,10 +284,7 @@ class ListCharts(ToolBase):
 
     name = "list_charts"
     intent = "navigate"
-    description = (
-        "List all charts in the current context (active sheet, document, or slide) "
-        "with name, title, and type."
-    )
+    description = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
     parameters = {
         "type": "object",
         "properties": {},
@@ -326,8 +326,7 @@ class ListCharts(ToolBase):
             except Exception:
                 pass
 
-        elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or \
-             supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
+        elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
             for i in range(doc.getDrawPages().getCount()):
                 page = doc.getDrawPages().getByIndex(i)
                 for j in range(page.getCount()):
@@ -359,10 +358,7 @@ class GetChartInfo(ToolBase):
 
     name = "get_chart_info"
     intent = "navigate"
-    description = (
-        "Get detailed info about a chart: type, title, ranges (if Calc), "
-        "axis titles, and legend properties."
-    )
+    description = "Get detailed info about a chart: type, title, ranges (if Calc), axis titles, and legend properties."
     parameters = {
         "type": "object",
         "properties": {
@@ -399,7 +395,7 @@ class GetChartInfo(ToolBase):
                 info["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
                 info["subtitle"] = chart_doc.getSubTitle().String if chart_doc.HasSubTitle else ""
                 info["has_legend"] = chart_doc.HasLegend
-                
+
                 diagram = chart_doc.getDiagram()
                 if diagram:
                     info["diagram_type"] = diagram.getDiagramType()
@@ -433,10 +429,7 @@ class CreateChart(ToolBase):
 
     name = "create_chart"
     intent = "edit"
-    description = (
-        "Creates a chart in the current context. In Calc, data_range is required. "
-        "In Writer/Impress, a chart is inserted at the cursor or on the active slide."
-    )
+    description = "Creates a chart in the current context. In Calc, data_range is required. In Writer/Impress, a chart is inserted at the cursor or on the active slide."
     parameters = {
         "type": "object",
         "properties": CHART_PROPERTIES,
@@ -457,10 +450,9 @@ class CreateChart(ToolBase):
                 return self._create_calc_chart(ctx, rect, chart_service, **kwargs)
             elif supportsService(doc, "com.sun.star.text.TextDocument"):
                 return self._create_writer_chart(ctx, rect, chart_service, **kwargs)
-            elif supportsService(doc, "com.sun.star.presentation.PresentationDocument") or \
-                 supportsService(doc, "com.sun.star.drawing.DrawingDocument"):
+            elif supportsService(doc, "com.sun.star.presentation.PresentationDocument") or supportsService(doc, "com.sun.star.drawing.DrawingDocument"):
                 return self._create_draw_chart(ctx, rect, chart_service, **kwargs)
-            
+
             return self._tool_error("Unsupported document type for chart creation.")
         except Exception as e:
             msg = f"{type(e).__name__}: {str(e)}"
@@ -477,13 +469,13 @@ class CreateChart(ToolBase):
         cell_range = bridge.get_cell_range(sheet, data_range)
         addr = cell_range.getRangeAddress()
 
-        logger.debug("Creating Calc chart: name=Chart_N, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", 
-                     rect.X, rect.Y, rect.Width, rect.Height,
-                     addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
+        logger.debug(
+            "Creating Calc chart: name=Chart_N, rect=(%d,%d,%d,%d), range=(%d,%d,%d,%d)", rect.X, rect.Y, rect.Width, rect.Height, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow
+        )
 
         charts = sheet.getCharts()
         name = f"Chart_{len(charts)}"
-        
+
         # Ensure name is unique
         try:
             while charts.hasByName(name):
@@ -492,13 +484,13 @@ class CreateChart(ToolBase):
             pass
 
         charts.addNewByName(name, rect, (addr,), True, True)
-        
+
         chart_obj = charts.getByName(name)
         chart_doc = _chart_document_from_host(chart_obj)
         if not chart_doc:
             return self._tool_error("Cannot access chart content.")
         chart_doc.setDiagram(chart_doc.createInstance(service))
-        
+
         _apply_chart_styling(chart_doc, **kwargs)
         _process_events()
         return {"status": "ok", "message": f"Chart '{name}' created in Calc.", "chart_name": name}
@@ -629,9 +621,7 @@ class EditChart(ToolBase):
 
     name = "edit_chart"
     intent = "edit"
-    description = (
-        "Edit a chart's properties: title, 3D mode, stacking, legend, axes, etc."
-    )
+    description = "Edit a chart's properties: title, 3D mode, stacking, legend, axes, etc."
     parameters = {
         "type": "object",
         "properties": {
@@ -663,7 +653,7 @@ class EditChart(ToolBase):
                 chart_doc.setDiagram(chart_doc.createInstance(service))
 
         _apply_chart_styling(chart_doc, **kwargs)
-        
+
         return {"status": "ok", "chart_name": chart_name, "message": "Chart updated."}
 
 
@@ -689,7 +679,7 @@ class DeleteChart(ToolBase):
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
         chart_name = kwargs["chart_name"]
-        
+
         if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
             bridge = CalcBridge(doc)
             sheet = bridge.get_active_sheet()

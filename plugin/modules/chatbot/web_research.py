@@ -29,10 +29,7 @@ log = logging.getLogger("writeragent.web_research")
 
 class ToolWriterWebResearchBase(ToolBase):
     name = "web_research"
-    description = (
-        "Perform deep web research to answer complex questions. "
-        "Bypasses document context to search the live web."
-    )
+    description = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
     doc_types = ["writer"]
     parameters = {
         "type": "object",
@@ -63,22 +60,21 @@ class ToolDrawWebResearchBase(ToolWriterWebResearchBase):
 
 class WebResearchToolCallingAgent(ToolCallingAgent):
     """Subclass of ToolCallingAgent that injects the step budget into the prompt on each step."""
+
     def augment_messages_for_step(self, messages):
         from plugin.contrib.smolagents.models import ChatMessage, MessageRole
+
         # Re-calculate remaining steps
         current_step = getattr(self, "step_number", 1)
         max_steps = getattr(self, "max_steps", 20)
         remaining = max_steps - current_step + 1
         used = current_step - 1
-        
+
         # Match test expectations in plugin/tests/test_web_research_step_budget.py
-        budget_msg = (
-            f"Step budget: {used} step(s) used, {remaining} step(s) remaining (maximum {max_steps}). "
-            f"You are on step {current_step} of {max_steps}."
-        )
+        budget_msg = f"Step budget: {used} step(s) used, {remaining} step(s) remaining (maximum {max_steps}). You are on step {current_step} of {max_steps}."
         if remaining <= 2:
             budget_msg += " You are almost out of steps! You MUST call final_answer in your next turn with your best summary."
-        
+
         if messages and (messages[-1].role == MessageRole.USER or messages[-1].role == MessageRole.TOOL_RESPONSE):
             # Prepend to last user-equivalent message to avoid consecutive USER roles after conversion
             last_msg = messages[-1]
@@ -87,7 +83,7 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
                 last_msg.content = [{"type": "text", "text": last_msg.content}]
             elif last_msg.content is None:
                 last_msg.content = []
-            
+
             if isinstance(last_msg.content, list):
                 last_msg.content.insert(0, {"type": "text", "text": budget_msg})
         else:
@@ -135,16 +131,15 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         cache_path = os.path.join(udir, "localwriter_web_cache.db") if (udir and cache_max_mb > 0) else None
 
         smol_model = WriterAgentSmolModel(
-            LlmClient(config, ctx.ctx), max_tokens=max_tokens,
+            LlmClient(config, ctx.ctx),
+            max_tokens=max_tokens,
             status_callback=status_callback,
         )
 
         import datetime
+
         today = datetime.date.today().strftime("%A, %Y-%m-%d")
-        base_intro = (
-            f"You are a research assistant. Today's date is {today}. "
-            "Use the conversation context provided below to resolve any ambiguity in the user's query."
-        )
+        base_intro = f"You are a research assistant. Today's date is {today}. Use the conversation context provided below to resolve any ambiguity in the user's query."
         tool_steps_budget = max_steps - 1
         budget_text = (
             f"Step limit: at most {max_steps} agent steps total (each step is one tool call, "
@@ -170,6 +165,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         prompt_for_web_research = False
         try:
             from plugin.framework.config import get_config, as_bool
+
             prompt_for_web_research = as_bool(get_config(ctx.ctx, "chatbot.prompt_for_web_research"))
         except (ValueError, TypeError):
             pass
@@ -199,8 +195,9 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                     query_norm = _norm_research_query(cast("str", query)) if query is not None else ""
                     if not (web_search_step_index == 0 and q_norm == query_norm):
                         from plugin.modules.chatbot.web_research_chat import web_search_engine_step_chat_text
+
                         chat_append_callback(web_search_engine_step_chat_text(q, web_search_step_index, approval_required=False))
-                
+
                 web_search_step_index += 1
                 status_msg = f"Search: {q[:25]}"
             elif step.name == "visit_webpage":
@@ -208,6 +205,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                 if append_thinking_callback:
                     append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
                 from plugin.framework.utils import get_url_domain
+
                 status_msg = f"Read: {get_url_domain(url)}"
             else:
                 if append_thinking_callback:
@@ -219,16 +217,13 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
             return None
 
         executor = SmolAgentExecutor(ctx)
-        final_ans = executor.execute_safe(
-            agent, task, tool_call_handler=tool_call_handler,
-            stop_message="Web search stopped by user.",
-            error_prefix="Web search failed"
-        )
+        final_ans = executor.execute_safe(agent, task, tool_call_handler=tool_call_handler, stop_message="Web search stopped by user.", error_prefix="Web search failed")
 
         if isinstance(final_ans, dict) and "status" in final_ans:
             return final_ans
 
         from plugin.framework.i18n import _
+
         return {
             "status": "ok",
             "message": _("Web research completed."),
@@ -244,6 +239,7 @@ def _web_search_query_from_arguments(arguments: Any) -> str:
     if isinstance(arguments, str):
         try:
             from plugin.framework.errors import safe_json_loads
+
             data = safe_json_loads(arguments)
             if isinstance(data, dict):
                 return str(data.get("query", ""))

@@ -122,11 +122,10 @@ def _get_format_props(config_svc=None):
 # UNO helpers (import inside functions to avoid import-time dependency)
 # ---------------------------------------------------------------------------
 
+
 def _file_url(path):
     """Return a ``file://`` URL for *path*."""
-    return urllib.parse.urljoin(
-        "file:", urllib.request.pathname2url(os.path.abspath(path))
-    )
+    return urllib.parse.urljoin("file:", urllib.request.pathname2url(os.path.abspath(path)))
 
 
 def _create_property_value(name, value):
@@ -167,13 +166,12 @@ def _with_temp_buffer(content=None, config_svc=None):
 # HTML helpers
 # ---------------------------------------------------------------------------
 
+
 def _strip_html_boilerplate(html_string):
     """Extract content between ``<body>`` tags if present."""
     if not html_string or not isinstance(html_string, str):
         return html_string
-    match = re.search(
-        r"<body[^>]*>(.*?)</body>", html_string, re.DOTALL | re.IGNORECASE
-    )
+    match = re.search(r"<body[^>]*>(.*?)</body>", html_string, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
     return html_string
@@ -187,11 +185,7 @@ def _wrap_html_fragment(html_content):
     has_body = "<body" in html_content.lower() and "</body>" in html_content.lower()
     if has_html and has_body:
         return html_content
-    return (
-        "<!DOCTYPE html>\n<html>\n<head>\n"
-        '<meta charset="UTF-8">\n</head>\n<body>\n'
-        "%s\n</body>\n</html>" % html_content
-    )
+    return '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n</head>\n<body>\n%s\n</body>\n</html>' % html_content
 
 
 def _ensure_html_linebreaks(content):
@@ -203,8 +197,15 @@ def _ensure_html_linebreaks(content):
     content = _normalize(content)
     unescaped = html_mod.unescape(content)
     html_tags = [
-        "<p>", "<br>", "</h1>", "<h2>", "<h3>",
-        "</ul>", "</li>", "</div>", "<html>",
+        "<p>",
+        "<br>",
+        "</h1>",
+        "<h2>",
+        "<h3>",
+        "</ul>",
+        "</li>",
+        "</div>",
+        "<html>",
     ]
     has_html = any(tag in unescaped.lower() for tag in html_tags)
     if has_html:
@@ -233,9 +234,7 @@ def html_to_plain_text(html_string, ctx, config_svc=None):
     try:
         desktop = get_desktop(ctx)
         load_props = (_create_property_value("Hidden", True),)
-        temp_doc = desktop.loadComponentFromURL(
-            "private:factory/swriter", "_default", 0, load_props
-        )
+        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, load_props)
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return html_string.strip()
         with _with_temp_buffer(prepared, config_svc) as (_path, file_url):
@@ -274,9 +273,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
         ctx.getServiceManager()
         desktop = get_desktop(ctx)
         load_props = (_create_property_value("Hidden", True),)
-        temp_doc = desktop.loadComponentFromURL(
-            "private:factory/swriter", "_default", 0, load_props
-        )
+        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, load_props)
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return ""
 
@@ -319,9 +316,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
-                temp_text.insertControlCharacter(
-                    temp_cursor, _PARAGRAPH_BREAK, False
-                )
+                temp_text.insertControlCharacter(temp_cursor, _PARAGRAPH_BREAK, False)
                 temp_cursor.setPropertyValue("ParaStyleName", style)
                 temp_cursor.setString(para_text)
             added_any = True
@@ -350,8 +345,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 pass
 
 
-def document_to_content(model, ctx, services, max_chars=None,
-                        scope="full", range_start=None, range_end=None):
+def document_to_content(model, ctx, services, max_chars=None, scope="full", range_start=None, range_end=None):
     """Export a Writer document (or part of it) as HTML.
 
     Args:
@@ -370,9 +364,7 @@ def document_to_content(model, ctx, services, max_chars=None,
 
     if scope == "selection":
         start, end = get_selection_range(model)
-        return _range_to_content_via_temp_doc(
-            model, ctx, start, end, max_chars, config_svc
-        )
+        return _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc)
 
     if scope == "range":
         start = int(range_start) if range_start is not None else 0
@@ -380,9 +372,7 @@ def document_to_content(model, ctx, services, max_chars=None,
         doc_len = services.document.get_document_length(model) if services else 0
         start = max(0, min(start, doc_len))
         end = min(end, doc_len)
-        return _range_to_content_via_temp_doc(
-            model, ctx, start, end, max_chars, config_svc
-        )
+        return _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc)
 
     # scope == "full"
     try:
@@ -405,6 +395,7 @@ def document_to_content(model, ctx, services, max_chars=None,
 # Content -> Document
 # ---------------------------------------------------------------------------
 
+
 def _cursor_goto_document_end(model, cursor) -> None:
     """Move *cursor* to the end of the document body (``model.getText()``)."""
     end_c = model.getText().createTextCursor()
@@ -421,9 +412,7 @@ def _insert_starwriter_html_at_cursor(model, cursor, prepared_html, config_svc=N
     _cursor_goto_document_end(model, cursor)
 
 
-def _insert_mixed_html_and_math_at_cursor(
-    model, ctx, cursor, unescaped: str, config_svc=None
-):
+def _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped: str, config_svc=None):
     """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
     _segs = segment_html_with_mixed_math(unescaped)
     if log.isEnabledFor(logging.DEBUG) and html_fragment_contains_mixed_math(unescaped):
@@ -439,8 +428,7 @@ def _insert_mixed_html_and_math_at_cursor(
             else:
                 _math_i += 1
                 log.debug(
-                    "mixed_html_math: segment[%d] %s#%d display_block=%s "
-                    "src_nl=%d src_len=%d",
+                    "mixed_html_math: segment[%d] %s#%d display_block=%s src_nl=%d src_len=%d",
                     _si,
                     _s.kind,
                     _math_i,
@@ -457,19 +445,15 @@ def _insert_mixed_html_and_math_at_cursor(
                 model.getText().insertString(cursor, chunk, False)
                 _cursor_goto_document_end(model, cursor)
                 continue
-            
+
             # Expand literal \n and \t for plain HTML without math
             chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
-            
+
             sub = _ensure_html_linebreaks(chunk)
-            _insert_starwriter_html_at_cursor(
-                model, cursor, sub, config_svc=config_svc
-            )
+            _insert_starwriter_html_at_cursor(model, cursor, sub, config_svc=config_svc)
             continue
         if seg.kind == "tex":
-            res = convert_latex_to_starmath(
-                ctx, seg.text, display_block=seg.display_block
-            )
+            res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
         else:
             res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath and log.isEnabledFor(logging.DEBUG):
@@ -502,21 +486,16 @@ def _insert_mixed_html_and_math_at_cursor(
 def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None):
     """HTML import, with an optional MathML + TeX preprocessing layer."""
     if html_fragment_contains_mixed_math(unescaped_content):
-        _insert_mixed_html_and_math_at_cursor(
-            model, ctx, cursor, unescaped_content, config_svc=config_svc
-        )
+        _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped_content, config_svc=config_svc)
     else:
         # Expand literal \n and \t for plain HTML without math
         unescaped_content = unescaped_content.replace("\\n", "\n").replace("\\t", "\t")
-        
+
         single = _ensure_html_linebreaks(unescaped_content)
-        _insert_starwriter_html_at_cursor(
-            model, cursor, single, config_svc=config_svc
-        )
+        _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
 
 
-def insert_content_at_position(model, ctx, content, position,
-                               config_svc=None):
+def insert_content_at_position(model, ctx, content, position, config_svc=None):
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
@@ -561,24 +540,19 @@ def replace_full_document(model, ctx, content, config_svc=None):
     _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
 
 
-def apply_content_at_range(model, ctx, content, start, end,
-                           config_svc=None):
+def apply_content_at_range(model, ctx, content, start, end, config_svc=None):
     """Replace character range ``[start, end)`` with rendered *content*."""
 
     cursor = get_text_cursor_at_range(model, start, end)
     if cursor is None:
-        raise ToolExecutionError(
-            "Invalid range or could not create cursor for (%d, %d)" % (start, end)
-        )
+        raise ToolExecutionError("Invalid range or could not create cursor for (%d, %d)" % (start, end))
 
     content = html_mod.unescape(content)
     cursor.setString("")
     _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
 
 
-def apply_content_at_search(model, ctx, content, search,
-                            all_matches=False, case_sensitive=True,
-                            config_svc=None):
+def apply_content_at_search(model, ctx, content, search, all_matches=False, case_sensitive=True, config_svc=None):
     """Find *search* in the document and replace with rendered *content*.
 
     Returns the number of replacements made.
@@ -606,8 +580,7 @@ def apply_content_at_search(model, ctx, content, search,
     return count
 
 
-def replace_single_range_with_content(model, text_range, content, ctx,
-                                      config_svc=None):
+def replace_single_range_with_content(model, text_range, content, ctx, config_svc=None):
     """Replace the given text range with rendered *content* (HTML path)."""
     prepared = html_mod.unescape(content)
     text_obj = text_range.getText()
@@ -616,8 +589,7 @@ def replace_single_range_with_content(model, text_range, content, ctx,
     _insert_mixed_or_plain_html(model, ctx, cursor, prepared, config_svc=config_svc)
 
 
-def _preserving_search_replace(model, uno_ctx, new_text, search_string,
-                               all_matches=False, case_sensitive=True):
+def _preserving_search_replace(model, uno_ctx, new_text, search_string, all_matches=False, case_sensitive=True):
     """Find *search_string* and replace with *new_text* using format-preserving
     character-by-character replacement. Returns the number of replacements.
     """
@@ -643,8 +615,8 @@ def _preserving_search_replace(model, uno_ctx, new_text, search_string,
 # Text search
 # ---------------------------------------------------------------------------
 
-def find_text_ranges(model, ctx, search, start=0, limit=None,
-                     case_sensitive=True):
+
+def find_text_ranges(model, ctx, search, start=0, limit=None, case_sensitive=True):
     """Find occurrences of *search*, returning a list of
     ``{"start": int, "end": int, "text": str}`` dicts.
     """
@@ -674,11 +646,13 @@ def find_text_ranges(model, ctx, search, start=0, limit=None,
             m_start = len(measure.getString())
             matched_text = found.getString()
             m_end = m_start + len(matched_text)
-            matches.append({
-                "start": m_start,
-                "end": m_end,
-                "text": matched_text,
-            })
+            matches.append(
+                {
+                    "start": m_start,
+                    "end": m_end,
+                    "text": matched_text,
+                }
+            )
             if limit and len(matches) >= limit:
                 break
             found = model.findNext(found, sd)
@@ -694,12 +668,38 @@ def find_text_ranges(model, ctx, search, start=0, limit=None,
 
 _MARKUP_PATTERNS = [
     # Markdown
-    "**", "__", "``", "# ", "## ", "### ", "| ", "|---", "- [ ]",
+    "**",
+    "__",
+    "``",
+    "# ",
+    "## ",
+    "### ",
+    "| ",
+    "|---",
+    "- [ ]",
     # HTML
-    "<b>", "<i>", "<p>", "<h1", "<h2", "<h3", "<table", "<tr", "<td",
-    "<ul>", "<ol>", "<li>", "<div", "<span", "<br", "<img",
-    "<strong", "<em>", "</",
-    "<html", "<body", "<!DOCTYPE",
+    "<b>",
+    "<i>",
+    "<p>",
+    "<h1",
+    "<h2",
+    "<h3",
+    "<table",
+    "<tr",
+    "<td",
+    "<ul>",
+    "<ol>",
+    "<li>",
+    "<div",
+    "<span",
+    "<br",
+    "<img",
+    "<strong",
+    "<em>",
+    "</",
+    "<html",
+    "<body",
+    "<!DOCTYPE",
     "<math",
     # TeX (so plain ``\\( … \\)`` / ``$$`` is not misclassified as format-preserving)
     "$$",
@@ -740,9 +740,7 @@ def replace_preserving_format(model, target_range, new_text, ctx=None):
     toolkit = None
     if ctx:
         try:
-            toolkit = ctx.getServiceManager().createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", ctx
-            )
+            toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         except Exception:
             pass
 

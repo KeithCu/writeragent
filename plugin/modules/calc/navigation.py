@@ -16,8 +16,10 @@ log = logging.getLogger("nelson.calc")
 def _range_address_str(ra):
     """Convert a RangeAddress to 'Sheet.A1:D10' style."""
     return "%s%d:%s%d" % (
-        index_to_column(ra.StartColumn), ra.StartRow + 1,
-        index_to_column(ra.EndColumn), ra.EndRow + 1,
+        index_to_column(ra.StartColumn),
+        ra.StartRow + 1,
+        index_to_column(ra.EndColumn),
+        ra.EndRow + 1,
     )
 
 
@@ -26,10 +28,7 @@ class ListNamedRanges(ToolBase):
 
     name = "list_named_ranges"
     intent = "navigate"
-    description = (
-        "List all named ranges defined in the Calc spreadsheet. "
-        "Returns name, formula/content, and range address."
-    )
+    description = "List all named ranges defined in the Calc spreadsheet. Returns name, formula/content, and range address."
     parameters = {
         "type": "object",
         "properties": {},

@@ -13,13 +13,10 @@ from plugin.modules.writer.base import ToolWriterIndexBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 
-
 class IndexesUpdateAll(ToolWriterIndexBase):
     name = "indexes_update_all"
     intent = "navigate"
-    description = (
-        "Refresh/update all document indexes (table of contents, bibliography, etc.)."
-    )
+    description = "Refresh/update all document indexes (table of contents, bibliography, etc.)."
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
@@ -90,12 +87,7 @@ class IndexesList(ToolWriterIndexBase):
                     type_name = "toc"
                 elif type_name == "SwXUserIndex":
                     type_name = "user"
-            result.append({
-                "index": i,
-                "name": name,
-                "title": title,
-                "type": type_name
-            })
+            result.append({"index": i, "name": name, "title": title, "type": type_name})
         return {"status": "ok", "indexes": result, "count": count}
 
 
@@ -155,7 +147,7 @@ class IndexesCreate(ToolWriterIndexBase):
                 "illustration": "com.sun.star.text.IllustrationsIndex",
                 "table": "com.sun.star.text.TableIndex",
                 "object": "com.sun.star.text.ObjectIndex",
-                "bibliography": "com.sun.star.text.Bibliography"
+                "bibliography": "com.sun.star.text.Bibliography",
             }
             service_name = service_map.get(index_kind, "com.sun.star.text.ContentIndex")
 
@@ -181,11 +173,7 @@ class IndexesCreate(ToolWriterIndexBase):
             text.insertTextContent(cursor, index, False)
             index.update()
 
-            return {
-                "status": "ok",
-                "message": f"Created '{index_kind}' index successfully",
-                "title": title
-            }
+            return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
         except Exception as e:
             return self._tool_error(f"Failed to create index: {str(e)}")
 
@@ -260,7 +248,7 @@ class IndexesAddMark(ToolWriterIndexBase):
             if hasattr(mark, "MarkEntry"):
                 mark.MarkEntry = mark_text
             elif hasattr(mark, "PrimaryKey") and hasattr(mark, "SecondaryKey"):
-                pass # DocumentIndexMark handles these via properties
+                pass  # DocumentIndexMark handles these via properties
 
             if index_kind == "alphabetical":
                 if hasattr(mark, "PrimaryKey") and primary_key is not None:
@@ -277,9 +265,6 @@ class IndexesAddMark(ToolWriterIndexBase):
             text = cursor.getText()
             text.insertTextContent(cursor, mark, False)
 
-            return {
-                "status": "ok",
-                "message": f"Added '{index_kind}' index mark for '{mark_text}'"
-            }
+            return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
         except Exception as e:
             return self._tool_error(f"Failed to add index mark: {str(e)}")

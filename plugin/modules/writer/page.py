@@ -25,6 +25,7 @@ from plugin.modules.writer.base import ToolWriterPageBase
 # GetPageStyleProperties
 # ------------------------------------------------------------------
 
+
 class GetPageStyleProperties(ToolWriterPageBase):
     """Get dimensions, margins, and header/footer states of a page style."""
 
@@ -93,6 +94,7 @@ class GetPageStyleProperties(ToolWriterPageBase):
 # ------------------------------------------------------------------
 # SetPageStyleProperties
 # ------------------------------------------------------------------
+
 
 class SetPageStyleProperties(ToolWriterPageBase):
     """Modify dimensions, margins, and header/footer toggles of a page style."""
@@ -212,7 +214,8 @@ class SetPageStyleProperties(ToolWriterPageBase):
                 style.setPropertyValue("RegisterParagraphStyle", kwargs["register_paragraph_style"])
                 updated.append("register_paragraph_style")
             if "page_style_layout" in kwargs:
-                from com.sun.star.style.PageStyleLayout import (ALL, LEFT, RIGHT, MIRRORED)
+                from com.sun.star.style.PageStyleLayout import ALL, LEFT, RIGHT, MIRRORED
+
                 m = {0: ALL, 1: LEFT, 2: RIGHT, 3: MIRRORED}
                 val = m.get(kwargs["page_style_layout"])
                 if val is not None:
@@ -227,6 +230,7 @@ class SetPageStyleProperties(ToolWriterPageBase):
 # ------------------------------------------------------------------
 # GetHeaderFooterText
 # ------------------------------------------------------------------
+
 
 class GetHeaderFooterText(ToolWriterPageBase):
     """Retrieve the text content of a page style's header or footer."""
@@ -285,6 +289,7 @@ class GetHeaderFooterText(ToolWriterPageBase):
 # ------------------------------------------------------------------
 # SetHeaderFooterText
 # ------------------------------------------------------------------
+
 
 class SetHeaderFooterText(ToolWriterPageBase):
     """Set the text content of a page style's header or footer."""
@@ -352,6 +357,7 @@ class SetHeaderFooterText(ToolWriterPageBase):
 # GetPageColumns
 # ------------------------------------------------------------------
 
+
 class GetPageColumns(ToolWriterPageBase):
     """Get the column layout for a page style."""
 
@@ -391,11 +397,13 @@ class GetPageColumns(ToolWriterPageBase):
 
             columns_data = []
             for col in cols:
-                columns_data.append({
-                    "width": col.Width,
-                    "left_margin_mm": col.LeftMargin / 100.0,
-                    "right_margin_mm": col.RightMargin / 100.0,
-                })
+                columns_data.append(
+                    {
+                        "width": col.Width,
+                        "left_margin_mm": col.LeftMargin / 100.0,
+                        "right_margin_mm": col.RightMargin / 100.0,
+                    }
+                )
 
             return {"status": "ok", "style_name": style_name, "column_count": column_count, "columns": columns_data}
         except Exception as e:
@@ -405,6 +413,7 @@ class GetPageColumns(ToolWriterPageBase):
 # ------------------------------------------------------------------
 # SetPageColumns
 # ------------------------------------------------------------------
+
 
 class SetPageColumns(ToolWriterPageBase):
     """Set the number of columns and spacing for a page style."""
@@ -480,6 +489,7 @@ class SetPageColumns(ToolWriterPageBase):
 # InsertPageBreak
 # ------------------------------------------------------------------
 
+
 class InsertPageBreak(ToolWriterPageBase):
     """Insert a page break at the current cursor position."""
 
@@ -504,10 +514,11 @@ class InsertPageBreak(ToolWriterPageBase):
             cursor = text.createTextCursorByRange(view_cursor)
 
             from com.sun.star.style.BreakType import PAGE_BEFORE
+
             cursor.setPropertyValue("BreakType", PAGE_BEFORE)
 
             # Optionally insert a paragraph break so the break actually applies cleanly
-            text.insertControlCharacter(cursor, 0, False) # 0 = PARAGRAPH_BREAK
+            text.insertControlCharacter(cursor, 0, False)  # 0 = PARAGRAPH_BREAK
 
             return {"status": "ok", "message": "Page break inserted."}
         except Exception as e:

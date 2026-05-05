@@ -76,7 +76,7 @@ def _normalize_for_sentence_cache(text: str) -> str:
         return s
     # Match up to first terminator, then any extra trailing punctuation to discard
     # Non-greedy match ensures we stop at the first terminator
-    match = re.search(r'^(.*?[.!?…。！？])([.!?…。！？]*)$', s)
+    match = re.search(r"^(.*?[.!?…。！？])([.!?…。！？]*)$", s)
     if match:
         return match.group(1)
     return s
@@ -86,9 +86,7 @@ def _normalize_for_sentence_cache(text: str) -> str:
 # to avoid import cycles). Used for deciding whether to evict incomplete
 # prefix predecessors during cache_put_sentence.
 _SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
-_TRAILING_CLOSERS = frozenset(
-    ("\"", "'", ")", "]", "}", ">", "»", "“", "‘", "」", "』", "）", "］", "〉", "》", "】", "〕", "〗", "〛")
-)
+_TRAILING_CLOSERS = frozenset(('"', "'", ")", "]", "}", ">", "»", "“", "‘", "」", "』", "）", "］", "〉", "》", "】", "〕", "〗", "〛"))
 
 
 def _last_meaningful_char(text: str) -> str:
@@ -129,6 +127,7 @@ def _get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, 
         return None, None
     try:
         import uno
+
         smgr = ctx.ServiceManager
         bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
         parts = loc_key.split("-")
@@ -186,6 +185,7 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
         )
     return out
 
+
 def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list[str]:
     """Split text into a list of word tokens and non-word (punctuation/whitespace) tokens.
     Uses LO's BreakIterator if available, otherwise falls back to a regex."""
@@ -201,16 +201,16 @@ def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list
                 res = break_iterator.getWordBoundary(text, start, locale, 0, True)
                 if res.endPos <= start:
                     break
-                tokens.append(text[res.startPos:res.endPos])
+                tokens.append(text[res.startPos : res.endPos])
                 start = res.endPos
-            
+
             # If the iterator perfectly covered the text, return the tokens.
             if sum(len(t) for t in tokens) == len(text):
                 return tokens
         except Exception as e:
             _grammar_diag.debug("[grammar] _tokenize: BreakIterator failed: %s", e)
 
-    return re.findall(r'\w+|\W+', text)
+    return re.findall(r"\w+|\W+", text)
 
 
 def normalize_errors_for_text(
@@ -241,7 +241,7 @@ def normalize_errors_for_text(
         correct = it.get("correct", "")
         if not wrong:
             continue
-        
+
         rel = window.find(wrong, search_pos)
         if rel < 0:
             # If not found after search_pos, try finding from the beginning of the window
@@ -249,18 +249,18 @@ def normalize_errors_for_text(
             rel = window.find(wrong)
             if rel < 0:
                 continue
-        
+
         pos = slice_start + rel
         length = len(wrong)
         if length <= 0:
             continue
-        
+
         # Advance search_pos for the next item
         search_pos = rel + 1
 
         if correct:
             # Suffix overlap (forward expansion)
-            suffix = full_text[pos + length:]
+            suffix = full_text[pos + length :]
             t_c = _tokenize(correct, bi, locale)
             t_s = _tokenize(suffix, bi, locale)
             for k in range(min(len(t_c), len(t_s)), 0, -1):
@@ -323,9 +323,7 @@ def normalize_errors_for_text(
 
 # Split on sentence-ending punctuation followed by whitespace.
 # Uses the same multilingual terminators as the proofreader's _looks_complete_sentence.
-_SENTENCE_SPLIT_RE = re.compile(
-    r'(?<=[.!?…؟。！？।])\s+'
-)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…؟。！？।])\s+")
 
 
 def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int, str]]:
@@ -339,11 +337,11 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
     if locale_key.startswith(("th", "lo", "km")):
         # Thai, Lao, Khmer: spaces indicate phrase/sentence boundaries
-        _SPACE_RE = re.compile(r'\s+')
+        _SPACE_RE = re.compile(r"\s+")
         result: list[tuple[int, str]] = []
         last = 0
         for m in _SPACE_RE.finditer(text):
-            seg = text[last:m.start()]
+            seg = text[last : m.start()]
             if seg:
                 result.append((last, seg))
             last = m.end()
@@ -354,13 +352,13 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
     # For other languages, try to use LibreOffice BreakIterator
     bi, locale = _get_break_iterator_and_locale(ctx, locale_key)
-    
+
     if not bi or not locale:
         # Fallback to regex if LO is unavailable
         result = []
         last = 0
         for m in _SENTENCE_SPLIT_RE.finditer(text):
-            seg = text[last:m.start()]
+            seg = text[last : m.start()]
             if seg:
                 result.append((last, seg))
             last = m.end()
@@ -371,14 +369,14 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
     pos = 0
     sentences = []
-    
+
     while pos < len(text):
         end_pos = bi.endOfSentence(text, pos, locale)
-        
+
         if end_pos <= pos:
             # Prevent infinite loop if endOfSentence gets stuck
             end_pos = len(text)
-            
+
         # Abbreviation heuristic: merge BreakIterator splits that land
         # after a likely abbreviation (e.g. "Mr.", "Dr.", "vs.").
         # Only short words (<=3 chars) qualify to avoid false positives
@@ -387,27 +385,26 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
             i = end_pos - 1
             while i >= pos and text[i].isspace():
                 i -= 1
-            if i >= pos and text[i] == '.':
+            if i >= pos and text[i] == ".":
                 j = i - 1
-                while j >= pos and not text[j].isspace() and text[j] not in '.!?':
+                while j >= pos and not text[j].isspace() and text[j] not in ".!?":
                     j -= 1
-                word = text[j+1:i]
+                word = text[j + 1 : i]
                 if 0 < len(word) <= 3 and word[0].isupper():
                     next_end = bi.endOfSentence(text, end_pos, locale)
                     if next_end > end_pos:
                         end_pos = next_end
                         continue
             break
-            
+
         sentences.append((pos, text[pos:end_pos]))
         pos = end_pos
-        
+
         # Skip trailing whitespace to the next sentence start
         while pos < len(text) and text[pos].isspace():
             pos += 1
-            
-    return sentences or [(0, text)]
 
+    return sentences or [(0, text)]
 
 
 # --- Sentence-level cache (simple, text-based, no positions)
@@ -427,14 +424,10 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 # - This prevents LRU churn while keeping put cost tiny (bounded scan).
 # - Complete/cross-document sentences continue to reuse perfectly.
 
-_SENTENCE_CACHE: collections.OrderedDict[
-    str, tuple[str, str, bool, list[dict[str, Any]]]
-] = collections.OrderedDict()
+_SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, str, bool, list[dict[str, Any]]]] = collections.OrderedDict()
 
 
-def _clip_errors_to_canonical_length(
-    errors: list[dict[str, Any]], canonical_len: int
-) -> list[dict[str, Any]]:
+def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
     """Clip or drop errors that reference positions beyond the canonical sentence length.
 
     This prevents errors that targeted only the redundant trailing punctuation
@@ -544,6 +537,7 @@ def clear_sentence_cache() -> None:
 # Work-queue dedup (pure Python, no UNO)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class GrammarWorkItem:
     """One unit of grammar work to be processed by the sequential queue worker.
@@ -607,21 +601,11 @@ def deduplicate_grammar_batch(
         for item in group:
             slice_txt = item.full_text[item.n_start : item.n_end]
             # Drop if this text conflicts by prefix relation with any newer kept text.
-            if any(
-                (kept.startswith(slice_txt) or slice_txt.startswith(kept))
-                and kept != slice_txt
-                for kept in kept_texts
-            ):
-                conflict_idx = next(
-                    i
-                    for i, kept in enumerate(kept_texts)
-                    if (kept.startswith(slice_txt) or slice_txt.startswith(kept))
-                    and kept != slice_txt
-                )
+            if any((kept.startswith(slice_txt) or slice_txt.startswith(kept)) and kept != slice_txt for kept in kept_texts):
+                conflict_idx = next(i for i, kept in enumerate(kept_texts) if (kept.startswith(slice_txt) or slice_txt.startswith(kept)) and kept != slice_txt)
                 newer_seq = kept_seqs[conflict_idx]
                 _grammar_diag.info(
-                    "[grammar] queue dedup: dropped older prefix-related item seq=%s len=%s "
-                    "(newer seq=%s kept)",
+                    "[grammar] queue dedup: dropped older prefix-related item seq=%s len=%s (newer seq=%s kept)",
                     item.enqueue_seq,
                     len(slice_txt),
                     newer_seq,

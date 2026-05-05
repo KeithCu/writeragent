@@ -27,10 +27,7 @@ class GetSpeakerNotes(ToolBase):
 
     name = "get_speaker_notes"
     intent = "navigate"
-    description = (
-        "Read speaker notes from an Impress slide. "
-        "Returns the notes text."
-    )
+    description = "Read speaker notes from an Impress slide. Returns the notes text."
     parameters = {
         "type": "object",
         "properties": {
@@ -55,14 +52,14 @@ class GetSpeakerNotes(ToolBase):
             "page_index": kwargs.get("page_index"),
             "notes": notes_text,
         }
+
+
 class SetSpeakerNotes(ToolBase):
     """Set speaker notes on a slide."""
 
     name = "set_speaker_notes"
     intent = "edit"
-    description = (
-        "Set or replace speaker notes on an Impress slide."
-    )
+    description = "Set or replace speaker notes on an Impress slide."
     parameters = {
         "type": "object",
         "properties": {

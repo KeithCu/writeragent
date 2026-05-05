@@ -16,14 +16,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Legacy operations for Calc (Extend/Edit Selection)."""
-from plugin.framework.config import (
-    get_config_int, get_config_str, get_api_config, validate_api_config
-)
+
+from plugin.framework.config import get_config_int, get_config_str, get_api_config, validate_api_config
 from plugin.modules.http.errors import format_error_message
 from plugin.modules.http.client import LlmClient
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
 from plugin.framework.i18n import _
+
 
 def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
     sheet = model.CurrentController.ActiveSheet
@@ -60,7 +60,13 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
                 tasks.append((col, row, cell_text, extend_sys, extend_max, None))
             else:
                 cell_original = cell_text
-                prompt = "ORIGINAL VERSION:\n" + cell_original + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n" + user_input + "\nEDITED VERSION:\n"
+                prompt = (
+                    "ORIGINAL VERSION:\n"
+                    + cell_original
+                    + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n"
+                    + user_input
+                    + "\nEDITED VERSION:\n"
+                )
                 max_tokens = len(cell_original) + edit_max
                 tasks.append((col, row, prompt, edit_sys, max_tokens, cell_original))
 
@@ -105,9 +111,6 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
             title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
             msgbox(ctx, title, format_error_message(e))
 
-        run_stream_completion_async(
-            ctx, client, prompt, system_prompt, max_tokens,
-            apply_chunk, on_done, on_error
-        )
+        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 
     run_next_cell()

@@ -46,6 +46,7 @@ _CONTROL_TYPE_MAP = {
     "button": "com.sun.star.form.component.CommandButton",
 }
 
+
 def _get_readable_type(model):
     """Maps a UNO model back to a human-friendly type string."""
     for type_str, service in _CONTROL_TYPE_MAP.items():
@@ -67,9 +68,7 @@ def _is_draw_doc(doc) -> bool:
     if doc is None:
         return False
     try:
-        return bool(doc.supportsService("com.sun.star.drawing.DrawingDocument")) or bool(
-            doc.supportsService("com.sun.star.presentation.PresentationDocument")
-        )
+        return bool(doc.supportsService("com.sun.star.drawing.DrawingDocument")) or bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
     except Exception:
         return False
 
@@ -89,9 +88,7 @@ def _get_form_draw_page(doc):
 
 
 def _no_form_draw_page_payload():
-    return format_error_payload(
-        ToolExecutionError("No draw page available for form operations.")
-    )
+    return format_error_payload(ToolExecutionError("No draw page available for form operations."))
 
 
 def _next_stacked_position_on_draw_page(dp, default_width: int, default_height: int) -> Point:
@@ -193,35 +190,28 @@ class CreateFormControl(ToolWriterFormBase):
         control_type = str(kwargs.get("type", "text"))
         name = kwargs.get("name", "Field")
         label = kwargs.get("label", "")
-        
+
         # Map control strings to UNO components
-        component_map = {
-            "text": "TextField",
-            "checkbox": "CheckBox",
-            "radio": "RadioButton",
-            "date": "DateField",
-            "combobox": "ComboBox",
-            "button": "CommandButton"
-        }
-        
+        component_map = {"text": "TextField", "checkbox": "CheckBox", "radio": "RadioButton", "date": "DateField", "combobox": "ComboBox", "button": "CommandButton"}
+
         comp_name = component_map.get(control_type, "TextField")
         full_comp_name = f"com.sun.star.form.component.{comp_name}"
-        
+
         try:
             # Create control model
             model = doc.createInstance(full_comp_name)
             if not model:
                 return format_error_payload(ToolExecutionError(f"Failed to create form component {full_comp_name}"))
-            
+
             model.Name = name
             if hasattr(model, "Label"):
                 model.Label = label
-            
+
             # Type-specific settings
             if control_type == "text" and kwargs.get("placeholder"):
                 if hasattr(model, "HelpText"):
                     model.HelpText = kwargs["placeholder"]
-            
+
             if control_type == "text" and kwargs.get("default_value"):
                 model.Text = kwargs["default_value"]
 
@@ -233,15 +223,15 @@ class CreateFormControl(ToolWriterFormBase):
                 # but we can also set additional grouping properties if needed.
                 # Actually, standard LO grouping for forms is by Name.
                 model.Name = kwargs["group_name"]
-            
+
             # Create the shape
             shape = doc.createInstance("com.sun.star.drawing.ControlShape")
-            
+
             # Default sizes (100ths of mm)
             w = kwargs.get("width", 3000 if control_type != "checkbox" else 500)
             h = kwargs.get("height", 600 if control_type != "checkbox" else 500)
             shape.setSize(Size(w, h))
-            
+
             shape.Control = model
 
             if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
@@ -261,26 +251,20 @@ class CreateFormControl(ToolWriterFormBase):
                 else:
                     anchor = doc.getCurrentController().getViewCursor()
                 text.insertTextContent(anchor, shape, False)
-            
-            return {
-                "status": "ok",
-                "message": f"Created {control_type} control '{name}'",
-                "control_name": name
-            }
-            
+
+            return {"status": "ok", "message": f"Created {control_type} control '{name}'", "control_name": name}
+
         except Exception as e:
             log.exception("Error creating form control")
             return format_error_payload(ToolExecutionError(f"Error creating form control: {str(e)}"))
 
+
 class CreateForm(ToolWriterFormBase):
     """Fat API: Creates multiple form controls at once."""
-    
+
     name = "create_form"
     uno_services = _FORM_DOC_SERVICES
-    description = (
-        "Creates multiple form controls at once from a list of field definitions. "
-        "Useful for generating a complete form section in one call."
-    )
+    description = "Creates multiple form controls at once from a list of field definitions. Useful for generating a complete form section in one call."
     parameters = {
         "type": "object",
         "properties": {
@@ -299,11 +283,11 @@ class CreateForm(ToolWriterFormBase):
                         "width": {"type": "integer"},
                         "height": {"type": "integer"},
                     },
-                    "required": ["type", "name"]
-                }
+                    "required": ["type", "name"],
+                },
             }
         },
-        "required": ["fields"]
+        "required": ["fields"],
     }
 
     def execute(self, ctx, **kwargs):
@@ -315,13 +299,9 @@ class CreateForm(ToolWriterFormBase):
             results.append(res)
             # Add a space after each control if we are inserting series
             execute_on_main_thread(self._insert_space, ctx)
-            
-        return {
-            "status": "ok",
-            "message": f"Processed {len(fields)} form fields",
-            "results": results
-        }
-    
+
+        return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
+
     def _insert_space(self, ctx):
         doc = ctx.doc
         if _is_spreadsheet_doc(doc):
@@ -332,34 +312,26 @@ class CreateForm(ToolWriterFormBase):
         vc = doc.getCurrentController().getViewCursor()
         doc.getText().insertString(vc, " ", False)
 
+
 class GenerateForm(ToolWriterFormBase):
     """Thin API: Generates a form from a description using a specialized internal prompt."""
-    
+
     name = "generate_form"
     uno_services = _FORM_DOC_SERVICES
     description = (
         "Generates a document or sheet layout with interactive form fields from a description. "
         "Writer: HTML inserted at the cursor. Calc: plain text is inserted into the active cell area; fields go on the active sheet draw page."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "description": {
-                "type": "string",
-                "description": "Description of the form to generate (e.g. 'Medical intake form')."
-            }
-        },
-        "required": ["description"]
-    }
+    parameters = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
 
     def execute(self, ctx, **kwargs):
         from plugin.framework.config import get_api_config
         from plugin.modules.http.client import LlmClient
-        
+
         description = kwargs.get("description")
         config = get_api_config(ctx.ctx)
         client = LlmClient(config, ctx.ctx)
-        
+
         # System instructions inspired by OnlyOfficeAI
         instructions = """Generate a document template in HTML format.
 Use simple HTML tags like <h1>, <p>, <b>, <ul>, <li> for text and structure. For interactive input fields, use the special syntax:
@@ -375,29 +347,26 @@ Available Field Types:
 
 Output ONLY the HTML content. No explanations. No Markdown like # Header.
 """
-        
-        messages = [
-            {"role": "system", "content": instructions},
-            {"role": "user", "content": f"Generate a {description}"}
-        ]
-        
+
+        messages = [{"role": "system", "content": instructions}, {"role": "user", "content": f"Generate a {description}"}]
+
         try:
             # Get the full document from LLM
             content = client.chat_completion_sync(messages, max_tokens=2048)
-            
+
             # Process the content
             return self._process_form_content(ctx, content)
-            
+
         except Exception as e:
             log.exception("Error in generate_form")
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
     def _process_form_content(self, ctx, content):
         # We'll split the content by {FIELD:...} tags and insert parts
-        parts = re.split(r'(\{FIELD:[^\}]+\})', content)
-        
+        parts = re.split(r"(\{FIELD:[^\}]+\})", content)
+
         creator = CreateFormControl()
-        
+
         for part in parts:
             if part.startswith("{FIELD:"):
                 # Parse the field tag
@@ -408,11 +377,8 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 # Insert regular text
                 if part:
                     execute_on_main_thread(self._insert_text, ctx, part)
-        
-        return {
-            "status": "ok",
-            "message": "Form generation completed and inserted."
-        }
+
+        return {"status": "ok", "message": "Form generation completed and inserted."}
 
     def _insert_text(self, ctx, text):
         doc = ctx.doc
@@ -432,9 +398,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
             pos = _next_stacked_position_on_draw_page(dp, w, h)
-            shape = bridge.create_shape(
-                "com.sun.star.drawing.TextShape", pos.X, pos.Y, w, h, page=dp
-            )
+            shape = bridge.create_shape("com.sun.star.drawing.TextShape", pos.X, pos.Y, w, h, page=dp)
             shape.setString(plain)
             return
 
@@ -453,15 +417,13 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             params["items"] = [i.strip() for i in params["items"].split(",")]
         return params
 
+
 class ListFormControls(ToolWriterFormBase):
     """Lists all interactive form controls in the document."""
 
     name = "list_form_controls"
     uno_services = _FORM_DOC_SERVICES
-    description = (
-        "Lists interactive form controls (checkboxes, text fields, etc.) with indices and values. "
-        "Writer: document draw page. Calc: active sheet draw page only."
-    )
+    description = "Lists interactive form controls (checkboxes, text fields, etc.) with indices and values. Writer: document draw page. Calc: active sheet draw page only."
     parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
@@ -473,7 +435,7 @@ class ListFormControls(ToolWriterFormBase):
         if dp is None:
             return _no_form_draw_page_payload()
         controls = []
-        
+
         for i in range(dp.getCount()):
             shape = dp.getByIndex(i)
             if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
@@ -489,7 +451,7 @@ class ListFormControls(ToolWriterFormBase):
                     info["text"] = model.Text
                 if hasattr(model, "StringItemList"):
                     info["items"] = list(model.StringItemList)
-                
+
                 # Geometry
                 pos = shape.getPosition()
                 sz = shape.getSize()
@@ -497,9 +459,9 @@ class ListFormControls(ToolWriterFormBase):
                 info["y"] = pos.Y
                 info["width"] = sz.Width
                 info["height"] = sz.Height
-                
+
                 controls.append(info)
-        
+
         out: dict = {
             "status": "ok",
             "controls": controls,
@@ -509,15 +471,13 @@ class ListFormControls(ToolWriterFormBase):
             out["note"] = "Indices are ControlShapes on the active sheet draw page only."
         return out
 
+
 class EditFormControl(ToolWriterFormBase):
     """Modifies properties of an existing form control."""
 
     name = "edit_form_control"
     uno_services = _FORM_DOC_SERVICES
-    description = (
-        "Modifies an existing form control by index (from list_form_controls). "
-        "Calc: index is on the active sheet draw page."
-    )
+    description = "Modifies an existing form control by index (from list_form_controls). Calc: index is on the active sheet draw page."
     parameters = {
         "type": "object",
         "properties": {
@@ -543,16 +503,16 @@ class EditFormControl(ToolWriterFormBase):
         if dp is None:
             return _no_form_draw_page_payload()
         idx = kwargs["shape_index"]
-        
+
         if idx < 0 or idx >= dp.getCount():
             return format_error_payload(ToolExecutionError(f"Invalid shape index: {idx}"))
-        
+
         shape = dp.getByIndex(idx)
         if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
             return format_error_payload(ToolExecutionError(f"Shape at index {idx} is not a form control"))
-        
+
         model = shape.Control
-        
+
         # Update Model
         if "name" in kwargs:
             model.Name = kwargs["name"]
@@ -562,21 +522,18 @@ class EditFormControl(ToolWriterFormBase):
             model.Text = kwargs["text"]
         if "items" in kwargs and hasattr(model, "StringItemList"):
             model.StringItemList = tuple(kwargs["items"])
-            
+
         # Update Shape Geometry
         if any(k in kwargs for k in ["x", "y"]):
             pos = shape.getPosition()
             shape.setPosition(Point(kwargs.get("x", pos.X), kwargs.get("y", pos.Y)))
-        
+
         if any(k in kwargs for k in ["width", "height"]):
             sz = shape.getSize()
             shape.setSize(Size(kwargs.get("width", sz.Width), kwargs.get("height", sz.Height)))
-            
-        return {
-            "status": "ok",
-            "message": f"Updated form control at index {idx}",
-            "control_name": model.Name
-        }
+
+        return {"status": "ok", "message": f"Updated form control at index {idx}", "control_name": model.Name}
+
 
 class DeleteFormControl(ToolWriterFormBase):
     """Deletes a form control by its index."""
@@ -584,13 +541,7 @@ class DeleteFormControl(ToolWriterFormBase):
     name = "delete_form_control"
     uno_services = _FORM_DOC_SERVICES
     description = "Deletes a form control by shape index (Calc: active sheet draw page)."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "shape_index": {"type": "integer", "description": "The index of the control shape to delete."}
-        },
-        "required": ["shape_index"]
-    }
+    parameters = {"type": "object", "properties": {"shape_index": {"type": "integer", "description": "The index of the control shape to delete."}}, "required": ["shape_index"]}
 
     def execute(self, ctx, **kwargs):
         return execute_on_main_thread(self._execute_main, ctx, **kwargs)
@@ -601,17 +552,14 @@ class DeleteFormControl(ToolWriterFormBase):
         if dp is None:
             return _no_form_draw_page_payload()
         idx = kwargs["shape_index"]
-        
+
         if idx < 0 or idx >= dp.getCount():
             return format_error_payload(ToolExecutionError(f"Invalid shape index: {idx}"))
-        
+
         shape = dp.getByIndex(idx)
         if shape.getShapeType() != "com.sun.star.drawing.ControlShape":
             return format_error_payload(ToolExecutionError(f"Shape at index {idx} is not a form control"))
-        
+
         dp.remove(shape)
-        
-        return {
-            "status": "ok",
-            "message": f"Deleted form control at index {idx}"
-        }
+
+        return {"status": "ok", "message": f"Deleted form control at index {idx}"}

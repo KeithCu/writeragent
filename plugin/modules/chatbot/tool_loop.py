@@ -41,20 +41,23 @@ from plugin.framework.config import (
 )
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.framework.document import get_document_context_for_chat
-from plugin.framework.errors import (
-    format_error_payload,
-    ToolExecutionError,
-    UnoObjectError
-)
+from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError
 from plugin.modules.http.client import LlmClient
 from plugin.framework.config import as_bool
 
 from plugin.modules.chatbot.tool_loop_state import (
-    ToolLoopState, ToolLoopEvent, EventKind,
-    SpawnLLMWorkerEffect, SpawnToolWorkerEffect,
-    ToolLoopUIEffect, LogAgentEffect, AddMessageEffect,
+    ToolLoopState,
+    ToolLoopEvent,
+    EventKind,
+    SpawnLLMWorkerEffect,
+    SpawnToolWorkerEffect,
+    ToolLoopUIEffect,
+    LogAgentEffect,
+    AddMessageEffect,
     UpdateActivityStateEffect,
-    ExitLoopEffect, TriggerNextToolEffect, SpawnFinalStreamEffect,
+    ExitLoopEffect,
+    TriggerNextToolEffect,
+    SpawnFinalStreamEffect,
     UpdateDocumentContextEffect,
     next_state,
 )
@@ -62,6 +65,7 @@ from plugin.modules.chatbot.tool_loop_state import (
 log = logging.getLogger(__name__)
 
 # DEFAULT_MAX_TOOL_ROUNDS removed; now managed by WriterAgentConfig.chat_max_tool_rounds
+
 
 class ToolLoopHost(Protocol):
     ctx: Any
@@ -101,7 +105,9 @@ class ToolLoopHost(Protocol):
     def _sm_state(self, value: "ToolLoopState | None") -> None: ...
 
     # Mixin methods called on self
-    def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None) -> None: ...
+    def _start_tool_calling_async(
+        self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int | None = None, query_text: str | None = None
+    ) -> None: ...
     def _spawn_llm_worker(self, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None: ...
     def _spawn_final_stream(self, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int) -> None: ...
     def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None: ...
@@ -124,9 +130,7 @@ class ToolCallingMixin:
     @property
     def _sm_state(self: ToolLoopHost) -> ToolLoopState:
         if not hasattr(self, "sidebar_state"):
-            raise AttributeError(
-                "ToolCallingMixin requires sidebar_state (SendButtonListener provides it)"
-            )
+            raise AttributeError("ToolCallingMixin requires sidebar_state (SendButtonListener provides it)")
         tl = self.sidebar_state.tool_loop
         if tl is None:
             raise RuntimeError("Tool loop state used without active session")
@@ -204,6 +208,7 @@ class ToolCallingMixin:
                     and str(safe_args.get("domain") or "") == "web_research"
                 )
                 if needs_web_research_ui:
+
                     def _web_append(text):
                         aq = getattr(self, "_active_q", None)
                         if aq is not None:
@@ -213,12 +218,11 @@ class ToolCallingMixin:
 
                     try:
                         if get_config_bool(ctx, "chatbot.prompt_for_web_research"):
+
                             def _web_approval(query_for_engine, tool_name, args):
                                 q = getattr(self, "_active_q", None)
                                 if q is None:
-                                    log.warning(
-                                        "tool_loop: web_research approval skipped (_active_q missing)"
-                                    )
+                                    log.warning("tool_loop: web_research approval skipped (_active_q missing)")
                                     return True
                                 event = threading.Event()
                                 # Use setattr/getattr to avoid static attribute errors on Event
@@ -254,9 +258,7 @@ class ToolCallingMixin:
                     append_thinking_callback=append_thinking_callback,
                     stop_checker=stop_checker,
                     approval_callback=approval_cb,
-                    chat_append_callback=chat_append_cb
-                    if needs_web_research_ui
-                    else None,
+                    chat_append_callback=chat_append_cb if needs_web_research_ui else None,
                     set_active_domain_callback=set_active_domain,
                 )
                 try:
@@ -264,6 +266,7 @@ class ToolCallingMixin:
                     return json.dumps(res) if isinstance(res, dict) else str(res)
                 except (ToolExecutionError, UnoObjectError) as e:
                     import traceback
+
                     tb = traceback.format_exc()
                     log.error("Tool execution failed: %s" % e, extra={"context": "tool_execution"})
                     agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
@@ -274,11 +277,10 @@ class ToolCallingMixin:
                     return json.dumps(err_payload)
                 except Exception as e:
                     import traceback
+
                     tb = traceback.format_exc()
                     wrapped_error = ToolExecutionError(
-                        "Unexpected error executing tool '%s'" % name,
-                        code="TOOL_UNEXPECTED_ERROR",
-                        details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb}
+                        "Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb}
                     )
                     log.error("Unexpected tool error: %s" % wrapped_error)
                     return json.dumps(format_error_payload(wrapped_error))
@@ -293,9 +295,7 @@ class ToolCallingMixin:
             return
 
         extra_instructions = get_config_str(self.ctx, "additional_instructions")
-        self.session.messages[0]["content"] = get_chat_system_prompt_for_document(
-            model, extra_instructions, ctx=self.ctx
-        )
+        self.session.messages[0]["content"] = get_chat_system_prompt_for_document(model, extra_instructions, ctx=self.ctx)
 
         if self.model_selector:
             selected_model = self.model_selector.getText()
@@ -304,9 +304,7 @@ class ToolCallingMixin:
 
                 set_config(self.ctx, "text_model", selected_model)
                 current_endpoint = get_current_endpoint(self.ctx)
-                update_lru_history(
-                    self.ctx, selected_model, "model_lru", current_endpoint
-                )
+                update_lru_history(self.ctx, selected_model, "model_lru", current_endpoint)
                 log.debug("_do_send: text model updated to %s" % selected_model)
         if self.image_model_selector:
             selected_image_model = self.image_model_selector.getText()
@@ -316,10 +314,7 @@ class ToolCallingMixin:
 
         max_context = get_config_int(self.ctx, "chat_context_length")
         max_tokens = get_config_int(self.ctx, "chat_max_tokens")
-        log.debug(
-            "_do_send: config loaded: max_tokens=%d, max_context=%d"
-            % (max_tokens, max_context)
-        )
+        log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, max_context))
 
         use_tools = True
 
@@ -369,6 +364,7 @@ class ToolCallingMixin:
             try:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 is_disposed = isinstance(e, (DisposedException, RuntimeException, UnoException))
             except ImportError:
                 is_disposed = False
@@ -377,11 +373,7 @@ class ToolCallingMixin:
                 self._append_response("\n[Document closed or unavailable.]\n")
             else:
                 log.error("Unexpected document error: %s" % e, extra={"context": "document_context"})
-                wrapped_error = UnoObjectError(
-                    "Failed to get document context",
-                    code="DOCUMENT_CONTEXT_ERROR",
-                    details={"original_error": str(e), "type": type(e).__name__}
-                )
+                wrapped_error = UnoObjectError("Failed to get document context", code="DOCUMENT_CONTEXT_ERROR", details={"original_error": str(e), "type": type(e).__name__})
                 self._append_response("\n[Error reading document: %s]\n" % wrapped_error.message)
             self._terminal_status = "Error"
             self._set_status("Error")
@@ -407,11 +399,7 @@ class ToolCallingMixin:
 
                 self.session.add_user_message(content_list)
 
-                display_text = (
-                    query_text + " [Audio Attached]"
-                    if query_text
-                    else "[Audio Message]"
-                )
+                display_text = query_text + " [Audio Attached]" if query_text else "[Audio Message]"
                 self._append_response("\nYou: %s\n" % display_text)
                 # Note: We do NOT delete the audio file yet, in case native call fails and we need STT fallback
             except (IOError, OSError) as e:
@@ -423,6 +411,7 @@ class ToolCallingMixin:
                 self.audio_wav_path = None
             except Exception as e:
                 from plugin.framework.errors import NetworkError
+
                 if isinstance(e, NetworkError):
                     log.error("NetworkError while handling audio message: %s", e, extra={"context": "audio_handling"})
                 else:
@@ -438,10 +427,7 @@ class ToolCallingMixin:
         log.info("_do_send: using chat model")
 
         self._set_status("Connecting to AI (tools=%s)..." % use_tools)
-        log.debug(
-            "_do_send: calling AI, use_tools=%s, messages=%d"
-            % (use_tools, len(self.session.messages))
-        )
+        log.debug("_do_send: calling AI, use_tools=%s, messages=%d" % (use_tools, len(self.session.messages)))
 
         max_tool_rounds = api_config["chat_max_tool_rounds"]
         self._start_tool_calling_async(
@@ -465,28 +451,16 @@ class ToolCallingMixin:
         try:
             from plugin.main import get_tools
 
-            active_domain = (
-                getattr(self.session, "active_specialized_domain", None)
-                if hasattr(self, "session") and self.session
-                else None
-            )
-            self._active_tools = get_tools().get_schemas(
-                "openai", doc=self._active_model, active_domain=active_domain
-            )
+            active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") and self.session else None
+            self._active_tools = get_tools().get_schemas("openai", doc=self._active_model, active_domain=active_domain)
         except Exception as e:
             log.warning("Failed to refresh active tools: %s", e)
 
     def _spawn_llm_worker(self: ToolLoopHost, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None) -> None:
         """Spawn a background thread that streams the LLM response into q."""
         update_activity_state("tool_loop", round_num=round_num)
-        log.debug(
-            "Tool loop round %d: sending %d messages to API..."
-            % (round_num, len(self.session.messages))
-        )
-        self._set_status(
-            "Thinking..." if round_num == 0 else "Thinking (round %d)..."
-            % (round_num + 1)
-        )
+        log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self.session.messages)))
+        self._set_status("Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1))
 
         def run():
             try:
@@ -508,6 +482,7 @@ class ToolCallingMixin:
                     q.put((StreamQueueKind.STREAM_DONE, response))
             except Exception as e:
                 from plugin.framework.errors import NetworkError
+
                 if isinstance(e, NetworkError):
                     log.error("Tool loop round %d: NetworkError: %s" % (round_num, e))
                 else:
@@ -515,6 +490,7 @@ class ToolCallingMixin:
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
+
         run_in_background(run, name=f"llm-worker-{round_num}")
 
     def _spawn_final_stream(self: ToolLoopHost, q: "queue.Queue[Any]", client: "LlmClient", max_tokens: int) -> None:
@@ -549,6 +525,7 @@ class ToolCallingMixin:
                     q.put((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
             except Exception as e:
                 from plugin.framework.errors import NetworkError
+
                 if isinstance(e, NetworkError):
                     log.error("Final stream NetworkError: %s", e)
                 else:
@@ -556,6 +533,7 @@ class ToolCallingMixin:
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
+
         run_in_background(run_final, name="llm-worker-final")
 
     def _create_event_from_stream_item(self: ToolLoopHost, item: Any) -> ToolLoopEvent | None:
@@ -567,10 +545,7 @@ class ToolCallingMixin:
         data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
 
         if kind == StreamQueueKind.STREAM_DONE:
-            return ToolLoopEvent(kind=EventKind.STREAM_DONE, data={
-                "response": data,
-                "has_audio": bool(self.audio_wav_path)
-            })
+            return ToolLoopEvent(kind=EventKind.STREAM_DONE, data={"response": data, "has_audio": bool(self.audio_wav_path)})
         elif kind == StreamQueueKind.NEXT_TOOL:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif kind == StreamQueueKind.TOOL_DONE:
@@ -581,6 +556,7 @@ class ToolCallingMixin:
             if ln > 4:
                 try:
                     from plugin.main import get_tools as _get_tools_registry
+
                     tool = _get_tools_registry().get(s[2])
                     if tool and tool.detects_mutation():
                         mutates = True
@@ -588,6 +564,7 @@ class ToolCallingMixin:
                     try:
                         from com.sun.star.lang import DisposedException
                         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                             log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
                     except ImportError:
@@ -599,8 +576,8 @@ class ToolCallingMixin:
                     "func_name": s[2] if ln > 2 else None,
                     "func_args_str": s[3] if ln > 3 else None,
                     "result": s[4] if ln > 4 else None,
-                    "mutates_document": mutates
-                }
+                    "mutates_document": mutates,
+                },
             )
         elif kind == StreamQueueKind.FINAL_DONE:
             return ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
@@ -673,10 +650,9 @@ class ToolCallingMixin:
         elif effect.__class__.__name__ == "CleanupAudioEffect":
             current_model = get_text_model(self.ctx)
             current_endpoint = get_current_endpoint(self.ctx)
-            set_native_audio_support(
-                self.ctx, current_model, current_endpoint, supported=True
-            )
+            set_native_audio_support(self.ctx, current_model, current_endpoint, supported=True)
             import os
+
             try:
                 if self.audio_wav_path:
                     os.remove(self.audio_wav_path)
@@ -690,11 +666,7 @@ class ToolCallingMixin:
             func_args = effect.func_args
             call_id = effect.call_id
 
-            image_model_override = (
-                self.image_model_selector.getText()
-                if self.image_model_selector
-                else None
-            )
+            image_model_override = self.image_model_selector.getText() if self.image_model_selector else None
             if image_model_override and func_name == "generate_image":
                 func_args["image_model"] = image_model_override
 
@@ -702,8 +674,10 @@ class ToolCallingMixin:
                 self._active_q.put((StreamQueueKind.STATUS, msg))
 
             if effect.is_async:
+
                 def run_async():
                     try:
+
                         def tool_thinking_callback(msg):
                             self._active_q.put((StreamQueueKind.TOOL_THINKING, msg))
 
@@ -728,9 +702,11 @@ class ToolCallingMixin:
                         self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                     except Exception as e:
                         import json
+
                         self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
 
                 from plugin.framework.worker_pool import run_in_background
+
                 run_in_background(run_async, name=f"tool-async-{func_name}")
             else:
                 try:
@@ -743,12 +719,11 @@ class ToolCallingMixin:
                             status_callback=tool_status_callback,
                         )
                     else:
-                        res = self._active_execute_tool_fn(
-                            func_name, func_args, self._active_model, self.ctx
-                        )
+                        res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx)
                     self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                 except Exception as e:
                     import json
+
                     self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
 
         return False
@@ -798,28 +773,16 @@ class ToolCallingMixin:
         current_endpoint = get_current_endpoint(self.ctx)
 
         # If native audio failed, cache it and try STT fallback
-        if self.audio_wav_path and (
-            is_audio_unsupported_error(e) or self._is_400_input_validation(e)
-        ):
-            log.warning(
-                "Model %s failed native audio, caching and falling back to STT"
-                % current_model
-            )
-            set_native_audio_support(
-                self.ctx, current_model, current_endpoint, supported=False
-            )
+        if self.audio_wav_path and (is_audio_unsupported_error(e) or self._is_400_input_validation(e)):
+            log.warning("Model %s failed native audio, caching and falling back to STT" % current_model)
+            set_native_audio_support(self.ctx, current_model, current_endpoint, supported=False)
 
             stt_model = get_stt_model(self.ctx)
             if stt_model:
-                if (
-                    self.session.messages
-                    and self.session.messages[-1]["role"] == "user"
-                ):
+                if self.session.messages and self.session.messages[-1]["role"] == "user":
                     self.session.messages.pop()
 
-                self._append_response(
-                    "\n[Model does not support audio. Falling back to STT...]\n"
-                )
+                self._append_response("\n[Model does not support audio. Falling back to STT...]\n")
                 try:
                     transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
                     if transcript:
@@ -874,30 +837,19 @@ class ToolCallingMixin:
         """
         if max_tool_rounds is None:
             max_tool_rounds = get_config_int(self.ctx, "chat_max_tool_rounds")
-        log.info(
-            "=== Tool-calling loop START (max %d rounds) ==="
-            % max_tool_rounds
-        )
+        log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
         self._append_response("\nAI: ")
 
         try:
             from plugin.main import get_tools as _get_tools_registry
+
             registry = _get_tools_registry()
-            async_tools = frozenset([
-                tool.name for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=())
-                if getattr(tool, "is_async", lambda: False)()
-            ])
+            async_tools = frozenset([tool.name for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=()) if getattr(tool, "is_async", lambda: False)()])
         except Exception as e:
             log.debug("Failed to get async tools list, falling back to defaults: %s", e)
             async_tools = frozenset({"web_research", "generate_image"})
 
-        self._sm_state = ToolLoopState(
-            round_num=0,
-            pending_tools=[],
-            max_rounds=max_tool_rounds,
-            status="Thinking...",
-            async_tools=async_tools
-        )
+        self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
 
         try:
             self._active_q: queue.Queue[Any] = queue.Queue()
@@ -915,9 +867,7 @@ class ToolCallingMixin:
 
             # Read config once for web research thinking display
             try:
-                show_search_thinking = as_bool(
-                    get_config(self.ctx, "chatbot.show_search_thinking")
-                )
+                show_search_thinking = as_bool(get_config(self.ctx, "chatbot.show_search_thinking"))
             except (ValueError, TypeError) as e:
                 log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
                 show_search_thinking = False
@@ -935,17 +885,13 @@ class ToolCallingMixin:
 
             # Check once whether execute_tool_fn accepts status_callback
             sig = inspect.signature(execute_tool_fn)
-            self._active_supports_status = (
-                "status_callback" in sig.parameters or "kwargs" in sig.parameters
-            )
+            self._active_supports_status = "status_callback" in sig.parameters or "kwargs" in sig.parameters
 
             # --- Thinking display state (mirrors run_stream_drain_loop behavior) ---
 
             # --- Kick off the first LLM stream ---
             self._refresh_active_tools_for_session()
-            self._spawn_llm_worker(
-                self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text
-            )
+            self._spawn_llm_worker(self._active_q, self._active_client, self._active_max_tokens, self._active_tools, self._active_round_num, query_text=self._active_query_text)
 
             run_stream_drain_loop(
                 self._active_q,
@@ -962,9 +908,7 @@ class ToolCallingMixin:
                 on_approval_required=self._on_tool_loop_approval_required,
             )
         finally:
-            self.sidebar_state = dataclasses.replace(
-                self.sidebar_state, tool_loop=None
-            )
+            self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:
         """Override on ``SendButtonListener`` for real UI. Default: auto-approve (tests / no panel)."""

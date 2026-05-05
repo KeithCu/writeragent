@@ -77,15 +77,9 @@ def sidebar_next_state(
             if composite.tool_loop is None:
                 return FsmTransition(
                     composite,
-                    [
-                        LogSidebarEffect(
-                            message="Ignoring tool_loop event: no active session"
-                        )
-                    ],
+                    [LogSidebarEffect(message="Ignoring tool_loop event: no active session")],
                 )
-            tool_loop_tr = tool_loop_next_state(
-                composite.tool_loop, cast("ToolLoopEvent", event.payload)
-            )
+            tool_loop_tr = tool_loop_next_state(composite.tool_loop, cast("ToolLoopEvent", event.payload))
             return FsmTransition(
                 SidebarCompositeState(
                     send=composite.send,

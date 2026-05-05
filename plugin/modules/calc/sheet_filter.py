@@ -136,10 +136,7 @@ _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
         },
         "value": {
             "type": "string",
-            "description": (
-                "Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. "
-                "Otherwise set is_numeric when comparing numbers."
-            ),
+            "description": ("Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. Otherwise set is_numeric when comparing numbers."),
         },
         "is_numeric": {
             "type": "boolean",
@@ -148,10 +145,7 @@ _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
         "connection": {
             "type": "string",
             "enum": ["AND", "OR"],
-            "description": (
-                "Combines with previous criterion only. Omit on first item. "
-                "Case-insensitive AND/OR."
-            ),
+            "description": ("Combines with previous criterion only. Omit on first item. Case-insensitive AND/OR."),
         },
     },
     "required": ["field", "operator"],
@@ -209,9 +203,7 @@ class ApplySheetFilter(ToolCalcSheetFilterBase):
 
             fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
             if fd2 is None:
-                raise UnoObjectError(
-                    "XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support)."
-                )
+                raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
             fields = _build_filter_fields2(uno, criteria)
             fd2.setFilterFields2(fields)
             xf.filter(fd)
@@ -286,10 +278,7 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
 
     name = "get_sheet_filter"
     intent = "navigate"
-    description = (
-        "Return active filter criteria and contains_header for a range, or empty if none. "
-        "delegate_to_specialized_calc_toolset(domain='sheet_filter')."
-    )
+    description = "Return active filter criteria and contains_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheet_filter')."
     parameters = {
         "type": "object",
         "properties": {
@@ -305,7 +294,6 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
         range_name = kwargs["range_name"]
 
         try:
-
             xf, _cell_range = _get_filterable_for_range(ctx, range_name)
             fd = xf.createFilterDescriptor(False)
             fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")

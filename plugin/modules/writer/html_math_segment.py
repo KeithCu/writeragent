@@ -76,9 +76,7 @@ def html_fragment_contains_tex_math(fragment: str) -> bool:
 
 def html_fragment_contains_mixed_math(fragment: str) -> bool:
     """True if the fragment should use the mixed HTML + math insert path."""
-    return html_fragment_contains_mathml(fragment) or html_fragment_contains_tex_math(
-        fragment
-    )
+    return html_fragment_contains_mathml(fragment) or html_fragment_contains_tex_math(fragment)
 
 
 def _tag_end(s: str, start: int) -> int:
@@ -129,9 +127,7 @@ def _first_math_close(s: str, start: int) -> re.Match[str] | None:
     return _MATH_CLOSE_RE.search(s, pos=start)
 
 
-def _scan_next_tex_open(
-    s: str, pos: int
-) -> tuple[int, Literal["$$", "$", "\\[", "\\("], bool] | None:
+def _scan_next_tex_open(s: str, pos: int) -> tuple[int, Literal["$$", "$", "\\[", "\\("], bool] | None:
     """Return ``(index, delimiter, display_block)`` for the next TeX opener, or None."""
     n = len(s)
     i = pos
@@ -154,9 +150,7 @@ def _scan_next_tex_open(
     return None
 
 
-def _try_close_tex(
-    s: str, open_start: int, delim: Literal["$$", "$", "\\[", "\\("]
-) -> tuple[int, str] | None:
+def _try_close_tex(s: str, open_start: int, delim: Literal["$$", "$", "\\[", "\\("]) -> tuple[int, str] | None:
     """If delimiters close, return ``(end_exclusive, inner_latex)`` else None."""
     n = len(s)
     if delim == "$$":
@@ -198,7 +192,8 @@ def _try_close_tex(
 
 
 def _next_complete_tex_region(
-    s: str, pos: int,
+    s: str,
+    pos: int,
 ) -> tuple[int, int, str, bool] | None:
     """First closed TeX region at/after *pos*: ``(start, end, inner, display)``."""
     while True:
@@ -260,9 +255,7 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
         t_start, t_end, inner, display_block = tex_region
         if t_start > pos:
             out.append(MathSegment(kind="html", text=fragment[pos:t_start]))
-        out.append(
-            MathSegment(kind="tex", text=inner, display_block=display_block)
-        )
+        out.append(MathSegment(kind="tex", text=inner, display_block=display_block))
         pos = t_end
 
     return out

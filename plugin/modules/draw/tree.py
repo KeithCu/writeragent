@@ -22,6 +22,7 @@ from plugin.framework.tool_base import ToolBase
 
 log = logging.getLogger(__name__)
 
+
 class GetDrawTree(ToolBase):
     name = "get_draw_tree"
     intent = "read"
@@ -40,22 +41,16 @@ class GetDrawTree(ToolBase):
         },
         "required": [],
     }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument", 
-        "com.sun.star.presentation.PresentationDocument"
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     tier = "core"
 
     def execute(self, ctx, **kwargs):
         from plugin.modules.draw.bridge import DrawBridge
+
         bridge = DrawBridge(ctx.doc)
         idx = kwargs.get("page_index")
-        page = (
-            bridge.get_pages().getByIndex(idx)
-            if idx is not None
-            else bridge.get_active_page()
-        )
+        page = bridge.get_pages().getByIndex(idx) if idx is not None else bridge.get_active_page()
         if page is None:
             return self._tool_error("No draw page available or invalid page index.")
 
@@ -71,11 +66,7 @@ class GetDrawTree(ToolBase):
             except Exception:
                 pass
 
-        return {
-            "status": "ok",
-            "page_index": actual_idx,
-            "tree": self._build_shape_tree(page)
-        }
+        return {"status": "ok", "page_index": actual_idx, "tree": self._build_shape_tree(page)}
 
     def _build_shape_tree(self, xshapes, base_index=None):
         """Recursively build a semantic tree from an XShapes collection (DrawPage or GroupShape)."""
@@ -84,22 +75,22 @@ class GetDrawTree(ToolBase):
             count = xshapes.getCount()
         except Exception:
             return tree
-            
+
         for i in range(count):
             try:
                 shape = xshapes.getByIndex(i)
             except Exception:
                 continue
-                
+
             current_index = str(i) if base_index is None else f"{base_index}.{i}"
-            
+
             try:
                 shape_type = shape.getShapeType()
             except Exception:
                 shape_type = "UnknownShape"
-                
+
             node = {"type": shape_type.replace("com.sun.star.drawing.", "")}
-            
+
             if base_index is None:
                 node["shape_index"] = i
             else:
@@ -119,7 +110,7 @@ class GetDrawTree(ToolBase):
                         node["text"] = text
             except Exception:
                 pass
-                
+
             try:
                 desc = getattr(shape, "Description", "")
                 if desc:
@@ -133,12 +124,7 @@ class GetDrawTree(ToolBase):
             try:
                 pos = shape.getPosition()
                 size = shape.getSize()
-                node["geometry"] = {
-                    "x": pos.X,
-                    "y": pos.Y,
-                    "width": size.Width,
-                    "height": size.Height
-                }
+                node["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
             except Exception:
                 pass
 
@@ -171,7 +157,7 @@ class GetDrawTree(ToolBase):
                             style[prop] = val
                 except Exception:
                     pass
-            
+
             try:
                 geom = shape.getPropertyValue("CustomShapeGeometry")
                 if geom:
@@ -188,5 +174,5 @@ class GetDrawTree(ToolBase):
                 node["children"] = self._build_shape_tree(shape, current_index)
 
             tree.append(node)
-            
+
         return tree

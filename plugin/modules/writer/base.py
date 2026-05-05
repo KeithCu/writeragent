@@ -24,7 +24,6 @@ from plugin.modules.draw.base import ToolDrawFormBase
 from plugin.framework.constants import USE_SUB_AGENT
 
 
-
 class ToolWriterSpecialBase(ToolBase):
     """Base class for all specialized Writer tools.
 
@@ -50,39 +49,48 @@ class ToolWriterStyleBase(ToolWriterSpecialBase):
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
+
 class ToolWriterPageBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "page"
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
+
 
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "textframes"
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
+
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "embedded"
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
+
 
 class ToolWriterImageBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
     intent = "media"
     uno_services = ["com.sun.star.text.TextDocument"]
 
+
 class ToolWriterShapeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
 
+
 class ToolWriterChartBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
+
 
 class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     uno_services = ["com.sun.star.text.TextDocument"]
 
+
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "fields"
     uno_services = ["com.sun.star.text.TextDocument"]
+
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "comments"
@@ -184,9 +192,4 @@ class SpecializedWorkflowFinished(ToolBase):
             if getattr(ctx, "set_active_domain_callback", None):
                 ctx.set_active_domain_callback(None)
 
-        return {
-            "status": "ok",
-            "finished": True,
-            "answer": kwargs.get("answer"),
-            "message": "Specialized task complete. Normal toolset restored."
-        }
+        return {"status": "ok", "finished": True, "answer": kwargs.get("answer"), "message": "Specialized task complete. Normal toolset restored."}

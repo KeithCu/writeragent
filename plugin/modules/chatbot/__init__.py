@@ -32,6 +32,7 @@ class ChatbotModule(ModuleBase):
         from . import web_research
         from . import memory
         from . import librarian
+
         services.tools.auto_discover(web_research)
         services.tools.auto_discover(memory)
         services.tools.auto_discover(librarian)
@@ -46,9 +47,11 @@ class ChatbotModule(ModuleBase):
     def on_action(self, action):
         if action == "extend_selection":
             from plugin.modules.chatbot.selection import action_extend_selection
+
             action_extend_selection(self._services)
         elif action == "edit_selection":
             from plugin.modules.chatbot.selection import action_edit_selection
+
             action_edit_selection(self._services)
         else:
             super().on_action(action)

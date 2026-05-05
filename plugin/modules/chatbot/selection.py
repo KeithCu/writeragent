@@ -7,6 +7,7 @@ log = logging.getLogger("writeragent.chatbot.selection")
 
 # ── Extend Selection ─────────────────────────────────────────────
 
+
 def action_extend_selection(services):
     """Get document selection -> stream AI completion -> append to text."""
     from plugin.framework.uno_context import get_ctx
@@ -25,8 +26,8 @@ def action_extend_selection(services):
     elif doc_type == "calc":
         _extend_calc(services, ctx, doc)
     else:
-        msgbox(ctx, "WriterAgent",
-               "Extend selection not supported for this document type")
+        msgbox(ctx, "WriterAgent", "Extend selection not supported for this document type")
+
 
 def _extend_writer(services, ctx, doc):
     """Extend selection in a Writer document."""
@@ -46,6 +47,7 @@ def _extend_writer(services, ctx, doc):
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
             log.debug("Failed to get Writer selection (likely disposed): %s", e)
         else:
@@ -76,6 +78,7 @@ def _extend_writer(services, ctx, doc):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to append text to Writer selection (likely disposed): %s", e)
                 else:
@@ -94,12 +97,16 @@ def _extend_writer(services, ctx, doc):
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)
     run_stream_async(
-        ctx, client, messages, tools=None,
+        ctx,
+        client,
+        messages,
+        tools=None,
         apply_chunk_fn=apply_chunk,
         on_done_fn=on_done,
         on_error_fn=on_error,
         max_tokens=max_tokens,
     )
+
 
 def _extend_calc(services, ctx, doc):
     """Extend selection in a Calc document."""
@@ -115,6 +122,7 @@ def _extend_calc(services, ctx, doc):
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
             log.debug("Failed to get Calc selection (likely disposed): %s", e)
         else:
@@ -169,6 +177,7 @@ def _extend_calc(services, ctx, doc):
                 except Exception as e:
                     from com.sun.star.lang import DisposedException
                     from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                     if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                         log.debug("Failed to append text to Calc cell (likely disposed): %s", e)
 
@@ -177,7 +186,10 @@ def _extend_calc(services, ctx, doc):
             msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
 
         run_stream_async(
-            ctx, client, msgs, tools=None,
+            ctx,
+            client,
+            msgs,
+            tools=None,
             apply_chunk_fn=apply_chunk,
             on_done_fn=run_next_cell,
             on_error_fn=on_error,
@@ -186,7 +198,9 @@ def _extend_calc(services, ctx, doc):
 
     run_next_cell()
 
+
 # ── Edit Selection ───────────────────────────────────────────────
+
 
 def action_edit_selection(services):
     """Get selection -> input instructions -> stream AI -> replace text."""
@@ -206,8 +220,8 @@ def action_edit_selection(services):
     elif doc_type == "calc":
         _edit_calc(services, ctx, doc)
     else:
-        msgbox(ctx, "WriterAgent",
-               "Edit selection not supported for this document type")
+        msgbox(ctx, "WriterAgent", "Edit selection not supported for this document type")
+
 
 def _show_edit_input():
     """Show the edit instructions dialog. Returns (user_input, extra_instructions); empty strings if cancelled.
@@ -215,11 +229,11 @@ def _show_edit_input():
     """
     from plugin.framework.uno_context import get_ctx
     from plugin.framework.legacy_ui import input_box
+
     ctx = get_ctx()
-    user_input, extra_instructions = input_box(
-        ctx, "Please enter edit instructions!", "Input", ""
-    )
+    user_input, extra_instructions = input_box(ctx, "Please enter edit instructions!", "Input", "")
     return user_input, extra_instructions
+
 
 def _edit_writer(services, ctx, doc):
     """Edit selection in a Writer document."""
@@ -240,6 +254,7 @@ def _edit_writer(services, ctx, doc):
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
             log.debug("Failed to get Writer selection for edit (likely disposed): %s", e)
         else:
@@ -256,6 +271,7 @@ def _edit_writer(services, ctx, doc):
         return
     if extra_instructions:
         from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
+
         set_config(ctx, "additional_instructions", extra_instructions)
         update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
@@ -291,6 +307,7 @@ def _edit_writer(services, ctx, doc):
         except Exception as recovery_err:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(recovery_err, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to restore original text (likely disposed): %s", recovery_err)
         log.error("Edit selection failed: %s", e)
@@ -299,12 +316,16 @@ def _edit_writer(services, ctx, doc):
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)
     run_stream_async(
-        ctx, client, messages, tools=None,
+        ctx,
+        client,
+        messages,
+        tools=None,
         apply_chunk_fn=apply_chunk,
         on_done_fn=on_done,
         on_error_fn=on_error,
         max_tokens=max_tokens,
     )
+
 
 def _edit_calc(services, ctx, doc):
     """Edit selection in a Calc document."""
@@ -320,6 +341,7 @@ def _edit_calc(services, ctx, doc):
     except Exception as e:
         from com.sun.star.lang import DisposedException
         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
         if isinstance(e, (DisposedException, RuntimeException, UnoException)):
             log.debug("Failed to get Calc selection for edit (likely disposed): %s", e)
         else:
@@ -332,6 +354,7 @@ def _edit_calc(services, ctx, doc):
         return
     if extra_instructions:
         from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
+
         set_config(ctx, "additional_instructions", extra_instructions)
         update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
@@ -351,16 +374,14 @@ def _edit_calc(services, ctx, doc):
             original = str(raw_val) if raw_val != "" and raw_val is not None else ""
 
             prompt = (
-                "ORIGINAL VERSION:\n" + original +
-                "\n Below is an edited version according to the following "
+                "ORIGINAL VERSION:\n" + original + "\n Below is an edited version according to the following "
                 "instructions. Don't waste time thinking, be as fast as "
                 "you can. The edited text will be a shorter or longer "
                 "version of the original text based on the instructions. "
                 "There are no comments in the edited version. The edited "
                 "version is followed by the end of the document. The "
                 "original version will be edited as follows to create "
-                "the edited version:\n" + user_input +
-                "\nEDITED VERSION:\n"
+                "the edited version:\n" + user_input + "\nEDITED VERSION:\n"
             )
             max_tokens = len(original) + max_new_tokens
 
@@ -396,6 +417,7 @@ def _edit_calc(services, ctx, doc):
                 except Exception as e:
                     from com.sun.star.lang import DisposedException
                     from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                     if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                         log.debug("Failed to write text to Calc cell (likely disposed): %s", e)
 
@@ -405,13 +427,17 @@ def _edit_calc(services, ctx, doc):
             except Exception as recovery_err:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(recovery_err, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to restore original cell text (likely disposed): %s", recovery_err)
             log.error("Edit selection (calc) failed: %s", e)
             msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 
         run_stream_async(
-            ctx, client, msgs, tools=None,
+            ctx,
+            client,
+            msgs,
+            tools=None,
             apply_chunk_fn=apply_chunk,
             on_done_fn=run_next_cell,
             on_error_fn=on_error,

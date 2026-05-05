@@ -21,7 +21,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Pure Python execution engine for Calc formulas and scripts.
 
-Implements an AST-based 'pop-and-eval' trick to allow Python scripts to behave 
+Implements an AST-based 'pop-and-eval' trick to allow Python scripts to behave
 like formulas by returning the value of the last expression.
 """
 
@@ -38,6 +38,7 @@ from plugin.modules.calc.inspector import CellInspector
 logger = logging.getLogger("writeragent.calc.python_executor")
 
 CALC_AUTHORIZED_IMPORTS = ["math", "datetime", "random", "json", "re", "collections", "itertools", "statistics"]
+
 
 class PythonExecutor:
     """Handles the execution of Python code with document awareness locally in a secure sandbox."""
@@ -72,12 +73,14 @@ class PythonExecutor:
             """Write values back to the spreadsheet."""
             return manipulator.write_formula_range(addr, data)
 
-        self.executor.send_variables({
-            "lp": lp_helper,
-            "Sheet": lp_helper,
-            "get_range": lp_helper,
-            "set_range": set_range_helper,
-        })
+        self.executor.send_variables(
+            {
+                "lp": lp_helper,
+                "Sheet": lp_helper,
+                "get_range": lp_helper,
+                "set_range": set_range_helper,
+            }
+        )
 
     def format_result(self, result: Any) -> Any:
         """Processes the result for storage and display."""
@@ -85,7 +88,7 @@ class PythonExecutor:
         if isinstance(result, (list, tuple)):
             if result and not isinstance(result[0], (list, tuple)):
                 pass
-        
+
         # Ensure we don't return un-serializable objects as raw references if possible
         if hasattr(result, "__dict__") and not isinstance(result, (list, tuple, dict, str, int, float, bool)):
             try:
@@ -103,7 +106,7 @@ class PythonExecutor:
         try:
             code_output = self.executor(code_snippet)
             result = code_output.output
-            
+
             # Store the result in '_' just like a REPL
             if result is not None:
                 self.executor.send_variables({"_": result})
@@ -153,40 +156,33 @@ class ExecutePythonScript(ToolBaseDummy):
                 "type": "string",
                 "description": "Optional: Cell range (e.g. 'A1') to write the script result to.",
             },
-            "reset": {
-                "type": "boolean",
-                "description": "If true, resets the Python environment for this document before executing.",
-                "default": False
-            }
+            "reset": {"type": "boolean", "description": "If true, resets the Python environment for this document before executing.", "default": False},
         },
         "required": ["script"],
     }
     # Available in Calc and Writer
-    uno_services = [
-        "com.sun.star.sheet.SpreadsheetDocument",
-        "com.sun.star.text.TextDocument"
-    ]
-    is_mutation = True # Set to True because it can use set_range!
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
+    is_mutation = True  # Set to True because it can use set_range!
 
     def execute(self, ctx, **kwargs):
         script = kwargs.get("script", "")
         reset = kwargs.get("reset", False)
         target_range = kwargs.get("target_range")
-        
+
         doc_url = ctx.doc.getURL() or "untitled"
         executor = get_executor_for_doc(doc_url)
-        
+
         if reset:
             executor.reset()
-            
+
         # Inject standard Calc helpers for this call
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         inspector = CellInspector(bridge)
         executor.inject_helpers(bridge, manipulator, inspector)
-            
+
         result = executor.execute_with_return(script)
-        
+
         # If target_range is specified, write back
         write_status = ""
         if target_range and result is not None:
@@ -194,9 +190,5 @@ class ExecutePythonScript(ToolBaseDummy):
                 write_status = manipulator.write_formula_range(target_range, result)
             except Exception as e:
                 write_status = f"Warning: Failed to write to {target_range}: {str(e)}"
-            
-        return {
-            "status": "ok",
-            "result": result,
-            "write_status": write_status
-        }
+
+        return {"status": "ok", "result": result, "write_status": write_status}

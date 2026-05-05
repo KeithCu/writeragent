@@ -58,18 +58,7 @@ class VibeBackend(ACPBackend):
             pass
         return env
 
-    def send(
-        self,
-        queue,
-        user_message,
-        document_context,
-        document_url,
-        system_prompt=None,
-        mcp_url=None,
-        selection_text=None,
-        stop_checker=None,
-        **kwargs
-    ):
+    def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
         """Send a message via ACP stdio - Vibe-specific implementation."""
         self._stop_requested = False
         self._prompt_done.clear()
@@ -79,10 +68,7 @@ class VibeBackend(ACPBackend):
         try:
             self._ensure_connection()
         except Exception as e:
-            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(
-                f"Cannot start {self.get_display_name()} ACP. "
-                f"Is {self.get_binary_name()} installed? Error: {e}"
-            ))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"Cannot start {self.get_display_name()} ACP. Is {self.get_binary_name()} installed? Error: {e}"))))
             return
 
         try:
@@ -94,13 +80,7 @@ class VibeBackend(ACPBackend):
         queue.put((StreamQueueKind.STATUS, f"Sending to {self.get_display_name()}..."))
 
         # Build prompt content blocks
-        prompt_blocks = self._build_prompt_blocks(
-            user_message=user_message,
-            document_context=document_context,
-            system_prompt=system_prompt,
-            selection_text=selection_text,
-            document_url=document_url
-        )
+        prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url)
 
         # Set up notification handler for streaming updates
         def on_notification(method, params, msg_id=None):
@@ -125,14 +105,18 @@ class VibeBackend(ACPBackend):
         # Send prompt
         try:
             if self._conn:
-                result = self._conn.send_request("session/prompt", {
-                    "sessionId": self._session_id,
-                    "prompt": prompt_blocks,
-                }, timeout=600)
+                result = self._conn.send_request(
+                    "session/prompt",
+                    {
+                        "sessionId": self._session_id,
+                        "prompt": prompt_blocks,
+                    },
+                    timeout=600,
+                )
 
                 # Process the final response - Vibe returns content in result
                 log.info(f"Vibe prompt result: {result}")  # DEBUG: Log full result
-                
+
                 if result:
                     stop_reason = result.get("stopReason", result.get("stop_reason", ""))
                     log.info(f"Prompt completed: stop_reason={stop_reason}")

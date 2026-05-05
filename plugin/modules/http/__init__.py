@@ -38,7 +38,7 @@ class HttpModule(ModuleBase):
 
     Other modules (chatbot, doc) register routes via the
     ``http_routes`` service during their initialize() phase.
-    This module also handles the MCP (Model Context Protocol) 
+    This module also handles the MCP (Model Context Protocol)
     JSON-RPC routes if enabled.
     This module starts the server in start_background() (phase 2b).
     """
@@ -151,9 +151,7 @@ class HttpModule(ModuleBase):
                 srv.start()
                 if event_bus:
                     status = srv.get_status()
-                    event_bus.emit("http:server_started",
-                                   port=status["port"], host=status["host"],
-                                   url=status["url"])
+                    event_bus.emit("http:server_started", port=status["port"], host=status["host"], url=status["url"])
                 if event_bus:
                     event_bus.emit("menu:update")
                 self._server = srv
@@ -213,9 +211,14 @@ class HttpModule(ModuleBase):
 
     def _unregister_mcp_routes(self, services):
         for method, path in [
-            ("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"),
-            ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"),
-            ("GET", "/debug"), ("POST", "/debug"),
+            ("POST", "/mcp"),
+            ("GET", "/mcp"),
+            ("DELETE", "/mcp"),
+            ("POST", "/sse"),
+            ("POST", "/messages"),
+            ("GET", "/sse"),
+            ("GET", "/debug"),
+            ("POST", "/debug"),
         ]:
             try:
                 self._registry.remove(method, path)
@@ -237,6 +240,7 @@ class HttpModule(ModuleBase):
 
     def get_menu_text(self, action):
         from plugin.framework.i18n import _
+
         if action == "toggle_server":
             b = self._bound_http_server()
             if b and b.is_running():
@@ -271,11 +275,9 @@ class HttpModule(ModuleBase):
             b2 = self._bound_http_server()
             if b2 and b2.is_running():
                 status = b2.get_status()
-                msgbox(ctx, "WriterAgent",
-                       _("MCP server started") + "\n{0}".format(status.get("url", "")))
+                msgbox(ctx, "WriterAgent", _("MCP server started") + "\n{0}".format(status.get("url", "")))
             else:
-                msgbox(ctx, "WriterAgent",
-                       _("MCP server failed to start") + "\n" + _("Check ~/localwriter.log"))
+                msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check ~/localwriter.log"))
 
     def _action_server_status(self):
         from plugin.framework.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
@@ -305,8 +307,7 @@ class HttpModule(ModuleBase):
             assert smgr is not None
             sm_any = cast("Any", smgr)
 
-            dlg_model = sm_any.createInstanceWithContext(
-                "com.sun.star.awt.UnoControlDialogModel", ctx_any)
+            dlg_model = sm_any.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx_any)
             dlg_model.Title = _("Server Status")
             dlg_model.Width = 230
             dlg_model.Height = 80
@@ -318,11 +319,9 @@ class HttpModule(ModuleBase):
 
             add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 58, 50, 14, push_button_type=1)
 
-            dlg = sm_any.createInstanceWithContext(
-                "com.sun.star.awt.UnoControlDialog", ctx_any)
+            dlg = sm_any.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
             dlg.setModel(dlg_model)
-            toolkit = sm_any.createInstanceWithContext(
-                "com.sun.star.awt.Toolkit", ctx_any)
+            toolkit = sm_any.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
             dlg.createPeer(toolkit, None)
             dlg.execute()
             dlg.dispose()
@@ -334,22 +333,30 @@ class HttpModule(ModuleBase):
 
     def _handle_health(self, body, headers, query):
         from plugin.version import EXTENSION_VERSION
-        return (200, {
-            "status": "healthy",
-            "server": "WriterAgent",
-            "version": EXTENSION_VERSION,
-        })
+
+        return (
+            200,
+            {
+                "status": "healthy",
+                "server": "WriterAgent",
+                "version": EXTENSION_VERSION,
+            },
+        )
 
     def _handle_info(self, body, headers, query):
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
         from plugin.version import EXTENSION_VERSION
+
         routes = self._registry.list_routes()
-        return (200, {
-            "name": "WriterAgent",
-            "version": EXTENSION_VERSION,
-            "description": "WriterAgent HTTP server",
-            "routes": ["%s %s" % (m, p) for m, p in sorted(routes)],
-        })
+        return (
+            200,
+            {
+                "name": "WriterAgent",
+                "version": EXTENSION_VERSION,
+                "description": "WriterAgent HTTP server",
+                "routes": ["%s %s" % (m, p) for m, p in sorted(routes)],
+            },
+        )
 
     def _handle_config_get(self, body, headers, query):
         """GET /api/config — read config values.
@@ -372,13 +379,11 @@ class HttpModule(ModuleBase):
 
         if module:
             p = module if module.endswith(".") else module + "."
-            filtered = {k: v for k, v in all_config.items()
-                        if k.startswith(p)}
+            filtered = {k: v for k, v in all_config.items() if k.startswith(p)}
             return (200, {"config": filtered})
 
         if prefix:
-            filtered = {k: v for k, v in all_config.items()
-                        if k.startswith(prefix)}
+            filtered = {k: v for k, v in all_config.items() if k.startswith(prefix)}
             return (200, {"config": filtered})
 
         return (200, {"config": all_config})

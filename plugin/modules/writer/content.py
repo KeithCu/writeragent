@@ -68,26 +68,19 @@ def _normalize_search_string_for_find(s):
 # GetDocumentContent
 # ------------------------------------------------------------------
 
+
 class GetDocumentContent(ToolBase):
     """Export the document (or a portion) as formatted content."""
 
     name = "get_document_content"
-    description = (
-        "Get document (or selection/range) content. "
-        "Result includes document_length. "
-        "scope: full, selection, or range (requires start, end)."
-    )
+    description = "Get document (or selection/range) content. Result includes document_length. scope: full, selection, or range (requires start, end)."
     parameters = {
         "type": "object",
         "properties": {
             "scope": {
                 "type": "string",
                 "enum": ["full", "selection", "range"],
-                "description": (
-                    "Return full document (default), current "
-                    "selection/cursor region, or a character range "
-                    "(requires start and end)."
-                ),
+                "description": ("Return full document (default), current selection/cursor region, or a character range (requires start and end)."),
             },
             "max_chars": {
                 "type": "integer",
@@ -117,9 +110,13 @@ class GetDocumentContent(ToolBase):
             return self._tool_error("scope 'range' requires start and end.")
 
         content = format_support.document_to_content(
-            ctx.doc, ctx.ctx, ctx.services,
-            max_chars=max_chars, scope=scope,
-            range_start=range_start, range_end=range_end,
+            ctx.doc,
+            ctx.ctx,
+            ctx.services,
+            max_chars=max_chars,
+            scope=scope,
+            range_start=range_start,
+            range_end=range_end,
         )
         doc_len = ctx.services.document.get_document_length(ctx.doc)
         result = {
@@ -141,6 +138,7 @@ class GetDocumentContent(ToolBase):
 # ------------------------------------------------------------------
 # ApplyDocumentContent
 # ------------------------------------------------------------------
+
 
 class ApplyDocumentContent(ToolBase):
     """Insert or replace content in the document.
@@ -191,10 +189,7 @@ class ApplyDocumentContent(ToolBase):
             "content": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "List of HTML fragments or plain-text fragments (one per block); shape and math per system "
-                    "prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown."
-                ),
+                "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per system prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown."),
             },
             "target": {
                 "type": "string",
@@ -203,9 +198,7 @@ class ApplyDocumentContent(ToolBase):
             },
             "old_content": {
                 "type": "string",
-                "description": (
-                    "Text to find and replace with content if target = 'search'."
-                ),
+                "description": ("Text to find and replace with content if target = 'search'."),
             },
             "all_matches": {
                 "type": "boolean",
@@ -227,7 +220,7 @@ class ApplyDocumentContent(ToolBase):
             target = "search"
         if not target:
             return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace.")
-        
+
         if target == "search" and old_content is None:
             return self._tool_error("target='search' requires old_content.")
 
@@ -247,16 +240,14 @@ class ApplyDocumentContent(ToolBase):
             _parts = [str(x) for x in content]
             _per_part_nl = [p.count("\n") for p in _parts]
             log.debug(
-                "apply_document_content: list join n_parts=%d per_part_newline_counts=%s "
-                "total_chars_before_join=%d",
+                "apply_document_content: list join n_parts=%d per_part_newline_counts=%s total_chars_before_join=%d",
                 len(_parts),
                 _per_part_nl[:20],  # cap log size
                 sum(len(p) for p in _parts),
             )
             content = "\n".join(_parts)
             log.debug(
-                "apply_document_content: after join newline_count=%d has_math_tag=%s "
-                "join_preview=%r",
+                "apply_document_content: after join newline_count=%d has_math_tag=%s join_preview=%r",
                 content.count("\n"),
                 ("<math" in content.lower()),
                 content[:500],
@@ -270,8 +261,7 @@ class ApplyDocumentContent(ToolBase):
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
                 log.debug(
-                    "apply_document_content: literal \\\\n/\\\\t escape expand (plain text) "
-                    "newline_count %d -> %d",
+                    "apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d",
                     _nl_before_esc,
                     _nl_after_esc,
                 )
@@ -298,9 +288,7 @@ class ApplyDocumentContent(ToolBase):
 
         search_string = old_stripped
         if format_support.content_has_markup(search_string):
-            search_string = format_support.html_to_plain_text(
-                search_string, ctx.ctx, config_svc
-            )
+            search_string = format_support.html_to_plain_text(search_string, ctx.ctx, config_svc)
         # Normalize for literal find: single \n (e.g. from HTML wraps) -> space; \n\n -> \n. LO regex does not work across paragraphs.
         search_string = _normalize_search_string_for_find(search_string)
         if not search_string:
@@ -310,13 +298,19 @@ class ApplyDocumentContent(ToolBase):
         if all_matches:
             if use_preserve:
                 count = format_support._preserving_search_replace(
-                    doc, ctx.ctx, raw_content, search_string,
+                    doc,
+                    ctx.ctx,
+                    raw_content,
+                    search_string,
                     all_matches=True,
                     case_sensitive=True,
                 )
             else:
                 count = format_support.apply_content_at_search(
-                    doc, ctx.ctx, content, search_string,
+                    doc,
+                    ctx.ctx,
+                    content,
+                    search_string,
                     all_matches=True,
                     case_sensitive=True,
                     config_svc=config_svc,
@@ -354,36 +348,27 @@ class ApplyDocumentContent(ToolBase):
         if use_preserve:
             format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx)
             return {"status": "ok", "message": "Replaced 1 occurrence (by old_content). (formatting preserved)"}
-        format_support.replace_single_range_with_content(
-            doc, found, content, ctx.ctx, config_svc
-        )
+        format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc)
         return {"status": "ok", "message": "Replaced 1 occurrence (by old_content)."}
-
 
 
 # ------------------------------------------------------------------
 # CloneHeadingBlock
 # ------------------------------------------------------------------
 
+
 class CloneHeadingBlock(ToolBaseDummy):
     """Clone an entire heading block (heading + all sub-headings + body)."""
 
     name = "clone_heading_block"
     intent = "edit"
-    description = (
-        "Clone an entire heading block (heading + all sub-headings + body). "
-        "The clone is inserted right after the original block."
-    )
+    description = "Clone an entire heading block (heading + all sub-headings + body). The clone is inserted right after the original block."
     parameters = {
         "type": "object",
         "properties": {
             "locator": {
                 "type": "string",
-                "description": (
-                    "Locator of the heading to clone "
-                    "(e.g. 'bookmark:_mcp_abc123', "
-                    "'heading_text:Introduction')."
-                ),
+                "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction')."),
             },
             "paragraph_index": {
                 "type": "integer",
@@ -395,7 +380,7 @@ class CloneHeadingBlock(ToolBaseDummy):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK # type: ignore
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
         para_index = _resolve_para_index(ctx, kwargs)
         if para_index is None:
@@ -404,14 +389,12 @@ class CloneHeadingBlock(ToolBaseDummy):
         # Use writer_tree service to find the heading node and block size
         tree_svc = ctx.services.get("writer_tree")
         if tree_svc is None:
-            return self._tool_error("writer_nav module not loaded; "
-                               "cannot resolve heading block.")
+            return self._tool_error("writer_nav module not loaded; cannot resolve heading block.")
 
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc._find_node_by_para_index(tree, para_index)
         if node is None:
-            return self._tool_error("No heading found at paragraph %d."
-                               % para_index)
+            return self._tool_error("No heading found at paragraph %d." % para_index)
 
         # Total paragraphs in the block: heading + body + all children
         total = 1 + tree_svc._count_all_children(node)
@@ -449,8 +432,7 @@ class CloneHeadingBlock(ToolBaseDummy):
 
         return {
             "status": "ok",
-            "message": "Cloned heading block '%s' (%d paragraphs)."
-                       % (node.get("text", ""), total),
+            "message": "Cloned heading block '%s' (%d paragraphs)." % (node.get("text", ""), total),
             "heading_text": node.get("text", ""),
             "block_size": total,
         }
@@ -459,6 +441,7 @@ class CloneHeadingBlock(ToolBaseDummy):
 # ------------------------------------------------------------------
 # Internal helpers
 # ------------------------------------------------------------------
+
 
 def _resolve_para_index(ctx, kwargs):
     """Resolve locator or paragraph_index from tool kwargs.
@@ -492,15 +475,11 @@ def _resolve_style_name(doc, style_name):
     return style_name
 
 
-
 class GetDocumentStats(ToolBase):
     """Return basic statistics about the current Writer document."""
 
     name = "get_document_stats"
-    description = (
-        "Returns document statistics: character count, word count, "
-        "paragraph count, page count, and heading count."
-    )
+    description = "Returns document statistics: character count, word count, paragraph count, page count, and heading count."
     parameters = {
         "type": "object",
         "properties": {},

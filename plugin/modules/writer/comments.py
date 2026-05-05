@@ -32,20 +32,13 @@ class ListComments(ToolWriterCommentBase):
 
     name = "list_comments"
     intent = "review"
-    description = (
-        "List all comments/annotations in the document, including "
-        "author, content, date, resolved status, and anchor preview. "
-        "Use author_filter to see only a specific agent's comments."
-    )
+    description = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
     parameters = {
         "type": "object",
         "properties": {
             "author_filter": {
                 "type": "string",
-                "description": (
-                    "Filter by author name (e.g. 'Claude', 'AI'). "
-                    "Case-insensitive substring match. Omit for all."
-                ),
+                "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all."),
             },
         },
         "required": [],
@@ -65,9 +58,7 @@ class ListComments(ToolWriterCommentBase):
 
         while enum.hasMoreElements():
             field = enum.nextElement()
-            if not field.supportsService(
-                "com.sun.star.text.textfield.Annotation"
-            ):
+            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
 
             entry = _read_annotation(field, para_ranges, text_obj)
@@ -131,9 +122,7 @@ class AddComment(ToolBase):
             }
         anchor_range = found.getStart()
 
-        annotation = doc.createInstance(
-            "com.sun.star.text.textfield.Annotation"
-        )
+        annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         _set_annotation_date(annotation)
@@ -149,10 +138,7 @@ class DeleteComment(ToolWriterCommentBase):
     name = "delete_comment"
     intent = "review"
     description = (
-        "Delete comments by name or author. "
-        "Use comment_name to delete a specific comment and its replies. "
-        "Use author to delete ALL comments by that author "
-        "(e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
+        "Delete comments by name or author. Use comment_name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
     )
     parameters = {
         "type": "object",
@@ -163,10 +149,7 @@ class DeleteComment(ToolWriterCommentBase):
             },
             "author": {
                 "type": "string",
-                "description": (
-                    "Delete ALL comments by this author "
-                    "(e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
-                ),
+                "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."),
             },
         },
         "required": [],
@@ -189,9 +172,7 @@ class DeleteComment(ToolWriterCommentBase):
         to_delete = []
         while enum.hasMoreElements():
             field = enum.nextElement()
-            if not field.supportsService(
-                "com.sun.star.text.textfield.Annotation"
-            ):
+            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
             try:
                 name = field.getPropertyValue("Name")
@@ -200,8 +181,7 @@ class DeleteComment(ToolWriterCommentBase):
             except Exception:
                 continue
 
-            if comment_name and (name == comment_name
-                                 or parent == comment_name):
+            if comment_name and (name == comment_name or parent == comment_name):
                 to_delete.append(field)
             elif author and field_author == author:
                 to_delete.append(field)
@@ -220,10 +200,7 @@ class ResolveComment(ToolWriterCommentBase):
 
     name = "resolve_comment"
     intent = "review"
-    description = (
-        "Resolve a comment with an optional reason. Adds a reply "
-        "with the resolution text, then marks as resolved."
-    )
+    description = "Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved."
     parameters = {
         "type": "object",
         "properties": {
@@ -258,9 +235,7 @@ class ResolveComment(ToolWriterCommentBase):
         target = None
         while enum.hasMoreElements():
             field = enum.nextElement()
-            if not field.supportsService(
-                "com.sun.star.text.textfield.Annotation"
-            ):
+            if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
             try:
                 name = field.getPropertyValue("Name")
@@ -277,9 +252,7 @@ class ResolveComment(ToolWriterCommentBase):
             }
 
         if resolution:
-            reply = doc.createInstance(
-                "com.sun.star.text.textfield.Annotation"
-            )
+            reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
             reply.setPropertyValue("ParentName", comment_name)
             reply.setPropertyValue("Content", resolution)
             reply.setPropertyValue("Author", author)
@@ -483,6 +456,7 @@ class Workflow(ToolWriterCommentBase):
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _set_annotation_date(annotation):
     """Set DateTimeValue (and Date) to now for a new annotation."""
     now = datetime.datetime.now()
@@ -518,9 +492,7 @@ def _read_annotation(field, para_ranges, text_obj):
         ("Resolved", False),
     ]:
         try:
-            entry[prop.lower() if prop != "ParentName" else "parent_name"] = (
-                field.getPropertyValue(prop)
-            )
+            entry[prop.lower() if prop != "ParentName" else "parent_name"] = field.getPropertyValue(prop)
         except Exception:
             key = prop.lower() if prop != "ParentName" else "parent_name"
             entry[key] = default
@@ -528,18 +500,14 @@ def _read_annotation(field, para_ranges, text_obj):
     # Date
     try:
         dt = field.getPropertyValue("DateTimeValue")
-        entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-            dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes
-        )
+        entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
     except Exception:
         entry["date"] = ""
 
     # Paragraph index and anchor preview.
     try:
         anchor = field.getAnchor()
-        entry["paragraph_index"] = find_paragraph_for_range(
-            anchor, para_ranges, text_obj
-        )
+        entry["paragraph_index"] = find_paragraph_for_range(anchor, para_ranges, text_obj)
         entry["anchor_preview"] = anchor.getString()[:80]
     except Exception:
         entry["paragraph_index"] = 0

@@ -39,12 +39,15 @@ class ListSections(ToolWriterStructuralBase):
         sections = []
         for name in names:
             section = supplier.getByName(name)
-            sections.append({
-                "name": name,
-                "is_visible": getattr(section, "IsVisible", True),
-                "is_protected": getattr(section, "IsProtected", False),
-            })
+            sections.append(
+                {
+                    "name": name,
+                    "is_visible": getattr(section, "IsVisible", True),
+                    "is_protected": getattr(section, "IsProtected", False),
+                }
+            )
         return {"status": "ok", "sections": sections, "count": len(sections)}
+
 
 class GotoPage(ToolWriterStructuralBase):
     name = "goto_page"
@@ -65,13 +68,11 @@ class GotoPage(ToolWriterStructuralBase):
         vc.jumpToPage(kwargs["page"])
         return {"status": "ok", "page": vc.getPage()}
 
+
 class GetPageObjects(ToolBase):
     name = "get_page_objects"
     intent = "read"
-    description = (
-        "Get images, tables, frames, and Draw shapes visible on a specific physical page. "
-        "Provide page number, locator, or paragraph_index."
-    )
+    description = "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph_index."
     parameters = {
         "type": "object",
         "properties": {
@@ -126,12 +127,14 @@ class GetPageObjects(ToolBase):
                     vc.gotoRange(g.getAnchor(), False)
                     if vc.getPage() == page:
                         size = g.getPropertyValue("Size")
-                        images.append({
-                            "name": name,
-                            "width_mm": size.Width // 100,
-                            "height_mm": size.Height // 100,
-                            "title": g.getPropertyValue("Title"),
-                        })
+                        images.append(
+                            {
+                                "name": name,
+                                "width_mm": size.Width // 100,
+                                "height_mm": size.Height // 100,
+                                "title": g.getPropertyValue("Title"),
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -142,11 +145,13 @@ class GetPageObjects(ToolBase):
                     t = doc.getTextTables().getByName(name)
                     vc.gotoRange(t.getAnchor(), False)
                     if vc.getPage() == page:
-                        tables.append({
-                            "name": name,
-                            "rows": t.getRows().getCount(),
-                            "cols": t.getColumns().getCount(),
-                        })
+                        tables.append(
+                            {
+                                "name": name,
+                                "rows": t.getRows().getCount(),
+                                "cols": t.getColumns().getCount(),
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -158,11 +163,13 @@ class GetPageObjects(ToolBase):
                     vc.gotoRange(fr.getAnchor(), False)
                     if vc.getPage() == page:
                         size = fr.getPropertyValue("Size")
-                        frames.append({
-                            "name": fname,
-                            "width_mm": size.Width // 100,
-                            "height_mm": size.Height // 100,
-                        })
+                        frames.append(
+                            {
+                                "name": fname,
+                                "width_mm": size.Width // 100,
+                                "height_mm": size.Height // 100,
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -170,6 +177,7 @@ class GetPageObjects(ToolBase):
         if hasattr(doc, "getDrawPage"):
             draw_page = doc.getDrawPage()
             from com.sun.star.text.TextContentAnchorType import AT_PAGE, AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER
+
             doc_svc = ctx.services.document
             para_ranges = doc_svc.get_paragraph_ranges(doc)
             text_obj = doc.getText()
@@ -226,10 +234,7 @@ class ReadSection(ToolWriterStructuralBase):
 
     name = "read_section"
     intent = "navigate"
-    description = (
-        "Read the text content of a named section. "
-        "Returns the full text within the section boundaries."
-    )
+    description = "Read the text content of a named section. Returns the full text within the section boundaries."
     parameters = {
         "type": "object",
         "properties": {
@@ -254,8 +259,7 @@ class ReadSection(ToolWriterStructuralBase):
         sections = doc.getTextSections()
         if not sections.hasByName(section_name):
             available = list(sections.getElementNames())
-            return self._tool_error("Section '%s' not found." % section_name,
-                available=available)
+            return self._tool_error("Section '%s' not found." % section_name, available=available)
 
         section = sections.getByName(section_name)
         anchor = section.getAnchor()
@@ -278,4 +282,3 @@ class ReadSection(ToolWriterStructuralBase):
             "content": content,
             "length": len(content),
         }
-

@@ -35,7 +35,6 @@ from . import (
 )
 
 
-
 class WriterModule(ModuleBase):
     """Registers Writer tools for outline, content, comments, styles, etc."""
 

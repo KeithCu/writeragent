@@ -19,10 +19,7 @@ class Undo(ToolBaseDummy):
     """Undo the last action."""
 
     name = "undo"
-    description = (
-        "Undo the last action in the document. "
-        "Can undo multiple steps. Works on all document types."
-    )
+    description = "Undo the last action in the document. Can undo multiple steps. Works on all document types."
     parameters = {
         "type": "object",
         "properties": {
@@ -60,10 +57,7 @@ class Redo(ToolBaseDummy):
     """Redo the last undone action."""
 
     name = "redo"
-    description = (
-        "Redo the last undone action in the document. "
-        "Can redo multiple steps. Works on all document types."
-    )
+    description = "Redo the last undone action in the document. Can redo multiple steps. Works on all document types."
     parameters = {
         "type": "object",
         "properties": {

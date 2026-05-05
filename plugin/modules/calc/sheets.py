@@ -57,6 +57,7 @@ class ListSheets(ToolCalcSheetBase):
             logger.error("Sheet listing error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
 
+
 class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
@@ -94,6 +95,7 @@ class SwitchSheet(ToolCalcSheetBase):
             logger.error("Sheet switch error (%s): %s", sheet_name, str(e))
             raise ToolExecutionError(str(e)) from e
 
+
 class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
@@ -109,10 +111,7 @@ class CreateSheet(ToolCalcSheetBase):
             },
             "position": {
                 "type": "integer",
-                "description": (
-                    "Sheet position (0-based). Appended to end if not "
-                    "specified."
-                ),
+                "description": ("Sheet position (0-based). Appended to end if not specified."),
             },
         },
         "required": ["sheet_name"],
@@ -137,14 +136,12 @@ class CreateSheet(ToolCalcSheetBase):
             logger.error("Sheet creation error (%s): %s", sheet_name, str(e))
             raise ToolExecutionError(str(e)) from e
 
+
 class GetSheetSummary(ToolCalcSheetBase):
     """Return a summary of a sheet."""
 
     name = "get_sheet_summary"
-    description = (
-        "Returns a comprehensive summary of the active or specified sheet: "
-        "used area, column headers, charts, merged cells, annotations, and shapes."
-    )
+    description = "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes."
     parameters = {
         "type": "object",
         "properties": {

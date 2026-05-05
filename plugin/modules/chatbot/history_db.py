@@ -20,6 +20,7 @@ import os
 
 try:
     import sqlite3
+
     HAS_SQLITE = True
 except ImportError:
     sqlite3 = None  # type: ignore
@@ -31,6 +32,7 @@ from plugin.framework.config import user_config_dir
 from plugin.framework.uno_context import get_ctx
 
 log = logging.getLogger(__name__)
+
 
 def _get_db_path():
     ctx = get_ctx()
@@ -45,6 +47,7 @@ def _get_db_path():
         log.info(f"Using database path: {path}")
         return path
     return "writeragent_history.db"
+
 
 # LangChain-compatible JSON conversion
 def message_to_dict(role, content, tool_calls=None):
@@ -65,11 +68,8 @@ def message_to_dict(role, content, tool_calls=None):
             else:
                 content = "[Audio Attached]"
 
-    return {
-        "role": role,
-        "content": content,
-        "tool_calls": tool_calls
-    }
+    return {"role": role, "content": content, "tool_calls": tool_calls}
+
 
 # ---------------------------------------------------------------------------
 # Native SQLite3 Implementation
@@ -97,20 +97,14 @@ class SQLite3History:
         assert sqlite3 is not None
         msg_dict = message_to_dict(role, content, tool_calls)
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
-                (self.session_id, json.dumps(msg_dict))
-            )
+            conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg_dict)))
             conn.commit()
             log.info(f"SQLite3: Added message for session {self.session_id}")
 
     def get_messages(self):
         assert sqlite3 is not None
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT message FROM message_store WHERE session_id = ? ORDER BY id ASC",
-                (self.session_id,)
-            )
+            cursor = conn.execute("SELECT message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
             msgs = [json.loads(row[0]) for row in cursor.fetchall()]
             log.debug(f"SQLite3: Retreived {len(msgs)} messages for session {self.session_id}")
             return msgs
@@ -120,6 +114,7 @@ class SQLite3History:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
             conn.commit()
+
 
 # ---------------------------------------------------------------------------
 # JSON Implementation (Fallback)
@@ -135,7 +130,7 @@ class JSONHistory:
             log.info(f"JSONHistory: Using directory {self.history_dir}")
         except OSError as e:
             log.error("JSONHistory: Error creating directory: %s", e)
-        
+
         self.file_path = os.path.join(self.history_dir, f"{session_id}.json")
 
     def add_message(self, role, content, tool_calls=None):
@@ -166,7 +161,8 @@ class JSONHistory:
             try:
                 os.remove(self.file_path)
             except OSError as e:
-                                log.error("JSONHistory: Error clearing history: %s", e)
+                log.error("JSONHistory: Error clearing history: %s", e)
+
 
 # ---------------------------------------------------------------------------
 # Public API

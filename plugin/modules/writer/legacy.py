@@ -15,10 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Legacy operations for Writer (Extend/Edit Selection)."""
-from plugin.framework.config import (
-    get_config_int, get_config_str, get_text_model, get_api_config, 
-    validate_api_config, get_current_endpoint, update_lru_history
-)
+
+from plugin.framework.config import get_config_int, get_config_str, get_text_model, get_api_config, validate_api_config, get_current_endpoint, update_lru_history
 from plugin.modules.http.errors import format_error_message
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.dialogs import msgbox
@@ -73,18 +71,16 @@ def do_extend_selection(ctx, model, input_box_fn):
             compound_undo.close()
 
     try:
-        run_stream_completion_async(
-            ctx, client, prompt, system_prompt, max_tokens,
-            apply_chunk, on_done, on_error
-        )
+        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
     except Exception as e:
         on_error(e)
+
 
 def do_edit_selection(ctx, model, input_box_fn):
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
     original_text = get_string_without_tracked_deletions(text_range)
-    
+
     try:
         user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
         if not user_input:
@@ -123,9 +119,6 @@ def do_edit_selection(ctx, model, input_box_fn):
         msgbox(ctx, _("WriterAgent: Edit Selection"), _(format_error_message(e)))
 
     try:
-        run_stream_completion_async(
-            ctx, client, prompt, system_prompt, max_tokens,
-            apply_chunk, on_done, on_error
-        )
+        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
     except Exception as e:
         on_error(e)

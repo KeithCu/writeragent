@@ -13,14 +13,10 @@ from plugin.modules.writer.base import ToolWriterFieldBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 
-
 class FieldsUpdateAll(ToolWriterFieldBase):
     name = "fields_update_all"
     intent = "navigate"
-    description = (
-        "Refresh all text fields (dates, page numbers, cross-references). "
-        "Call after changes that affect computed fields."
-    )
+    description = "Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
@@ -66,10 +62,7 @@ class UpdateFieldsAlias(ToolWriterFieldBase):
 class FieldsList(ToolWriterFieldBase):
     name = "fields_list"
     intent = "examine"
-    description = (
-        "List all text fields in the document. Returns their types and text content, "
-        "allowing you to identify and inspect fields like page numbers or dates."
-    )
+    description = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
     parameters = {
         "type": "object",
         "properties": {},
@@ -119,27 +112,15 @@ class FieldsList(ToolWriterFieldBase):
                 except Exception:
                     pass
 
-            results.append({
-                "id": count,
-                "presentation": presentation,
-                "content": content,
-                "properties": props
-            })
+            results.append({"id": count, "presentation": presentation, "content": content, "properties": props})
 
-        return {
-            "status": "ok",
-            "field_count": count,
-            "fields": results
-        }
+        return {"status": "ok", "field_count": count, "fields": results}
 
 
 class FieldsDelete(ToolWriterFieldBase):
     name = "fields_delete"
     intent = "edit"
-    description = (
-        "Deletes one or more text fields from the document by their 1-based ID. "
-        "Use fields_list first to obtain the IDs of the fields you wish to remove."
-    )
+    description = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
     parameters = {
         "type": "object",
         "properties": {
@@ -183,11 +164,7 @@ class FieldsDelete(ToolWriterFieldBase):
             except Exception as e:
                 return self._tool_error(f"Failed to delete field: {str(e)}")
 
-        return {
-            "status": "ok",
-            "message": f"Successfully deleted {deleted_count} field(s).",
-            "deleted_count": deleted_count
-        }
+        return {"status": "ok", "message": f"Successfully deleted {deleted_count} field(s).", "deleted_count": deleted_count}
 
 
 class FieldsInsert(ToolWriterFieldBase):
@@ -217,9 +194,7 @@ class FieldsInsert(ToolWriterFieldBase):
             "properties": {
                 "type": "object",
                 "description": (
-                    "Optional dictionary of UNO properties to apply to the field. "
-                    "Example: {'NumberingType': 4} for Arabic numbering, or "
-                    "{'IsDate': true} to force a date display on a DateTime field."
+                    "Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field."
                 ),
                 "default": {},
             },
@@ -282,8 +257,4 @@ class FieldsInsert(ToolWriterFieldBase):
         except Exception as e:
             return self._tool_error(f"Failed to insert field into document: {str(e)}")
 
-        return {
-            "status": "ok",
-            "message": f"Successfully inserted {field_type} field.",
-            "applied_properties": properties
-        }
+        return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}

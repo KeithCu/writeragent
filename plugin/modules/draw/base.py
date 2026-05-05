@@ -36,6 +36,7 @@ class ToolDrawSpecialBase(ToolBase):
 
 # --- Domain-Specific Base Classes ---
 
+
 class ToolDrawWebResearchBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "web_research"
 
@@ -63,6 +64,7 @@ class ToolDrawFormBase(ToolDrawSpecialBase):
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     ]
+
 
 class ToolDrawHeaderFooterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "headers_footers"

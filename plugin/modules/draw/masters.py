@@ -27,10 +27,7 @@ class ListMasterSlides(ToolBase):
 
     name = "list_master_slides"
     intent = "navigate"
-    description = (
-        "List all master slides (master pages) in the document "
-        "with name and dimensions."
-    )
+    description = "List all master slides (master pages) in the document with name and dimensions."
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
@@ -51,15 +48,14 @@ class ListMasterSlides(ToolBase):
                 pass
             result.append(entry)
         return {"status": "ok", "master_slides": result, "count": len(result)}
+
+
 class GetSlideMaster(ToolBase):
     """Get which master slide is assigned to a slide."""
 
     name = "get_slide_master"
     intent = "navigate"
-    description = (
-        "Get the master slide assigned to a specific slide. "
-        "Returns the master slide name."
-    )
+    description = "Get the master slide assigned to a specific slide. Returns the master slide name."
     parameters = {
         "type": "object",
         "properties": {
@@ -80,15 +76,14 @@ class GetSlideMaster(ToolBase):
             "page_index": kwargs.get("page_index"),
             "master_name": master.Name if hasattr(master, "Name") else "",
         }
+
+
 class SetSlideMaster(ToolBase):
     """Assign a master slide to a slide."""
 
     name = "set_slide_master"
     intent = "edit"
-    description = (
-        "Assign a master slide to a specific slide by master name. "
-        "Use list_master_slides to see available masters."
-    )
+    description = "Assign a master slide to a specific slide by master name. Use list_master_slides to see available masters."
     parameters = {
         "type": "object",
         "properties": {

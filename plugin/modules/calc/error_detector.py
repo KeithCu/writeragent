@@ -27,16 +27,18 @@ from plugin.modules.calc.address_utils import parse_address
 from plugin.framework.errors import ToolExecutionError
 
 # Regex for matching cell references (e.g. A1, $B$2)
-CELL_REF_PATTERN = re.compile(r'\$?([A-Z]+)\$?(\d+)')
+CELL_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)")
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
-    from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR # type: ignore
+    from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
+
     UNO_AVAILABLE = True
 except ImportError:
     from typing import Any, cast
-    EMPTY, VALUE, TEXT, FORMULA = cast('Any', 0), cast('Any', 1), cast('Any', 2), cast('Any', 3)
-    RESULT_ERROR = cast('Any', 4)
+
+    EMPTY, VALUE, TEXT, FORMULA = cast("Any", 0), cast("Any", 1), cast("Any", 2), cast("Any", 3)
+    RESULT_ERROR = cast("Any", 4)
     UNO_AVAILABLE = False
 
 logger = logging.getLogger("writeragent.calc")
@@ -56,10 +58,7 @@ ERROR_TYPES = {
     504: {
         "code": "#NAME?",
         "name": "Name error",
-        "description": (
-            "An unrecognised function or area name was used. "
-            "Make sure the function name is spelled correctly."
-        ),
+        "description": ("An unrecognised function or area name was used. Make sure the function name is spelled correctly."),
     },
     507: {
         "code": "#NULL!",
@@ -84,10 +83,7 @@ ERROR_TYPES = {
     519: {
         "code": "#VALUE!",
         "name": "Value error",
-        "description": (
-            "A value in the formula is not of the expected type. "
-            "Text may have been used instead of a number or vice versa."
-        ),
+        "description": ("A value in the formula is not of the expected type. Text may have been used instead of a number or vice versa."),
     },
     521: {
         "code": "#NULL!",
@@ -102,10 +98,7 @@ ERROR_TYPES = {
     524: {
         "code": "#REF!",
         "name": "Reference error",
-        "description": (
-            "A cell reference in the formula is invalid. "
-            "It may be a deleted cell or sheet reference."
-        ),
+        "description": ("A cell reference in the formula is invalid. It may be a deleted cell or sheet reference."),
     },
     525: {
         "code": "#NAME?",
@@ -115,10 +108,7 @@ ERROR_TYPES = {
     532: {
         "code": "#DIV/0!",
         "name": "Division by zero",
-        "description": (
-            "An attempt was made to divide a number by zero. "
-            "Check the value of the divisor cell."
-        ),
+        "description": ("An attempt was made to divide a number by zero. Check the value of the divisor cell."),
     },
     533: {
         "code": "#NULL!",
@@ -129,9 +119,20 @@ ERROR_TYPES = {
 
 # Cell error text patterns
 ERROR_PATTERNS = [
-    "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!",
-    "#N/A", "#NUM!", "Err:502", "Err:504", "Err:519",
-    "Err:522", "Err:524", "Err:525", "Err:532",
+    "#REF!",
+    "#NAME?",
+    "#VALUE!",
+    "#DIV/0!",
+    "#NULL!",
+    "#N/A",
+    "#NUM!",
+    "Err:502",
+    "Err:504",
+    "Err:519",
+    "Err:522",
+    "Err:524",
+    "Err:525",
+    "Err:532",
 ]
 
 
@@ -211,9 +212,7 @@ class ErrorDetector:
                 end_row = addr.EndRow
 
             errors = []
-            cell_range = sheet.getCellRangeByPosition(
-                start_col, start_row, end_col, end_row
-            )
+            cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
             formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
 
             if formula_cells:
@@ -228,15 +227,18 @@ class ErrorDetector:
                             addr = cell.getCellAddress()
                             col_str = self.bridge._index_to_column(addr.Column)
                             address = f"{col_str}{addr.Row + 1}"
-                            errors.append({
-                                "address": address,
-                                "formula": cell.getFormula(),
-                                "error": error_info,
-                            })
+                            errors.append(
+                                {
+                                    "address": address,
+                                    "formula": cell.getFormula(),
+                                    "error": error_info,
+                                }
+                            )
 
             logger.info(
                 "%d errors detected (range: %s).",
-                len(errors), range_str or "full sheet",
+                len(errors),
+                range_str or "full sheet",
             )
             return errors
         except Exception as e:
@@ -280,11 +282,13 @@ class ErrorDetector:
                     prec_info = self.inspector.read_cell(prec_addr)
                     precedent_details.append(prec_info)
                 except Exception:
-                    precedent_details.append({
-                        "address": prec_addr,
-                        "value": "UNREADABLE",
-                        "type": "unknown",
-                    })
+                    precedent_details.append(
+                        {
+                            "address": prec_addr,
+                            "value": "UNREADABLE",
+                            "type": "unknown",
+                        }
+                    )
 
             suggestion = self._generate_suggestion(error_info, precedent_details)
 
@@ -319,13 +323,15 @@ class ErrorDetector:
                 detailed.append(self.explain_error(address))
             except Exception as e:
                 logger.warning("Explain errors failed for %s: %s", address, e)
-                detailed.append({
-                    "address": address,
-                    "formula": item.get("formula", ""),
-                    "error": item.get("error"),
-                    "precedents": [],
-                    "suggestion": "Could not explain error; basic info shown.",
-                })
+                detailed.append(
+                    {
+                        "address": address,
+                        "formula": item.get("formula", ""),
+                        "error": item.get("error"),
+                        "precedents": [],
+                        "suggestion": "Could not explain error; basic info shown.",
+                    }
+                )
 
         return {
             "range": range_str or "used_area",
@@ -339,55 +345,24 @@ class ErrorDetector:
         code = error_info.get("code", "")
 
         if code == "#DIV/0!":
-            zero_cells = [
-                p["address"] for p in precedents
-                if p.get("value") == 0 or p.get("value") is None
-            ]
+            zero_cells = [p["address"] for p in precedents if p.get("value") == 0 or p.get("value") is None]
             if zero_cells:
-                return (
-                    f"Division by zero error. The following cells are zero or "
-                    f"empty: {', '.join(zero_cells)}. Try adding a zero check "
-                    f"with the IF function: =IF(divisor<>0; dividend/divisor; 0)"
-                )
-            return (
-                "Division by zero error. Make sure the divisor value is not "
-                "zero or add a check with the IF function."
-            )
+                return f"Division by zero error. The following cells are zero or empty: {', '.join(zero_cells)}. Try adding a zero check with the IF function: =IF(divisor<>0; dividend/divisor; 0)"
+            return "Division by zero error. Make sure the divisor value is not zero or add a check with the IF function."
 
         if code == "#REF!":
-            return (
-                "#REF! error: Invalid cell reference. The reference may be broken due to a "
-                "deleted cell, row, or column. Check the formula and update "
-                "the references."
-            )
+            return "#REF! error: Invalid cell reference. The reference may be broken due to a deleted cell, row, or column. Check the formula and update the references."
 
         if code == "#NAME?":
-            return (
-                "Unrecognised name error. Make sure the function name in the "
-                "formula is spelled correctly and that any defined names exist."
-            )
+            return "Unrecognised name error. Make sure the function name in the formula is spelled correctly and that any defined names exist."
 
         if code == "#VALUE!":
-            text_cells = [
-                p["address"] for p in precedents
-                if p.get("type") == "text"
-            ]
+            text_cells = [p["address"] for p in precedents if p.get("type") == "text"]
             if text_cells:
-                return (
-                    f"Value type error. The following cells contain text "
-                    f"instead of numbers: {', '.join(text_cells)}. You can "
-                    f"use the VALUE() function for text-to-number conversion."
-                )
-            return (
-                "Value type error. A value of an unexpected type was used in "
-                "the formula. Check the types of cell values."
-            )
+                return f"Value type error. The following cells contain text instead of numbers: {', '.join(text_cells)}. You can use the VALUE() function for text-to-number conversion."
+            return "Value type error. A value of an unexpected type was used in the formula. Check the types of cell values."
 
         if code == "#N/A":
-            return (
-                "Value not found error. The value being searched for in "
-                "VLOOKUP or a similar search function was not found. You can "
-                "set a default value with IFERROR."
-            )
+            return "Value not found error. The value being searched for in VLOOKUP or a similar search function was not found. You can set a default value with IFERROR."
 
         return error_info.get("description", "Unknown error. Check the formula.")

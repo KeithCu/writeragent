@@ -35,7 +35,7 @@ def column_to_index(col_str: str) -> int:
     """
     result = 0
     for char in col_str.upper():
-        result = result * 26 + (ord(char) - ord('A') + 1)
+        result = result * 26 + (ord(char) - ord("A") + 1)
     return result - 1
 
 
@@ -52,7 +52,7 @@ def index_to_column(index: int) -> str:
     index += 1
     while index > 0:
         index, remainder = divmod(index - 1, 26)
-        result = chr(ord('A') + remainder) + result
+        result = chr(ord("A") + remainder) + result
     return result
 
 
@@ -69,7 +69,7 @@ def parse_address(address: str) -> tuple[int, int]:
         ValueError: Invalid cell address.
     """
     address = address.strip().upper()
-    match = re.match(r'^([A-Z]+)(\d+)$', address)
+    match = re.match(r"^([A-Z]+)(\d+)$", address)
     if not match:
         raise ValueError(f"Invalid cell address: '{address}'")
 
@@ -97,7 +97,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     """
     range_str = range_str.strip().upper()
 
-    pattern = r'^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$'
+    pattern = r"^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$"
     match = re.match(pattern, range_str)
     if not match:
         raise ValueError(f"Invalid cell range format: '{range_str}'")

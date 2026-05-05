@@ -45,8 +45,8 @@ class _PanelResizeListener(BaseWindowListener):
     only the response area height changes to fill available space."""
 
     def __init__(self, controls, parent_window=None, deck_w_getter=None):
-        self._c = controls        # dict name -> control or None
-        self._initial = None      # captured from XDL-loaded pixel positions
+        self._c = controls  # dict name -> control or None
+        self._initial = None  # captured from XDL-loaded pixel positions
         self._in_relayout = False
         # Sidebar content area; root window width must match this (not LO's transient hints).
         self._parent_window = parent_window
@@ -134,11 +134,7 @@ class _PanelResizeListener(BaseWindowListener):
         # Lightweight per-control width summary for debugging GTK issues.
         try:
             summary_names = ("response", "query", "send", "clear", "model_selector")
-            width_summary = {
-                n: info["ctrls"][n][2]
-                for n in summary_names
-                if n in info["ctrls"]
-            }
+            width_summary = {n: info["ctrls"][n][2] for n in summary_names if n in info["ctrls"]}
             _resize_debug("_capture_initial ctrl_widths=%s" % width_summary)
         except Exception:
             # Logging must never break layout; ignore any issues here.
@@ -168,20 +164,14 @@ class _PanelResizeListener(BaseWindowListener):
                 else:
                     target_w = pw
                 if target_w > 0 and abs(w - target_w) > 1:
-                    _resize_debug(
-                        "_relayout: sync root W %d -> target W %d (parent=%s deck=%s)"
-                        % (w, target_w, pw, deck)
-                    )
+                    _resize_debug("_relayout: sync root W %d -> target W %d (parent=%s deck=%s)" % (w, target_w, pw, deck))
                     win.setPosSize(0, 0, target_w, h, 15)
                     r = win.getPosSize()
                     w, h = r.Width, r.Height
             except Exception as e:
                 _resize_debug("_relayout: parent sync skipped: %s" % e)
 
-        _resize_debug(
-            "_relayout: win W=%d H=%d (have_initial=%s)"
-            % (w, h, bool(self._initial))
-        )
+        _resize_debug("_relayout: win W=%d H=%d (have_initial=%s)" % (w, h, bool(self._initial)))
         fluid_debug = {}
 
         if self._initial is None:
@@ -198,8 +188,10 @@ class _PanelResizeListener(BaseWindowListener):
         gap_below_response = int(initial.get("gap_below_response", 2))
         bottom_top_initial = initial.get("bottom_top")
         bottom_bottom_initial = initial.get("bottom_bottom")
-        if isinstance(bottom_top_initial, (int, float)): bottom_top_initial = int(bottom_top_initial)
-        if isinstance(bottom_bottom_initial, (int, float)): bottom_bottom_initial = int(bottom_bottom_initial)
+        if isinstance(bottom_top_initial, (int, float)):
+            bottom_top_initial = int(bottom_top_initial)
+        if isinstance(bottom_bottom_initial, (int, float)):
+            bottom_bottom_initial = int(bottom_bottom_initial)
 
         # Compute where the bottom control group should start for this window height.
         bottom_top_new = None
@@ -282,23 +274,13 @@ class _PanelResizeListener(BaseWindowListener):
                     # Fallback: preserve distance from bottom edge (original behavior).
                     new_y = h - (ih - oy)
                 cur = ctrl.getPosSize()
-                if (
-                    cur.X != new_x
-                    or cur.Y != new_y
-                    or cur.Width != new_w
-                    or cur.Height != oh
-                ):
+                if cur.X != new_x or cur.Y != new_y or cur.Width != new_w or cur.Height != oh:
                     ctrl.setPosSize(new_x, new_y, new_w, oh, 15)
                 top_of_bottom = min(top_of_bottom, new_y)
             else:
                 # Above response: stay anchored to top
                 cur = ctrl.getPosSize()
-                if (
-                    cur.X != new_x
-                    or cur.Y != oy
-                    or cur.Width != new_w
-                    or cur.Height != oh
-                ):
+                if cur.X != new_x or cur.Y != oy or cur.Width != new_w or cur.Height != oh:
                     ctrl.setPosSize(new_x, oy, new_w, oh, 15)
 
         if fluid_debug:
@@ -323,10 +305,5 @@ class _PanelResizeListener(BaseWindowListener):
                 new_rw = max(new_rw, min(min_rw, max(10, resp_avail)))
 
             cur = resp_ctrl.getPosSize()
-            if (
-                cur.X != rx
-                or cur.Y != ry
-                or cur.Width != new_rw
-                or cur.Height != new_rh
-            ):
+            if cur.X != rx or cur.Y != ry or cur.Width != new_rw or cur.Height != new_rh:
                 resp_ctrl.setPosSize(rx, ry, new_rw, new_rh, 15)

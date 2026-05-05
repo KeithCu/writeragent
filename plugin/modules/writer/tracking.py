@@ -39,9 +39,7 @@ _TRACK_CHANGES_UNO_SERVICES = [
 ]
 
 
-def _calc_track_changes_show_markup(
-    _ctx: Any, _controller: Any, show: bool
-) -> dict[str, Any]:
+def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, show: bool) -> dict[str, Any]:
     """Calc: show/hide tracked-change markup from tools is deferred (no stable UNO path yet).
 
     INVESTIGATE LATER: spreadsheet controllers lack ``getViewSettings``/``ShowChangesInMargin``.
@@ -109,10 +107,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_list"
-    description = (
-        "List all tracked changes (redlines) in the document, "
-        "including type, author, date, and comment."
-    )
+    description = "List all tracked changes (redlines) in the document, including type, author, date, and comment."
     parameters = {
         "type": "object",
         "properties": {},
@@ -145,8 +140,10 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 redline = enum.nextElement()
                 entry: dict[str, Any] = {"index": index}
                 for prop in (
-                    "RedlineType", "RedlineAuthor",
-                    "RedlineComment", "RedlineIdentifier",
+                    "RedlineType",
+                    "RedlineAuthor",
+                    "RedlineComment",
+                    "RedlineIdentifier",
                 ):
                     try:
                         entry[prop] = redline.getPropertyValue(prop)
@@ -154,9 +151,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                         pass
                 try:
                     dt = redline.getPropertyValue("RedlineDateTime")
-                    entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-                        dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes
-                    )
+                    entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
                 except Exception:
                     pass
                 changes.append(entry)
@@ -211,9 +206,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                     "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup.",
                 }
             except Exception as e:
-                return self._tool_error(
-                    f"Failed to set track changes visibility: {e}"
-                )
+                return self._tool_error(f"Failed to set track changes visibility: {e}")
 
         return _calc_track_changes_show_markup(ctx, controller, show_b)
 
@@ -234,11 +227,9 @@ class TrackChangesAcceptAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking)
     def execute(self, ctx, **kwargs):
         try:
             smgr = ctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext(
-                "com.sun.star.frame.DispatchHelper", ctx.ctx
-            )
+            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
             frame = ctx.doc.getCurrentController().getFrame()
-            
+
             dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
             return {"status": "ok", "message": "All tracked changes accepted."}
         except Exception as e:
@@ -261,11 +252,9 @@ class TrackChangesRejectAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking)
     def execute(self, ctx, **kwargs):
         try:
             smgr = ctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext(
-                "com.sun.star.frame.DispatchHelper", ctx.ctx
-            )
+            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
             frame = ctx.doc.getCurrentController().getFrame()
-            
+
             dispatcher.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
             return {"status": "ok", "message": "All tracked changes rejected."}
         except Exception as e:
@@ -281,11 +270,11 @@ class _TrackChangesSingleAction(WriterAgentSpecialTracking, ToolCalcSpecialTrack
     def _execute_single(self, ctx, index, is_accept):
         if not hasattr(ctx.doc, "getRedlines"):
             return self._tool_error("Document does not expose redlines API.")
-            
+
         try:
             redlines = ctx.doc.getRedlines()
             enum = redlines.createEnumeration()
-            
+
             # Find the target redline
             target_redline = None
             current_idx = 0
@@ -295,7 +284,7 @@ class _TrackChangesSingleAction(WriterAgentSpecialTracking, ToolCalcSpecialTrack
                     target_redline = redline
                     break
                 current_idx += 1
-                
+
             if not target_redline:
                 return self._tool_error(f"No tracked change found at index {index}.")
 
@@ -310,17 +299,15 @@ class _TrackChangesSingleAction(WriterAgentSpecialTracking, ToolCalcSpecialTrack
                 return self._tool_error(f"Failed to select tracked change for processing: {e}")
 
             smgr = ctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext(
-                "com.sun.star.frame.DispatchHelper", ctx.ctx
-            )
+            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
             frame = ctx.doc.getCurrentController().getFrame()
-            
+
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
             dispatcher.executeDispatch(frame, cmd, "", 0, ())
-            
+
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}
-            
+
         except Exception as e:
             return self._tool_error(f"Failed to process change {index}: {e}")
 
@@ -373,6 +360,7 @@ class TrackChangesReject(_TrackChangesSingleAction):
 
 # --- Comments (Annotations) ---
 
+
 class TrackChangesCommentInsert(WriterAgentSpecialTracking):
     """Insert a comment (Annotation) at the current selection."""
 
@@ -397,7 +385,7 @@ class TrackChangesCommentInsert(WriterAgentSpecialTracking):
     def execute(self, ctx, **kwargs):
         content = kwargs.get("content")
         author = kwargs.get("author", "WriterAgent")
-        
+
         if not content:
             return self._tool_error("Comment content is required.")
 
@@ -406,26 +394,24 @@ class TrackChangesCommentInsert(WriterAgentSpecialTracking):
             annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
             annotation.setPropertyValue("Content", str(content))
             annotation.setPropertyValue("Author", str(author))
-            
+
             # Use current system date
             now = datetime.datetime.now()
             from com.sun.star.util import Date
+
             dt = Date()
             dt.Year = now.year
             dt.Month = now.month
             dt.Day = now.day
             annotation.setPropertyValue("Date", dt)
-            
+
             # Insert at current view cursor
             view_cursor = doc.getCurrentController().getViewCursor()
             text = view_cursor.getText()
-            
+
             text.insertTextContent(view_cursor, annotation, True)
-            
-            return {
-                "status": "ok", 
-                "message": "Comment inserted successfully."
-            }
+
+            return {"status": "ok", "message": "Comment inserted successfully."}
         except Exception as e:
             return self._tool_error(f"Failed to insert comment: {e}")
 
@@ -446,7 +432,7 @@ class TrackChangesCommentList(WriterAgentSpecialTracking):
             doc = ctx.doc
             fields = doc.getTextFields()
             enum = fields.createEnumeration()
-            
+
             comments = []
             index = 0
             while enum.hasMoreElements():
@@ -462,7 +448,7 @@ class TrackChangesCommentList(WriterAgentSpecialTracking):
                         entry["date"] = f"{dt.Year:04d}-{dt.Month:02d}-{dt.Day:02d}"
                     except Exception:
                         pass
-                    
+
                     comments.append(entry)
                     index += 1
 
@@ -501,10 +487,10 @@ class TrackChangesCommentDelete(WriterAgentSpecialTracking):
             doc = ctx.doc
             fields = doc.getTextFields()
             enum = fields.createEnumeration()
-            
+
             current_idx = 0
             target_field = None
-            
+
             while enum.hasMoreElements():
                 field = enum.nextElement()
                 if field.supportsService("com.sun.star.text.textfield.Annotation"):
@@ -512,15 +498,12 @@ class TrackChangesCommentDelete(WriterAgentSpecialTracking):
                         target_field = field
                         break
                     current_idx += 1
-            
+
             if not target_field:
                 return self._tool_error(f"No comment found at index {index}.")
-            
+
             target_field.dispose()
-            
-            return {
-                "status": "ok",
-                "message": f"Comment at index {index} deleted successfully."
-            }
+
+            return {"status": "ok", "message": f"Comment at index {index} deleted successfully."}
         except Exception as e:
             return self._tool_error(f"Failed to delete comment: {e}")

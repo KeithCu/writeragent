@@ -13,10 +13,7 @@ class PrintDocument(ToolBaseDummy):
 
     name = "print_document"
     intent = "media"
-    description = (
-        "Print the current document to the default printer or a named printer. "
-        "Can also print to PDF via printer name. Works on all document types."
-    )
+    description = "Print the current document to the default printer or a named printer. Can also print to PDF via printer name. Works on all document types."
     parameters = {
         "type": "object",
         "properties": {
@@ -26,10 +23,7 @@ class PrintDocument(ToolBaseDummy):
             },
             "pages": {
                 "type": "string",
-                "description": (
-                    "Page range to print (e.g. '1-3', '1,3,5'). "
-                    "All pages if omitted."
-                ),
+                "description": ("Page range to print (e.g. '1-3', '1,3,5'). All pages if omitted."),
             },
             "copies": {
                 "type": "integer",
@@ -52,9 +46,7 @@ class PrintDocument(ToolBaseDummy):
         try:
             # Set printer if specified
             if printer_name:
-                printer_props = (
-                    PropertyValue(Name="Name", Value=printer_name),
-                )
+                printer_props = (PropertyValue(Name="Name", Value=printer_name),)
                 doc.setPrinter(printer_props)
 
             # Build print options

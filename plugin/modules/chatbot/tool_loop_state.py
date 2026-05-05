@@ -6,6 +6,7 @@ from plugin.framework.state import BaseState, FsmTransition
 from plugin.framework.types import UIEffectKind
 from plugin.modules.chatbot.memory import format_upsert_memory_chat_line
 
+
 @dataclasses.dataclass(frozen=True)
 class ToolLoopState(BaseState):
     round_num: int
@@ -15,6 +16,7 @@ class ToolLoopState(BaseState):
     is_stopped: bool = False
     doc_type: str = ""
     async_tools: frozenset[str] = frozenset()
+
 
 # --- Events ---
 # Background threads enqueue tuples whose first element is StreamQueueKind
@@ -28,12 +30,15 @@ class EventKind(Enum):
     FINAL_DONE = auto()
     ERROR = auto()
 
+
 class ToolLoopEvent(NamedTuple):
     kind: EventKind
     data: Dict[str, Any] = {}
 
+
 # --- Effects ---
 # Control-flow and UI effects use frozen dataclasses (interpreted in tool_loop._execute_effect).
+
 
 @dataclasses.dataclass(frozen=True)
 class ExitLoopEffect:
@@ -59,6 +64,7 @@ class UpdateDocumentContextEffect:
 class SpawnLLMWorkerEffect:
     round_num: int
 
+
 @dataclasses.dataclass(frozen=True)
 class SpawnToolWorkerEffect:
     call_id: str
@@ -67,10 +73,12 @@ class SpawnToolWorkerEffect:
     func_args: Dict[str, Any]
     is_async: bool
 
+
 @dataclasses.dataclass(frozen=True)
 class ToolLoopUIEffect:
     kind: UIEffectKind
     text: str = ""
+
 
 @dataclasses.dataclass(frozen=True)
 class LogAgentEffect:
@@ -79,18 +87,21 @@ class LogAgentEffect:
     data: Dict[str, Any]
     hypothesis_id: str
 
+
 @dataclasses.dataclass(frozen=True)
 class AddMessageEffect:
-    role: str # "assistant" or "tool"
+    role: str  # "assistant" or "tool"
     content: Optional[str] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
     call_id: Optional[str] = None
+
 
 @dataclasses.dataclass(frozen=True)
 class UpdateActivityStateEffect:
     action: str
     round_num: Optional[int] = None
     tool_name: Optional[str] = None
+
 
 @dataclasses.dataclass(frozen=True)
 class CleanupAudioEffect:
@@ -140,24 +151,21 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             if has_audio:
                 effects.append(CleanupAudioEffect())
 
-            effects.append(LogAgentEffect(
-                location="chat_panel.py:tool_round",
-                message="Tool loop round response",
-                data={
-                    "round": state.round_num,
-                    "has_tool_calls": bool(tool_calls),
-                    "num_tool_calls": len(tool_calls) if tool_calls else 0,
-                },
-                hypothesis_id="A"
-            ))
+            effects.append(
+                LogAgentEffect(
+                    location="chat_panel.py:tool_round",
+                    message="Tool loop round response",
+                    data={
+                        "round": state.round_num,
+                        "has_tool_calls": bool(tool_calls),
+                        "num_tool_calls": len(tool_calls) if tool_calls else 0,
+                    },
+                    hypothesis_id="A",
+                )
+            )
 
             if not tool_calls:
-                effects.append(LogAgentEffect(
-                    location="chat_panel.py:exit_no_tools",
-                    message="Exiting loop: no tool_calls",
-                    data={"round": state.round_num},
-                    hypothesis_id="A"
-                ))
+                effects.append(LogAgentEffect(location="chat_panel.py:exit_no_tools", message="Exiting loop: no tool_calls", data={"round": state.round_num}, hypothesis_id="A"))
                 if content:
                     effects.append(ToolLoopUIEffect(kind="debug", text="Tool loop: Adding assistant message to session"))
                     effects.append(AddMessageEffect(role="assistant", content=content))
@@ -189,12 +197,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
                 new_round_num = state.round_num + 1
                 if new_round_num >= state.max_rounds:
-                    effects.append(LogAgentEffect(
-                        location="chat_panel.py:exit_exhausted",
-                        message="Exiting loop: exhausted max_tool_rounds",
-                        data={"rounds": state.max_rounds},
-                        hypothesis_id="A"
-                    ))
+                    effects.append(LogAgentEffect(location="chat_panel.py:exit_exhausted", message="Exiting loop: exhausted max_tool_rounds", data={"rounds": state.max_rounds}, hypothesis_id="A"))
                     effects.append(SpawnFinalStreamEffect())
                     capped_round_num = max(state.round_num, state.max_rounds)
                     return FsmTransition(dataclasses.replace(state, round_num=capped_round_num), effects)
@@ -215,6 +218,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 call_id = tc.get("id", "")
 
                 from plugin.framework.errors import safe_json_loads
+
                 func_args = safe_json_loads(func_args_str) if func_args_str else {}
                 if not isinstance(func_args, dict):
                     func_args = {}
@@ -234,28 +238,18 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 )
                 effects.append(UpdateActivityStateEffect(action="tool_execute", round_num=state.round_num, tool_name=func_name))
 
-                effects.append(LogAgentEffect(
-                    location="chat_panel.py:tool_execute",
-                    message="Executing tool",
-                    data={"tool": func_name, "round": state.round_num},
-                    hypothesis_id="C,D,E"
-                ))
+                effects.append(LogAgentEffect(location="chat_panel.py:tool_execute", message="Executing tool", data={"tool": func_name, "round": state.round_num}, hypothesis_id="C,D,E"))
                 effects.append(ToolLoopUIEffect(kind="debug", text=f"Tool call: {func_name}({func_args_str})"))
 
                 is_async = func_name in state.async_tools
-                effects.append(SpawnToolWorkerEffect(
-                    call_id=call_id,
-                    func_name=func_name,
-                    func_args_str=func_args_str,
-                    func_args=func_args,
-                    is_async=is_async
-                ))
+                effects.append(SpawnToolWorkerEffect(call_id=call_id, func_name=func_name, func_args_str=func_args_str, func_args=func_args, is_async=is_async))
 
                 # The pending tool is consumed
                 return FsmTransition(dataclasses.replace(state, pending_tools=state.pending_tools[1:]), effects)
 
         case EventKind.TOOL_RESULT:
             from plugin.framework.errors import safe_json_loads
+
             result = event.data.get("result", "")
             func_name = event.data.get("func_name", "")
             func_args_str = event.data.get("func_args_str", "")
@@ -270,6 +264,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
             if result_data.get("status") == "error":
                 import json
+
                 error_msg = result_data.get("message", "Unknown error")
                 details = result_data.get("details", {})
 

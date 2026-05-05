@@ -60,7 +60,7 @@ class SendHandlerHost(Protocol):
         interpreter: "EffectInterpreter",
         show_thinking: bool = True,
         on_stopped_callback: Callable[[], None] | None = None,
-        on_approval_callback: Callable[[Any], None] | None = None
+        on_approval_callback: Callable[[Any], None] | None = None,
     ) -> None: ...
     def _get_mcp_url(self) -> str | None: ...
     def _do_send_direct_image(self, query_text: str, model: Any) -> None: ...
@@ -68,21 +68,21 @@ class SendHandlerHost(Protocol):
     def _run_librarian(self, query_text: str, model: Any) -> None: ...
     def _run_web_research(self, query_text: str, model: Any) -> None: ...
 
+
 class TypedEvent(Protocol):
     approved: bool
     query_override: str | None
+
     def wait(self, timeout: float | None = None) -> bool: ...
     def set(self) -> None: ...
     def is_set(self) -> bool: ...
+
 
 T = TypeVar("T", bound="SendHandlersMixin")
 
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import safe_json_loads
-from plugin.modules.chatbot.state_machine import (
-    SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent,
-    ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
-)
+from plugin.modules.chatbot.state_machine import SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
 
 log = logging.getLogger(__name__)
 
@@ -111,9 +111,7 @@ class SendHandlersMixin:
         self._append_response("\n[" + transcribing + "]\n")
 
         try:
-            transcript_text = run_blocking_in_thread(
-                self.ctx, cl.transcribe_audio, wav_path, model=stt_model
-            )
+            transcript_text = run_blocking_in_thread(self.ctx, cl.transcribe_audio, wav_path, model=stt_model)
             return transcript_text
 
         except Exception as e:
@@ -122,6 +120,7 @@ class SendHandlersMixin:
             raise e
         finally:
             import os
+
             try:
                 os.remove(wav_path)
             except Exception:
@@ -136,7 +135,7 @@ class SendHandlersMixin:
         interpreter: "EffectInterpreter",
         show_thinking: bool = True,
         on_stopped_callback: Callable[[], None] | None = None,
-        on_approval_callback: Callable[[Any], None] | None = None
+        on_approval_callback: Callable[[Any], None] | None = None,
     ) -> None:
         from plugin.framework.async_stream import run_async_worker_with_drain
 
@@ -197,18 +196,15 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _execute_direct_image_effect(
-        self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
-    ) -> None:
+    def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         from plugin.framework.dialogs import get_control_text
+
         q: queue.Queue[Any] = queue.Queue()
 
         def run_direct_image():
             try:
                 aspect_ratio_str = "Square"
-                if self.aspect_ratio_selector and hasattr(
-                    self.aspect_ratio_selector, "getText"
-                ):
+                if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
                     aspect_ratio_str = self.aspect_ratio_selector.getText()
 
                 aspect_map = {
@@ -221,9 +217,7 @@ class SendHandlersMixin:
                 mapped_aspect = aspect_map.get(aspect_ratio_str, "square")
 
                 image_model_text = ""
-                if self.image_model_selector and hasattr(
-                    self.image_model_selector, "getText"
-                ):
+                if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
                     image_model_text = self.image_model_selector.getText()
 
                 base_size_val = 512
@@ -252,16 +246,16 @@ class SendHandlersMixin:
                 try:
                     from plugin.framework.config import update_lru_history
 
-                    update_lru_history(
-                        self.ctx, base_size_val, "image_base_size_lru", ""
-                    )
+                    update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
                 except Exception as elru:
                     from plugin.framework.errors import ConfigError
+
                     if isinstance(elru, ConfigError):
                         log.error("LRU update ConfigError: %s" % elru)
                     else:
                         from com.sun.star.lang import DisposedException
                         from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                         if isinstance(elru, (DisposedException, RuntimeException, UnoException)):
                             log.debug("LRU update error (likely disposed): %s" % elru)
                         else:
@@ -298,17 +292,12 @@ class SendHandlersMixin:
                 q.put((StreamQueueKind.STREAM_DONE, {}))
             except Exception as e:
                 doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
-                log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s",
-                          doc_type, e)
+                log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s", doc_type, e)
                 from plugin.framework.errors import format_error_payload
+
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
-        self._run_unified_worker_drain_loop(
-            q,
-            run_direct_image,
-            current_state,
-            interpreter
-        )
+        self._run_unified_worker_drain_loop(q, run_direct_image, current_state, interpreter)
         if self._terminal_status != "Error":
             self._terminal_status = "Ready"
 
@@ -326,9 +315,7 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _execute_agent_backend_effect(
-        self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
-    ) -> None:
+    def _execute_agent_backend_effect(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         from plugin.framework.config import get_config, get_config_int
         from plugin.framework.document import get_document_context_for_chat
         from plugin.modules.agent_backend import get_backend
@@ -340,6 +327,7 @@ class SendHandlersMixin:
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to get document URL for agent backend (likely disposed): %s", e)
 
@@ -356,6 +344,7 @@ class SendHandlersMixin:
             from plugin.framework.i18n import _
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
             else:
@@ -366,20 +355,20 @@ class SendHandlersMixin:
             return
 
         from plugin.modules.agent_backend.registry import normalize_backend_id
+
         backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
         adapter = get_backend(backend_id, ctx=self.ctx)
         if not adapter:
             from plugin.framework.i18n import _
+
             self._append_response("\n" + _("[Agent backend '{0}' not found.]").format(backend_id) + "\n")
             self._terminal_status = "Error"
             self._set_status(_("Error"))
             return
         if not adapter.is_available(self.ctx):
             from plugin.framework.i18n import _
-            self._append_response(
-                "\n" + _("[Agent backend '{0}' is not available. Check Settings (path, install).]")
-                .format(_agent_backend_label(adapter, backend_id)) + "\n"
-            )
+
+            self._append_response("\n" + _("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id)) + "\n")
             self._terminal_status = "Error"
             self._set_status(_("Error"))
             return
@@ -395,7 +384,7 @@ class SendHandlersMixin:
 
                 # Lean system prompt for external agents: instructions + MCP connection info
                 mcp_url = self._get_mcp_url()
-                
+
                 # Check if MCP is enabled; if so, tell the agent about it.
                 mcp_instructions = ""
                 if mcp_url and as_bool(get_config(self.ctx, "http.mcp_enabled")):
@@ -406,13 +395,8 @@ class SendHandlersMixin:
                         f"Target the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )
 
-                lean_system_prompt = (
-                    f"{CORE_DIRECTIVES}\n\n"
-                    f"You are currently interacting with a LibreOffice document.\n"
-                    f"{mcp_instructions}\n"
-                    f"Please proceed with the user's request."
-                )
-                
+                lean_system_prompt = f"{CORE_DIRECTIVES}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
+
                 # Add optional instructions from settings
                 extra = str(get_config(self.ctx, "additional_instructions") or "").strip()
                 if extra:
@@ -429,9 +413,9 @@ class SendHandlersMixin:
                         stop_checker=lambda: self.stop_requested,
                     )
             except Exception as e:
-                log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s",
-                          backend_id, doc_type_str, e)
+                log.error("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]: %s", backend_id, doc_type_str, e)
                 from plugin.framework.errors import format_error_payload
+
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
             finally:
                 self._current_agent_backend = None
@@ -459,28 +443,20 @@ class SendHandlersMixin:
             if not prompt_for_research:
                 approved = True
             else:
-                approved = show_approval_dialog(
-                    self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None)
-                )
+                approved = show_approval_dialog(self.ctx, description, tool_name, parent_frame=getattr(self, "frame", None))
 
             if request_id is not None and hasattr(adapter, "submit_approval"):
                 try:
                     adapter.submit_approval(request_id, approved)
                 except Exception as e:
                     from plugin.framework.errors import NetworkError
+
                     if isinstance(e, NetworkError):
                         log.debug("NetworkError submitting agent backend approval: %s", e)
                     else:
                         log.debug("Error submitting agent backend approval: %s", e)
 
-        self._run_unified_worker_drain_loop(
-            q,
-            run_agent,
-            current_state,
-            interpreter,
-            on_stopped_callback=on_stopped,
-            on_approval_callback=on_approval_required
-        )
+        self._run_unified_worker_drain_loop(q, run_agent, current_state, interpreter, on_stopped_callback=on_stopped, on_approval_callback=on_approval_required)
         if self._terminal_status not in ("Error", "Stopped"):
             self._terminal_status = "Ready"
         self._current_agent_backend = None
@@ -488,7 +464,7 @@ class SendHandlersMixin:
     def _run_librarian(self: SendHandlerHost, query_text: str, model: Any) -> None:
         """Run the librarian onboarding tool via the sub-agent and stream its result into the response area."""
         interpreter = EffectInterpreter(self)
-        current_state = SendHandlerState(handler_type="web", status="ready") # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
+        current_state = SendHandlerState(handler_type="web", status="ready")  # We can reuse 'web' handler_type or create a new one, but for simplicity, 'web' will dispatch StartEvent
 
         self._in_librarian_mode = True
         self.session.add_user_message(query_text)
@@ -518,9 +494,7 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
-    def _execute_web_research_effect(
-        self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter"
-    ) -> None:
+    def _execute_web_research_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         is_librarian = getattr(self, "_active_run_librarian", False)
         if hasattr(self, "_active_run_librarian"):
             delattr(self, "_active_run_librarian")
@@ -539,18 +513,13 @@ class SendHandlersMixin:
             show_thinking = False
 
         from plugin.framework.dialogs import get_control_text
+
         history_text = ""
         if self.response_control and self.response_control.getModel():
             history_text = get_control_text(self.response_control) or ""
 
         def run_search():
-            doc_type = (
-                "calc"
-                if is_calc(model)
-                else "draw"
-                if is_draw(model)
-                else "writer"
-            )
+            doc_type = "calc" if is_calc(model) else "draw" if is_draw(model) else "writer"
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
 
@@ -568,6 +537,7 @@ class SendHandlersMixin:
 
                 def approval_cb(query_for_engine, tool_name, args):
                     import threading
+
                     event = threading.Event()
                     # Use setattr/getattr to avoid static attribute errors on Event
                     setattr(event, "approved", False)
@@ -603,23 +573,20 @@ class SendHandlersMixin:
                 import json
 
                 if is_librarian:
-                    res = get_tools().execute(
-                        "librarian_onboarding",
-                        tctx,
-                        bypass_thread_guard=False,
-                        **{"query": query_text, "history_text": history_text}
-                    )
+                    res = get_tools().execute("librarian_onboarding", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
                     result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
                         from plugin.framework.errors import AgentParsingError, format_error_payload
+
                         log.error("Failed to parse librarian result in _run_librarian [doc: %s]", doc_type)
                         parsed_err = AgentParsingError("Invalid JSON from librarian tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
                     if data.get("status") == "ok":
                         from plugin.framework.i18n import _
+
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
@@ -630,6 +597,7 @@ class SendHandlersMixin:
                         # We want to exit librarian flow on the next turn.
                         self._in_librarian_mode = False
                         from plugin.framework.i18n import _
+
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
                         msg = _("Librarian: {0}").format(answer) + "\n"
                         q.put((StreamQueueKind.CHUNK, msg))
@@ -637,28 +605,26 @@ class SendHandlersMixin:
                     else:
                         self._in_librarian_mode = False
                         from plugin.framework.i18n import _
+
                         msg = data.get("message", _("Unknown librarian error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))
 
                     q.put((StreamQueueKind.STREAM_DONE, {}))
                 else:
-                    res = get_tools().execute(
-                        "web_research",
-                        tctx,
-                        bypass_thread_guard=False,
-                        **{"query": query_text, "history_text": history_text}
-                    )
+                    res = get_tools().execute("web_research", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
                     result = json.dumps(res) if isinstance(res, dict) else str(res)
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
                         from plugin.framework.errors import AgentParsingError, format_error_payload
+
                         log.error("Failed to parse web_research result in _run_web_research [doc: %s]", doc_type)
                         parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
                     if data.get("status") == "ok":
                         from plugin.framework.i18n import _
+
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
@@ -668,6 +634,7 @@ class SendHandlersMixin:
                         self.session.add_assistant_message(content=msg)
                     else:
                         from plugin.framework.i18n import _
+
                         msg = data.get("message", _("Unknown research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))
 
@@ -675,6 +642,7 @@ class SendHandlersMixin:
             except Exception as e:
                 log.error("Web/Librarian path ERROR in _run_web_research [doc: %s]: %s", doc_type, e)
                 from plugin.framework.errors import format_error_payload
+
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         def on_approval_required(item):
@@ -689,20 +657,13 @@ class SendHandlersMixin:
                 tool_name,
             )
 
-        self._run_unified_worker_drain_loop(
-            q,
-            run_search,
-            current_state,
-            interpreter,
-            show_thinking=show_thinking,
-            on_approval_callback=on_approval_required
-        )
+        self._run_unified_worker_drain_loop(q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP server URL from config."""
         try:
             from plugin.framework.config import get_config
-            
+
             port = get_config(self.ctx, "http.mcp_port") or 8765
             host = get_config(self.ctx, "http.host") or "localhost"
             use_ssl = get_config(self.ctx, "http.use_ssl")

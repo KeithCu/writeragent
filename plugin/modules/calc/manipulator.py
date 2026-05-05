@@ -86,11 +86,11 @@ def _parse_formula_or_values_string(s: str):
             for char in s_strip:
                 if char == '"' and not escaped:
                     in_quotes = not in_quotes
-                if char == ';' and not in_quotes:
-                    normalized_list.append(',')
+                if char == ";" and not in_quotes:
+                    normalized_list.append(",")
                 else:
                     normalized_list.append(char)
-                if char == '\\' and not escaped:
+                if char == "\\" and not escaped:
                     escaped = True
                 else:
                     escaped = False
@@ -114,7 +114,7 @@ def _parse_formula_or_values_string(s: str):
     if not s_strip.startswith("="):
         # Could be multiline CSV or single line with delimiter
         delimiter = ","
-        first_line = s.split('\n')[0] if s else ""
+        first_line = s.split("\n")[0] if s else ""
         if ";" in first_line and "," not in first_line:
             delimiter = ";"
 
@@ -122,7 +122,9 @@ def _parse_formula_or_values_string(s: str):
         if delimiter in s or "\n" in s:
             try:
                 reader = csv.reader(
-                    io.StringIO(s), delimiter=delimiter, skipinitialspace=True,
+                    io.StringIO(s),
+                    delimiter=delimiter,
+                    skipinitialspace=True,
                 )
                 rows = list(reader)
                 if rows:
@@ -159,7 +161,7 @@ class CellManipulator:
         """Validate if a string is a valid cell address (e.g., A1)."""
         if not address:
             return False
-        return bool(re.match(r'^[A-Za-z]+[1-9][0-9]*$', address.strip()))
+        return bool(re.match(r"^[A-Za-z]+[1-9][0-9]*$", address.strip()))
 
     def _get_error_name(self, error_code: int) -> str:
         """Get a human-readable name for a Calc error code."""
@@ -230,16 +232,25 @@ class CellManipulator:
         return self.bridge.get_cell(sheet, col, row)
 
     def _apply_style_properties(
-        self, obj, bold, italic, bg_color, font_color, font_size,
-        h_align, v_align, wrap_text, border_color,
+        self,
+        obj,
+        bold,
+        italic,
+        bg_color,
+        font_color,
+        font_size,
+        h_align,
+        v_align,
+        wrap_text,
+        border_color,
     ):
         """Apply common style properties to a cell or range object."""
         if bold is not None:
-            FW = sys.modules.get('com.sun.star.awt.FontWeight', None)
+            FW = sys.modules.get("com.sun.star.awt.FontWeight", None)
             if FW is None:
                 BOLD, NORMAL = FontWeight.BOLD, FontWeight.NORMAL
             else:
-                BOLD, NORMAL = getattr(FW, 'BOLD'), getattr(FW, 'NORMAL')
+                BOLD, NORMAL = getattr(FW, "BOLD"), getattr(FW, "NORMAL")
             obj.setPropertyValue("CharWeight", BOLD if bold else NORMAL)
 
         if italic is not None:
@@ -256,15 +267,20 @@ class CellManipulator:
 
         if h_align is not None:
             align_map = {
-                "left": LEFT, "center": CENTER, "right": RIGHT,
-                "justify": BLOCK, "standard": STANDARD,
+                "left": LEFT,
+                "center": CENTER,
+                "right": RIGHT,
+                "justify": BLOCK,
+                "standard": STANDARD,
             }
             if h_align.lower() in align_map:
                 obj.setPropertyValue("HoriJustify", align_map[h_align.lower()])
 
         if v_align is not None:
             align_map = {
-                "top": TOP, "center": CENTER, "bottom": BOTTOM,
+                "top": TOP,
+                "center": CENTER,
+                "bottom": BOTTOM,
                 "standard": STANDARD,
             }
             if v_align.lower() in align_map:
@@ -295,19 +311,11 @@ class CellManipulator:
         try:
             # Validate sheet
             if not sheet:
-                raise CalcError(
-                    "Sheet is None",
-                    code="CALC_SHEET_NULL",
-                    details={"operation": "get_cell_value"}
-                )
+                raise CalcError("Sheet is None", code="CALC_SHEET_NULL", details={"operation": "get_cell_value"})
 
             # Validate cell address
             if not self._is_valid_cell_address(cell_address):
-                raise CalcError(
-                    f"Invalid cell address: {cell_address}",
-                    code="CALC_INVALID_ADDRESS",
-                    details={"address": cell_address}
-                )
+                raise CalcError(f"Invalid cell address: {cell_address}", code="CALC_INVALID_ADDRESS", details={"address": cell_address})
 
             # Get cell
             try:
@@ -315,18 +323,15 @@ class CellManipulator:
             except Exception:
                 cell = None
             if not cell:
-                raise CalcError(
-                    f"Cell not found: {cell_address}",
-                    code="CALC_CELL_NOT_FOUND",
-                    details={"address": cell_address}
-                )
+                raise CalcError(f"Cell not found: {cell_address}", code="CALC_CELL_NOT_FOUND", details={"address": cell_address})
 
             # Get value with type handling
             cell_type = cell.getType()
 
             import sys
-            CCT = sys.modules.get('com.sun.star.table', None)
-            if CCT is not None and hasattr(CCT, 'CellContentType'):
+
+            CCT = sys.modules.get("com.sun.star.table", None)
+            if CCT is not None and hasattr(CCT, "CellContentType"):
                 CCT = CCT.CellContentType
 
             # Also try to import for unmocked case
@@ -355,33 +360,17 @@ class CellManipulator:
                     raise CalcError(
                         f"Formula error in {cell_address}: {self._get_error_name(error_code)}",
                         code="CALC_FORMULA_ERROR",
-                        details={
-                            "address": cell_address,
-                            "error_code": error_code,
-                            "error_name": self._get_error_name(error_code)
-                        }
+                        details={"address": cell_address, "error_code": error_code, "error_name": self._get_error_name(error_code)},
                     ) from e
             else:
-                raise CalcError(
-                    f"Unknown cell type: {cell_type}",
-                    code="CALC_UNKNOWN_CELL_TYPE",
-                    details={"address": cell_address, "type": cell_type}
-                )
+                raise CalcError(f"Unknown cell type: {cell_type}", code="CALC_UNKNOWN_CELL_TYPE", details={"address": cell_address, "type": cell_type})
 
         except CalcError:
             # Re-raise our calc errors
             raise
         except Exception as e:
             # Wrap other exceptions
-            raise CalcError(
-                f"Failed to get cell value: {str(e)}",
-                code="CALC_CELL_VALUE_ERROR",
-                details={
-                    "address": cell_address,
-                    "original_error": str(e),
-                    "error_type": type(e).__name__
-                }
-            ) from e
+            raise CalcError(f"Failed to get cell value: {str(e)}", code="CALC_CELL_VALUE_ERROR", details={"address": cell_address, "original_error": str(e), "error_type": type(e).__name__}) from e
 
     def write_formula(self, address: str, formula: str) -> str:
         """Write formula, text, or number to a cell.
@@ -455,10 +444,15 @@ class CellManipulator:
             if ":" in address_or_range:
                 self._set_range_style(
                     address_or_range,
-                    bold=bold, italic=italic, bg_color=bg_color,
-                    font_color=font_color, font_size=font_size,
-                    h_align=h_align, v_align=v_align,
-                    wrap_text=wrap_text, border_color=border_color,
+                    bold=bold,
+                    italic=italic,
+                    bg_color=bg_color,
+                    font_color=font_color,
+                    font_size=font_size,
+                    h_align=h_align,
+                    v_align=v_align,
+                    wrap_text=wrap_text,
+                    border_color=border_color,
                 )
                 if number_format:
                     self._set_range_number_format(address_or_range, number_format)
@@ -466,8 +460,16 @@ class CellManipulator:
             else:
                 cell = self._get_cell(address_or_range)
                 self._apply_style_properties(
-                    cell, bold, italic, bg_color, font_color, font_size,
-                    h_align, v_align, wrap_text, border_color,
+                    cell,
+                    bold,
+                    italic,
+                    bg_color,
+                    font_color,
+                    font_size,
+                    h_align,
+                    v_align,
+                    wrap_text,
+                    border_color,
                 )
                 if number_format:
                     self._set_number_format(address_or_range, number_format)
@@ -477,15 +479,31 @@ class CellManipulator:
             raise ToolExecutionError(str(e)) from e
 
     def _set_range_style(
-        self, range_str, bold=None, italic=None, bg_color=None,
-        font_color=None, font_size=None, h_align=None, v_align=None,
-        wrap_text=None, border_color=None,
+        self,
+        range_str,
+        bold=None,
+        italic=None,
+        bg_color=None,
+        font_color=None,
+        font_size=None,
+        h_align=None,
+        v_align=None,
+        wrap_text=None,
+        border_color=None,
     ):
         sheet = self.bridge.get_active_sheet()
         cell_range = self.bridge.get_cell_range(sheet, range_str)
         self._apply_style_properties(
-            cell_range, bold, italic, bg_color, font_color, font_size,
-            h_align, v_align, wrap_text, border_color,
+            cell_range,
+            bold,
+            italic,
+            bg_color,
+            font_color,
+            font_size,
+            h_align,
+            v_align,
+            wrap_text,
+            border_color,
         )
 
     def _set_range_number_format(self, range_str: str, format_str: str):
@@ -589,7 +607,9 @@ class CellManipulator:
             direction = "ascending" if ascending else "descending"
             logger.info(
                 "Range %s sorted %s by column %d.",
-                range_str.upper(), direction, sort_column,
+                range_str.upper(),
+                direction,
+                sort_column,
             )
             return f"Range {range_str} sorted {direction} by column {sort_column}."
         except Exception as e:
@@ -609,13 +629,7 @@ class CellManipulator:
         """
         try:
             # Handle empty values as a clear_range operation
-            is_empty = (
-                formula_or_values is None or
-                formula_or_values == "" or
-                formula_or_values == [] or
-                formula_or_values == "[]" or
-                formula_or_values == "{}"
-            )
+            is_empty = formula_or_values is None or formula_or_values == "" or formula_or_values == [] or formula_or_values == "[]" or formula_or_values == "{}"
             if is_empty:
                 self.clear_range(range_str)
                 return f"Range {range_str} cleared."
@@ -645,11 +659,7 @@ class CellManipulator:
                         num_cols = end[0] - start[0] + 1
                         total_cells = num_rows * num_cols
 
-                        range_str = (
-                            f"{self.bridge._index_to_column(start[0])}{start[1]}"
-                            f":"
-                            f"{self.bridge._index_to_column(end[0])}{end[1]}"
-                        )
+                        range_str = f"{self.bridge._index_to_column(start[0])}{start[1]}:{self.bridge._index_to_column(end[0])}{end[1]}"
 
                     # Pad rows to ensure uniform width, and flatten into 1D
                     flat_vals = []
@@ -726,7 +736,9 @@ class CellManipulator:
                 cell_range.setFormulaArray(tuple(string_formulas))
 
             logger.info(
-                "Range %s filled with %d values.", range_str.upper(), len(values),
+                "Range %s filled with %d values.",
+                range_str.upper(),
+                len(values),
             )
             return f"Range {range_str} filled with {len(values)} values."
         except Exception as e:
@@ -758,7 +770,8 @@ class CellManipulator:
             columns.removeByIndex(col_index, count)
             logger.info(
                 "%d column(s) deleted starting from column %s.",
-                count, col_letter.upper(),
+                count,
+                col_letter.upper(),
             )
             return f"{count} column(s) deleted starting from column {col_letter.upper()}."
         except Exception as e:
@@ -778,8 +791,4 @@ class CellManipulator:
         elif structure_type == "columns":
             return self.delete_columns(start, count)
         else:
-            raise UnoObjectError(
-                f"Invalid structure_type: {structure_type}. "
-                f"Must be 'rows' or 'columns'."
-            )
-
+            raise UnoObjectError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")

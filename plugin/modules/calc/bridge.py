@@ -91,6 +91,8 @@ class CalcBridge:
     def _range_to_str(range_addr):
         """Convert a CellRangeAddress to a string."""
         return "%s%d:%s%d" % (
-            index_to_column(range_addr.StartColumn), range_addr.StartRow + 1,
-            index_to_column(range_addr.EndColumn), range_addr.EndRow + 1,
+            index_to_column(range_addr.StartColumn),
+            range_addr.StartRow + 1,
+            index_to_column(range_addr.EndColumn),
+            range_addr.EndRow + 1,
         )

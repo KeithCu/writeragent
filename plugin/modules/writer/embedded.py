@@ -13,7 +13,6 @@ from plugin.modules.writer.base import ToolWriterEmbeddedBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 
-
 class EmbeddedInsert(ToolWriterEmbeddedBase):
     name = "embedded_insert"
     description = (
@@ -55,10 +54,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if not cursor:
             return self._tool_error("Failed to resolve target location.")
 
-        return self._tool_error(
-            "embedded_insert is not implemented yet. Use Insert > Object > OLE Object "
-            "in LibreOffice Writer."
-        )
+        return self._tool_error("embedded_insert is not implemented yet. Use Insert > Object > OLE Object in LibreOffice Writer.")
 
 
 class EmbeddedEdit(ToolWriterEmbeddedBase):
@@ -77,6 +73,4 @@ class EmbeddedEdit(ToolWriterEmbeddedBase):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        return self._tool_error(
-            "embedded_edit is not implemented yet. Double-click the object in Writer."
-        )
+        return self._tool_error("embedded_edit is not implemented yet. Double-click the object in Writer.")

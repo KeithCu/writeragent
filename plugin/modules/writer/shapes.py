@@ -45,13 +45,16 @@ class CreateShape(DrawCreateShape, ToolWriterShapeBase):
     # Specialized for all document types (use delegate_to_specialized_*_toolset(domain=shapes)).
     tier = "specialized"
 
+
 class EditShape(DrawEditShape, ToolWriterShapeBase):
     name = "edit_shape"
     uno_services = _WRITER_DRAW_SHAPE_DOCS
 
+
 class DeleteShape(DrawDeleteShape, ToolWriterShapeBase):
     name = "delete_shape"
     uno_services = _WRITER_DRAW_SHAPE_DOCS
+
 
 class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
     name = "get_draw_summary"
@@ -63,10 +66,7 @@ class ListWriterImages(ToolWriterShapeBase):
 
     name = "list_writer_images"
     intent = "media"
-    description = (
-        "List images and graphic objects in the Writer document (names, sizes, titles). "
-        "Uses the document graphic-object collection (not the full Draw page API)."
-    )
+    description = "List images and graphic objects in the Writer document (names, sizes, titles). Uses the document graphic-object collection (not the full Draw page API)."
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
 
@@ -85,12 +85,14 @@ class ListWriterImages(ToolWriterShapeBase):
                     title = g.getPropertyValue("Title")
                 except Exception:
                     pass
-                images.append({
-                    "name": name,
-                    "width_mm": size.Width / 100.0,
-                    "height_mm": size.Height / 100.0,
-                    "title": title,
-                })
+                images.append(
+                    {
+                        "name": name,
+                        "width_mm": size.Width / 100.0,
+                        "height_mm": size.Height / 100.0,
+                        "title": title,
+                    }
+                )
             except Exception as e:
                 log.debug("list_writer_images skip %s: %s", name, e)
         return {"status": "ok", "images": images, "count": len(images)}

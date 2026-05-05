@@ -8,9 +8,11 @@ from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
 
+
 def _resolve_uno_ctx(ctx):
     """Accept ToolContext or raw UNO context."""
     return getattr(ctx, "ctx", ctx)
+
 
 class MemoryStore:
     def __init__(self, ctx):
@@ -19,7 +21,7 @@ class MemoryStore:
             raise ConfigError("UNO context is required to resolve memory store path")
         self.memory_dir = os.path.join(self.config_dir, "memories")
         os.makedirs(self.memory_dir, exist_ok=True)
-    
+
     def _get_path(self, target: str) -> str:
         filename = "USER.md" if target == "user" else "MEMORY.md"
         return os.path.join(self.memory_dir, filename)
@@ -91,7 +93,7 @@ def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
 
 class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""
-    
+
     name = "upsert_memory"
     description = (
         "Persistent memory for the agent. Stores user profile, preferences, and quirks. "
@@ -102,27 +104,22 @@ class MemoryTool(ToolBase):
     tier = "core"
     intent = "navigate"
     is_mutation = False
-    
+
     parameters = {
         "type": "object",
         "properties": {
-            "key": {
-                "type": "string",
-                "description": "The key to update or insert (e.g., 'favorite_color')."
-            },
-            "content": {
-                "type": "string",
-                "description": "The new value to associate with the key."
-            }
+            "key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."},
+            "content": {"type": "string", "description": "The new value to associate with the key."},
         },
-        "required": ["key", "content"]
+        "required": ["key", "content"],
     }
 
     def execute(self, ctx, **kwargs):
         import json
+
         key = kwargs.get("key")
         content = kwargs.get("content", "")
-        
+
         if not key:
             return self._tool_error("Key is required.")
 
@@ -130,13 +127,13 @@ class MemoryTool(ToolBase):
             store = MemoryStore(ctx)
         except Exception as e:
             return self._tool_error(f"Failed to initialize memory store: {e}")
-            
+
         target = "user"
         try:
             current = store.read(target)
         except OSError as e:
             return self._tool_error(f"Failed to read existing memory: {e}")
-        
+
         try:
             parsed = json.loads(current) if current.strip() else {}
             if not isinstance(parsed, dict):

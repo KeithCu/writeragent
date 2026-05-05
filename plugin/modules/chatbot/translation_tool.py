@@ -396,7 +396,7 @@ def _sse_iter(url, data=None, headers=None, timeout=30):
     Mirrors the SSE parsing logic in core/api.py's _run_streaming_loop."""
     import urllib.request
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
-    
+
     if headers is None:
         headers = {}
     if "User-Agent" not in headers:
@@ -409,15 +409,14 @@ def _sse_iter(url, data=None, headers=None, timeout=30):
     req = urllib.request.Request(url, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as stream:
         from plugin.modules.http.client import iterate_sse
+
         for payload in iterate_sse(stream):
             if payload == "[DONE]":
                 break
             yield payload
 
 
-def opustm_hf_translate(
-    text: str, src_language: str, target_language: str = "English"
-) -> str:
+def opustm_hf_translate(text: str, src_language: str, target_language: str = "English") -> str:
     """Translate text using the OpusTM model hosted on Hugging Face Spaces.
     Uses core.api.sync_request for consistent headers."""
     # Step 1: POST to get an event_id for the streaming result

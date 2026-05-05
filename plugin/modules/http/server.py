@@ -36,6 +36,7 @@ log = logging.getLogger("writeragent.framework.http_server")
 
 class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """HTTP server that handles each request in its own thread."""
+
     daemon_threads = True
 
 
@@ -64,6 +65,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
         if route is None:
             from plugin.framework.errors import WriterAgentException, format_error_payload
+
             err = WriterAgentException("Not found", code="NOT_FOUND", details={"path": path})
             self._send_json(404, format_error_payload(err))
             return
@@ -72,6 +74,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             if route.raw:
                 if route.main_thread:
                     from plugin.framework.queue_executor import default_executor
+
                     default_executor.execute(route.handler, self)
                 else:
                     route.handler(self)
@@ -82,8 +85,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                 query = get_url_query_dict(self.path)
                 if route.main_thread:
                     from plugin.framework.queue_executor import default_executor
-                    result: Any = default_executor.execute(
-                        route.handler, body, self.headers, query)
+
+                    result: Any = default_executor.execute(route.handler, body, self.headers, query)
                     status, data = cast("tuple[int, Any]", result)
                 else:
                     result = route.handler(body, self.headers, query)
@@ -92,6 +95,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             log.error("%s %s error: %s", method, path, e, exc_info=True)
             from plugin.framework.errors import format_error_payload
+
             self._send_json(500, format_error_payload(e))
 
     def _read_body(self):
@@ -102,6 +106,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         data = safe_json_loads(raw, default=None, strict=True)
         if data is None and raw.strip():
             from plugin.framework.errors import AgentParsingError, format_error_payload
+
             log.warning("Invalid JSON body: %s", raw[:200])
             err = AgentParsingError("Invalid JSON body in HTTP request", details={"raw": raw[:200]})
             self._send_json(400, format_error_payload(err))
@@ -113,21 +118,18 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps(
-            data, ensure_ascii=False, default=str).encode("utf-8"))
+        self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
 
     def _send_cors_headers(self):
         origin = self.headers.get("Origin")
         if origin:
             import re
+
             if re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", origin):
                 self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Methods",
-                         "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers",
-                         "Content-Type, Authorization, Mcp-Session-Id, X-Document-URL")
-        self.send_header("Access-Control-Expose-Headers",
-                         "Mcp-Session-Id")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, X-Document-URL")
+        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)
@@ -136,8 +138,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
-    def __init__(self, route_registry, port=8766, host="localhost",
-                 use_ssl=False, ssl_cert="", ssl_key=""):
+    def __init__(self, route_registry, port=8766, host="localhost", use_ssl=False, ssl_cert="", ssl_key=""):
         self.route_registry = route_registry
         self.port = port
         self.host = host
@@ -155,8 +156,7 @@ class HttpServer:
 
         GenericRequestHandler.route_registry = self.route_registry
 
-        self._server = _ThreadedHTTPServer(
-            (self.host, self.port), GenericRequestHandler)
+        self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
 
         if self.use_ssl:
             # TLS server mode requires explicit certificates.
@@ -165,23 +165,21 @@ class HttpServer:
                 cert_path, key_path = self.ssl_cert, self.ssl_key
                 log.info("TLS using custom certs: %s", cert_path)
                 import ssl
+
                 ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
                 ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
                 if self._server:
-                    self._server.socket = ssl_ctx.wrap_socket(
-                        self._server.socket, server_side=True)
+                    self._server.socket = ssl_ctx.wrap_socket(self._server.socket, server_side=True)
             else:
                 log.warning("use_ssl is True but no certificates provided. Disabling TLS.")
                 self.use_ssl = False
 
         self._running = True
-        self._thread = run_in_background(
-            self._run, daemon=True, name="http-server")
+        self._thread = run_in_background(self._run, daemon=True, name="http-server")
 
         scheme = "https" if self.use_ssl else "http"
         url = "%s://%s:%s" % (scheme, self.host, self.port)
-        log.info("HTTP server ready — %s (%d routes)",
-                 url, self.route_registry.route_count)
+        log.info("HTTP server ready — %s (%d routes)", url, self.route_registry.route_count)
 
     def stop(self):
         if not self._running:
@@ -214,6 +212,5 @@ class HttpServer:
             "ssl": self.use_ssl,
             "url": "%s://%s:%s" % (scheme, self.host, self.port),
             "routes": self.route_registry.route_count,
-            "thread_alive": (self._thread.is_alive()
-                             if self._thread else False),
+            "thread_alive": (self._thread.is_alive() if self._thread else False),
         }

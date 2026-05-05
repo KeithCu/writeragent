@@ -51,20 +51,14 @@ if _audio_dir not in sys.path:
 # Recording available only if audio_recorder (and thus contrib/audio) is present
 try:
     from plugin.modules.chatbot.audio_recorder import AudioRecorder  # noqa: F401
+
     HAS_RECORDING = True
 except ImportError:
     HAS_RECORDING = False
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
-from plugin.framework.dialogs import (
-    get_optional as get_optional_control,
-    get_checkbox_state,
-    set_checkbox_state,
-    set_control_text,
-    set_control_enabled,
-    set_control_visible
-)
+from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
@@ -72,6 +66,7 @@ if TYPE_CHECKING:
     from com.sun.star.uno import XInterface
 
 from com.sun.star.ui import XUIElementFactory, XUIElement, XToolPanel, XSidebarPanel
+
 try:
     from com.sun.star.ui.UIElementType import TOOLPANEL  # type: ignore
 except ImportError:
@@ -100,10 +95,8 @@ def _get_arg(args, name):
     return None
 
 
-
-
-
 _paths_initialized = False
+
 
 def _initialize_extension_paths(ctx):
     """Initialize extension paths once per session."""
@@ -146,11 +139,10 @@ def _initialize_extension_paths(ctx):
         log.error("_initialize_extension_paths ERROR: %s" % e)
 
 
-
-
 # ---------------------------------------------------------------------------
 # ChatToolPanel, ChatPanelElement, ChatPanelFactory (sidebar plumbing)
 # ---------------------------------------------------------------------------
+
 
 class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
@@ -204,6 +196,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("getHeightForWidth: PanelWindow likely disposed: %s", e)
             before = None
@@ -221,12 +214,11 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         try:
             self.PanelWindow.setPosSize(0, 0, eff_w, h, 15)
             after = self.PanelWindow.getPosSize()
-            log.debug(
-                "getHeightForWidth root_after=%sx%s" % (after.Width, after.Height)
-            )
+            log.debug("getHeightForWidth root_after=%sx%s" % (after.Width, after.Height))
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("getHeightForWidth: failed to set or get pos size (likely disposed): %s", e)
 
@@ -237,6 +229,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("getHeightForWidth relayout_now failed (likely disposed): %s", e)
                 else:
@@ -279,8 +272,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 log.info("getRealInterface completed successfully")
             except Exception as e:
                 from plugin.framework.errors import UnoObjectError
+
                 log.error("getRealInterface ERROR [resource_url=%s]: %s", self.ResourceURL, e)
                 import traceback
+
                 log.error(traceback.format_exc())
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         return cast("XInterface", self.toolpanel)
@@ -290,11 +285,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         base_url = get_extension_url()
         dialog_url = base_url + "/" + XDL_PATH
         log.debug("dialog_url: %s" % dialog_url)
-        provider = self.ctx.getServiceManager().createInstanceWithContext(
-            "com.sun.star.awt.ContainerWindowProvider", self.ctx)
+        provider = self.ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", self.ctx)
         log.debug("calling createContainerWindow...")
-        self.m_panelRootWindow = provider.createContainerWindow(
-            dialog_url, "", self.xParentWindow, None)
+        self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
         log.debug("createContainerWindow returned")
         # Sidebar does not show the panel content without this (framework does not make it visible).
         if self.m_panelRootWindow and hasattr(self.m_panelRootWindow, "setVisible"):
@@ -303,18 +296,19 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to set panel root window visible (likely disposed): %s", e)
         # Constrain panel only when parent already has size (layout may be 0x0 here).
         try:
             parent_rect = self.xParentWindow.getPosSize()
             if parent_rect.Width > 0 and parent_rect.Height > 0:
-                self.m_panelRootWindow.setPosSize(
-                    0, 0, parent_rect.Width, parent_rect.Height, 15)
+                self.m_panelRootWindow.setPosSize(0, 0, parent_rect.Width, parent_rect.Height, 15)
                 log.debug("panel constrained to W=%s H=%s" % (parent_rect.Width, parent_rect.Height))
         except Exception as e:
             from com.sun.star.lang import DisposedException
             from com.sun.star.uno import RuntimeException, Exception as UnoException
+
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("Failed to constrain panel window (likely disposed): %s", e)
         return self.m_panelRootWindow
@@ -324,7 +318,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         try:
             if response_ctrl and response_ctrl.getModel():
                 text = greeting + "\n" if greeting else ""
-                
+
                 # Append loaded history (skipping system context)
                 for msg in session.messages:
                     role = msg.get("role", "")
@@ -337,12 +331,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         elif msg.get("tool_calls"):
                             text += "\nAssistant: [Thinking...]"
                         text += "\n"
-                
+
                 set_control_text(response_ctrl, text)
                 # Scroll to bottom
                 if hasattr(response_ctrl, "setSelection"):
                     length = len(text)
                     import uno
+
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception as e:
             log.error("_render_session_history error [greeting=%s]: %s", greeting, e)
@@ -360,19 +355,19 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         model_selector = get_optional("model_selector")
         prompt_selector = get_optional("prompt_selector")
         image_model_selector = get_optional("image_model_selector")
-        
+
         current_model = get_text_model(self.ctx)
         extra_instructions = get_config(self.ctx, "additional_instructions")
-        
+
         current_endpoint = get_current_endpoint(self.ctx)
-        
+
         if model_selector:
             set_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
             if set_val != current_model:
                 set_config(self.ctx, "text_model", set_val)
         if prompt_selector:
             populate_combobox_with_lru(self.ctx, prompt_selector, extra_instructions, "prompt_lru", "")
-            
+
         # Refresh visual (image) model via shared helper; persist correction if strict replaced value
         if image_model_selector:
             current_image = get_image_model(self.ctx)
@@ -427,15 +422,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             model_selector = get_optional_control(root, "model_selector")
             if model_selector and hasattr(model_selector, "getModel"):
                 set_control_enabled(model_selector, not is_external)
-                
+
             direct_image_check = get_optional_control(root, "direct_image_check")
             if direct_image_check and hasattr(direct_image_check, "getModel"):
                 set_control_enabled(direct_image_check, not is_external)
-                
+
             web_research_check = get_optional_control(root, "web_research_check")
             if web_research_check and hasattr(web_research_check, "getModel"):
                 set_control_enabled(web_research_check, not is_external)
-                
+
         except Exception as e:
             log.error("_update_backend_indicator error: %s" % e)
 
@@ -448,6 +443,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to get model from frame controller (likely disposed): %s", e)
         if model is None:
@@ -457,15 +453,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _wire_model_selectors(self, model_selector, image_model_selector):
         """Initializes model selectors and their sync listeners."""
         from plugin.framework.config import get_current_endpoint, get_text_model, get_image_model, populate_combobox_with_lru, populate_image_model_selector, set_image_model, set_config
-        
+
         current_model = get_text_model(self.ctx)
         current_endpoint = get_current_endpoint(self.ctx)
-        
+
         if model_selector:
             set_model_val = populate_combobox_with_lru(self.ctx, model_selector, current_model, "model_lru", current_endpoint)
             if set_model_val != current_model:
                 set_config(self.ctx, "text_model", set_model_val)
-                
+
         if image_model_selector:
             current_image = get_image_model(self.ctx)
             set_image_val = populate_image_model_selector(self.ctx, image_model_selector)
@@ -473,21 +469,30 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_image_model(self.ctx, set_image_val, update_lru=False)
 
         if model_selector and hasattr(model_selector, "addItemListener"):
+
             class ModelSyncListener(BaseItemListener):
-                def __init__(self, ctx): self.ctx = ctx
+                def __init__(self, ctx):
+                    self.ctx = ctx
+
                 def on_item_state_changed(self, rEvent):
                     from plugin.framework.config import get_text_model, set_config
+
                     txt = model_selector.getText()
                     if not txt or txt == get_text_model(self.ctx):
                         return
                     set_config(self.ctx, "text_model", txt)
+
             model_selector.addItemListener(ModelSyncListener(self.ctx))
 
         if image_model_selector and hasattr(image_model_selector, "addItemListener"):
+
             class ImageModelSyncListener(BaseItemListener):
-                def __init__(self, ctx): self.ctx = ctx
+                def __init__(self, ctx):
+                    self.ctx = ctx
+
                 def on_item_state_changed(self, rEvent):
                     from plugin.framework.config import get_config, set_image_model
+
                     txt = image_model_selector.getText()
                     if not txt:
                         return
@@ -496,27 +501,32 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     if txt == str(get_config(self.ctx, sk) or "").strip():
                         return
                     set_image_model(self.ctx, txt, update_lru=False)
+
             image_model_selector.addItemListener(ImageModelSyncListener(self.ctx))
 
-    def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, 
-                       direct_image_check, web_research_check, model_label, model_selector, image_model_selector):
+    def _wire_image_ui(self, aspect_ratio_selector, base_size_input, base_size_label, direct_image_check, web_research_check, model_label, model_selector, image_model_selector):
         """Initializes image-related UI controls and their listeners."""
         from plugin.framework.config import get_config, set_config
-        
+
         if aspect_ratio_selector:
             aspect_ratio_selector.addItems(("Square", "Landscape (16:9)", "Portrait (9:16)", "Landscape (3:2)", "Portrait (2:3)"), 0)
             aspect_ratio_selector.setText(get_config(self.ctx, "image_default_aspect") or "Square")
-            
+
         if base_size_input:
             from plugin.framework.config import populate_combobox_with_lru
+
             populate_combobox_with_lru(self.ctx, base_size_input, str(get_config(self.ctx, "image_base_size")), "image_base_size_lru", "")
 
         def update_base_size_label(aspect_str):
             from plugin.framework.i18n import _
-            if not base_size_label: return
+
+            if not base_size_label:
+                return
             txt = _("Size:")
-            if "Landscape" in aspect_str: txt = _("Height:")
-            elif "Portrait" in aspect_str: txt = _("Width:")
+            if "Landscape" in aspect_str:
+                txt = _("Height:")
+            elif "Portrait" in aspect_str:
+                txt = _("Width:")
             if hasattr(base_size_label, "setText"):
                 base_size_label.setText(txt)
             elif hasattr(base_size_label.getModel(), "Label"):
@@ -525,12 +535,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if aspect_ratio_selector:
             update_base_size_label(aspect_ratio_selector.getText())
             if hasattr(aspect_ratio_selector, "addItemListener"):
+
                 class AspectListener(BaseItemListener):
                     def on_item_state_changed(self, rEvent):
                         ev = rEvent
                         idx = getattr(ev, "Selected", -1)
                         if idx >= 0:
                             update_base_size_label(aspect_ratio_selector.getItem(idx))
+
                 aspect_ratio_selector.addItemListener(AspectListener())
 
         # We now use the global set_control_enabled and set_control_visible from plugin.framework.dialogs
@@ -552,6 +564,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 except Exception as e:
                     from com.sun.star.lang import DisposedException
                     from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                     if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                         log.debug("Failed to relayout after toggling image UI (likely disposed): %s", e)
 
@@ -560,11 +573,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 direct_checked = get_config(self.ctx, "chat_direct_image")
                 set_checkbox_state(direct_image_check, 1 if direct_checked else 0)
                 toggle_image_ui(direct_checked)
-                
+
                 if direct_checked:
                     set_control_enabled(web_research_check, False)
-                    
+
                 if hasattr(direct_image_check, "addItemListener"):
+
                     class DirectImageCheckListener(BaseItemListener):
                         def __init__(self, ctx, toggle_cb, web_check):
                             self.ctx = ctx
@@ -573,7 +587,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                         def on_item_state_changed(self, rEvent):
                             ev = rEvent
-                            is_checked = (getattr(ev, "Selected", 0) == 1)
+                            is_checked = getattr(ev, "Selected", 0) == 1
                             set_config(self.ctx, "chat_direct_image", is_checked)
                             self.toggle_cb(is_checked)
                             set_control_enabled(self.web_check, not is_checked)
@@ -581,11 +595,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     direct_image_check.addItemListener(DirectImageCheckListener(self.ctx, toggle_image_ui, web_research_check))
             except Exception as e:
                 from plugin.framework.errors import ConfigError
+
                 if isinstance(e, ConfigError):
                     log.error("direct_image_check ConfigError: %s" % e)
                 else:
                     from com.sun.star.lang import DisposedException
                     from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                     if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                         log.debug("direct_image_check wire error (likely disposed): %s", e)
                     else:
@@ -598,6 +614,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception as e:
                 from com.sun.star.lang import DisposedException
                 from com.sun.star.uno import RuntimeException, Exception as UnoException
+
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("web_research_check initial wire error (likely disposed): %s", e)
                 else:
@@ -607,7 +624,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         """Creates the document and web research chat sessions."""
         from plugin.framework.constants import get_chat_system_prompt_for_document
         from plugin.framework.document import get_document_property, set_document_property
-        
+
         # This resolves model logic internally
         system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "")
 
@@ -615,12 +632,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not session_id:
             if model and hasattr(model, "getURL"):
                 url = model.getURL()
-                if url: session_id = hashlib.sha256(url.encode('utf-8')).hexdigest()
+                if url:
+                    session_id = hashlib.sha256(url.encode("utf-8")).hexdigest()
             if not session_id:
                 session_id = str(uuid.uuid4())
             if model:
                 set_document_property(model, "WriterAgentSessionID", session_id)
-        
+
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
         self.session = self.doc_session
@@ -630,25 +648,38 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         send_listener = None
         try:
             send_listener = SendButtonListener(
-                self.ctx, self.xFrame,
-                controls["send"], controls["stop"], controls["query"], controls["response"],
-                controls["image_model_selector"], controls["model_selector"], controls["status"], self.session,
+                self.ctx,
+                self.xFrame,
+                controls["send"],
+                controls["stop"],
+                controls["query"],
+                controls["response"],
+                controls["image_model_selector"],
+                controls["model_selector"],
+                controls["status"],
+                self.session,
                 direct_image_checkbox=controls["direct_image_check"],
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
                 web_research_checkbox=controls["web_research_check"],
                 ensure_path_fn=_initialize_extension_paths,
-                clear_control=controls.get("clear"))
+                clear_control=controls.get("clear"),
+            )
 
             # Save it to the instance so panel_wiring can use it for QueryTextListener
             self.send_listener = send_listener
 
             from plugin.framework.document import get_document_type, DocumentType
+
             doc_type = get_document_type(model)
-            if doc_type == DocumentType.CALC: send_listener.initial_doc_type = "Calc"
-            elif doc_type in (DocumentType.DRAW, DocumentType.IMPRESS): send_listener.initial_doc_type = "Draw"
-            elif doc_type == DocumentType.WRITER: send_listener.initial_doc_type = "Writer"
-            else: send_listener.initial_doc_type = "Unknown"
+            if doc_type == DocumentType.CALC:
+                send_listener.initial_doc_type = "Calc"
+            elif doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+                send_listener.initial_doc_type = "Draw"
+            elif doc_type == DocumentType.WRITER:
+                send_listener.initial_doc_type = "Writer"
+            else:
+                send_listener.initial_doc_type = "Unknown"
 
             if controls["send"]:
                 controls["send"].addActionListener(send_listener)
@@ -676,6 +707,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if controls["web_research_check"] and hasattr(controls["web_research_check"], "addItemListener"):
             from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
+
             class ResearchChatToggledListener(BaseItemListener):
                 def __init__(self, panel, response_ctrl, model, send_listener, clear_listener, img_check):
                     self.panel = panel
@@ -688,7 +720,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 def on_item_state_changed(self, rEvent):
                     ev = rEvent
                     from plugin.framework.i18n import _
-                    is_research = (getattr(ev, "Selected", 0) == 1)
+
+                    is_research = getattr(ev, "Selected", 0) == 1
                     set_control_enabled(self.img_check, not is_research)
 
                     if is_research:
@@ -704,9 +737,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         self.clear_listener.set_session(self.panel.session, greeting=greeting)
                     self.panel._render_session_history(self.panel.session, self.response_ctrl, self.model, greeting)
 
-            controls["web_research_check"].addItemListener(ResearchChatToggledListener(
-                self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"]))
-
+            controls["web_research_check"].addItemListener(ResearchChatToggledListener(self, controls["response"], model, send_listener, clear_listener, controls["direct_image_check"]))
 
 
 class ChatPanelFactory(unohelper.Base, XUIElementFactory):
@@ -721,6 +752,7 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         log.debug("createUIElement: %s" % resource_url)
         if "ChatPanel" not in resource_url:
             from com.sun.star.container import NoSuchElementException
+
             raise NoSuchElementException("Unknown resource: " + resource_url)
 
         frame = _get_arg(args, "Frame")
@@ -728,6 +760,7 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
         log.debug("ParentWindow: %s" % (parent_window is not None))
         if not parent_window:
             from com.sun.star.lang import IllegalArgumentException
+
             raise IllegalArgumentException("ParentWindow is required")
 
         return ChatPanelElement(self.ctx, frame, parent_window, resource_url)

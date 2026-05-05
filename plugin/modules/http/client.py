@@ -18,6 +18,7 @@
 LLM API client for WriterAgent.
 Takes a config dict (from plugin.framework.config.get_api_config) and UNO ctx.
 """
+
 import logging
 import collections
 import json
@@ -65,6 +66,7 @@ def _prepend_dev_build_system_prefix_to_messages(messages: list) -> None:
             return
         m["content"] = f"{prefix}\n\n{c}"
         return
+
 
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
 from plugin.framework.streaming_deltas import accumulate_delta
@@ -127,18 +129,18 @@ class LlmClient:
         scheme = parsed.scheme.lower()
         host = get_url_hostname(endpoint)
         port = parsed.port
-        
+
         # Default ports if not specified
         if not port:
             port = 443 if scheme == "https" else 80
-            
+
         ssl_mode = "plain"
         if scheme == "https":
             ssl_mode = "unverified"
             if _is_local_host(host) and host not in self._ssl_fallback_hosts:
                 ssl_mode = "verified"
         new_key = (scheme, host, port, ssl_mode)
-        
+
         if self._persistent_conn:
             if self._conn_key != new_key:
                 log.debug("Closing old connection to %s, opening new to %s" % (self._conn_key, new_key))
@@ -150,13 +152,13 @@ class LlmClient:
         log.debug("Opening new connection to %s://%s:%s" % (scheme, host, port))
         self._conn_key = new_key
         timeout = self._timeout()
-        
+
         if scheme == "https":
             ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
             self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=timeout)
         else:
             self._persistent_conn = http.client.HTTPConnection(host, port, timeout=timeout)
-            
+
         return self._persistent_conn
 
     def _close_connection(self):
@@ -168,6 +170,7 @@ class LlmClient:
                     sock = getattr(self._persistent_conn, "sock", None)
                     if sock:
                         import socket
+
                         sock.shutdown(socket.SHUT_RDWR)
                 except Exception:
                     pass
@@ -188,7 +191,6 @@ class LlmClient:
     def _api_path(self):
         return "/api" if self.config.get("is_openwebui") else "/v1"
 
-
     def _headers(self):
         """
         Build HTTP headers for API requests, including provider-aware auth.
@@ -198,8 +200,8 @@ class LlmClient:
         if auth_info:
             auth_headers = build_auth_headers(auth_info)
             h.update(auth_headers)
-            
-        # Legacy fallback for simple/manual endpoints: if an api_key exists and no 
+
+        # Legacy fallback for simple/manual endpoints: if an api_key exists and no
         # auth header was added (e.g. style='none' or unknown provider), add Bearer.
         api_key = self.config.get("api_key", "").strip()
         if api_key and "Authorization" not in h and "x-api-key" not in h:
@@ -254,7 +256,7 @@ class LlmClient:
     def extract_content_from_response(self, chunk):
         """Extract text content and optional thinking from response chunk (provider-aware)."""
         provider = self._get_provider()
-        
+
         # 1. Anthropic native
         if provider == "anthropic":
             # https://docs.anthropic.com/en/api/messages-streaming
@@ -263,7 +265,7 @@ class LlmClient:
             finish_reason = None
             thinking = None
             delta: dict[str, Any] = {}
-            
+
             if msg_type == "content_block_delta":
                 d = chunk.get("delta", {})
                 if d.get("type") == "text_delta":
@@ -277,18 +279,14 @@ class LlmClient:
                 tool_calls = []
                 for p in content_parts:
                     if p.get("type") == "tool_use":
-                        tool_calls.append({
-                            "id": p["id"],
-                            "type": "function",
-                            "function": {"name": p["name"], "arguments": json.dumps(p["input"])}
-                        })
+                        tool_calls.append({"id": p["id"], "type": "function", "function": {"name": p["name"], "arguments": json.dumps(p["input"])}})
                 delta = {"role": "assistant", "content": content}
                 if tool_calls:
                     delta["tool_calls"] = tool_calls
             elif msg_type == "message_delta":
                 finish_reason = chunk.get("delta", {}).get("stop_reason")
             elif msg_type == "message_stop":
-                 finish_reason = "stop"
+                finish_reason = "stop"
             return content, finish_reason, thinking, delta
 
         # 2. Google Gemini native
@@ -303,14 +301,7 @@ class LlmClient:
                     content += p.get("text") or ""
                 if "functionCall" in p:
                     fc = p["functionCall"]
-                    tool_calls.append({
-                        "id": fc.get("id", "call_" + str(len(tool_calls))),
-                        "type": "function",
-                        "function": {
-                            "name": fc.get("name"),
-                            "arguments": json.dumps(fc.get("args", {}))
-                        }
-                    })
+                    tool_calls.append({"id": fc.get("id", "call_" + str(len(tool_calls))), "type": "function", "function": {"name": fc.get("name"), "arguments": json.dumps(fc.get("args", {}))}})
             finish_reason = choice.get("finishReason")
             # Map Google finishReason to OpenAI finish_reason
             if finish_reason == "STOP":
@@ -395,10 +386,7 @@ class LlmClient:
         if system_message:
             old_content = system_message.get("content")
             if isinstance(old_content, str):
-                if not (
-                    old_content.startswith(date_msg)
-                    or old_content.startswith("Today's date is ")
-                ):
+                if not (old_content.startswith(date_msg) or old_content.startswith("Today's date is ")):
                     if old_content:
                         system_message["content"] = f"{date_msg}\n\n{old_content}"
                     else:
@@ -418,7 +406,7 @@ class LlmClient:
                     system_msg = m.get("content", "")
                 else:
                     converted.append({"role": m["role"], "content": m["content"]})
-            
+
             data: dict[str, Any] = {
                 "model": model_name or "claude-3-5-sonnet-20241022",
                 "messages": converted,
@@ -436,7 +424,7 @@ class LlmClient:
             log.debug("URL: %s" % url)
             log.debug("Model: %s" % data["model"])
             log.debug("Note: Anthropic shim implemented, needs verification with live key.")
-            
+
             path = get_url_path_and_query(url)
             return "POST", path, json.dumps(data).encode("utf-8"), self._headers()
 
@@ -446,12 +434,12 @@ class LlmClient:
             key = auth_info.get("api_key", "")
             m_id = model_name
             if not m_id:
-                 m_id = "gemini-1.5-flash"
+                m_id = "gemini-1.5-flash"
             if not m_id.startswith("models/"):
-                 m_id = f"models/{m_id}"
+                m_id = f"models/{m_id}"
             action = ":streamGenerateContent" if stream else ":generateContent"
             url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
-            
+
             if prepend_dev_build_system_prefix:
                 _prepend_dev_build_system_prefix_to_messages(messages)
             contents: list[dict[str, Any]] = []
@@ -480,12 +468,7 @@ class LlmClient:
                             args_obj = json.loads(args) if isinstance(args, str) else args
                         except Exception:
                             args_obj = {}
-                        parts.append({
-                            "functionCall": {
-                                "name": fn.get("name"),
-                                "args": args_obj
-                            }
-                        })
+                        parts.append({"functionCall": {"name": fn.get("name"), "args": args_obj}})
 
                 if role == "system":
                     system_instruction = {"parts": parts}
@@ -501,26 +484,18 @@ class LlmClient:
                     if not isinstance(resp_obj, dict):
                         resp_obj = {"result": resp_obj}
 
-                    contents.append({
-                        "role": "function",
-                        "parts": [{
-                            "functionResponse": {
-                                "name": m.get("name") or m.get("tool_call_id"),
-                                "response": resp_obj
-                            }
-                        }]
-                    })
+                    contents.append({"role": "function", "parts": [{"functionResponse": {"name": m.get("name") or m.get("tool_call_id"), "response": resp_obj}}]})
                 else:
                     if role == "assistant":
                         role = "model"
                     contents.append({"role": role, "parts": parts})
-            
+
             google_data: dict[str, Any] = {
                 "contents": contents,
                 "generationConfig": {
                     "maxOutputTokens": max_tokens,
                     "temperature": temperature,
-                }
+                },
             }
             if system_instruction:
                 google_data["system_instruction"] = system_instruction
@@ -530,24 +505,20 @@ class LlmClient:
                 for t in tools:
                     # t is expected to be an OpenAI-style tool: {"type": "function", "function": {...}}
                     fn = t.get("function", {})
-                    decls.append({
-                        "name": fn.get("name"),
-                        "description": fn.get("description", ""),
-                        "parameters": fn.get("parameters", {"type": "object", "properties": {}})
-                    })
+                    decls.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters", {"type": "object", "properties": {}})})
                 google_data["tools"] = [{"function_declarations": decls}]
 
             log.debug("=== Google Gemini Native Request (stream=%s) ===" % stream)
             log.debug("URL: %s (redacted key)" % url.split("?")[0])
             log.debug("Note: Google shim implemented, needs verification with live key.")
-            
+
             path = get_url_path_and_query(url)
             return "POST", path, json.dumps(google_data).encode("utf-8"), self._headers()
 
         # 4. Default OpenAI-Compatible Path
         api_path = self._api_path()
         url = endpoint + api_path + "/chat/completions"
-        
+
         data = {
             "messages": messages,
             "max_tokens": max_tokens,
@@ -575,16 +546,14 @@ class LlmClient:
 
         json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)
-        log.debug(
-            "=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream)
-        )
+        log.debug("=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream))
         log.debug("URL: %s" % url)
 
         log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
-        
+
         path = get_url_path_and_query(url)
         return "POST", path, json_data, self._headers()
-            
+
     def make_image_request(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
         """Build an image generation request (OpenAI-compatible /images/generations).
         When source_image (base64 str) or image_url is provided, include image_url in the body for img2img (e.g. Together, FLUX)."""
@@ -592,7 +561,7 @@ class LlmClient:
         api_path = self._api_path()
         url = endpoint + api_path + "/images/generations"
         model_name = model or self.config.get("model", "")
-        
+
         data = {
             "prompt": prompt,
             "n": 1,
@@ -614,9 +583,9 @@ class LlmClient:
         log.debug("URL: %s" % url)
 
         log.debug("Data: %s" % json.dumps(redact_sensitive_payload_for_log(data), indent=2))
-        
+
         path = get_url_path_and_query(url)
-            
+
         return "POST", path, json_data, self._headers()
 
     def transcribe_audio(self, wav_path, model=None):
@@ -637,15 +606,17 @@ class LlmClient:
             try:
                 with open(wav_path, "rb") as f:
                     audio_b64 = base64.b64encode(f.read()).decode("utf-8")
-                
-                messages = [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."},
-                        {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}}
-                    ]
-                }]
-                
+
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Transcribe this audio exactly. Output ONLY the transcript. No preamble, no markers."},
+                            {"type": "input_audio", "input_audio": {"data": audio_b64, "format": "wav"}},
+                        ],
+                    }
+                ]
+
                 # Using synchronous chat completion with model override
                 return self.chat_completion_sync(messages, max_tokens=16384, model=model_name)
             except Exception as e:
@@ -653,42 +624,42 @@ class LlmClient:
 
         # 2. Standard multipart fallback (Whisper, etc.)
         boundary = "Boundary-%s" % uuid.uuid4().hex
-        
+
         endpoint = self._endpoint()
         api_path = self._api_path()
         url = endpoint + api_path + "/audio/transcriptions"
-        
+
         # Build multipart/form-data body manually (urllib doesn't have a built-in helper)
         parts = []
         # file part
         filename = os.path.basename(wav_path)
         parts.append(("--%s" % boundary).encode("utf-8"))
         parts.append(('Content-Disposition: form-data; name="file"; filename="%s"' % filename).encode("utf-8"))
-        parts.append(b'Content-Type: audio/wav')
-        parts.append(b'')
+        parts.append(b"Content-Type: audio/wav")
+        parts.append(b"")
         with open(wav_path, "rb") as f:
             parts.append(f.read())
-            
+
         # model part
         parts.append(("--%s" % boundary).encode("utf-8"))
         parts.append(('Content-Disposition: form-data; name="model"').encode("utf-8"))
-        parts.append(b'')
+        parts.append(b"")
         parts.append(model_name.encode("utf-8"))
-        
+
         # End boundary
         parts.append(("--%s--" % boundary).encode("utf-8"))
-        parts.append(b'')
-        
+        parts.append(b"")
+
         # Headers: use base headers but override Content-Type
         headers = self._headers()
         headers["Content-Type"] = "multipart/form-data; boundary=%s" % boundary
-        
+
         body_bytes = b"\r\n".join(parts)
-        
+
         log.debug("=== STT Request ===")
         log.debug("URL: %s" % url)
         log.debug("STT Model: %s" % model_name)
-        
+
         # use sync_request (blocking helper already in this file)
         res = sync_request(url, data=body_bytes, headers=headers)
         return res.get("text", "") if isinstance(res, dict) else str(res)
@@ -704,11 +675,12 @@ class LlmClient:
         status_callback=None,
     ):
         """Stream a chat completions response via callbacks."""
-        method, path, body, headers = self.make_api_request(
-            prompt, system_prompt, max_tokens
-        )
+        method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
         self.stream_request(
-            method, path, body, headers,
+            method,
+            path,
+            body,
+            headers,
             append_callback,
             append_thinking_callback,
             stop_checker=stop_checker,
@@ -733,42 +705,37 @@ class LlmClient:
 
         last_finish_reason = None
         conn = self._get_connection()
-        
+
         try:
             self._pace_before_llm_request()
             conn.request(method, path, body=body, headers=headers)
             self._mark_llm_request_sent()
             response = conn.getresponse()
-            
+
             if response.status != 200:
                 err_body = response.read().decode("utf-8", errors="replace")
                 log.error("Provider API Error %d: %s" % (response.status, err_body))
                 # Close on error to be safe
                 self._close_connection()
-                raise NetworkError(
-                    _format_http_error_response(response.status, response.reason, err_body),
-                    code="HTTP_ERROR",
-                    context={"url": path, "status": response.status}
-                )
+                raise NetworkError(_format_http_error_response(response.status, response.reason, err_body), code="HTTP_ERROR", context={"url": path, "status": response.status})
 
             try:
                 # Use a flag to stop logical processing but keep reading to exhaust the stream
                 content_finished = False
                 # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                 last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
-                
+
                 self._get_provider()
                 # Google Gemini stream is a JSON array of objects, not SSE.
                 # Actually, iterate_sse might fail if it's not 'data: ...'.
                 # For now, we assume it's SSE-like or we add custom iteration.
-                
+
                 for payload in iterate_sse(response):
-                    
                     if payload == "[DONE]":
                         log.info("streaming_loop: [DONE] received")
                         content_finished = True
                         continue
-                    
+
                     try:
                         chunk = json.loads(payload)
                     except json.JSONDecodeError:
@@ -788,7 +755,7 @@ class LlmClient:
                         log.debug("streaming_loop: Stop requested.")
                         last_finish_reason = "stop"
                         content_finished = True
-                        # On user stop, we usually want to kill the connection 
+                        # On user stop, we usually want to kill the connection
                         # because the model might keep streaming for a long time.
                         self._close_connection()
                         continue
@@ -798,13 +765,12 @@ class LlmClient:
                     if not choices:
                         continue
 
-                    content, finish_reason, thinking, delta = (
-                        self.extract_content_from_response(chunk)
-                    )
+                    content, finish_reason, thinking, delta = self.extract_content_from_response(chunk)
 
                     # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
                     if finish_reason == "error":
                         from plugin.framework.i18n import _
+
                         raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
                     if thinking and on_thinking:
@@ -813,14 +779,10 @@ class LlmClient:
                         on_content(content)
                         # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                         last_contents.append(content)
-                        if (len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
-                                and len(content) > 2
-                                and all(c == last_contents[0] for c in last_contents)):
+                        if len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT and len(content) > 2 and all(c == last_contents[0] for c in last_contents):
                             from plugin.framework.i18n import _
-                            raise NetworkError(
-                                _("The model is repeating the same chunk (infinite loop). Try again or use a different model."),
-                                code="INFINITE_LOOP"
-                            )
+
+                            raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
                     if delta and on_delta:
                         _normalize_delta(delta)
                         on_delta(delta)
@@ -851,19 +813,25 @@ class LlmClient:
                 return "stop"
             if self._enable_local_ssl_fallback(e):
                 return self._run_streaming_loop(
-                    method, path, body, headers,
+                    method,
+                    path,
+                    body,
+                    headers,
                     on_content=on_content,
                     on_thinking=on_thinking,
                     on_delta=on_delta,
                     stop_checker=stop_checker,
                     _retry=False,
                 )
-            
+
             err_msg = format_error_message(e)
             if _retry:
                 log.warning("Retrying streaming request once on fresh connection")
                 return self._run_streaming_loop(
-                    method, path, body, headers,
+                    method,
+                    path,
+                    body,
+                    headers,
                     on_content=on_content,
                     on_thinking=on_thinking,
                     on_delta=on_delta,
@@ -876,7 +844,7 @@ class LlmClient:
             self._close_connection()
             raise
         except Exception as e:
-            self._close_connection() # Reset on any other error too
+            self._close_connection()  # Reset on any other error too
             err_msg = format_error_message(e)
             log.error("ERROR in _run_streaming_loop: %s -> %s" % (type(e).__name__, err_msg))
             raise NetworkError(err_msg, context={"url": path}) from e
@@ -923,7 +891,10 @@ class LlmClient:
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
         )
         self.stream_request(
-            method, path, body, headers,
+            method,
+            path,
+            body,
+            headers,
             append_callback,
             append_thinking_callback,
             stop_checker=stop_checker,
@@ -944,10 +915,10 @@ class LlmClient:
         prepend_dev_build_system_prefix: bool = True,
     ):
         """Chat request with support for tools and streaming.
-        
+
         If stream=True, uses callbacks to stream deltas & accumulates tool_calls.
         If stream=False, makes a standard blocking call.
-        
+
         Returns a dict: {role, content, tool_calls, finish_reason, images, usage}
         """
         init_logging(self.ctx)
@@ -1028,12 +999,9 @@ class LlmClient:
                         except Exception as log_exc:
                             log.warning("Could not log redacted outgoing messages: %s", log_exc)
                         self._close_connection()
-                        raise NetworkError(
-                            _format_http_error_response(response.status, response.reason, err_body),
-                            code="HTTP_ERROR",
-                            context={"url": path, "status": response.status}
-                        )
+                        raise NetworkError(_format_http_error_response(response.status, response.reason, err_body), code="HTTP_ERROR", context={"url": path, "status": response.status})
                     from plugin.framework.errors import safe_json_loads
+
                     result = safe_json_loads(response.read().decode("utf-8"))
                     break
                 except (http.client.HTTPException, socket.error, OSError) as e:
@@ -1057,7 +1025,7 @@ class LlmClient:
 
             if result is None:
                 result = {}
-            
+
             # Use unified extraction for shims/native providers
             provider = self._get_provider()
             if provider in ("anthropic", "google"):
@@ -1088,15 +1056,13 @@ class LlmClient:
             cleaned = strip_leaked_chat_template_control_tokens(content)
             if cleaned != content:
                 log.info(
-                    "Stripped leaked <|...|> chat-template tokens from assistant content "
-                    "(model=%s, original_len=%d, cleaned_len=%d)",
+                    "Stripped leaked <|...|> chat-template tokens from assistant content (model=%s, original_len=%d, cleaned_len=%d)",
                     eff_model,
                     len(content),
                     len(cleaned),
                 )
                 log.debug(
-                    "Stripped leaked chat-template control tokens from model content. "
-                    "original=%r cleaned=%r",
+                    "Stripped leaked chat-template control tokens from model content. original=%r cleaned=%r",
                     content,
                     cleaned,
                 )
@@ -1104,6 +1070,7 @@ class LlmClient:
 
         if not tool_calls and content:
             from plugin.contrib.tool_call_parsers import get_parser_for_model
+
             parser = get_parser_for_model(eff_model)
             if parser:
                 p_content, p_tool_calls = parser.parse(content)
@@ -1126,7 +1093,6 @@ class LlmClient:
         """Streaming chat request with tools. Wrapper around request_with_tools."""
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
-
 
     def chat_completion_sync(
         self,

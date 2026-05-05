@@ -5,6 +5,7 @@ import http.client
 
 from plugin.framework.i18n import _
 
+
 def format_error_message(e):
     """Map common exceptions to user-friendly advice."""
     import urllib.error
@@ -57,6 +58,7 @@ def _format_http_error_response(status, reason, err_body):
     if not err_body or not err_body.strip():
         return base
     from plugin.framework.errors import safe_json_loads
+
     data = safe_json_loads(err_body)
     if data is not None and isinstance(data, dict):
         err = data.get("error")
@@ -73,6 +75,7 @@ def _format_http_error_response(status, reason, err_body):
 def format_error_for_display(e):
     """Return user-friendly error string for display in cells or dialogs."""
     from plugin.framework.errors import format_error_payload
+
     payload = format_error_payload(e)
     return _("Error: {0}").format(payload.get("message", format_error_message(e)))
 
@@ -82,15 +85,22 @@ def is_audio_unsupported_error(e):
     msg = str(e).lower()
 
     # Common error strings across providers
-    if "unsupported content type" in msg: return True
-    if "unsupported modality" in msg: return True
-    if "audio" in msg and ("not supported" in msg or "unsupported" in msg): return True
-    if "modality" in msg and "not supported" in msg: return True
+    if "unsupported content type" in msg:
+        return True
+    if "unsupported modality" in msg:
+        return True
+    if "audio" in msg and ("not supported" in msg or "unsupported" in msg):
+        return True
+    if "modality" in msg and "not supported" in msg:
+        return True
 
     # Specific API error bodies (passed via _format_http_error_response)
-    if "model" in msg and "cannot process" in msg and "audio" in msg: return True
-    if "no endpoints found that support input audio" in msg: return True
-    if "gpt-4" in msg and "audio" in msg: # Some legacy GPT-4 might not have it
-        if "not support" in msg: return True
+    if "model" in msg and "cannot process" in msg and "audio" in msg:
+        return True
+    if "no endpoints found that support input audio" in msg:
+        return True
+    if "gpt-4" in msg and "audio" in msg:  # Some legacy GPT-4 might not have it
+        if "not support" in msg:
+            return True
 
     return False

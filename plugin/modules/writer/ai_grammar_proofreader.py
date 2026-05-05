@@ -67,41 +67,83 @@ GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 # Used to decide whether a proofread slice is complete enough to run or counts as a
 # short skip / partial clause for the prompt. Sentence splitting uses BreakIterator elsewhere.
 # Matches Unicode 15.1 Sentence_Terminal (STerm); PropList.txt in Unicode UCD releases.
-_SENTENCE_TERMINATORS = frozenset((
-    "!", ".", "?",              # ASCII
-    "…",                        # Horizontal ellipsis
-    "։",                        # Armenian full stop
-    "؟", "۔",                   # Arabic question mark / full stop
-    "܀", "܁", "܂",              # Syriac
-    "߹",                        # NKo exclamation mark
-    "।", "॥",                   # Devanagari danda / double danda
-    "၊", "။",                   # Myanmar
-    "።", "፧", "፨",              # Ethiopic
-    "᙮",                        # Canadian syllabics full stop
-    "᠃", "᠉",                   # Mongolian full stop / Manchu full stop
-    "᥄", "᥅",                   # Limbu
-    "᪨", "᪩", "᪪", "᪫",        # Tai Tham
-    "᭚", "᭛", "᭞", "᭟", "᭽", "᭾",  # Balinese
-    "᰻",                        # Lepcha
-    "᱾", "᱿",                   # Ol Chiki
-    "‼", "‽", "⁇", "⁈", "⁉",   # Double/combined punctuation
-    "⳹", "⳺", "⳻", "⳾",         # Coptic
-    "⸮", "⸼",                   # Reversed question mark / stenographic full stop
-    "。",                        # Ideographic full stop
-    "꓿",                        # Lisu
-    "꘎", "꘏",                   # Vai
-    "꛳", "꛷",                   # Bamum
-    "︑", "︒", "︕", "︖", "︙",  # Presentation forms (vertical)
-    "﹒", "﹖", "﹗",             # Small forms
-    "！", "．", "？",             # Fullwidth
-    "｡",                        # Halfwidth ideographic full stop
-    "𑅃",                        # Chakma question mark
-    "𖫵",                        # Bassa Vah full stop
-    "𖺘", "𖺚",                  # Medefaidrin
-    "𛲟",                        # Duployan
-    "𝪈",                        # Signwriting full stop
-    "𞥞", "𞥟",                  # Adlam
-))
+_SENTENCE_TERMINATORS = frozenset(
+    (
+        "!",
+        ".",
+        "?",  # ASCII
+        "…",  # Horizontal ellipsis
+        "։",  # Armenian full stop
+        "؟",
+        "۔",  # Arabic question mark / full stop
+        "܀",
+        "܁",
+        "܂",  # Syriac
+        "߹",  # NKo exclamation mark
+        "।",
+        "॥",  # Devanagari danda / double danda
+        "၊",
+        "။",  # Myanmar
+        "።",
+        "፧",
+        "፨",  # Ethiopic
+        "᙮",  # Canadian syllabics full stop
+        "᠃",
+        "᠉",  # Mongolian full stop / Manchu full stop
+        "᥄",
+        "᥅",  # Limbu
+        "᪨",
+        "᪩",
+        "᪪",
+        "᪫",  # Tai Tham
+        "᭚",
+        "᭛",
+        "᭞",
+        "᭟",
+        "᭽",
+        "᭾",  # Balinese
+        "᰻",  # Lepcha
+        "᱾",
+        "᱿",  # Ol Chiki
+        "‼",
+        "‽",
+        "⁇",
+        "⁈",
+        "⁉",  # Double/combined punctuation
+        "⳹",
+        "⳺",
+        "⳻",
+        "⳾",  # Coptic
+        "⸮",
+        "⸼",  # Reversed question mark / stenographic full stop
+        "。",  # Ideographic full stop
+        "꓿",  # Lisu
+        "꘎",
+        "꘏",  # Vai
+        "꛳",
+        "꛷",  # Bamum
+        "︑",
+        "︒",
+        "︕",
+        "︖",
+        "︙",  # Presentation forms (vertical)
+        "﹒",
+        "﹖",
+        "﹗",  # Small forms
+        "！",
+        "．",
+        "？",  # Fullwidth
+        "｡",  # Halfwidth ideographic full stop
+        "𑅃",  # Chakma question mark
+        "𖫵",  # Bassa Vah full stop
+        "𖺘",
+        "𖺚",  # Medefaidrin
+        "𛲟",  # Duployan
+        "𝪈",  # Signwriting full stop
+        "𞥞",
+        "𞥟",  # Adlam
+    )
+)
 
 # Characters skipped when scanning backward for the sentence end: brackets, closing quotes,
 # and similar trail the period
@@ -112,27 +154,104 @@ _SENTENCE_TERMINATORS = frozenset((
 #                  if unicodedata.category(chr(cp)) in ('Pe', 'Pf'))
 #   print(frozenset(chars) | frozenset('"\'>'))
 
-_TRAILING_CLOSERS: frozenset[str] = frozenset((
-    # ASCII Pe
-    ")", "]", "}",
-    # Pf: closing quotes (», ›, curly " ', and scholarly brackets)
-    "»", "’", "”", "›", "⸃", "⸅", "⸊", "⸍", "⸝", "⸡",
-    # CJK / fullwidth / halfwidth Pe
-    "〉", "》", "」", "』", "】", "〕", "〗", "〙", "〛", "〞", "〟",
-    "﴾", "︘", "︶", "︸", "︺", "︼", "︾", "﹀", "﹂", "﹄", "﹈",
-    "﹚", "﹜", "﹞", "）", "］", "｝", "｠", "｣",
-    # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
-    "༻", "༽", "᚜",
-    "⁆", "⁾", "₎", "⌉", "⌋",
-    "❩", "❫", "❭", "❯", "❱", "❳", "❵",
-    "⟆", "⟧", "⟩", "⟫", "⟭", "⟯",
-    "⦄", "⦆", "⦈", "⦊", "⦌", "⦎", "⦐", "⦒", "⦔", "⦖", "⦘",
-    "⧙", "⧛", "⧽",
-    "⸣", "⸥", "⸧", "⸩",
-    "⹖", "⹘", "⹚", "⹜",
-    # ASCII informal closers (not Pe/Pf in Unicode but common in prose)
-    '"', "'", ">",
-))
+_TRAILING_CLOSERS: frozenset[str] = frozenset(
+    (
+        # ASCII Pe
+        ")",
+        "]",
+        "}",
+        # Pf: closing quotes (», ›, curly " ', and scholarly brackets)
+        "»",
+        "’",
+        "”",
+        "›",
+        "⸃",
+        "⸅",
+        "⸊",
+        "⸍",
+        "⸝",
+        "⸡",
+        # CJK / fullwidth / halfwidth Pe
+        "〉",
+        "》",
+        "」",
+        "』",
+        "】",
+        "〕",
+        "〗",
+        "〙",
+        "〛",
+        "〞",
+        "〟",
+        "﴾",
+        "︘",
+        "︶",
+        "︸",
+        "︺",
+        "︼",
+        "︾",
+        "﹀",
+        "﹂",
+        "﹄",
+        "﹈",
+        "﹚",
+        "﹜",
+        "﹞",
+        "）",
+        "］",
+        "｝",
+        "｠",
+        "｣",
+        # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
+        "༻",
+        "༽",
+        "᚜",
+        "⁆",
+        "⁾",
+        "₎",
+        "⌉",
+        "⌋",
+        "❩",
+        "❫",
+        "❭",
+        "❯",
+        "❱",
+        "❳",
+        "❵",
+        "⟆",
+        "⟧",
+        "⟩",
+        "⟫",
+        "⟭",
+        "⟯",
+        "⦄",
+        "⦆",
+        "⦈",
+        "⦊",
+        "⦌",
+        "⦎",
+        "⦐",
+        "⦒",
+        "⦔",
+        "⦖",
+        "⦘",
+        "⧙",
+        "⧛",
+        "⧽",
+        "⸣",
+        "⸥",
+        "⸧",
+        "⸩",
+        "⹖",
+        "⹘",
+        "⹚",
+        "⹜",
+        # ASCII informal closers (not Pe/Pf in Unicode but common in prose)
+        '"',
+        "'",
+        ">",
+    )
+)
 
 _NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
@@ -238,8 +357,7 @@ class _GrammarWorkQueue:
             prev_seq = self._latest_seq.get(item.inflight_key)
             if prev_seq is not None and item.enqueue_seq < prev_seq:
                 log.error(
-                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: "
-                    "incoming seq=%s < latest seq=%s; stale detection may be unreliable",
+                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable",
                     item.inflight_key,
                     item.enqueue_seq,
                     prev_seq,
@@ -439,9 +557,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         )
         return
     if not enabled:
-        log.info(
-            "[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)"
-        )
+        log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
     log.info(
         "[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the "
@@ -519,17 +635,13 @@ def _finalize_proofreading_sentence_positions(
         # but it is kept for parity with Lightproof lines 126-132.
         if n_next == n_suggested_behind_end and ch != "":
             log.debug(
-                "[grammar] _finalize: Lightproof fallback nudge fired "
-                "n_next=%s n_suggested=%s batch_end=%s text_len=%s",
+                "[grammar] _finalize: Lightproof fallback nudge fired n_next=%s n_suggested=%s batch_end=%s text_len=%s",
                 n_next,
                 n_suggested_behind_end,
                 proofread_batch_end,
                 len(a_text),
             )
-            assert proofread_batch_end >= n_suggested_behind_end, (
-                f"Lightproof fallback expected proofread_batch_end ({proofread_batch_end}) "
-                f">= n_suggested_behind_end ({n_suggested_behind_end})"
-            )
+            assert proofread_batch_end >= n_suggested_behind_end, f"Lightproof fallback expected proofread_batch_end ({proofread_batch_end}) >= n_suggested_behind_end ({n_suggested_behind_end})"
             n_next = n_suggested_behind_end + 1
     a_res.nStartOfNextSentencePosition = n_next
     a_res.nBehindEndOfSentencePosition = n_next
@@ -581,9 +693,6 @@ def _errors_to_uno_tuple(
     return tuple(out)
 
 
-
-
-
 def _run_llm_and_cache(
     ctx: Any,
     full_text: str,
@@ -618,9 +727,7 @@ def _run_llm_and_cache(
             log.warning("[grammar] worker: get_config_bool enabled: %s", e, exc_info=True)
             return
         try:
-            pause_during_agent = get_config_bool(
-                ctx, "doc.grammar_proofreader_pause_during_agent"
-            )
+            pause_during_agent = get_config_bool(ctx, "doc.grammar_proofreader_pause_during_agent")
         except Exception as e:
             log.warning(
                 "[grammar] worker: get_config_bool pause_during_agent: %s",
@@ -629,9 +736,7 @@ def _run_llm_and_cache(
             )
             pause_during_agent = False
         if pause_during_agent and is_agent_active():
-            log.info(
-                "[grammar] worker skipped: agent active and pause_during_agent enabled"
-            )
+            log.info("[grammar] worker skipped: agent active and pause_during_agent enabled")
             return
         slice_txt = full_text[n_start:n_end]
         if len(slice_txt) > GRAMMAR_PROOFREAD_MAX_CHARS:
@@ -644,11 +749,7 @@ def _run_llm_and_cache(
         # Check which sentences are already cached; only send uncached ones to the LLM.
         sentences = engine.split_into_sentences(ctx, grammar_bcp47, slice_txt)
         if sentences:
-            uncached: list[tuple[int, str]] = [
-                (off, txt)
-                for off, txt in sentences
-                if engine.cache_get_sentence(grammar_bcp47, txt) is None
-            ]
+            uncached: list[tuple[int, str]] = [(off, txt) for off, txt in sentences if engine.cache_get_sentence(grammar_bcp47, txt) is None]
             if not uncached:
                 log.info(
                     "[grammar] worker skipped: all %s sentence(s) already cached for batch len=%s",
@@ -681,14 +782,9 @@ def _run_llm_and_cache(
             log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
             model = ""
         _lang = grammar_english_name_for_bcp47(grammar_bcp47)
-        sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(
-            lang_name=_lang, bcp47=grammar_bcp47
-        )
+        sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
         if partial_sentence:
-            sys_prompt += (
-                " The input may be a partial sentence; prefer conservative grammar suggestions and "
-                "avoid broad rewrites."
-            )
+            sys_prompt += " The input may be a partial sentence; prefer conservative grammar suggestions and avoid broad rewrites."
         messages = [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": llm_text},
@@ -724,11 +820,7 @@ def _run_llm_and_cache(
         # Attribute errors to individual sentences and cache each.
         for llm_offset, sent_text in part_map:
             sent_end_in_llm = llm_offset + len(sent_text)
-            sent_errors = [
-                {**asdict(n), "n_error_start": n.n_error_start - llm_offset}
-                for n in norms
-                if llm_offset <= n.n_error_start < sent_end_in_llm
-            ]
+            sent_errors = [{**asdict(n), "n_error_start": n.n_error_start - llm_offset} for n in norms if llm_offset <= n.n_error_start < sent_end_in_llm]
             engine.cache_put_sentence(grammar_bcp47, sent_text, sent_errors)
         log.info(
             "[grammar] cached errors for %s uncached sentence(s), batch len=%s",
@@ -879,8 +971,7 @@ class WriterAgentAiGrammarProofreader(
                 proofread_batch_end,
             )
             log.info(
-                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) "
-                "batch_end=%s enabled=%s",
+                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) batch_end=%s enabled=%s",
                 aDocumentIdentifier,
                 len(aText),
                 loc_key,
@@ -952,8 +1043,7 @@ class WriterAgentAiGrammarProofreader(
                     except Exception as e:
                         log.exception("[grammar] doProofreading: partial cache path failed: %s", e)
                 log.info(
-                    "[grammar] per-sentence cache PARTIAL HIT: %s/%s cached (%s error(s) returned), "
-                    "%s uncached → enqueueing",
+                    "[grammar] per-sentence cache PARTIAL HIT: %s/%s cached (%s error(s) returned), %s uncached → enqueueing",
                     len(sentences) - uncached_count,
                     len(sentences),
                     len(combined_errors),
@@ -989,9 +1079,7 @@ class WriterAgentAiGrammarProofreader(
                 )
             )
             # Async path: never wait or pump here — keeps menus/dialogs responsive. Squiggles on a later pass.
-            log.info(
-                "[grammar] doProofreading: async miss returning empty errors; sentence cache fills in background"
-            )
+            log.info("[grammar] doProofreading: async miss returning empty errors; sentence cache fills in background")
             return a_res
         except Exception as e:
             log.exception(

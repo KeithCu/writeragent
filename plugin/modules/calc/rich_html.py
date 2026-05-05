@@ -46,9 +46,7 @@ def _controller_get_transferable(controller: Any) -> Any:
             return xs.getTransferable()
     except Exception:
         log.debug("getTransferable via queryInterface failed", exc_info=True)
-    raise ToolExecutionError(
-        "Writer controller does not support getTransferable; cannot paste HTML into cell."
-    )
+    raise ToolExecutionError("Writer controller does not support getTransferable; cannot paste HTML into cell.")
 
 
 def _controller_insert_transferable(controller: Any, transferable: Any) -> None:
@@ -56,9 +54,7 @@ def _controller_insert_transferable(controller: Any, transferable: Any) -> None:
         raise ToolExecutionError("Calc controller is None")
     ins = getattr(controller, "insertTransferable", None)
     if not callable(ins):
-        raise ToolExecutionError(
-            "Calc controller does not support insertTransferable."
-        )
+        raise ToolExecutionError("Calc controller does not support insertTransferable.")
     ins(transferable)
 
 
@@ -92,18 +88,14 @@ def insert_cell_html_rich(
     try:
         desktop = get_desktop(uno_ctx)
         hidden = format_support._create_property_value("Hidden", True)
-        temp_doc = desktop.loadComponentFromURL(
-            "private:factory/swriter", "_default", 0, (hidden,)
-        )
+        temp_doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, (hidden,))
         if temp_doc is None or not hasattr(temp_doc, "getText"):
             raise ToolExecutionError("Could not create temporary Writer document")
 
         text = temp_doc.getText()
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
-        format_support._insert_starwriter_html_at_cursor(
-            temp_doc, cursor, prepared, config_svc=config_svc
-        )
+        format_support._insert_starwriter_html_at_cursor(temp_doc, cursor, prepared, config_svc=config_svc)
 
         # Hidden Writer docs must not use getViewCursor() — it can crash the
         # process (no real view). Select the whole body with a text cursor and
@@ -125,9 +117,7 @@ def insert_cell_html_rich(
         raise
     except Exception as e:
         log.debug("insert_cell_html_rich failed", exc_info=True)
-        raise ToolExecutionError(
-            f"Failed to insert HTML into cell: {e}"
-        ) from e
+        raise ToolExecutionError(f"Failed to insert HTML into cell: {e}") from e
     finally:
         if temp_doc is not None:
             try:

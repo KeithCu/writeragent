@@ -246,17 +246,11 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> int:
         updated += 1
     if "is_header_visible" in kwargs and _shape_set_visible(h, _coerce_bool_arg(kwargs, "is_header_visible", False)):
         updated += 1
-    if "is_date_time_visible" in kwargs and _shape_set_visible(
-        d, _coerce_bool_arg(kwargs, "is_date_time_visible", False)
-    ):
+    if "is_date_time_visible" in kwargs and _shape_set_visible(d, _coerce_bool_arg(kwargs, "is_date_time_visible", False)):
         updated += 1
-    if "is_page_number_visible" in kwargs and _shape_set_visible(
-        s, _coerce_bool_arg(kwargs, "is_page_number_visible", False)
-    ):
+    if "is_page_number_visible" in kwargs and _shape_set_visible(s, _coerce_bool_arg(kwargs, "is_page_number_visible", False)):
         updated += 1
-    if "is_date_time_fixed" in kwargs and _shape_set_datetime_fixed(
-        d, _coerce_bool_arg(kwargs, "is_date_time_fixed", False)
-    ):
+    if "is_date_time_fixed" in kwargs and _shape_set_datetime_fixed(d, _coerce_bool_arg(kwargs, "is_date_time_fixed", False)):
         updated += 1
     return updated
 
@@ -265,19 +259,13 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for reading header and footer properties of a presentation slide or master page."""
 
     name = "get_headers_footers"
-    description = (
-        "Retrieves header, footer, date/time, and slide number configuration "
-        "for a specific slide or master page in a presentation."
-    )
+    description = "Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
     parameters = {
         "type": "object",
         "properties": {
             "page_index": {
                 "type": "integer",
-                "description": (
-                    "0-based slide index. When is_master_page is false, reads that slide. "
-                    "When true, reads the master page assigned to that slide (not the master list index)."
-                ),
+                "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index)."),
             },
             "is_master_page": {
                 "type": "boolean",
@@ -293,12 +281,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
 
         page = _get_page(ctx, page_index, is_master_page)
 
-        result: Dict[str, Any] = {
-            "status": "ok",
-            "page_index": page_index,
-            "is_master_page": is_master_page,
-            "properties": {}
-        }
+        result: Dict[str, Any] = {"status": "ok", "page_index": page_index, "is_master_page": is_master_page, "properties": {}}
 
         props_to_fetch = [
             "HeaderText",
@@ -329,19 +312,13 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for updating header and footer properties of a presentation slide or master page."""
 
     name = "set_headers_footers"
-    description = (
-        "Updates header, footer, date/time, and slide number configuration "
-        "for a specific slide or master page in a presentation."
-    )
+    description = "Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
     parameters = {
         "type": "object",
         "properties": {
             "page_index": {
                 "type": "integer",
-                "description": (
-                    "0-based slide index. When is_master_page is false, updates that slide. "
-                    "When true, updates the master page assigned to that slide."
-                ),
+                "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide."),
             },
             "is_master_page": {
                 "type": "boolean",
@@ -429,5 +406,5 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
         return {
             "status": "ok",
             "updated_properties": updated_count,
-            "message": f"Successfully updated {updated_count} header/footer properties on {'master page' if is_master_page else 'slide'} {page_index}."
+            "message": f"Successfully updated {updated_count} header/footer properties on {'master page' if is_master_page else 'slide'} {page_index}.",
         }

@@ -192,9 +192,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             "formula1": {
                 "type": "string",
                 "description": (
-                    "First formula/value. For FORMULA, the condition (e.g. 'A1>100'). "
-                    "For value comparisons, the threshold (e.g. '50'). "
-                    "Omit or leave empty for DUPLICATE / NOT_DUPLICATE."
+                    "First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE."
                 ),
             },
             "formula2": {
@@ -203,10 +201,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             },
             "style_name": {
                 "type": "string",
-                "description": (
-                    "Cell style to apply when condition is true. "
-                    "Use list_styles with family='CellStyles' to see available styles."
-                ),
+                "description": ("Cell style to apply when condition is true. Use list_styles with family='CellStyles' to see available styles."),
             },
         },
         "required": ["range_name", "operator", "style_name"],
@@ -317,8 +312,7 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     name = "remove_conditional_formats"
     intent = "edit"
     description = (
-        "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. "
-        "Use list_conditional_formats to see current rules and their indices."
+        "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
     )
     parameters = {
         "type": "object",
