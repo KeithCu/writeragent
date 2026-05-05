@@ -1,4 +1,5 @@
 from plugin.framework.utils import normalize_endpoint_url
+
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
@@ -88,6 +89,7 @@ def _is_lru_list_config_key(key: str) -> bool:
         if key.startswith(prefix + "@"):
             return True
     return False
+
 
 # Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; api.py adds /v1 (or /api for OpenWebUI).
 # Uncomment any FOSS-focused line below once the base URL is verified OpenAI-compatible.
@@ -195,12 +197,10 @@ def _dotted_fallback_keys(key):
                     break
 
 
-
-
-
 @dataclasses.dataclass
 class WriterAgentConfig:
     """Dataclass schema for WriterAgent configuration."""
+
     log_level: str = "DEBUG"
     endpoint: str = "http://127.0.0.1:5000"
     text_model: str = ""
@@ -371,7 +371,7 @@ class WriterAgentConfig:
         extra_kwargs = {}
 
         for key, value in data.items():
-            safe_key = key.replace('.', '_')
+            safe_key = key.replace(".", "_")
             if safe_key in field_names:
                 known_kwargs[safe_key] = value
             else:
@@ -409,7 +409,7 @@ def _resolve_default(key):
     default_config = WriterAgentConfig()
 
     # Map dotted keys to flat keys if they match (e.g. chatbot.show_search_thinking)
-    safe_key = key.replace('.', '_')
+    safe_key = key.replace(".", "_")
     field_names = {f.name for f in dataclasses.fields(default_config)}
     if safe_key in field_names:
         val = getattr(default_config, safe_key)
@@ -508,6 +508,7 @@ def _get_validated_config_dict(ctx):
         log.error("Error reading %s: %s", config_file_path, e)
         return {}
 
+
 def get_config(ctx, key):
     """Get a config value by key. JSON overrides; when key is missing, use schema default then central fallback."""
     config_data = _get_validated_config_dict(ctx)
@@ -522,6 +523,7 @@ def get_config(ctx, key):
             return config_data[dotted]
 
     return _resolve_default(key)
+
 
 def get_config_int(ctx, key) -> int:
     """Get a config value as int. All requested keys MUST be in the schema (WriterAgentConfig or MODULES).
@@ -656,8 +658,6 @@ def remove_config(ctx, key):
         raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
 
 
-
-
 def as_bool(value):
     """Parse a value as boolean (handles str, int, float)."""
     if isinstance(value, bool):
@@ -735,7 +735,7 @@ def has_native_audio(ctx, model_id, endpoint):
     """
     model_id = str(model_id).lower()
     endpoint = normalize_endpoint_url(endpoint)
-    
+
     # 1. Persistent Cache Check
     cache = get_config(ctx, "audio_support_map")
     if isinstance(cache, dict):
@@ -747,7 +747,7 @@ def has_native_audio(ctx, model_id, endpoint):
     caps = get_model_capability(ctx, model_id, endpoint)
     if isinstance(caps, int) and (caps & ModelCapability.AUDIO):
         return True
-        
+
     # 3. Heuristics (Regex/Keywords) for known audio-native families
     # Gemini (Flash/Pro 1.5+)
     if "gemini" in model_id and "1.5" in model_id:
@@ -755,8 +755,8 @@ def has_native_audio(ctx, model_id, endpoint):
     # Explicit audio models
     if "audio-preview" in model_id or "multimodal" in model_id:
         return True
-        
-    return None # Unknown, allow trying native audio
+
+    return None  # Unknown, allow trying native audio
 
 
 def set_native_audio_support(ctx, model_id, endpoint, supported):
@@ -764,11 +764,11 @@ def set_native_audio_support(ctx, model_id, endpoint, supported):
     model_id = str(model_id).lower()
     endpoint = normalize_endpoint_url(endpoint)
     key = f"{endpoint}@{model_id}"
-    
+
     cache = get_config(ctx, "audio_support_map")
     if not isinstance(cache, dict):
         cache = {}
-    
+
     cache[key] = bool(supported)
     set_config(ctx, "audio_support_map", cache)
 
@@ -852,11 +852,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             api_key = str(api_key_override).strip()
         else:
             api_key = str(get_api_key_for_endpoint(ctx, base) or "").strip()
-        is_openwebui = (
-            as_bool(get_config(ctx, "is_openwebui"))
-            or "open-webui" in base.lower()
-            or "openwebui" in base.lower()
-        )
+        is_openwebui = as_bool(get_config(ctx, "is_openwebui")) or "open-webui" in base.lower() or "openwebui" in base.lower()
         is_openrouter = "openrouter.ai" in base.lower() or as_bool(get_config(ctx, "is_openrouter"))
         mini = {
             "endpoint": base,
@@ -902,11 +898,7 @@ def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
         parts = [p.strip() for p in capability.split(",") if p.strip()]
         return req_cap in parts
     try:
-        cap = (
-            capability
-            if isinstance(capability, ModelCapability)
-            else ModelCapability(int(capability))
-        )
+        cap = capability if isinstance(capability, ModelCapability) else ModelCapability(int(capability))
     except (TypeError, ValueError):
         return False
     if req_cap == "text":
@@ -943,7 +935,7 @@ def populate_combobox_with_lru(
 
     provider = get_provider_from_endpoint(endpoint)
     req_cap = "image" if "image" in lru_key.lower() else "audio" if "audio" in lru_key.lower() or "stt" in lru_key.lower() else "text"
-    
+
     to_show = list(lru)
 
     # For text models, determine if we should fetch from the API.
@@ -986,9 +978,9 @@ def populate_combobox_with_lru(
     curr_val_str = str(current_val).strip()
     if curr_val_str and curr_val_str not in to_show:
         to_show.insert(0, curr_val_str)
-    
+
     display_val = curr_val_str if curr_val_str else (to_show[0] if to_show else "")
-    
+
     if to_show:
         ctrl.removeItems(0, ctrl.getItemCount())
         ctrl.addItems(tuple(to_show), 0)
@@ -1240,11 +1232,7 @@ def set_api_key_for_endpoint(ctx, endpoint, key):
 def get_api_config(ctx):
     """Build API config dict from ctx for LlmClient. Pass to LlmClient(config, ctx)."""
     endpoint = str(get_config(ctx, "endpoint") or "").rstrip("/")
-    is_openwebui = (
-        as_bool(get_config(ctx, "is_openwebui"))
-        or "open-webui" in endpoint.lower()
-        or "openwebui" in endpoint.lower()
-    )
+    is_openwebui = as_bool(get_config(ctx, "is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
     is_openrouter = "openrouter.ai" in endpoint.lower() or as_bool(get_config(ctx, "is_openrouter"))
     api_key = get_api_key_for_endpoint(ctx, endpoint)
 
@@ -1288,6 +1276,7 @@ def populate_image_model_selector(
     if image_provider == "aihorde":
         current_image_model = get_image_model(ctx)
         from plugin.contrib.aihordeclient import MODELS
+
         ctrl.removeItems(0, ctrl.getItemCount())
         ctrl.addItems(tuple(MODELS), 0)
         ctrl.setText(current_image_model)
@@ -1307,6 +1296,7 @@ def populate_image_model_selector(
 
 class ConfigAccessError(ConfigError):
     """Raised when a module tries to access a private config key."""
+
     def __init__(self, message, code="CONFIG_ACCESS_ERROR", context=None):
         super().__init__(message, code=code, context=context)
 
@@ -1314,6 +1304,7 @@ class ConfigAccessError(ConfigError):
 def _dummy_impl(name, services=()):
     def decorator(cls):
         return cls
+
     return decorator
 
 
@@ -1344,15 +1335,16 @@ def _uno_service_implementation_decorator() -> Callable[..., Any]:
 
 _implementation: Callable[..., Any] = _uno_service_implementation_decorator()
 
+
 @_implementation("org.extension.writeragent.ConfigService")
 class ConfigService(ServiceBase):
     name = "config"
 
     def __init__(self):
-        self._defaults = {}   # "module.key" -> default_value
-        self._manifest = {}   # "module.key" -> field schema
-        self._events = None   # EventBus, set after init
-        self._config_path = None # For testing
+        self._defaults = {}  # "module.key" -> default_value
+        self._manifest = {}  # "module.key" -> field schema
+        self._events = None  # EventBus, set after init
+        self._config_path = None  # For testing
 
     def initialize(self, ctx):
         pass
@@ -1395,7 +1387,7 @@ class ConfigService(ServiceBase):
                 ctx = get_ctx()
                 if field == "endpoint":
                     return str(get_config(ctx, "endpoint") or "").strip()
-                
+
                 # Internal mappings
                 config_key = field
                 if field == "aihorde_api_key":
@@ -1411,19 +1403,19 @@ class ConfigService(ServiceBase):
 
         # Test fallback
         if self._config_path and os.path.exists(self._config_path):
-             try:
-                 with open(self._config_path, "r", encoding="utf-8") as f:
-                     data = json.load(f)
-                     if not isinstance(data, dict):
-                         raise ConfigError("Config file must be a JSON object")
-                     if key in data:
-                         return data[key]
-             except json.JSONDecodeError as e:
-                 log.debug("ConfigService.get invalid JSON in %s: %s", self._config_path, e)
-             except OSError as e:
-                 log.debug("ConfigService.get IO error for %s: %s", self._config_path, e)
-             except ConfigError as e:
-                 log.debug("ConfigService.get ConfigError: %s", e)
+            try:
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if not isinstance(data, dict):
+                        raise ConfigError("Config file must be a JSON object")
+                    if key in data:
+                        return data[key]
+            except json.JSONDecodeError as e:
+                log.debug("ConfigService.get invalid JSON in %s: %s", self._config_path, e)
+            except OSError as e:
+                log.debug("ConfigService.get IO error for %s: %s", self._config_path, e)
+            except ConfigError as e:
+                log.debug("ConfigService.get ConfigError: %s", e)
 
         ctx = get_ctx()
         try:
@@ -1446,7 +1438,7 @@ class ConfigService(ServiceBase):
         # into the corresponding top-level settings (endpoint, model, etc.).
         if key.startswith("ai."):
             field = key.split(".", 1)[1]
-            
+
             # Internal mappings for keys missing from AI_SIMPLE_FIELDS if they map to methods
             if field == "api_key":
                 ctx = get_ctx()
@@ -1493,13 +1485,7 @@ class ConfigService(ServiceBase):
 
                 if value != old_value:
                     bus = self._events or global_event_bus
-                    bus.emit(
-                        "config:changed",
-                        key=key,
-                        value=value,
-                        old_value=old_value,
-                        ctx=ctx
-                    )
+                    bus.emit("config:changed", key=key, value=value, old_value=old_value, ctx=ctx)
                 return
 
         # Test fallback
@@ -1520,7 +1506,7 @@ class ConfigService(ServiceBase):
             except OSError as e:
                 log.error("ConfigService.set config file save error: %s", e)
 
-            ctx = None # No UNO context in file-based test mode
+            ctx = None  # No UNO context in file-based test mode
         else:
             ctx = get_ctx()
             set_config(ctx, key, value)
@@ -1548,15 +1534,15 @@ class ConfigService(ServiceBase):
         """Reset a config key."""
         self._check_write_access(key, caller_module)
         if self._config_path and os.path.exists(self._config_path):
-             try:
-                 with open(self._config_path, "r", encoding="utf-8") as f:
-                     data = json.load(f)
-                 if isinstance(data, dict) and key in data:
-                     del data[key]
-                     with open(self._config_path, "w", encoding="utf-8") as f:
-                         json.dump(data, f)
-             except (OSError, json.JSONDecodeError) as e:
-                 log.warning("ConfigService.remove config file error for key %s: %s", key, e)
+            try:
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and key in data:
+                    del data[key]
+                    with open(self._config_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f)
+            except (OSError, json.JSONDecodeError) as e:
+                log.warning("ConfigService.remove config file error for key %s: %s", key, e)
         else:
             remove_config(get_ctx(), key)
 
@@ -1565,15 +1551,15 @@ class ConfigService(ServiceBase):
         # This is a simplification for now
         ctx = get_ctx()
         if self._config_path and os.path.exists(self._config_path):
-             try:
-                 with open(self._config_path, "r", encoding="utf-8") as f:
-                     data = json.load(f)
-                 if not isinstance(data, dict):
-                     return {}
-                 return data
-             except (OSError, json.JSONDecodeError) as e:
-                 log.debug("ConfigService.get_dict config file read error: %s", e)
-                 return {}
+            try:
+                with open(self._config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    return {}
+                return data
+            except (OSError, json.JSONDecodeError) as e:
+                log.debug("ConfigService.get_dict config file read error: %s", e)
+                return {}
         return get_config_dict(ctx)
 
     def _check_read_access(self, key, caller_module):

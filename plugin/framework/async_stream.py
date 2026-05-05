@@ -20,6 +20,7 @@ Handles both simple streaming and complex tool-calling loops with thinking/statu
 Runs blocking API calls on worker threads and drains logic via a main-thread loop
 to keep the LibreOffice UI responsive (processEventsToIdle).
 """
+
 from __future__ import annotations
 
 import json
@@ -242,10 +243,7 @@ def _process_batch(
 
         try:
             if not isinstance(raw_kind, StreamQueueKind):
-                ek = TypeError(
-                    "stream queue item kind must be StreamQueueKind, got %s"
-                    % (type(raw_kind).__name__,)
-                )
+                ek = TypeError("stream queue item kind must be StreamQueueKind, got %s" % (type(raw_kind).__name__,))
                 log.error("Invalid stream queue tag: %s", ek)
                 state.flush_buffers()
                 state.close_thinking()
@@ -396,6 +394,7 @@ def run_async_worker_with_drain(
             worker_fn(q)
         except Exception as e:
             from plugin.framework.errors import format_error_payload
+
             q.put((StreamQueueKind.ERROR, format_error_payload(e)))
         finally:
             # Terminal sentinel so the drain loop always unblocks, even if
@@ -405,9 +404,11 @@ def run_async_worker_with_drain(
             job_done[0] = True
 
     from plugin.framework.uno_context import get_toolkit
+
     toolkit = get_toolkit(ctx)
     if toolkit is None:
         from plugin.framework.errors import UnoObjectError
+
         err = UnoObjectError(f"Failed to create toolkit for {name}")
         if on_error_fn:
             on_error_fn(err)
@@ -430,9 +431,7 @@ def run_async_worker_with_drain(
         return None
 
     resolved_on_error = on_error_fn or _noop_error
-    resolved_on_stopped = on_stopped_fn or (
-        (lambda: on_done_fn()) if on_done_fn else _noop_stopped
-    )
+    resolved_on_stopped = on_stopped_fn or ((lambda: on_done_fn()) if on_done_fn else _noop_stopped)
 
     run_stream_drain_loop(
         q,
@@ -509,7 +508,8 @@ def run_stream_completion_async(
         client.stream_completion(prompt, system_prompt, max_tokens, **cb_kwargs)
 
     _run_client_stream(
-        ctx, client_call,
+        ctx,
+        client_call,
         apply_chunk_fn=apply_chunk_fn,
         on_done_fn=on_done_fn,
         on_error_fn=on_error_fn,
@@ -537,13 +537,13 @@ def run_stream_async(
 
     def client_call(**cb_kwargs):
         if tools:
-            client.stream_request_with_tools(
-                messages, effective_max, tools=tools, **cb_kwargs)
+            client.stream_request_with_tools(messages, effective_max, tools=tools, **cb_kwargs)
         else:
             client.stream_chat_response(messages, effective_max, **cb_kwargs)
 
     _run_client_stream(
-        ctx, client_call,
+        ctx,
+        client_call,
         apply_chunk_fn=apply_chunk_fn,
         on_done_fn=on_done_fn,
         on_error_fn=on_error_fn,
@@ -573,8 +573,7 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
             q.put((BlockingPumpKind.ERROR, e))
 
     try:
-        toolkit = ctx.getServiceManager().createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
+        toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     except Exception as e:
         log.warning("run_blocking_with_pump: Failed to create toolkit, running synchronously. %s", e)
         # Fallback if toolkit isn't available (unlikely in UI context)
@@ -588,10 +587,7 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
             item = q.get(timeout=0.1)
             kind, data = item
             if not isinstance(kind, BlockingPumpKind):
-                ek = TypeError(
-                    "blocking pump queue item kind must be BlockingPumpKind, got %s"
-                    % (type(kind).__name__,)
-                )
+                ek = TypeError("blocking pump queue item kind must be BlockingPumpKind, got %s" % (type(kind).__name__,))
                 log.error("Invalid blocking pump tag: %s", ek)
                 raise ek
             if kind == BlockingPumpKind.DONE:

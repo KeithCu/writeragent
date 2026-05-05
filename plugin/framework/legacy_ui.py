@@ -33,11 +33,7 @@ from plugin.framework.dialogs import (
     translate_dialog,
 )
 from plugin.framework.i18n import _
-from plugin.framework.config import (
-    get_config, get_current_endpoint, get_text_model,
-    populate_combobox_with_lru, set_config, update_lru_history,
-    get_config_str
-)
+from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history, get_config_str
 from plugin.framework.logging import init_logging, agent_log
 from plugin.modules.chatbot.history_db import HAS_SQLITE
 import uno
@@ -58,7 +54,7 @@ class EditWriterAgentConfigListener(BaseActionListener):
 
 
 def input_box(ctx, message, title="", default="", x=None, y=None):
-    """ Shows input dialog (EditInputDialog.xdl). Returns (result_text, extra_prompt) if OK, else ("", ""). """
+    """Shows input dialog (EditInputDialog.xdl). Returns (result_text, extra_prompt) if OK, else ("", "")."""
     init_logging(ctx)
     log.debug("input_box: opening Edit Input dialog (message=%r, level=logging.DEBUG)" % (message[:40] + "..." if len(message) > 40 else message))
     try:
@@ -81,7 +77,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         set_control_text(dlg.getControl("edit"), str(default))
         if title:
             dlg.getModel().Title = title
-        
+
         prompt_ctrl = dlg.getControl("prompt_selector")
         current_prompt = get_config_str(ctx, "additional_instructions")
         populate_combobox_with_lru(ctx, prompt_ctrl, current_prompt, "prompt_lru", "")
@@ -94,7 +90,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 
         dlg.getControl("edit").setFocus()
         dlg.getControl("edit").setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", 0, len(str(default))))
-        
+
         log.debug("input_box: showing dialog (execute, level=logging.DEBUG)")
         if dlg.execute():
             ret_text = get_control_text(dlg.getControl("edit"))
@@ -119,6 +115,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
                 dlg.dispose()
             except Exception:
                 pass
+
 
 def settings_box(ctx, title="Settings", x=None, y=None):
 
@@ -166,7 +163,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 
     try:
         from plugin._manifest import MODULES
-        
+
         inline_targets = {}
         for m in MODULES:
             inline_val = m.get("config_inline")
@@ -204,7 +201,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
             if not isinstance(name_key, str):
                 continue
             children = inline_map.get(name_key)
-            
+
             if not config and not children:
                 continue
 
@@ -239,6 +236,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                 elif field["name"] == "endpoint":
                     populate_endpoint_selector(ctx, ctrl, field["value"])
                     if hasattr(ctrl, "addItemListener"):
+
                         class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                             def __init__(self, dialog, context, combo_ctrl):
                                 self._dlg = dialog
@@ -340,9 +338,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 key_ov = self._dialog_api_key_override_for_fetch()
                                 models = None
                                 if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved):
-                                    models = fetch_available_models(
-                                        resolved, self._ctx, api_key_override=key_ov
-                                    )
+                                    models = fetch_available_models(resolved, self._ctx, api_key_override=key_ov)
 
                                 def apply_ui():
                                     if self._closed or gen != self._debounce_gen:
@@ -381,9 +377,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                     self._timer = None
                                 self._debounce_gen += 1
                                 gen = self._debounce_gen
-                                self._timer = threading.Timer(
-                                    _ENDPOINT_DEBOUNCE_SEC, self._on_timer_fired, args=(gen,)
-                                )
+                                self._timer = threading.Timer(_ENDPOINT_DEBOUNCE_SEC, self._on_timer_fired, args=(gen,))
                                 self._timer.daemon = True
                                 self._timer.start()
 
@@ -463,11 +457,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                             try:
                                 # ComboBox/ListBox typically have StringItemList or can be added directly
                                 # In SettingsDialog.xdl, select=menulist, combo=combobox
-                                labels = tuple(
-                                    o.get("label", o.get("value", ""))
-                                    for o in opts
-                                    if isinstance(o, dict)
-                                )
+                                labels = tuple(o.get("label", o.get("value", "")) for o in opts if isinstance(o, dict))
                                 model = ctrl.getModel()
                                 if hasattr(model, "StringItemList"):
                                     log.debug(f"Populating {field['name']} with {len(labels)} options: {labels}")
@@ -483,8 +473,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                         fn = field.get("name", "")
                         if "Project-Id-Version" in display_val or "Report-Msgid-Bugs-To" in display_val:
                             log.warning(
-                                "settings_box: field %r value still looks like PO/header junk from config "
-                                "(len=%s): %s",
+                                "settings_box: field %r value still looks like PO/header junk from config (len=%s): %s",
                                 fn,
                                 len(display_val),
                                 display_val[:300] + ("..." if len(display_val) > 300 else ""),
@@ -524,7 +513,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 control_text = get_control_text(ctrl)
                             except Exception:
                                 control_text = ""
-                        
+
                         field_type = field.get("type", "text")
                         if field_type == "int":
                             try:
@@ -534,7 +523,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                         elif field_type == "bool":
                             val = as_bool(control_text)
                             if is_checkbox_control(ctrl):
-                                val = (get_checkbox_state(ctrl) == 1)
+                                val = get_checkbox_state(ctrl) == 1
                             result[field["name"]] = val
                         elif field_type == "float":
                             try:
@@ -558,6 +547,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     except Exception as e:
         from plugin.framework.dialogs import msgbox
         import traceback
+
         msgbox(ctx, _("Error"), _("Failed to open Settings: {0}").format(e) + "\n\n" + traceback.format_exc())
         return format_error_payload(e)
     finally:
@@ -575,6 +565,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                 pass
         dlg.dispose()
 
+
 def show_eval_dashboard(ctx):
     from plugin.framework.listeners import BaseActionListener
     from plugin.tests.eval_runner import run_benchmark_suite
@@ -587,7 +578,7 @@ def show_eval_dashboard(ctx):
     try:
         endpoint_ctrl = dlg.getControl("endpoint")
         set_control_text(endpoint_ctrl, get_config_str(ctx, "endpoint"))
-        
+
         model_ctrl = dlg.getControl("models")
         current_model = str(get_config(ctx, "text_model") or get_config(ctx, "model") or "")
         current_endpoint = get_config_str(ctx, "endpoint").strip()
@@ -601,7 +592,8 @@ def show_eval_dashboard(ctx):
                 self.is_running = False
 
             def on_action_performed(self, rEvent):
-                if self.is_running: return
+                if self.is_running:
+                    return
                 self.is_running = True
                 try:
                     self.run_suite()
@@ -611,36 +603,45 @@ def show_eval_dashboard(ctx):
             def run_suite(self):
                 model_name = self.dialog.getControl("models").getText()
                 categories = []
-                if self.dialog.getControl("cat_writer").getState(): categories.append("Writer")
-                if self.dialog.getControl("cat_calc").getState(): categories.append("Calc")
-                if self.dialog.getControl("cat_draw").getState(): categories.append("Draw")
-                if self.dialog.getControl("cat_multimodal").getState(): categories.append("Multimodal")
-                
+                if self.dialog.getControl("cat_writer").getState():
+                    categories.append("Writer")
+                if self.dialog.getControl("cat_calc").getState():
+                    categories.append("Calc")
+                if self.dialog.getControl("cat_draw").getState():
+                    categories.append("Draw")
+                if self.dialog.getControl("cat_multimodal").getState():
+                    categories.append("Multimodal")
+
                 self.dialog.getControl("log_area").setText(f"Starting benchmark for model: {model_name}...\n")
                 self.dialog.getControl("status").setText("Running...")
                 self.toolkit.processEventsToIdle()
-                
+
                 get_desktop(self.ctx)
                 doc = get_active_document(self.ctx)
-                
+
                 summary = run_benchmark_suite(self.ctx, doc, model_name, categories)
-                
+
                 log_text = f"Benchmarks Complete for {model_name}!\n"
                 log_text += f"Passed: {summary['passed']}, Failed: {summary['failed']}\n"
                 log_text += f"Total Est. Cost: ${summary['total_cost']:.4f}\n\n Details:\n"
-                for res in summary['results']:
+                for res in summary["results"]:
                     log_text += f"[{res['status']}] {res['name']} ({res.get('latency', 0):.1f}s)\n"
-                
+
                 self.dialog.getControl("log_area").setText(log_text)
                 self.dialog.getControl("status").setText("Finished")
 
         from plugin.framework.uno_context import get_toolkit
+
         toolkit = get_toolkit(ctx)
         dlg.getControl("btn_run").addActionListener(EvalRunListener(ctx, dlg, toolkit))
-        
+
         class CloseListener(BaseActionListener):
-            def __init__(self, dialog): self.dialog = dialog
-            def on_action_performed(self, rEvent): self.dialog.endDialog(0)
+            def __init__(self, dialog):
+                self.dialog = dialog
+
+            def on_action_performed(self, rEvent):
+                self.dialog.endDialog(0)
+
         dlg.getControl("btn_close").addActionListener(CloseListener(dlg))
 
         dlg.execute()

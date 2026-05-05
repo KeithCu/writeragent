@@ -20,12 +20,10 @@ class ModuleLoader:
         """Loads the module manifest."""
         try:
             from plugin._manifest import MODULES
+
             return cast("list[dict[str, Any]]", MODULES)
         except ImportError as e:
-            raise RuntimeError(
-                "plugin._manifest is missing or invalid (gitignored; run "
-                "`make manifest` or `python3 scripts/generate_manifest.py`)."
-            ) from e
+            raise RuntimeError("plugin._manifest is missing or invalid (gitignored; run `make manifest` or `python3 scripts/generate_manifest.py`).") from e
 
     @staticmethod
     def topo_sort(modules: List[dict[str, Any]]) -> List[dict[str, Any]]:

@@ -18,6 +18,7 @@
 
 Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON).
 """
+
 import os
 import sys
 import json
@@ -115,7 +116,7 @@ def init_logging(ctx):
             numeric_level = getattr(logging, level_str.upper(), logging.WARNING)
             global _log_level_numeric
             _log_level_numeric = numeric_level
-            
+
             logger = log
             logger.setLevel(numeric_level)
             # Grammar proofreader uses INFO/DEBUG for diagnostics; do not inherit
@@ -126,7 +127,7 @@ def init_logging(ctx):
             #
             # We attach the handler to the root logger as well and then disable
             # propagation from the "writeragent" logger to avoid duplicates.
-            
+
             has_matching_handler = False
             for handler in list(logger.handlers):
                 if not isinstance(handler, logging.FileHandler):
@@ -141,11 +142,11 @@ def init_logging(ctx):
                     pass
 
             if not has_matching_handler:
-                handler = logging.FileHandler(_debug_log_path, encoding='utf-8')
-                formatter = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
+                handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
+                formatter = logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
                 handler.setFormatter(formatter)
                 logger.addHandler(handler)
-            
+
             # Attach the same debug file handler to root if needed.
             root_logger = logging.getLogger()
             root_logger.setLevel(numeric_level)
@@ -157,10 +158,8 @@ def init_logging(ctx):
                     root_has_matching_handler = True
                     continue
             if not root_has_matching_handler:
-                root_handler = logging.FileHandler(_debug_log_path, encoding='utf-8')
-                root_handler.setFormatter(
-                    logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
-                )
+                root_handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
+                root_handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
                 root_logger.addHandler(root_handler)
 
             # Prevent double-logging for loggers under "writeragent.*" since
@@ -171,9 +170,6 @@ def init_logging(ctx):
 
         if first_init:
             _install_global_exception_hooks()
-
-
-
 
 
 def _install_global_exception_hooks():
@@ -212,8 +208,7 @@ def _install_global_exception_hooks():
                 msg = "Unhandled exception in thread %s: %s\n%s" % (
                     getattr(args, "thread", None),
                     getattr(args, "exc_type", args),
-                    "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
-                    if getattr(args, "exc_type", None) else "",
+                    "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)) if getattr(args, "exc_type", None) else "",
                 )
                 try:
                     payload = format_error_payload(args.exc_value)
@@ -276,25 +271,17 @@ def safe_log_exception(e, context="general", logger=None):
 
     try:
         # Try to get detailed error info
-        error_info = {
-            'type': type(e).__name__,
-            'message': str(e),
-            'context': context,
-            'timestamp': time.time()
-        }
+        error_info = {"type": type(e).__name__, "message": str(e), "context": context, "timestamp": time.time()}
 
         # Add traceback if available
         try:
-            error_info['traceback'] = traceback.format_exc()
+            error_info["traceback"] = traceback.format_exc()
         except Exception:
-            error_info['traceback'] = "<unavailable>"
+            error_info["traceback"] = "<unavailable>"
 
         # Log with structured data
-        if hasattr(logger, 'error'):
-            logger.error(
-                "Exception occurred: %s" % error_info['message'],
-                extra={'error_details': error_info}
-            )
+        if hasattr(logger, "error"):
+            logger.error("Exception occurred: %s" % error_info["message"], extra={"error_details": error_info})
         else:
             # Fallback logging
             print(f"ERROR [{context}]: {error_info['message']}")
@@ -314,9 +301,6 @@ def log_exception(ex, context="AIHorde"):
         logger.error(f"[{context}] Exception", exc_info=ex)
     except Exception:
         pass
-
-
-
 
 
 def format_tool_call_for_display(tool, args, method=None):
@@ -367,7 +351,7 @@ def format_tool_result_for_display(tool, result, args=None):
                 val_repr = repr(res_str[:150] + "...")
             else:
                 val_repr = val_repr[:150] + "..."
-                
+
         args_str = ""
         if args:
             args_dict = args if isinstance(args, dict) else {}
@@ -381,7 +365,7 @@ def format_tool_result_for_display(tool, result, args=None):
                         v_str = v_str[:100] + "..."
                 arg_vals.append(f"{k}={v_str}")
             args_str = ", ".join(arg_vals)
-            
+
         if args_str:
             return f"{tool}({args_str}) -> {val_repr}"
         return f"{tool}() -> {val_repr}"
@@ -436,8 +420,7 @@ def _watchdog_loop(status_control):
         elapsed = time.monotonic() - last_val
         if elapsed < _watchdog_threshold_sec:
             continue
-        msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (
-            int(elapsed), phase, round_num, tool_name if tool_name else "")
+        msg = "WATCHDOG: no activity for %ds; phase=%s round=%s tool=%s" % (int(elapsed), phase, round_num, tool_name if tool_name else "")
         log.debug(f"[Chat] {msg}")
         if status_control:
             try:

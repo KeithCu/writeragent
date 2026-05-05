@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Image insertion and gallery management tools for LibreOffice."""
+
 import os
 import shutil
 import logging
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 GALLERY_NAME = "writeragent_images"
 GALLERY_IMAGE_DIR = GALLERY_NAME
 
+
 def get_type_doc(doc):
     TYPE_DOC = {
         "calc": "com.sun.star.sheet.SpreadsheetDocument",
@@ -43,13 +45,14 @@ def get_type_doc(doc):
             return k
     return "writer"
 
+
 def insert_image(ctx, model, img_path, width_px, height_px, title="", description="", add_to_gallery=True, add_frame=False):
     """
     Inserts an image into the document.
     width_px, height_px: Size in pixels.
     """
     inside = get_type_doc(model)
-    
+
     # 1 inch = 25.4 mm = 2540 units (1/100th mm). At 96 DPI: 1px = 25.4/96 mm ≈ 0.2646 mm = 26.46 units.
     width_units = int(width_px * 26.46)
     height_units = int(height_px * 26.46)
@@ -62,6 +65,7 @@ def insert_image(ctx, model, img_path, width_px, height_px, title="", descriptio
     if add_to_gallery:
         add_image_to_gallery(ctx, img_path, f"{title}\n\n{description}")
 
+
 def _insert_image_to_writer(model, img_path, width, height, title, description, add_frame):
     doc_text = model.getText()
     image = model.createInstance("com.sun.star.text.GraphicObject")
@@ -71,9 +75,9 @@ def _insert_image_to_writer(model, img_path, width, height, title, description, 
     image.Height = height
     image.Title = title
     image.Description = description
-    
+
     view_cursor = model.CurrentController.ViewCursor
-    
+
     def to_text_cursor(vc):
         # LibreOffice's Text.insertTextContent expects a TextCursor tied to the
         # document's text (not a ViewCursor from the controller).
@@ -92,15 +96,16 @@ def _insert_image_to_writer(model, img_path, width, height, title, description, 
             text_cursor = to_text_cursor(view_cursor)
             doc_text.insertTextContent(text_cursor, image, False)
 
+
 def _insert_frame(model, cursor, image, width, height, title):
     doc_text = model.getText()
     text_frame = model.createInstance("com.sun.star.text.TextFrame")
     frame_size = Size()
-    frame_size.Height = height + 150 # Small padding for title
+    frame_size.Height = height + 150  # Small padding for title
     frame_size.Width = width + 150
     text_frame.setSize(frame_size)
     text_frame.setPropertyValue("AnchorType", AT_FRAME)
-    
+
     try:
         # `cursor` comes from the view layer; convert to a TextCursor.
         text_cursor = doc_text.createTextCursorByRange(cursor.getStart())
@@ -117,17 +122,18 @@ def _insert_frame(model, cursor, image, width, height, title):
     if title:
         frame_text.insertString(frame_cursor, "\n" + title, False)
 
+
 def _insert_image_to_drawpage(model, inside, img_path, width, height, title, description):
     image = model.createInstance("com.sun.star.drawing.GraphicObjectShape")
     image.GraphicURL = uno.systemPathToFileUrl(img_path)
-    
+
     ctrllr = model.CurrentController
     if inside == "calc":
         draw_page = ctrllr.ActiveSheet.DrawPage
     else:
         draw_page = ctrllr.CurrentPage
 
-    draw_page.add(image) # LOSHD uses addTop, but add is standard
+    draw_page.add(image)  # LOSHD uses addTop, but add is standard
     image.setSize(Size(width, height))
     image.Title = title
     image.Description = description
@@ -240,7 +246,7 @@ def get_selected_image_base64(model, ctx=None):
         selection = model.CurrentController.Selection
         if not selection:
             return None
-            
+
         # For Writer, Selection is often a TextRange or an IndexAccess of objects
         if hasattr(selection, "getCount") and selection.getCount() > 0:
             obj = selection.getByIndex(0)
@@ -263,7 +269,7 @@ def get_selected_image_base64(model, ctx=None):
         # We use a GraphicProvider to export as PNG/JPG
         import base64
         import tempfile
-        
+
         if ctx is None:
             ctx = uno.getComponentContext()
         assert ctx is not None
@@ -271,13 +277,10 @@ def get_selected_image_base64(model, ctx=None):
         sm = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         assert sm is not None
         gp = cast("Any", sm).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
-        
+
         with tempfile.NamedTemporaryFile(suffix=".png") as tmp:
             tmp_url = uno.systemPathToFileUrl(tmp.name)
-            props = (
-                PropertyValue(Name="URL", Value=tmp_url),
-                PropertyValue(Name="MimeType", Value="image/png")
-            )
+            props = (PropertyValue(Name="URL", Value=tmp_url), PropertyValue(Name="MimeType", Value="image/png"))
             gp.storeGraphic(graphic, props)
             with open(tmp.name, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
@@ -285,25 +288,24 @@ def get_selected_image_base64(model, ctx=None):
         logger.error(f"Failed to get selected image: {e}")
         return None
 
+
 def add_image_to_gallery(ctx, img_path, title):
     try:
         psettings = ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
         gallery_dir = Path(uno.fileUrlToSystemPath(psettings.Storage_writable)) / GALLERY_IMAGE_DIR
         os.makedirs(gallery_dir, exist_ok=True)
-        
+
         filename = os.path.basename(img_path)
         target_path = gallery_dir / filename
         shutil.copy2(img_path, target_path)
-        
-        themes_list = ctx.ServiceManager.createInstanceWithContext(
-            "com.sun.star.gallery.GalleryThemeProvider", ctx
-        )
-        
+
+        themes_list = ctx.ServiceManager.createInstanceWithContext("com.sun.star.gallery.GalleryThemeProvider", ctx)
+
         if themes_list.hasByName(GALLERY_NAME):
             theme = themes_list.getByName(GALLERY_NAME)
         else:
             theme = themes_list.insertNewByName(GALLERY_NAME)
-            
+
         theme.insertURLByIndex(uno.systemPathToFileUrl(str(target_path)), -1)
         # Update metadata of the last inserted item
         # insertURLByIndex returns a boolean in some versions, or index.

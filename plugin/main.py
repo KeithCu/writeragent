@@ -97,11 +97,13 @@ class HttpMcpActions(Protocol):
 # ---------------------------------------------------------------------------
 
 import threading
+
 _services = None
 log = logging.getLogger(__name__)
 
 # Action handler registry
 _ACTION_HANDLERS = {}
+
 
 def register_action_handler(module_name, action_name, handler_func):
     """Register an action handler function."""
@@ -123,9 +125,7 @@ def _schedule_extension_update_check_once(ctx):
     global _extension_update_check_scheduled
     with _extension_update_check_lock:
         if _extension_update_check_scheduled:
-            log.info(
-                "extension update check: already queued this process, skipping duplicate schedule"
-            )
+            log.info("extension update check: already queued this process, skipping duplicate schedule")
             return
         _extension_update_check_scheduled = True
     from plugin.framework.worker_pool import run_in_background
@@ -141,12 +141,14 @@ def get_services():
         bootstrap()
     return _services
 
+
 def get_tools() -> ToolRegistry:
     global _tools
     if _tools is None:
         bootstrap()
     assert _tools is not None
     return _tools
+
 
 def bootstrap(ctx=None):
     """Bootstraps the service container and modules.
@@ -156,21 +158,23 @@ def bootstrap(ctx=None):
     again in the future if startup performance becomes a concern.
     """
     global _services, _tools, _modules, _initialized
-    
+
     if _initialized:
         return
-        
+
     with _init_lock:
         if _initialized:
             return
-            
+
         # 1. Basic UNO context
         if ctx is None:
             from plugin.framework.uno_context import get_ctx
+
             ctx = get_ctx()
-        
+
         # 2. Service Container
         from plugin.framework.service_registry import ServiceRegistry
+
         _services = ServiceRegistry()
         _services.register("uno", ctx)
 
@@ -187,11 +191,13 @@ def bootstrap(ctx=None):
 
         # 4. Tool Registry
         from plugin.framework.tool_registry import ToolRegistry
+
         _tools = ToolRegistry(_services)
         _services.register("tools", _tools)
 
         # 4b. Main Thread Execution Service
         from plugin.framework.queue_executor import default_executor
+
         _services.register("main_thread", default_executor)
 
         # Wire config service to events
@@ -202,6 +208,7 @@ def bootstrap(ctx=None):
 
         # Initialize i18n
         from plugin.framework.i18n import init_i18n
+
         init_i18n(ctx)
 
         # Set initialized early to prevent recursive calls from re-running bootstrap
@@ -210,6 +217,7 @@ def bootstrap(ctx=None):
 
         # 5. Load manifest and initialize modules
         from plugin.framework.module_loader import ModuleLoader
+
         _modules.extend(ModuleLoader.load_modules(_services))
 
         # 6. Background phase: modules that start listeners/servers (e.g. HttpModule when MCP enabled)
@@ -221,11 +229,11 @@ def bootstrap(ctx=None):
         if events_svc:
             # Subscribe to menu:update for dynamic menu text + icons
             main_thread = _services.get("main_thread")
-            events_svc.subscribe("menu:update",
-                                 lambda **kw: main_thread.execute(notify_menu_update) if main_thread else notify_menu_update())
+            events_svc.subscribe("menu:update", lambda **kw: main_thread.execute(notify_menu_update) if main_thread else notify_menu_update())
 
         # Pre-load icons into ImageManager so first menu display has them
         from plugin.framework.worker_pool import run_in_background
+
         run_in_background(_update_menu_icons)
 
         # Register core handlers
@@ -243,36 +251,63 @@ def _register_core_handlers():
 
     register_action_handler("main", "settings", _open_settings)
 
-    register_action_handler("main", "EvaluationDashboard",
-        lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
+    register_action_handler("main", "EvaluationDashboard", lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
-    register_action_handler("main", "RunFormatTests",
-        lambda: _run_test_suite(
-            importlib.import_module("plugin.tests.uno.format_tests"),
-            is_writer,
-            "writer.format_tests",
-        ) if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
+    register_action_handler(
+        "main",
+        "RunFormatTests",
+        lambda: (
+            _run_test_suite(
+                importlib.import_module("plugin.tests.uno.format_tests"),
+                is_writer,
+                "writer.format_tests",
+            )
+            if _tests_bundled()
+            else _show_tests_unavailable("writer.format_tests")
+        ),
+    )
 
-    register_action_handler("main", "RunCalcTests",
-        lambda: _run_test_suite(
-            importlib.import_module("plugin.tests.uno.test_calc"),
-            is_calc,
-            "calc.tests",
-        ) if _tests_bundled() else _show_tests_unavailable("calc.tests"))
+    register_action_handler(
+        "main",
+        "RunCalcTests",
+        lambda: (
+            _run_test_suite(
+                importlib.import_module("plugin.tests.uno.test_calc"),
+                is_calc,
+                "calc.tests",
+            )
+            if _tests_bundled()
+            else _show_tests_unavailable("calc.tests")
+        ),
+    )
 
-    register_action_handler("main", "RunCalcIntegrationTests",
-        lambda: _run_test_suite(
-            importlib.import_module("plugin.tests.uno.test_calc"),
-            is_calc,
-            "calc.integration_tests",
-        ) if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
+    register_action_handler(
+        "main",
+        "RunCalcIntegrationTests",
+        lambda: (
+            _run_test_suite(
+                importlib.import_module("plugin.tests.uno.test_calc"),
+                is_calc,
+                "calc.integration_tests",
+            )
+            if _tests_bundled()
+            else _show_tests_unavailable("calc.integration_tests")
+        ),
+    )
 
-    register_action_handler("main", "RunDrawTests",
-        lambda: _run_test_suite(
-            importlib.import_module("plugin.tests.uno.test_draw"),
-            is_draw,
-            "draw.tests",
-        ) if _tests_bundled() else _show_tests_unavailable("draw.tests"))
+    register_action_handler(
+        "main",
+        "RunDrawTests",
+        lambda: (
+            _run_test_suite(
+                importlib.import_module("plugin.tests.uno.test_draw"),
+                is_draw,
+                "draw.tests",
+            )
+            if _tests_bundled()
+            else _show_tests_unavailable("draw.tests")
+        ),
+    )
 
     register_action_handler("main", "NoOp", lambda: None)
 
@@ -295,6 +330,7 @@ def _tests_bundled() -> bool:
     if _TESTS_AVAILABLE is None:
         try:
             import importlib.util
+
             _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.uno") is not None
         except Exception:
             _TESTS_AVAILABLE = False
@@ -334,26 +370,32 @@ def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
         # Show user-friendly error message
         from plugin.framework.dialogs import msgbox
         from plugin.framework.i18n import _
+
         msgbox(ctx_getter(), _("Error"), _(f"{error_msg}: {str(e)}"))
+
 
 def _run_test_suite(test_func, doc_checker, test_name):
     """Helper to run a test suite in a blocking thread and show the result."""
     from plugin.framework.uno_context import get_ctx
     from plugin.framework.dialogs import msgbox
+
     ctx = get_ctx()
     try:
         log.info(f"_run_test_suite start: {test_name}")
         from plugin.framework.async_stream import run_blocking_in_thread
         from plugin.testing_runner import run_module_suite
+
         model = get_active_document(ctx)
         doc_model = model if (model and doc_checker(model)) else None
         log.debug(f"Calling run_blocking_in_thread for {test_name}")
         p, f, suite_log = run_blocking_in_thread(ctx, run_module_suite, ctx, test_func, test_name, doc_model)
         log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
         from plugin.framework.i18n import _
+
         msgbox(ctx, test_name, _("{0}: {1} passed, {2} failed.").format(test_name, p, f) + "\n\n" + "\n".join(suite_log))
     except Exception as e:
         from plugin.framework.i18n import _
+
         msgbox(ctx, test_name, _("Tests failed to run: {0}").format(str(e)))
 
 
@@ -377,7 +419,7 @@ def _dispatch_command(command):
         return
 
     mod_name = command[:dot]
-    action = command[dot + 1:]
+    action = command[dot + 1 :]
 
     # Module actions
     for mod in _modules:
@@ -396,7 +438,7 @@ def get_menu_text(command):
     if dot <= 0:
         return None
     mod_name = command[:dot]
-    action = command[dot + 1:]
+    action = command[dot + 1 :]
 
     from plugin.framework.i18n import _
 
@@ -410,6 +452,7 @@ def get_menu_text(command):
     # Fallback to the title from the manifest
     try:
         from plugin._manifest import MODULES
+
         for m in MODULES:
             if m["name"] == mod_name:
                 # The manifest doesn't store action titles directly in a map,
@@ -426,6 +469,7 @@ def get_menu_text(command):
         pass
 
     from plugin.framework.i18n import _
+
     # Hardcoded fallback for static Addons.xcu items so they get translated
     # without needing dynamic state in their respective modules.
     static_titles = {
@@ -434,7 +478,7 @@ def get_menu_text(command):
         "main.settings": _("Settings"),
         "http.toggle_server": _("Toggle MCP Server"),
         "http.server_status": _("MCP Server Status"),
-        "main.NoOp": "Debug", # Excluded from translation per user request
+        "main.NoOp": "Debug",  # Excluded from translation per user request
         "main.RunFormatTests": _("Run format tests"),
         "main.RunCalcTests": _("Run calc tests"),
         "main.RunCalcIntegrationTests": _("Run Calc API integration tests"),
@@ -466,14 +510,17 @@ def notify_menu_update():
         _status_listeners[:] = alive
     # Update icons in a background thread (avoids blocking UI)
     from plugin.framework.worker_pool import run_in_background
+
     run_in_background(_update_menu_icons)
 
 
 def _fire_status_event(listener, url, text):
     """Send a FeatureStateEvent to one listener."""
     import typing
+
     if typing.TYPE_CHECKING:
         from com.sun.star.frame import FeatureStateEvent
+
         ev = FeatureStateEvent()
     else:
         ev = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
@@ -511,7 +558,7 @@ def _get_menu_icon(command):
     if dot <= 0:
         return None
     mod_name = command[:dot]
-    action = command[dot + 1:]
+    action = command[dot + 1 :]
     for mod in _modules:
         if mod.name == mod_name:
             return mod.get_menu_icon(action)
@@ -530,6 +577,7 @@ def _collect_icon_commands():
 
     result = {}
     import typing
+
     for m in MODULES:
         mod_name = m["name"]
         action_icons = typing.cast("typing.Dict[str, str]", m.get("action_icons", {}))
@@ -546,22 +594,21 @@ def _load_icon_graphic(module_name, icon_filename, ctx=None):
     try:
         from com.sun.star.beans import PropertyValue
         import uno
+
         if ctx is None:
             ctx = uno.getComponentContext()
         assert ctx is not None
         ctx_any = cast("Any", ctx)
         smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         assert smgr is not None
-        gp = cast("Any", smgr).createInstanceWithContext(
-            "com.sun.star.graphic.GraphicProvider", ctx_any)
+        gp = cast("Any", smgr).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
         ext_url = get_extension_url(ctx_any)
         if not ext_url:
             return None
         pv = PropertyValue()
         # Support nested module directories
         mod_dir = module_name.replace(".", "/")
-        pv.Value = "%s/plugin/modules/%s/icons/%s" % (
-            ext_url, mod_dir, icon_filename)
+        pv.Value = "%s/plugin/modules/%s/icons/%s" % (ext_url, mod_dir, icon_filename)
         return gp.queryGraphic((pv,))
     except Exception as e:
         log.warning("_load_icon_graphic failed for %s/%s: %s", module_name, icon_filename, e)
@@ -572,6 +619,7 @@ def _update_menu_icons():
     """Push current-state icons into every module's ImageManager."""
     try:
         import uno
+
         ctx = _services.get("uno") if _services else None
         if ctx is None:
             ctx = uno.getComponentContext()
@@ -600,8 +648,7 @@ def _update_menu_icons():
         smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
         assert smgr is not None
 
-        supplier = cast("Any", smgr).createInstanceWithContext(
-            "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
+        supplier = cast("Any", smgr).createInstanceWithContext("com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
         for mod_id in _IMAGE_MANAGER_MODULES:
             try:
                 cfg_mgr = supplier.getUIConfigurationManager(mod_id)
@@ -623,29 +670,35 @@ def _update_menu_icons():
     except Exception as e:
         log.warning("_update_menu_icons: outer exception: %s", e)
 
+
 def _get_http_module(ctx=None) -> HttpMcpActions | None:
     for mod in _modules:
         if mod.name == "http":
             return cast("HttpMcpActions", mod)
     return None
 
+
 def _start_mcp_server(ctx):
     """Ensure HTTP/MCP server is loaded. Start happens natively in module lifecycle."""
     from plugin.framework.config import get_config_bool
+
     if not get_config_bool(ctx, "mcp_enabled"):
         return
     # Note: _get_http_module relies on bootstrap already having run.
     _get_http_module(ctx)
+
 
 def _stop_mcp_server():
     mod = _get_http_module()
     if mod:
         mod.shutdown()
 
+
 def _toggle_mcp_server(ctx):
     mod = _get_http_module(ctx)
     if mod:
         mod._action_toggle_server()
+
 
 def _do_mcp_status(ctx):
     mod = _get_http_module(ctx)
@@ -693,7 +746,8 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         args = Event
         if args and isinstance(args, str) and ("." in args or args.startswith("plugin.")):
             cmd = args
-            if cmd.startswith("plugin."): cmd = cmd[7:]
+            if cmd.startswith("plugin."):
+                cmd = cmd[7:]
             _dispatch_command(cmd)
             return
 
@@ -706,7 +760,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
         model = get_active_document(self.ctx)
         from plugin.framework.document import get_document_type, DocumentType
-        
+
         doc_type = get_document_type(model)
         if doc_type == DocumentType.WRITER:
             self._handle_writer_actions(args, model)
@@ -717,9 +771,11 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         framework_args = ("ToggleMCPServer", "MCPStatus", "TestTypes", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
         if args not in framework_args:
             return False
-            
-        if args == "ToggleMCPServer": _dispatch_command("http.toggle_server")
-        elif args == "MCPStatus": _dispatch_command("http.server_status")
+
+        if args == "ToggleMCPServer":
+            _dispatch_command("http.toggle_server")
+        elif args == "MCPStatus":
+            _dispatch_command("http.server_status")
         else:
             _dispatch_command("main." + args)
         return True
@@ -728,17 +784,21 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         if args == "ExtendSelection":
             from plugin.modules.writer.legacy import do_extend_selection
             from plugin.framework.legacy_ui import input_box
+
             do_extend_selection(self.ctx, model, input_box)
         elif args == "EditSelection":
             from plugin.modules.writer.legacy import do_edit_selection
             from plugin.framework.legacy_ui import input_box
+
             do_edit_selection(self.ctx, model, input_box)
 
     def _handle_calc_actions(self, args, model):
         if args in ("ExtendSelection", "EditSelection"):
             from plugin.modules.calc.legacy import do_calc_extend_edit
             from plugin.framework.legacy_ui import input_box
+
             do_calc_extend_edit(self.ctx, model, input_box, args == "EditSelection")
+
 
 # Starting from Python IDE
 def main():
@@ -756,12 +816,13 @@ def main():
     job = MainBootstrapJob(ctx)
     job.trigger("hello")
 
+
 # Starting from command line
 if __name__ == "__main__":
     main()
 
-class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
-                      XInitialization, XServiceInfo):
+
+class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
     """Protocol handler for org.extension.writeragent: URLs.
 
     Handles menu dispatch and supports dynamic menu text via
@@ -792,21 +853,14 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
 
     # ── XDispatchProvider ────────────────────────────────────────
 
-    def queryDispatch(
-        self, URL: UnoURL, TargetFrameName: str, SearchFlags: int
-    ) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
+    def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
         url = URL
         if url.Protocol == "org.extension.writeragent:":
             return cast("XDispatch", self)
         return cast("XDispatch", None)
 
-    def queryDispatches(
-        self, Requests: tuple[DispatchDescriptor, ...]
-    ) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        return tuple(
-            self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags)
-            for r in Requests
-        )
+    def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
 
     # ── XDispatch ────────────────────────────────────────────────
 
@@ -815,6 +869,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         command = url.Path
         from plugin.framework.dialogs import msgbox
         from plugin.framework.logging import init_logging, log_exception
+
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
@@ -822,10 +877,12 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
             _dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
+
             run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
             from plugin.framework.i18n import _
+
             msgbox(self.ctx, _("Dispatch Error"), _(str(e)))
 
     def addStatusListener(self, Control, URL):
@@ -846,17 +903,16 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider,
         listener = Control
         url = URL
         with _status_lock:
-            _status_listeners[:] = [
-                (lstnr, u) for lstnr, u in _status_listeners
-                if not (lstnr is listener and u.Complete == url.Complete)
-            ]
+            _status_listeners[:] = [(lstnr, u) for lstnr, u in _status_listeners if not (lstnr is listener and u.Complete == url.Complete)]
+
 
 # pythonloader loads a static g_ImplementationHelper variable
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
     MainBootstrapJob,  # UNO object class
     "org.extension.writeragent.Main",  # implementation name
-    ("com.sun.star.task.Job",), )  # implemented services (only 1)
+    ("com.sun.star.task.Job",),
+)  # implemented services (only 1)
 g_ImplementationHelper.addImplementation(
     DispatchHandler,
     DispatchHandler.IMPL_NAME,

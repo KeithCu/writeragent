@@ -104,9 +104,11 @@ class ModuleBase(ABC):
     def load_dialog(self, dialog_name):
         """Load an XDL dialog from this module's directory."""
         from plugin.framework.dialogs import load_module_dialog
+
         return load_module_dialog(self.name, dialog_name)
 
     def load_framework_dialog(self, dialog_name):
         """Load a reusable framework dialog template."""
         from plugin.framework.dialogs import load_framework_dialog
+
         return load_framework_dialog(dialog_name)

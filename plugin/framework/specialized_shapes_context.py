@@ -121,11 +121,7 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
         h_mm = float(getattr(page, "Height", 0) or 0) / 100.0
         if w_mm <= 0 or h_mm <= 0:
             return ""
-        return (
-            f" Document canvas ({product_label}): "
-            f"active slide/page index {idx} (0-based), size {w_mm:.1f} x {h_mm:.1f} mm; "
-            f"{n_pages} page(s) total. Shape x/y/width/height use 1/100 mm."
-        )
+        return f" Document canvas ({product_label}): active slide/page index {idx} (0-based), size {w_mm:.1f} x {h_mm:.1f} mm; {n_pages} page(s) total. Shape x/y/width/height use 1/100 mm."
     except Exception:
         log.debug("format_draw_canvas: failed", exc_info=True)
         return ""
@@ -168,12 +164,7 @@ def _format_calc_canvas(doc: Any) -> str:
             pass
         name_part = f", name '{sheet_name}'" if sheet_name else ""
 
-        return (
-            " Document canvas (Calc): "
-            f"active sheet index {sheet_idx} (0-based){name_part}, "
-            f"draw-page size {w_mm:.1f} x {h_mm:.1f} mm; {n_sheets} sheet(s). "
-            "Shape x/y/width/height use 1/100 mm."
-        )
+        return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, draw-page size {w_mm:.1f} x {h_mm:.1f} mm; {n_sheets} sheet(s). Shape x/y/width/height use 1/100 mm."
     except Exception:
         log.debug("format_calc_canvas: failed", exc_info=True)
         return ""

@@ -103,9 +103,7 @@ def open_writeragent_json_in_editor(ctx) -> None:
         msgbox(
             ctx,
             _("Error"),
-            _(
-                "No editor found (install Kate or Gedit, or set EDITOR). Path:\n{0}"
-            ).format(path),
+            _("No editor found (install Kate or Gedit, or set EDITOR). Path:\n{0}").format(path),
         )
         return
     try:

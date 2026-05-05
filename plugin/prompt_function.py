@@ -48,7 +48,9 @@ from plugin.framework.config import get_config, get_api_config, get_config_int
 from plugin.modules.http.client import LlmClient
 
 import logging
+
 log = logging.getLogger(__name__)
+
 
 class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[reportGeneralTypeIssues] — runtime IDL base from LO  # pyrefly: ignore[invalid-inheritance]
     def __init__(self, ctx):
@@ -84,7 +86,7 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
             elif nArgument == 3:
                 return "The maximum number of tokens to generate."
         return ""
-        
+
     def getArgumentName(self, aProgrammaticName, nArgument):
         if aProgrammaticName == "prompt":
             if nArgument == 0:
@@ -151,16 +153,18 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
                 config = get_api_config(self.ctx)
                 if model is not None:
                     config = dict(config, model=str(model_name))
-                
+
                 if not self.client:
                     self.client = LlmClient(config, self.ctx)
                 else:
                     self.client.config = config
-                
+
                 from plugin.framework.async_stream import run_blocking_in_thread
+
                 return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
             except Exception as e:
                 from plugin.modules.http.errors import format_error_for_display
+
                 log.error("PROMPT error: %s" % str(e))
                 return format_error_for_display(e)
         return ""
@@ -168,12 +172,13 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
     # XServiceInfo implementation
     def getImplementationName(self):
         return "org.extension.writeragent.PromptFunction"
-    
+
     def supportsService(self, name):
         return name in self.getSupportedServiceNames()
-    
+
     def getSupportedServiceNames(self):
         return ("com.sun.star.sheet.AddIn",)
+
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
@@ -181,6 +186,7 @@ g_ImplementationHelper.addImplementation(
     "org.extension.writeragent.PromptFunction",
     ("com.sun.star.sheet.AddIn",),
 )
+
 
 # Test function registration
 def test_registration():
@@ -191,6 +197,7 @@ def test_registration():
         log.info("Function registration test completed")
     except Exception as e:
         log.error(f"Registration test failed: {e}")
+
 
 # Call test on module load
 test_registration()

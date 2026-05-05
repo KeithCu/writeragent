@@ -120,6 +120,7 @@ class ToolBase(ABC):
             # cause UI hangs and deadlocks in LibreOffice.
             if not self.is_async():
                 import threading
+
                 if threading.current_thread() is not threading.main_thread():
                     raise RuntimeError(
                         f"Thread Safety Violation: Synchronous tool '{self.name}' was executed from a background thread. "
@@ -132,12 +133,7 @@ class ToolBase(ABC):
                 "Tool '%s' execution failed",
                 self.name if self.name else "<unknown>",
             )
-            return self._tool_error(
-                f"Tool execution failed: {str(e)}",
-                code="TOOL_EXECUTION_ERROR",
-                original_error=str(e),
-                error_type=type(e).__name__
-            )
+            return self._tool_error(f"Tool execution failed: {str(e)}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
 
     def get_collection(self, doc, getter_name, missing_msg=None):
         """Helper to safely fetch a named collection from a document.
@@ -175,13 +171,7 @@ class ToolBase(ABC):
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
             msg = not_found_msg or f"Item '{item_name}' not found."
-            return self._tool_error(
-                msg,
-                code="UNO_OBJECT_ERROR",
-                item_name=item_name,
-                getter_name=getter_name,
-                available=available
-            )
+            return self._tool_error(msg, code="UNO_OBJECT_ERROR", item_name=item_name, getter_name=getter_name, available=available)
 
         return collection.getByName(item_name)
 
@@ -215,12 +205,5 @@ class ToolBaseDummy:
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
             msg = not_found_msg or f"Item '{item_name}' not found."
-            return self._tool_error(
-                msg,
-                code="UNO_OBJECT_ERROR",
-                item_name=item_name,
-                getter_name=getter_name,
-                available=available
-            )
+            return self._tool_error(msg, code="UNO_OBJECT_ERROR", item_name=item_name, getter_name=getter_name, available=available)
         return collection.getByName(item_name)
-

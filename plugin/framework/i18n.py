@@ -44,14 +44,13 @@ def get_lo_locale(ctx=None):
     """
     try:
         import uno
+
         if ctx is None:
             ctx = uno.getComponentContext()
         smgr = cast("Any", ctx).getServiceManager()
-        config_provider = smgr.createInstanceWithContext(
-            "com.sun.star.configuration.ConfigurationProvider", ctx)
+        config_provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         ca = config_provider.createInstanceWithArguments(
-            "com.sun.star.configuration.ConfigurationAccess",
-            (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/L10N"),)
+            "com.sun.star.configuration.ConfigurationAccess", (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/L10N"),)
         )
 
         locale = ca.getPropertyValue("ooLocale")
@@ -80,15 +79,12 @@ def init_i18n(ctx=None) -> None:
     try:
         locale = get_lo_locale(ctx)
         locales_dir = os.path.join(get_plugin_dir(), "locales")
-        mofiles = gettext.find(
-            "writeragent", localedir=locales_dir, languages=[locale], all=True
-        )
+        mofiles = gettext.find("writeragent", localedir=locales_dir, languages=[locale], all=True)
         if not mofiles:
             mofiles = []
 
         log.debug(
-            "i18n init: ctx_is_none=%s locale=%s locales_dir=%s (exists=%s) "
-            "mofiles=%s",
+            "i18n init: ctx_is_none=%s locale=%s locales_dir=%s (exists=%s) mofiles=%s",
             ctx is None,
             locale,
             locales_dir,
@@ -96,12 +92,7 @@ def init_i18n(ctx=None) -> None:
             mofiles if mofiles else "none",
         )
 
-        _translation = gettext.translation(
-            domain="writeragent",
-            localedir=locales_dir,
-            languages=[locale],
-            fallback=True
-        )
+        _translation = gettext.translation(domain="writeragent", localedir=locales_dir, languages=[locale], fallback=True)
         log.debug(
             "i18n init: translation_type=%s",
             type(_translation).__name__,

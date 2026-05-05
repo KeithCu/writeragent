@@ -48,6 +48,7 @@ def get_ctx():
     """
     try:
         import uno
+
         if hasattr(uno, "getComponentContext"):
             ctx = uno.getComponentContext()
             if ctx is not None:
@@ -58,6 +59,7 @@ def get_ctx():
 
 
 from plugin.framework.errors import check_disposed, safe_call, UnoObjectError
+
 
 def get_desktop(ctx=None):
     """Return the UNO Desktop instance."""
@@ -109,6 +111,7 @@ def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):
         return ""
     if url.startswith("file://"):
         import uno
+
         return str(uno.fileUrlToSystemPath(url))
     return url
 
@@ -120,6 +123,7 @@ def get_toolkit(ctx=None):
         return None
     try:
         from typing import cast
+
         ctx_any = cast("Any", ctx)
         smgr = getattr(
             ctx_any,
@@ -128,9 +132,7 @@ def get_toolkit(ctx=None):
         )
         if smgr is None:
             return None
-        return cast("Any", smgr).createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx_any
-        )
+        return cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
     except Exception as e:
         log.warning("Failed to create toolkit: %s", e)
         return None

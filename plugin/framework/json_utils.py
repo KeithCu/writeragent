@@ -23,27 +23,114 @@ import re
 
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
-    "alpha", "approx", "ast", "angle", "arccos", "arcsin", "arctan", "arg", "aleph", "amalg",
+    "alpha",
+    "approx",
+    "ast",
+    "angle",
+    "arccos",
+    "arcsin",
+    "arctan",
+    "arg",
+    "aleph",
+    "amalg",
     # \b (Backspace)
-    "beta", "begin", "bar", "bot", "bullet", "bmod", "boldsymbol", "bigcup", "bigcap", "bigg", "backslash", "bf", "bm", "big", "bigodot", "bigoplus", "bigotimes", "biguplus", "bigvee", "bigwedge", "box", "breve", "buildrel", "bumpeq",
+    "beta",
+    "begin",
+    "bar",
+    "bot",
+    "bullet",
+    "bmod",
+    "boldsymbol",
+    "bigcup",
+    "bigcap",
+    "bigg",
+    "backslash",
+    "bf",
+    "bm",
+    "big",
+    "bigodot",
+    "bigoplus",
+    "bigotimes",
+    "biguplus",
+    "bigvee",
+    "bigwedge",
+    "box",
+    "breve",
+    "buildrel",
+    "bumpeq",
     # \f (Formfeed)
-    "frac", "forall", "varphi", "fbox", "framebox", "flat", "frown",
+    "frac",
+    "forall",
+    "varphi",
+    "fbox",
+    "framebox",
+    "flat",
+    "frown",
     # \n (Newline)
-    "nabla", "neq", "nu", "norm", "notin", "newline", "nRightarrow", "nleftarrow", "nLeftrightarrow", "natural", "ne", "nearrow", "neg", "ni", "not", "nwarrow",
+    "nabla",
+    "neq",
+    "nu",
+    "norm",
+    "notin",
+    "newline",
+    "nRightarrow",
+    "nleftarrow",
+    "nLeftrightarrow",
+    "natural",
+    "ne",
+    "nearrow",
+    "neg",
+    "ni",
+    "not",
+    "nwarrow",
     # \r (Carriage Return)
-    "right", "rho", "rangle", "rightarrow", "rbrace", "rbrack", "rceil", "rfloor", "renewcommand", "require", "Rightarrow", "Re", "rightleftharpoons", "rm", "rtimes",
+    "right",
+    "rho",
+    "rangle",
+    "rightarrow",
+    "rbrace",
+    "rbrack",
+    "rceil",
+    "rfloor",
+    "renewcommand",
+    "require",
+    "Rightarrow",
+    "Re",
+    "rightleftharpoons",
+    "rm",
+    "rtimes",
     # \t (Tab)
-    "times", "text", "tau", "theta", "tilde", "tan", "tfrac", "triangle", "to", "textbf", "textit", "texttt", "top", "triangleright",
+    "times",
+    "text",
+    "tau",
+    "theta",
+    "tilde",
+    "tan",
+    "tfrac",
+    "triangle",
+    "to",
+    "textbf",
+    "textit",
+    "texttt",
+    "top",
+    "triangleright",
     # \v (Vertical Tab)
-    "vec", "varepsilon", "varpi", "varrho", "varsigma", "vartheta", "vdash", "vee", "vert", "Vert"
+    "vec",
+    "varepsilon",
+    "varpi",
+    "varrho",
+    "varsigma",
+    "vartheta",
+    "vdash",
+    "vee",
+    "vert",
+    "Vert",
 ]
 
-_LATEX_CLASH_RE = re.compile(
-    r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")\b"
-)
+_LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")\b")
 
 _SILENT_CORRUPTIONS = {}
-_escape_map = {'n': '\n', 't': '\t', 'r': '\r', 'b': '\b', 'f': '\f'}
+_escape_map = {"n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
 for _word in _LATEX_CLASH_WORDS:
     _first = _word[0]
     if _first in _escape_map:
@@ -51,20 +138,23 @@ for _word in _LATEX_CLASH_WORDS:
         _repaired = r"\\" + _word
         _SILENT_CORRUPTIONS[_corrupted] = _repaired
 
+
 def _repair_latex_clashes(text: str) -> str:
     """Escape backslashes for LaTeX commands that conflict with JSON escapes."""
     # 1. Handle properly escaped but single-slash clashes (e.g. \\nabla -> \\\\nabla)
     text = _LATEX_CLASH_RE.sub(r"\\\\\1", text)
-    
+
     # 2. Handle cases where the LLM sent a single backslash in the network JSON,
     # which the outer json.loads already silently evaluated as a control character
     # (e.g. \nabla -> \n + abla).
     for corrupted, repaired in _SILENT_CORRUPTIONS.items():
         text = text.replace(corrupted, repaired)
-        
+
     return text
 
+
 from typing import Any
+
 
 def repair_json(text: str) -> str:
     """Attempt to repair common JSON syntax errors from LLMs using json-repair.
@@ -87,6 +177,7 @@ def repair_json(text: str) -> str:
         return repaired
 
     import json_repair
+
     return str(json_repair.repair_json(repaired))
 
 
@@ -198,12 +289,7 @@ def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
 
     # 3. Handle simple single-quoted string unquoting: 'abc' -> abc
     # This avoids ast.literal_eval for basic string normalization.
-    if (
-        isinstance(stripped, str)
-        and len(stripped) >= 2
-        and stripped[0] == "'"
-        and stripped[-1] == "'"
-    ):
+    if isinstance(stripped, str) and len(stripped) >= 2 and stripped[0] == "'" and stripped[-1] == "'":
         inner = stripped[1:-1]
         # Only unquote if it's a simple string (no internal single quotes or backslashes)
         if "'" not in inner and "\\" not in inner:

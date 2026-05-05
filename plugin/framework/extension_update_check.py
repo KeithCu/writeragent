@@ -17,9 +17,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-UPDATE_XML_URL = (
-    "https://raw.githubusercontent.com/KeithCu/writeragent/refs/heads/master/update.xml"
-)
+UPDATE_XML_URL = "https://raw.githubusercontent.com/KeithCu/writeragent/refs/heads/master/update.xml"
 CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH = "extension_update_check_epoch"
 WEEK_SECONDS = 7 * 24 * 3600
 EXPECTED_EXTENSION_ID = "org.extension.writeragent"
@@ -82,6 +80,7 @@ def run_extension_update_check(ctx: Any) -> None:
         )
         now = time.time()
         from plugin.framework.config import get_config_int
+
         raw_last = get_config_int(ctx, CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH)
         if raw_last is not None and raw_last != "":
             try:
@@ -89,8 +88,7 @@ def run_extension_update_check(ctx: Any) -> None:
                 age = now - last_ts
                 if age < WEEK_SECONDS:
                     log.info(
-                        "extension update check: skipped (last attempt %.1f h ago; next fetch in %.1f h). "
-                        "Remove key %r from writeragent.json to force a run sooner.",
+                        "extension update check: skipped (last attempt %.1f h ago; next fetch in %.1f h). Remove key %r from writeragent.json to force a run sooner.",
                         age / 3600.0,
                         (WEEK_SECONDS - age) / 3600.0,
                         CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH,
@@ -107,9 +105,7 @@ def run_extension_update_check(ctx: Any) -> None:
         log.info("extension update check: fetching update.xml …")
         raw = sync_request(UPDATE_XML_URL, parse_json=False, timeout=_FETCH_TIMEOUT)
         if not isinstance(raw, bytes):
-            log.warning(
-                "extension update check: unexpected response type %s", type(raw).__name__
-            )
+            log.warning("extension update check: unexpected response type %s", type(raw).__name__)
             return
         log.info("extension update check: received %s bytes", len(raw))
         ident, remote_ver = parse_update_xml(raw)
@@ -148,10 +144,7 @@ def run_extension_update_check(ctx: Any) -> None:
 
         def _show() -> None:
             title = _("Update available")
-            message = _(
-                "A newer WriterAgent (%s) is available. Use Tools → Extension Manager "
-                "to check for updates and install the latest extension."
-            ) % (remote_ver,)
+            message = _("A newer WriterAgent (%s) is available. Use Tools → Extension Manager to check for updates and install the latest extension.") % (remote_ver,)
             msgbox(ctx, title, message)
 
         log.info(

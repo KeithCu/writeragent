@@ -38,6 +38,7 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
 
     return isinstance(t, (ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase))
 
+
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control"})
 _UNSET_EXCLUDE_TIERS = object()
@@ -122,13 +123,14 @@ class ToolRegistry:
             # worth having exposed to the AI, so we explicitly skip registering them.
             # Must be defined in this module to avoid double registration from imports
             # Also exclude abstract classes or classes without a defined 'name'
-            if (issubclass(obj, ToolBase) and
-                obj is not ToolBase and
-                not issubclass(obj, ToolBaseDummy) and
-                obj.__module__ == module.__name__ and
-                not inspect.isabstract(obj) and
-                getattr(obj, "name", None)):
-
+            if (
+                issubclass(obj, ToolBase)
+                and obj is not ToolBase
+                and not issubclass(obj, ToolBaseDummy)
+                and obj.__module__ == module.__name__
+                and not inspect.isabstract(obj)
+                and getattr(obj, "name", None)
+            ):
                 try:
                     tool_instance = obj()
                     self.register(tool_instance)
@@ -206,6 +208,7 @@ class ToolRegistry:
             to_exclude = _DEFAULT_EXCLUDE_TIERS
         else:
             import typing
+
             to_exclude = frozenset(typing.cast("typing.Iterable[typing.Any]", exclude_tiers)) if exclude_tiers else frozenset()
 
         if active_domain:
@@ -215,12 +218,13 @@ class ToolRegistry:
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
                     filtered_tools.append(t)
-                #FIXME, these strings should be calculated or handled another way
+                # FIXME, these strings should be calculated or handled another way
                 elif getattr(t, "name", "") in ["final_answer", "specialized_workflow_finished", "reply_to_user"]:
                     filtered_tools.append(t)
             tools = filtered_tools
         else:
             if to_exclude:
+
                 def _tier_excluded(t):
                     tier = getattr(t, "tier", None)
                     return tier in to_exclude
@@ -254,11 +258,7 @@ class ToolRegistry:
     def get_tool_summaries(self, **kwargs):
         """Lightweight catalogue: ``[{"name", "description", "tier", "intent"}]``."""
         tools = self.get_tools(**kwargs)
-        return [{"name": t.name,
-                 "description": (t.description or "")[:120],
-                 "tier": t.tier,
-                 "intent": t.intent}
-                for t in tools]
+        return [{"name": t.name, "description": (t.description or "")[:120], "tier": t.tier, "intent": t.intent} for t in tools]
 
     def get(self, name):
         """Get a tool by name, or None."""
@@ -282,10 +282,9 @@ class ToolRegistry:
 
         if not run_threaded:
             log.warning(
-                "Tool '%s' declares timeout=%s but is synchronous; "
-                "timeout is ignored (would trip the main-thread guard). "
-                "Set is_async() to True to enable timeout enforcement.",
-                tool_name, timeout,
+                "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored (would trip the main-thread guard). Set is_async() to True to enable timeout enforcement.",
+                tool_name,
+                timeout,
             )
             return func(**kwargs)
 
@@ -293,22 +292,18 @@ class ToolRegistry:
 
         def worker():
             try:
-                result_queue.put(('success', func(**kwargs)))
+                result_queue.put(("success", func(**kwargs)))
             except Exception as e:
-                result_queue.put(('error', e))
+                result_queue.put(("error", e))
 
         worker_thread = run_in_background(worker, name=f"tool-timeout-{tool_name}")
         worker_thread.join(timeout=timeout)
 
         if worker_thread.is_alive():
-            return {
-                "status": "error",
-                "code": "TOOL_TIMEOUT",
-                "message": f"Tool timed out after {timeout} seconds"
-            }
+            return {"status": "error", "code": "TOOL_TIMEOUT", "message": f"Tool timed out after {timeout} seconds"}
 
         result_type, result = result_queue.get()
-        if result_type == 'error':
+        if result_type == "error":
             raise result  # Will be caught by outer try/except
 
         return result
@@ -362,16 +357,13 @@ class ToolRegistry:
                 is_supported = True  # universal tool
 
             if not is_supported:
-                raise ValueError(
-                    f"Tool {tool_name} does not support the current document"
-                )
+                raise ValueError(f"Tool {tool_name} does not support the current document")
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
             # from API/LLM) do not cause "Unknown parameter" validation errors.
             props = (tool.parameters or {}).get("properties", {})
             if props:
                 kwargs = {k: v for k, v in kwargs.items() if k in props}
-
 
             # Common context for all error details
             common_details = {"tool_name": tool_name}
@@ -383,12 +375,7 @@ class ToolRegistry:
             # Validate parameters
             ok, err = tool.validate(**kwargs)
             if not ok:
-                return {
-                    "status": "error",
-                    "code": "VALIDATION_ERROR",
-                    "message": err,
-                    "details": common_details
-                }
+                return {"status": "error", "code": "VALIDATION_ERROR", "message": err, "details": common_details}
 
             # Emit executing event
             bus = self._services.get("events") if hasattr(self, "_services") and self._services else None
@@ -401,14 +388,7 @@ class ToolRegistry:
             # main-thread check would fail in the worker thread).
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
             run_threaded = bypass_thread_guard or bool(tool.is_async())
-            result = self._execute_with_timeout(
-                runner,
-                timeout=self._get_tool_timeout(tool),
-                tool_name=tool_name,
-                run_threaded=run_threaded,
-                ctx=ctx,
-                **kwargs
-            )
+            result = self._execute_with_timeout(runner, timeout=self._get_tool_timeout(tool), tool_name=tool_name, run_threaded=run_threaded, ctx=ctx, **kwargs)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":
@@ -444,11 +424,7 @@ class ToolRegistry:
                 "status": "error",
                 "code": "TOOL_REGISTRY_ERROR",
                 "message": f"Failed to execute tool '{tool_name}'",
-                "details": {
-                    "tool_name": tool_name,
-                    "error": str(e),
-                    "type": type(e).__name__
-                }
+                "details": {"tool_name": tool_name, "error": str(e), "type": type(e).__name__},
             }
 
     @property

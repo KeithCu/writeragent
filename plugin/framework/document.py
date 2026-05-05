@@ -48,7 +48,7 @@ _DOCUMENT_SERVICE_MAP = {
     DocumentType.WRITER: "com.sun.star.text.TextDocument",
     DocumentType.CALC: "com.sun.star.sheet.SpreadsheetDocument",
     DocumentType.DRAW: "com.sun.star.drawing.DrawingDocument",
-    DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument"
+    DocumentType.IMPRESS: "com.sun.star.presentation.PresentationDocument",
 }
 
 
@@ -256,14 +256,8 @@ class WriterStreamedRewriteSession:
                     fallback_errors.append(f"re-enable tracking failed: {e}")
 
                 if fallback_errors:
-                    return (
-                        "Failed to finalize the tracked edit and preserve the generated text: "
-                        + "; ".join(fallback_errors)
-                    )
-                return (
-                    "Failed to collapse the streamed edit into a single tracked change. "
-                    "The generated text was kept, but it may still appear as multiple tracked changes."
-                )
+                    return "Failed to finalize the tracked edit and preserve the generated text: " + "; ".join(fallback_errors)
+                return "Failed to collapse the streamed edit into a single tracked change. The generated text was kept, but it may still appear as multiple tracked changes."
         finally:
             self._compound_undo.close()
 
@@ -345,9 +339,7 @@ def set_document_property(model, name, value):
         except Exception:
             pass
 
-        logging.getLogger(__name__).warning(
-            "set_document_property error: %s (url=%s, readonly=%s)", e, doc_url, readonly
-        )
+        logging.getLogger(__name__).warning("set_document_property error: %s (url=%s, readonly=%s)", e, doc_url, readonly)
         raise
 
 
@@ -375,7 +367,6 @@ def set_document_property(model, name, value):
 #             del cls._instances[mid]
 
 
-
 def _normalize_doc_url(url):
     """Normalize document URL for comparison (strip, optional trailing slash)."""
     if not url:
@@ -395,6 +386,7 @@ def resolve_document_by_url(ctx, url):
     if not url or not str(url).strip():
         return (None, None)
     from plugin.framework.uno_context import get_desktop
+
     target = _normalize_doc_url(url)
     try:
         desktop = get_desktop(ctx)
@@ -447,7 +439,7 @@ def get_full_document_text(model, max_chars=8000):
     try:
         check_disposed(model, "Document Model")
         doc_type = get_document_type(model)
-        
+
         if doc_type == DocumentType.CALC:
             # Calc document
             bridge = CalcBridge(model)
@@ -457,7 +449,7 @@ def get_full_document_text(model, max_chars=8000):
             text += f"Columns: {', '.join(filter(None, summary['headers']))}\n"
             # Maybe add some preview rows?
             return text
-        
+
         if doc_type == DocumentType.WRITER:
             text = safe_call(model.getText, "Get document text")
             cursor = safe_call(text.createTextCursor, "Create text cursor")
@@ -467,10 +459,10 @@ def get_full_document_text(model, max_chars=8000):
             if len(full) > max_chars:
                 full = full[:max_chars] + "\n\n[... document truncated ...]"
             return full
-        
+
         if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
             return get_draw_context_for_chat(model, max_chars)
-            
+
         return ""
     except UnoObjectError as e:
         logging.getLogger(__name__).warning("get_full_document_text error: %s", e)
@@ -582,10 +574,10 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
 
     if doc_type == DocumentType.CALC:
         return get_calc_context_for_chat(model, max_context, ctx)
-    
+
     if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
         return get_draw_context_for_chat(model, max_context, ctx)
-    
+
     # Original Writer logic
     if doc_type == DocumentType.WRITER:
         try:
@@ -641,18 +633,11 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
             start_excerpt = full[:start_chars]
             end_excerpt = full[-end_chars:]
             # Inject markers into start excerpt
-            start_excerpt = _inject_markers_into_excerpt(
-                start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]"
-            )
+            start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
             # Inject markers into end excerpt (offsets relative to document; excerpt starts at doc_len - end_chars)
-            end_excerpt = _inject_markers_into_excerpt(
-                end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]"
-            )
+            end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
             middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
-            return (
-                "Document length: %d characters.\n\n%s%s%s"
-                % (doc_len, start_excerpt, middle_note, end_excerpt)
-            )
+            return "Document length: %d characters.\n\n%s%s%s" % (doc_len, start_excerpt, middle_note, end_excerpt)
         else:
             # Short doc or start-only: one block
             take = min(doc_len, max_context)
@@ -660,11 +645,9 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
             if doc_len > max_context:
                 excerpt += "\n\n[... document truncated ...]"
             content_len = take  # character range we're showing (before truncation message)
-            excerpt = _inject_markers_into_excerpt(
-                excerpt, 0, content_len, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]"
-            )
+            excerpt = _inject_markers_into_excerpt(excerpt, 0, content_len, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
             return "Document length: %d characters.\n\n%s" % (doc_len, excerpt)
-    
+
     return ""
 
 
@@ -690,17 +673,19 @@ def get_calc_context_for_chat(model, max_context=8000, ctx=None):
             if hasattr(selection, "getRangeAddress"):
                 addr = safe_call(selection.getRangeAddress, "Get range address")
                 from plugin.modules.calc.address_utils import index_to_column
+
                 sel_range = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}:{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
                 ctx_str += f"Current Selection: {sel_range}\n"
 
                 # Check for selected values if small
                 if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
                     from plugin.modules.calc.inspector import CellInspector
+
                     inspector = CellInspector(bridge)
                     cells = inspector.read_range(sel_range)
                     ctx_str += "Selection Content (CSV-like):\n"
                     for row in cells:
-                        ctx_str += ", ".join([str(c['value']) if c['value'] is not None else "" for c in row]) + "\n"
+                        ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
 
         return ctx_str
     except UnoObjectError as e:
@@ -716,10 +701,11 @@ def get_draw_context_for_chat(model, max_context=8000, ctx=None):
     try:
         check_disposed(model, "Document Model")
         from plugin.modules.draw.bridge import DrawBridge
+
         bridge = DrawBridge(model)
         pages = bridge.get_pages()
         active_page = bridge.get_active_page()
-        
+
         is_impress = safe_call(model.supportsService, "Check supportsService", "com.sun.star.presentation.PresentationDocument")
         doc_type = "Impress Presentation" if is_impress else "Draw Document"
 
@@ -743,14 +729,13 @@ def get_draw_context_for_chat(model, max_context=8000, ctx=None):
                 type_name = safe_call(s.getShapeType, "Get shape type").split(".")[-1]
                 pos = safe_call(s.getPosition, "Get position")
                 size = safe_call(s.getSize, "Get size")
-                ctx_str += "- [%d] %s: pos(%d, %d) size(%dx%d)" % (
-                    i, type_name, pos.X, pos.Y, size.Width, size.Height)
+                ctx_str += "- [%d] %s: pos(%d, %d) size(%dx%d)" % (i, type_name, pos.X, pos.Y, size.Width, size.Height)
                 if hasattr(s, "getString"):
                     text = normalize_linebreaks(safe_call(s.getString, "Get string"))
                     if text:
-                        ctx_str += " text: \"%s\"" % text[:200]
+                        ctx_str += ' text: "%s"' % text[:200]
                 ctx_str += "\n"
-            
+
             # Impress-specific: Speaker Notes
             if is_impress and hasattr(active_page, "getNotesPage"):
                 try:
@@ -798,6 +783,7 @@ def _inject_markers_into_excerpt(excerpt_text, excerpt_start, excerpt_end, sel_s
 # ---------------------------------------------------------------------------
 
 import uuid
+
 
 def get_paragraph_ranges(model):
     """Return list of top-level paragraph elements."""
@@ -900,13 +886,13 @@ def ensure_heading_bookmarks(model):
                     bm = safe_call(bookmarks.getByName, "Get bookmark by name", name)
                     idx = find_paragraph_for_range(safe_call(bm.getAnchor, "Get bookmark anchor"), para_ranges, text)
                     existing_map[idx] = name
-        
+
         # 2. Scanthe document for headings
         enum = safe_call(text.createEnumeration, "Create enumeration")
         para_index = 0
         bookmark_map = {}
         needs_bookmark = []
-        
+
         while safe_call(enum.hasMoreElements, "Check more elements"):
             element = safe_call(enum.nextElement, "Get next element")
             if safe_call(element.supportsService, "Check supportsService Paragraph", "com.sun.star.text.Paragraph"):
@@ -940,10 +926,10 @@ def resolve_locator(model, locator: str):
     loc_type, sep, loc_value = locator.partition(":")
     if not sep:
         return {"para_index": 0}
-        
+
     if loc_type == "paragraph":
         return {"para_index": int(loc_value)}
-        
+
     if loc_type == "heading":
         parts = []
         try:
@@ -951,7 +937,7 @@ def resolve_locator(model, locator: str):
         except Exception as e:
             logging.getLogger(__name__).warning("resolve_locator heading parse error: %s", type(e).__name__)
             return {"para_index": 0}
-        
+
         tree = build_heading_tree(model)
         node: HeadingTreeNode = tree
         for part in parts:
@@ -961,7 +947,7 @@ def resolve_locator(model, locator: str):
             else:
                 break
         return {"para_index": node["para_index"]}
-        
+
     if loc_type == "bookmark":
         if hasattr(model, "getBookmarks"):
             bms = model.getBookmarks()
@@ -969,12 +955,13 @@ def resolve_locator(model, locator: str):
                 anchor = bms.getByName(loc_value).getAnchor()
                 para_ranges = get_paragraph_ranges(model)
                 return {"para_index": find_paragraph_for_range(anchor, para_ranges, model.getText())}
-    
+
     return {"para_index": 0}
 
 
 from plugin.framework.service_base import ServiceBase
 from plugin.framework.uno_context import get_ctx
+
 
 class DocumentService(ServiceBase):
     name = "document"
@@ -991,15 +978,27 @@ class DocumentService(ServiceBase):
 
     def detect_doc_type(self, doc):
         doc_type = get_document_type(doc)
-        if doc_type == DocumentType.CALC: return "calc"
-        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS): return "draw"
+        if doc_type == DocumentType.CALC:
+            return "calc"
+        if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+            return "draw"
         return "writer"
 
-    def is_writer(self, doc): return is_writer(doc)
-    def is_calc(self, doc): return is_calc(doc)
-    def is_draw(self, doc): return is_draw(doc)
-    def get_full_text(self, doc, max_chars=8000): return get_full_document_text(doc, max_chars)
-    def get_document_length(self, doc): return get_document_length(doc)
+    def is_writer(self, doc):
+        return is_writer(doc)
+
+    def is_calc(self, doc):
+        return is_calc(doc)
+
+    def is_draw(self, doc):
+        return is_draw(doc)
+
+    def get_full_text(self, doc, max_chars=8000):
+        return get_full_document_text(doc, max_chars)
+
+    def get_document_length(self, doc):
+        return get_document_length(doc)
+
     def get_document_context_for_chat(self, doc, max_context=8000, include_end=True, include_selection=True):
         return get_document_context_for_chat(doc, max_context, include_end, include_selection, get_ctx())
 

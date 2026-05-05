@@ -18,6 +18,7 @@ from plugin.framework.config import get_provider_from_endpoint
 from plugin.framework.utils import normalize_endpoint_url
 from plugin.framework.errors import ConfigError
 
+
 class AuthError(ConfigError):
     """Structured auth error for provider/endpoint configuration problems."""
 
@@ -110,7 +111,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     "google": ProviderConfig(
         id="google",
         name="Google Gemini",
-        # Google often uses ?key=KEY in URL, handled in client.py, but we set style=none 
+        # Google often uses ?key=KEY in URL, handled in client.py, but we set style=none
         # for headers to avoid Bearer interference.
         header_style="none",
         host_matches=("generativelanguage.googleapis.com",),
@@ -240,4 +241,3 @@ def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:
             headers[str(k)] = str(v)
 
     return headers
-

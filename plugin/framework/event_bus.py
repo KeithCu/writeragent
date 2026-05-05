@@ -21,6 +21,7 @@ import logging
 import weakref
 
 from plugin.framework.service_base import ServiceBase
+
 log = logging.getLogger("writeragent.events")
 
 
@@ -70,11 +71,7 @@ class EventBus:
         if not subs:
             return
 
-        self._subscribers[event] = [
-            (cb, is_weak)
-            for cb, is_weak in subs
-            if self._resolve(cb, is_weak) is not callback
-        ]
+        self._subscribers[event] = [(cb, is_weak) for cb, is_weak in subs if self._resolve(cb, is_weak) is not callback]
 
     def emit(self, event, **data):
         """Emit *event*, calling all subscribers with **data as kwargs.
@@ -116,16 +113,14 @@ class EventBus:
         """Called when a weakref target is garbage-collected."""
         subs = self._subscribers.get(event)
         if subs:
-            self._subscribers[event] = [
-                (cb, w) for cb, w in subs if cb is not ref
-            ]
+            self._subscribers[event] = [(cb, w) for cb, w in subs if cb is not ref]
 
 
 def get_event_bus():
     """Return the true singleton EventBus across all LO import contexts."""
-    if not hasattr(sys, '_localwriter_event_bus'):
-        setattr(sys, '_localwriter_event_bus', EventBus())
-    return getattr(sys, '_localwriter_event_bus')
+    if not hasattr(sys, "_localwriter_event_bus"):
+        setattr(sys, "_localwriter_event_bus", EventBus())
+    return getattr(sys, "_localwriter_event_bus")
 
 
 global_event_bus = get_event_bus()

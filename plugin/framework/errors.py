@@ -30,6 +30,7 @@ from plugin.framework.base_errors import (
 )
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
 
+
 class UnoObjectError(WriterAgentException):
     """LibreOffice UNO interface failures (stale docs, missing properties)."""
 
@@ -49,9 +50,7 @@ class ResourceNotFoundError(WriterAgentException):
     """Configuration files, documents, or resources not found."""
 
     def __init__(self, resource_type, identifier, context=None, details=None):
-        message = _("{resource_type} not found: {identifier}").format(
-            resource_type=resource_type, identifier=identifier
-        )
+        message = _("{resource_type} not found: {identifier}").format(resource_type=resource_type, identifier=identifier)
         super().__init__(message, code="RESOURCE_NOT_FOUND", context=context, details=details)
         self.resource_type = resource_type
         self.identifier = identifier
@@ -111,10 +110,13 @@ def check_disposed(model, context_name="Object"):
         # which safe_call handles, but this acts as an early guard if needed.
         pass
 
+
 def safe_uno_call(default=None):
     """Decorator to safely call UNO methods with automatic error handling."""
+
     def decorator(func):
         from functools import wraps
+
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
@@ -124,17 +126,15 @@ def safe_uno_call(default=None):
                 e_name = type(e).__name__
                 if "DisposedException" in e_name or "RuntimeException" in e_name:
                     raise DocumentDisposedError(
-                        f"UNO object disposed during {func.__name__}",
-                        object_type=func.__name__,
-                        details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}
+                        f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"args": str(args), "kwargs": str(kwargs), "original_error": str(e)}
                     ) from e
                 else:
-                    raise UnoObjectError(
-                        f"UNO call {func.__name__} failed",
-                        details={"error": str(e), "type": e_name}
-                    ) from e
+                    raise UnoObjectError(f"UNO call {func.__name__} failed", details={"error": str(e), "type": e_name}) from e
+
         return wrapper
+
     return decorator
+
 
 def handle_errors(context_name):
     """Decorator to catch exceptions and wrap them in WriterAgentException."""
@@ -153,19 +153,14 @@ def handle_errors(context_name):
                 # but catching Exception is the standard way to grab them. We immediately wrap it.
                 e_name = type(e).__name__
                 if "DisposedException" in e_name or "RuntimeException" in e_name:
-                    raise DocumentDisposedError(
-                        f"UNO object disposed during {context_name}",
-                        object_type=context_name,
-                        details={"original_error": str(e)}
-                    ) from e
+                    raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e
                 else:
-                    raise ToolExecutionError(
-                        f"{context_name} failed: {e}",
-                        code="INTERNAL_ERROR",
-                        details={"error": str(e), "type": e_name}
-                    ) from e
+                    raise ToolExecutionError(f"{context_name} failed: {e}", code="INTERNAL_ERROR", details={"error": str(e), "type": e_name}) from e
+
         return wrapper
+
     return decorator
+
 
 def safe_call(fn, context_name, *args, **kwargs):
     """Safely call a UNO method. If it raises any exception (e.g., DisposedException), wrap it in UnoObjectError or DocumentDisposedError."""
@@ -175,12 +170,8 @@ def safe_call(fn, context_name, *args, **kwargs):
         # Catch potential DisposedException and RuntimeException from UNO bridge
         e_name = type(e).__name__
         if "DisposedException" in e_name or "RuntimeException" in e_name:
-            raise DocumentDisposedError(
-                f"UNO object disposed during {context_name}",
-                object_type=context_name,
-                details={"original_error": str(e)}
-            ) from e
-        
+            raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e
+
         # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
         # but catching Exception is the standard way to grab them. We immediately wrap it.
         raise UnoObjectError(f"{context_name} failed: {e}", context={"operation": context_name, "type": e_name}) from e

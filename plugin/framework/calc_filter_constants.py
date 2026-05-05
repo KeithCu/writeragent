@@ -33,9 +33,7 @@ _FILTER_OPERATOR2_CODE_NAMES: tuple[str, ...] = (
     "DOES_NOT_END_WITH",
 )
 
-_NAME_TO_CODE: dict[str, int] = {
-    name: idx for idx, name in enumerate(_FILTER_OPERATOR2_CODE_NAMES)
-}
+_NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(_FILTER_OPERATOR2_CODE_NAMES)}
 
 # Stable tuple of all FilterOperator2 names (for tool JSON schemas).
 FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES

@@ -68,10 +68,8 @@ def msgbox(ctx, title, message):
             return
         window = frame.getContainerWindow()
         smgr = ctx.getServiceManager()
-        toolkit = smgr.createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
-        box = toolkit.createMessageBox(
-            window, 1, 1, _(title), _(message))  # INFOBOX, OK button
+        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+        box = toolkit.createMessageBox(window, 1, 1, _(title), _(message))  # INFOBOX, OK button
         box.execute()
     except Exception:
         log.exception("MSGBOX fallback - %s: %s", title, message)
@@ -105,9 +103,7 @@ def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         title = _("Agent requests approval")
-        message = (description or _("Proceed with this action?")) + (
-            "\n\n" + _("Tool: %s") % tool_name if tool_name else ""
-        )
+        message = (description or _("Proceed with this action?")) + ("\n\n" + _("Tool: %s") % tool_name if tool_name else "")
         log.debug(
             "show_approval_dialog: tool_name=%s parent_frame=%s",
             tool_name,
@@ -148,19 +144,13 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
             return None
 
         smgr = ctx.getServiceManager()
-        dlg_model = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialogModel", ctx
-        )
+        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
         dlg_model.Title = _("Edit search query")
         dlg_model.Width = 280
         dlg_model.Height = 140
 
-        add_dialog_label(
-            dlg_model, "PromptLbl", _("Search query:"), 8, 8, 264, 10, multiline=False
-        )
-        edit = add_dialog_edit(
-            dlg_model, "QueryEdit", initial_text or "", 8, 22, 264, 72, readonly=False
-        )
+        add_dialog_label(dlg_model, "PromptLbl", _("Search query:"), 8, 8, 264, 10, multiline=False)
+        edit = add_dialog_edit(dlg_model, "QueryEdit", initial_text or "", 8, 22, 264, 72, readonly=False)
         edit.MultiLine = True
         edit.VScroll = True
 
@@ -223,8 +213,7 @@ def copy_to_clipboard(ctx, text):
         from com.sun.star.datatransfer import XTransferable, DataFlavor
 
         smgr = ctx.ServiceManager
-        clip = smgr.createInstanceWithContext(
-            "com.sun.star.datatransfer.clipboard.SystemClipboard", ctx)
+        clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", ctx)
 
         class _TextTransferable(unohelper.Base, XTransferable):
             def __init__(self, txt):
@@ -322,11 +311,9 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
         return
     try:
-
         smgr = ctx.ServiceManager
 
-        dlg_model = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialogModel", ctx)
+        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
         dlg_model.Title = _(title)
         dlg_model.Width = 250
         dlg_model.Height = 80
@@ -335,11 +322,9 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         add_dialog_button(dlg_model, "CopyBtn", _("Copy"), 10, 56, 50, 14)
         add_dialog_button(dlg_model, "OKBtn", _("OK"), 190, 56, 50, 14, push_button_type=1)
 
-        dlg = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialog", ctx)
+        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
         dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
+        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         dlg.createPeer(toolkit, None)
 
         class _CopyListener(BaseActionListener):
@@ -351,13 +336,11 @@ def msgbox_with_copy(ctx, title, message, copy_text):
             def on_action_performed(self, rEvent):
                 if copy_to_clipboard(self._ctx, self._text):
                     try:
-                        self._dlg.getModel().getByName("CopyBtn").Label = \
-                                _("Copied!")
+                        self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
                     except Exception as e:
                         log.debug("Failed to set CopyBtn Label: %s", e)
 
-        dlg.getControl("CopyBtn").addActionListener(
-            _CopyListener(dlg, ctx, copy_text))
+        dlg.getControl("CopyBtn").addActionListener(_CopyListener(dlg, ctx, copy_text))
 
         dlg.execute()
         dlg.dispose()
@@ -385,12 +368,10 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         log.info("STATUS (no ctx) - %s", title)
         return
     try:
-
         smgr = ctx.ServiceManager
         initial_text = build_status_fn()
 
-        dlg_model = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialogModel", ctx)
+        dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
         dlg_model.Title = title
         dlg_model.Width = 230
         dlg_model.Height = 110
@@ -400,20 +381,18 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
         # Copy button (disabled until copy_url_fn returns something)
         has_copy = copy_url_fn is not None
         if has_copy:
-            add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 88, 65, 14,
-                              enabled=bool(copy_url_fn() if copy_url_fn else False))
+            add_dialog_button(dlg_model, "CopyBtn", _("Copy URL"), 10, 88, 65, 14, enabled=bool(copy_url_fn() if copy_url_fn else False))
 
         add_dialog_button(dlg_model, "OKBtn", _("OK"), 170, 88, 50, 14, push_button_type=1)
 
-        dlg = smgr.createInstanceWithContext(
-            "com.sun.star.awt.UnoControlDialog", ctx)
+        dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
         dlg.setModel(dlg_model)
-        toolkit = smgr.createInstanceWithContext(
-            "com.sun.star.awt.Toolkit", ctx)
+        toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         dlg.createPeer(toolkit, None)
 
         # Wire copy button
         if has_copy:
+
             class _CopyListener(BaseActionListener):
                 def __init__(self, dialog, context, url_fn):
                     self._dlg = dialog
@@ -424,13 +403,11 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                     url = self._url_fn()
                     if url and copy_to_clipboard(self._ctx, url):
                         try:
-                            self._dlg.getModel().getByName("CopyBtn").Label = \
-                                _("Copied!")
+                            self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
                         except Exception as e:
                             log.debug("Failed to set CopyBtn Label: %s", e)
 
-            dlg.getControl("CopyBtn").addActionListener(
-                _CopyListener(dlg, ctx, copy_url_fn))
+            dlg.getControl("CopyBtn").addActionListener(_CopyListener(dlg, ctx, copy_url_fn))
 
         # Background update
         import time
@@ -468,6 +445,7 @@ def _xcc(ctrl):
     if ctrl is None:
         return None
     from com.sun.star.awt import XControlContainer
+
     try:
         return ctrl.queryInterface(XControlContainer)
     except Exception:
@@ -512,14 +490,14 @@ def translate_dialog(dlg):
 
     # Map control types to their translatable properties
     control_types = {
-        'FixedText': ('Text', 'Label'),
-        'Button': ('Label',),
-        'CheckBox': ('Label',),
-        'RadioButton': ('Label',),
-        'ListBox': ('StringItemList',),
-        'ComboBox': ('StringItemList',),
-        'GroupBox': ('Label',),
-        'FixedLine': ('Label',),
+        "FixedText": ("Text", "Label"),
+        "Button": ("Label",),
+        "CheckBox": ("Label",),
+        "RadioButton": ("Label",),
+        "ListBox": ("StringItemList",),
+        "ComboBox": ("StringItemList",),
+        "GroupBox": ("Label",),
+        "FixedLine": ("Label",),
     }
 
     _xcc_root = None
@@ -540,7 +518,7 @@ def translate_dialog(dlg):
 
             for prop in control_types.get(short_type, ()):
                 try:
-                    if prop == 'StringItemList':
+                    if prop == "StringItemList":
                         # ListBox often exposes getStringItemList on the view; ComboBox
                         # typically only has StringItemList on the model.
                         model = ctrl.getModel()
@@ -554,20 +532,14 @@ def translate_dialog(dlg):
                                 used_control = True
                         except Exception:
                             pass
-                        if not used_control and model is not None and hasattr(
-                            model, "StringItemList"
-                        ):
+                        if not used_control and model is not None and hasattr(model, "StringItemList"):
                             try:
                                 items = model.StringItemList
                                 if items:
-                                    translated = tuple(
-                                        _(item) if item else "" for item in items
-                                    )
+                                    translated = tuple(_(item) if item else "" for item in items)
                                     model.StringItemList = translated
                             except Exception as e:
-                                log.debug(
-                                    "Failed to translate %s.%s: %s", name, prop, e
-                                )
+                                log.debug("Failed to translate %s.%s: %s", name, prop, e)
                     else:
                         model = ctrl.getModel()
                         if hasattr(model, prop):
@@ -592,9 +564,7 @@ def translate_dialog(dlg):
     # ContainerWindow + XDL: root is often ``UnoDialogControl``, which does not
     # implement ``XControlContainer``, so ``getControls()`` is never reached.
     # Fall back to dialog model ``ElementNames`` + ``getControl(name)``.
-    if (
-        _xcc_root is None or root_child_count == 0
-    ) and hasattr(dlg, "getControl") and hasattr(dlg, "getModel"):
+    if (_xcc_root is None or root_child_count == 0) and hasattr(dlg, "getControl") and hasattr(dlg, "getModel"):
         names = _dialog_model_element_names(dlg)
         if names:
             for nm in names:
@@ -641,8 +611,7 @@ def _load_xdl(relative_path):
     assert smgr is not None
     base = get_extension_url()
     url = base + "/" + relative_path
-    dp = cast("Any", smgr).createInstanceWithContext(
-        "com.sun.star.awt.DialogProvider2", ctx_any)
+    dp = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.DialogProvider2", ctx_any)
     return dp.createDialog(url)
 
 
@@ -789,6 +758,7 @@ class TabListener(BaseActionListener):
     The XDL dialog must use dlg:page attributes on controls, and the dialog's Step
     property controls which page is visible.
     """
+
     def __init__(self, dialog, page):
         self._dlg = dialog
         self._page = page

@@ -239,10 +239,7 @@ def context_length_mismatch_warning(
     oi = _as_int(orca_value)
     if ei == oi:
         return None
-    return (
-        f"openrouter {openrouter_id!r} ({display_name}): context_length differs — "
-        f"default_models={existing!r} Orca={orca_value!r}"
-    )
+    return f"openrouter {openrouter_id!r} ({display_name}): context_length differs — default_models={existing!r} Orca={orca_value!r}"
 
 
 def capability_mismatch_warning(

@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unified Image Generation Service for WriterAgent."""
+
 import json
 import logging
 import tempfile
@@ -25,9 +26,7 @@ from plugin.modules.http.requests import sync_request
 from plugin.modules.http.errors import _format_http_error_response
 from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.contrib.aihordeclient import AiHordeClient
-from plugin.framework.config import (
-    get_config_bool, get_config_int, get_config_float, get_config_str
-)
+from plugin.framework.config import get_config_bool, get_config_int, get_config_float, get_config_str
 
 log = logging.getLogger(__name__)
 
@@ -35,9 +34,11 @@ logger = logging.getLogger(__name__)
 
 TRIM_IMAGES_IN_LOG = True
 
+
 class ImageProvider:
     def generate(self, prompt, **kwargs):
         raise NotImplementedError()
+
 
 class EndpointImageProvider(ImageProvider):
     """Uses the endpoint URL and API key from Settings (same as chat). Model from image_model or text model."""
@@ -80,9 +81,7 @@ class EndpointImageProvider(ImageProvider):
         fallback_content = ""
 
         if self.client.config.get("is_openrouter"):
-            method, path, body, headers = self.client.make_chat_request(
-                messages, max_tokens=1000, model=model
-            )
+            method, path, body, headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
             body_dict = json.loads(body)
             body_dict["modalities"] = ["image"]
             if steps is not None and steps > 0:
@@ -90,14 +89,12 @@ class EndpointImageProvider(ImageProvider):
             if "max_tokens" in kwargs:
                 body_dict["max_tokens"] = kwargs["max_tokens"]
 
-            chat_resp = self.client.request_with_tools(
-                messages, body_override=json.dumps(body_dict), model=model
-            )
+            chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model)
             fallback_content = chat_resp.get("content") or ""
 
             # Parse response: OpenRouter etc. may put image in message.images[].image_url.url
             paths = []
-            for img in (chat_resp.get("images") or []):
+            for img in chat_resp.get("images") or []:
                 url = None
                 if isinstance(img, dict):
                     if "image_url" in img and isinstance(img["image_url"], dict):
@@ -109,7 +106,7 @@ class EndpointImageProvider(ImageProvider):
                     continue
 
                 if "data:image" in url:
-                    match = re.search(r'base64,([A-Za-z0-9+/=]+)', url)
+                    match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
                     if match:
                         paths.extend(self._save_b64(match.group(1)))
                 elif url.startswith("http"):
@@ -121,7 +118,11 @@ class EndpointImageProvider(ImageProvider):
             # Use standard /images/generations endpoint (Together, OpenAI, etc.). Optional source_image for img2img.
             valid_steps = steps if (steps is not None and steps > 0) else None
             method, path, body, headers = self.client.make_image_request(
-                prompt, model=model, width=width, height=height, steps=valid_steps,
+                prompt,
+                model=model,
+                width=width,
+                height=height,
+                steps=valid_steps,
                 source_image=kwargs.get("source_image"),
             )
 
@@ -133,9 +134,7 @@ class EndpointImageProvider(ImageProvider):
                 if http_resp.status != 200:
                     err_body = http_resp.read().decode("utf-8", errors="replace")
                     logger.error("Image API Error %d: %s", http_resp.status, err_body)
-                    err_msg = _format_http_error_response(
-                        http_resp.status, http_resp.reason, err_body
-                    )
+                    err_msg = _format_http_error_response(http_resp.status, http_resp.reason, err_body)
                     return [], err_msg
 
                 result = json.loads(http_resp.read().decode("utf-8"))
@@ -144,12 +143,12 @@ class EndpointImageProvider(ImageProvider):
 
                 # Standard OpenAI format: {"data": [{"url": "...", "b64_json": "..."}]}
                 paths = []
-                for img in (result.get("data") or []):
+                for img in result.get("data") or []:
                     if b64 := img.get("b64_json"):
                         paths.extend(self._save_b64(b64))
                     elif url := img.get("url"):
                         if "data:image" in url:
-                            match = re.search(r'base64,([A-Za-z0-9+/=]+)', url)
+                            match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
                             if match:
                                 paths.extend(self._save_b64(match.group(1)))
                         else:
@@ -162,6 +161,7 @@ class EndpointImageProvider(ImageProvider):
                 return [], str(e)
             except Exception as e:
                 from plugin.framework.errors import NetworkError
+
                 if isinstance(e, NetworkError):
                     logger.error("Image generation NetworkError: %s", e)
                     return [], str(e)
@@ -171,7 +171,7 @@ class EndpointImageProvider(ImageProvider):
 
         # Fallback: image in content string (some endpoints)
         if "data:image" in fallback_content:
-            match = re.search(r'base64,([A-Za-z0-9+/=]+)', fallback_content)
+            match = re.search(r"base64,([A-Za-z0-9+/=]+)", fallback_content)
             if match:
                 return self._save_b64(match.group(1)), ""
         if fallback_content.strip().startswith("http"):
@@ -179,11 +179,13 @@ class EndpointImageProvider(ImageProvider):
 
         return [], ""
 
+
 class AIHordeImageProvider(ImageProvider):
     def __init__(self, config, ctx):
         self.ctx = ctx
         self.config = config
         self.api_key = get_config_str(ctx, "aihorde_api_key")
+
         # We need a minimal "informer" to bridge AIHordeClient's callbacks
         class SimpleInformer:
             def __init__(self, outer_ctx):
@@ -191,6 +193,7 @@ class AIHordeImageProvider(ImageProvider):
                 self.toolkit = None
                 self.last_error = ""
                 from plugin.framework.errors import UnoObjectError, safe_call
+
                 try:
                     ctx = outer_ctx.get("ctx")
                     if ctx:
@@ -217,9 +220,14 @@ class AIHordeImageProvider(ImageProvider):
                     except TypeError:
                         pass
 
-            def set_finished(self): pass
-            def get_generated_image_url_status(self): return ["", 0, ""]
-            def set_generated_image_url_status(self, *args): pass
+            def set_finished(self):
+                pass
+
+            def get_generated_image_url_status(self):
+                return ["", 0, ""]
+
+            def set_generated_image_url_status(self, *args):
+                pass
 
             def get_toolkit(self):
                 return self.toolkit
@@ -240,13 +248,7 @@ class AIHordeImageProvider(ImageProvider):
         }
 
         self.client = AiHordeClient(
-            client_version="1.0.0",
-            url_version_update="",
-            client_help_url="",
-            client_download_url="",
-            settings=horde_settings,
-            client_name="WriterAgent_Horde_Client",
-            informer=self.informer
+            client_version="1.0.0", url_version_update="", client_help_url="", client_download_url="", settings=horde_settings, client_name="WriterAgent_Horde_Client", informer=self.informer
         )
         # We need to manually inject the toolkit because SimpleInformer.__init__
         # expects an object with ServiceManager if we passed ctx directly.
@@ -265,7 +267,7 @@ class AIHordeImageProvider(ImageProvider):
             "model": model,
             "api_key": self.api_key,
             "max_wait_minutes": kwargs.get("max_wait", 5),
-            "prompt_strength": kwargs.get("strength", 0.6), # LOSHD uses 1 - init_strength
+            "prompt_strength": kwargs.get("strength", 0.6),  # LOSHD uses 1 - init_strength
             "steps": int(float(kwargs["steps"])) if kwargs.get("steps") is not None and int(float(kwargs["steps"] or 0)) > 0 else 30,
             "seed": kwargs.get("seed", ""),
             "nsfw": kwargs.get("nsfw", False),
@@ -273,7 +275,7 @@ class AIHordeImageProvider(ImageProvider):
         }
         if source_image:
             options["source_image"] = source_image
-            options["mode"] = "MODE_IMG2IMG" # AIHordeClient constant
+            options["mode"] = "MODE_IMG2IMG"  # AIHordeClient constant
             options["init_strength"] = kwargs.get("strength", 0.6)
 
         # AiHordeClient.generate_image is blocking and handles polling internally
@@ -285,6 +287,7 @@ class AIHordeImageProvider(ImageProvider):
             self.informer.last_error = str(e)
         except Exception as e:
             from plugin.framework.errors import NetworkError
+
             if isinstance(e, NetworkError):
                 logger.error("AIHorde generator crashed with NetworkError: %s", e)
             else:
@@ -294,6 +297,7 @@ class AIHordeImageProvider(ImageProvider):
         if not paths and self.informer.last_error:
             return paths, self.informer.last_error
         return paths, ""
+
 
 class ImageService:
     def __init__(self, ctx, config):
@@ -306,6 +310,7 @@ class ImageService:
             return AIHordeImageProvider(self.config, self.ctx)
         if name == "endpoint":
             from plugin.framework.config import get_api_config, get_image_model
+
             api_config = get_api_config(self.ctx).copy()
             cfg = self.config or {}
             api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model(self.ctx)
@@ -327,6 +332,7 @@ class ImageService:
         steps = get_config_int(self.ctx, "image_steps")
 
         from typing import Any
+
         defaults: dict[str, Any] = {
             "width": base_size,
             "height": base_size,
@@ -357,11 +363,13 @@ class ImageService:
             if src_lang:
                 try:
                     from plugin.modules.chatbot.translation_tool import opustm_hf_translate
+
                     prompt = opustm_hf_translate(prompt, src_lang, "English")
                 except (ImportError, ValueError, TypeError) as e:
                     logger.warning("Prompt translation failed (IO/Parse), using original: %s", e)
                 except Exception as e:
                     from plugin.framework.errors import NetworkError
+
                     if isinstance(e, NetworkError):
                         logger.warning("Prompt translation failed (NetworkError), using original: %s", e)
                     else:

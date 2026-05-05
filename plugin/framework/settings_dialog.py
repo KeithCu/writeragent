@@ -15,10 +15,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from plugin.framework.config import (
-    get_config, set_config, get_current_endpoint, as_bool,
-    endpoint_from_selector_text, get_image_model, set_image_model,
-    get_api_key_for_endpoint, set_api_key_for_endpoint,
-    get_config_bool, get_config_int, get_config_float, get_config_str
+    get_config,
+    set_config,
+    get_current_endpoint,
+    as_bool,
+    endpoint_from_selector_text,
+    get_image_model,
+    set_image_model,
+    get_api_key_for_endpoint,
+    set_api_key_for_endpoint,
+    get_config_bool,
+    get_config_int,
+    get_config_float,
+    get_config_str,
 )
 from plugin.framework.event_bus import global_event_bus
 
@@ -26,6 +35,7 @@ import logging
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
+
 
 def get_settings_field_specs(ctx):
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
@@ -60,6 +70,7 @@ def get_settings_field_specs(ctx):
 
     try:
         from plugin._manifest import MODULES
+
         for m in MODULES:
             m_name = str(m.get("name", ""))
             if m_name in ("main", "ai"):
@@ -75,11 +86,11 @@ def get_settings_field_specs(ctx):
 
                 if schema.get("internal") or schema.get("widget") == "list_detail":
                     continue
-                
+
                 prefix = m_name.replace(".", "_")
                 ctrl_id = f"{prefix}__{field_name}"
                 config_key = f"{m_name}.{field_name}"
-                
+
                 str(schema.get("default", ""))
                 val = get_config(ctx, config_key)
                 opts = schema.get("options", [])
@@ -92,7 +103,7 @@ def get_settings_field_specs(ctx):
                             break
 
                 field: dict = {"name": ctrl_id, "value": str(val)}
-                
+
                 # Resolve dynamic options if options_provider is present; else use schema options
                 provider_path = schema.get("options_provider")
                 if provider_path and isinstance(provider_path, str):
@@ -112,16 +123,18 @@ def get_settings_field_specs(ctx):
                     field["type"] = str(schema_type)
                     if schema_type == "bool":
                         field["value"] = "true" if as_bool(val) else "false"
-                        
+
                 field_specs.append(field)
     except ImportError:
         pass
 
     return field_specs
 
+
 def apply_settings_result(ctx, result):
     """Apply settings dialog result to config. Shared by Writer and Calc."""
     from plugin.framework.config import update_lru_history
+
     # Keys to set directly from result; derived from dialog field specs (exclude specially handled ones)
     _apply_skip = ("endpoint", "api_key", "use_aihorde")
     apply_keys = [f["name"] for f in get_settings_field_specs(ctx) if f["name"] not in _apply_skip]
@@ -141,7 +154,7 @@ def apply_settings_result(ctx, result):
     for key in apply_keys:
         if key in result:
             val = result[key]
-            
+
             # Map module__field to module.field for saving in JSON
             save_key = key.replace("__", ".")
 
@@ -151,7 +164,7 @@ def apply_settings_result(ctx, result):
                     val = int(float(val))
                 except (ValueError, TypeError):
                     pass
-            
+
             # Map translated display label back to stored value for select/combo widgets
             spec = _field_specs_by_name.get(key)
             if spec and "options" in spec and val:
@@ -169,15 +182,16 @@ def apply_settings_result(ctx, result):
                     f_val = float(val)
                     if f_val > 1.0:
                         from plugin.framework.dialogs import msgbox
+
                         msgbox(ctx, _("Invalid Setting"), _("Temperature must be <= 1.0"))
                         continue
                     if f_val < 0:
                         val = -1.0
                 except (ValueError, TypeError):
                     pass
-            
+
             set_config(ctx, save_key, val)
-            
+
             # Update LRU history
             if key == "text_model" and val:
                 update_lru_history(ctx, val, "model_lru", current_endpoint)
@@ -198,7 +212,7 @@ def apply_settings_result(ctx, result):
     # Update endpoint_lru when user changed endpoint (endpoint already set above)
     if "endpoint" in result and effective_endpoint:
         update_lru_history(ctx, effective_endpoint, "endpoint_lru", "")
-    
+
     if "api_key" in result:
         set_api_key_for_endpoint(ctx, current_endpoint, result["api_key"])
 
@@ -207,7 +221,7 @@ def apply_settings_result(ctx, result):
 
 def _call_options_provider(ctx, provider_path):
     """Import a module and call a function to get options.
-    
+
     provider_path format: "plugin.framework.ai:get_text_instance_options"
     The function receives the ServiceRegistry as its argument.
     """
@@ -215,10 +229,12 @@ def _call_options_provider(ctx, provider_path):
     try:
         module_path, func_name = provider_path.rsplit(":", 1)
         import importlib
+
         mod = importlib.import_module(module_path)
         func = getattr(mod, func_name)
-        
+
         from plugin.main import get_services
+
         services = get_services()
         options = func(services)
         log.debug(f"_call_options_provider success: {len(options)} options returned")
@@ -226,11 +242,14 @@ def _call_options_provider(ctx, provider_path):
     except (ImportError, AttributeError, ValueError) as e:
         log.error(f"_call_options_provider load FAILED for {provider_path}: {e}")
         import traceback
+
         log.error(traceback.format_exc())
         raise
     except Exception as e:
         log.error(f"_call_options_provider execution FAILED for {provider_path}: {e}")
         import traceback
+
         log.error(traceback.format_exc())
         from plugin.framework.errors import ConfigError
+
         raise ConfigError(f"Options provider {provider_path} failed: {e}") from e

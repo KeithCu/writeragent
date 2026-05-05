@@ -24,20 +24,24 @@ def native_test(func):
     func._is_test = True
     try:
         import pytest
+
         func = pytest.mark.skip(reason="Run by native runner only")(func)
     except ImportError:
         pass
     return func
+
 
 def setup(func):
     """Decorator to mark a function as the setup routine for a test module."""
     func._is_setup = True
     return func
 
+
 def teardown(func):
     """Decorator to mark a function as the teardown routine for a test module."""
     func._is_teardown = True
     return func
+
 
 def _run_suite(
     ctx: Any,
@@ -52,12 +56,14 @@ def _run_suite(
     Executes setup(ctx), then all tests(ctx), then teardown(ctx).
     """
     passed, failed, suite_log = run_module_suite(ctx, module, name, *args)
-    suites.append({
-        "name": name,
-        "passed": passed,
-        "failed": failed,
-        "log": suite_log,
-    })
+    suites.append(
+        {
+            "name": name,
+            "passed": passed,
+            "failed": failed,
+            "log": suite_log,
+        }
+    )
 
 
 def run_module_suite(ctx, module, name, doc_model=None):
@@ -106,12 +112,10 @@ def run_module_suite(ctx, module, name, doc_model=None):
             setup_name = getattr(setup_func, "__name__", repr(setup_func))
             suite_log.append(f"Running setup: {setup_name}")
             import inspect
+
             try:
                 sig = inspect.signature(setup_func)
-                expects_ctx = any(
-                    p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
-                    for p in sig.parameters.values()
-                )
+                expects_ctx = any(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL) for p in sig.parameters.values())
             except Exception:
                 expects_ctx = True
             if expects_ctx:
@@ -158,12 +162,10 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 teardown_name = getattr(teardown_func, "__name__", repr(teardown_func))
                 suite_log.append(f"Running teardown: {teardown_name}")
                 import inspect
+
                 try:
                     sig = inspect.signature(teardown_func)
-                    expects_ctx = any(
-                        p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)
-                        for p in sig.parameters.values()
-                    )
+                    expects_ctx = any(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL) for p in sig.parameters.values())
                 except Exception:
                     expects_ctx = True
                 if expects_ctx:
@@ -208,6 +210,7 @@ def run_all_tests(ctx: Any) -> str:
     # otherwise the underlying helpers will create their own temporary docs.
     try:
         from plugin.framework.uno_context import get_active_document
+
         model = get_active_document(ctx)
     except ImportError:
         model = None
@@ -269,10 +272,7 @@ def run_all_tests(ctx: Any) -> str:
 
                 restore_snapshot: Dict[str, Any] | None = None
                 try:
-                    restore_snapshot = {
-                        k: sys.modules.get(k, _MISSING)
-                        for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
-                    }
+                    restore_snapshot = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
                     spec = importlib.util.spec_from_file_location(f"plugin.tests.uno.{module_name}", module_path)
                     if spec is None or spec.loader is None:
                         continue
@@ -338,8 +338,7 @@ def main() -> int:
     except Exception as e:
         # Typical in CI/headless shells: no soffice pipe (BootstrapException, NoConnectException, etc.)
         print(
-            "SKIP: LibreOffice UNO bootstrap failed; skipping in-LO tests.\n"
-            f"  ({type(e).__name__}: {e})",
+            f"SKIP: LibreOffice UNO bootstrap failed; skipping in-LO tests.\n  ({type(e).__name__}: {e})",
             flush=True,
         )
         return 0

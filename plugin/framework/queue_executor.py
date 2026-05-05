@@ -20,9 +20,9 @@ from typing import Any, Callable, cast
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
+
 class _WorkItem:
-    __slots__ = ("id", "fn", "args", "kwargs", "blocking", "event",
-                 "result", "exception", "cancelled")
+    __slots__ = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled")
 
     def __init__(self, item_id, fn, args, kwargs, blocking=True):
         self.id = item_id
@@ -34,6 +34,7 @@ class _WorkItem:
         self.result = None
         self.exception = None
         self.cancelled = False
+
 
 class QueueExecutor:
     """Execute functions on main thread using queue system."""
@@ -54,21 +55,19 @@ class QueueExecutor:
                 return self._async_callback_service
             try:
                 import uno
+
                 ctx = uno.getComponentContext()
                 assert ctx is not None
                 ctx_any = cast("Any", ctx)
                 smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
                 assert smgr is not None
-                self._async_callback_service = cast("Any", smgr).createInstanceWithContext(
-                    "com.sun.star.awt.AsyncCallback", ctx_any)
+                self._async_callback_service = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx_any)
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance returned None")
                 self._callback_instance = self._make_callback_instance()
                 log.info("QueueExecutor initialized (AsyncCallback ready)")
             except Exception as exc:
-                log.warning(
-                    "AsyncCallback unavailable (%s) — UNO calls will run "
-                    "in the HTTP thread (legacy behaviour)", exc)
+                log.warning("AsyncCallback unavailable (%s) — UNO calls will run in the HTTP thread (legacy behaviour)", exc)
                 self._async_callback_service = None
             self._initialized = True
             return self._async_callback_service
@@ -101,8 +100,7 @@ class QueueExecutor:
             return
 
         if item.cancelled:
-            log.debug("QueueExecutor: skipping cancelled item %s (%s)",
-                      item.id, getattr(item.fn, "__name__", "<fn>"))
+            log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
         else:
             try:
                 item.result = item.fn(*item.args, **item.kwargs)
@@ -122,8 +120,8 @@ class QueueExecutor:
             return
         try:
             import uno
-            self._async_callback_service.addCallback(
-                self._callback_instance, uno.Any("void", None))  # type: ignore
+
+            self._async_callback_service.addCallback(self._callback_instance, uno.Any("void", None))  # type: ignore
         except Exception as e:
             log.debug("_poke_main_thread with Any failed, retrying without: %s", e)
             try:
@@ -146,9 +144,7 @@ class QueueExecutor:
             # so process_queue drops it instead of running the fn against an
             # abandoned caller.
             item.cancelled = True
-            raise TimeoutError(
-                "Main-thread execution of %s timed out after %ss"
-                % (getattr(item.fn, "__name__", str(item.fn)), timeout))
+            raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
 
         if item.exception is not None:
             raise item.exception
@@ -189,13 +185,16 @@ class QueueExecutor:
 
         self._enqueue_work(fn, args, kwargs, blocking=False)
 
+
 # We can keep a global default instance to mimic the old main_thread behavior
 # until everything is fully DI injected.
 default_executor = QueueExecutor()
 
+
 def execute_on_main_thread(fn, *args, timeout=30.0, **kwargs):
     """Legacy helper: Use default_executor.execute instead."""
     return default_executor.execute(fn, *args, timeout=timeout, **kwargs)
+
 
 def post_to_main_thread(fn, *args, **kwargs):
     """Legacy helper: Use default_executor.post instead."""

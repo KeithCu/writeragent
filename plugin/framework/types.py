@@ -19,6 +19,7 @@
 from enum import IntFlag
 from typing import Any, Literal, TypedDict
 
+
 # Model capabilities bitmasks (compatible with OnlyOfficeAI values)
 class ModelCapability(IntFlag):
     NONE = 0
@@ -32,8 +33,10 @@ class ModelCapability(IntFlag):
     VISION = 128
     TOOLS = 256
 
+
 # Status values for tool execution results
 StatusValue = Literal["ok", "error"]
+
 
 # Type for tool execution results (base type)
 class ToolResult(TypedDict, total=False):
@@ -42,23 +45,24 @@ class ToolResult(TypedDict, total=False):
     message: str
     details: dict[str, Any]
 
+
 # Type for successful tool execution results
 class ToolSuccess(TypedDict):
     status: Literal["ok"]
     # Other fields are optional in success case
 
-# Type for failed tool execution results  
+
+# Type for failed tool execution results
 class ToolError(TypedDict):
     status: Literal["error"]
     code: str
     message: str
     details: dict[str, Any]
 
+
 # Send-handler FSM (plugin.modules.chatbot.state_machine)
 SendHandlerKind = Literal["audio", "image", "agent", "web"]
-SendHandlerFsmStatus = Literal[
-    "ready", "starting", "running", "done", "error", "stopped"
-]
+SendHandlerFsmStatus = Literal["ready", "starting", "running", "done", "error", "stopped"]
 # CompleteJobEffect.terminal_status (UI / job completion; capitalized)
 SendHandlerCompleteStatus = Literal["Error", "Stopped", "Ready"]
 

@@ -63,6 +63,7 @@ def should_prepend_dev_llm_system_prefix() -> bool:
     """True when this bundle includes test modules (same signal as the optional Debug / in-OXT tests)."""
     try:
         import importlib.util
+
         return importlib.util.find_spec("plugin.tests.uno") is not None
     except Exception:
         return False
@@ -103,8 +104,7 @@ Prioritize what reduces future user steering."""
 
 # Brief hint for gateway tool JSON schemas (full rules: WRITER_SPECIALIZED_DELEGATION_TEMPLATE).
 DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
-    "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). "
-    "Be specific enough to use that power—vague tasks leave choices underspecified."
+    "Instructions for the sub-agent: it has the full tool/API surface for this domain (all parameters). Be specific enough to use that power—vague tasks leave choices underspecified."
 )
 
 # Shape catalog size: LibreOffice core maps ~400+ preset names (e.g. svx EnhancedCustomShapeTypeNames.cxx).
@@ -284,6 +284,7 @@ DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
 def _(x):
     return x
 
+
 DEFAULT_WRITER_GREETING = _("AI: I can edit or translate your document instantly with professional formatting and color. Try me!")
 DEFAULT_CALC_GREETING = _("AI: I can help you with formulas, data analysis, and colorful charts. Try me!")
 DEFAULT_DRAW_GREETING = _("AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!")
@@ -297,6 +298,7 @@ def get_greeting_for_document(model):
     """Return a greeting relevant to the document type."""
     from plugin.framework.i18n import _
     from plugin.framework.document import is_calc, is_draw
+
     if is_calc(model):
         return _(DEFAULT_CALC_GREETING)
     elif is_draw(model):
@@ -310,8 +312,10 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
     from plugin.framework.document import is_calc, is_draw
+
     if is_calc(model):
         from plugin.modules.calc.base import ToolCalcSpecialBase
+
         domains = []
         for cls in ToolCalcSpecialBase.__subclasses__():
             if cls.specialized_domain:
@@ -319,12 +323,13 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         domains_str = ", ".join(domains)
         delegation = CALC_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
-        
+
         global DEFAULT_CALC_CHAT_SYSTEM_PROMPT
         if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
             DEFAULT_CALC_CHAT_SYSTEM_PROMPT = base
     elif is_draw(model):
         from plugin.modules.draw.base import ToolDrawSpecialBase
+
         domains = []
         for cls in ToolDrawSpecialBase.__subclasses__():
             if cls.specialized_domain:
@@ -339,6 +344,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     else:
         # Generate domain list dynamically
         from plugin.modules.writer.base import ToolWriterSpecialBase
+
         domains = []
         for cls in ToolWriterSpecialBase.__subclasses__():
             if cls.specialized_domain:
@@ -356,12 +362,14 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     if ctx:
         try:
             from plugin.modules.chatbot.memory import MemoryStore
+
             store = MemoryStore(ctx)
             user_mem = store.read("user")
             if user_mem:
                 base += "\n\n[USER PROFILE / MEMORY]\n" + user_mem.strip() + "\n"
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).debug(f"Failed to read user memory for prompt: {e}")
 
     if additional_instructions and str(additional_instructions).strip():

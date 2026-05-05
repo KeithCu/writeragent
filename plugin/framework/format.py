@@ -37,6 +37,7 @@ class FormatService(ServiceBase):
     def export_as_text(self, model, max_chars=None):
         """Export document content as plain text."""
         from plugin.framework.errors import UnoObjectError, safe_call
+
         try:
             text = safe_call(model.getText, "Get document text")
             cursor = safe_call(text.createTextCursor, "Create text cursor")
@@ -57,6 +58,7 @@ class FormatService(ServiceBase):
             HTML string, or empty string on error.
         """
         from plugin.framework.errors import UnoObjectError, safe_call
+
         try:
             import uno
             from com.sun.star.beans import PropertyValue
@@ -89,13 +91,12 @@ class FormatService(ServiceBase):
             True on success, False on error.
         """
         from plugin.framework.errors import UnoObjectError, safe_call
+
         try:
             import uno
             from com.sun.star.beans import PropertyValue
 
-            with tempfile.NamedTemporaryFile(
-                suffix=".html", delete=False, mode="w", encoding="utf-8"
-            ) as tmp:
+            with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as tmp:
                 tmp.write(html)
                 tmp_path = tmp.name
 
@@ -104,9 +105,7 @@ class FormatService(ServiceBase):
             cursor = safe_call(text.createTextCursor, "Create text cursor")
             safe_call(cursor.gotoStart, "Cursor gotoStart", False)
             safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-            safe_call(cursor.insertDocumentFromURL, "Insert document from HTML", url, (
-                PropertyValue("FilterName", 0, "HTML (StarWriter)", 0),
-            ))
+            safe_call(cursor.insertDocumentFromURL, "Insert document from HTML", url, (PropertyValue("FilterName", 0, "HTML (StarWriter)", 0),))
             os.unlink(tmp_path)
             return True
         except OSError as e:

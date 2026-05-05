@@ -21,9 +21,10 @@ from plugin.contrib.smolagents.models import Model, ChatMessage, TokenUsage
 
 class WriterAgentSmolModel(Model):
     """
-    A wrapper that implements `smolagents.models.Model` by delegating 
+    A wrapper that implements `smolagents.models.Model` by delegating
     requests to WriterAgent's `LlmClient` (`core.api`).
     """
+
     def __init__(self, llm_client, max_tokens=1024, status_callback=None, **kwargs):
         super().__init__(**kwargs)
         self.api = llm_client
@@ -38,7 +39,7 @@ class WriterAgentSmolModel(Model):
             tools_to_call_from=tools_to_call_from,
             **kwargs,
         )
-        
+
         msg_dicts = completion_kwargs.get("messages", [])
 
         if self._status_callback:
@@ -56,7 +57,7 @@ class WriterAgentSmolModel(Model):
             response_format=response_format,
             prepend_dev_build_system_prefix=False,
         )
-        
+
         if self._status_callback:
             self._status_callback("Model responded, processing...")
 
@@ -78,4 +79,3 @@ class WriterAgentSmolModel(Model):
             raw=result,
             token_usage=token_usage,
         )
-

@@ -10,9 +10,7 @@ import copy
 from typing import Any
 
 # Keys WriterAgent builds; extras must not replace these.
-OPENROUTER_CHAT_EXTRA_BLOCKLIST: frozenset[str] = frozenset(
-    {"messages", "tools", "tool_choice", "stream"}
-)
+OPENROUTER_CHAT_EXTRA_BLOCKLIST: frozenset[str] = frozenset({"messages", "tools", "tool_choice", "stream"})
 
 
 def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:

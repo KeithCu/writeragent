@@ -80,6 +80,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         if domain == "web_research":
             from plugin.modules.chatbot.web_research import WebResearchTool
+
             tool = WebResearchTool()
             return tool.execute(ctx, query=task)
 
@@ -88,9 +89,7 @@ class DelegateToSpecializedBase(ToolBase):
             if getattr(ctx, "set_active_domain_callback", None):
                 ctx.set_active_domain_callback(domain)
 
-            msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. "
-                    "You must call 'specialized_workflow_finished' when done to restore "
-                    "the full set of APIs.").format(domain)
+            msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. You must call 'specialized_workflow_finished' when done to restore the full set of APIs.").format(domain)
 
             if status_callback:
                 status_callback(f"Switched to '{domain}' tools.")
@@ -119,15 +118,9 @@ class DelegateToSpecializedBase(ToolBase):
                 domain_tools.append(t)
 
         if not domain_tools:
-            return self._tool_error(
-                f"No specialized tools found for domain '{domain}'. "
-                f"Ensure the tools are implemented and registered."
-            )
+            return self._tool_error(f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered.")
 
-        smol_tools = [
-            SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized")
-            for t in domain_tools
-        ]
+        smol_tools = [SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized") for t in domain_tools]
 
         footnotes_hint = ""
         if domain == "footnotes":
@@ -166,14 +159,8 @@ class DelegateToSpecializedBase(ToolBase):
             if status_callback:
                 status_callback(f"Tool: {step.name}...")
 
-        final_ans = executor.execute_safe(
-            agent, 
-            cast("str", task), 
-            tool_call_handler=tool_call_handler,
-            stop_message="Specialized task stopped by user.",
-            error_prefix="Specialized agent failed"
-        )
-        
+        final_ans = executor.execute_safe(agent, cast("str", task), tool_call_handler=tool_call_handler, stop_message="Specialized task stopped by user.", error_prefix="Specialized agent failed")
+
         if isinstance(final_ans, dict) and "status" in final_ans:
             return final_ans
 

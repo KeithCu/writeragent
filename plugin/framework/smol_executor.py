@@ -45,7 +45,7 @@ class SmolAgentExecutor:
         Args:
             agent: The smolagents Agent instance to run.
             task: The task string for the agent.
-            tool_call_handler: Optional callback to handle ToolCall steps. 
+            tool_call_handler: Optional callback to handle ToolCall steps.
                               If provided, it should handle UI reporting for tools.
                               If it returns a value that is not None, the loop exits
                               and returns that value (useful for error payloads).
@@ -131,6 +131,7 @@ class SmolAgentExecutor:
             return format_error_payload(err)
         except Exception as e:
             from plugin.framework.errors import NetworkError
+
             if isinstance(e, NetworkError):
                 log.error(f"{error_prefix} NetworkError: %s", e)
             else:

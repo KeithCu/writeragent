@@ -53,15 +53,10 @@ class ServiceRegistry:
         log = logging.getLogger("writeragent.services")
 
         for name, obj in inspect.getmembers(module, inspect.isclass):
-            if (issubclass(obj, ServiceBase) and
-                obj is not ServiceBase and
-                obj.__module__ == module.__name__ and
-                not inspect.isabstract(obj) and
-                getattr(obj, "name", None)):
-
+            if issubclass(obj, ServiceBase) and obj is not ServiceBase and obj.__module__ == module.__name__ and not inspect.isabstract(obj) and getattr(obj, "name", None):
                 try:
                     # Instantiate by passing the registry itself as 'services'
-                    svc_instance = (obj)(self) if hasattr(obj, "__init__") else (obj)() # type: ignore
+                    svc_instance = (obj)(self) if hasattr(obj, "__init__") else (obj)()  # type: ignore
                     self.register(obj.name, svc_instance)
                 except (TypeError, ValueError, ImportError) as e:
                     log.error("Failed to instantiate service %s (TypeError/ValueError/ImportError): %s", obj.__name__, e)
@@ -100,6 +95,7 @@ class ServiceRegistry:
                     # Generic catch is somewhat acceptable during global teardown to ensure other services
                     # still get their shutdown called, but we must log it so we aren't swallowing shutdown errors silently.
                     import logging
+
                     logging.getLogger(__name__).error("Service %s failed during shutdown: %s", name, e)
 
     @property

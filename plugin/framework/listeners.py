@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 
 def _catch_and_log(func):
     """Decorator to catch and log exceptions in UNO listener callbacks."""
+
     @functools.wraps(func)
     def wrapper(self, ev, *args, **kwargs):
         try:
@@ -42,6 +43,7 @@ def _catch_and_log(func):
         except Exception as e:
             # Base UNO listeners must not leak arbitrary Python exceptions into the C++ bridge.
             log.error(f"{self.__class__.__name__} unhandled exception in {func.__name__}: %s", e, exc_info=True)
+
     return wrapper
 
 

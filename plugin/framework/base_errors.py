@@ -20,6 +20,7 @@
 from typing import Any
 from plugin.framework.i18n import _
 
+
 class WriterAgentException(Exception):
     """Base exception for all WriterAgent errors.
 

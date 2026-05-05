@@ -32,9 +32,7 @@ def _is_list(x: object) -> bool:
     return isinstance(x, list)
 
 
-def accumulate_delta(
-    acc: dict[object, object], delta: dict[object, object]
-) -> dict[object, object]:
+def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> dict[object, object]:
     """Merge a streaming chunk delta into an accumulated message/snapshot.
 
     Required for tool-calling: used in stream_request_with_tools to build the full
@@ -63,38 +61,28 @@ def accumulate_delta(
 
         if isinstance(acc_value, str) and isinstance(delta_value, str):
             acc_value += delta_value
-        elif isinstance(acc_value, (int, float)) and isinstance(
-            delta_value, (int, float)
-        ):
+        elif isinstance(acc_value, (int, float)) and isinstance(delta_value, (int, float)):
             acc_value += delta_value
         elif isinstance(acc_value, dict) and isinstance(delta_value, dict):
             acc_value = accumulate_delta(cast("dict[object, object]", acc_value), cast("dict[object, object]", delta_value))
         elif isinstance(acc_value, list) and isinstance(delta_value, list):
             # for lists of non-dictionary items we'll only ever get new entries
             # in the array, existing entries will never be changed
-            if all(
-                isinstance(x, (str, int, float)) for x in acc_value
-            ):
+            if all(isinstance(x, (str, int, float)) for x in acc_value):
                 cast("list[Any]", acc_value).extend(delta_value)
                 continue
 
             for delta_entry in delta_value:
                 if not isinstance(delta_entry, dict):
-                    raise TypeError(
-                        f"Unexpected list delta entry is not a dictionary: {delta_entry}"
-                    )
+                    raise TypeError(f"Unexpected list delta entry is not a dictionary: {delta_entry}")
 
                 try:
                     index = cast("dict[str, Any]", delta_entry)["index"]
                 except KeyError as exc:
-                    raise RuntimeError(
-                        f"Expected list delta entry to have an `index` key; {delta_entry}"
-                    ) from exc
+                    raise RuntimeError(f"Expected list delta entry to have an `index` key; {delta_entry}") from exc
 
                 if not isinstance(index, int):
-                    raise TypeError(
-                        f"Unexpected, list delta entry `index` value is not an integer; {index}"
-                    )
+                    raise TypeError(f"Unexpected, list delta entry `index` value is not an integer; {index}")
 
                 try:
                     acc_entry = cast("list[Any]", acc_value)[index]
@@ -104,10 +92,7 @@ def accumulate_delta(
                     if not isinstance(acc_entry, dict):
                         raise TypeError("not handled yet")
 
-                    cast("list[Any]", acc_value)[index] = accumulate_delta(
-                        cast("dict[object, object]", acc_entry), 
-                        cast("dict[object, object]", delta_entry)
-                    )
+                    cast("list[Any]", acc_value)[index] = accumulate_delta(cast("dict[object, object]", acc_entry), cast("dict[object, object]", delta_entry))
 
         acc[key] = acc_value
 
