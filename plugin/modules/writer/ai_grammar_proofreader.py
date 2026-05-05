@@ -186,7 +186,41 @@ class _GrammarWorkQueue:
             len(item.full_text[item.n_start : item.n_end]),
             self._slice_preview(item),
         )
-        self._q.put(item)
+
+        # Enqueue-time replace-in-place (bounded 10-item scan using queue.Queue internals).
+        # We use the internal mutex and deque to update the best request in-flight
+        # before it even reaches the drain loop.
+        with self._q.mutex:
+            found = False
+            for i, existing in enumerate(self._q.queue):
+                if i >= 10:
+                    break
+                if existing is not None and existing.inflight_key == item.inflight_key:
+                    if item.enqueue_seq > existing.enqueue_seq:
+                        log.info(
+                            "[grammar] queue replace-in-place key=%s: seq=%s replacing older seq=%s at index=%s",
+                            item.inflight_key,
+                            item.enqueue_seq,
+                            existing.enqueue_seq,
+                            i,
+                        )
+                        self._q.queue[i] = item
+                    else:
+                        log.info(
+                            "[grammar] queue skip-duplicate key=%s: incoming seq=%s is not newer than existing seq=%s at index=%s",
+                            item.inflight_key,
+                            item.enqueue_seq,
+                            existing.enqueue_seq,
+                            i,
+                        )
+                    found = True
+                    break
+
+            if not found:
+                self._q.queue.append(item)
+                self._q.unfinished_tasks += 1
+                self._q.not_empty.notify()
+
         self._ensure_worker()
 
     def _ensure_worker(self) -> None:

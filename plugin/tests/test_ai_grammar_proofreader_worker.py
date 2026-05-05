@@ -179,3 +179,77 @@ def test_queue_stale_check_allows_latest_item() -> None:
     )
     q._latest_seq[item.inflight_key] = 9
     assert q._is_stale(item) is False
+
+
+def test_enqueue_replace_in_place() -> None:
+    q = proofreader._GrammarWorkQueue()
+    # Prevent the background worker from starting so we can inspect the queue
+    q._worker_started = True
+    item1 = GrammarWorkItem(
+        ctx=None,
+        full_text="First version",
+        n_start=0,
+        n_end=13,
+        grammar_bcp47="en-US",
+        partial_sentence=False,
+        doc_id="doc-1",
+        inflight_key="doc-1|en-US",
+        enqueue_seq=1,
+    )
+    item2 = GrammarWorkItem(
+        ctx=None,
+        full_text="Second version",
+        n_start=0,
+        n_end=14,
+        grammar_bcp47="en-US",
+        partial_sentence=False,
+        doc_id="doc-1",
+        inflight_key="doc-1|en-US",
+        enqueue_seq=2,
+    )
+
+    q.enqueue(item1)
+    assert len(list(q._q.queue)) == 1
+    assert q._q.queue[0].enqueue_seq == 1
+
+    # Second item with same key should replace the first
+    q.enqueue(item2)
+    assert len(list(q._q.queue)) == 1
+    assert q._q.queue[0].enqueue_seq == 2
+    assert q._q.queue[0].full_text == "Second version"
+
+
+def test_enqueue_skip_stale_duplicate() -> None:
+    q = proofreader._GrammarWorkQueue()
+    # Prevent the background worker from starting so we can inspect the queue
+    q._worker_started = True
+    item1 = GrammarWorkItem(
+        ctx=None,
+        full_text="Newer version",
+        n_start=0,
+        n_end=13,
+        grammar_bcp47="en-US",
+        partial_sentence=False,
+        doc_id="doc-1",
+        inflight_key="doc-1|en-US",
+        enqueue_seq=10,
+    )
+    item2 = GrammarWorkItem(
+        ctx=None,
+        full_text="Stale version",
+        n_start=0,
+        n_end=13,
+        grammar_bcp47="en-US",
+        partial_sentence=False,
+        doc_id="doc-1",
+        inflight_key="doc-1|en-US",
+        enqueue_seq=5,
+    )
+
+    q.enqueue(item1)
+    assert q._q.queue[0].enqueue_seq == 10
+
+    # Stale item with same key should be ignored
+    q.enqueue(item2)
+    assert len(list(q._q.queue)) == 1
+    assert q._q.queue[0].enqueue_seq == 10
