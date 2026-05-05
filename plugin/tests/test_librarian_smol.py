@@ -72,8 +72,14 @@ class TestLibrarianSmol(unittest.TestCase):
             # Simulate steps: one ActionStep with switch_mode
             step1 = ActionStep(step_number=1, timing=Timing(start_time=time.time()))
             step1.observations = "{'status': 'switch_mode', 'message': 'See you in document mode!'}"
-            
-            mock_agent.run.return_value = [step1]
+
+            def _switch_then_fail_gen():
+                yield step1
+                raise AssertionError(
+                    "Librarian must stop after switch_mode without consuming further smol steps"
+                )
+
+            mock_agent.run.return_value = _switch_then_fail_gen()
             
             tool = LibrarianOnboardingTool()
             res = tool.execute(ctx, query="switch me")

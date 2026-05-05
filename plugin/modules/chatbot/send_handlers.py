@@ -635,6 +635,7 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.CHUNK, msg))
                         self.session.add_assistant_message(content=msg)
                     else:
+                        self._in_librarian_mode = False
                         from plugin.framework.i18n import _
                         msg = data.get("message", _("Unknown librarian error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))

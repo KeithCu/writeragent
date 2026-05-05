@@ -4,6 +4,7 @@
 # This program is free software.
 
 import logging
+import re
 import traceback
 from typing import Iterable, cast
 
@@ -148,7 +149,6 @@ TOOLS FOR COMPLETION:
             task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
 
             final_ans = None
-            switch_mode_requested = False
 
             run_stream = cast("Iterable", agent.run(task, stream=True))
             for step in run_stream:
@@ -183,25 +183,28 @@ TOOLS FOR COMPLETION:
 
                         if step.observations:
                             msg += f"Observation: {str(step.observations).strip()}\n"
-                            # If the observation is our switch mode status, break early
                             obs_str = str(step.observations)
                             if "'status': 'switch_mode'" in obs_str:
-                                switch_mode_requested = True
-                                # Try to extract the message from the observation
-                                import re
                                 match = re.search(r"'message': '([^']*)'", obs_str)
-                                if match:
-                                    final_ans = match.group(1)
+                                handoff = match.group(1) if match else None
+                                append_thinking_callback(msg + "\n")
+                                return {
+                                    "status": "switch_mode",
+                                    "result": str(handoff) if handoff else "Switching to document mode.",
+                                }
 
                         append_thinking_callback(msg + "\n")
+                    elif step.observations:
+                        obs_str = str(step.observations)
+                        if "'status': 'switch_mode'" in obs_str:
+                            match = re.search(r"'message': '([^']*)'", obs_str)
+                            handoff = match.group(1) if match else None
+                            return {
+                                "status": "switch_mode",
+                                "result": str(handoff) if handoff else "Switching to document mode.",
+                            }
                 elif isinstance(step, FinalAnswerStep):
                     final_ans = step.output
-
-            if switch_mode_requested:
-                return {
-                    "status": "switch_mode",
-                    "result": str(final_ans) if final_ans else "Switching to document mode."
-                }
 
             return {
                 "status": "ok",
