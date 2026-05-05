@@ -148,6 +148,9 @@ except ImportError:
 _ENQUEUE_SEQ_LOCK = threading.Lock()
 _ENQUEUE_SEQ = 0
 
+# INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
+_GRAMMAR_DISABLED_NOTICE_EMITTED = False
+
 
 @no_type_check
 def _proofreading_markup_type() -> int:
@@ -470,7 +473,8 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
 
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
-                log.info("[grammar] worker skipped: doc.grammar_proofreader_enabled is false after debounce")
+                # Normal path when grammar is off: doProofreading returns before enqueue — queue stays empty.
+                # This only runs if grammar was toggled off after an item was queued.
                 return
         except Exception as e:
             log.warning("[grammar] worker: get_config_bool enabled: %s", e, exc_info=True)
@@ -628,8 +632,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             loc_raw = _locale_key(aLocale)
             grammar_bcp47 = normalize_uno_locale_to_bcp47(aLocale)
             if not enabled:
-                log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
+                global _GRAMMAR_DISABLED_NOTICE_EMITTED
+                if not _GRAMMAR_DISABLED_NOTICE_EMITTED:
+                    _GRAMMAR_DISABLED_NOTICE_EMITTED = True
+                    log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
                 return a_res
+            _GRAMMAR_DISABLED_NOTICE_EMITTED = False
             if grammar_bcp47 is None:
                 log.info("[grammar] doProofreading: locale not in WriterAgent registry: %s", loc_raw)
                 return a_res
