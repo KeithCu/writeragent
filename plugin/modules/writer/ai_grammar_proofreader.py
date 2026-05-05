@@ -67,83 +67,42 @@ GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 # Used to decide whether a proofread slice is complete enough to run or counts as a
 # short skip / partial clause for the prompt. Sentence splitting uses BreakIterator elsewhere.
 # Matches Unicode 15.1 Sentence_Terminal (STerm); PropList.txt in Unicode UCD releases.
-_SENTENCE_TERMINATORS = frozenset(
-    (
-        "!",
-        ".",
-        "?",  # ASCII
-        "…",  # Horizontal ellipsis
-        "։",  # Armenian full stop
-        "؟",
-        "۔",  # Arabic question mark / full stop
-        "܀",
-        "܁",
-        "܂",  # Syriac
-        "߹",  # NKo exclamation mark
-        "।",
-        "॥",  # Devanagari danda / double danda
-        "၊",
-        "။",  # Myanmar
-        "።",
-        "፧",
-        "፨",  # Ethiopic
-        "᙮",  # Canadian syllabics full stop
-        "᠃",
-        "᠉",  # Mongolian full stop / Manchu full stop
-        "᥄",
-        "᥅",  # Limbu
-        "᪨",
-        "᪩",
-        "᪪",
-        "᪫",  # Tai Tham
-        "᭚",
-        "᭛",
-        "᭞",
-        "᭟",
-        "᭽",
-        "᭾",  # Balinese
-        "᰻",  # Lepcha
-        "᱾",
-        "᱿",  # Ol Chiki
-        "‼",
-        "‽",
-        "⁇",
-        "⁈",
-        "⁉",  # Double/combined punctuation
-        "⳹",
-        "⳺",
-        "⳻",
-        "⳾",  # Coptic
-        "⸮",
-        "⸼",  # Reversed question mark / stenographic full stop
-        "。",  # Ideographic full stop
-        "꓿",  # Lisu
-        "꘎",
-        "꘏",  # Vai
-        "꛳",
-        "꛷",  # Bamum
-        "︑",
-        "︒",
-        "︕",
-        "︖",
-        "︙",  # Presentation forms (vertical)
-        "﹒",
-        "﹖",
-        "﹗",  # Small forms
-        "！",
-        "．",
-        "？",  # Fullwidth
-        "｡",  # Halfwidth ideographic full stop
-        "𑅃",  # Chakma question mark
-        "𖫵",  # Bassa Vah full stop
-        "𖺘",
-        "𖺚",  # Medefaidrin
-        "𛲟",  # Duployan
-        "𝪈",  # Signwriting full stop
-        "𞥞",
-        "𞥟",  # Adlam
-    )
-)
+# fmt: off
+_SENTENCE_TERMINATORS = frozenset((
+    "!", ".", "?",              # ASCII
+    "…",                        # Horizontal ellipsis
+    "։",                        # Armenian full stop
+    "؟", "۔",                   # Arabic question mark / full stop
+    "܀", "܁", "܂",              # Syriac
+    "߹",                        # NKo exclamation mark
+    "।", "॥",                   # Devanagari danda / double danda
+    "၊", "။",                   # Myanmar
+    "።", "፧", "፨",              # Ethiopic
+    "᙮",                        # Canadian syllabics full stop
+    "᠃", "᠉",                   # Mongolian full stop / Manchu full stop
+    "᥄", "᥅",                   # Limbu
+    "᪨", "᪩", "᪪", "᪫",        # Tai Tham
+    "᭚", "᭛", "᭞", "᭟", "᭽", "᭾",  # Balinese
+    "᰻",                        # Lepcha
+    "᱾", "᱿",                   # Ol Chiki
+    "‼", "‽", "⁇", "⁈", "⁉",   # Double/combined punctuation
+    "⳹", "⳺", "⳻", "⳾",         # Coptic
+    "⸮", "⸼",                   # Reversed question mark / stenographic full stop
+    "。",                        # Ideographic full stop
+    "꓿",                        # Lisu
+    "꘎", "꘏",                   # Vai
+    "꛳", "꛷",                   # Bamum
+    "︑", "︒", "︕", "︖", "︙",  # Presentation forms (vertical)
+    "﹒", "﹖", "﹗",             # Small forms
+    "！", "．", "？",             # Fullwidth
+    "｡",                        # Halfwidth ideographic full stop
+    "𑅃",                        # Chakma question mark
+    "𖫵",                        # Bassa Vah full stop
+    "𖺘", "𖺚",                  # Medefaidrin
+    "𛲟",                        # Duployan
+    "𝪈",                        # Signwriting full stop
+    "𞥞", "𞥟",                  # Adlam
+))
 
 # Characters skipped when scanning backward for the sentence end: brackets, closing quotes,
 # and similar trail the period
@@ -154,104 +113,28 @@ _SENTENCE_TERMINATORS = frozenset(
 #                  if unicodedata.category(chr(cp)) in ('Pe', 'Pf'))
 #   print(frozenset(chars) | frozenset('"\'>'))
 
-_TRAILING_CLOSERS: frozenset[str] = frozenset(
-    (
-        # ASCII Pe
-        ")",
-        "]",
-        "}",
-        # Pf: closing quotes (», ›, curly " ', and scholarly brackets)
-        "»",
-        "’",
-        "”",
-        "›",
-        "⸃",
-        "⸅",
-        "⸊",
-        "⸍",
-        "⸝",
-        "⸡",
-        # CJK / fullwidth / halfwidth Pe
-        "〉",
-        "》",
-        "」",
-        "』",
-        "】",
-        "〕",
-        "〗",
-        "〙",
-        "〛",
-        "〞",
-        "〟",
-        "﴾",
-        "︘",
-        "︶",
-        "︸",
-        "︺",
-        "︼",
-        "︾",
-        "﹀",
-        "﹂",
-        "﹄",
-        "﹈",
-        "﹚",
-        "﹜",
-        "﹞",
-        "）",
-        "］",
-        "｝",
-        "｠",
-        "｣",
-        # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
-        "༻",
-        "༽",
-        "᚜",
-        "⁆",
-        "⁾",
-        "₎",
-        "⌉",
-        "⌋",
-        "❩",
-        "❫",
-        "❭",
-        "❯",
-        "❱",
-        "❳",
-        "❵",
-        "⟆",
-        "⟧",
-        "⟩",
-        "⟫",
-        "⟭",
-        "⟯",
-        "⦄",
-        "⦆",
-        "⦈",
-        "⦊",
-        "⦌",
-        "⦎",
-        "⦐",
-        "⦒",
-        "⦔",
-        "⦖",
-        "⦘",
-        "⧙",
-        "⧛",
-        "⧽",
-        "⸣",
-        "⸥",
-        "⸧",
-        "⸩",
-        "⹖",
-        "⹘",
-        "⹚",
-        "⹜",
-        # ASCII informal closers (not Pe/Pf in Unicode but common in prose)
-        '"',
-        "'",
-        ">",
-    )
-)
+_TRAILING_CLOSERS: frozenset[str] = frozenset((
+    # ASCII Pe
+    ")", "]", "}",
+    # Pf: closing quotes (», ›, curly " ', and scholarly brackets)
+    "»", "’", "”", "›", "⸃", "⸅", "⸊", "⸍", "⸝", "⸡",
+    # CJK / fullwidth / halfwidth Pe
+    "〉", "》", "」", "』", "】", "〕", "〗", "〙", "〛", "〞", "〟",
+    "﴾", "︘", "︶", "︸", "︺", "︼", "︾", "﹀", "﹂", "﹄", "﹈",
+    "﹚", "﹜", "﹞", "）", "］", "｝", "｠", "｣",
+    # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
+    "༻", "༽", "᚜",
+    "⁆", "⁾", "₎", "⌉", "⌋",
+    "❩", "❫", "❭", "❯", "❱", "❳", "❵",
+    "⟆", "⟧", "⟩", "⟫", "⟭", "⟯",
+    "⦄", "⦆", "⦈", "⦊", "⦌", "⦎", "⦐", "⦒", "⦔", "⦖", "⦘",
+    "⧙", "⧛", "⧽",
+    "⸣", "⸥", "⸧", "⸩",
+    "⹖", "⹘", "⹚", "⹜",
+    # ASCII informal closers (not Pe/Pf in Unicode but common in prose)
+    '"', "'", ">",
+))
+# fmt: on
 
 _NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
