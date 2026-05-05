@@ -187,36 +187,27 @@ class _GrammarWorkQueue:
             self._slice_preview(item),
         )
 
-        # Enqueue-time replace-in-place (bounded 10-item scan using queue.Queue internals).
-        # We use the internal mutex and deque to update the best request in-flight
-        # before it even reaches the drain loop.
+        # Enqueue-time replace-in-place (O(1) tail check using queue.Queue internals).
+        # In a typing burst, the most recent item is almost always the one
+        # we want to supersede.
         with self._q.mutex:
-            found = False
-            for i, existing in enumerate(self._q.queue):
-                if i >= 10:
-                    break
-                if existing is not None and existing.inflight_key == item.inflight_key:
-                    if item.enqueue_seq > existing.enqueue_seq:
-                        log.info(
-                            "[grammar] queue replace-in-place key=%s: seq=%s replacing older seq=%s at index=%s",
-                            item.inflight_key,
-                            item.enqueue_seq,
-                            existing.enqueue_seq,
-                            i,
-                        )
-                        self._q.queue[i] = item
-                    else:
-                        log.info(
-                            "[grammar] queue skip-duplicate key=%s: incoming seq=%s is not newer than existing seq=%s at index=%s",
-                            item.inflight_key,
-                            item.enqueue_seq,
-                            existing.enqueue_seq,
-                            i,
-                        )
-                    found = True
-                    break
-
-            if not found:
+            if self._q.queue and self._q.queue[-1].inflight_key == item.inflight_key:
+                if item.enqueue_seq > self._q.queue[-1].enqueue_seq:
+                    log.info(
+                        "[grammar] queue replace-at-tail key=%s: seq=%s replacing older seq=%s",
+                        item.inflight_key,
+                        item.enqueue_seq,
+                        self._q.queue[-1].enqueue_seq,
+                    )
+                    self._q.queue[-1] = item
+                else:
+                    log.info(
+                        "[grammar] queue skip-stale-tail key=%s: incoming seq=%s <= existing seq=%s",
+                        item.inflight_key,
+                        item.enqueue_seq,
+                        self._q.queue[-1].enqueue_seq,
+                    )
+            else:
                 self._q.queue.append(item)
                 self._q.unfinished_tasks += 1
                 self._q.not_empty.notify()
