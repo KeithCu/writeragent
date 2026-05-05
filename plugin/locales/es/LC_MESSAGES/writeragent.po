@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -62,8 +62,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo"
-" has intentado y el servicio no responde durante horas, por favor contacta "
+"La Horda está en modo de mantenimiento, por favor inténtalo más tarde, si lo "
+"has intentado y el servicio no responde durante horas, por favor contacta "
 "vía Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
@@ -149,8 +149,7 @@ msgstr "Este modelo tarda más tiempo que su configuración actual."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Por favor, prueba otro modelo. {0} tomaría más tiempo del que configuraste."
 
@@ -232,7 +231,7 @@ msgstr "Consulta de búsqueda:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "Aceptar"
 
@@ -258,7 +257,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} no encontrado: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Configuración"
 
@@ -278,11 +277,11 @@ msgstr "Error"
 msgid "Failed to open Settings: {0}"
 msgstr "Error al abrir Configuración: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Llamada de herramienta cambiada a '{0}'. Estás en un modo de conjunto de "
@@ -302,13 +301,12 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Puedo editar o traducir tu documento al instante con formato profesional"
-" y color. ¡Pruébame!"
+"IA: Puedo editar o traducir tu documento al instante con formato profesional "
+"y color. ¡Pruébame!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "IA: Puedo ayudarte con fórmulas, análisis de datos y gráficos coloridos. "
 "¡Pruébame!"
@@ -406,8 +404,7 @@ msgstr ""
 "solicitud' en la Configuración."
 
 #: plugin/modules/http/errors.py:43
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Conexión Rechazada. ¿Está tu servidor local de IA (Ollama/LM Studio) en "
 "ejecución?"
@@ -435,11 +432,11 @@ msgstr "Error HTTP {0} del proveedor de IA: {1}"
 msgid "Error: {0}"
 msgstr "Error: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
 msgstr "El flujo terminó con finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
@@ -524,7 +521,7 @@ msgstr "WriterAgent: Ampliar selección"
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Editar selección"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "Listo"
 
@@ -556,7 +553,7 @@ msgstr "Grabar"
 msgid "Stop Rec"
 msgstr "Detener grab."
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Enviar"
 
@@ -569,8 +566,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw)"
-" en la ventana activa.]"
+"[No se encontró un documento compatible de LibreOffice (Writer, Calc o Draw) "
+"en la ventana activa.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -628,7 +625,7 @@ msgstr "Solicitud de investigación:"
 msgid "Context for the research agent:"
 msgstr "Contexto para el agente de investigación:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
 msgstr "Investigación web completada."
 
@@ -653,8 +650,7 @@ msgstr "[Backend de agente '{0}' no encontrado.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend de agente '{0}' no está disponible. Verifica Configuración (ruta, "
 "instalación).]"
@@ -692,7 +688,7 @@ msgstr "Error de investigación desconocido."
 msgid "[Research error: {0}]"
 msgstr "[Error de investigación: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
 msgstr "Cambiando al modo de documento..."
 
@@ -712,11 +708,11 @@ msgstr "Anchura:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Integrado"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
 msgstr "Backend"
 
@@ -891,84 +887,84 @@ msgid "Insert Frame"
 msgstr "Insertar Marco"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "Panel de Evaluación WriterAgent"
-
-#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "Máx Tokens:"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
 msgstr "Espera Máxima (s):"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:37
 msgid "Models to Test:"
 msgstr "Modelos a Probar:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodal"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
 msgstr "Ingrese las instrucciones de edición:"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
 msgstr "Ejecutar Benchmark"
 
-#: plugin/xdl_strings.py:44
+#: plugin/xdl_strings.py:43
 msgid "Seed:"
 msgstr "Semilla:"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Cuadrado"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Pasos:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
 msgstr "Detener"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Temperatura:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "Modelo de Texto/Chat:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
 msgstr "Tiempo de espera (s):"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
 msgstr "Traducir Instrucción"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
 msgstr "Traducir de (ej. es):"
 
-#: plugin/xdl_strings.py:55
+#: plugin/xdl_strings.py:54
 msgid "Use AI Horde for Image Generation"
 msgstr "Usar AI Horde para Generación de Imágenes"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py:55
 msgid "Use Image model"
 msgstr "Usar modelo de Imagen"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:56
 msgid "Web Research"
 msgstr "Investigación Web"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py:57
 msgid "Writer"
 msgstr "Writer"
+
+#: plugin/xdl_strings.py:58
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Panel de Evaluación WriterAgent"
 
 msgid "Agent backends"
 msgstr "Backends de agente"
@@ -986,11 +982,11 @@ msgid "Path / URL"
 msgstr "Ruta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. "
-"http://localhost:8000 para Hermes). Vacío = intentar por defecto."
+"Ruta al CLI del backend (ej. aider) o URL del servidor ACP (ej. http://"
+"localhost:8000 para Hermes). Vacío = intentar por defecto."
 
 msgid "Extra arguments"
 msgstr "Argumentos adicionales"
@@ -1006,8 +1002,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el"
-" primer agente."
+"Nombre del agente en el servidor ACP (ej. hermes). Vacío = auto-descubrir el "
+"primer agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Herramientas de hoja de cálculo de Calc"
@@ -1082,13 +1078,13 @@ msgstr "Habilitar corrector gramatical de IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
-"Cuando está activado, WriterAgent registra su corrector gramatical de IA con"
-" Linguistic; el texto comprobado usa tu API (Herramientas → Opciones → IA). "
-"Los subrayados aparecen poco después de pausar la escritura. Desactivado por"
-" defecto."
+"Cuando está activado, WriterAgent registra su corrector gramatical de IA con "
+"Linguistic; el texto comprobado usa tu API (Herramientas → Opciones → IA). "
+"Los subrayados aparecen poco después de pausar la escritura. Desactivado por "
+"defecto."
 
 msgid "Grammar check wait timeout (ms)"
 msgstr "Tiempo de espera para comprobación de gramática (ms)"
@@ -1116,8 +1112,8 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Cuando está activado, el corrector gramatical de IA omite las solicitudes en"
-" segundo plano mientras el chat de la barra lateral o el agente están en "
+"Cuando está activado, el corrector gramatical de IA omite las solicitudes en "
+"segundo plano mientras el chat de la barra lateral o el agente están en "
 "ejecución, para evitar llamadas a la API simultáneas."
 
 msgid "Draw and Impress tools"

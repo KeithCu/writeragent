@@ -1,13 +1,18 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WriterAgent 1.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: Danish\n"
-"Language: da\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -27,7 +32,7 @@ msgstr "Opdaterer modeller..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Registrér på "
+msgstr "Registrer på "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
@@ -37,7 +42,7 @@ msgstr "Du har {} kudos"
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» er ikke en gyldig API-nøgle, tjek den dobbelt eller opret en ny"
+msgstr "«{}» er ikke en gyldig API-nøgle, tjek den igen eller opret en ny"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -45,28 +50,29 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"På nuværende tidspunkt kan vi ikke behandle din anmodning, prøv igen senere. "
-"Hvis dette sker over en længere periode, så lad os det vide via Discord"
+"Vi kan ikke behandle din anmodning i øjeblikket, prøv venligst igen senere. "
+"Hvis dette fortsætter i længere tid, så giv os besked via Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Problem med at anmode om kudos"
+msgstr "Problem ved anmodning om kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horden er i vedligeholdelsestilstand, prøv igen senere. Hvis du har prøvet "
-"og tjenesten ikke svarer i timevis, kontakt os via Discord"
+"Horden er i vedligeholdelsestilstand, prøv venligst igen senere. Hvis du har"
+" prøvet, og tjenesten ikke svarer i flere timer, så kontakt os venligst via "
+"Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Du har foretaget for mange anmodninger, vent på at de er færdige, og prøv "
-"igen senere"
+"Du har sendt for mange anmodninger, vent venligst på at de bliver færdige, "
+"og prøv igen senere"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -74,16 +80,17 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Det ser ud til, at «{}» har problemer, dobbelttjek det, opret en ny eller "
-"tilmeld dig Discord for at bede om hjælp"
+"Det ser ud til, at «{}» har problemer. Dobbelttjek det, opret et nyt eller "
+"deltag i Discord for at få hjælp"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Vi stødte på en fejl, alligevel: "
+msgstr "Vi stødte på en fejl, stadig: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Ikke længere gyldig, prøv igen. Din anmodning tog for lang tid"
+msgstr ""
+"Ikke længere gyldig, prøv venligst igen. Din anmodning tog for lang tid"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
@@ -91,18 +98,18 @@ msgstr "Kontakter Horden..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Horde kontaktet"
+msgstr "Horden kontaktet"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Da vi forsøgte at anmode om billedet, var Horden for langsom, prøv igen "
+"Da vi forsøgte at anmode om billedet, var Horden for langsom. Prøv igen "
 "senere"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "for at lære at tjene kudos. Detalje:"
+msgstr "for at lære at optjene kudos. Detalje:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
@@ -119,7 +126,7 @@ msgstr "Du er først i køen"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
-msgstr "Position i køen: "
+msgstr "Kø-position: "
 
 #: plugin/contrib/aihordeclient/__init__.py:946
 msgid "Generating..."
@@ -128,7 +135,7 @@ msgstr "Genererer..."
 #: plugin/contrib/aihordeclient/__init__.py:963
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
-msgstr "Få en gratis API-nøgle på "
+msgstr "Hent en gratis API-nøgle på "
 
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
@@ -138,13 +145,14 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Denne model tager mere tid end din nuværende konfiguration."
+msgstr "Denne model tager længere tid end din nuværende konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Prøv venligst en anden model. {0} ville tage mere tid end du har "
+"Prøv venligst en anden model. {0} ville tage længere tid, end du har "
 "konfigureret."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
@@ -152,20 +160,20 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Prøv igen senere."
+msgstr "Prøv venligst igen senere."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "Der er ingen arbejdere tilgængelige med disse indstillinger."
+msgstr "Der er ingen tilgængelige arbejdere med disse indstillinger."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Dit billede vil sandsynligvis tage ét yderligere minut."
+msgstr "Dit billede vil sandsynligvis tage et ekstra minut."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Dit billede vil sandsynligvis tage {} yderligere minutter."
+msgstr "Dit billede vil sandsynligvis tage {} ekstra minutter."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
@@ -173,7 +181,7 @@ msgstr "Henter billeder..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " er censureret, prøv at ændre prompt-ordlyden"
+msgstr " er censureret, prøv at ændre formuleringen af din prompt"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
@@ -188,8 +196,8 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Du skal måske reducere dine indstillinger eller vælge en anden model, eller "
-"du er blevet censureret. Horde-meddelelse"
+"Du skal muligvis reducere dine indstillinger eller vælge en anden model, "
+"eller også er du blevet censureret. Horde-besked"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
@@ -225,13 +233,13 @@ msgstr "Søgeforespørgsel:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "OK"
 
 #: plugin/framework/dialogs.py:168
 msgid "Cancel"
-msgstr "Annullér"
+msgstr "Annuller"
 
 #: plugin/framework/dialogs.py:335
 msgid "Copy"
@@ -251,7 +259,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} ikke fundet: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Indstillinger"
 
@@ -271,24 +279,24 @@ msgstr "Fejl"
 msgid "Failed to open Settings: {0}"
 msgstr "Kunne ikke åbne Indstillinger: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Værktøjskald skiftet til '{0}'. Du er i specialiseret værktøjssæt-tilstand. "
+"Værktøjskald skiftet til '{0}'. Du er i en specialiseret værktøjstilstand. "
 "Du skal kalde 'specialized_workflow_finished', når du er færdig, for at "
 "gendanne det fulde sæt af API'er."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
-msgstr "Ugyldig Indstilling"
+msgstr "Ugyldig indstilling"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
-msgstr "Temperaturen skal være <= 1.0"
+msgstr "Temperatur skal være <= 1.0"
 
 #: plugin/framework/constants.py:287
 msgid ""
@@ -300,7 +308,8 @@ msgstr ""
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jeg kan hjælpe dig med formler, dataanalyse og farverige diagrammer. "
 "Prøv mig!"
@@ -310,15 +319,15 @@ msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Jeg kan hjælpe dig med at oprette og redigere polerede, farverige former "
-"i Draw og Impress. Prøv mig!"
+"AI: Jeg kan hjælpe dig med at oprette og redigere polerede, farverige "
+"figurer i Draw og Impress. Prøv mig!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Jeg kan udføre web-forskning for at besvare ethvert spørgsmål eller "
+"AI: Jeg kan foretage websøgninger for at besvare ethvert spørgsmål eller "
 "opsummere en webside uden at se eller ændre dit dokument. Lad os chatte."
 
 #: plugin/framework/external_editor.py:83
@@ -341,7 +350,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor fundet (installer Kate eller Gedit, eller sæt EDITOR). Sti:\n"
+"Ingen editor fundet (installer Kate eller Gedit, eller angiv EDITOR). Sti:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -359,9 +368,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"En nyere WriterAgent (%s) er tilgængelig. Brug Værktøjer → "
-"Tillægsadministrator til at tjekke for opdateringer og installere den nyeste "
-"udvidelse."
+"En nyere WriterAgent (%s) er tilgængelig. Brug Funktioner → Extension "
+"Manager for at søge efter opdateringer og installere den nyeste udvidelse."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -379,7 +387,7 @@ msgstr ""
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Endpoint ikke fundet (404). Tjek din URL og modelnavn."
+msgstr "Slutpunkt ikke fundet (404). Tjek din URL og modelnavn."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
@@ -393,15 +401,17 @@ msgstr "HTTP-fejl {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr "Anmodning udløbet. Prøv at øge 'Request Timeout' i Indstillinger."
+msgstr ""
+"Anmodningen fik timeout. Prøv at øge 'Anmodnings-timeout' i Indstillinger."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr "Forbindelse nægtet. Kører din lokale AI-server (Ollama/LM Studio)?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "Forbindelse afvist. Kører din lokale AI-server (Ollama/LM Studio)?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "DNS-fejl. Kunne ikke løse endpoint-URL'en."
+msgstr "DNS-fejl. Kunne ikke opløse slutpunktets URL."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
@@ -422,16 +432,16 @@ msgstr "HTTP-fejl {0} fra AI-udbyder: {1}"
 msgid "Error: {0}"
 msgstr "Fejl: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "Strømmen sluttede med finish_reason=error"
+msgstr "Stream sluttede med finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Modellen gentager den samme chunk (uendelig løkke). Prøv igen eller brug en "
+"Modellen gentager den samme blok (uendelig løkke). Prøv igen eller brug en "
 "anden model."
 
 #: plugin/modules/http/__init__.py:243
@@ -452,7 +462,7 @@ msgstr "MCP-server startet"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "MCP-server kunne ikke startes"
+msgstr "MCP-server kunne ikke starte"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
@@ -482,12 +492,12 @@ msgstr "URL: {0}"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 msgid "Please enter edit instructions!"
-msgstr "Indtast redigeringsinstruktioner!"
+msgstr "Indtast venligst redigeringsinstruktioner!"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 #: plugin/xdl_strings.py:33
 msgid "Input"
-msgstr "Indtastning"
+msgstr "Input"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
@@ -509,15 +519,15 @@ msgstr "WriterAgent: Udvid markering"
 #: plugin/modules/chatbot/selection.py:297
 #: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Rediger udvalg"
+msgstr "WriterAgent: Rediger markering"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "Klar"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Fejl: Toolkit utilgængelig"
+msgstr "Fejl: Værktøjssæt ikke tilgængeligt"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
@@ -525,7 +535,7 @@ msgstr "Acceptér"
 
 #: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
-msgstr "Ændr"
+msgstr "Skift"
 
 #: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
@@ -541,9 +551,9 @@ msgstr "Optag"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Stop opt."
+msgstr "Stop optagelse"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Send"
 
@@ -574,8 +584,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Rapporter dette "
-"venligst!]"
+"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst"
+" en fejlrapport!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -583,17 +593,17 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Model {0} understøtter ikke native lyd. Vælg en STT-model i "
-"Indstillingerne.]"
+"[Model {0} understøtter ikke indbygget lyd. Vælg venligst en STT-model i "
+"Indstillinger.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Denne søgeforespørgsel '%s' vil blive sendt til søgemaskinen."
+msgstr "Denne søgeforespørgsel '%s' sendes til søgemaskinen."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Websøgning — godkendelse kræves]"
+msgstr "[Websøgning — godkendelse påkrævet]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
@@ -605,28 +615,28 @@ msgstr "[Yderligere websøgning]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
-msgstr "[Webforskning]"
+msgstr "[Webresearch]"
 
 #: plugin/modules/chatbot/web_research_chat.py:60
 msgid "Research request:"
-msgstr "Forskningsforespørgsel:"
+msgstr "Research-anmodning:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "Kontekst for forskningsagenten:"
+msgstr "Kontekst for research-agenten:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
-msgstr "Webforskning fuldført."
+msgstr "Webresearch fuldført."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Transkriberer lyd..."
+msgstr "Transskriberer lyd..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
-msgstr "[Transskriptionfejl: {0}]"
+msgstr "[Transskriberingsfejl: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
@@ -636,13 +646,14 @@ msgstr "[Dokumentkontekstfejl: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Agent backend '{0}' ikke fundet.]"
+msgstr "[Agent-backend '{0}' blev ikke fundet.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent backend '{0}' er ikke tilgængelig. Tjek Indstillinger (sti, "
+"[Agent-backend '{0}' er ikke tilgængelig. Kontrollér Indstillinger (sti, "
 "installation).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
@@ -667,18 +678,18 @@ msgstr "[Bibliotekarfejl: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "AI (forskning): {0}"
+msgstr "AI (research): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Ukendt forskningsfejl."
+msgstr "Ukendt research-fejl."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
-msgstr "[Forskningsfejl: {0}]"
+msgstr "[Research-fejl: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
 msgstr "Skifter til dokumenttilstand..."
 
@@ -698,13 +709,13 @@ msgstr "Bredde:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Indbygget"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
-msgstr "Bagende"
+msgstr "Backend"
 
 #: plugin/main.py:354
 #, python-brace-format
@@ -714,7 +725,7 @@ msgstr "{0}: {1} bestået, {2} fejlet."
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Tester, der ikke kunne køres: {0}"
+msgstr "Test kunne ikke køre: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
@@ -722,11 +733,11 @@ msgstr "Udvid markering"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Redigér markering"
+msgstr "Rediger markering"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
-msgstr "Slå MCP-server til/fra"
+msgstr "Skift MCP-server"
 
 #: plugin/main.py:436
 msgid "MCP Server Status"
@@ -738,15 +749,15 @@ msgstr "Kør formattests"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Kør calc-tests"
+msgstr "Kør Calc-tests"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Kør Calc API integrations-tests"
+msgstr "Kør Calc API-integrationstests"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Kør draw-tests"
+msgstr "Kør Draw-tests"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -754,7 +765,7 @@ msgstr "Evalueringspanel"
 
 #: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "Dispatch-fejl"
+msgstr "Afsendelsesfejl"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -794,7 +805,7 @@ msgstr "Spørg / instruér:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
-msgstr "Aspectforhold:"
+msgstr "Billedformat:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
@@ -802,15 +813,15 @@ msgstr "Lydmodel:"
 
 #: plugin/xdl_strings.py:15
 msgid "Auto Gallery"
-msgstr "Automatisk galleri"
+msgstr "Auto-galleri"
 
 #: plugin/xdl_strings.py:16
 msgid "Base Size:"
-msgstr "Basistørrelse:"
+msgstr "Basestørrelse:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
-msgstr "Basis:"
+msgstr "Base:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
@@ -818,7 +829,7 @@ msgstr "CFG-skala:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Beregn"
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -830,7 +841,7 @@ msgstr "Censurer NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Chat (Test):"
+msgstr "Chat (test):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
@@ -842,23 +853,23 @@ msgstr "Luk"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
-msgstr "Kontekst længde:"
+msgstr "Kontekstlængde:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Tegn"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
-msgstr "Redigér konfigurationsfil (JSON)…"
+msgstr "Rediger konfigurationsfil (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "Slutpunkt-URL (/v1 tilføjet):"
+msgstr "Endpoint-URL (/v1 tilføjet):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
-msgstr "Slutpunkt-URL:"
+msgstr "Endpoint-URL:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
@@ -877,87 +888,87 @@ msgid "Insert Frame"
 msgstr "Indsæt ramme"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent Evaluationsdashboard"
-
-#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "Maks. tokens:"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
 msgstr "Maks. ventetid (s):"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:37
 msgid "Models to Test:"
-msgstr "Modeller til test:"
+msgstr "Modeller der skal testes:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodal"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
 msgstr "Indtast redigeringsinstruktioner:"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
 msgstr "Kør benchmark"
 
-#: plugin/xdl_strings.py:44
+#: plugin/xdl_strings.py:43
 msgid "Seed:"
-msgstr "Frø:"
+msgstr "Seed:"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Kvadrat"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Trin:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
 msgstr "Stop"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Temperatur:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
-msgstr "Tekst-/chat-model:"
+msgstr "Tekst/chat-model:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
 msgstr "Timeout (s):"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
 msgstr "Oversæt prompt"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
 msgstr "Oversæt fra (f.eks. es):"
 
-#: plugin/xdl_strings.py:55
+#: plugin/xdl_strings.py:54
 msgid "Use AI Horde for Image Generation"
 msgstr "Brug AI Horde til billedgenerering"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py:55
 msgid "Use Image model"
 msgstr "Brug billedmodel"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:56
 msgid "Web Research"
-msgstr "Webforskning"
+msgstr "Websøgning"
+
+#: plugin/xdl_strings.py:57
+msgid "Writer"
+msgstr "Writer"
 
 #: plugin/xdl_strings.py:58
-msgid "Writer"
-msgstr "Skriver"
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent-evalueringspanel"
 
 msgid "Agent backends"
-msgstr "Agentbagender"
+msgstr "Agent-backends"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -972,17 +983,17 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend CLI (f.eks. aider) eller ACP-server-URL (f.eks. http://"
-"localhost:8000 til Hermes). Tom = prøv standard."
+"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. "
+"http://localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argumenter"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Valgfrie argumenter for den valgte backend (adskilt med mellemrum)."
+msgstr "Valgfrie argumenter til den valgte backend (adskilt med mellemrum)."
 
 msgid "ACP agent name"
 msgstr "ACP-agentnavn"
@@ -991,22 +1002,23 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Agentnavn på ACP-serveren (f.eks. hermes). Tom = auto-opdag første agent."
+"Agentnavn på ACP-serveren (f.eks. hermes). Tom = find første agent "
+"automatisk."
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc-regnearksværktøjer"
 
 msgid "Max Rows Display"
-msgstr "Maks. rækker i visning"
+msgstr "Maks. antal rækker vist"
 
 msgid "Sidebar"
-msgstr "Siderpanel"
+msgstr "Sidepanel"
 
 msgid "Max Tool Rounds"
-msgstr "Maks. værktøjsrunder"
+msgstr "Maks. antal værktøjsrunder"
 
 msgid "Document Context Strategy"
-msgstr "Dokumentkontekststrategi"
+msgstr "Strategi for dokumentkontekst"
 
 msgid "How much document content to include in LLM context"
 msgstr "Hvor meget dokumentindhold der skal inkluderes i LLM-konteksten"
@@ -1024,57 +1036,58 @@ msgid "Outline + excerpt"
 msgstr "Oversigt + uddrag"
 
 msgid "Stats + outline only"
-msgstr "Statistik + oversigt kun"
+msgstr "Statistik + kun oversigt"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Udvid markering Maks. tokens"
+msgstr "Udvid markering maks. tokens"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Rediger markering Ekstra tokens"
+msgstr "Rediger markering ekstra tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Ekstra tokens ud over original tekstlængde. 0 = samme længde som originalen."
+"Ekstra tokens ud over den oprindelige tekstlængde. 0 = samme længde som "
+"originalen."
 
 msgid "Show Web Search Thinking"
-msgstr "Vis web-søgningstænkning"
+msgstr "Vis web-søgnings-tænkning"
 
 msgid "Prompt for Web Research"
-msgstr "Prompt til web-forskning"
+msgstr "Spørg om web-research"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Spørg efter bekræftelse før afsendelse af en web-søgeforespørgsel"
+msgstr "Bed om bekræftelse før afsendelse af en web-søgningsforespørgsel"
 
 msgid "Web Cache Max Size (MB)"
-msgstr "Web Cache Maks. størrelse (MB)"
+msgstr "Web-cache maks. størrelse (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Maks. diskstørrelse for web-søgecache (0 for at deaktivere)"
+msgstr "Maks. diskstørrelse for web-søgnings-cache (0 for at deaktivere)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Web Cache Gyldighed (Dage)"
+msgstr "Web-cache gyldighed (dage)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr "Hvor mange dage cache-indgange skal betragtes som gyldige."
+msgstr "Hvor mange dage cache-poster skal betragtes som gyldige."
 
 msgid "Doc"
 msgstr "Dok"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Aktivér AI-grammatikchecker (Writer)"
+msgstr "Aktivér AI-grammatikkontrol (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Når slået til, registrerer WriterAgent sin AI-grammatikkorrekturlæser hos "
-"Linguistic; tjekket tekst bruger din API (Værktøjer → Indstillinger → AI). "
-"Understregninger vises kort efter du stopper med at skrive. Slået fra som "
-"standard."
+"Når aktiveret, registrerer WriterAgent sin AI-grammatikkontrol hos "
+"Linguistic; kontrolleret tekst bruger dit API (Funktioner → Indstillinger → "
+"AI). Understregninger vises kort efter, du holder pause i skrivningen. "
+"Deaktiveret som standard."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Grammatik-tjek ventetid (ms)"
+msgstr "Ventetid for grammatikkontrol (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
@@ -1082,24 +1095,24 @@ msgid ""
 "cache is filled."
 msgstr ""
 "Reserveret til mulig fremtidig brug. Korrekturlæseren returnerer "
-"øjeblikkeligt ved cache-miss (asynkront); resultaterne vises i en senere "
-"Writer-gennemgang, når sætningscachen er fyldt."
+"øjeblikkeligt ved cache-miss (asynkront); resultater vises ved en senere "
+"Writer-gennemgang, når sætningscachen er udfyldt."
 
 msgid "Grammar check model (optional)"
-msgstr "Grammatik-tjek-model (valgfri)"
+msgstr "Model til grammatikkontrol (valgfri)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Lad være tom for at bruge samme tekstmodel som chat."
+msgstr "Lad stå tom for at bruge samme tekstmodel som chatten."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Sæt grammatik på pause mens chat/agent kører"
+msgstr "Pause grammatik mens chat/agent kører"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Når slået til, springer AI-grammatik over baggrundsforespørgsler mens "
-"sidebjælke-chat eller agent kører, for at undgå samtidige API-kald."
+"Når aktiveret, springer AI-grammatikkontrollen baggrundsanmodninger over, "
+"mens sidepanel-chat eller agent kører, for at undgå samtidige API-kald."
 
 msgid "Draw and Impress tools"
 msgstr "Draw- og Impress-værktøjer"
@@ -1112,10 +1125,10 @@ msgstr "Aktivér MCP-server"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
-"Kun localhost, ingen autentificering. Adgang via stdio er altid aktiveret."
+"Kun localhost, ingen godkendelse. Adgang via stdio er altid aktiveret."
 
 msgid "MCP Port"
 msgstr "MCP-port"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Writer-dokumentværktøjer (inkl. navigation og søgning)"
+msgstr "Writer-dokumentværktøjer (inklusive navigation og søgning)"

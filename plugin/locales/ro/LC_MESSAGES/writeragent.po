@@ -1,13 +1,18 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WriterAgent 1.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: Romanian\n"
-"Language: ro\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -15,7 +20,7 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:262
 #: plugin/modules/chatbot/panel.py:790
 msgid "Starting..."
-msgstr "Pornire..."
+msgstr "Se pornește..."
 
 #: plugin/contrib/aihordeclient/__init__.py:370
 msgid "Updating model requirements..."
@@ -27,17 +32,17 @@ msgstr "Se actualizează modelele..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Înregistrează-te la "
+msgstr "Înregistrați-vă la "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "Ai {} kudos"
+msgstr "Aveți {} kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» nu este o cheie API validă, verifică din nou sau creează una nouă"
+msgstr "«{}» nu este o cheie API validă, verificați-o sau creați una nouă"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -45,28 +50,30 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"În acest moment nu putem procesa cererea ta, încearcă din nou mai târziu. "
-"Dacă se întâmplă asta pe o perioadă lungă de timp, anunță-ne pe Discord"
+"În acest moment nu putem procesa cererea dumneavoastră, vă rugăm să "
+"încercați mai târziu. Dacă acest lucru se întâmplă de o perioadă lungă de "
+"timp, vă rugăm să ne anunțați prin Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Problemă la solicitarea kudos"
+msgstr "Problemă la solicitarea de kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde este în modul de mentenanță, încearcă din nou mai târziu, dacă ai "
-"încercat și serviciul nu răspunde de ore întregi, contactează-ne pe Discord"
+"Horde este în modul de mentenanță, vă rugăm să încercați mai târziu; dacă "
+"ați încercat și serviciul nu răspunde de ore întregi, vă rugăm să ne "
+"contactați prin Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Ai făcut prea multe cereri, așteaptă să se termine și încearcă din nou mai "
-"târziu"
+"Ați făcut prea multe cereri, vă rugăm să așteptați finalizarea acestora și "
+"să încercați din nou mai târziu"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -74,8 +81,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Se pare că «{}» are probleme, verifică-l din nou, creează unul nou sau "
-"alătură-te pe Discord să ceri ajutor"
+"Se pare că «{}» are probleme, verifică-l din nou, creează unul nou sau intră"
+" pe Discord pentru a cere ajutor"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
@@ -84,26 +91,26 @@ msgstr "Am întâmpinat o eroare, totuși: "
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
 msgstr ""
-"Nu mai este valid, te rog încearcă din nou. Cererea ta a durat prea mult"
+"Nu mai este valid, te rugăm să încerci din nou. Cererea ta a durat prea mult"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Contactez Horde-ul..."
+msgstr "Contactez Hoarda..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Horde contactat"
+msgstr "Hoarda a fost contactată"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Când am încercat să cer imaginea, Horde-ul a fost prea lent, încearcă din "
-"nou mai târziu"
+"Când am încercat să solicităm imaginea, Hoarda a fost prea lentă, încearcă "
+"din nou mai târziu"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "pentru a învăța să câștigi kudos. Detalii:"
+msgstr "pentru a învăța cum să câștigi kudos. Detalii:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
@@ -112,15 +119,15 @@ msgstr "Serviciul a eșuat: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "Descărc imaginea generată..."
+msgstr "Se descarcă imaginea generată..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "Ești primul în coadă"
+msgstr "Ești primul la coadă"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
-msgstr "Poziție în coadă: "
+msgstr "Poziția în coadă: "
 
 #: plugin/contrib/aihordeclient/__init__.py:946
 msgid "Generating..."
@@ -139,13 +146,14 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Acest model durează mai mult timp decât configurația dvs. actuală."
+msgstr "Acest model necesită mai mult timp decât configurația actuală."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Vă rugăm să încercați un alt model. {0} ar dura mai mult timp decât ați "
+"Vă rugăm să încercați alt model. {0} ar necesita mai mult timp decât ați "
 "configurat."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
@@ -153,7 +161,7 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Vă rugăm să încercați din nou mai târziu."
+msgstr "Vă rugăm să încercați mai târziu."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
@@ -161,20 +169,20 @@ msgstr "Nu există lucrători disponibili cu aceste setări."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Probabil că imaginea dvs. va dura un minut suplimentar."
+msgstr "Probabil imaginea va necesita un minut suplimentar."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Probabil că imaginea dvs. va dura {} minute suplimentare."
+msgstr "Probabil imaginea va necesita {} minute suplimentare."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
-msgstr "Se preiau imaginile..."
+msgstr "Se descarcă imaginile..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " este cenzurat, încearcă să schimbi formularea promptului"
+msgstr " este cenzurat, încercați să modificați formularea promptului"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
@@ -189,8 +197,8 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Poate fi necesar să reduci setările sau să alegi un alt model, sau poate ai "
-"fost cenzurat. Mesaj Horde"
+"Poate fi necesar să reduceți setările sau să alegeți un alt model, sau este "
+"posibil să fi fost cenzurat. Mesaj Horde"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
@@ -203,11 +211,11 @@ msgstr " cu "
 
 #: plugin/framework/dialogs.py:107
 msgid "Agent requests approval"
-msgstr "Agentul solicită aprobare"
+msgstr "Agentul solicită aprobarea"
 
 #: plugin/framework/dialogs.py:108
 msgid "Proceed with this action?"
-msgstr "Continui cu această acțiune?"
+msgstr "Continuați cu această acțiune?"
 
 #: plugin/framework/dialogs.py:109
 #: plugin/modules/chatbot/web_research_chat.py:33
@@ -226,7 +234,7 @@ msgstr "Interogare de căutare:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "OK"
 
@@ -252,7 +260,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nu a fost găsit: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Setări"
 
@@ -270,22 +278,22 @@ msgstr "Eroare"
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "Nu s-a putut deschide Setări: {0}"
+msgstr "Nu s-au putut deschide Setările: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Apelul tool-ului a fost comutat la '{0}'. Sunteți în modul de set de tool-"
-"uri specializat. Trebuie să apelați 'specialized_workflow_finished' când "
-"terminați pentru a restaura întregul set de API-uri."
+"Apelul instrumentului a comutat la „{0}”. Sunteți într-un mod de set de "
+"instrumente specializat. Trebuie să apelați „specialized_workflow_finished” "
+"când ați terminat pentru a restaura setul complet de API-uri."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
-msgstr "Setare invalidă"
+msgstr "Setare nevalidă"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
@@ -296,32 +304,33 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Pot edita sau traduce documentul tău instantaneu cu formatare "
-"profesională și culoare. Încearcă-mă!"
+"AI: Pot edita sau traduce documentul dvs. instantaneu, cu formatare și "
+"culoare profesională. Încercați-mă!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Te pot ajuta cu formule, analiză de date și grafice colorate. Încearcă-"
-"mă!"
+"AI: Vă pot ajuta cu formule, analiză de date și diagrame colorate. "
+"Încercați-mă!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Te pot ajuta să creezi și să editezi forme elegante și colorate în Draw "
-"și Impress. Încearcă-mă!"
+"AI: Vă pot ajuta să creați și să editați forme șlefuite și colorate în Draw "
+"și Impress. Încercați-mă!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Pot efectua cercetări pe web pentru a răspunde la orice întrebare sau a "
-"rezuma o pagină web, fără să văd sau să modific documentul tău. Hai să "
-"vorbim."
+"AI: Pot face cercetări pe web pentru a răspunde la orice întrebare sau pot "
+"rezuma o pagină web, fără a vedea sau modifica documentul dvs. Haideți să "
+"discutăm."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
@@ -334,7 +343,7 @@ msgid ""
 "Could not open an editor. Path:\n"
 "{0}"
 msgstr ""
-"Nu s-a putut deschide un editor. Calea:\n"
+"Nu s-a putut deschide un editor. Cale: \n"
 "{0}"
 
 #: plugin/framework/external_editor.py:107
@@ -343,9 +352,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nu s-a găsit niciun editor (instalați Kate sau Gedit, sau setați EDITOR). "
-"Calea:\n"
-"{0}"
+"Nu a fost găsit niciun editor (instalați Kate sau Gedit, sau setați "
+"variabila EDITOR). Cale: {0}"
 
 #: plugin/framework/external_editor.py:114
 #, python-brace-format
@@ -362,9 +370,9 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Este disponibil un WriterAgent mai nou (%s). Utilizați Instrumente → Manager "
-"de extensii pentru a verifica actualizările și a instala cea mai recentă "
-"extensie."
+"O versiune mai nouă WriterAgent (%s) este disponibilă. Utilizați Instrumente"
+" → Manager extensii pentru a verifica actualizările și a instala cea mai "
+"recentă extensie."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -373,13 +381,13 @@ msgstr "Eroare TLS/SSL: {0}"
 
 #: plugin/modules/http/errors.py:25
 msgid "Invalid API Key. Please check your settings."
-msgstr "Cheie API invalidă. Vă rugăm să verificați setările."
+msgstr "Cheie API nevalidă. Vă rugăm să verificați setările."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"Acces API interzis. Cheia dvs. poate să nu aibă permisiuni pentru acest "
-"model."
+"Acces API interzis. Este posibil ca cheia dumneavoastră să nu aibă "
+"permisiuni pentru acest model."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
@@ -388,7 +396,7 @@ msgstr "Endpoint negăsit (404). Verificați URL-ul și numele modelului."
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Eroare de server ({0}). Furnizorul de IA întâmpină probleme."
+msgstr "Eroare de server ({0}). Furnizorul AI întâmpină probleme."
 
 #: plugin/modules/http/errors.py:32
 #, python-brace-format
@@ -397,16 +405,18 @@ msgstr "Eroare HTTP {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr "Cererea a expirat. Încercați să măriți „Request Timeout” în Setări."
+msgstr ""
+"Timpul de așteptare a expirat. Încercați să măriți „Timpul de așteptare "
+"pentru cerere” în Setări."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr ""
-"Conexiune refuzată. Este serverul dvs. local de IA (Ollama/LM Studio) pornit?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "Conexiune refuzată. Serverul local AI (Ollama/LM Studio) rulează?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "Eroare DNS. Nu s-a putut rezolva URL-ul endpointului."
+msgstr "Eroare DNS. Nu s-a putut rezolva URL-ul punctului final."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
@@ -415,53 +425,53 @@ msgstr "Eroare de conexiune: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "Furnizorul de IA a raportat o eroare. Încercați din nou."
+msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "Eroare HTTP {0} de la furnizorul de IA: {1}"
+msgstr "Eroare HTTP {0} de la furnizorul AI: {1}"
 
 #: plugin/modules/http/errors.py:77
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Eroare: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "Stream-ul s-a încheiat cu finish_reason=error"
+msgstr "Fluxul s-a încheiat cu finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Modelul repetă același chunk (buclă infinită). Încearcă din nou sau "
-"folosește un model diferit."
+"Modelul repetă același fragment (buclă infinită). Încercați din nou sau "
+"folosiți un alt model."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
-msgstr "Oprește serverul MCP"
+msgstr "Oprire server MCP"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
-msgstr "Pornește serverul MCP"
+msgstr "Pornire server MCP"
 
 #: plugin/modules/http/__init__.py:267
 msgid "MCP server stopped"
-msgstr "Serverul MCP oprit"
+msgstr "Serverul MCP a fost oprit"
 
 #: plugin/modules/http/__init__.py:275
 msgid "MCP server started"
-msgstr "Serverul MCP pornit"
+msgstr "Serverul MCP a fost pornit"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "Serverul MCP nu a putut fi pornit"
+msgstr "Pornirea serverului MCP a eșuat"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
-msgstr "Verifică ~/localwriter.log"
+msgstr "Verificați ~/localwriter.log"
 
 #: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
@@ -469,7 +479,7 @@ msgstr "Serverul MCP nu rulează"
 
 #: plugin/modules/http/__init__.py:299
 msgid "MCP server running"
-msgstr "Server MCP în funcțiune"
+msgstr "Serverul MCP rulează"
 
 #: plugin/modules/http/__init__.py:299
 #, python-brace-format
@@ -478,7 +488,7 @@ msgstr "Rute: {0}"
 
 #: plugin/modules/http/__init__.py:310
 msgid "Server Status"
-msgstr "Starea serverului"
+msgstr "Stare server"
 
 #: plugin/modules/http/__init__.py:331
 #, python-brace-format
@@ -514,15 +524,15 @@ msgstr "WriterAgent: Extindere selecție"
 #: plugin/modules/chatbot/selection.py:297
 #: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Editare Selecție"
+msgstr "WriterAgent: Editare selecție"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
-msgstr "Gata"
+msgstr "Pregătit"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Eroare: Toolkit indisponibil"
+msgstr "Eroare: Setul de instrumente nu este disponibil"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
@@ -530,7 +540,7 @@ msgstr "Acceptă"
 
 #: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
-msgstr "Schimbă"
+msgstr "Modifică"
 
 #: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
@@ -538,31 +548,31 @@ msgstr "Respinge"
 
 #: plugin/modules/chatbot/panel.py:429
 msgid "Waiting for approval…"
-msgstr "Așteptând aprobarea…"
+msgstr "Se așteaptă aprobarea…"
 
 #: plugin/modules/chatbot/panel.py:771
 msgid "Record"
-msgstr "Înregistrează"
+msgstr "Înregistrare"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Oprește Înreg."
+msgstr "Oprire înregistrare"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Trimite"
 
 #: plugin/modules/chatbot/panel.py:799
 msgid "Getting document..."
-msgstr "Se obține documentul..."
+msgstr "Se preia documentul..."
 
 #: plugin/modules/chatbot/panel.py:803
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Niciun document LibreOffice compatibil (Writer, Calc sau Draw) găsit în "
-"fereastra activă.]"
+"[Nu a fost găsit niciun document LibreOffice compatibil (Writer, Calc sau "
+"Draw) în fereastra activă.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -570,8 +580,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Eroare internă: Tipul documentului s-a schimbat de la {0} la {1}! Vă rugăm "
-"să raportați eroarea.]"
+"[Eroare internă: Tipul documentului s-a schimbat din {0} în {1}! Vă rugăm să"
+" raportați eroarea.]"
 
 #: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
@@ -588,17 +598,18 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Modelul {0} nu suportă audio nativ. Vă rugăm să selectați un model STT în "
+"[Modelul {0} nu acceptă audio nativ. Vă rugăm să selectați un model STT în "
 "Setări.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Această interogare de căutare '%s' va fi trimisă motorului de căutare."
+msgstr ""
+"Această interogare de căutare „%s” va fi trimisă motorului de căutare."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Căutare web — necesită aprobare]"
+msgstr "[Căutare web — este necesară aprobarea]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
@@ -620,13 +631,13 @@ msgstr "Cerere de cercetare:"
 msgid "Context for the research agent:"
 msgstr "Context pentru agentul de cercetare:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
-msgstr "Cercetare web finalizată."
+msgstr "Cercetarea web a fost finalizată."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Transcriu audio..."
+msgstr "Se transcrie conținutul audio..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
@@ -636,18 +647,19 @@ msgstr "[Eroare de transcriere: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
 msgid "[Document context error: {0}]"
-msgstr "[Eroare de context document: {0}]"
+msgstr "[Eroare context document: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Backend agent '{0}' nu a fost găsit.]"
+msgstr "[Backend-ul agentului „{0}” nu a fost găsit.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Backend agent '{0}' nu este disponibil. Verificați Setările (cale, "
+"[Backend-ul agentului „{0}” nu este disponibil. Verificați Setările (cale, "
 "instalare).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
@@ -658,11 +670,11 @@ msgstr "Bibliotecar: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfect! Te transfer acum la asistentul principal."
+msgstr "Perfect! Vă trec acum la asistentul principal."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
-msgstr "Eroare bibliotecar necunoscută."
+msgstr "Eroare necunoscută a bibliotecarului."
 
 #: plugin/modules/chatbot/send_handlers.py:640
 #, python-brace-format
@@ -672,20 +684,20 @@ msgstr "[Eroare bibliotecar: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "IA (cercetare): {0}"
+msgstr "AI (cercetare): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Eroare cercetare necunoscută."
+msgstr "Eroare necunoscută de cercetare."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Eroare cercetare: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
-msgstr "Comutarea la modul document..."
+msgstr "Se trece la modul document..."
 
 #: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
@@ -703,23 +715,23 @@ msgstr "Lățime:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
-msgstr "Integrat"
+msgstr "Încorporat"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
 msgstr "Backend"
 
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} au trecut, {2} au eșuat."
+msgstr "{0}: {1} reușite, {2} eșuate."
 
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Testele nu au putut fi rulate: {0}"
+msgstr "Testele nu au putut fi executate: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
@@ -727,39 +739,39 @@ msgstr "Extinde selecția"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Editează selecția"
+msgstr "Editare selecție"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
-msgstr "Comută serverul MCP"
+msgstr "Comutare server MCP"
 
 #: plugin/main.py:436
 msgid "MCP Server Status"
-msgstr "Starea serverului MCP"
+msgstr "Stare server MCP"
 
 #: plugin/main.py:438
 msgid "Run format tests"
-msgstr "Rulează testele de formatare"
+msgstr "Execută teste de formatare"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Rulează testele de calcul"
+msgstr "Execută teste Calc"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Rulează testele de integrare API Calc"
+msgstr "Execută teste de integrare API Calc"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Rulează testele de desen"
+msgstr "Execută teste Draw"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
-msgstr "Panou de evaluare"
+msgstr "Tablou de bord evaluare"
 
 #: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "Eroare de dispatch"
+msgstr "Eroare de expediere"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -791,7 +803,7 @@ msgstr "Instrucțiuni suplimentare:"
 
 #: plugin/xdl_strings.py:11
 msgid "Allow NSFW"
-msgstr "Permite NSFW"
+msgstr "Permite conținut NSFW"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
@@ -811,7 +823,7 @@ msgstr "Galerie automată"
 
 #: plugin/xdl_strings.py:16
 msgid "Base Size:"
-msgstr "Dimensiune bază:"
+msgstr "Dimensiune de bază:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
@@ -819,11 +831,11 @@ msgstr "Bază:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr "Scară CFG:"
+msgstr "Scală CFG:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Calculează"
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -831,7 +843,7 @@ msgstr "Categorii:"
 
 #: plugin/xdl_strings.py:21
 msgid "Censor NSFW"
-msgstr "Cenzurează NSFW"
+msgstr "Cenzurează conținutul NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
@@ -847,23 +859,23 @@ msgstr "Închide"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
-msgstr "Lung. context:"
+msgstr "Lungime context:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Desenează"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
-msgstr "Editează fișierul de configurare (JSON)…"
+msgstr "Editare fișier de configurare (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "URL endpoint (/v1 adăugat):"
+msgstr "URL punct final (se adaugă /v1):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
-msgstr "URL endpoint:"
+msgstr "URL punct final:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
@@ -882,87 +894,87 @@ msgid "Insert Frame"
 msgstr "Inserare cadru"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "Panou de evaluare WriterAgent"
+msgid "Max Tokens:"
+msgstr "Jetoane maxime:"
 
 #: plugin/xdl_strings.py:36
-msgid "Max Tokens:"
-msgstr "Max. tokeni:"
+msgid "Max Wait (s):"
+msgstr "Timp de așteptare maxim (s):"
 
 #: plugin/xdl_strings.py:37
-msgid "Max Wait (s):"
-msgstr "Așteptare max. (s):"
-
-#: plugin/xdl_strings.py:38
 msgid "Models to Test:"
 msgstr "Modele de testat:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodal"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
-msgstr "Introduceți instrucțiunile de editare:"
+msgstr "Vă rugăm să introduceți instrucțiunile de editare:"
+
+#: plugin/xdl_strings.py:42
+msgid "Run Benchmark"
+msgstr "Execută benchmark"
 
 #: plugin/xdl_strings.py:43
-msgid "Run Benchmark"
-msgstr "Rulează benchmark"
-
-#: plugin/xdl_strings.py:44
 msgid "Seed:"
-msgstr "Sămânță:"
+msgstr "Seed:"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Pătrat"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Pași:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
-msgstr "Oprește"
+msgstr "Oprire"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Temperatură:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "Model text/chat:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
-msgstr "Timeout (s):"
+msgstr "Timp de expirare (s):"
+
+#: plugin/xdl_strings.py:52
+msgid "Translate Prompt"
+msgstr "Traducere prompt"
 
 #: plugin/xdl_strings.py:53
-msgid "Translate Prompt"
-msgstr "Tradu prompt"
+msgid "Translate from (e.g. es):"
+msgstr "Traducere din (ex: es):"
 
 #: plugin/xdl_strings.py:54
-msgid "Translate from (e.g. es):"
-msgstr "Tradu din (ex. es):"
+msgid "Use AI Horde for Image Generation"
+msgstr "Utilizează AI Horde pentru generarea de imagini"
 
 #: plugin/xdl_strings.py:55
-msgid "Use AI Horde for Image Generation"
-msgstr "Folosește AI Horde pentru generarea de imagini"
+msgid "Use Image model"
+msgstr "Utilizează modelul de imagine"
 
 #: plugin/xdl_strings.py:56
-msgid "Use Image model"
-msgstr "Folosește model de imagine"
-
-#: plugin/xdl_strings.py:57
 msgid "Web Research"
 msgstr "Cercetare web"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py:57
 msgid "Writer"
-msgstr "Scriitor"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py:58
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Tablou de bord pentru evaluarea WriterAgent"
 
 msgid "Agent backends"
-msgstr "Backend-uri pentru agenți"
+msgstr "Backend-uri agent"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -977,17 +989,18 @@ msgid "Path / URL"
 msgstr "Cale / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cale către CLI backend (ex. aider) sau URL server ACP (ex. http://"
-"localhost:8000 pentru Hermes). Gol = încearcă implicit."
+"Calea către CLI-ul backend (de ex. aider) sau URL-ul serverului ACP (de ex. "
+"http://localhost:8000 pentru Hermes). Gol = încearcă valoarea implicită."
 
 msgid "Extra arguments"
 msgstr "Argumente suplimentare"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Argumente opționale pentru backend-ul selectat (separate prin spațiu)."
+msgstr ""
+"Argumente opționale pentru backend-ul selectat (separate prin spațiu)."
 
 msgid "ACP agent name"
 msgstr "Nume agent ACP"
@@ -996,118 +1009,120 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nume agent pe serverul ACP (ex. hermes). Gol = auto-descoperă primul agent."
+"Numele agentului pe serverul ACP (de ex. hermes). Gol = detectare automată a"
+" primului agent."
 
 msgid "Calc spreadsheet tools"
-msgstr "Unelte foi de calcul Calc"
+msgstr "Instrumente pentru foaia de calcul Calc"
 
 msgid "Max Rows Display"
-msgstr "Afișare max. rânduri"
+msgstr "Număr maxim de rânduri afișate"
 
 msgid "Sidebar"
 msgstr "Bară laterală"
 
 msgid "Max Tool Rounds"
-msgstr "Runde max. tool"
+msgstr "Număr maxim de runde ale instrumentului"
 
 msgid "Document Context Strategy"
-msgstr "Strategie context document"
+msgstr "Strategie pentru contextul documentului"
 
 msgid "How much document content to include in LLM context"
-msgstr "Cât conținut de document să includem în contextul LLM"
+msgstr "Cât din conținutul documentului să fie inclus în contextul LLM"
 
 msgid "Auto (by document size)"
-msgstr "Auto (după dimensiunea documentului)"
+msgstr "Automat (în funcție de dimensiunea documentului)"
 
 msgid "Full document text"
 msgstr "Textul complet al documentului"
 
 msgid "Pages around cursor"
-msgstr "Pagini în jurul cursorului"
+msgstr "Pagini din jurul cursorului"
 
 msgid "Outline + excerpt"
-msgstr "Structură + extras"
+msgstr "Schiță + extras"
 
 msgid "Stats + outline only"
-msgstr "Doar statistici + structură"
+msgstr "Statistici + doar schiță"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Tokeni max. pentru extinderea selecției"
+msgstr "Extindere număr maxim de tokenuri pentru selecție"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Tokeni extra pentru editarea selecției"
+msgstr "Editare tokenuri suplimentare pentru selecție"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Tokeni extra dincolo de lungimea textului original. 0 = aceeași lungime ca "
-"originalul."
+"Tokenuri suplimentare peste lungimea textului original. 0 = aceeași lungime "
+"ca originalul."
 
 msgid "Show Web Search Thinking"
-msgstr "Afișează gândirea căutării web"
+msgstr "Afișare proces de gândire pentru căutarea web"
 
 msgid "Prompt for Web Research"
-msgstr "Prompt pentru cercetare web"
+msgstr "Solicitare pentru cercetare web"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Cere confirmare înainte de trimiterea unei interogări de căutare web"
+msgstr "Cere confirmare înainte de a trimite o interogare de căutare web"
 
 msgid "Web Cache Max Size (MB)"
 msgstr "Dimensiune maximă cache web (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Dimensiune maximă pe disc pentru cache-ul căutării web (0 pentru a dezactiva)"
+"Dimensiune maximă pe disc pentru cache-ul de căutare web (0 pentru "
+"dezactivare)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Validitate cache web (Zile)"
+msgstr "Valabilitate cache web (zile)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr "Câte zile ar trebui să fie considerate valide intrările cache-ului."
+msgstr "Câte zile ar trebui să fie considerate valide intrările din cache."
 
 msgid "Doc"
-msgstr "Documentație"
+msgstr "Doc"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Activează verificatorul de gramatică AI (Writer)"
+msgstr "Activează corectorul gramatical AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Când este activat, WriterAgent înregistrează corectorul său de gramatică AI "
-"cu Linguistic; textul verificat folosește API-ul dvs (Instrumente → Opțiuni "
-"→ AI). Subliniile apar la scurt timp după ce faceți pauză în tastare. "
+"Când este activat, WriterAgent înregistrează corectorul gramatical AI în "
+"Linguistic; textul verificat utilizează API-ul dumneavoastră (Instrumente → "
+"Opțiuni → AI). Sublinierile apar la scurt timp după ce încetați să tastați. "
 "Dezactivat implicit."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Timeout de așteptare pentru verificarea gramaticii (ms)"
+msgstr "Timp de așteptare pentru verificarea gramaticală (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Rezervat pentru utilizare posibilă în viitor. Corectorul returnează imediat "
-"în caz de cache miss (asincron); rezultatele apar într-o iterație ulterioară "
-"a Writer-ului odată ce cache-ul de propoziții este populat."
+"Rezervat pentru o posibilă utilizare viitoare. Corectorul returnează imediat"
+" rezultatul în caz de cache miss (asincron); rezultatele apar la o trecere "
+"ulterioară a Writer odată ce cache-ul de propoziții este completat."
 
 msgid "Grammar check model (optional)"
-msgstr "Model verificare gramatică (opțional)"
+msgstr "Model de verificare gramaticală (opțional)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Lăsați gol pentru a folosi același model de text ca în chat."
+msgstr "Lăsați gol pentru a utiliza același model de text ca și pentru chat."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Pauză gramatică în timp ce chat/agent rulează"
+msgstr "Întrerupeți gramatica în timp ce chat-ul/agentul rulează"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Când este activat, gramatica AI sare peste cererile de fundal în timp ce "
-"chat-ul din bara laterală sau agentul rulează, pentru a evita apelurile API "
-"concurente."
+"Când este activat, corecția gramaticală AI omite cererile în fundal în timp "
+"ce chat-ul din bara laterală sau agentul rulează, pentru a evita apelurile "
+"API concurente."
 
 msgid "Draw and Impress tools"
 msgstr "Instrumente Draw și Impress"
@@ -1116,7 +1131,7 @@ msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "Activați server MCP"
+msgstr "Activare server MCP"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
@@ -1127,4 +1142,4 @@ msgid "MCP Port"
 msgstr "Port MCP"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Instrumente document Writer (inclusiv navigare și căutare)"
+msgstr "Instrumente pentru documente Writer (inclusiv navigare și căutare)"

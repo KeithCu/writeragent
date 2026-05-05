@@ -1,13 +1,18 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WriterAgent 1.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: Lithuanian\n"
-"Language: lt\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -15,7 +20,7 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:262
 #: plugin/modules/chatbot/panel.py:790
 msgid "Starting..."
-msgstr "Pradedama..."
+msgstr "Paleidžiama..."
 
 #: plugin/contrib/aihordeclient/__init__.py:370
 msgid "Updating model requirements..."
@@ -27,19 +32,17 @@ msgstr "Atnaujinami modeliai..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Registruokitės "
+msgstr "Registruotis "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "Jūs turite {} kudos"
+msgstr "Turite {} kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"«{}» nėra galiojantis API raktas, patikrinkite jį dar kartą arba sukurkite "
-"naują"
+msgstr "„{}“ nėra tinkamas API RAKTAS, patikrinkite jį arba sukurkite naują"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -47,8 +50,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Šiuo metu negalime apdoroti jūsų užklausos, prašome pabandyti vėliau. Jei "
-"tai vyksta ilgą laiką, praneškite mums per Discord"
+"Šiuo metu negalime apdoroti jūsų užklausos, bandykite dar kartą vėliau. Jei "
+"tai tęsiasi ilgą laiką, praneškite mums per „Discord“"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
@@ -59,16 +62,16 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde yra priežiūros režime, prašome pabandyti vėliau, jei bandėte ir "
-"paslauga neatsako valandas, susisiekite per Discord"
+"„Horde“ veikia techninės priežiūros režimu, bandykite dar kartą vėliau. Jei "
+"bandėte ir paslauga neatsako kelias valandas, susisiekite per „Discord“"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Jūs atlikote per daug užklausų, palaukite kol jos baigsis ir pabandykite "
-"vėliau"
+"Pateikėte per daug užklausų, palaukite, kol jos bus baigtos, ir bandykite "
+"dar kartą vėliau"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -76,33 +79,33 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Atrodo, kad «{}» turi problemų, patikrinkite dar kartą, sukurkite naują arba "
-"prisijunkite prie Discord pagalbos"
+"Atrodo, kad «{}» turi problemų, patikrinkite dar kartą, sukurkite naują arba"
+" prisijunkite prie „Discord“, kad paprašytumėte pagalbos"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Patyrėme klaidą, vis tiek: "
+msgstr "Įvyko klaida, vis dar: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Nebe galioja, bandykite dar kartą. Jūsų užklausa užtruko per ilgai"
+msgstr "Nebegalioja, bandykite dar kartą. Jūsų užklausa užtruko per ilgai"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Jungiamasi prie Horde..."
+msgstr "Susisiekiama su „Horde“..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Susisiekta su Horde"
+msgstr "Su „Horde“ susisiekta"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr "Bandant užklausti paveikslėlio, Horde buvo per lėtas, bandykite vėliau"
+msgstr "Bandant gauti vaizdą, „Horde“ veikė per lėtai, bandykite vėliau"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "išmokti uždirbti kudos. Detalė:"
+msgstr "išmokti užsidirbti „kudos“. Išsami informacija:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
@@ -111,11 +114,11 @@ msgstr "Paslauga nepavyko: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "Atsisiunčiamas sugeneruotas paveikslėlis..."
+msgstr "Atsisiunčiamas sugeneruotas vaizdas..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "Jūs esate pirmas eilėje"
+msgstr "Esate pirmas eilėje"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
@@ -138,42 +141,41 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Šis modelis užtrunka daugiau laiko nei jūsų dabartinė konfigūracija."
+msgstr "Šis modelis užtrunka ilgiau nei jūsų dabartinė konfigūracija."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Prašome išbandyti kitą modelį. {0} užtruktų daugiau laiko nei "
-"sukonfigūravote."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr "Pabandykite kitą modelį. {0} užtruktų ilgiau nei sukonfigūravote."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Pabandykite vėliau."
+msgstr "Prašome bandyti vėliau."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "Nėra prieinamų darbininkų su šiais nustatymais."
+msgstr "Nėra darbuotojų, pasiekiamų su šiais nustatymais."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Jūsų paveikslėlis tikriausiai užtruks dar vieną minutę."
+msgstr "Tikėtina, kad jūsų vaizdas užtruks viena minute ilgiau."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Jūsų paveikslėlis tikriausiai užtruks dar {} minutes."
+msgstr "Tikėtina, kad jūsų vaizdas užtruks {} minutėmis ilgiau."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
-msgstr "Gaunami vaizdai..."
+msgstr "Atsisiunčiami vaizdai..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " yra cenzūruotas, pabandykite pakeisti užklausos žodžius"
+msgstr " yra cenzūruojamas, pabandykite pakeisti užklausos formuluotę"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
@@ -188,13 +190,13 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Gali reikėti sumažinti nustatymus arba pasirinkti kitą modelį, arba jus "
-"galėjo užcenzūruoti. Horde žinutė"
+"Gali tekti sumažinti nustatymus arba pasirinkti kitą modelį, arba galbūt "
+"buvote cenzūruotas. „Horde“ pranešimas"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
 msgid " generated by "
-msgstr " sugeneruotas "
+msgstr " sukūrė "
 
 #: plugin/contrib/aihordeclient/__init__.py:1124
 msgid " with "
@@ -225,13 +227,13 @@ msgstr "Paieškos užklausa:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
-msgstr "OK"
+msgstr "Gerai"
 
 #: plugin/framework/dialogs.py:168
 msgid "Cancel"
-msgstr "Atšaukti"
+msgstr "Atsisakyti"
 
 #: plugin/framework/dialogs.py:335
 msgid "Copy"
@@ -248,12 +250,12 @@ msgstr "Kopijuoti URL"
 #: plugin/framework/errors.py:52
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} nerastas: {identifier}"
+msgstr "{resource_type} nerasta: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
-msgstr "Nustatymai"
+msgstr "Nuostatos"
 
 #: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
 #: plugin/framework/external_editor.py:83
@@ -269,22 +271,22 @@ msgstr "Klaida"
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "Nepavyko atidaryti nustatymų: {0}"
+msgstr "Nepavyko atverti nuostatų: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Įrankio kvietimas perjungtas į '{0}'. Jūs esate specializuotame įrankių "
-"rinkinio režime. Turite iškviesti 'specialized_workflow_finished' baigę, kad "
-"atkurti visą API rinkinį."
+"Įrankio iškvietimas perjungtas į „{0}“. Veikiate specializuoto įrankių "
+"rinkinio režimu. Norėdami atkurti visą API rinkinį, baigę darbą turite "
+"iškviesti „specialized_workflow_finished“."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
-msgstr "Neleistinas nustatymas"
+msgstr "Netinkama nuostata"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
@@ -295,32 +297,33 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Aš galiu akimirksniu redaguoti arba versti jūsų dokumentą su "
-"profesionaliu formatavimu ir spalvomis. Išbandykite mane!"
+"AI: Galiu akimirksniu redaguoti ar išversti jūsų dokumentą, išlaikydamas "
+"profesionalų formatavimą ir spalvas. Išbandykite!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Aš galiu padėti jums su formulėmis, duomenų analize ir spalvingomis "
-"diagramomis. Išbandykite mane!"
+"AI: Galiu padėti su formulėmis, duomenų analize ir spalvingomis diagramomis."
+" Išbandykite!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Galiu padėti kurti ir redaguoti dailias, spalvotas formas Draw ir "
-"Impress. Išbandyk mane!"
+"AI: Galiu padėti kurti ir redaguoti dailias, spalvingas figūras programose "
+"„Draw“ ir „Impress“. Išbandykite!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Galiu atlikti žiniatinklio paiešką, kad atsakyčiau į bet kokį klausimą, "
-"arba apibendrinti žiniatinklio puslapį, neperžiūrėdamas ar nekeisdamas jūsų "
-"dokumento. Pabendraukime."
+"AI: Galiu atlikti paiešką internete, kad atsakyčiau į bet kokį klausimą, "
+"arba apibendrinti tinklalapį, nematydamas ir nekeisdamas jūsų dokumento. "
+"Pasikalbėkime."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
@@ -342,9 +345,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Redaktorius nerastas (įdiekite Kate arba Gedit, arba nustatykite EDITOR). "
-"Kelias:\n"
-"{0}"
+"Redaktorius nerastas (įdiekite „Kate“ arba „Gedit“, arba nustatykite "
+"kintamąjį EDITOR). Kelias: {0}"
 
 #: plugin/framework/external_editor.py:114
 #, python-brace-format
@@ -353,7 +355,7 @@ msgstr "Nepavyko paleisti redaktoriaus: {0}"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
-msgstr "Galimas naujinimas"
+msgstr "Yra naujinimų"
 
 #: plugin/framework/extension_update_check.py:152
 #, python-format
@@ -361,8 +363,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Yra naujesnė WriterAgent (%s) versija. Naudokite Įrankiai → Plėtinių "
-"tvarkytuvę, kad patikrintumėte atnaujinimus ir įdiegtumėte naujausią plėtinį."
+"Yra naujesnė „WriterAgent“ versija (%s). Norėdami patikrinti naujinimus ir "
+"įdiegti naujausią plėtinį, naudokite „Įrankiai“ → „Plėtinių tvarkytuvė“."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -371,16 +373,16 @@ msgstr "TLS/SSL klaida: {0}"
 
 #: plugin/modules/http/errors.py:25
 msgid "Invalid API Key. Please check your settings."
-msgstr "Neteisingas API raktas. Prašome patikrinti nustatymus."
+msgstr "Netinkamas API raktas. Patikrinkite savo nustatymus."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr "API prieiga uždrausta. Jūsų raktas gali neturėti teisių šiam modeliui."
+msgstr "API prieiga uždrausta. Jūsų raktui gali trūkti leidimų šiam modeliui."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr ""
-"Endpointas nerastas (404). Patikrinkite savo URL ir modelio pavadinimą."
+"Galutinis taškas nerastas (404). Patikrinkite URL ir modelio pavadinimą."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
@@ -395,52 +397,54 @@ msgstr "HTTP klaida {0}: {1}"
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"Užklausos laikas baigėsi. Pabandykite padidinti „Užklausos laukimo laiką“ "
-"nustatymuose."
+"Užklausa baigėsi. Pabandykite padidinti „Užklausos skirtąjį laiką“ (Request "
+"Timeout) nuostatose."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Prijungimas atmestas. Ar veikia jūsų vietinis AI serveris (Ollama/LM Studio)?"
+"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) "
+"veikia?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "DNS klaida. Nepavyko išspręsti endpointo URL."
+msgstr "DNS klaida. Nepavyko nustatyti galutinio taško URL."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
 msgid "Connection Error: {0}"
-msgstr "Jungimosi klaida: {0}"
+msgstr "Ryšio klaida: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "AI teikėjas pranešė apie klaidą. Pabandykite dar kartą."
+msgstr "DI teikėjas pranešė apie klaidą. Bandykite dar kartą."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "HTTP klaida {0} iš AI teikėjo: {1}"
+msgstr "HTTP klaida {0} iš DI teikėjo: {1}"
 
 #: plugin/modules/http/errors.py:77
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Klaida: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "Srautas baigėsi su finish_reason=klaida"
+msgstr "Srautas baigėsi su finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Modelis kartojasi tą patį gabalėlį (begalinė kilpa). Pabandykite dar kartą "
+"Modelis kartoja tą patį fragmentą (begalinis ciklas). Bandykite dar kartą "
 "arba naudokite kitą modelį."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
-msgstr "Sustabdyti MCP serverį"
+msgstr "Stabdyti MCP serverį"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
@@ -495,17 +499,17 @@ msgstr "Įvestis"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Redaguoti pažymėjimą (Calc)"
+msgstr "WriterAgent: redaguoti pažymėtą sritį (Calc)"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Išplėsti pažymėjimą (Calc)"
+msgstr "WriterAgent: išplėsti pažymėtą sritį (Calc)"
 
 #: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
 #: plugin/modules/chatbot/selection.py:90
 #: plugin/modules/chatbot/selection.py:177
 msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Išplėsti pažymėjimą"
+msgstr "WriterAgent: išplėsti pažymėtą sritį"
 
 #: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
 #: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
@@ -513,15 +517,15 @@ msgstr "WriterAgent: Išplėsti pažymėjimą"
 #: plugin/modules/chatbot/selection.py:297
 #: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Redaguoti pasirinkimą"
+msgstr "WriterAgent: redaguoti pažymėtą sritį"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
-msgstr "Gatavas"
+msgstr "Parengta"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Klaida: Įrankių rinkinys neprieinamas"
+msgstr "Klaida: įrankių rinkinys nepasiekiamas"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
@@ -545,9 +549,9 @@ msgstr "Įrašyti"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Sustabdyti įraš."
+msgstr "Stabdyti įrašymą"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Siųsti"
 
@@ -560,8 +564,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aktyviame lange nerastas suderinamas LibreOffice dokumentas (Writer, Calc "
-"arba Draw).]"
+"[Aktyviame lange nerasta suderinamo „LibreOffice“ dokumento („Writer“, "
+"„Calc“ arba „Draw“).]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -569,7 +573,7 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Vidinė klaida: Dokumento tipas pasikeitė iš {0} į {1}! Prašome pranešti "
+"[Vidinė klaida: dokumento tipas pasikeitė iš {0} į {1}! Prašome pranešti "
 "apie klaidą.]"
 
 #: plugin/modules/chatbot/panel.py:819
@@ -578,7 +582,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Vidinė klaida: Nepavyko nustatyti {0} dokumento tipo. Prašome tai pranešti!]"
+"[Vidinė klaida: nepavyko nustatyti {0} dokumento tipo. Prašome apie tai "
+"pranešti!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -586,12 +591,12 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Modelis {0} nepalaiko natyvaus garso. Nustatymuose pasirinkite STT modelį.]"
+"[Modelis {0} nepalaiko vietinio garso. Nustatymuose pasirinkite STT modelį.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Ši paieškos užklausa '%s' bus siunčiama į paieškos variklį."
+msgstr "Ši paieškos užklausa „%s“ bus išsiųsta į paieškos sistemą."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
@@ -615,9 +620,9 @@ msgstr "Tyrimo užklausa:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "Kontekstas tyrimų agentui:"
+msgstr "Tyrimo agento kontekstas:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
 msgstr "Žiniatinklio tyrimas baigtas."
 
@@ -628,7 +633,7 @@ msgstr "Transkribuojamas garsas..."
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
-msgstr "[Transkripcijos klaida: {0}]"
+msgstr "[Transkribavimo klaida: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
@@ -638,14 +643,15 @@ msgstr "[Dokumento konteksto klaida: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Agento backend'as „{0}“ nerastas.]"
+msgstr "[Agento posistemė „{0}“ nerasta.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agento backend'as „{0}“ nėra prieinamas. Patikrinkite nustatymus (kelias, "
-"diegimas).]"
+"[Agento posistemė „{0}“ nepasiekiama. Patikrinkite nuostatas (kelią, "
+"diegimą).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
 #: plugin/modules/chatbot/send_handlers.py:634
@@ -655,7 +661,7 @@ msgstr "Bibliotekininkas: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Puiku! Dabar perjungiu jus prie pagrindinio asistento."
+msgstr "Puiku! Dabar perjungiu jus į pagrindinį asistentą."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
@@ -669,18 +675,18 @@ msgstr "[Bibliotekininko klaida: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "DI (tyrimas): {0}"
+msgstr "DI (tyrimai): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Nežinoma tyrimo klaida."
+msgstr "Nežinoma tyrimų klaida."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
-msgstr "[Tyrimo klaida: {0}]"
+msgstr "[Tyrimų klaida: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
 msgstr "Perjungiama į dokumento režimą..."
 
@@ -700,18 +706,18 @@ msgstr "Plotis:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
-msgstr "Įmontuotas"
+msgstr "Integruotas"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
-msgstr "Serverinė dalis"
+msgstr "Aptarnavimo programa"
 
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} praėjo, {2} nepraėjo."
+msgstr "{0}: {1} sėkmingai, {2} nepavyko."
 
 #: plugin/main.py:357
 #, python-brace-format
@@ -720,11 +726,11 @@ msgstr "Nepavyko paleisti testų: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
-msgstr "Išplėsti pažymėjimą"
+msgstr "Išplėsti žymėjimą"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Redaguoti pažymėjimą"
+msgstr "Redaguoti pasirinkimą"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
@@ -736,19 +742,19 @@ msgstr "MCP serverio būsena"
 
 #: plugin/main.py:438
 msgid "Run format tests"
-msgstr "Paleisti formato testus"
+msgstr "Vykdyti formatavimo testus"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Paleisti skaičiavimo testus"
+msgstr "Vykdyti Calc testus"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Paleisti Calc API integracijos testus"
+msgstr "Vykdyti Calc API integracijos testus"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Paleisti piešimo testus"
+msgstr "Vykdyti Draw testus"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -768,7 +774,7 @@ msgstr "7.5"
 
 #: plugin/xdl_strings.py:6
 msgid "AI Horde API Key:"
-msgstr "AI Horde API raktas:"
+msgstr "„AI Horde“ API raktas:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
@@ -780,7 +786,7 @@ msgstr "API raktas:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "Papildomos instrukcijos (Istorija):"
+msgstr "Papildomos instrukcijos (istorija):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
@@ -808,19 +814,19 @@ msgstr "Automatinė galerija"
 
 #: plugin/xdl_strings.py:16
 msgid "Base Size:"
-msgstr "Bazinis dydis:"
+msgstr "Pagrindinis dydis:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
-msgstr "Bazė:"
+msgstr "Pagrindas:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr "CFG mastelis:"
+msgstr "CFG skalė:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Apskaič."
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -832,7 +838,7 @@ msgstr "Cenzūruoti NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Čatas (Testavimas):"
+msgstr "Pokalbis (testavimas):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
@@ -840,7 +846,7 @@ msgstr "Išvalyti"
 
 #: plugin/xdl_strings.py:24
 msgid "Close"
-msgstr "Uždaryti"
+msgstr "Užverti"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
@@ -848,7 +854,7 @@ msgstr "Konteksto ilgis:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Piešti"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
@@ -856,110 +862,110 @@ msgstr "Redaguoti konfigūracijos failą (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "Pabaigos taško URL (/v1 pridėtas):"
+msgstr "Galutinio taško URL (pridedama /v1):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
-msgstr "Pabaigos taško URL:"
+msgstr "Galutinio taško URL:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
-msgstr "Bendrieji"
+msgstr "Bendra"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
-msgstr "Vaizdo modelis:"
+msgstr "Vaizdų modelis:"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
-msgstr "Vaizdo nustatymai"
+msgstr "Vaizdų nustatymai"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
-msgstr "Įterpti kadrą"
+msgstr "Įterpti rėmelį"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent vertinimo prietaisų skydelis"
+msgid "Max Tokens:"
+msgstr "Maks. žetonų skaičius:"
 
 #: plugin/xdl_strings.py:36
-msgid "Max Tokens:"
-msgstr "Maks. žetonų:"
+msgid "Max Wait (s):"
+msgstr "Didžiausia laukimo trukmė (s):"
 
 #: plugin/xdl_strings.py:37
-msgid "Max Wait (s):"
-msgstr "Maks. laukimas (s):"
+msgid "Models to Test:"
+msgstr "Modeliai testavimui:"
 
 #: plugin/xdl_strings.py:38
-msgid "Models to Test:"
-msgstr "Testuotiniai modeliai:"
-
-#: plugin/xdl_strings.py:39
 msgid "Multimodal"
-msgstr "Daugiamodis"
+msgstr "Multimodalinis"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
-msgstr "Prašome įvesti redagavimo instrukcijas:"
+msgstr "Įveskite redagavimo instrukcijas:"
+
+#: plugin/xdl_strings.py:42
+msgid "Run Benchmark"
+msgstr "Vykdyti našumo testą"
 
 #: plugin/xdl_strings.py:43
-msgid "Run Benchmark"
-msgstr "Paleisti etaloną"
-
-#: plugin/xdl_strings.py:44
 msgid "Seed:"
-msgstr "Sėkla:"
+msgstr "Pradinė reikšmė (Seed):"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Kvadratas"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Žingsniai:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
-msgstr "Sustabdyti"
+msgstr "Stabdyti"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Temperatūra:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
-msgstr "Teksto/čato modelis:"
+msgstr "Teksto / pokalbių modelis:"
+
+#: plugin/xdl_strings.py:51
+msgid "Timeout (s):"
+msgstr "Skirtasis laikas (s):"
 
 #: plugin/xdl_strings.py:52
-msgid "Timeout (s):"
-msgstr "Laiko limitas (s):"
-
-#: plugin/xdl_strings.py:53
 msgid "Translate Prompt"
 msgstr "Išversti užklausą"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
-msgstr "Versti iš (pvz. es):"
+msgstr "Versti iš (pvz., es):"
+
+#: plugin/xdl_strings.py:54
+msgid "Use AI Horde for Image Generation"
+msgstr "Naudoti „AI Horde“ vaizdų generavimui"
 
 #: plugin/xdl_strings.py:55
-msgid "Use AI Horde for Image Generation"
-msgstr "Naudoti AI Horde vaizdų generavimui"
-
-#: plugin/xdl_strings.py:56
 msgid "Use Image model"
 msgstr "Naudoti vaizdų modelį"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:56
 msgid "Web Research"
-msgstr "Žiniatinklio tyrimas"
+msgstr "Žiniatinklio paieška"
+
+#: plugin/xdl_strings.py:57
+msgid "Writer"
+msgstr "Writer"
 
 #: plugin/xdl_strings.py:58
-msgid "Writer"
-msgstr "Rašytojas"
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "„WriterAgent“ vertinimo skydelis"
 
 msgid "Agent backends"
-msgstr "Agento backend'ai"
+msgstr "Agentų pagrindinės sistemos"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -974,17 +980,17 @@ msgid "Path / URL"
 msgstr "Kelias / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Kelias į backend CLI (pvz. aider) arba ACP serverio URL (pvz. http://"
-"localhost:8000 Hermes). Tuščias = bandyti numatytąjį."
+"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., "
+"http://localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
 
 msgid "Extra arguments"
 msgstr "Papildomi argumentai"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Neprivalomi argumentai pasirinktam backend (skiriami tarpais)."
+msgstr "Pasirenkami argumentai pasirinktai posistemei (atskirti tarpais)."
 
 msgid "ACP agent name"
 msgstr "ACP agento pavadinimas"
@@ -993,20 +999,20 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Agento pavadinimas ACP serveryje (pvz. hermes). Tuščias = automatiškai rasti "
-"pirmą agentą."
+"Agento pavadinimas ACP serveryje (pvz., hermes). Tuščia = automatiškai "
+"aptikti pirmąjį agentą."
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc skaičiuoklės įrankiai"
 
 msgid "Max Rows Display"
-msgstr "Maks. rodomų eilučių"
+msgstr "Maks. eilučių skaičius"
 
 msgid "Sidebar"
 msgstr "Šoninė juosta"
 
 msgid "Max Tool Rounds"
-msgstr "Maks. įrankių raundų"
+msgstr "Maks. įrankio ciklų skaičius"
 
 msgid "Document Context Strategy"
 msgstr "Dokumento konteksto strategija"
@@ -1015,7 +1021,7 @@ msgid "How much document content to include in LLM context"
 msgstr "Kiek dokumento turinio įtraukti į LLM kontekstą"
 
 msgid "Auto (by document size)"
-msgstr "Auto (pagal dokumento dydį)"
+msgstr "Automatinis (pagal dokumento dydį)"
 
 msgid "Full document text"
 msgstr "Visas dokumento tekstas"
@@ -1024,101 +1030,105 @@ msgid "Pages around cursor"
 msgstr "Puslapiai aplink žymeklį"
 
 msgid "Outline + excerpt"
-msgstr "Apybraiža + ištrauka"
+msgstr "Struktūra + ištrauka"
 
 msgid "Stats + outline only"
-msgstr "Statistika + tik apybraiža"
+msgstr "Tik statistika + struktūra"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Išplėsti pažymėjimą maks. žetonai"
+msgstr "Išplėsti žymėjimo maksimalų žetonų skaičių"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Redaguoti pažymėjimą papild. žetonai"
+msgstr "Redaguoti žymėjimo papildomus žetonus"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Papildomi žetonai virš originalaus teksto ilgio. 0 = toks pat ilgis kaip "
-"originalas."
+"Papildomi žetonai viršijantys pradinį teksto ilgį. 0 = toks pat ilgis kaip "
+"originalo."
 
 msgid "Show Web Search Thinking"
-msgstr "Rodyti žiniatinklio paieškos mąstymą"
+msgstr "Rodyti žiniatinklio paieškos mąstymo procesą"
 
 msgid "Prompt for Web Research"
-msgstr "Užklausa žiniatinklio tyrimui"
+msgstr "Rodyti raginimą atlikti žiniatinklio tyrimą"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Prieš siunčiant žiniatinklio paieškos užklausą, klausti patvirtinimo"
+msgstr "Prašyti patvirtinimo prieš siunčiant žiniatinklio paieškos užklausą"
 
 msgid "Web Cache Max Size (MB)"
-msgstr "Žiniatinklio talpyklos maksimalus dydis (MB)"
+msgstr "Maksimalus žiniatinklio podėlio dydis (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Maksimalus disko dydis žiniatinklio paieškos talpyklai (0 išjungti)"
+msgstr "Maksimalus disko dydis žiniatinklio paieškos podėliui (0 – išjungti)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Žiniatinklio talpyklos galiojimas (dienos)"
+msgstr "Žiniatinklio podėlio galiojimas (dienomis)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr "Per kiek dienų talpyklos įrašai turėtų būti laikomi galiojančiais."
+msgstr "Kiek dienų podėlio įrašai turėtų būti laikomi galiojančiais."
 
 msgid "Doc"
-msgstr "Dok."
+msgstr "Dokumentas"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Įjungti DI gramatikos tikrintuvą (Writer)"
+msgstr "Įjungti DI gramatikos tikrintuvą („Writer“)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Įjungus, WriterAgent registruoja savo DI gramatikos peržiūrėtoją su "
-"Linguistic; tikrinamas tekstas naudoja jūsų API (Įrankiai → Parinktys → DI). "
-"Pabražimai atsiranda netrukus po rašymo pertraukos. Išjungta pagal numatymą."
+"Kai įjungta, „WriterAgent“ užregistruoja savo DI gramatikos tikrintuvą "
+"„Linguistic“ sistemoje; tikrinamam tekstui naudojamas jūsų API (Įrankiai → "
+"Parinktys → DI). Pabraukimai pasirodo netrukus po to, kai nustojate rašyti. "
+"Pagal numatymą išjungta."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Gramatikos tikrinimo laukimo timeout (ms)"
+msgstr "Gramatikos tikrinimo delsos laikas (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Rezervuota galimam ateities naudojimui. Korektorius nedelsiant grąžina "
-"atsakymą podėlio nepataikymo atveju (asinchroniškai); rezultatai atsiranda "
-"vėlesniame Writer etape, kai sakinių podėlis yra užpildytas."
+"Rezervuota galimam naudojimui ateityje. Tikrintuvas grąžina rezultatą "
+"iškart, jei duomenų nėra podėlyje (asinchroniškai); rezultatai pasirodo "
+"vėlesnio „Writer“ tikrinimo metu, kai sakinių podėlis užpildomas."
 
 msgid "Grammar check model (optional)"
-msgstr "Gramatikos tikrinimo modelis (neprivalomas)"
+msgstr "Gramatikos tikrinimo modelis (nebūtina)"
 
 msgid "Leave empty to use the same text model as chat."
 msgstr ""
-"Palikite tuščią, kad būtų naudojamas tas pats teksto modelis kaip pokalbyje."
+"Palikite tuščią, jei norite naudoti tą patį teksto modelį kaip ir "
+"pokalbiuose."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Pristabdyti gramatikos tikrinimą kol veikia pokalbis/agentas"
+msgstr "Pristabdyti gramatikos tikrinimą, kol veikia pokalbis / agentas"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Įjungus, AI gramatika praleidžia fono užklausas kol veikia šoninės juostos "
-"pokalbis ar agentas, kad būtų išvengta vienalaikių API iškvietimų."
+"Kai įjungta, DI gramatikos tikrinimas praleidžia fono užklausas, kol veikia "
+"šoninės juostos pokalbis arba agentas, kad būtų išvengta vienalaikių API "
+"iškvietimų."
 
 msgid "Draw and Impress tools"
-msgstr "Draw ir Impress įrankiai"
+msgstr "„Draw“ ir „Impress“ įrankiai"
 
 msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "Įjungti MCP serverį"
+msgstr "Įgalinti MCP serverį"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
-msgstr "Tik localhost, be autentifikacijos. Prieiga per stdio visada įjungta."
+msgstr ""
+"Tik „localhost“, be autentifikacijos. Prieiga per „stdio“ visada įgalinta."
 
 msgid "MCP Port"
 msgstr "MCP prievadas"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Writer dokumento įrankiai (įskaitant naršymą ir paiešką)"
+msgstr "„Writer“ dokumentų įrankiai (įskaitant naršymą ir paiešką)"

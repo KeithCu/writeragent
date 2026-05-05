@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -220,7 +220,7 @@ msgstr "搜尋查詢："
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "確定"
 
@@ -246,7 +246,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} 未找到：{identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "設定"
 
@@ -266,7 +266,7 @@ msgstr "錯誤"
 msgid "Failed to open Settings: {0}"
 msgstr "無法開啟設定：{0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
 "Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
@@ -405,11 +405,11 @@ msgstr "來自 AI 提供者的 HTTP 錯誤 {0}：{1}"
 msgid "Error: {0}"
 msgstr "錯誤：{0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
 msgstr "串流以 finish_reason=error 結束"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
@@ -492,7 +492,7 @@ msgstr "WriterAgent：擴展選取"
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：編輯選取"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "準備就緒"
 
@@ -524,7 +524,7 @@ msgstr "錄製"
 msgid "Stop Rec"
 msgstr "停止錄製"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "傳送"
 
@@ -588,7 +588,7 @@ msgstr "研究請求："
 msgid "Context for the research agent:"
 msgstr "研究代理的上下文："
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
 msgstr "網路研究完成。"
 
@@ -649,7 +649,7 @@ msgstr "未知研究錯誤。"
 msgid "[Research error: {0}]"
 msgstr "[研究錯誤：{0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
 msgstr "正在切換到文件模式…"
 
@@ -669,11 +669,11 @@ msgstr "寬度："
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "內建"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
 msgstr "後端"
 
@@ -848,84 +848,84 @@ msgid "Insert Frame"
 msgstr "插入框架"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent 評估儀表板"
-
-#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "最大 Token 數："
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
 msgstr "最大等待時間 (秒)："
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:37
 msgid "Models to Test:"
 msgstr "要測試的模型："
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "多模態"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
 msgstr "請輸入編輯指示："
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
 msgstr "執行基準測試"
 
-#: plugin/xdl_strings.py:44
+#: plugin/xdl_strings.py:43
 msgid "Seed:"
 msgstr "種子："
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "正方形"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "步驟："
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
 msgstr "停止"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "溫度："
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "文字/聊天模型："
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
 msgstr "逾時 (秒)："
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
 msgstr "翻譯提示"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
 msgstr "從（例如 es）翻譯："
 
-#: plugin/xdl_strings.py:55
+#: plugin/xdl_strings.py:54
 msgid "Use AI Horde for Image Generation"
 msgstr "使用 AI Horde 進行影像生成"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py:55
 msgid "Use Image model"
 msgstr "使用圖像模型"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:56
 msgid "Web Research"
 msgstr "網路研究"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py:57
 msgid "Writer"
 msgstr "Writer"
+
+#: plugin/xdl_strings.py:58
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent 評估儀表板"
 
 msgid "Agent backends"
 msgstr "代理後端"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -42,7 +42,7 @@ msgstr "Anda memiliki {} kudos"
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» bukanlah API KEY yang valid, periksa kembali atau buat yang baru"
+msgstr "«{}» bukan API KEY yang valid, periksa kembali atau buat yang baru"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -51,7 +51,8 @@ msgid ""
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
 "Saat ini kami tidak dapat memproses permintaan Anda, silakan coba lagi "
-"nanti. Jika ini terjadi dalam waktu yang lama, beri tahu kami melalui Discord"
+"nanti. Jika ini terjadi dalam waktu yang lama, beri tahu kami melalui "
+"Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
@@ -62,16 +63,16 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"The Horde sedang dalam mode pemeliharaan, silakan coba lagi nanti, jika Anda "
-"telah mencoba dan layanan tidak merespons selama berjam-jam, hubungi melalui "
-"Discord"
+"Horde sedang dalam mode pemeliharaan, silakan coba lagi nanti, jika Anda "
+"sudah mencoba dan layanan tidak merespons selama berjam-jam, silakan hubungi"
+" melalui Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Anda telah membuat terlalu banyak permintaan, silakan tunggu hingga selesai, "
+"Anda telah membuat terlalu banyak permintaan, harap tunggu hingga selesai, "
 "dan coba lagi nanti"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
@@ -80,12 +81,12 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Sepertinya «{}» bermasalah, periksa ulang, buat yang baru atau bergabung "
-"dengan Discord untuk meminta bantuan"
+"Sepertinya «{}» bermasalah, periksa kembali, buat yang baru, atau "
+"bergabunglah dengan Discord untuk meminta bantuan"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Terjadi kesalahan, namun: "
+msgstr "Kami mengalami kesalahan, tetap: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
@@ -121,20 +122,20 @@ msgstr "Mengunduh gambar yang dihasilkan..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "Anda pertama dalam antrian"
+msgstr "Anda berada di urutan pertama dalam antrean"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
-msgstr "Posisi antrian: "
+msgstr "Posisi antrean: "
 
 #: plugin/contrib/aihordeclient/__init__.py:946
 msgid "Generating..."
-msgstr "Membuat..."
+msgstr "Sedang membuat..."
 
 #: plugin/contrib/aihordeclient/__init__.py:963
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
-msgstr "Dapatkan API Key gratis di "
+msgstr "Dapatkan Kunci API gratis di "
 
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
@@ -149,10 +150,11 @@ msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Silakan coba model lain. {0} akan membutuhkan waktu lebih lama daripada yang "
-"Anda konfigurasikan."
+"Silakan coba model lain. {0} akan membutuhkan waktu lebih lama daripada yang"
+" Anda konfigurasi."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
@@ -180,7 +182,7 @@ msgstr "Mengambil gambar..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " disensor, coba ubah kata-kata prompt"
+msgstr " disensor, coba ubah kata-kata perintahnya"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
@@ -195,13 +197,13 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Anda mungkin perlu menurunkan pengaturan atau memilih model lain, atau Anda "
+"Anda mungkin perlu mengurangi pengaturan atau memilih model lain, atau Anda "
 "mungkin telah disensor. Pesan Horde"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
 msgid " generated by "
-msgstr " dibuat oleh "
+msgstr " dihasilkan oleh "
 
 #: plugin/contrib/aihordeclient/__init__.py:1124
 msgid " with "
@@ -224,7 +226,7 @@ msgstr "Alat: %s"
 
 #: plugin/framework/dialogs.py:154
 msgid "Edit search query"
-msgstr "Sunting kueri pencarian"
+msgstr "Edit kueri pencarian"
 
 #: plugin/framework/dialogs.py:159
 msgid "Search query:"
@@ -232,7 +234,7 @@ msgstr "Kueri pencarian:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "OK"
 
@@ -258,7 +260,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} tidak ditemukan: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Pengaturan"
 
@@ -271,23 +273,23 @@ msgstr "Pengaturan"
 #: plugin/modules/chatbot/send_handlers.py:375
 #: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
 msgid "Error"
-msgstr "Kesalahan"
+msgstr "Galat"
 
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "Gagal membuka Pengaturan: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Pemanggilan alat beralih ke '{0}'. Anda berada dalam mode set alat khusus. "
-"Anda harus memanggil 'specialized_workflow_finished' saat selesai untuk "
-"mengembalikan seluruh set API."
+"Panggilan alat beralih ke '{0}'. Anda berada dalam mode perangkat alat "
+"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai"
+" untuk memulihkan rangkaian API lengkap."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
@@ -302,31 +304,32 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Saya bisa mengedit atau menerjemahkan dokumen Anda secara instan dengan "
-"pemformatan profesional dan warna. Coba saya!"
+"AI: Saya dapat mengedit atau menerjemahkan dokumen Anda secara instan dengan"
+" pemformatan dan warna profesional. Coba saya!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Saya bisa membantu Anda dengan rumus, analisis data, dan bagan berwarna. "
-"Coba saya!"
+"AI: Saya dapat membantu Anda dengan rumus, analisis data, dan bagan "
+"berwarna. Coba saya!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Saya bisa membantu Anda membuat dan mengedit bentuk yang halus dan "
-"berwarna-warni di Draw dan Impress. Coba saya!"
+"AI: Saya dapat membantu Anda membuat dan mengedit bentuk yang dipoles dan "
+"berwarna di Draw dan Impress. Coba saya!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Saya bisa melakukan penelitian web untuk menjawab pertanyaan apa pun, "
-"atau merangkum halaman web, tanpa melihat atau mengubah dokumen Anda. Mari "
+"AI: Saya dapat melakukan riset web untuk menjawab pertanyaan apa pun, atau "
+"meringkas halaman web, tanpa melihat atau mengubah dokumen Anda. Mari "
 "mengobrol."
 
 #: plugin/framework/external_editor.py:83
@@ -340,7 +343,7 @@ msgid ""
 "Could not open an editor. Path:\n"
 "{0}"
 msgstr ""
-"Tidak dapat membuka editor. Path:\n"
+"Tidak dapat membuka editor. Jalur:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:107
@@ -349,7 +352,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Tidak ditemukan editor (pasang Kate atau Gedit, atau atur EDITOR). Path:\n"
+"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: "
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -367,17 +370,17 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"WriterAgent yang lebih baru (%s) tersedia. Gunakan Tools → Extension Manager "
-"untuk memeriksa pembaruan dan memasang ekstensi terbaru."
+"WriterAgent versi lebih baru (%s) tersedia. Gunakan Alat → Manajer Ekstensi "
+"untuk memeriksa pembaruan dan menginstal ekstensi terbaru."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
-msgstr "Error TLS/SSL: {0}"
+msgstr "Kesalahan TLS/SSL: {0}"
 
 #: plugin/modules/http/errors.py:25
 msgid "Invalid API Key. Please check your settings."
-msgstr "Kunci API tidak valid. Silakan periksa pengaturan Anda."
+msgstr "Kunci API tidak valid. Harap periksa pengaturan Anda."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
@@ -386,7 +389,7 @@ msgstr ""
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Endpoint tidak ditemukan (404). Periksa URL dan nama Model Anda."
+msgstr "Titik akhir tidak ditemukan (404). Periksa URL dan nama Model Anda."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
@@ -400,17 +403,20 @@ msgstr "Kesalahan HTTP {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr "Permintaan Timeout. Coba tingkatkan 'Request Timeout' di Pengaturan."
+msgstr ""
+"Permintaan Habis Waktu. Coba tingkatkan 'Batas Waktu Permintaan' di "
+"Pengaturan."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Koneksi Ditolak. Apakah server AI lokal Anda (Ollama/LM Studio) sedang "
 "berjalan?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "Kesalahan DNS. Tidak dapat menyelesaikan URL endpoint."
+msgstr "Kesalahan DNS. Tidak dapat menyelesaikan URL titik akhir."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
@@ -431,17 +437,17 @@ msgstr "Kesalahan HTTP {0} dari Penyedia AI: {1}"
 msgid "Error: {0}"
 msgstr "Kesalahan: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "Stream berakhir dengan finish_reason=error"
+msgstr "Aliran berakhir dengan finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model sedang mengulang chunk yang sama (loop tak terhingga). Coba lagi atau "
-"gunakan model yang berbeda."
+"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau"
+" gunakan model yang berbeda."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
@@ -449,7 +455,7 @@ msgstr "Hentikan Server MCP"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
-msgstr "Mulai Server MCP"
+msgstr "Jalankan Server MCP"
 
 #: plugin/modules/http/__init__.py:267
 msgid "MCP server stopped"
@@ -457,11 +463,11 @@ msgstr "Server MCP dihentikan"
 
 #: plugin/modules/http/__init__.py:275
 msgid "MCP server started"
-msgstr "Server MCP dimulai"
+msgstr "Server MCP dijalankan"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "Server MCP gagal dimulai"
+msgstr "Server MCP gagal dijalankan"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
@@ -491,7 +497,7 @@ msgstr "URL: {0}"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 msgid "Please enter edit instructions!"
-msgstr "Silakan masukkan instruksi edit!"
+msgstr "Harap masukkan instruksi penyuntingan!"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 #: plugin/xdl_strings.py:33
@@ -500,17 +506,17 @@ msgstr "Masukan"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Sunting Seleksi (Calc)"
+msgstr "WriterAgent: Sunting Pilihan (Calc)"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Perluas Seleksi (Calc)"
+msgstr "WriterAgent: Perluas Pilihan (Calc)"
 
 #: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
 #: plugin/modules/chatbot/selection.py:90
 #: plugin/modules/chatbot/selection.py:177
 msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Perluas Seleksi"
+msgstr "WriterAgent: Perluas Pilihan"
 
 #: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
 #: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
@@ -518,15 +524,15 @@ msgstr "WriterAgent: Perluas Seleksi"
 #: plugin/modules/chatbot/selection.py:297
 #: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Pemilihan Edit"
+msgstr "WriterAgent: Sunting Pilihan"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "Siap"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Kesalahan: Toolkit tidak tersedia"
+msgstr "Galat: Toolkit tidak tersedia"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
@@ -550,9 +556,9 @@ msgstr "Rekam"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Hentikan Rek"
+msgstr "Berhenti Rekam"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Kirim"
 
@@ -565,8 +571,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Tidak ditemukan dokumen LibreOffice yang kompatibel (Writer, Calc, atau "
-"Draw) di jendela aktif.]"
+"[Tidak ada dokumen LibreOffice yang kompatibel (Writer, Calc, atau Draw) "
+"ditemukan di jendela aktif.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -574,8 +580,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Kesalahan Internal: Jenis dokumen berubah dari {0} ke {1}! Silakan laporkan "
-"kesalahan.]"
+"[Kesalahan Internal: Tipe dokumen berubah dari {0} menjadi {1}! Harap "
+"laporkan kesalahan ini.]"
 
 #: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
@@ -583,8 +589,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Kesalahan Internal: Tidak dapat mengidentifikasi jenis dokumen untuk {0}. "
-"Silakan laporkan ini!]"
+"[Kesalahan Internal: Tidak dapat mengidentifikasi tipe dokumen untuk {0}. "
+"Harap laporkan ini!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -592,21 +598,20 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Model {0} tidak mendukung audio native. Silakan pilih Model STT di "
-"Pengaturan.]"
+"[Model {0} tidak mendukung audio asli. Harap pilih Model STT di Pengaturan.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Kueri pencarian ini '%s' akan dikirim ke mesin pencari."
+msgstr "Kueri pencarian '%s' ini akan dikirim ke mesin pencari."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Pencarian Web — persetujuan diperlukan]"
+msgstr "[Pencarian web — perlu persetujuan]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
-msgstr "[Pencarian Web]"
+msgstr "[Pencarian web]"
 
 #: plugin/modules/chatbot/web_research_chat.py:37
 msgid "[Additional web search]"
@@ -614,7 +619,7 @@ msgstr "[Pencarian web tambahan]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
-msgstr "[Riset Web]"
+msgstr "[Riset web]"
 
 #: plugin/modules/chatbot/web_research_chat.py:60
 msgid "Research request:"
@@ -622,15 +627,15 @@ msgstr "Permintaan riset:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "Konteks untuk agen penelitian:"
+msgstr "Konteks untuk agen riset:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
-msgstr "Penelitian web selesai."
+msgstr "Riset web selesai."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Mentranskripsi audio..."
+msgstr "Mentranskripsikan audio..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
@@ -649,9 +654,10 @@ msgstr "[Backend agen '{0}' tidak ditemukan.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (path, instalasi).]"
+"[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (jalur, instalasi).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
 #: plugin/modules/chatbot/send_handlers.py:634
@@ -661,11 +667,11 @@ msgstr "Pustakawan: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Sempurna! Saya sedang beralihkan Anda ke asisten utama sekarang."
+msgstr "Sempurna! Saya akan mengalihkan Anda ke asisten utama sekarang."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
-msgstr "Kesalahan pustakawan tidak diketahui."
+msgstr "Kesalahan pustakawan tidak dikenal."
 
 #: plugin/modules/chatbot/send_handlers.py:640
 #, python-brace-format
@@ -675,18 +681,18 @@ msgstr "[Kesalahan pustakawan: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "AI (penelitian): {0}"
+msgstr "AI (riset): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Kesalahan penelitian yang tidak diketahui."
+msgstr "Kesalahan riset tidak dikenal."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
-msgstr "[Kesalahan penelitian: {0}]"
+msgstr "[Kesalahan riset: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
 msgstr "Beralih ke mode dokumen..."
 
@@ -706,35 +712,35 @@ msgstr "Lebar:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Bawaan"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
 msgstr "Backend"
 
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} lulus, {2} gagal."
+msgstr "{0}: {1} berhasil, {2} gagal."
 
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Tes gagal dijalankan: {0}"
+msgstr "Pengujian gagal dijalankan: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
-msgstr "Perluas Pemilihan"
+msgstr "Perluas Pilihan"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Sunting Pemilihan"
+msgstr "Edit Pilihan"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
-msgstr "Beralih Server MCP"
+msgstr "Alihkan Server MCP"
 
 #: plugin/main.py:436
 msgid "MCP Server Status"
@@ -746,7 +752,7 @@ msgstr "Jalankan tes format"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Jalankan tes calc"
+msgstr "Jalankan tes Calc"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
@@ -754,7 +760,7 @@ msgstr "Jalankan tes integrasi API Calc"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Jalankan tes gambar"
+msgstr "Jalankan tes Draw"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -826,7 +832,7 @@ msgstr "Skala CFG:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Hitung"
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -854,19 +860,19 @@ msgstr "Panjang Konteks:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Gambar"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
-msgstr "Sunting berkas konfigurasi (JSON)…"
+msgstr "Edit file konfigurasi (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "URL Endpoint (/v1 ditambahkan):"
+msgstr "URL Titik Akhir (/v1 ditambahkan):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
-msgstr "URL Endpoint:"
+msgstr "URL Titik Akhir:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
@@ -882,90 +888,90 @@ msgstr "Pengaturan Gambar"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
-msgstr "Sisipkan Frame"
+msgstr "Sisipkan Bingkai"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "Dasbor Evaluasi WriterAgent"
-
-#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "Token Maks:"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
-msgstr "Maks Tunggu (dtk):"
+msgstr "Waktu Tunggu Maks (dtk):"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:37
 msgid "Models to Test:"
 msgstr "Model untuk Diuji:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodal"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
-msgstr "Silakan masukkan instruksi edit:"
+msgstr "Silakan masukkan instruksi penyuntingan:"
+
+#: plugin/xdl_strings.py:42
+msgid "Run Benchmark"
+msgstr "Jalankan Tolok Ukur"
 
 #: plugin/xdl_strings.py:43
-msgid "Run Benchmark"
-msgstr "Jalankan Benchmark"
-
-#: plugin/xdl_strings.py:44
 msgid "Seed:"
-msgstr "Benih:"
+msgstr "Seed:"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Persegi"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Langkah:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
 msgstr "Berhenti"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
-msgstr "Suhu:"
+msgstr "Temperatur:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "Model Teks/Obrolan:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
-msgstr "Waktu Tunggu (dtk):"
+msgstr "Batas Waktu (dtk):"
+
+#: plugin/xdl_strings.py:52
+msgid "Translate Prompt"
+msgstr "Terjemahkan Perintah"
 
 #: plugin/xdl_strings.py:53
-msgid "Translate Prompt"
-msgstr "Terjemahkan Prompt"
+msgid "Translate from (e.g. es):"
+msgstr "Terjemahkan dari (contoh: es):"
 
 #: plugin/xdl_strings.py:54
-msgid "Translate from (e.g. es):"
-msgstr "Terjemahkan dari (mis. es):"
+msgid "Use AI Horde for Image Generation"
+msgstr "Gunakan AI Horde untuk Pembuatan Gambar"
 
 #: plugin/xdl_strings.py:55
-msgid "Use AI Horde for Image Generation"
-msgstr "Gunakan AI Horde untuk Generasi Gambar"
-
-#: plugin/xdl_strings.py:56
 msgid "Use Image model"
 msgstr "Gunakan model Gambar"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:56
 msgid "Web Research"
 msgstr "Riset Web"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py:57
 msgid "Writer"
-msgstr "Penulis"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py:58
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Dasbor Evaluasi WriterAgent"
 
 msgid "Agent backends"
-msgstr "Backend Agen"
+msgstr "Backend agen"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -980,17 +986,18 @@ msgid "Path / URL"
 msgstr "Path / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Jalur ke CLI backend (mis. aider) atau URL server ACP (mis. http://"
-"localhost:8000 untuk Hermes). Kosong = coba default."
+"Path ke CLI backend (contoh: aider) atau URL server ACP (contoh: "
+"http://localhost:8000 untuk Hermes). Kosong = coba default."
 
 msgid "Extra arguments"
 msgstr "Argumen tambahan"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Argumen opsional untuk backend yang dipilih (dipisahkan spasi)."
+msgstr ""
+"Argumen opsional untuk backend yang dipilih (dipisahkan dengan spasi)."
 
 msgid "ACP agent name"
 msgstr "Nama agen ACP"
@@ -999,26 +1006,26 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nama agen di server ACP (misalnya hermes). Kosong = otomatis temukan agen "
-"pertama."
+"Nama agen di server ACP (contoh: hermes). Kosong = temukan agen pertama "
+"secara otomatis."
 
 msgid "Calc spreadsheet tools"
-msgstr "Alat spreadsheet Calc"
+msgstr "Alat lembar kerja Calc"
 
 msgid "Max Rows Display"
-msgstr "Maksimum Baris Ditampilkan"
+msgstr "Jumlah Baris Maksimum"
 
 msgid "Sidebar"
-msgstr "Panel Samping"
+msgstr "Bilah Samping"
 
 msgid "Max Tool Rounds"
-msgstr "Maksimum Putaran Alat"
+msgstr "Putaran Alat Maksimum"
 
 msgid "Document Context Strategy"
 msgstr "Strategi Konteks Dokumen"
 
 msgid "How much document content to include in LLM context"
-msgstr "Seberapa banyak konten dokumen yang disertakan dalam konteks LLM"
+msgstr "Berapa banyak konten dokumen yang disertakan dalam konteks LLM"
 
 msgid "Auto (by document size)"
 msgstr "Otomatis (berdasarkan ukuran dokumen)"
@@ -1030,25 +1037,26 @@ msgid "Pages around cursor"
 msgstr "Halaman di sekitar kursor"
 
 msgid "Outline + excerpt"
-msgstr "Garis besar + cuplikan"
+msgstr "Kerangka + kutipan"
 
 msgid "Stats + outline only"
-msgstr "Statistik + garis besar saja"
+msgstr "Statistik + kerangka saja"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Perluas Pemilihan Token Maks"
+msgstr "Perluas Token Maksimum Pilihan"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Edit Pemilihan Token Ekstra"
+msgstr "Edit Token Ekstra Pilihan"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
-msgstr "Token ekstra di luar panjang teks asli. 0 = panjang sama dengan asli."
+msgstr ""
+"Token ekstra di luar panjang teks asli. 0 = panjang sama dengan aslinya."
 
 msgid "Show Web Search Thinking"
 msgstr "Tampilkan Pemikiran Pencarian Web"
 
 msgid "Prompt for Web Research"
-msgstr "Prompt untuk Penelitian Web"
+msgstr "Minta Konfirmasi untuk Riset Web"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Minta konfirmasi sebelum mengirim kueri pencarian web"
@@ -1057,7 +1065,8 @@ msgid "Web Cache Max Size (MB)"
 msgstr "Ukuran Maksimum Cache Web (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
+msgstr ""
+"Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Validitas Cache Web (Hari)"
@@ -1066,19 +1075,19 @@ msgid "How many days cache entries should be considered valid."
 msgstr "Berapa hari entri cache harus dianggap valid."
 
 msgid "Doc"
-msgstr "Dokumen"
+msgstr "Dok"
 
 msgid "Enable AI grammar checker (Writer)"
 msgstr "Aktifkan pemeriksa tata bahasa AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Saat diaktifkan, WriterAgent mendaftarkan pemeriksa tata bahasa AI-nya "
-"dengan Linguistic; teks yang diperiksa menggunakan API Anda (Tools → Options "
-"→ AI). Garis bawah muncul segera setelah Anda berhenti mengetik. Dimatikan "
+"Saat aktif, WriterAgent mendaftarkan pemeriksa tata bahasa AI-nya ke "
+"Linguistik; teks yang diperiksa menggunakan API Anda (Alat → Opsi → AI). "
+"Garis bawah akan muncul sesaat setelah Anda berhenti mengetik. Nonaktif "
 "secara default."
 
 msgid "Grammar check wait timeout (ms)"
@@ -1089,26 +1098,25 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Dipesan untuk kemungkinan penggunaan di masa depan. Proofreader "
-"mengembalikan hasil segera saat cache miss (async); hasil muncul pada Writer "
-"pass berikutnya setelah cache kalimat terisi."
+"Dicadangkan untuk kemungkinan penggunaan di masa mendatang. Pemeriksa segera"
+" kembali jika terjadi cache miss (asinkron); hasil muncul pada proses Writer"
+" berikutnya setelah cache kalimat terisi."
 
 msgid "Grammar check model (optional)"
 msgstr "Model pemeriksaan tata bahasa (opsional)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Biarkan kosong untuk menggunakan model teks yang sama seperti obrolan."
+msgstr "Biarkan kosong untuk menggunakan model teks yang sama dengan obrolan."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Jeda pemeriksaan tata bahasa saat chat/agent berjalan"
+msgstr "Jeda tata bahasa saat obrolan/agen berjalan"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Ketika diaktifkan, pemeriksaan tata bahasa AI melewatkan permintaan latar "
-"belakang saat chat sidebar atau agent berjalan, untuk menghindari panggilan "
-"API secara bersamaan."
+"Saat aktif, tata bahasa AI melewati permintaan latar belakang saat obrolan "
+"bilah sisi atau agen berjalan, untuk menghindari panggilan API bersamaan."
 
 msgid "Draw and Impress tools"
 msgstr "Alat Draw dan Impress"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-04 20:54-0400\n"
+"POT-Creation-Date: 2026-05-04 20:41-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,29 +20,29 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:262
 #: plugin/modules/chatbot/panel.py:790
 msgid "Starting..."
-msgstr "Spúšťanie..."
+msgstr "Starting..."
 
 #: plugin/contrib/aihordeclient/__init__.py:370
 msgid "Updating model requirements..."
-msgstr "Aktualizujú sa požiadavky modelu..."
+msgstr "Updating model requirements..."
 
 #: plugin/contrib/aihordeclient/__init__.py:517
 msgid "Updating Models..."
-msgstr "Aktualizujú sa modely..."
+msgstr "Updating Models..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Zaregistrujte sa na "
+msgstr "Register at "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "Máte {} kudos"
+msgstr "You have {} kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "„{}“ nie je platný kľúč API, skontrolujte ho alebo vytvorte nový"
+msgstr "«{}» is not a valid API KEY, double check it or create a new one"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -50,28 +50,28 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Momentálne nemôžeme spracovať vašu požiadavku, skúste to prosím neskôr. Ak "
-"sa to deje dlhší čas, dajte nám o tom vedieť cez Discord"
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Problém pri vyžiadaní kudos"
+msgstr "Problem requesting kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horda je v režime údržby, skúste to prosím neskôr. Ak ste to skúšali a "
-"služba neodpovedá celé hodiny, kontaktujte nás prosím cez Discord"
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Odoslali ste príliš veľa požiadaviek, počkajte prosím na ich dokončenie a "
-"skúste to znova neskôr"
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -79,61 +79,60 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Zdá sa, že «{}» má problémy, skontrolujte ho, vytvorte nový alebo sa "
-"pripojte na Discord a požiadajte o pomoc"
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Narazili sme na chybu, stále: "
+msgstr "We hit an error, still: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Už nie je platné, skúste to znova. Vaša požiadavka trvala príliš dlho"
+msgstr "No longer valid, please try again.  Your request took too long"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Kontaktujem Hordu..."
+msgstr "Contacting the Horde..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Horda kontaktovaná"
+msgstr "Horde Contacted"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Pri pokuse o vyžiadanie obrázka bola Horda príliš pomalá, skúste to znova "
-"neskôr"
+"When trying to ask for the image, the Horde was too slow, try again later"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "naučiť sa zarábať kudos. Podrobnosti:"
+msgstr "to learn to earn kudos. Detail:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
 msgid "Service failed: "
-msgstr "Služba zlyhala: "
+msgstr "Service failed: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "Sťahujem vygenerovaný obrázok..."
+msgstr "Downloading generated image..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "Ste prvý v poradí"
+msgstr "You are first in the queue"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
-msgstr "Pozícia v poradí: "
+msgstr "Queue position: "
 
 #: plugin/contrib/aihordeclient/__init__.py:946
 msgid "Generating..."
-msgstr "Generuje sa..."
+msgstr "Generating..."
 
 #: plugin/contrib/aihordeclient/__init__.py:963
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
-msgstr "Získajte bezplatný API kľúč na "
+msgstr "Get a free API Key at "
 
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
@@ -143,89 +142,90 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Tento model vyžaduje viac času, než je vaša aktuálna konfigurácia."
+msgstr "This model takes more time than your current configuration."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
 msgid ""
 "Please try another model. {0} would take more time than you configured."
-msgstr "Skúste iný model. {0} by vyžadoval viac času, než ste nastavili."
+msgstr ""
+"Please try another model. {0} would take more time than you configured."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Skúste to prosím neskôr."
+msgstr "Please try again later."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "S týmito nastaveniami nie sú k dispozícii žiadni pracovníci."
+msgstr "There are no workers available with these settings."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Váš obrázok bude pravdepodobne trvať o jednu minútu dlhšie."
+msgstr "Probably your image will take one additional minute."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Váš obrázok bude pravdepodobne trvať o {} minút dlhšie."
+msgstr "Probably your image will take {} additional minutes."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
-msgstr "Sťahovanie obrázkov..."
+msgstr "Fetching images..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " je cenzurovaný, skúste zmeniť znenie zadania"
+msgstr " is censored, try changing the prompt wording"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
-msgstr "Sťahovanie výsledku..."
+msgstr "Downloading result..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1071
 msgid "Downloading image"
-msgstr "Sťahovanie obrázka"
+msgstr "Downloading image"
 
 #: plugin/contrib/aihordeclient/__init__.py:1087
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Možno budete musieť znížiť nastavenia alebo zvoliť iný model, prípadne ste "
-"boli cenzurovaní. Správa Horde"
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
 msgid " generated by "
-msgstr " vygenerované pomocou "
+msgstr " generated by "
 
 #: plugin/contrib/aihordeclient/__init__.py:1124
 msgid " with "
-msgstr " s "
+msgstr " with "
 
 #: plugin/framework/dialogs.py:107
 msgid "Agent requests approval"
-msgstr "Agent vyžaduje schválenie"
+msgstr "Agent requests approval"
 
 #: plugin/framework/dialogs.py:108
 msgid "Proceed with this action?"
-msgstr "Pokračovať v tejto akcii?"
+msgstr "Proceed with this action?"
 
 #: plugin/framework/dialogs.py:109
 #: plugin/modules/chatbot/web_research_chat.py:33
 #: plugin/modules/chatbot/web_research_chat.py:38
 #, python-format
 msgid "Tool: %s"
-msgstr "Nástroj: %s"
+msgstr "Tool: %s"
 
 #: plugin/framework/dialogs.py:154
 msgid "Edit search query"
-msgstr "Upraviť vyhľadávací dopyt"
+msgstr "Edit search query"
 
 #: plugin/framework/dialogs.py:159
 msgid "Search query:"
-msgstr "Vyhľadávací dopyt:"
+msgstr "Search query:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
@@ -235,29 +235,29 @@ msgstr "OK"
 
 #: plugin/framework/dialogs.py:168
 msgid "Cancel"
-msgstr "Zrušiť"
+msgstr "Cancel"
 
 #: plugin/framework/dialogs.py:335
 msgid "Copy"
-msgstr "Kopírovať"
+msgstr "Copy"
 
 #: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
 msgid "Copied!"
-msgstr "Skopírované!"
+msgstr "Copied!"
 
 #: plugin/framework/dialogs.py:403
 msgid "Copy URL"
-msgstr "Kopírovať URL"
+msgstr "Copy URL"
 
 #: plugin/framework/errors.py:52
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} sa nenašiel: {identifier}"
+msgstr "{resource_type} not found: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
 #: plugin/xdl_strings.py:45
 msgid "Settings"
-msgstr "Nastavenia"
+msgstr "Settings"
 
 #: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
 #: plugin/framework/external_editor.py:83
@@ -268,12 +268,12 @@ msgstr "Nastavenia"
 #: plugin/modules/chatbot/send_handlers.py:375
 #: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
 msgid "Error"
-msgstr "Chyba"
+msgstr "Error"
 
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "Nepodarilo sa otvoriť Nastavenia: {0}"
+msgstr "Failed to open Settings: {0}"
 
 #: plugin/framework/specialized_base.py:91
 #, python-brace-format
@@ -282,55 +282,54 @@ msgid ""
 " call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Volanie nástroja prepnuté na '{0}'. Nachádzate sa v režime špecializovanej "
-"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished',"
-" aby sa obnovila úplná sada rozhraní API."
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
-msgstr "Neplatné nastavenie"
+msgstr "Invalid Setting"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
-msgstr "Teplota musí byť <= 1.0"
+msgstr "Temperature must be <= 1.0"
 
 #: plugin/framework/constants.py:287
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Dokážem okamžite upraviť alebo preložiť váš dokument s profesionálnym "
-"formátovaním a farbami. Vyskúšajte ma!"
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
 
 #: plugin/framework/constants.py:288
 msgid ""
 "AI: I can help you with formulas, data analysis, and colorful charts. Try "
 "me!"
 msgstr ""
-"AI: Pomôžem vám so vzorcami, analýzou údajov a farebnými grafmi. Vyskúšajte "
-"ma!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Pomôžem vám vytvárať a upravovať vyleštené, farebné tvary v aplikáciách "
-"Draw a Impress. Vyskúšajte ma!"
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Môžem vyhľadávať na webe a odpovedať na akúkoľvek otázku alebo zhrnúť "
-"webovú stránku bez toho, aby som videl alebo menil váš dokument. Poďme "
-"chatovať."
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
 msgid "Could not create config file: {0}"
-msgstr "Nepodarilo sa vytvoriť konfiguračný súbor: {0}"
+msgstr "Could not create config file: {0}"
 
 #: plugin/framework/external_editor.py:97
 #, python-brace-format
@@ -338,7 +337,7 @@ msgid ""
 "Could not open an editor. Path:\n"
 "{0}"
 msgstr ""
-"Nepodarilo sa otvoriť editor. Cesta:\n"
+"Could not open an editor. Path:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:107
@@ -347,17 +346,17 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte premennú EDITOR). Cesta:\n"
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
 #, python-brace-format
 msgid "Could not start editor: {0}"
-msgstr "Nepodarilo sa spustiť editor: {0}"
+msgstr "Could not start editor: {0}"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
-msgstr "Je k dispozícii aktualizácia"
+msgstr "Update available"
 
 #: plugin/framework/extension_update_check.py:152
 #, python-format
@@ -365,125 +364,121 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Je k dispozícii novšia verzia WriterAgent (%s). Na kontrolu aktualizácií a "
-"inštaláciu najnovšieho rozšírenia použite Nástroje → Správca rozšírení."
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
-msgstr "Chyba TLS/SSL: {0}"
+msgstr "TLS/SSL Error: {0}"
 
 #: plugin/modules/http/errors.py:25
 msgid "Invalid API Key. Please check your settings."
-msgstr "Neplatný kľúč API. Skontrolujte svoje nastavenia."
+msgstr "Invalid API Key. Please check your settings."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr ""
-"Prístup k API je zakázaný. Váš kľúč možno nemá oprávnenia pre tento model."
+msgstr "API access Forbidden. Your key may lack permissions for this model."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr ""
-"Koncový bod sa nenašiel (404). Skontrolujte svoju adresu URL a názov modelu."
+msgstr "Endpoint not found (404). Check your URL and Model name."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Chyba servera ({0}). Poskytovateľ AI má problémy."
+msgstr "Server error ({0}). The AI provider is having issues."
 
 #: plugin/modules/http/errors.py:32
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
-msgstr "Chyba HTTP {0}: {1}"
+msgstr "HTTP Error {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr ""
-"Časový limit požiadavky vypršal. Skúste zvýšiť „Časový limit požiadavky“ v "
-"Nastaveniach."
+msgstr "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 
 #: plugin/modules/http/errors.py:43
 msgid ""
 "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Pripojenie odmietnuté. Je váš lokálny AI server (Ollama/LM Studio) spustený?"
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "Chyba DNS. Nepodarilo sa preložiť adresu URL koncového bodu."
+msgstr "DNS Error. Could not resolve the endpoint URL."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
 msgid "Connection Error: {0}"
-msgstr "Chyba pripojenia: {0}"
+msgstr "Connection Error: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "Poskytovateľ AI nahlásil chybu. Skúste to znova."
+msgstr "The AI provider reported an error. Try again."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "Chyba HTTP {0} od poskytovateľa AI: {1}"
+msgstr "HTTP Error {0} from AI Provider: {1}"
 
 #: plugin/modules/http/errors.py:77
 #, python-brace-format
 msgid "Error: {0}"
-msgstr "Chyba: {0}"
+msgstr "Error: {0}"
 
 #: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "Stream ukončený s finish_reason=error"
+msgstr "Stream ended with finish_reason=error"
 
 #: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite"
-" iný model."
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
-msgstr "Zastaviť server MCP"
+msgstr "Stop MCP Server"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
-msgstr "Spustiť server MCP"
+msgstr "Start MCP Server"
 
 #: plugin/modules/http/__init__.py:267
 msgid "MCP server stopped"
-msgstr "Server MCP zastavený"
+msgstr "MCP server stopped"
 
 #: plugin/modules/http/__init__.py:275
 msgid "MCP server started"
-msgstr "Server MCP spustený"
+msgstr "MCP server started"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "Server MCP sa nepodarilo spustiť"
+msgstr "MCP server failed to start"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
-msgstr "Skontrolujte ~/localwriter.log"
+msgstr "Check ~/localwriter.log"
 
 #: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
-msgstr "Server MCP nie je spustený"
+msgstr "MCP server is not running"
 
 #: plugin/modules/http/__init__.py:299
 msgid "MCP server running"
-msgstr "Server MCP je spustený"
+msgstr "MCP server running"
 
 #: plugin/modules/http/__init__.py:299
 #, python-brace-format
 msgid "Routes: {0}"
-msgstr "Trasy: {0}"
+msgstr "Routes: {0}"
 
 #: plugin/modules/http/__init__.py:310
 msgid "Server Status"
-msgstr "Stav servera"
+msgstr "Server Status"
 
 #: plugin/modules/http/__init__.py:331
 #, python-brace-format
@@ -492,26 +487,26 @@ msgstr "URL: {0}"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 msgid "Please enter edit instructions!"
-msgstr "Prosím, zadajte pokyny na úpravu!"
+msgstr "Please enter edit instructions!"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 #: plugin/xdl_strings.py:33
 msgid "Input"
-msgstr "Vstup"
+msgstr "Input"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Upraviť výber (Calc)"
+msgstr "WriterAgent: Edit Selection (Calc)"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Rozšíriť výber (Calc)"
+msgstr "WriterAgent: Extend Selection (Calc)"
 
 #: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
 #: plugin/modules/chatbot/selection.py:90
 #: plugin/modules/chatbot/selection.py:177
 msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Rozšíriť výber"
+msgstr "WriterAgent: Extend Selection"
 
 #: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
 #: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
@@ -519,55 +514,55 @@ msgstr "WriterAgent: Rozšíriť výber"
 #: plugin/modules/chatbot/selection.py:297
 #: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Upraviť výber"
+msgstr "WriterAgent: Edit Selection"
 
 #: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
-msgstr "Pripravený"
+msgstr "Ready"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Chyba: Sada nástrojov nie je k dispozícii"
+msgstr "Error: Toolkit unavailable"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
-msgstr "Prijať"
+msgstr "Accept"
 
 #: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
-msgstr "Zmeniť"
+msgstr "Change"
 
 #: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
-msgstr "Odmietnuť"
+msgstr "Reject"
 
 #: plugin/modules/chatbot/panel.py:429
 msgid "Waiting for approval…"
-msgstr "Čaká sa na schválenie…"
+msgstr "Waiting for approval…"
 
 #: plugin/modules/chatbot/panel.py:771
 msgid "Record"
-msgstr "Nahrávať"
+msgstr "Record"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Zastaviť nahrávanie"
+msgstr "Stop Rec"
 
 #: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
-msgstr "Odoslať"
+msgstr "Send"
 
 #: plugin/modules/chatbot/panel.py:799
 msgid "Getting document..."
-msgstr "Získava sa dokument..."
+msgstr "Getting document..."
 
 #: plugin/modules/chatbot/panel.py:803
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[V aktívnom okne sa nenašiel žiadny kompatibilný dokument LibreOffice "
-"(Writer, Calc alebo Draw).]"
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -575,8 +570,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Interná chyba: Typ dokumentu sa zmenil z {0} na {1}! Prosím, nahláste túto "
-"chybu.]"
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
 
 #: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
@@ -584,8 +579,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Interná chyba: Nepodarilo sa identifikovať typ dokumentu pre {0}. Prosím, "
-"nahláste to!]"
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -593,117 +588,116 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Model {0} nepodporuje natívny zvuk. Prosím, vyberte model STT v "
-"Nastaveniach.]"
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Tento vyhľadávací dopyt „%s“ bude odoslaný do vyhľadávača."
+msgstr "This search query '%s' will be sent to the search engine."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Webové vyhľadávanie — vyžaduje sa schválenie]"
+msgstr "[Web search — approval required]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
-msgstr "[Webové vyhľadávanie]"
+msgstr "[Web search]"
 
 #: plugin/modules/chatbot/web_research_chat.py:37
 msgid "[Additional web search]"
-msgstr "[Dodatočné webové vyhľadávanie]"
+msgstr "[Additional web search]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
-msgstr "[Webový prieskum]"
+msgstr "[Web research]"
 
 #: plugin/modules/chatbot/web_research_chat.py:60
 msgid "Research request:"
-msgstr "Požiadavka na prieskum:"
+msgstr "Research request:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "Kontext pre prieskumného agenta:"
+msgstr "Context for the research agent:"
 
 #: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
-msgstr "Webový prieskum dokončený."
+msgstr "Web research completed."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Prepisujem zvuk..."
+msgstr "Transcribing audio..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
-msgstr "[Chyba prepisu: {0}]"
+msgstr "[Transcription error: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
 msgid "[Document context error: {0}]"
-msgstr "[Chyba kontextu dokumentu: {0}]"
+msgstr "[Document context error: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Backend agenta „{0}“ sa nenašiel.]"
+msgstr "[Agent backend '{0}' not found.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
 msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Backend agenta „{0}“ nie je k dispozícii. Skontrolujte nastavenia (cesta, "
-"inštalácia).]"
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
 #: plugin/modules/chatbot/send_handlers.py:634
 #, python-brace-format
 msgid "Librarian: {0}"
-msgstr "Knihovník: {0}"
+msgstr "Librarian: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfektné! Teraz vás prepnem na hlavného asistenta."
+msgstr "Perfect! I'm switching you to the main assistant now."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
-msgstr "Neznáma chyba knihovníka."
+msgstr "Unknown librarian error."
 
 #: plugin/modules/chatbot/send_handlers.py:640
 #, python-brace-format
 msgid "[Librarian error: {0}]"
-msgstr "[Chyba knihovníka: {0}]"
+msgstr "[Librarian error: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "AI (výskum): {0}"
+msgstr "AI (research): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Neznáma chyba výskumu."
+msgstr "Unknown research error."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
-msgstr "[Chyba výskumu: {0}]"
+msgstr "[Research error: {0}]"
 
 #: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
-msgstr "Prepínanie do režimu dokumentu..."
+msgstr "Switching to document mode..."
 
 #: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
-msgstr "Veľkosť:"
+msgstr "Size:"
 
 #: plugin/modules/chatbot/panel_factory.py:518
 msgid "Height:"
-msgstr "Výška:"
+msgstr "Height:"
 
 #: plugin/modules/chatbot/panel_factory.py:519
 msgid "Width:"
-msgstr "Šírka:"
+msgstr "Width:"
 
 #: plugin/tests/test_i18n.py:24
 msgid "ThisIsAnUntranslatedString999"
@@ -711,7 +705,7 @@ msgstr "ThisIsAnUntranslatedString999"
 
 #: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
-msgstr "Vstavané"
+msgstr "Built-in"
 
 #: plugin/tests/test_i18n.py:217
 msgid "Backend"
@@ -720,52 +714,52 @@ msgstr "Backend"
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} úspešných, {2} zlyhaných."
+msgstr "{0}: {1} passed, {2} failed."
 
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Testy sa nepodarilo spustiť: {0}"
+msgstr "Tests failed to run: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
-msgstr "Rozšíriť výber"
+msgstr "Extend Selection"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Upraviť výber"
+msgstr "Edit Selection"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
-msgstr "Prepnúť server MCP"
+msgstr "Toggle MCP Server"
 
 #: plugin/main.py:436
 msgid "MCP Server Status"
-msgstr "Stav servera MCP"
+msgstr "MCP Server Status"
 
 #: plugin/main.py:438
 msgid "Run format tests"
-msgstr "Spustiť testy formátovania"
+msgstr "Run format tests"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Spustiť testy Calc"
+msgstr "Run Calc tests"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Spustiť integračné testy API Calc"
+msgstr "Run Calc API integration tests"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Spustiť testy Draw"
+msgstr "Run Draw tests"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
-msgstr "Panel hodnotenia"
+msgstr "Evaluation Dashboard"
 
 #: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "Chyba odoslania"
+msgstr "Dispatch Error"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -777,55 +771,55 @@ msgstr "7.5"
 
 #: plugin/xdl_strings.py:6
 msgid "AI Horde API Key:"
-msgstr "Kľúč API AI Horde:"
+msgstr "AI Horde API Key:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
-msgstr "Model AI:"
+msgstr "AI Model:"
 
 #: plugin/xdl_strings.py:8
 msgid "API Key:"
-msgstr "Kľúč API:"
+msgstr "API Key:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "Ďalšie pokyny (história):"
+msgstr "Additional Instructions (History):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
-msgstr "Ďalšie pokyny:"
+msgstr "Additional Instructions:"
 
 #: plugin/xdl_strings.py:11
 msgid "Allow NSFW"
-msgstr "Povoliť NSFW"
+msgstr "Allow NSFW"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
-msgstr "Opýtať sa / inštruovať:"
+msgstr "Ask / instruct:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
-msgstr "Pomer strán:"
+msgstr "Aspect Ratio:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
-msgstr "Zvukový model:"
+msgstr "Audio Model:"
 
 #: plugin/xdl_strings.py:15
 msgid "Auto Gallery"
-msgstr "Automatická galéria"
+msgstr "Auto Gallery"
 
 #: plugin/xdl_strings.py:16
 msgid "Base Size:"
-msgstr "Základná veľkosť:"
+msgstr "Base Size:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
-msgstr "Základ:"
+msgstr "Base:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr "Mierka CFG:"
+msgstr "CFG Scale:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
@@ -833,27 +827,27 @@ msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
-msgstr "Kategórie:"
+msgstr "Categories:"
 
 #: plugin/xdl_strings.py:21
 msgid "Censor NSFW"
-msgstr "Cenzurovať NSFW"
+msgstr "Censor NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Chat (testovanie):"
+msgstr "Chat (Testing):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
-msgstr "Vymazať"
+msgstr "Clear"
 
 #: plugin/xdl_strings.py:24
 msgid "Close"
-msgstr "Zavrieť"
+msgstr "Close"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
-msgstr "Dĺžka kontextu:"
+msgstr "Context Len:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
@@ -861,55 +855,55 @@ msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
-msgstr "Upraviť konfiguračný súbor (JSON)…"
+msgstr "Edit config file (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "URL koncového bodu (pridané /v1):"
+msgstr "Endpoint URL (/v1 added):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
-msgstr "URL koncového bodu:"
+msgstr "Endpoint URL:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
-msgstr "Všeobecné"
+msgstr "General"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
-msgstr "Model obrázka:"
+msgstr "Image Model:"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
-msgstr "Nastavenia obrázka"
+msgstr "Image Settings"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
-msgstr "Vložiť rámec"
+msgstr "Insert Frame"
 
 #: plugin/xdl_strings.py:35
 msgid "Max Tokens:"
-msgstr "Maximálny počet tokenov:"
+msgstr "Max Tokens:"
 
 #: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
-msgstr "Maximálne čakanie (s):"
+msgstr "Max Wait (s):"
 
 #: plugin/xdl_strings.py:37
 msgid "Models to Test:"
-msgstr "Modely na testovanie:"
+msgstr "Models to Test:"
 
 #: plugin/xdl_strings.py:38
 msgid "Multimodal"
-msgstr "Multimodálne"
+msgstr "Multimodal"
 
 #: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
-msgstr "Zadajte pokyny na úpravu:"
+msgstr "Please enter edit instructions:"
 
 #: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
-msgstr "Spustiť benchmark"
+msgstr "Run Benchmark"
 
 #: plugin/xdl_strings.py:43
 msgid "Seed:"
@@ -917,47 +911,47 @@ msgstr "Seed:"
 
 #: plugin/xdl_strings.py:46
 msgid "Square"
-msgstr "Štvorec"
+msgstr "Square"
 
 #: plugin/xdl_strings.py:47
 msgid "Steps:"
-msgstr "Kroky:"
+msgstr "Steps:"
 
 #: plugin/xdl_strings.py:48
 msgid "Stop"
-msgstr "Zastaviť"
+msgstr "Stop"
 
 #: plugin/xdl_strings.py:49
 msgid "Temperature:"
-msgstr "Teplota:"
+msgstr "Temperature:"
 
 #: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
-msgstr "Textový/chatovací model:"
+msgstr "Text/Chat Model:"
 
 #: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
-msgstr "Časový limit (s):"
+msgstr "Timeout (s):"
 
 #: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
-msgstr "Preložiť výzvu"
+msgstr "Translate Prompt"
 
 #: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
-msgstr "Preložiť z (napr. es):"
+msgstr "Translate from (e.g. es):"
 
 #: plugin/xdl_strings.py:54
 msgid "Use AI Horde for Image Generation"
-msgstr "Použiť AI Horde na generovanie obrázkov"
+msgstr "Use AI Horde for Image Generation"
 
 #: plugin/xdl_strings.py:55
 msgid "Use Image model"
-msgstr "Použiť model obrázkov"
+msgstr "Use Image model"
 
 #: plugin/xdl_strings.py:56
 msgid "Web Research"
-msgstr "Webový prieskum"
+msgstr "Web Research"
 
 #: plugin/xdl_strings.py:57
 msgid "Writer"
@@ -965,10 +959,10 @@ msgstr "Writer"
 
 #: plugin/xdl_strings.py:58
 msgid "WriterAgent Evaluation Dashboard"
-msgstr "Riadiaci panel hodnotenia WriterAgent"
+msgstr "WriterAgent Evaluation Dashboard"
 
 msgid "Agent backends"
-msgstr "Backendy agenta"
+msgstr "Agent backends"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -980,161 +974,152 @@ msgid "Mistral Vibe (ACP)"
 msgstr "Mistral Vibe (ACP)"
 
 msgid "Path / URL"
-msgstr "Cesta / URL"
+msgstr "Path / URL"
 
 msgid ""
 "Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
 "http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. "
-"http://localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 
 msgid "Extra arguments"
-msgstr "Ďalšie argumenty"
+msgstr "Extra arguments"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Voliteľné argumenty pre vybraný backend (oddelené medzerami)."
+msgstr "Optional arguments for the selected backend (space-separated)."
 
 msgid "ACP agent name"
-msgstr "Názov agenta ACP"
+msgstr "ACP agent name"
 
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Názov agenta na serveri ACP (napr. hermes). Prázdne = automaticky zistiť "
-"prvého agenta."
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
 
 msgid "Calc spreadsheet tools"
-msgstr "Nástroje tabuľkového procesora Calc"
+msgstr "Calc spreadsheet tools"
 
 msgid "Max Rows Display"
-msgstr "Maximálny počet zobrazených riadkov"
+msgstr "Max Rows Display"
 
 msgid "Sidebar"
-msgstr "Bočný panel"
+msgstr "Sidebar"
 
 msgid "Max Tool Rounds"
-msgstr "Maximálny počet kôl nástroja"
+msgstr "Max Tool Rounds"
 
 msgid "Document Context Strategy"
-msgstr "Stratégia kontextu dokumentu"
+msgstr "Document Context Strategy"
 
 msgid "How much document content to include in LLM context"
-msgstr "Koľko obsahu dokumentu zahrnúť do kontextu LLM"
+msgstr "How much document content to include in LLM context"
 
 msgid "Auto (by document size)"
-msgstr "Automaticky (podľa veľkosti dokumentu)"
+msgstr "Auto (by document size)"
 
 msgid "Full document text"
-msgstr "Úplný text dokumentu"
+msgstr "Full document text"
 
 msgid "Pages around cursor"
-msgstr "Strany okolo kurzora"
+msgstr "Pages around cursor"
 
 msgid "Outline + excerpt"
-msgstr "Osnova + úryvok"
+msgstr "Outline + excerpt"
 
 msgid "Stats + outline only"
-msgstr "Štatistiky + len osnova"
+msgstr "Stats + outline only"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Maximálny počet tokenov rozšíreného výberu"
+msgstr "Extend Selection Max Tokens"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Dodatočné tokeny úpravy výberu"
+msgstr "Edit Selection Extra Tokens"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Dodatočné tokeny nad dĺžku pôvodného textu. 0 = rovnaká dĺžka ako pôvodný "
-"text."
+"Extra tokens beyond original text length. 0 = same length as original."
 
 msgid "Show Web Search Thinking"
-msgstr "Zobraziť úvahy pri vyhľadávaní na webe"
+msgstr "Show Web Search Thinking"
 
 msgid "Prompt for Web Research"
-msgstr "Vyzvať na prieskum webu"
+msgstr "Prompt for Web Research"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Pred odoslaním dotazu na vyhľadávanie na webe vyžiadať potvrdenie"
+msgstr "Ask for confirmation before sending a web search query"
 
 msgid "Web Cache Max Size (MB)"
-msgstr "Maximálna veľkosť webovej vyrovnávacej pamäte (MB)"
+msgstr "Web Cache Max Size (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
-"Maximálna veľkosť disku pre vyrovnávaciu pamäť vyhľadávania na webe (0 pre "
-"zakázanie)"
+msgstr "Max disk size for web search cache (0 to disable)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Platnosť webovej vyrovnávacej pamäte (dni)"
+msgstr "Web Cache Validity (Days)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr ""
-"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za"
-" platné."
+msgstr "How many days cache entries should be considered valid."
 
 msgid "Doc"
-msgstr "Dokument"
+msgstr "Doc"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Povoliť kontrolu gramatiky AI (Writer)"
+msgstr "Enable AI grammar checker (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
 "checked text uses your API (Tools → Options → AI). Underlines appear shortly"
 " after you pause typing. Off by default."
 msgstr ""
-"Keď je táto možnosť zapnutá, WriterAgent zaregistruje svoj nástroj na "
-"kontrolu gramatiky AI v rámci jazykových nástrojov; kontrolovaný text "
-"využíva vaše API (Nástroje → Možnosti → AI). Podčiarknutie sa objaví krátko "
-"po tom, čo prestanete písať. Predvolene vypnuté."
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Časový limit čakania na kontrolu gramatiky (ms)"
+msgstr "Grammar check wait timeout (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Vyhradené pre prípadné budúce použitie. Nástroj na kontrolu gramatiky sa "
-"vráti okamžite pri chybe v cache (asynchrónne); výsledky sa objavia pri "
-"neskoršom prechode Writerom, keď sa naplní vyrovnávacia pamäť viet."
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
 
 msgid "Grammar check model (optional)"
-msgstr "Model kontroly gramatiky (voliteľné)"
+msgstr "Grammar check model (optional)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr ""
-"Ponechajte prázdne, ak chcete použiť rovnaký textový model ako v chate."
+msgstr "Leave empty to use the same text model as chat."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Pozastaviť gramatiku počas behu chatu/agenta"
+msgstr "Pause grammar while chat/agent runs"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Keď je táto možnosť zapnutá, kontrola gramatiky AI preskočí žiadosti na "
-"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným"
-" volaniam API."
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
 
 msgid "Draw and Impress tools"
-msgstr "Nástroje pre Draw a Impress"
+msgstr "Draw and Impress tools"
 
 msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "Povoliť server MCP"
+msgstr "Enable MCP Server"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
-msgstr ""
-"Iba localhost, bez autentifikácie. Prístup cez stdio je vždy povolený."
+msgstr "Localhost only, no auth. Access via stdio is always enabled."
 
 msgid "MCP Port"
-msgstr "Port MCP"
+msgstr "MCP Port"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Nástroje dokumentu Writer (vrátane navigácie a vyhľadávania)"
+msgstr "Writer document tools (including navigation and search)"

@@ -3,11 +3,12 @@
 # This file is distributed under the same license as the PACKAGE package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -31,12 +32,12 @@ msgstr "Обновление моделей..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Зарегистрируйтесь на "
+msgstr "Зарегистрироваться на "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "У вас есть {} kudos"
+msgstr "У вас {} кудо"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
@@ -51,28 +52,28 @@ msgid ""
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
 "В данный момент мы не можем обработать ваш запрос, пожалуйста, повторите "
-"попытку позже. Если это происходит в течение длительного времени, "
-"пожалуйста, сообщите нам через Discord"
+"попытку позже. Если это продолжается долгое время, пожалуйста, сообщите нам "
+"через Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Проблема с запросом kudos"
+msgstr "Ошибка при запросе кудо"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde находится в режиме обслуживания, пожалуйста, повторите попытку позже, "
-"если вы пытались и сервис не отвечает часами, пожалуйста, свяжитесь через "
-"Discord"
+"Horde находится в режиме обслуживания, пожалуйста, повторите попытку позже. "
+"Если вы пробовали, и сервис не отвечает в течение нескольких часов, "
+"пожалуйста, свяжитесь с нами через Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Вы сделали слишком много запросов, пожалуйста, дождитесь их завершения и "
+"Вы отправили слишком много запросов, пожалуйста, дождитесь их завершения и "
 "повторите попытку позже"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
@@ -81,46 +82,46 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Похоже, что с «{}» есть проблемы, проверьте его, создайте новый или "
-"присоединяйтесь к Discord, чтобы попросить помощи"
+"Похоже, что «{}» содержит ошибки. Проверьте его, создайте новый или "
+"присоединитесь к Discord, чтобы попросить о помощи"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Произошла ошибка, но: "
+msgstr "Произошла ошибка: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
 msgstr ""
-"Больше недействительно, пожалуйста, попробуйте еще раз. Ваш запрос занял "
-"слишком много времени"
+"Больше недействительно, попробуйте еще раз. Ваш запрос выполнялся слишком "
+"долго"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Связь с Horde..."
+msgstr "Связываемся с Ордой..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Связь с Horde установлена"
+msgstr "Связь с Ордой установлена"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"При попытке запросить изображение Horde был слишком медленным, повторите "
-"попытку позже"
+"При попытке запросить изображение Орда ответила слишком медленно, попробуйте"
+" позже"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "чтобы узнать, как заработать kudos. Детали:"
+msgstr "чтобы научиться зарабатывать баллы (kudos). Подробности:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
 msgid "Service failed: "
-msgstr "Сбой сервиса: "
+msgstr "Ошибка службы: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "Загрузка сгенерированного изображения..."
+msgstr "Загрузка созданного изображения..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
@@ -147,13 +148,14 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Эта модель занимает больше времени, чем ваша текущая конфигурация."
+msgstr "Эта модель требует больше времени, чем задано в текущей конфигурации."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Пожалуйста, попробуйте другую модель. {0} займёт больше времени, чем вы "
+"Пожалуйста, попробуйте другую модель. {0} потребует больше времени, чем вы "
 "настроили."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
@@ -161,20 +163,20 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Пожалуйста, повторите попытку позже."
+msgstr "Пожалуйста, попробуйте позже."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "Нет доступных рабочих процессов с этими настройками."
+msgstr "Нет доступных исполнителей с такими настройками."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Вероятно, ваше изображение займет еще одну минуту."
+msgstr "Вероятно, создание изображения займет на одну минуту больше."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Вероятно, ваше изображение займет еще {} минут."
+msgstr "Вероятно, создание изображения займет на {} минут больше."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
@@ -182,7 +184,7 @@ msgstr "Получение изображений..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " зацензурировано, попробуйте изменить формулировку запроса"
+msgstr " заблокировано, попробуйте изменить формулировку запроса"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
@@ -197,25 +199,25 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Возможно, вам нужно уменьшить настройки или выбрать другую модель, или, "
-"возможно, вы были зацензурированы. Сообщение Horde"
+"Возможно, вам нужно уменьшить настройки или выбрать другую модель, либо ваш "
+"запрос был заблокирован. Сообщение Horde"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
 msgid " generated by "
-msgstr " сгенерировано "
+msgstr " создано с помощью "
 
 #: plugin/contrib/aihordeclient/__init__.py:1124
 msgid " with "
-msgstr " с помощью "
+msgstr " с "
 
 #: plugin/framework/dialogs.py:107
 msgid "Agent requests approval"
-msgstr "Агент запрашивает одобрение"
+msgstr "Агент запрашивает подтверждение"
 
 #: plugin/framework/dialogs.py:108
 msgid "Proceed with this action?"
-msgstr "Продолжить это действие?"
+msgstr "Выполнить это действие?"
 
 #: plugin/framework/dialogs.py:109
 #: plugin/modules/chatbot/web_research_chat.py:33
@@ -226,15 +228,15 @@ msgstr "Инструмент: %s"
 
 #: plugin/framework/dialogs.py:154
 msgid "Edit search query"
-msgstr "Редактировать запрос поиска"
+msgstr "Изменить поисковый запрос"
 
 #: plugin/framework/dialogs.py:159
 msgid "Search query:"
-msgstr "Запрос поиска:"
+msgstr "Поисковый запрос:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "ОК"
 
@@ -257,10 +259,10 @@ msgstr "Копировать URL"
 #: plugin/framework/errors.py:52
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
-msgstr "\"{resource_type} не найден: {identifier}\""
+msgstr "{resource_type} не найден: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Настройки"
 
@@ -278,22 +280,23 @@ msgstr "Ошибка"
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "Не удалось открыть Настройки: {0}"
+msgstr "Не удалось открыть настройки: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Вызов инструмента переключён на '{0}'. Вы находитесь в режиме "
-"специализированного набора инструментов. При завершении вы должны вызвать "
-"'specialized_workflow_finished', чтобы восстановить полный набор API."
+"Вызов инструмента переключен на «{0}». Вы находитесь в режиме "
+"специализированного набора инструментов. Вы должны вызвать "
+"«specialized_workflow_finished» по завершении, чтобы восстановить полный "
+"набор API."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
-msgstr "Недействительная настройка"
+msgstr "Неверный параметр"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
@@ -309,27 +312,28 @@ msgstr ""
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"ИИ: Я могу помочь вам с формулами, анализом данных и красочными диаграммами. "
-"Попробуйте!"
+"ИИ: Я могу помочь вам с формулами, анализом данных и красочными диаграммами."
+" Попробуйте!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"ИИ: Я могу помочь вам создавать и редактировать элегантные, красочные фигуры "
-"в Draw и Impress. Попробуйте!"
+"ИИ: Я могу помочь вам создавать и редактировать отполированные, красочные "
+"фигуры в Draw и Impress. Попробуйте!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"ИИ: Я могу провести поиск в Интернете, чтобы ответить на любой вопрос, или "
-"резюмировать веб-страницу, не видя и не изменяя ваш документ. Давайте "
-"пообщаемся."
+"ИИ: Я могу выполнить поиск в Интернете, чтобы ответить на любой вопрос, или "
+"сделать краткий обзор веб-страницы, не видя и не изменяя ваш документ. "
+"Давайте пообщаемся."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
@@ -351,7 +355,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Редактор не найден (установите Kate или Gedit, или задайте EDITOR). Путь:\n"
+"Редактор не найден (установите Kate или Gedit, либо задайте переменную EDITOR). Путь:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -369,9 +373,9 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Доступна более новая версия WriterAgent (%s). Используйте Инструменты → "
-"Диспетчер расширений, чтобы проверить наличие обновлений и установить "
-"последнюю версию расширения."
+"Доступна новая версия WriterAgent (%s). Используйте «Сервис» → «Управление "
+"расширениями» для проверки обновлений и установки последней версии "
+"расширения."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -380,67 +384,69 @@ msgstr "Ошибка TLS/SSL: {0}"
 
 #: plugin/modules/http/errors.py:25
 msgid "Invalid API Key. Please check your settings."
-msgstr "Неверный API-ключ. Пожалуйста, проверьте ваши настройки."
+msgstr "Неверный ключ API. Пожалуйста, проверьте настройки."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"Доступ к API запрещен. У вашего ключа может не быть разрешений для этой "
-"модели."
+"Доступ к API запрещен. Возможно, у вашего ключа нет прав для использования "
+"этой модели."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Конечная точка не найдена (404). Проверьте URL и имя модели."
+msgstr "Конечная точка не найдена (404). Проверьте URL и название модели."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Ошибка сервера ({0}). У провайдера ИИ проблемы."
+msgstr "Ошибка сервера ({0}). У провайдера ИИ возникли проблемы."
 
 #: plugin/modules/http/errors.py:32
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
-msgstr "HTTP-ошибка {0}: {1}"
+msgstr "Ошибка HTTP {0}: {1}"
 
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"Время ожидания запроса истекло. Попробуйте увеличить «Таймаут запроса» в "
-"настройках."
+"Время ожидания запроса истекло. Попробуйте увеличить значение «Тайм-аут "
+"запроса» в настройках."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"В соединении отказано. Запущен ли ваш локальный сервер ИИ (Ollama/LM Studio)?"
+"В соединении отказано. Запущен ли ваш локальный ИИ-сервер (Ollama/LM "
+"Studio)?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "Ошибка DNS. Не удалось разрешить URL-адрес конечной точки."
+msgstr "Ошибка DNS. Не удалось разрешить URL конечной точки."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
 msgid "Connection Error: {0}"
-msgstr "Ошибка подключения: {0}"
+msgstr "Ошибка соединения: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "Провайдер ИИ сообщил об ошибке. Попробуйте еще раз."
+msgstr "ИИ-провайдер сообщил об ошибке. Попробуйте еще раз."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "HTTP-ошибка {0} от поставщика ИИ: {1}"
+msgstr "HTTP-ошибка {0} от ИИ-провайдера: {1}"
 
 #: plugin/modules/http/errors.py:77
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Ошибка: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
 msgstr "Поток завершился с finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
@@ -450,23 +456,23 @@ msgstr ""
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
-msgstr "Остановить сервер MCP"
+msgstr "Остановить MCP-сервер"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
-msgstr "Запустить сервер MCP"
+msgstr "Запустить MCP-сервер"
 
 #: plugin/modules/http/__init__.py:267
 msgid "MCP server stopped"
-msgstr "Сервер MCP остановлен"
+msgstr "MCP-сервер остановлен"
 
 #: plugin/modules/http/__init__.py:275
 msgid "MCP server started"
-msgstr "Сервер MCP запущен"
+msgstr "MCP-сервер запущен"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "Не удалось запустить сервер MCP"
+msgstr "Не удалось запустить MCP-сервер"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
@@ -474,11 +480,11 @@ msgstr "Проверьте ~/localwriter.log"
 
 #: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
-msgstr "Сервер MCP не работает"
+msgstr "MCP-сервер не запущен"
 
 #: plugin/modules/http/__init__.py:299
 msgid "MCP server running"
-msgstr "Сервер MCP работает"
+msgstr "MCP-сервер запущен"
 
 #: plugin/modules/http/__init__.py:299
 #, python-brace-format
@@ -487,7 +493,7 @@ msgstr "Маршруты: {0}"
 
 #: plugin/modules/http/__init__.py:310
 msgid "Server Status"
-msgstr "Статус сервера"
+msgstr "Состояние сервера"
 
 #: plugin/modules/http/__init__.py:331
 #, python-brace-format
@@ -496,7 +502,7 @@ msgstr "URL: {0}"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 msgid "Please enter edit instructions!"
-msgstr "Пожалуйста, введите инструкции для редактирования!"
+msgstr "Пожалуйста, введите инструкции по редактированию!"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 #: plugin/xdl_strings.py:33
@@ -525,13 +531,13 @@ msgstr "WriterAgent: Расширить выделение"
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Редактировать выделение"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "Готово"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Ошибка: Набор инструментов недоступен"
+msgstr "Ошибка: инструментарий недоступен"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
@@ -547,7 +553,7 @@ msgstr "Отклонить"
 
 #: plugin/modules/chatbot/panel.py:429
 msgid "Waiting for approval…"
-msgstr "Ожидание одобрения…"
+msgstr "Ожидание подтверждения…"
 
 #: plugin/modules/chatbot/panel.py:771
 msgid "Record"
@@ -555,9 +561,9 @@ msgstr "Запись"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Остановить"
+msgstr "Остановить запись"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Отправить"
 
@@ -570,8 +576,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[В активном окне не найдено совместимого документа LibreOffice (Writer, Calc "
-"или Draw).]"
+"[В активном окне не найдено совместимого документа LibreOffice (Writer, Calc"
+" или Draw).]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -579,8 +585,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Внутренняя ошибка: Тип документа изменен с {0} на {1}! Пожалуйста, сообщите "
-"об ошибке.]"
+"[Внутренняя ошибка: тип документа изменился с {0} на {1}! Пожалуйста, "
+"сообщите об ошибке.]"
 
 #: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
@@ -588,8 +594,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Внутренняя ошибка: Не удалось определить тип документа для {0}. Пожалуйста, "
-"сообщите об этом!]"
+"[Внутренняя ошибка: не удалось определить тип документа для {0}. Пожалуйста,"
+" сообщите об этом!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -597,25 +603,25 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Модель {0} не поддерживает встроенное аудио. Пожалуйста, выберите модель "
-"STT в настройках.]"
+"[Модель {0} не поддерживает встроенный звук. Пожалуйста, выберите модель STT"
+" в настройках.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Этот запрос поиска '%s' будет отправлен в поисковую систему."
+msgstr "Этот поисковый запрос «%s» будет отправлен в поисковую систему."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Поиск в веб — требуется одобрение]"
+msgstr "[Веб-поиск — требуется подтверждение]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
-msgstr "[Поиск в веб]"
+msgstr "[Веб-поиск]"
 
 #: plugin/modules/chatbot/web_research_chat.py:37
 msgid "[Additional web search]"
-msgstr "[Дополнительный поиск в веб]"
+msgstr "[Дополнительный веб-поиск]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
@@ -627,20 +633,20 @@ msgstr "Запрос на исследование:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "Контекст для агента исследования:"
+msgstr "Контекст для агента-исследователя:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
 msgstr "Веб-исследование завершено."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Транскрибирование аудио..."
+msgstr "Транскрибация аудио..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
-msgstr "[Ошибка транскрипции: {0}]"
+msgstr "[Ошибка транскрибации: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
@@ -650,13 +656,14 @@ msgstr "[Ошибка контекста документа: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Бэкенд агента '{0}' не найден.]"
+msgstr "[Бэкенд агента «{0}» не найден.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Бэкенд агента '{0}' недоступен. Проверьте настройки (путь, установка).]"
+"[Бэкенд агента «{0}» недоступен. Проверьте настройки (путь, установка).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
 #: plugin/modules/chatbot/send_handlers.py:634
@@ -666,7 +673,7 @@ msgstr "Библиотекарь: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Отлично! Теперь я переключаю вас на главного ассистента."
+msgstr "Отлично! Переключаю вас на основного помощника."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
@@ -691,9 +698,9 @@ msgstr "Неизвестная ошибка исследования."
 msgid "[Research error: {0}]"
 msgstr "[Ошибка исследования: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
-msgstr "Переключение в режим документов..."
+msgstr "Переключение в режим документа..."
 
 #: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
@@ -711,18 +718,18 @@ msgstr "Ширина:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Встроенный"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
 msgstr "Бэкенд"
 
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} успешно, {2} провалено."
+msgstr "{0}: пройдено {1}, не пройдено {2}."
 
 #: plugin/main.py:357
 #, python-brace-format
@@ -751,15 +758,15 @@ msgstr "Запустить тесты форматирования"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Запустить тесты calc"
+msgstr "Запустить тесты Calc"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Запустить интеграционные тесты Calc API"
+msgstr "Запустить интеграционные тесты API Calc"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Запустить тесты draw"
+msgstr "Запустить тесты Draw"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -775,23 +782,23 @@ msgstr "-1"
 
 #: plugin/xdl_strings.py:5
 msgid "7.5"
-msgstr "7,5"
+msgstr "7.5"
 
 #: plugin/xdl_strings.py:6
 msgid "AI Horde API Key:"
-msgstr "Ключ API AI Horde:"
+msgstr "API-ключ AI Horde:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
-msgstr "Модель ИИ:"
+msgstr "AI-модель:"
 
 #: plugin/xdl_strings.py:8
 msgid "API Key:"
-msgstr "Ключ API:"
+msgstr "API-ключ:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "Дополнительные инструкции (История):"
+msgstr "Дополнительные инструкции (история):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
@@ -803,7 +810,7 @@ msgstr "Разрешить NSFW"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
-msgstr "Спросить / Инструктировать:"
+msgstr "Спросить / дать указание:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
@@ -811,15 +818,15 @@ msgstr "Соотношение сторон:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
-msgstr "Аудио модель:"
+msgstr "Аудиомодель:"
 
 #: plugin/xdl_strings.py:15
 msgid "Auto Gallery"
-msgstr "Авто Галерея"
+msgstr "Автогалерея"
 
 #: plugin/xdl_strings.py:16
 msgid "Base Size:"
-msgstr "Размер:"
+msgstr "Базовый размер:"
 
 #: plugin/xdl_strings.py:17
 msgid "Base:"
@@ -827,11 +834,11 @@ msgstr "База:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr "Масштаб CFG:"
+msgstr "Шкала CFG:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Калькулятор"
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -839,11 +846,11 @@ msgstr "Категории:"
 
 #: plugin/xdl_strings.py:21
 msgid "Censor NSFW"
-msgstr "Цензурировать NSFW"
+msgstr "Цензура NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Чат (Тестирование):"
+msgstr "Чат (тестирование):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
@@ -859,7 +866,7 @@ msgstr "Длина контекста:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Ничья"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
@@ -867,7 +874,7 @@ msgstr "Редактировать файл конфигурации (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "URL конечной точки (/v1 добавлен):"
+msgstr "URL конечной точки (добавляется /v1):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
@@ -875,128 +882,128 @@ msgstr "URL конечной точки:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
-msgstr "Генерация..."
+msgstr "Общие"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
-msgstr "Модель изображения:"
+msgstr "Модель изображений:"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
-msgstr "Настройки"
+msgstr "Настройки изображений"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
-msgstr "Вставить кадр"
+msgstr "Вставить фрейм"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "Панель оценки"
-
-#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "Макс. токенов:"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
 msgstr "Макс. ожидание (с):"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:37
 msgid "Models to Test:"
 msgstr "Модели для тестирования:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Мультимодальный"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
-msgstr "Пожалуйста, введите инструкции для редактирования!"
+msgstr "Введите инструкции по редактированию:"
+
+#: plugin/xdl_strings.py:42
+msgid "Run Benchmark"
+msgstr "Запустить тест"
 
 #: plugin/xdl_strings.py:43
-msgid "Run Benchmark"
-msgstr "Запустить бенчмарк"
-
-#: plugin/xdl_strings.py:44
 msgid "Seed:"
-msgstr "Семя:"
+msgstr "Начальное число (Seed):"
+
+#: plugin/xdl_strings.py:46
+msgid "Square"
+msgstr "Квадрат"
 
 #: plugin/xdl_strings.py:47
-msgid "Square"
-msgstr "квадрат"
-
-#: plugin/xdl_strings.py:48
 msgid "Steps:"
 msgstr "Шаги:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
-msgstr "Остановить"
+msgstr "Стоп"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Температура:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "Модель текста/чата:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
 msgstr "Тайм-аут (с):"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
-msgstr "Перевести промпт"
+msgstr "Перевести запрос"
+
+#: plugin/xdl_strings.py:53
+msgid "Translate from (e.g. es):"
+msgstr "Перевести с (например, es):"
 
 #: plugin/xdl_strings.py:54
-msgid "Translate from (e.g. es):"
-msgstr "Перевод с (например, es):"
+msgid "Use AI Horde for Image Generation"
+msgstr "Использовать AI Horde для генерации изображений"
 
 #: plugin/xdl_strings.py:55
-msgid "Use AI Horde for Image Generation"
-msgstr "Используйте AI Horde для генерации изображений"
-
-#: plugin/xdl_strings.py:56
 msgid "Use Image model"
 msgstr "Использовать модель изображений"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py:56
 msgid "Web Research"
-msgstr "Веб-исследование"
+msgstr "Веб-поиск"
+
+#: plugin/xdl_strings.py:57
+msgid "Writer"
+msgstr "Writer"
 
 #: plugin/xdl_strings.py:58
-msgid "Writer"
-msgstr "Писатель"
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Панель оценки WriterAgent"
 
 msgid "Agent backends"
-msgstr "Агенты"
+msgstr "Бэкенды агента"
 
 msgid "Hermes"
-msgstr "Гермес"
+msgstr "Hermes"
 
 msgid "Claude Code (ACP)"
-msgstr "Код Клода (ACP)"
+msgstr "Claude Code (ACP)"
 
 msgid "Mistral Vibe (ACP)"
-msgstr "Вайб Mistral (ACP)"
+msgstr "Mistral Vibe (ACP)"
 
 msgid "Path / URL"
 msgstr "Путь / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Путь к CLI бэкенда (например, aider) или URL сервера ACP (например, http://"
-"localhost:8000 для Hermes). Пусто = попробовать значение по умолчанию."
+"Путь к CLI бэкенда (например, aider) или URL сервера ACP (например, "
+"http://localhost:8000 для Hermes). Пусто = использовать значение по "
+"умолчанию."
 
 msgid "Extra arguments"
 msgstr "Дополнительные аргументы"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr ""
-"Необязательные аргументы для выбранного бэкенда (разделённые пробелами)."
+msgstr "Необязательные аргументы для выбранного бэкенда (через пробел)."
 
 msgid "ACP agent name"
 msgstr "Имя агента ACP"
@@ -1005,26 +1012,26 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Имя агента на сервере ACP (например, hermes). Пусто = автоматическое "
-"обнаружение первого агента."
+"Имя агента на сервере ACP (например, hermes). Пусто = автоматический поиск "
+"первого агента."
 
 msgid "Calc spreadsheet tools"
 msgstr "Инструменты электронных таблиц Calc"
 
 msgid "Max Rows Display"
-msgstr "Максимальное количество отображаемых строк"
+msgstr "Макс. строк для отображения"
 
 msgid "Sidebar"
-msgstr "Панель"
+msgstr "Боковая панель"
 
 msgid "Max Tool Rounds"
-msgstr "Максимум раундов инструмента"
+msgstr "Макс. число итераций инструмента"
 
 msgid "Document Context Strategy"
 msgstr "Стратегия контекста документа"
 
 msgid "How much document content to include in LLM context"
-msgstr "Сколько содержимого документа включать в контекст LLM"
+msgstr "Объем содержимого документа для включения в контекст LLM"
 
 msgid "Auto (by document size)"
 msgstr "Авто (по размеру документа)"
@@ -1036,87 +1043,90 @@ msgid "Pages around cursor"
 msgstr "Страницы вокруг курсора"
 
 msgid "Outline + excerpt"
-msgstr "План + отрывок"
+msgstr "Структура + фрагмент"
 
 msgid "Stats + outline only"
-msgstr "Только статистика + план"
+msgstr "Статистика + только структура"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Расширить выделение"
+msgstr "Макс. токенов для расширения выделения"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Редактировать выделение"
+msgstr "Дополнительные токены для правки выделения"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Дополнительные токены сверх длины исходного текста. 0 = такая же длина, как "
-"у оригинала."
+"Дополнительные токены сверх длины исходного текста. 0 = та же длина, что и у"
+" оригинала."
 
 msgid "Show Web Search Thinking"
-msgstr "Показать мышление веб-поиска"
+msgstr "Показывать процесс поиска в Интернете"
 
 msgid "Prompt for Web Research"
-msgstr "Подсказка для веб-исследования"
+msgstr "Запрашивать подтверждение для веб-поиска"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Запрашивать подтверждение перед отправкой запроса веб-поиска"
+msgstr ""
+"Запрашивать подтверждение перед отправкой поискового запроса в Интернет"
 
 msgid "Web Cache Max Size (MB)"
-msgstr "Максимальный размер веб-кэша (МБ)"
+msgstr "Макс. размер веб-кэша (МБ)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Максимальный размер на диске для кэша веб-поиска (0 для отключения)"
+msgstr "Макс. размер дискового кэша для веб-поиска (0 — отключить)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Срок действия веб-кэша (дни)"
+msgstr "Срок действия веб-кэша (дней)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
 "Количество дней, в течение которых записи кэша считаются действительными."
 
 msgid "Doc"
-msgstr "Док"
+msgstr "Документ"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Включить проверку грамматики ИИ (Writer)"
+msgstr "Включить ИИ-проверку грамматики (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"При включении WriterAgent регистрирует свой ИИ-проверяльщик грамматики в "
-"Linguistic; проверяемый текст использует ваш API (Инструменты → Опции → ИИ). "
-"Подчеркивания появляются вскоре после паузы в наборе текста. Выключено по "
-"умолчанию."
+"Если включено, WriterAgent регистрирует свой ИИ-модуль проверки грамматики в"
+" Linguistic; проверяемый текст использует ваш API (Сервис → Параметры → ИИ)."
+" Подчеркивание появляется вскоре после того, как вы прекращаете ввод. По "
+"умолчанию выключено."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Таймаут ожидания проверки грамматики (мс)"
+msgstr "Тайм-аут ожидания проверки грамматики (мс)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Зарезервировано для возможного использования в будущем. Корректор возвращает "
-"результат немедленно при промахе кэша (асинхронно); результаты появляются на "
-"более позднем проходе Writer после заполнения кэша предложений."
+"Зарезервировано для будущего использования. Модуль проверки возвращает "
+"результат немедленно при промахе кэша (асинхронно); результаты появляются "
+"при следующем проходе Writer после заполнения кэша предложений."
 
 msgid "Grammar check model (optional)"
 msgstr "Модель проверки грамматики (необязательно)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Оставьте пустым, чтобы использовать ту же модель текста, что и в чате."
+msgstr ""
+"Оставьте пустым, чтобы использовать ту же текстовую модель, что и в чате."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Приостановить грамматику во время работы чата/агента"
+msgstr "Приостанавливать проверку грамматики во время работы чата/агента"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Когда включено, грамматика ИИ пропускает фоновые запросы во время работы "
-"бокового чата или агента, чтобы избежать параллельных вызовов API."
+"Если включено, ИИ-проверка грамматики пропускает фоновые запросы во время "
+"работы чата на боковой панели или агента, чтобы избежать одновременных "
+"вызовов API."
 
 msgid "Draw and Impress tools"
 msgstr "Инструменты Draw и Impress"
@@ -1125,14 +1135,14 @@ msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "Переключить сервер MCP"
+msgstr "Включить сервер MCP"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
-"Только localhost, без аутентификации. Доступ через stdio всегда включён."
+"Только localhost, без аутентификации. Доступ через stdio всегда включен."
 
 msgid "MCP Port"
 msgstr "Порт MCP"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Инструменты документов Writer (включая навигацию и поиск)"
+msgstr "Инструменты документа Writer (включая навигацию и поиск)"

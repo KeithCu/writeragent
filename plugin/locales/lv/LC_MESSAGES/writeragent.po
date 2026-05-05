@@ -1,13 +1,18 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WriterAgent 1.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: Latvian\n"
-"Language: lv\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -15,19 +20,19 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:262
 #: plugin/modules/chatbot/panel.py:790
 msgid "Starting..."
-msgstr "Sākam..."
+msgstr "Notiek palaišana..."
 
 #: plugin/contrib/aihordeclient/__init__.py:370
 msgid "Updating model requirements..."
-msgstr "Atjaunojam modeļa prasības..."
+msgstr "Atjaunina modeļa prasības..."
 
 #: plugin/contrib/aihordeclient/__init__.py:517
 msgid "Updating Models..."
-msgstr "Atjaunojam modeļus..."
+msgstr "Atjaunina modeļus..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Reģistrēties "
+msgstr "Reģistrēties vietnē "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
@@ -37,8 +42,7 @@ msgstr "Jums ir {} kudos"
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"«{}» nav derīga API atslēga, pārbaudiet to atkārtoti vai izveidojiet jaunu"
+msgstr "«{}» nav derīga API ATSLĒGA, pārbaudiet to vai izveidojiet jaunu"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -46,8 +50,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Šobrīd mēs nevaram apstrādāt jūsu pieprasījumu, lūdzu mēģiniet vēlāk. Ja tas "
-"notiek ilgu laiku, lūdzu informējiet mūs caur Discord"
+"Šobrīd mēs nevaram apstrādāt jūsu pieprasījumu, lūdzu, mēģiniet vēlreiz "
+"vēlāk. Ja tas notiek ilgāku laiku, lūdzu, dariet mums to zināmu Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
@@ -58,16 +62,17 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horde ir uzturēšanas režīmā, lūdzu mēģiniet vēlāk, ja esat mēģinājuši un "
-"serviss neatbild stundām ilgi, lūdzu sazinieties caur Discord"
+"Horde ir uzturēšanas režīmā, lūdzu, mēģiniet vēlreiz vēlāk; ja esat "
+"mēģinājis un pakalpojums neatbild stundām ilgi, lūdzu, sazinieties, "
+"izmantojot Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Jūs esat veikuši pārāk daudz pieprasījumu, lūdzu pagaidiet, līdz tie "
-"pabeidzas, un mēģiniet vēlāk"
+"Esat veicis pārāk daudz pieprasījumu, lūdzu, uzgaidiet, līdz tie tiks "
+"pabeigti, un mēģiniet vēlreiz vēlāk"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -75,45 +80,45 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Izskatās, ka «{}» ir problēmas, pārbaudiet to dubultā, izveidojiet jaunu vai "
+"Šķiet, ka «{}» ir problēmas, pārbaudiet to vēlreiz, izveidojiet jaunu vai "
 "pievienojieties Discord, lai lūgtu palīdzību"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Mēs saskārāmies ar kļūdu, tomēr: "
+msgstr "Radās kļūda, joprojām: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
 msgstr ""
-"Vairs nav derīgs, lūdzu mēģiniet vēlreiz. Jūsu pieprasījums aizņēma pārāk "
-"ilgu laiku"
+"Vairs nav derīgs, lūdzu, mēģiniet vēlreiz. Jūsu pieprasījums aizņēma pārāk "
+"daudz laika"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Sazināmies ar Horde..."
+msgstr "Sazināšanās ar «Horde»..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Horde sazināts"
+msgstr "«Horde» sazvanīta"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Mēģinot pieprasīt attēlu, Horde bija pārāk lēna, mēģiniet vēlāk vēlreiz"
+"Mēģinot pieprasīt attēlu, «Horde» bija pārāk lēna, mēģiniet vēlreiz vēlāk"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "lai uzzinātu, kā nopelnīt kudos. Detalizēti:"
+msgstr "lai iemācītos nopelnīt «kudos». Sīkāk:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
 msgid "Service failed: "
-msgstr "Serviss neizdevās: "
+msgstr "Pakalpojuma kļūda: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "Lejupielādējam ģenerēto attēlu..."
+msgstr "Notiek ģenerētā attēla lejupielāde..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
@@ -130,7 +135,7 @@ msgstr "Ģenerē..."
 #: plugin/contrib/aihordeclient/__init__.py:963
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
-msgstr "Iegūstiet bezmaksas API atslēgu vietnē "
+msgstr "Saņemiet bezmaksas API atslēgu vietnē "
 
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
@@ -144,46 +149,47 @@ msgstr "Šis modelis prasa vairāk laika nekā jūsu pašreizējā konfigurācij
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Lūdzu, izmēģiniet citu modeli. {0} prasītu vairāk laika nekā jūs "
-"konfigurējāt."
+"Lūdzu, izmēģiniet citu modeli. {0} prasītu vairāk laika, nekā esat "
+"konfigurējis."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Lūdzu, mēģiniet vēlāk."
+msgstr "Lūdzu, mēģiniet vēlreiz vēlāk."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "Ar šīm iestatījumiem nav pieejamu darbinieku."
+msgstr "Ar šiem iestatījumiem nav pieejami darbinieki."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Iespējams, jūsu attēlam būs nepieciešama vēl viena papildu minūte."
+msgstr "Iespējams, jūsu attēla izveide prasīs vēl vienu minūti."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Iespējams, jūsu attēlam būs nepieciešamas {} papildu minūtes."
+msgstr "Iespējams, jūsu attēla izveide prasīs {} papildu minūtes."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
-msgstr "Ielādē attēlus..."
+msgstr "Notiek attēlu ielāde..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " ir cenzēts, mēģiniet mainīt prompta formulējumu"
+msgstr " ir cenzēts, mēģiniet mainīt uzvednes formulējumu"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
-msgstr "Lejupielādē rezultātu..."
+msgstr "Notiek rezultāta lejupielāde..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1071
 msgid "Downloading image"
-msgstr "Lejupielādē attēlu"
+msgstr "Notiek attēla lejupielāde"
 
 #: plugin/contrib/aihordeclient/__init__.py:1087
 msgid ""
@@ -191,12 +197,12 @@ msgid ""
 "have been censored. Horde message"
 msgstr ""
 "Iespējams, jums jāsamazina iestatījumi vai jāizvēlas cits modelis, vai arī "
-"jūs esat cenzēts. Horde ziņojums"
+"esat ticis cenzēts. Horde ziņojums"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
 msgid " generated by "
-msgstr " izveidots ar "
+msgstr " ģenerēja "
 
 #: plugin/contrib/aihordeclient/__init__.py:1124
 msgid " with "
@@ -227,7 +233,7 @@ msgstr "Meklēšanas vaicājums:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "Labi"
 
@@ -253,7 +259,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} nav atrasts: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Iestatījumi"
 
@@ -271,17 +277,17 @@ msgstr "Kļūda"
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "Neizdevās atvērt Iestatījumus: {0}"
+msgstr "Neizdevās atvērt iestatījumus: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Rīka izsaukums pārslēgts uz '{0}'. Jūs atrodaties specializētā rīku kopas "
-"režīmā. Jums jāizsauc 'specialized_workflow_finished', kad būsiet pabeidzis, "
+"Rīka izsaukums pārslēgts uz '{0}'. Jūs atrodaties specializētā rīkkopas "
+"režīmā. Jums jāizsauc 'specialized_workflow_finished', kad esat pabeidzis, "
 "lai atjaunotu pilnu API kopu."
 
 #: plugin/framework/settings_dialog.py:172
@@ -297,36 +303,37 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Es varu uzreiz rediģēt vai tulkot tavu dokumentu ar profesionālu "
-"formatējumu un krāsām. Pamēģini mani!"
+"AI: Es varu acumirklī rediģēt vai tulkot jūsu dokumentu ar profesionālu "
+"formatējumu un krāsām. Izmēģiniet mani!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Es varu tev palīdzēt ar formulām, datu analīzi un krāsainām diagrammām. "
-"Pamēģini mani!"
+"AI: Es varu palīdzēt ar formulām, datu analīzi un krāsainām diagrammām. "
+"Izmēģiniet mani!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Es varu palīdzēt izveidot un rediģēt pulētas, krāsainas formas Draw un "
-"Impress. Pamēģini mani!"
+"AI: Es varu palīdzēt izveidot un rediģēt pulētas, krāsainas formas "
+"programmās Draw un Impress. Izmēģiniet mani!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Es varu veikt tīmekļa pētījumu, lai atbildētu uz jebkuru jautājumu vai "
-"apkopotu tīmekļa lapu, ne redzot vai nemainot jūsu dokumentu. Sarunāsimies."
+"AI: Es varu veikt tīmekļa izpēti, lai atbildētu uz jebkuru jautājumu, vai "
+"apkopot tīmekļa lapu, neredzot un nemainot jūsu dokumentu. Parunāsim."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
 msgid "Could not create config file: {0}"
-msgstr "Nevarēja izveidot konfigurācijas failu: {0}"
+msgstr "Neizdevās izveidot konfigurācijas failu: {0}"
 
 #: plugin/framework/external_editor.py:97
 #, python-brace-format
@@ -334,7 +341,7 @@ msgid ""
 "Could not open an editor. Path:\n"
 "{0}"
 msgstr ""
-"Nevarēja atvērt redaktoru. Ceļš:\n"
+"Neizdevās atvērt redaktoru. Ceļš:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:107
@@ -343,18 +350,17 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Redaktors nav atrasts (uzstādiet Kate vai Gedit vai iestatiet EDITOR). "
-"Ceļš:\n"
+"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). Ceļš:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
 #, python-brace-format
 msgid "Could not start editor: {0}"
-msgstr "Nevarēja palaist redaktoru: {0}"
+msgstr "Neizdevās palaist redaktoru: {0}"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
-msgstr "Pieejams atjauninājums"
+msgstr "Ir pieejams atjauninājums"
 
 #: plugin/framework/extension_update_check.py:152
 #, python-format
@@ -362,9 +368,9 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Pieejams jaunāks WriterAgent (%s). Izmantojiet Rīki → Paplašinājumu "
-"pārvaldnieks, lai pārbaudītu atjauninājumus un instalētu jaunāko "
-"paplašinājumu."
+"Ir pieejama jaunāka WriterAgent (%s) versija. Izmantojiet Rīki → "
+"Paplašinājumu pārvaldnieks, lai pārbaudītu atjauninājumus un instalētu "
+"jaunāko paplašinājumu."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -377,16 +383,17 @@ msgstr "Nederīga API atslēga. Lūdzu, pārbaudiet savus iestatījumus."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr "API piekļuve aizliegta. Jūsu atslēgai var trūkt atļaujas šim modelim."
+msgstr "API piekļuve liegta. Jūsu atslēgai var trūkt atļauju šim modelim."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
+msgstr ""
+"Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Servera kļūda ({0}). AI sniedzējam ir problēmas."
+msgstr "Servera kļūda ({0}). AI pakalpojumu sniedzējam ir radušās problēmas."
 
 #: plugin/modules/http/errors.py:32
 #, python-brace-format
@@ -396,11 +403,11 @@ msgstr "HTTP kļūda {0}: {1}"
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"Pieprasījums iztecēja. Mēģiniet palielināt 'Pieprasījuma taimautu' "
-"Iestatījumos."
+"Pieprasījuma noildze. Mēģiniet palielināt \"Request Timeout\" iestatījumos."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Savienojums atteikts. Vai jūsu lokālais AI serveris (Ollama/LM Studio) "
 "darbojas?"
@@ -416,29 +423,29 @@ msgstr "Savienojuma kļūda: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "AI sniedzējs ziņoja par kļūdu. Mēģiniet vēlreiz."
+msgstr "AI pakalpojumu sniedzējs ziņoja par kļūdu. Mēģiniet vēlreiz."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "HTTP kļūda {0} no AI sniedzēja: {1}"
+msgstr "HTTP kļūda {0} no AI pakalpojumu sniedzēja: {1}"
 
 #: plugin/modules/http/errors.py:77
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Kļūda: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "Plūsma beidzās ar finish_reason=error"
+msgstr "Straume beidzās ar finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Modelis atkārto to pašu fragmentu (bezgalīga cilpa). Mēģiniet vēlreiz vai "
-"izmantojiet citu modeli."
+"Modelis atkārto vienu un to pašu fragmentu (bezgalīga cilpa). Mēģiniet "
+"vēlreiz vai izmantojiet citu modeli."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
@@ -446,7 +453,7 @@ msgstr "Apturēt MCP serveri"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
-msgstr "Sākt MCP serveri"
+msgstr "Startēt MCP serveri"
 
 #: plugin/modules/http/__init__.py:267
 msgid "MCP server stopped"
@@ -454,15 +461,15 @@ msgstr "MCP serveris apturēts"
 
 #: plugin/modules/http/__init__.py:275
 msgid "MCP server started"
-msgstr "MCP serveris palaists"
+msgstr "MCP serveris startēts"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "MCP serverim neizdevās palaizt"
+msgstr "MCP serveri neizdevās startēt"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
-msgstr "Pārbaudīt ~/localwriter.log"
+msgstr "Pārbaudiet ~/localwriter.log"
 
 #: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
@@ -497,17 +504,17 @@ msgstr "Ievade"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Rediģēt izvēli (Calc)"
+msgstr "WriterAgent: Rediģēt atlasi (Calc)"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Paplašināt izvēli (Calc)"
+msgstr "WriterAgent: Paplašināt atlasi (Calc)"
 
 #: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
 #: plugin/modules/chatbot/selection.py:90
 #: plugin/modules/chatbot/selection.py:177
 msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Paplašināt izvēli"
+msgstr "WriterAgent: Paplašināt atlasi"
 
 #: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
 #: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
@@ -517,13 +524,13 @@ msgstr "WriterAgent: Paplašināt izvēli"
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediģēt atlasi"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "Gatavs"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Kļūda: Rīkkopa nav pieejama"
+msgstr "Kļūda: rīkkopa nav pieejama"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
@@ -547,9 +554,9 @@ msgstr "Ierakstīt"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Apturēt ierakstu"
+msgstr "Pārtraukt ierakstu"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Sūtīt"
 
@@ -562,8 +569,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aktīvajā logā nav atrasts savietojams LibreOffice dokuments (Writer, Calc "
-"vai Draw).]"
+"[Aktīvajā logā nav atrasts saderīgs LibreOffice dokuments (Writer, Calc vai "
+"Draw).]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -571,7 +578,7 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Iekšēja kļūda: Dokumenta tips mainījās no {0} uz {1}! Lūdzu, ziņojiet par "
+"[Iekšēja kļūda: dokumenta tips mainījās no {0} uz {1}! Lūdzu, ziņojiet par "
 "kļūdu.]"
 
 #: plugin/modules/chatbot/panel.py:819
@@ -580,7 +587,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Iekšēja kļūda: Nevarēja noteikt dokumenta tipu {0}. Lūdzu, ziņojiet par to!]"
+"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par"
+" to!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -588,17 +596,17 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[Modelis {0} neatbalsta dzimto audio. Lūdzu, izvēlieties STT modeli "
-"Iestatījumos.]"
+"[Modelis {0} neatbalsta vietējo audio. Lūdzu, iestatījumos atlasiet STT "
+"modeli.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Šis meklēšanas vaicājums '%s' tiks nosūtīts meklētājprogrammai."
+msgstr "Šis meklēšanas vaicājums '%s' tiks nosūtīts uz meklētājprogrammu."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Tīmekļa meklēšana — nepieciešama apstiprināšana]"
+msgstr "[Tīmekļa meklēšana — nepieciešams apstiprinājums]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
@@ -610,45 +618,46 @@ msgstr "[Papildu tīmekļa meklēšana]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
-msgstr "[Tīmekļa pētījums]"
+msgstr "[Tīmekļa izpēte]"
 
 #: plugin/modules/chatbot/web_research_chat.py:60
 msgid "Research request:"
-msgstr "Pētniecības pieprasījums:"
+msgstr "Izpētes pieprasījums:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "Konteksts pētniecības aģentam:"
+msgstr "Konteksts izpētes aģentam:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
-msgstr "Tīmekļa pētniecība pabeigta."
+msgstr "Tīmekļa izpēte pabeigta."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Transkrībēju audio..."
+msgstr "Notiek audio transkribēšana..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
 msgid "[Transcription error: {0}]"
-msgstr "[Transkripcijas kļūda: {0}]"
+msgstr "[Transkribēšanas kļūda: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
 msgid "[Document context error: {0}]"
-msgstr "[Dokumenta konteksta kļūda: {0}]"
+msgstr "[Kļūda dokumenta kontekstā: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Aģenta backend '{0}' nav atrasts.]"
+msgstr "[Aģenta aizmugursistēma '{0}' nav atrasta.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Aģenta backend '{0}' nav pieejams. Pārbaudiet Iestatījumus (ceļš, "
-"instalācija).]"
+"[Aģenta aizmugursistēma '{0}' nav pieejama. Pārbaudiet iestatījumus (ceļu, "
+"instalāciju).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
 #: plugin/modules/chatbot/send_handlers.py:634
@@ -658,7 +667,7 @@ msgstr "Bibliotekārs: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfekti! Tagad pārslēdzu jūs uz galveno asistentu."
+msgstr "Lieliski! Tagad pārslēdzu jūs uz galveno asistentu."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
@@ -672,20 +681,20 @@ msgstr "[Bibliotekāra kļūda: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "AI (pētījums): {0}"
+msgstr "AI (izpēte): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Nezināma pētījuma kļūda."
+msgstr "Nezināma izpētes kļūda."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
-msgstr "[Pētījuma kļūda: {0}]"
+msgstr "[Izpētes kļūda: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
-msgstr "Pārslēdzamies dokumenta režīmā..."
+msgstr "Pārslēdzas uz dokumenta režīmu..."
 
 #: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
@@ -703,31 +712,31 @@ msgstr "Platums:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Iebūvēts"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
-msgstr "Aizmugne"
+msgstr "Aizmugursistēma"
 
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} izturēti, {2} neizturēti."
+msgstr "{0}: {1} izpildīts, {2} neizdevās."
 
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Testu palaišana neizdevās: {0}"
+msgstr "Neizdevās izpildīt testus: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
-msgstr "Paplašināt izvēli"
+msgstr "Paplašināt iezīmējumu"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Rediģēt izvēli"
+msgstr "Rediģēt atlasi"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
@@ -739,11 +748,11 @@ msgstr "MCP servera statuss"
 
 #: plugin/main.py:438
 msgid "Run format tests"
-msgstr "Palaist formātu testus"
+msgstr "Palaist formāta testus"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Palaist aprēķinu testus"
+msgstr "Palaist Calc testus"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
@@ -751,15 +760,15 @@ msgstr "Palaist Calc API integrācijas testus"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Palaist zīmēšanas testus"
+msgstr "Palaist Draw testus"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
-msgstr "Vērtēšanas panelis"
+msgstr "Novērtēšanas informācijas panelis"
 
 #: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "Dispečera kļūda"
+msgstr "Nosūtīšanas kļūda"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -783,11 +792,11 @@ msgstr "API atslēga:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "Papildu norādījumi (Vēsture):"
+msgstr "Papildu instrukcijas (vēsture):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
-msgstr "Papildu norādījumi:"
+msgstr "Papildu instrukcijas:"
 
 #: plugin/xdl_strings.py:11
 msgid "Allow NSFW"
@@ -795,11 +804,11 @@ msgstr "Atļaut NSFW"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
-msgstr "Jautāt / norādīt:"
+msgstr "Jautāt / dot norādījumus:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
-msgstr "Aspekta attiecība:"
+msgstr "Malu attiecība:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
@@ -819,11 +828,11 @@ msgstr "Pamats:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr "CFG skala:"
+msgstr "CFG mērogs:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Aprēķ."
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -835,7 +844,7 @@ msgstr "Cenzēt NSFW"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Čats (Testēšana):"
+msgstr "Tērzēšana (testēšana):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
@@ -847,11 +856,11 @@ msgstr "Aizvērt"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
-msgstr "Konteksta gar.:"
+msgstr "Konteksta garums:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Zīmēt"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
@@ -859,7 +868,7 @@ msgstr "Rediģēt konfigurācijas failu (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "Galapunkta URL (/v1 pievienots):"
+msgstr "Galapunkta URL (pievienots /v1):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
@@ -871,98 +880,98 @@ msgstr "Vispārīgi"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
-msgstr "Attēla modelis:"
+msgstr "Attēlu modelis:"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
-msgstr "Attēla iestatījumi"
+msgstr "Attēlu iestatījumi"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
-msgstr "Ievietot kadru"
+msgstr "Ievietot rāmi"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent novērtēšanas panelis"
-
-#: plugin/xdl_strings.py:36
 msgid "Max Tokens:"
 msgstr "Maks. žetoni:"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py:36
 msgid "Max Wait (s):"
-msgstr "Maks. gaidīšana (s):"
+msgstr "Maksimālais gaidīšanas laiks (s):"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py:37
 msgid "Models to Test:"
 msgstr "Testējamie modeļi:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodāls"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
 msgstr "Lūdzu, ievadiet rediģēšanas instrukcijas:"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
-msgstr "Palaist etalonu"
+msgstr "Palaist veiktspējas testu"
 
-#: plugin/xdl_strings.py:44
+#: plugin/xdl_strings.py:43
 msgid "Seed:"
 msgstr "Sēkla:"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Kvadrāts"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Soļi:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
 msgstr "Apturēt"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Temperatūra:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
-msgstr "Teksta/čata modelis:"
+msgstr "Teksta/tērzēšanas modelis:"
+
+#: plugin/xdl_strings.py:51
+msgid "Timeout (s):"
+msgstr "Noildze (s):"
 
 #: plugin/xdl_strings.py:52
-msgid "Timeout (s):"
-msgstr "Laika ierobežojums (s):"
-
-#: plugin/xdl_strings.py:53
 msgid "Translate Prompt"
 msgstr "Tulkot uzvedni"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
-msgstr "Tulkot no (piem. es):"
+msgstr "Tulkot no (piem., es):"
+
+#: plugin/xdl_strings.py:54
+msgid "Use AI Horde for Image Generation"
+msgstr "Izmantot AI Horde attēlu ģenerēšanai"
 
 #: plugin/xdl_strings.py:55
-msgid "Use AI Horde for Image Generation"
-msgstr "Izmantojiet AI Horde attēlu ģenerēšanai"
+msgid "Use Image model"
+msgstr "Izmantot attēlu modeli"
 
 #: plugin/xdl_strings.py:56
-msgid "Use Image model"
-msgstr "Izmantojiet attēlu modeli"
-
-#: plugin/xdl_strings.py:57
 msgid "Web Research"
 msgstr "Tīmekļa izpēte"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py:57
 msgid "Writer"
-msgstr "Rakstītājs"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py:58
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent novērtēšanas panelis"
 
 msgid "Agent backends"
-msgstr "Aģenta aizmugnes"
+msgstr "Aģenta aizmugursistēmas"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -977,17 +986,17 @@ msgid "Path / URL"
 msgstr "Ceļš / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ceļš uz backend CLI (piem. aider) vai ACP servera URL (piem. http://"
-"localhost:8000 Hermesam). Tukšs = mēģināt noklusējumu."
+"Ceļš uz aizmugursistēmas CLI (piem., aider) vai ACP servera URL (piem., "
+"http://localhost:8000 priekš Hermes). Tukšs = mēģināt noklusējuma."
 
 msgid "Extra arguments"
 msgstr "Papildu argumenti"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Izvēles argumenti atlasītajam aizmugnei (atdalīti ar atstarpēm)."
+msgstr "Izvēlētās aizmugursistēmas papildu argumenti (atdalīti ar atstarpēm)."
 
 msgid "ACP agent name"
 msgstr "ACP aģenta nosaukums"
@@ -996,20 +1005,20 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Aģenta nosaukums ACP serverī (piem. hermes). Tukšs = automātiski atrast "
+"Aģenta nosaukums ACP serverī (piem., hermes). Tukšs = automātiski noteikt "
 "pirmo aģentu."
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc izklājlapu rīki"
 
 msgid "Max Rows Display"
-msgstr "Maks. rindu skaits displejā"
+msgstr "Maksimālais rindu skaits"
 
 msgid "Sidebar"
-msgstr "Sānu josla"
+msgstr "Sānjosla"
 
 msgid "Max Tool Rounds"
-msgstr "Maks. rīku raundi"
+msgstr "Maksimālais rīku ciklu skaits"
 
 msgid "Document Context Strategy"
 msgstr "Dokumenta konteksta stratēģija"
@@ -1018,7 +1027,7 @@ msgid "How much document content to include in LLM context"
 msgstr "Cik daudz dokumenta satura iekļaut LLM kontekstā"
 
 msgid "Auto (by document size)"
-msgstr "Auto (pēc dokumenta izmēra)"
+msgstr "Automātiski (pēc dokumenta izmēra)"
 
 msgid "Full document text"
 msgstr "Pilns dokumenta teksts"
@@ -1027,87 +1036,89 @@ msgid "Pages around cursor"
 msgstr "Lapas ap kursoru"
 
 msgid "Outline + excerpt"
-msgstr "Aprizums + izvilkums"
+msgstr "Struktūra + fragments"
 
 msgid "Stats + outline only"
-msgstr "Statistika + tikai aprisums"
+msgstr "Tikai statistika + struktūra"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Paplašināt atlases maks. tokenus"
+msgstr "Paplašināt atlases maksimālo žetonu skaitu"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Rediģēt atlases papildu tokenus"
+msgstr "Rediģēt atlases papildu žetonus"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Papildu tokeni pāri oriģinālā teksta garumam. 0 = tas pats garums kā "
-"oriģinālais."
+"Papildu žetoni virs sākotnējā teksta garuma. 0 = tāds pats garums kā "
+"oriģinālam."
 
 msgid "Show Web Search Thinking"
-msgstr "Rādīt tīmekļa meklēšanas domāšanu"
+msgstr "Rādīt tīmekļa meklēšanas gaitu"
 
 msgid "Prompt for Web Research"
-msgstr "Uzvedne tīmekļa izpētei"
+msgstr "Pieprasīt tīmekļa izpēti"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Pajautāt apstiprinājumu pirms tīmekļa meklēšanas vaicājuma nosūtīšanas"
+msgstr ""
+"Pieprasīt apstiprinājumu pirms tīmekļa meklēšanas vaicājuma nosūtīšanas"
 
 msgid "Web Cache Max Size (MB)"
 msgstr "Tīmekļa kešatmiņas maksimālais izmērs (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Maksimālais diska izmērs tīmekļa meklēšanas kešatmiņai (0, lai izslēgtu)"
+"Maksimālais diska izmērs tīmekļa meklēšanas kešatmiņai (0, lai atspējotu)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Tīmekļa kešatmiņas derīgums (dienas)"
+msgstr "Tīmekļa kešatmiņas derīguma termiņš (dienās)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr "Cik dienas kešatmiņas ierakstus uzskatīt par derīgiem."
+msgstr "Cik dienas kešatmiņas ieraksti jāuzskata par derīgiem."
 
 msgid "Doc"
-msgstr "Dok"
+msgstr "Dokuments"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Ieslēgt AI gramatikas pārbaudītāju (Writer)"
+msgstr "Iespējot AI gramatikas pārbaudītāju (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Kad ieslēgts, WriterAgent reģistrē savu AI gramatikas korektoru pie "
-"Linguistic; pārbaudītais teksts izmanto jūsu API (Rīki → Iespējas → AI). "
-"Pasvītrojumi parādās neilgi pēc rakstīšanas pārtraukšanas. Izslēgts pēc "
-"noklusējuma."
+"Ja ir ieslēgts, WriterAgent reģistrē savu AI gramatikas korektoru Linguistic"
+" rīkā; pārbaudītais teksts izmanto jūsu API (Rīki → Opcijas → AI). "
+"Pasvītrojumi parādās neilgi pēc rakstīšanas pauzes. Pēc noklusējuma "
+"izslēgts."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Gramatikas pārbaudes gaidīšanas таймаuts (ms)"
+msgstr "Gramatikas pārbaudes gaidīšanas noildze (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Rezervēts iespējamai nākotnes lietošanai. Korektors nekavējoties atgriežas "
-"kešatmiņas trūkuma gadījumā (asinhroni); rezultāti parādās vēlākā Rakstītāja "
-"caurlaidē, kad teikuma kešatmiņa ir aizpildīta."
+"Rezervēts iespējamai turpmākai izmantošanai. Korektors atgriež rezultātu "
+"nekavējoties, ja kešatmiņā nav datu (asinhroni); rezultāti parādās vēlākā "
+"Writer caurskatē, kad teikumu kešatmiņa ir aizpildīta."
 
 msgid "Grammar check model (optional)"
-msgstr "Gramatikas pārbaudes modelis (pēc izvēles)"
+msgstr "Gramatikas pārbaudes modelis (neobligāts)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Atstājiet tukšu, lai izmantotu tā pašu teksta modeli kā čatā."
+msgstr "Atstājiet tukšu, lai izmantotu to pašu teksta modeli, ko tērzēšanā."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Pauzēt gramatiku, kamēr darbojas čats/aģents"
+msgstr "Pauzēt gramatikas pārbaudi, kamēr darbojas tērzēšana/aģents"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Kad ieslēgts, AI gramatika izlaiž fona pieprasījumus, kamēr darbojas "
-"sānjoslas čats vai aģents, lai izvairītos no vienlaicīgiem API izsaukumiem."
+"Ja ir ieslēgts, AI gramatikas pārbaude izlaiž fona pieprasījumus, kamēr "
+"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API"
+" izsaukumiem."
 
 msgid "Draw and Impress tools"
 msgstr "Draw un Impress rīki"
@@ -1116,15 +1127,15 @@ msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "Ieslēgt MCP serveri"
+msgstr "Iespējot MCP serveri"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
-"Tikai localhost, bez autentifikācijas. Piekļuve caur stdio vienmēr ir "
-"iespējota."
+"Tikai localhost, bez autentifikācijas. Piekļuve, izmantojot stdio, vienmēr "
+"ir iespējota."
 
 msgid "MCP Port"
 msgstr "MCP ports"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Writer dokumenta rīki (ieskaitot navigāciju un meklēšanu)"
+msgstr "Writer dokumentu rīki (tostarp navigācija un meklēšana)"

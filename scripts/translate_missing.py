@@ -55,7 +55,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 log = logging.getLogger("translate_missing")
 
-DEFAULT_TRANSLATE_MODEL = "x-ai/grok-4.1-fast"
+DEFAULT_TRANSLATE_MODEL = "google/gemini-3.1-flash-lite-preview"
 DEFAULT_OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1"
 # Fixed phrase for acceptable strings in dense review JSON (model must use this verbatim for "ok").
 REVIEW_NO_ERRORS = "No Errors"

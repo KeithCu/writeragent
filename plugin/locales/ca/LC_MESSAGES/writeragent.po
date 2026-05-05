@@ -1,13 +1,18 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WriterAgent 1.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: Catalan\n"
-"Language: ca\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -15,29 +20,29 @@ msgstr ""
 #: plugin/contrib/aihordeclient/__init__.py:262
 #: plugin/modules/chatbot/panel.py:790
 msgid "Starting..."
-msgstr "Iniciant…"
+msgstr "S'està iniciant..."
 
 #: plugin/contrib/aihordeclient/__init__.py:370
 msgid "Updating model requirements..."
-msgstr "Actualitzant requisits del model…"
+msgstr "S'estan actualitzant els requisits del model..."
 
 #: plugin/contrib/aihordeclient/__init__.py:517
 msgid "Updating Models..."
-msgstr "Actualitzant Models…"
+msgstr "S'estan actualitzant els models..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Registra't a "
+msgstr "Registreu-vos a "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "Tens {} kudos"
+msgstr "Teniu {} kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» no és una clau API vàlida, comprova-la o crea'n una de nova"
+msgstr "«{}» no és una clau API vàlida, comproveu-la o creeu-ne una de nova"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -45,29 +50,28 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"En aquest moment no podem processar la teva sol·licitud, si us plau, intenta-"
-"ho més tard. Si això passa durant un llarg període de temps, fes-nos-ho "
-"saber via Discord"
+"En aquest moment no podem processar la vostra sol·licitud, torneu-ho a "
+"provar més tard. Si això passa durant un període llarg de temps, feu-nos-ho "
+"saber a través de Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Problema sol·licitant kudos"
+msgstr "Problema en sol·licitar kudos"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"L'Horde està en mode de manteniment, si us plau, intenta-ho més tard, si has "
-"provat i el servei no respon durant hores, contacta via Discord"
+"L'Horde està en mode de manteniment, torneu-ho a provar més tard; si ho heu "
+"provat i el servei no respon durant hores, contacteu-nos a través de Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Has fet massa sol·licituds, si us plau, espera que acabin i intenta-ho més "
-"tard"
+"Heu fet massa sol·licituds, espereu que acabin i torneu-ho a provar més tard"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -75,33 +79,32 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Sembla que «{}» té problemes, comprova-ho dues vegades, crea'n un de nou o "
-"uneix-te a Discord per demanar ajuda"
+"Sembla que «{}» té problemes, comproveu-ho, creeu-ne un de nou o uniu-vos a "
+"Discord per demanar ajuda"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "S'ha produït un error, tot i així: "
+msgstr "Hem trobat un error, encara: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
 msgstr ""
-"Ja no és vàlid, si us plau prova-ho de nou. La teva sol·licitud ha trigat "
-"massa temps"
+"Ja no és vàlid, torneu-ho a provar. La vostra sol·licitud ha trigat massa"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Contactant l'Horde..."
+msgstr "Contactant amb l'Horda..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Horde contactat"
+msgstr "Horda contactada"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Quan s'ha intentat demanar la imatge, l'Horde era massa lenta, prova-ho més "
-"tard"
+"En intentar demanar la imatge, l'Horda ha estat massa lenta, torneu-ho a "
+"provar més tard"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
@@ -114,11 +117,11 @@ msgstr "El servei ha fallat: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "Descarregant la imatge generada..."
+msgstr "S'està baixant la imatge generada..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "Ets el primer a la cua"
+msgstr "Sou el primer a la cua"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
@@ -126,12 +129,12 @@ msgstr "Posició a la cua: "
 
 #: plugin/contrib/aihordeclient/__init__.py:946
 msgid "Generating..."
-msgstr "Generant..."
+msgstr "S'està generant..."
 
 #: plugin/contrib/aihordeclient/__init__.py:963
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
-msgstr "Obtén una clau API gratuïta a "
+msgstr "Obteniu una clau d'API gratuïta a "
 
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
@@ -141,58 +144,57 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Aquest model triga més temps que la teva configuració actual."
+msgstr "Aquest model requereix més temps que la vostra configuració actual."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
-msgstr ""
-"Si us plau, prova un altre model. {0} trigaria més temps del que has "
-"configurat."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
+msgstr "Proveu un altre model. {0} trigaria més temps del que heu configurat."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Si us plau, prova-ho més tard."
+msgstr "Torneu-ho a provar més tard."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "No hi ha treballadors disponibles amb aquests ajustos."
+msgstr "No hi ha treballadors disponibles amb aquesta configuració."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Probablement la teva imatge trigarà un minut addicional."
+msgstr "Probablement la vostra imatge trigarà un minut addicional."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Probablement la teva imatge trigarà {} minuts addicionals."
+msgstr "Probablement la vostra imatge trigarà {} minuts addicionals."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
-msgstr "Obtenant imatges..."
+msgstr "S'estan recuperant les imatges..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " està censurat, prova de canviar la redacció del prompt"
+msgstr " està censurat, proveu de canviar la redacció de l'indicador"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
-msgstr "Descarregant resultat..."
+msgstr "S'està baixant el resultat..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1071
 msgid "Downloading image"
-msgstr "Descarregant imatge"
+msgstr "S'està baixant la imatge"
 
 #: plugin/contrib/aihordeclient/__init__.py:1087
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Potser necessites reduir els teus ajustos o triar un altre model, o potser "
-"has estat censurat. Missatge de Horde"
+"Potser cal que reduïu la configuració o trieu un altre model, o potser heu "
+"estat censurat. Missatge de l'Horde"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
@@ -209,7 +211,7 @@ msgstr "L'agent sol·licita aprovació"
 
 #: plugin/framework/dialogs.py:108
 msgid "Proceed with this action?"
-msgstr "Procedir amb aquesta acció?"
+msgstr "Voleu continuar amb aquesta acció?"
 
 #: plugin/framework/dialogs.py:109
 #: plugin/modules/chatbot/web_research_chat.py:33
@@ -220,7 +222,7 @@ msgstr "Eina: %s"
 
 #: plugin/framework/dialogs.py:154
 msgid "Edit search query"
-msgstr "Editar consulta de cerca"
+msgstr "Edita la consulta de cerca"
 
 #: plugin/framework/dialogs.py:159
 msgid "Search query:"
@@ -228,17 +230,17 @@ msgstr "Consulta de cerca:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "D'acord"
 
 #: plugin/framework/dialogs.py:168
 msgid "Cancel"
-msgstr "Cancel·lar"
+msgstr "Cancel·la"
 
 #: plugin/framework/dialogs.py:335
 msgid "Copy"
-msgstr "Copiar"
+msgstr "Copia"
 
 #: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
 msgid "Copied!"
@@ -246,7 +248,7 @@ msgstr "Copiat!"
 
 #: plugin/framework/dialogs.py:403
 msgid "Copy URL"
-msgstr "Copiar URL"
+msgstr "Copia l'URL"
 
 #: plugin/framework/errors.py:52
 #, python-brace-format
@@ -254,7 +256,7 @@ msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} no trobat: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Configuració"
 
@@ -272,18 +274,18 @@ msgstr "Error"
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "No s'ha pogut obrir Configuració: {0}"
+msgstr "No s'ha pogut obrir la configuració: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"La crida d'eina ha canviat a '{0}'. Esteu en un mode de conjunt d'eines "
-"especialitzat. Heu de cridar 'specialized_workflow_finished' quan hagueu "
-"acabat per restaurar el conjunt complet d'APIs."
+"La crida a l'eina ha canviat a «{0}». Esteu en un mode d'eines "
+"especialitzat. Heu de cridar «specialized_workflow_finished» quan hàgiu "
+"acabat per restaurar el conjunt complet d'API."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
@@ -298,30 +300,32 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"IA: Puc editar o traduir el teu document instantàniament amb format "
-"professional i color. Prova'm!"
+"IA: Puc editar o traduir el vostre document a l'instant amb format i color "
+"professionals. Proveu-me!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"IA: Puc ajudar-te amb fórmules, anàlisi de dades i gràfics colorits. Prova'm!"
+"IA: Puc ajudar-vos amb fórmules, anàlisi de dades i gràfics acolorits. "
+"Proveu-me!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Et puc ajudar a crear i editar formes polides i colorides a Draw i "
-"Impress. Prova'm!"
+"IA: Puc ajudar-vos a crear i editar formes polides i acolorides al Draw i a "
+"l'Impress. Proveu-me!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Puc fer recerca web per respondre qualsevol pregunta o resumir una "
-"pàgina web, sense veure ni canviar el teu document. Xatejem."
+"IA: Puc fer cerques web per respondre qualsevol pregunta, o resumir una "
+"pàgina web, sense veure ni canviar el vostre document. Parlem-ne."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
@@ -343,8 +347,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"No s'ha trobat cap editor (instal·la Kate o Gedit, o defineix EDITOR). "
-"Camí:\n"
+"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). Camí:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
@@ -354,7 +357,7 @@ msgstr "No s'ha pogut iniciar l'editor: {0}"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
-msgstr "Actualització disponible"
+msgstr "Hi ha una actualització disponible"
 
 #: plugin/framework/extension_update_check.py:152
 #, python-format
@@ -362,28 +365,29 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Hi ha disponible una versió més recent del WriterAgent (%s). Utilitza Eines "
-"→ Gestor d'extensions per comprovar actualitzacions i instal·lar l'última "
-"extensió."
+"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines →"
+" Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
+"recent."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
-msgstr "Error TLS/SSL: {0}"
+msgstr "Error de TLS/SSL: {0}"
 
 #: plugin/modules/http/errors.py:25
 msgid "Invalid API Key. Please check your settings."
-msgstr "Clau d'API no vàlida. Comprova els teus ajustos."
+msgstr "Clau d'API no vàlida. Comproveu la configuració."
 
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"Accés a l'API prohibit. La teva clau potser no té permisos per a aquest "
-"model."
+"Accés a l'API prohibit. És possible que la vostra clau no tingui permisos "
+"per a aquest model."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Endpoint no trobat (404). Comprova la teva URL i el nom del model."
+msgstr ""
+"No s'ha trobat el punt final (404). Comproveu l'URL i el nom del model."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
@@ -398,18 +402,19 @@ msgstr "Error HTTP {0}: {1}"
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"Sol·licitud excedida de temps. Prova d'augmentar «Request Timeout» a "
-"Configuració."
+"Temps d'espera de la sol·licitud esgotat. Proveu d'augmentar el «Temps "
+"d'espera de la sol·licitud» a la configuració."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Connexió refusada. El teu servidor d'IA local (Ollama/LM Studio) està en "
-"execució?"
+"Connexió refusada. El vostre servidor d'IA local (Ollama/LM Studio) està en "
+"marxa?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
-msgstr "Error DNS. No s'ha pogut resoldre la URL de l'endpoint."
+msgstr "Error de DNS. No s'ha pogut resoldre l'URL del punt final."
 
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
@@ -418,7 +423,7 @@ msgstr "Error de connexió: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "El proveïdor d'IA ha informat d'un error. Torna-ho a provar."
+msgstr "El proveïdor d'IA ha informat d'un error. Torneu-ho a provar."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
@@ -430,17 +435,17 @@ msgstr "Error HTTP {0} del proveïdor d'IA: {1}"
 msgid "Error: {0}"
 msgstr "Error: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "El flux ha acabat amb finish_reason=error"
+msgstr "El flux ha finalitzat amb finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"El model està repetint el mateix tros (bucle infinit). Torna-ho a provar o "
-"utilitza un model diferent."
+"El model repeteix el mateix fragment (bucle infinit). Torneu-ho a provar o "
+"utilitzeu un model diferent."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
@@ -460,11 +465,11 @@ msgstr "Servidor MCP iniciat"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "El servidor MCP no ha pogut iniciar-se"
+msgstr "El servidor MCP no s'ha pogut iniciar"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
-msgstr "Comprova ~/localwriter.log"
+msgstr "Comproveu ~/localwriter.log"
 
 #: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
@@ -499,17 +504,17 @@ msgstr "Entrada"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
-msgstr "WriterAgent: Editar selecció (Calc)"
+msgstr "WriterAgent: Edita la selecció (Calc)"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Extend Selection (Calc)"
-msgstr "WriterAgent: Estendre selecció (Calc)"
+msgstr "WriterAgent: Amplia la selecció (Calc)"
 
 #: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
 #: plugin/modules/chatbot/selection.py:90
 #: plugin/modules/chatbot/selection.py:177
 msgid "WriterAgent: Extend Selection"
-msgstr "WriterAgent: Estendre selecció"
+msgstr "WriterAgent: Amplia la selecció"
 
 #: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
 #: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
@@ -517,55 +522,55 @@ msgstr "WriterAgent: Estendre selecció"
 #: plugin/modules/chatbot/selection.py:297
 #: plugin/modules/chatbot/selection.py:411
 msgid "WriterAgent: Edit Selection"
-msgstr "WriterAgent: Edita selecció"
+msgstr "WriterAgent: Edita la selecció"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
-msgstr "Llist"
+msgstr "Preparat"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Error: El kit d'eines no està disponible"
+msgstr "Error: el joc d'eines no està disponible"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
-msgstr "Acceptar"
+msgstr "Accepta"
 
 #: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
-msgstr "Canviar"
+msgstr "Canvia"
 
 #: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
-msgstr "Rebutjar"
+msgstr "Rebut"
 
 #: plugin/modules/chatbot/panel.py:429
 msgid "Waiting for approval…"
-msgstr "Esperant aprovació…"
+msgstr "S'està esperant l'aprovació…"
 
 #: plugin/modules/chatbot/panel.py:771
 msgid "Record"
-msgstr "Gravar"
+msgstr "Enregistra"
 
 #: plugin/modules/chatbot/panel.py:773
 msgid "Stop Rec"
-msgstr "Aturar grav."
+msgstr "Atura l'enregistrament"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
-msgstr "Enviar"
+msgstr "Envia"
 
 #: plugin/modules/chatbot/panel.py:799
 msgid "Getting document..."
-msgstr "Obtenant el document..."
+msgstr "S'està obtenint el document..."
 
 #: plugin/modules/chatbot/panel.py:803
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No s'ha trobat cap document compatible de LibreOffice (Writer, Calc o Draw) "
-"a la finestra activa.]"
+"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw)"
+" a la finestra activa.]"
 
 #: plugin/modules/chatbot/panel.py:812
 #, python-brace-format
@@ -574,7 +579,7 @@ msgid ""
 "error.]"
 msgstr ""
 "[Error intern: El tipus de document ha canviat de {0} a {1}! Si us plau, "
-"informa d'un error.]"
+"informeu de l'error.]"
 
 #: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
@@ -583,7 +588,7 @@ msgid ""
 "this!]"
 msgstr ""
 "[Error intern: No s'ha pogut identificar el tipus de document per a {0}. Si "
-"us plau, informa'n!]"
+"us plau, informeu-ne!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -591,8 +596,8 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[El model {0} no admet àudio natiu. Si us plau, selecciona un model STT a "
-"Configuració.]"
+"[El model {0} no admet àudio natiu. Si us plau, seleccioneu un model STT a "
+"la configuració.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
@@ -601,7 +606,7 @@ msgstr "Aquesta consulta de cerca '%s' s'enviarà al motor de cerca."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Cerca web — es requereix aprovació]"
+msgstr "[Cerca web — cal aprovació]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
@@ -613,7 +618,7 @@ msgstr "[Cerca web addicional]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
-msgstr "[Investigació web]"
+msgstr "[Recerca web]"
 
 #: plugin/modules/chatbot/web_research_chat.py:60
 msgid "Research request:"
@@ -623,13 +628,13 @@ msgstr "Sol·licitud de recerca:"
 msgid "Context for the research agent:"
 msgstr "Context per a l'agent de recerca:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
 msgstr "Recerca web completada."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
-msgstr "Transcrivint àudio..."
+msgstr "S'està transcrivint l'àudio..."
 
 #: plugin/modules/chatbot/send_handlers.py:121
 #, python-brace-format
@@ -639,18 +644,19 @@ msgstr "[Error de transcripció: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
 msgid "[Document context error: {0}]"
-msgstr "[Error de context de document: {0}]"
+msgstr "[Error de context del document: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Backend de l'agent '{0}' no trobat.]"
+msgstr "[No s'ha trobat el rerefons de l'agent '{0}'.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[El backend de l'agent '{0}' no està disponible. Comproveu Configuració "
+"[El rerefons de l'agent '{0}' no està disponible. Comproveu la configuració "
 "(camí, instal·lació).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
@@ -661,16 +667,16 @@ msgstr "Bibliotecari: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfecte! Ara et canvio a l'assistent principal."
+msgstr "Perfecte! Ara us passo amb l'assistent principal."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
-msgstr "Error de bibliotecari desconegut."
+msgstr "Error desconegut del bibliotecari."
 
 #: plugin/modules/chatbot/send_handlers.py:640
 #, python-brace-format
 msgid "[Librarian error: {0}]"
-msgstr "[Error de bibliotecari: {0}]"
+msgstr "[Error del bibliotecari: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
@@ -679,16 +685,16 @@ msgstr "IA (recerca): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
-msgstr "Error de recerca desconegut."
+msgstr "Error desconegut de recerca."
 
 #: plugin/modules/chatbot/send_handlers.py:671
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Error de recerca: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
-msgstr "Canviant al mode de document..."
+msgstr "S'està canviant al mode de document..."
 
 #: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
@@ -704,37 +710,37 @@ msgstr "Amplada:"
 
 #: plugin/tests/test_i18n.py:24
 msgid "ThisIsAnUntranslatedString999"
-msgstr "AixòÉsUnaCadenaNoTraduïda999"
+msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Integrat"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
-msgstr "Backend"
+msgstr "Motor"
 
 #: plugin/main.py:354
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} superats, {2} fallits."
+msgstr "{0}: {1} correctes, {2} errònies."
 
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Proves que no s'han pogut executar: {0}"
+msgstr "No s'han pogut executar les proves: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
-msgstr "Estendre selecció"
+msgstr "Estén la selecció"
 
 #: plugin/main.py:433
 msgid "Edit Selection"
-msgstr "Editar selecció"
+msgstr "Edita la selecció"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
-msgstr "Commutar servidor MCP"
+msgstr "Commuta el servidor MCP"
 
 #: plugin/main.py:436
 msgid "MCP Server Status"
@@ -742,19 +748,19 @@ msgstr "Estat del servidor MCP"
 
 #: plugin/main.py:438
 msgid "Run format tests"
-msgstr "Executar proves de format"
+msgstr "Executa les proves de format"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Executar proves de càlcul"
+msgstr "Executa les proves de Calc"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Executa les proves d'integració de l'API Calc"
+msgstr "Executa les proves d'integració de l'API de Calc"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Executa les proves de dibuix"
+msgstr "Executa les proves de Draw"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -762,7 +768,7 @@ msgstr "Tauler d'avaluació"
 
 #: plugin/main.py:829
 msgid "Dispatch Error"
-msgstr "Error de despatx"
+msgstr "Error de tramesa"
 
 #: plugin/xdl_strings.py:4
 msgid "-1"
@@ -774,7 +780,7 @@ msgstr "7.5"
 
 #: plugin/xdl_strings.py:6
 msgid "AI Horde API Key:"
-msgstr "Clau API d'AI Horde:"
+msgstr "Clau d'API d'AI Horde:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
@@ -782,11 +788,11 @@ msgstr "Model d'IA:"
 
 #: plugin/xdl_strings.py:8
 msgid "API Key:"
-msgstr "Clau API:"
+msgstr "Clau d'API:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "Instruccions addicionals (Historial):"
+msgstr "Instruccions addicionals (historial):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
@@ -794,7 +800,7 @@ msgstr "Instruccions addicionals:"
 
 #: plugin/xdl_strings.py:11
 msgid "Allow NSFW"
-msgstr "Permet NSFW"
+msgstr "Permet contingut NSFW"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
@@ -834,11 +840,11 @@ msgstr "Categories:"
 
 #: plugin/xdl_strings.py:21
 msgid "Censor NSFW"
-msgstr "Censura NSFW"
+msgstr "Censura contingut explícit"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Xat (Proves):"
+msgstr "Xat (prova):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
@@ -854,7 +860,7 @@ msgstr "Longitud del context:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Dibuixa"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
@@ -862,11 +868,11 @@ msgstr "Edita el fitxer de configuració (JSON)…"
 
 #: plugin/xdl_strings.py:28
 msgid "Endpoint URL (/v1 added):"
-msgstr "URL de l'endpoint (/v1 afegit):"
+msgstr "URL del punt final (s'afegeix /v1):"
 
 #: plugin/xdl_strings.py:29
 msgid "Endpoint URL:"
-msgstr "URL de l'endpoint:"
+msgstr "URL del punt final:"
 
 #: plugin/xdl_strings.py:30
 msgid "General"
@@ -882,90 +888,90 @@ msgstr "Configuració de la imatge"
 
 #: plugin/xdl_strings.py:34
 msgid "Insert Frame"
-msgstr "Inserir marc"
+msgstr "Insereix un marc"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "Tauler d'avaluació de WriterAgent"
+msgid "Max Tokens:"
+msgstr "Màxim de testimonis:"
 
 #: plugin/xdl_strings.py:36
-msgid "Max Tokens:"
-msgstr "Tokens màxim:"
+msgid "Max Wait (s):"
+msgstr "Temps d'espera màxim (s):"
 
 #: plugin/xdl_strings.py:37
-msgid "Max Wait (s):"
-msgstr "Espera màx. (s):"
-
-#: plugin/xdl_strings.py:38
 msgid "Models to Test:"
 msgstr "Models a provar:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodal"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
-msgstr "Si us plau, introduïu les instruccions d'edició:"
+msgstr "Introduïu les instruccions d'edició:"
+
+#: plugin/xdl_strings.py:42
+msgid "Run Benchmark"
+msgstr "Executa la prova de rendiment"
 
 #: plugin/xdl_strings.py:43
-msgid "Run Benchmark"
-msgstr "Executar benchmark"
-
-#: plugin/xdl_strings.py:44
 msgid "Seed:"
 msgstr "Llavor:"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Quadrat"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Passos:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
-msgstr "Aturar"
+msgstr "Atura"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Temperatura:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "Model de text/xat:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
 msgstr "Temps d'espera (s):"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
-msgstr "Traduir prompt"
+msgstr "Tradueix l'indicador"
+
+#: plugin/xdl_strings.py:53
+msgid "Translate from (e.g. es):"
+msgstr "Tradueix des de (p. ex. es):"
 
 #: plugin/xdl_strings.py:54
-msgid "Translate from (e.g. es):"
-msgstr "Traduir des de (p. ex. es):"
-
-#: plugin/xdl_strings.py:55
 msgid "Use AI Horde for Image Generation"
 msgstr "Utilitza AI Horde per a la generació d'imatges"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py:55
 msgid "Use Image model"
-msgstr "Utilitza model d'imatge"
+msgstr "Utilitza el model d'imatge"
+
+#: plugin/xdl_strings.py:56
+msgid "Web Research"
+msgstr "Cerca web"
 
 #: plugin/xdl_strings.py:57
-msgid "Web Research"
-msgstr "Investigació web"
+msgid "Writer"
+msgstr "Writer"
 
 #: plugin/xdl_strings.py:58
-msgid "Writer"
-msgstr "Escriptor"
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Tauler d'avaluació de WriterAgent"
 
 msgid "Agent backends"
-msgstr "Backends d'agent"
+msgstr "Motors d'agent"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -980,11 +986,11 @@ msgid "Path / URL"
 msgstr "Camí / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. http://"
-"localhost:8000 per Hermes). Buida = prova el predeterminat."
+"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. "
+"http://localhost:8000 per a Hermes). Buit = provar el predeterminat."
 
 msgid "Extra arguments"
 msgstr "Arguments addicionals"
@@ -999,26 +1005,26 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nom de l'agent al servidor ACP (p. ex. hermes). Buida = auto-descobrir el "
+"Nom de l'agent al servidor ACP (p. ex. hermes). Buit = autodescobriment del "
 "primer agent."
 
 msgid "Calc spreadsheet tools"
-msgstr "Eines de fulls de càlcul Calc"
+msgstr "Eines de full de càlcul del Calc"
 
 msgid "Max Rows Display"
-msgstr "Màxim de files a mostrar"
+msgstr "Nombre màxim de files"
 
 msgid "Sidebar"
 msgstr "Barra lateral"
 
 msgid "Max Tool Rounds"
-msgstr "Màxim de rondes d'eines"
+msgstr "Rondes màximes de l'eina"
 
 msgid "Document Context Strategy"
-msgstr "Estratègia de context de document"
+msgstr "Estratègia de context del document"
 
 msgid "How much document content to include in LLM context"
-msgstr "Quant de contingut de document incloure en el context de l'LLM"
+msgstr "Quant de contingut del document incloure en el context de l'LLM"
 
 msgid "Auto (by document size)"
 msgstr "Automàtic (segons la mida del document)"
@@ -1036,21 +1042,21 @@ msgid "Stats + outline only"
 msgstr "Només estadístiques + esquema"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Tokens màxim per estendre la selecció"
+msgstr "Amplia el nombre màxim de testimonis de la selecció"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Tokens extra per editar la selecció"
+msgstr "Edita els testimonis addicionals de la selecció"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Tokens extra més enllà de la longitud del text original. 0 = mateixa "
-"longitud que l'original."
+"Testimonis addicionals més enllà de la longitud del text original. 0 = "
+"mateixa longitud que l'original."
 
 msgid "Show Web Search Thinking"
-msgstr "Mostrar el pensament de la cerca web"
+msgstr "Mostra el pensament de la cerca web"
 
 msgid "Prompt for Web Research"
-msgstr "Prompt per a la recerca web"
+msgstr "Demana confirmació per a la cerca web"
 
 msgid "Ask for confirmation before sending a web search query"
 msgstr "Demana confirmació abans d'enviar una consulta de cerca web"
@@ -1067,26 +1073,26 @@ msgstr "Validesa de la memòria cau web (dies)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
-"Quants dies han de ser considerades vàlides les entrades de la memòria cau."
+"Quants dies s'han de considerar vàlides les entrades de la memòria cau."
 
 msgid "Doc"
 msgstr "Doc"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "Activa el verificador de gramàtica IA (Writer)"
+msgstr "Activa el corrector gramatical d'IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Quan està activat, WriterAgent registra el seu corrector de gramàtica IA amb "
-"Linguistic; el text comprovat utilitza la teva API (Eines → Opcions → IA). "
-"Els subratllats apareixen poc després que pauseu d'escriure. Desactivat per "
+"Quan està activat, WriterAgent registra el seu corrector gramatical d'IA a "
+"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA)."
+" Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
 "defecte."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Temps d'espera per a la comprovació gramatical (ms)"
+msgstr "Temps d'espera de la comprovació gramatical (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
@@ -1094,29 +1100,28 @@ msgid ""
 "cache is filled."
 msgstr ""
 "Reservat per a un possible ús futur. El corrector retorna immediatament en "
-"cas de fallida de memòria cau (asíncron); els resultats apareixen en una "
-"passada posterior del Writer un cop la memòria cau de frases estigui "
-"omplerta."
+"cas de fallada de la memòria cau (asíncron); els resultats apareixen en una "
+"passada posterior del Writer un cop s'ha omplert la memòria cau de frases."
 
 msgid "Grammar check model (optional)"
 msgstr "Model de comprovació gramatical (opcional)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Deixi en blanc per utilitzar el mateix model de text que el xat."
+msgstr "Deixeu-ho buit per utilitzar el mateix model de text que el xat."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Pausar gramàtica mentre s'executa el xat/agent"
+msgstr "Pausa la gramàtica mentre s'executa el xat/agent"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Quan està activat, la gramàtica IA omet les sol·licituds en segon pla mentre "
-"el xat de la barra lateral o l'agent s'executa, per evitar crides d'API "
-"concurrents."
+"Quan està activat, la gramàtica d'IA omet les sol·licituds en segon pla "
+"mentre s'executa el xat de la barra lateral o l'agent, per evitar crides "
+"simultànies a l'API."
 
 msgid "Draw and Impress tools"
-msgstr "Eines Draw i Impress"
+msgstr "Eines de Draw i Impress"
 
 msgid "MCP"
 msgstr "MCP"
@@ -1126,10 +1131,11 @@ msgstr "Activa el servidor MCP"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
-"Només localhost, sense autenticació. L'accés via stdio sempre està habilitat."
+"Només localhost, sense autenticació. L'accés mitjançant stdio està sempre "
+"activat."
 
 msgid "MCP Port"
 msgstr "Port MCP"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Eines de documents Writer (incloent navegació i cerca)"
+msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"

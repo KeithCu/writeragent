@@ -1,13 +1,18 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WriterAgent 1.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-02 16:50-0400\n"
+"POT-Creation-Date: 2026-05-04 20:54-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: Hungarian\n"
-"Language: hu\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -19,7 +24,7 @@ msgstr "Indítás..."
 
 #: plugin/contrib/aihordeclient/__init__.py:370
 msgid "Updating model requirements..."
-msgstr "Modell követelmények frissítése..."
+msgstr "Modellkövetelmények frissítése..."
 
 #: plugin/contrib/aihordeclient/__init__.py:517
 msgid "Updating Models..."
@@ -27,17 +32,18 @@ msgstr "Modellek frissítése..."
 
 #: plugin/contrib/aihordeclient/__init__.py:610
 msgid "Register at "
-msgstr "Regisztrálj itt "
+msgstr "Regisztráció itt: "
 
 #: plugin/contrib/aihordeclient/__init__.py:617
 #, python-brace-format
 msgid "You have {} kudos"
-msgstr "{} kudosod van"
+msgstr "{} kudo pontod van"
 
 #: plugin/contrib/aihordeclient/__init__.py:625
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr "«{}» érvénytelen API kulcs, ellenőrizd újra vagy hozz létre egy újat"
+msgstr ""
+"A(z) «{}» nem érvényes API-kulcs, ellenőrizd újra, vagy hozz létre egy újat"
 
 #: plugin/contrib/aihordeclient/__init__.py:632
 #: plugin/contrib/aihordeclient/__init__.py:675
@@ -45,28 +51,29 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Jelenleg nem tudjuk feldolgozni a kérésedet, kérjük próbáld meg később újra. "
-"Ha ez hosszú időn át fennáll, kérjük jelezd Discord-on"
+"Jelenleg nem tudjuk feldolgozni a kérésedet, kérjük, próbáld meg később. Ha "
+"ez hosszabb ideig fennáll, kérjük, jelezd nekünk a Discordon"
 
 #: plugin/contrib/aihordeclient/__init__.py:638
 msgid "Problem requesting kudos"
-msgstr "Probléma a kudos lekérésekor"
+msgstr "Hiba a kudo pontok lekérésekor"
 
 #: plugin/contrib/aihordeclient/__init__.py:648
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"A Horde karbantartási módban van, kérjük próbáld később újra, ha órákig "
-"próbáltad és a szolgáltatás nem válaszol, kérjük lépj kapcsolatba Discord-on"
+"A Horde karbantartás alatt áll, kérjük, próbáld meg később. Ha már "
+"próbálkoztál, és a szolgáltatás órák óta nem válaszol, kérjük, vedd fel "
+"velünk a kapcsolatot a Discordon"
 
 #: plugin/contrib/aihordeclient/__init__.py:656
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Túl sok kérést tettél fel, kérjük várd meg, amíg befejeződnek, és próbáld "
-"később újra"
+"Túl sok kérést indítottál, kérjük, várd meg, amíg befejeződnek, majd próbáld"
+" meg újra később"
 
 #: plugin/contrib/aihordeclient/__init__.py:662
 #, python-brace-format
@@ -74,50 +81,50 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Úgy tűnik, a «{}»-nek problémái vannak, ellenőrizd újra, hozz létre egy újat "
-"vagy csatlakozz a Discordhoz segítségkérésért"
+"Úgy tűnik, a(z) «{}» problémás, ellenőrizze újra, hozzon létre egy újat, "
+"vagy csatlakozzon a Discordhoz segítségért"
 
 #: plugin/contrib/aihordeclient/__init__.py:670
 msgid "We hit an error, still: "
-msgstr "Hiba történt, mégis: "
+msgstr "Hiba történt, mégpedig: "
 
 #: plugin/contrib/aihordeclient/__init__.py:681
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr "Már nem érvényes, próbáld újra. A kérésed túl sokáig tartott"
+msgstr "Már nem érvényes, kérjük, próbálja újra. A kérése túl sokáig tartott"
 
 #: plugin/contrib/aihordeclient/__init__.py:724
 msgid "Contacting the Horde..."
-msgstr "Kapcsolódás a Hordához..."
+msgstr "Kapcsolatfelvétel a Hordával..."
 
 #: plugin/contrib/aihordeclient/__init__.py:803
 msgid "Horde Contacted"
-msgstr "Horde kapcsolódva"
+msgstr "Horda elérve"
 
 #: plugin/contrib/aihordeclient/__init__.py:821
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr "Képkérés során a Horde túl lassú volt, próbáld később újra"
+msgstr "A kép kérésekor a Horda túl lassú volt, próbálja meg később"
 
 #: plugin/contrib/aihordeclient/__init__.py:843
 msgid "to learn to earn kudos. Detail:"
-msgstr "a kudos megszerzésének megtanulásához. Részlet:"
+msgstr "hogy megtanuljon kudost szerezni. Részletek:"
 
 #: plugin/contrib/aihordeclient/__init__.py:865
 #: plugin/contrib/aihordeclient/__init__.py:884
 msgid "Service failed: "
-msgstr "Szolgáltatás sikertelen: "
+msgstr "Szolgáltatási hiba: "
 
 #: plugin/contrib/aihordeclient/__init__.py:935
 msgid "Downloading generated image..."
-msgstr "A generált kép letöltése..."
+msgstr "Generált kép letöltése..."
 
 #: plugin/contrib/aihordeclient/__init__.py:941
 msgid "You are first in the queue"
-msgstr "Első vagy a sorban"
+msgstr "Ön az első a sorban"
 
 #: plugin/contrib/aihordeclient/__init__.py:943
 msgid "Queue position: "
-msgstr "Sorpózíció: "
+msgstr "Sorban állási pozíció: "
 
 #: plugin/contrib/aihordeclient/__init__.py:946
 msgid "Generating..."
@@ -126,7 +133,7 @@ msgstr "Generálás..."
 #: plugin/contrib/aihordeclient/__init__.py:963
 #: plugin/contrib/aihordeclient/__init__.py:999
 msgid "Get a free API Key at "
-msgstr "Szerezz ingyenes API-kulcsot itt "
+msgstr "Igényeljen ingyenes API-kulcsot itt: "
 
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
@@ -136,42 +143,43 @@ msgstr "."
 #: plugin/contrib/aihordeclient/__init__.py:965
 #: plugin/contrib/aihordeclient/__init__.py:1001
 msgid "This model takes more time than your current configuration."
-msgstr "Ez a modell több időt vesz igénybe, mint a jelenlegi konfigurációd."
+msgstr "Ez a modell több időt vesz igénybe, mint a jelenlegi beállítás."
 
 #: plugin/contrib/aihordeclient/__init__.py:970
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Próbálj ki egy másik modellt. A {0} több időt venne igénybe, mint amit "
-"beállítottál."
+"Kérjük, próbáljon meg egy másik modellt. A(z) {0} több időt venne igénybe, "
+"mint amennyit beállított."
 
 #: plugin/contrib/aihordeclient/__init__.py:974
 #: plugin/contrib/aihordeclient/__init__.py:994
 #: plugin/contrib/aihordeclient/__init__.py:1011
 #: plugin/contrib/aihordeclient/__init__.py:1018
 msgid "Please try again later."
-msgstr "Próbáld meg később újra."
+msgstr "Kérjük, próbálja meg később."
 
 #: plugin/contrib/aihordeclient/__init__.py:992
 msgid "There are no workers available with these settings."
-msgstr "Nincsenek elérhető feldolgozók ezekkel a beállításokkal."
+msgstr "Ezekkel a beállításokkal jelenleg nem érhető el munkavégző."
 
 #: plugin/contrib/aihordeclient/__init__.py:1009
 msgid "Probably your image will take one additional minute."
-msgstr "Valószínűleg a képed még egy további percet vesz igénybe."
+msgstr "A kép generálása valószínűleg egy további percet vesz igénybe."
 
 #: plugin/contrib/aihordeclient/__init__.py:1016
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
-msgstr "Valószínűleg a képed {} további percet vesz igénybe."
+msgstr "A kép generálása valószínűleg {} további percet vesz igénybe."
 
 #: plugin/contrib/aihordeclient/__init__.py:1030
 msgid "Fetching images..."
-msgstr "Képek betöltése..."
+msgstr "Képek lekérése..."
 
 #: plugin/contrib/aihordeclient/__init__.py:1040
 msgid " is censored, try changing the prompt wording"
-msgstr " cenzúrázott, próbálja meg megváltoztatni a prompt megfogalmazását"
+msgstr " cenzúrázva, próbálja meg módosítani a prompt megfogalmazását"
 
 #: plugin/contrib/aihordeclient/__init__.py:1068
 msgid "Downloading result..."
@@ -186,17 +194,17 @@ msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"Lehet, hogy csökkentenie kell a beállításait, vagy válasszon másik modellt, "
-"vagy cenzúrázták. Horde üzenet"
+"Lehet, hogy csökkentenie kell a beállításokat, másik modellt kell "
+"választania, vagy cenzúrázták. Horde üzenet"
 
 #: plugin/contrib/aihordeclient/__init__.py:1114
 #: plugin/contrib/aihordeclient/__init__.py:1126
 msgid " generated by "
-msgstr " generálta "
+msgstr " létrehozta: "
 
 #: plugin/contrib/aihordeclient/__init__.py:1124
 msgid " with "
-msgstr " val "
+msgstr " ezzel: "
 
 #: plugin/framework/dialogs.py:107
 msgid "Agent requests approval"
@@ -204,7 +212,7 @@ msgstr "Az ügynök jóváhagyást kér"
 
 #: plugin/framework/dialogs.py:108
 msgid "Proceed with this action?"
-msgstr "Szeretné végrehajtani ezt a műveletet?"
+msgstr "Folytatja ezt a műveletet?"
 
 #: plugin/framework/dialogs.py:109
 #: plugin/modules/chatbot/web_research_chat.py:33
@@ -215,15 +223,15 @@ msgstr "Eszköz: %s"
 
 #: plugin/framework/dialogs.py:154
 msgid "Edit search query"
-msgstr "Keresőkifejezés szerkesztése"
+msgstr "Keresési lekérdezés szerkesztése"
 
 #: plugin/framework/dialogs.py:159
 msgid "Search query:"
-msgstr "Keresőkifejezés:"
+msgstr "Keresési lekérdezés:"
 
 #: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
 #: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py:39
 msgid "OK"
 msgstr "OK"
 
@@ -246,10 +254,10 @@ msgstr "URL másolása"
 #: plugin/framework/errors.py:52
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} nem található: {identifier}"
+msgstr "A(z) {resource_type} nem található: {identifier}"
 
 #: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py:45
 msgid "Settings"
 msgstr "Beállítások"
 
@@ -267,18 +275,18 @@ msgstr "Hiba"
 #: plugin/framework/legacy_ui.py:561
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
-msgstr "Nem sikerült megnyitni a Beállításokat: {0}"
+msgstr "Nem sikerült megnyitni a beállításokat: {0}"
 
-#: plugin/framework/specialized_base.py:94
+#: plugin/framework/specialized_base.py:91
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Eszközhívás átváltva '{0}'-ra. Speciális eszközkészlet módban vagy. Hívd meg "
-"a 'specialized_workflow_finished' függvényt, amikor kész vagy, hogy "
-"visszaállítsd a teljes API-készletet."
+"Az eszközhívás átváltva erre: „{0}”. Speciális eszközkészlet módban van. A "
+"teljes API-készlet visszaállításához a munka végeztével meg kell hívnia a "
+"„specialized_workflow_finished” parancsot."
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Invalid Setting"
@@ -286,39 +294,40 @@ msgstr "Érvénytelen beállítás"
 
 #: plugin/framework/settings_dialog.py:172
 msgid "Temperature must be <= 1.0"
-msgstr "A hőmérsékletnek <= 1.0-nak kell lennie"
+msgstr "A hőmérséklet értéke legfeljebb 1.0 lehet"
 
 #: plugin/framework/constants.py:287
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális "
-"formázással és színnel. Próbálj ki!"
+"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális"
+" formázással és színekkel. Próbáljon ki!"
 
 #: plugin/framework/constants.py:288
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Segíthetek képletekkel, adatanalízissel és színes diagramokkal. Próbálj "
-"ki!"
+"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon"
+" ki!"
 
 #: plugin/framework/constants.py:289
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Segíthetek polírozott, színes alakzatok létrehozásában és "
-"szerkesztésében a Draw és Impress alkalmazásokban. Próbálj ki!"
+"AI: Segíthetek csiszolt, színes alakzatok létrehozásában és szerkesztésében "
+"a Draw és Impress programokban. Próbáljon ki!"
 
 #: plugin/framework/constants.py:290
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Végezhetek webes kutatást bármilyen kérdés megválaszolására, vagy "
-"összefoglalhatok egy weboldalt anélkül, hogy látnám vagy megváltoztatnám a "
-"dokumentumodat. Beszélgessünk."
+"AI: Webes kutatást végezhetek bármilyen kérdés megválaszolásához, vagy "
+"összefoglalhatok egy weboldalt anélkül, hogy látnám vagy módosítanám a "
+"dokumentumát. Beszélgessünk."
 
 #: plugin/framework/external_editor.py:83
 #, python-brace-format
@@ -340,18 +349,17 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nem található szerkesztő (telepítse a Kate vagy Gedit programot, vagy "
-"állítsa be az EDITOR változót). Útvonal:\n"
+"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa be az EDITOR környezeti változót). Útvonal:\n"
 "{0}"
 
 #: plugin/framework/external_editor.py:114
 #, python-brace-format
 msgid "Could not start editor: {0}"
-msgstr "Nem sikerült elindítani a szerkesztőt: {0}"
+msgstr "A szerkesztő nem indítható: {0}"
 
 #: plugin/framework/extension_update_check.py:150
 msgid "Update available"
-msgstr "Frissítés elérhető"
+msgstr "Frissítés érhető el"
 
 #: plugin/framework/extension_update_check.py:152
 #, python-format
@@ -359,8 +367,9 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Újabb WriterAgent (%s) érhető el. Használja az Eszközök → Bővítménykezelő "
-"menüt a frissítések ellenőrzéséhez és a legújabb bővítmény telepítéséhez."
+"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és"
+" a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
+"menüpontot."
 
 #: plugin/modules/http/errors.py:14
 #, python-brace-format
@@ -374,17 +383,18 @@ msgstr "Érvénytelen API-kulcs. Kérjük, ellenőrizze a beállításait."
 #: plugin/modules/http/errors.py:27
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"API-hozzáférés megtiltva. A kulcsnak hiányozhat a jogosultsága ehhez a "
-"modellhez."
+"Az API-hozzáférés megtagadva. Lehet, hogy a kulcsa nem rendelkezik a "
+"modellhez szükséges jogosultságokkal."
 
 #: plugin/modules/http/errors.py:29
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
+msgstr ""
+"A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
 
 #: plugin/modules/http/errors.py:31
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Szerverhiba ({0}). Az AI-szolgáltató problémákkal küzd."
+msgstr "Kiszolgálóhiba ({0}). Az MI-szolgáltatónál problémák léptek fel."
 
 #: plugin/modules/http/errors.py:32
 #, python-brace-format
@@ -394,13 +404,14 @@ msgstr "HTTP-hiba {0}: {1}"
 #: plugin/modules/http/errors.py:35
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"A kérés időtúllépett. Próbálja meg növelni a „Request Timeout” értékét a "
-"Beállításokban."
+"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése”"
+" (Request Timeout) értékét a Beállításokban."
 
 #: plugin/modules/http/errors.py:43
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Kapcsolat visszautasítva. Fut-e a helyi AI-kiszolgálója (Ollama/LM Studio)?"
+"A kapcsolat elutasítva. Fut a helyi MI-kiszolgálója (Ollama/LM Studio)?"
 
 #: plugin/modules/http/errors.py:45
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -409,53 +420,53 @@ msgstr "DNS-hiba. Nem sikerült feloldani a végpont URL-jét."
 #: plugin/modules/http/errors.py:46
 #, python-brace-format
 msgid "Connection Error: {0}"
-msgstr "Kapcsolódási hiba: {0}"
+msgstr "Kapcsolati hiba: {0}"
 
 #: plugin/modules/http/errors.py:49
 msgid "The AI provider reported an error. Try again."
-msgstr "Az AI-szolgáltató hibát jelzett. Próbálja újra."
+msgstr "Az MI-szolgáltató hibát jelzett. Próbálja újra."
 
 #: plugin/modules/http/errors.py:56
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
-msgstr "HTTP-hiba {0} az AI-szolgáltatótól: {1}"
+msgstr "HTTP-hiba {0} az MI-szolgáltatótól: {1}"
 
 #: plugin/modules/http/errors.py:77
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Hiba: {0}"
 
-#: plugin/modules/http/client.py:790
+#: plugin/modules/http/client.py:808
 msgid "Stream ended with finish_reason=error"
-msgstr "A stream finish_reason=error-rel ért véget"
+msgstr "Az adatfolyam megszakadt: finish_reason=error"
 
-#: plugin/modules/http/client.py:803
+#: plugin/modules/http/client.py:821
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"A modell ugyanazt a darabot ismételgeti (végtelen ciklus). Próbálja újra "
-"vagy használjon másik modellt."
+"A modell ugyanazt a darabot ismétli (végtelen ciklus). Próbálja újra, vagy "
+"használjon másik modellt."
 
 #: plugin/modules/http/__init__.py:243
 msgid "Stop MCP Server"
-msgstr "MCP szerver leállítása"
+msgstr "MCP-kiszolgáló leállítása"
 
 #: plugin/modules/http/__init__.py:244
 msgid "Start MCP Server"
-msgstr "MCP szerver indítása"
+msgstr "MCP-kiszolgáló indítása"
 
 #: plugin/modules/http/__init__.py:267
 msgid "MCP server stopped"
-msgstr "MCP szerver leállt"
+msgstr "MCP-kiszolgáló leállítva"
 
 #: plugin/modules/http/__init__.py:275
 msgid "MCP server started"
-msgstr "MCP szerver elindult"
+msgstr "MCP-kiszolgáló elindítva"
 
 #: plugin/modules/http/__init__.py:278
 msgid "MCP server failed to start"
-msgstr "MCP szerver indítása sikertelen"
+msgstr "Az MCP-kiszolgáló indítása sikertelen"
 
 #: plugin/modules/http/__init__.py:278
 msgid "Check ~/localwriter.log"
@@ -463,11 +474,11 @@ msgstr "Ellenőrizze a ~/localwriter.log fájlt"
 
 #: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
 msgid "MCP server is not running"
-msgstr "MCP szerver nem fut"
+msgstr "Az MCP-kiszolgáló nem fut"
 
 #: plugin/modules/http/__init__.py:299
 msgid "MCP server running"
-msgstr "MCP szerver fut"
+msgstr "Az MCP-kiszolgáló fut"
 
 #: plugin/modules/http/__init__.py:299
 #, python-brace-format
@@ -476,7 +487,7 @@ msgstr "Útvonalak: {0}"
 
 #: plugin/modules/http/__init__.py:310
 msgid "Server Status"
-msgstr "Szerver állapot"
+msgstr "Kiszolgáló állapota"
 
 #: plugin/modules/http/__init__.py:331
 #, python-brace-format
@@ -485,12 +496,12 @@ msgstr "URL: {0}"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 msgid "Please enter edit instructions!"
-msgstr "Adja meg a szerkesztési utasításokat!"
+msgstr "Kérjük, adja meg a szerkesztési utasításokat!"
 
 #: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
 #: plugin/xdl_strings.py:33
 msgid "Input"
-msgstr "Bemenet"
+msgstr "Bevitel"
 
 #: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
 msgid "WriterAgent: Edit Selection (Calc)"
@@ -514,25 +525,25 @@ msgstr "WriterAgent: Kijelölés kiterjesztése"
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Kijelölés szerkesztése"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:42
+#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
 msgid "Ready"
 msgstr "Kész"
 
 #: plugin/modules/chatbot/tool_loop.py:931
 msgid "Error: Toolkit unavailable"
-msgstr "Hiba: Eszköztár nem elérhető"
+msgstr "Hiba: Az eszközkészlet nem érhető el"
 
 #: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
 msgid "Accept"
-msgstr "Elfogad"
+msgstr "Elfogadás"
 
 #: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
 msgid "Change"
-msgstr "Módosít"
+msgstr "Módosítás"
 
 #: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
 msgid "Reject"
-msgstr "Elutasít"
+msgstr "Elutasítás"
 
 #: plugin/modules/chatbot/panel.py:429
 msgid "Waiting for approval…"
@@ -546,13 +557,13 @@ msgstr "Felvétel"
 msgid "Stop Rec"
 msgstr "Felvétel leállítása"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:45
+#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
 msgid "Send"
 msgstr "Küldés"
 
 #: plugin/modules/chatbot/panel.py:799
 msgid "Getting document..."
-msgstr "Dokumentum lekérése..."
+msgstr "Dokumentum lekérése…"
 
 #: plugin/modules/chatbot/panel.py:803
 msgid ""
@@ -568,8 +579,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Belső hiba: A dokumentum típusa {0}-ról {1}-re változott! Kérjük, jelentsen "
-"hibát.]"
+"[Belső hiba: A dokumentumtípus megváltozott {0} típusról {1} típusra! "
+"Kérjük, jelentse a hibát.]"
 
 #: plugin/modules/chatbot/panel.py:819
 #, python-brace-format
@@ -577,8 +588,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Belső hiba: Nem sikerült azonosítani a {0} dokumentum típusát. Kérjük, "
-"jelentsen ezt!]"
+"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük,"
+" jelentse ezt!]"
 
 #: plugin/modules/chatbot/panel.py:863
 #, python-brace-format
@@ -586,41 +597,41 @@ msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[A {0} modell nem támogatja a natív hangot. Kérjük, válasszon STT modellt a "
-"Beállításokban.]"
+"[A(z) {0} modell nem támogatja a natív hangot. Kérjük, válasszon egy STT-"
+"modellt a Beállításokban.]"
 
 #: plugin/modules/chatbot/web_research_chat.py:15
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Ez a keresési lekérdezés '%s' elküldésre kerül a keresőmotorhoz."
+msgstr "A(z) '%s' keresési lekérdezés el lesz küldve a keresőmotornak."
 
 #: plugin/modules/chatbot/web_research_chat.py:28
 msgid "[Web search — approval required]"
-msgstr "[Web keresés — jóváhagyás szükséges]"
+msgstr "[Webes keresés – jóváhagyás szükséges]"
 
 #: plugin/modules/chatbot/web_research_chat.py:30
 msgid "[Web search]"
-msgstr "[Web keresés]"
+msgstr "[Webes keresés]"
 
 #: plugin/modules/chatbot/web_research_chat.py:37
 msgid "[Additional web search]"
-msgstr "[További web keresés]"
+msgstr "[További webes keresés]"
 
 #: plugin/modules/chatbot/web_research_chat.py:59
 msgid "[Web research]"
-msgstr "[Web kutatás]"
+msgstr "[Webes kutatás]"
 
 #: plugin/modules/chatbot/web_research_chat.py:60
 msgid "Research request:"
-msgstr "Kutatási kérés:"
+msgstr "Kutatási kérelem:"
 
 #: plugin/modules/chatbot/web_research_chat.py:65
 msgid "Context for the research agent:"
-msgstr "A kutatási ügynök kontextusa:"
+msgstr "Kontextus a kutatási ügynök számára:"
 
-#: plugin/modules/chatbot/web_research.py:232
+#: plugin/modules/chatbot/web_research.py:234
 msgid "Web research completed."
-msgstr "Webes kutatás befejezve."
+msgstr "Webes kutatás befejeződött."
 
 #: plugin/modules/chatbot/send_handlers.py:109
 msgid "Transcribing audio..."
@@ -634,19 +645,20 @@ msgstr "[Átírási hiba: {0}]"
 #: plugin/modules/chatbot/send_handlers.py:363
 #, python-brace-format
 msgid "[Document context error: {0}]"
-msgstr "[Dokumentum kontextus hiba: {0}]"
+msgstr "[Dokumentumkörnyezeti hiba: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:373
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
-msgstr "[Ügynök backend '{0}' nem található.]"
+msgstr "[A(z) „{0}” ügynök-háttérprogram nem található.]"
 
 #: plugin/modules/chatbot/send_handlers.py:380
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Ügynök backend '{0}' nem elérhető. Ellenőrizze a Beállításokat (útvonal, "
-"telepítés).]"
+"[A(z) „{0}” ügynök-háttérprogram nem érhető el. Ellenőrizze a beállításokat "
+"(elérési út, telepítés).]"
 
 #: plugin/modules/chatbot/send_handlers.py:626
 #: plugin/modules/chatbot/send_handlers.py:634
@@ -656,21 +668,21 @@ msgstr "Könyvtáros: {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:633
 msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Tökéletes! Most átkapcsollak a fő asszisztenshez."
+msgstr "Tökéletes! Átkapcsolom a fő asszisztensre."
 
 #: plugin/modules/chatbot/send_handlers.py:639
 msgid "Unknown librarian error."
-msgstr "Ismeretlen könyvtáros hiba."
+msgstr "Ismeretlen könyvtárosi hiba."
 
 #: plugin/modules/chatbot/send_handlers.py:640
 #, python-brace-format
 msgid "[Librarian error: {0}]"
-msgstr "[Könyvtáros hiba: {0}]"
+msgstr "[Könyvtárosi hiba: {0}]"
 
 #: plugin/modules/chatbot/send_handlers.py:664
 #, python-brace-format
 msgid "AI (research): {0}"
-msgstr "AI (kutatás): {0}"
+msgstr "MI (kutatás): {0}"
 
 #: plugin/modules/chatbot/send_handlers.py:670
 msgid "Unknown research error."
@@ -681,9 +693,9 @@ msgstr "Ismeretlen kutatási hiba."
 msgid "[Research error: {0}]"
 msgstr "[Kutatási hiba: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:80
+#: plugin/modules/chatbot/librarian.py:44
 msgid "Switching to document mode..."
-msgstr "Átváltás dokumentum módra..."
+msgstr "Váltás dokumentummódra..."
 
 #: plugin/modules/chatbot/panel_factory.py:517
 msgid "Size:"
@@ -701,13 +713,13 @@ msgstr "Szélesség:"
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:214 plugin/tests/test_i18n.py:221
+#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
 msgid "Built-in"
 msgstr "Beépített"
 
-#: plugin/tests/test_i18n.py:215
+#: plugin/tests/test_i18n.py:217
 msgid "Backend"
-msgstr "Kiszolgálóoldali"
+msgstr "Háttérprogram"
 
 #: plugin/main.py:354
 #, python-brace-format
@@ -717,7 +729,7 @@ msgstr "{0}: {1} sikeres, {2} sikertelen."
 #: plugin/main.py:357
 #, python-brace-format
 msgid "Tests failed to run: {0}"
-msgstr "Tesztek futtatása sikertelen: {0}"
+msgstr "A tesztek futtatása sikertelen: {0}"
 
 #: plugin/main.py:432
 msgid "Extend Selection"
@@ -729,27 +741,27 @@ msgstr "Kijelölés szerkesztése"
 
 #: plugin/main.py:435
 msgid "Toggle MCP Server"
-msgstr "MCP szerver átkapcsolása"
+msgstr "MCP-kiszolgáló váltása"
 
 #: plugin/main.py:436
 msgid "MCP Server Status"
-msgstr "MCP szerver állapota"
+msgstr "MCP-kiszolgáló állapota"
 
 #: plugin/main.py:438
 msgid "Run format tests"
-msgstr "Formátumtesztek futtatása"
+msgstr "Formázási tesztek futtatása"
 
 #: plugin/main.py:439
 msgid "Run calc tests"
-msgstr "Számítás tesztek futtatása"
+msgstr "Calc-tesztek futtatása"
 
 #: plugin/main.py:440
 msgid "Run Calc API integration tests"
-msgstr "Calc API integrációs tesztek futtatása"
+msgstr "Calc API-integrációs tesztek futtatása"
 
 #: plugin/main.py:441
 msgid "Run draw tests"
-msgstr "Rajztesztek futtatása"
+msgstr "Draw-tesztek futtatása"
 
 #: plugin/main.py:442
 msgid "Evaluation Dashboard"
@@ -773,7 +785,7 @@ msgstr "AI Horde API-kulcs:"
 
 #: plugin/xdl_strings.py:7
 msgid "AI Model:"
-msgstr "AI modell:"
+msgstr "AI-modell:"
 
 #: plugin/xdl_strings.py:8
 msgid "API Key:"
@@ -781,7 +793,7 @@ msgstr "API-kulcs:"
 
 #: plugin/xdl_strings.py:9
 msgid "Additional Instructions (History):"
-msgstr "További utasítások (Előzmények):"
+msgstr "További utasítások (előzmények):"
 
 #: plugin/xdl_strings.py:10
 msgid "Additional Instructions:"
@@ -793,7 +805,7 @@ msgstr "NSFW engedélyezése"
 
 #: plugin/xdl_strings.py:12
 msgid "Ask / instruct:"
-msgstr "Kérdés / utasítás:"
+msgstr "Kérdezés / utasítás:"
 
 #: plugin/xdl_strings.py:13
 msgid "Aspect Ratio:"
@@ -801,7 +813,7 @@ msgstr "Képarány:"
 
 #: plugin/xdl_strings.py:14
 msgid "Audio Model:"
-msgstr "Hangmodell:"
+msgstr "Audiomodell:"
 
 #: plugin/xdl_strings.py:15
 msgid "Auto Gallery"
@@ -817,11 +829,11 @@ msgstr "Alap:"
 
 #: plugin/xdl_strings.py:18
 msgid "CFG Scale:"
-msgstr "CFG skála:"
+msgstr "CFG-skála:"
 
 #: plugin/xdl_strings.py:19
 msgid "Calc"
-msgstr "Szám"
+msgstr "Calc"
 
 #: plugin/xdl_strings.py:20
 msgid "Categories:"
@@ -829,27 +841,27 @@ msgstr "Kategóriák:"
 
 #: plugin/xdl_strings.py:21
 msgid "Censor NSFW"
-msgstr "NSFW cenzúra"
+msgstr "NSFW szűrése"
 
 #: plugin/xdl_strings.py:22
 msgid "Chat (Testing):"
-msgstr "Csevegés (Tesztelés):"
+msgstr "Csevegés (tesztelés):"
 
 #: plugin/xdl_strings.py:23
 msgid "Clear"
-msgstr "Töröl"
+msgstr "Törlés"
 
 #: plugin/xdl_strings.py:24
 msgid "Close"
-msgstr "Bezár"
+msgstr "Bezárás"
 
 #: plugin/xdl_strings.py:25
 msgid "Context Len:"
-msgstr "Kontextus hossza:"
+msgstr "Kontextushossz:"
 
 #: plugin/xdl_strings.py:26
 msgid "Draw"
-msgstr "Rajzol"
+msgstr "Draw"
 
 #: plugin/xdl_strings.py:27
 msgid "Edit config file (JSON)…"
@@ -869,7 +881,7 @@ msgstr "Általános"
 
 #: plugin/xdl_strings.py:31
 msgid "Image Model:"
-msgstr "Kép modell:"
+msgstr "Képmodell:"
 
 #: plugin/xdl_strings.py:32
 msgid "Image Settings"
@@ -880,87 +892,87 @@ msgid "Insert Frame"
 msgstr "Keret beszúrása"
 
 #: plugin/xdl_strings.py:35
-msgid "WriterAgent Evaluation Dashboard"
-msgstr "WriterAgent Értékelési Vezérlőpult"
+msgid "Max Tokens:"
+msgstr "Max. token:"
 
 #: plugin/xdl_strings.py:36
-msgid "Max Tokens:"
-msgstr "Max. tokenek:"
+msgid "Max Wait (s):"
+msgstr "Maximális várakozási idő (mp):"
 
 #: plugin/xdl_strings.py:37
-msgid "Max Wait (s):"
-msgstr "Max. várakozás (s):"
-
-#: plugin/xdl_strings.py:38
 msgid "Models to Test:"
 msgstr "Tesztelendő modellek:"
 
-#: plugin/xdl_strings.py:39
+#: plugin/xdl_strings.py:38
 msgid "Multimodal"
 msgstr "Multimodális"
 
-#: plugin/xdl_strings.py:41
+#: plugin/xdl_strings.py:40
 msgid "Please enter edit instructions:"
 msgstr "Kérjük, adja meg a szerkesztési utasításokat:"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py:42
 msgid "Run Benchmark"
 msgstr "Benchmark futtatása"
 
-#: plugin/xdl_strings.py:44
+#: plugin/xdl_strings.py:43
 msgid "Seed:"
-msgstr "Mag:"
+msgstr "Kiinduló érték (seed):"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py:46
 msgid "Square"
 msgstr "Négyzet"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py:47
 msgid "Steps:"
 msgstr "Lépések:"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py:48
 msgid "Stop"
 msgstr "Leállítás"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py:49
 msgid "Temperature:"
 msgstr "Hőmérséklet:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py:50
 msgid "Text/Chat Model:"
 msgstr "Szöveg/csevegő modell:"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py:51
 msgid "Timeout (s):"
-msgstr "Időtúllépés (s):"
+msgstr "Időtúllépés (mp):"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py:52
 msgid "Translate Prompt"
 msgstr "Prompt fordítása"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py:53
 msgid "Translate from (e.g. es):"
-msgstr "Fordítás ebből (pl. es):"
+msgstr "Fordítás innen (pl. es):"
+
+#: plugin/xdl_strings.py:54
+msgid "Use AI Horde for Image Generation"
+msgstr "AI Horde használata képgeneráláshoz"
 
 #: plugin/xdl_strings.py:55
-msgid "Use AI Horde for Image Generation"
-msgstr "Használja az AI Horde-ot kép generáláshoz"
+msgid "Use Image model"
+msgstr "Képmodell használata"
 
 #: plugin/xdl_strings.py:56
-msgid "Use Image model"
-msgstr "Kép modell használata"
-
-#: plugin/xdl_strings.py:57
 msgid "Web Research"
 msgstr "Webes kutatás"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py:57
 msgid "Writer"
-msgstr "Író"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py:58
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent kiértékelő irányítópult"
 
 msgid "Agent backends"
-msgstr "Ügynök backend-ek"
+msgstr "Ügynök-háttérrendszerek"
 
 msgid "Hermes"
 msgstr "Hermes"
@@ -975,18 +987,18 @@ msgid "Path / URL"
 msgstr "Útvonal / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Backend CLI útvonala (pl. aider) vagy ACP szerver URL-je (pl. http://"
-"localhost:8000 a Hermeshez). Üres = próbálja az alapértelmezettet."
+"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. "
+"http://localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
 
 msgid "Extra arguments"
-msgstr "További argumentumok"
+msgstr "Extra argumentumok"
 
 msgid "Optional arguments for the selected backend (space-separated)."
 msgstr ""
-"A kiválasztott háttérrendszer opcionális argumentumai (szóközzel "
+"Opcionális argumentumok a kiválasztott háttérprogramhoz (szóközzel "
 "elválasztva)."
 
 msgid "ACP agent name"
@@ -997,117 +1009,120 @@ msgid ""
 "agent."
 msgstr ""
 "Ügynök neve az ACP szerveren (pl. hermes). Üres = első ügynök automatikus "
-"felderítése."
+"felfedezése."
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc táblázatkezelő eszközök"
 
 msgid "Max Rows Display"
-msgstr "Maximális megjelenített sorok"
+msgstr "Sorok maximális száma"
 
 msgid "Sidebar"
 msgstr "Oldalsáv"
 
 msgid "Max Tool Rounds"
-msgstr "Maximális eszköz körök"
+msgstr "Eszköz körök maximális száma"
 
 msgid "Document Context Strategy"
-msgstr "Dokumentum kontextus stratégia"
+msgstr "Dokumentumkörnyezet-stratégia"
 
 msgid "How much document content to include in LLM context"
-msgstr "Mennyi dokumentumtartalmat vegyen fel az LLM kontextusába"
+msgstr "Mennyi dokumentumtartalom kerüljön az LLM-környezetbe"
 
 msgid "Auto (by document size)"
-msgstr "Automatikus (dokumentum méret alapján)"
+msgstr "Automatikus (dokumentumméret alapján)"
 
 msgid "Full document text"
-msgstr "Teljes dokumentum szöveg"
+msgstr "Teljes dokumentumszöveg"
 
 msgid "Pages around cursor"
-msgstr "A kurzor körüli oldalak"
+msgstr "Oldalak a kurzor körül"
 
 msgid "Outline + excerpt"
 msgstr "Vázlat + kivonat"
 
 msgid "Stats + outline only"
-msgstr "Csak statisztikák + vázlat"
+msgstr "Statisztika + csak vázlat"
 
 msgid "Extend Selection Max Tokens"
-msgstr "Kijelölés kiterjesztése – max. tokenek"
+msgstr "Kijelölés kiterjesztése max. tokenekkel"
 
 msgid "Edit Selection Extra Tokens"
-msgstr "Szerkesztési kijelölés extra tokenek"
+msgstr "Kijelölés szerkesztése extra tokenekkel"
 
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Az eredeti szöveghossz feletti extra tokenek. 0 = azonos hosszúságú, mint az "
-"eredeti."
+"Extra tokenek az eredeti szöveghosszon felül. 0 = az eredetivel megegyező "
+"hossz."
 
 msgid "Show Web Search Thinking"
-msgstr "Webkeresés gondolkodásának megjelenítése"
+msgstr "Webes keresési folyamat megjelenítése"
 
 msgid "Prompt for Web Research"
-msgstr "Prompt webes kutatáshoz"
+msgstr "Webes kutatás kérése"
 
 msgid "Ask for confirmation before sending a web search query"
-msgstr "Kérjen megerősítést a webkeresési lekérdezés küldése előtt"
+msgstr "Megerősítés kérése webes keresési lekérdezés küldése előtt"
 
 msgid "Web Cache Max Size (MB)"
-msgstr "Web gyorsítótár maximális mérete (MB)"
+msgstr "Webes gyorsítótár max. mérete (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr ""
-"Maximális lemez méret a webkeresés gyorsítótárához (0 a kikapcsoláshoz)"
+msgstr "A webes keresési gyorsítótár maximális lemezmérete (0 a letiltáshoz)"
 
 msgid "Web Cache Validity (Days)"
-msgstr "Web gyorsítótár érvényessége (nap)"
+msgstr "Webes gyorsítótár érvényessége (nap)"
 
 msgid "How many days cache entries should be considered valid."
-msgstr "Hány napig tekintsük érvényesnek a gyorsítótár bejegyzéseket."
+msgstr "Hány napig legyenek érvényesek a gyorsítótár-bejegyzések."
 
 msgid "Doc"
-msgstr "Dokumentáció"
+msgstr "Dokumentum"
 
 msgid "Enable AI grammar checker (Writer)"
-msgstr "AI nyelvhelyességi ellenőrző engedélyezése (Writer)"
+msgstr "AI-nyelvhelyesség-ellenőrző engedélyezése (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Bekapcsolva: a WriterAgent regisztrálja AI nyelvhelyesség-javítóját a "
-"Linguistic-hez; az ellenőrzött szöveg a saját API-ját használja (Eszközök → "
-"Beállítások → AI). Aláhúzott jelölések jelennek meg röviddel azután, hogy "
-"abbahagyja a gépelést. Alapértelmezetten ki."
+"Ha be van kapcsolva, a WriterAgent regisztrálja az AI-nyelvhelyesség-"
+"ellenőrzőjét a nyelvi eszközöknél; az ellenőrzött szöveg az Ön API-ját "
+"használja (Eszközök → Beállítások → AI). Az aláhúzások röviddel a gépelés "
+"szüneteltetése után jelennek meg. Alapértelmezés szerint kikapcsolva."
 
 msgid "Grammar check wait timeout (ms)"
-msgstr "Nyelvhelyesség-ellenőrzés várakozási időtúllépés (ms)"
+msgstr "Nyelvhelyesség-ellenőrzés várakozási ideje (ms)"
 
 msgid ""
 "Reserved for possible future use. The proofreader returns immediately on "
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Fenntartva lehetséges jövőbeli használatra. A korrektor azonnal visszatér "
-"gyorsítótár találat hiányakor (aszinkron); az eredmények egy későbbi Writer "
-"áthaladás során jelennek meg, miután a mondatgyorsítótár feltöltődött."
+"Fenntartva későbbi használatra. A helyesírás-ellenőrző gyorsítótár-találati "
+"hiba esetén azonnal visszatér (aszinkron); az eredmények egy későbbi Writer-"
+"ellenőrzési menet során jelennek meg, amint a mondat-gyorsítótár "
+"feltöltődött."
 
 msgid "Grammar check model (optional)"
-msgstr "Nyelvhelyesség-ellenőrzés modell (opcionális)"
+msgstr "Nyelvhelyesség-ellenőrző modell (opcionális)"
 
 msgid "Leave empty to use the same text model as chat."
-msgstr "Üresen hagyva a csevegés szöveges modelljét használja."
+msgstr ""
+"Hagyja üresen, ha ugyanazt a szövegmodellt szeretné használni, mint a "
+"csevegésnél."
 
 msgid "Pause grammar while chat/agent runs"
-msgstr "Nyelvhelyesség szüneteltetése csevegés/ügynök futtatása alatt"
+msgstr "Nyelvhelyesség-ellenőrzés szüneteltetése csevegés/ügynök futtatásakor"
 
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"Bekapcsolva: az AI nyelvhelyesség kihagyja a háttérkéréseket, amíg az "
-"oldalsáv csevegés vagy ügynök fut, hogy elkerülje a párhuzamos API-hívásokat."
+"Ha be van kapcsolva, az AI-nyelvhelyesség-ellenőrző kihagyja a "
+"háttérkéréseket, amíg az oldalsávon csevegés vagy ügynök fut, az egyidejű "
+"API-hívások elkerülése érdekében."
 
 msgid "Draw and Impress tools"
 msgstr "Draw és Impress eszközök"
@@ -1116,15 +1131,15 @@ msgid "MCP"
 msgstr "MCP"
 
 msgid "Enable MCP Server"
-msgstr "MCP szerver engedélyezése"
+msgstr "MCP-kiszolgáló engedélyezése"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
-"Csak localhost, nincs hitelesítés. Az stdio-n keresztüli hozzáférés mindig "
+"Csak localhost, nincs hitelesítés. A stdio-n keresztüli hozzáférés mindig "
 "engedélyezett."
 
 msgid "MCP Port"
-msgstr "MCP port"
+msgstr "MCP-port"
 
 msgid "Writer document tools (including navigation and search)"
-msgstr "Writer dokumentum eszközök (beleértve a navigációt és keresést)"
+msgstr "Writer-dokumentumeszközök (beleértve a navigációt és a keresést)"
