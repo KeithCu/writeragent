@@ -155,11 +155,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 LogAgentEffect(
                     location="chat_panel.py:tool_round",
                     message="Tool loop round response",
-                    data={
-                        "round": state.round_num,
-                        "has_tool_calls": bool(tool_calls),
-                        "num_tool_calls": len(tool_calls) if tool_calls else 0,
-                    },
+                    data={"round": state.round_num, "has_tool_calls": bool(tool_calls), "num_tool_calls": len(tool_calls) if tool_calls else 0},
                     hypothesis_id="A",
                 )
             )
@@ -230,12 +226,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     run_line = format_upsert_memory_chat_line(func_args)
                 else:
                     run_line = f"[Running tool: {func_name}...]\n"
-                effects.append(
-                    ToolLoopUIEffect(
-                        kind="append",
-                        text=run_line,
-                    )
-                )
+                effects.append(ToolLoopUIEffect(kind="append", text=run_line))
                 effects.append(UpdateActivityStateEffect(action="tool_execute", round_num=state.round_num, tool_name=func_name))
 
                 effects.append(LogAgentEffect(location="chat_panel.py:tool_execute", message="Executing tool", data={"tool": func_name, "round": state.round_num}, hypothesis_id="C,D,E"))

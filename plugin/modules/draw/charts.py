@@ -18,22 +18,11 @@
 
 import logging
 from plugin.modules.draw.base import ToolDrawChartBase
-from plugin.modules.calc.charts import (
-    ListCharts as CalcListCharts,
-    GetChartInfo as CalcGetChartInfo,
-    CreateChart as CalcCreateChart,
-    EditChart as CalcEditChart,
-    DeleteChart as CalcDeleteChart,
-)
+from plugin.modules.calc.charts import ListCharts as CalcListCharts, GetChartInfo as CalcGetChartInfo, CreateChart as CalcCreateChart, EditChart as CalcEditChart, DeleteChart as CalcDeleteChart
 
 log = logging.getLogger("writeragent.draw")
 
-_ALL_CHART_DOCS = [
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.text.TextDocument",
-]
+_ALL_CHART_DOCS = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
 
 
 class ListCharts(CalcListCharts, ToolDrawChartBase):

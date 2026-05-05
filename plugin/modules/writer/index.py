@@ -225,74 +225,9 @@ _STOP_WORDS = {
             "zur",
         }
     ),
-    "spanish": frozenset(
-        {
-            "a",
-            "al",
-            "con",
-            "de",
-            "del",
-            "el",
-            "en",
-            "es",
-            "la",
-            "las",
-            "lo",
-            "los",
-            "no",
-            "por",
-            "que",
-            "se",
-            "su",
-            "un",
-            "una",
-            "y",
-        }
-    ),
-    "italian": frozenset(
-        {
-            "a",
-            "al",
-            "che",
-            "con",
-            "da",
-            "del",
-            "di",
-            "e",
-            "il",
-            "in",
-            "la",
-            "le",
-            "lo",
-            "non",
-            "per",
-            "si",
-            "su",
-            "un",
-            "una",
-        }
-    ),
-    "portuguese": frozenset(
-        {
-            "a",
-            "ao",
-            "com",
-            "da",
-            "de",
-            "do",
-            "e",
-            "em",
-            "na",
-            "no",
-            "o",
-            "os",
-            "por",
-            "que",
-            "se",
-            "um",
-            "uma",
-        }
-    ),
+    "spanish": frozenset({"a", "al", "con", "de", "del", "el", "en", "es", "la", "las", "lo", "los", "no", "por", "que", "se", "su", "un", "una", "y"}),
+    "italian": frozenset({"a", "al", "che", "con", "da", "del", "di", "e", "il", "in", "la", "le", "lo", "non", "per", "si", "su", "un", "una"}),
+    "portuguese": frozenset({"a", "ao", "com", "da", "de", "do", "e", "em", "na", "no", "o", "os", "por", "que", "se", "um", "uma"}),
 }
 
 _STOP_WORDS_FALLBACK: frozenset[str] = frozenset()
@@ -507,15 +442,7 @@ class IndexService(ServiceBase):
         return stems, dropped
 
     def _parse_query(self, query, stemmer, stop_words):
-        result = {
-            "and_stems": [],
-            "or_stems": [],
-            "not_stems": [],
-            "near": [],
-            "dropped_stops": [],
-            "mode": "and",
-            "error": None,
-        }
+        result = {"and_stems": [], "or_stems": [], "not_stems": [], "near": [], "dropped_stops": [], "mode": "and", "error": None}
 
         not_split = re.split(r"\bNOT\b", query, flags=re.IGNORECASE)
         main_part = not_split[0].strip()
@@ -619,12 +546,7 @@ class IndexService(ServiceBase):
 
             matched = [s for s in all_positive if para_i in idx.terms.get(s, set())]
 
-            entry = {
-                "paragraph_index": para_i,
-                "text": idx.para_texts.get(para_i, ""),
-                "matched_stems": matched,
-                "context": context,
-            }
+            entry = {"paragraph_index": para_i, "text": idx.para_texts.get(para_i, ""), "matched_stems": matched, "context": context}
 
             nearest = self._bm_svc.find_nearest_heading_bookmark(para_i, bookmark_map)
             if nearest:
@@ -638,12 +560,7 @@ class IndexService(ServiceBase):
             "total_found": total,
             "returned": len(results),
             "matches": results,
-            "index": {
-                "paragraphs": idx.para_count,
-                "unique_stems": len(idx.terms),
-                "build_ms": idx.build_ms,
-                "cached": was_cached,
-            },
+            "index": {"paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached},
         }
         if near:
             resp["near"] = {"left": near[0][0], "right": near[0][1], "distance": near[0][2]}

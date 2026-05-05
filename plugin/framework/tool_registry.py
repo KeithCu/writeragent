@@ -79,12 +79,7 @@ class ToolRegistry:
             # same-named tool class from different module instances.
             # Only warn when the *class name* differs to avoid noise.
             if type(existing_tool).__name__ != type(tool).__name__:
-                log.warning(
-                    "Tool '%s' already registered (class %s), replacing with class %s",
-                    tool.name,
-                    type(existing_tool).__name__,
-                    type(tool).__name__,
-                )
+                log.warning("Tool '%s' already registered (class %s), replacing with class %s", tool.name, type(existing_tool).__name__, type(tool).__name__)
         self._tools[tool.name] = tool
 
     def register_many(self, tools):
@@ -143,17 +138,7 @@ class ToolRegistry:
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
-    def get_tools(
-        self,
-        doc=None,
-        doc_type=None,
-        tier=None,
-        intent=None,
-        names=None,
-        filter_doc_type=True,
-        exclude_tiers=_UNSET_EXCLUDE_TIERS,
-        active_domain=None,
-    ):
+    def get_tools(self, doc=None, doc_type=None, tier=None, intent=None, names=None, filter_doc_type=True, exclude_tiers=_UNSET_EXCLUDE_TIERS, active_domain=None):
         """Return a list of ToolBase instances matching the given criteria.
 
         Args:
@@ -282,9 +267,7 @@ class ToolRegistry:
 
         if not run_threaded:
             log.warning(
-                "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored (would trip the main-thread guard). Set is_async() to True to enable timeout enforcement.",
-                tool_name,
-                timeout,
+                "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored (would trip the main-thread guard). Set is_async() to True to enable timeout enforcement.", tool_name, timeout
             )
             return func(**kwargs)
 
@@ -308,14 +291,7 @@ class ToolRegistry:
 
         return result
 
-    def execute(
-        self,
-        tool_name,
-        ctx,
-        *,
-        bypass_thread_guard: bool = False,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
+    def execute(self, tool_name, ctx, *, bypass_thread_guard: bool = False, **kwargs: Any) -> dict[str, Any]:
         """Execute a tool by name.
 
         Args:

@@ -58,14 +58,7 @@ def _controller_insert_transferable(controller: Any, transferable: Any) -> None:
     ins(transferable)
 
 
-def insert_cell_html_rich(
-    doc: Any,
-    uno_ctx: Any,
-    cell_address: str,
-    html: str,
-    *,
-    config_svc: Any = None,
-) -> None:
+def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, *, config_svc: Any = None) -> None:
     """Replace one cell's text with rich content parsed from *html* (active sheet).
 
     *uno_ctx* is the UNO component context (e.g. ``ToolContext.ctx``).

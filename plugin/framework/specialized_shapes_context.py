@@ -62,16 +62,7 @@ def _read_writer_page_style_mm(doc: Any, style_name: str) -> dict[str, Any] | No
         tm = float(style.getPropertyValue("TopMargin")) / 100.0
         bm = float(style.getPropertyValue("BottomMargin")) / 100.0
         landscape = bool(style.getPropertyValue("IsLandscape"))
-        return {
-            "style_name": style_name,
-            "width_mm": w,
-            "height_mm": h,
-            "left_margin_mm": lm,
-            "right_margin_mm": rm,
-            "top_margin_mm": tm,
-            "bottom_margin_mm": bm,
-            "is_landscape": landscape,
-        }
+        return {"style_name": style_name, "width_mm": w, "height_mm": h, "left_margin_mm": lm, "right_margin_mm": rm, "top_margin_mm": tm, "bottom_margin_mm": bm, "is_landscape": landscape}
     except Exception:
         log.debug("read_writer_page_style_mm: failed for %r", style_name, exc_info=True)
         return None

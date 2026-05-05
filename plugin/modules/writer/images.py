@@ -35,19 +35,8 @@ import urllib.request
 import ssl
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.image_utils import ImageService
-from plugin.framework.config import (
-    get_image_model,
-    get_config_int,
-    get_config_bool,
-    get_config_str,
-    update_lru_history,
-)
-from plugin.framework.image_tools import (
-    insert_image,
-    replace_image_in_place,
-    get_selected_image_base64,
-    get_selected_image_dimensions_px,
-)
+from plugin.framework.config import get_image_model, get_config_int, get_config_bool, get_config_str, update_lru_history
+from plugin.framework.image_tools import insert_image, replace_image_in_place, get_selected_image_base64, get_selected_image_dimensions_px
 
 log = logging.getLogger("writeragent.writer")
 
@@ -69,10 +58,7 @@ class GenerateImage(ToolWriterImageBase):
             "width": {"type": "integer", "description": "Override calculated width"},
             "height": {"type": "integer", "description": "Override calculated height"},
             "provider": {"type": "string", "description": "Override default provider"},
-            "image_model": {
-                "type": "string",
-                "description": "Override Settings image model for this request (endpoint / OpenRouter).",
-            },
+            "image_model": {"type": "string", "description": "Override Settings image model for this request (endpoint / OpenRouter)."},
         },
         "required": ["prompt"],
     }
@@ -116,15 +102,8 @@ class GenerateImage(ToolWriterImageBase):
             if tag == "no_selection":
                 return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
             if not isinstance(payload, tuple) or len(payload) != 3:
-                return self._tool_error(
-                    "Could not read selected image.",
-                    code="SELECTION_READ_ERROR",
-                )
-            source_b64, edit_width, edit_height = (
-                str(payload[0]),
-                int(payload[1]),
-                int(payload[2]),
-            )
+                return self._tool_error("Could not read selected image.", code="SELECTION_READ_ERROR")
+            source_b64, edit_width, edit_height = (str(payload[0]), int(payload[1]), int(payload[2]))
 
         base_size = args.get("base_size", get_config_int(ctx.ctx, "image_base_size"))
         try:
@@ -151,32 +130,12 @@ class GenerateImage(ToolWriterImageBase):
         height = args.get("height", edit_height if is_edit else h)
 
         image_svc = ImageService(ctx.ctx, config=None)  # ImageService should use accessors too, or we pass dict
-        args_copy = {
-            k: v
-            for k, v in args.items()
-            if k
-            not in (
-                "prompt",
-                "base_size",
-                "aspect_ratio",
-                "width",
-                "height",
-                "provider",
-                "source_image",
-            )
-        }
+        args_copy = {k: v for k, v in args.items() if k not in ("prompt", "base_size", "aspect_ratio", "width", "height", "provider", "source_image")}
         if is_edit:
             args_copy["source_image"] = source_b64
             args_copy["strength"] = args.get("strength", 0.75)
 
-        paths, error_msg = image_svc.generate_image(
-            prompt,
-            provider_name=provider,
-            width=width,
-            height=height,
-            status_callback=status_callback,
-            **args_copy,
-        )
+        paths, error_msg = image_svc.generate_image(prompt, provider_name=provider, width=width, height=height, status_callback=status_callback, **args_copy)
 
         if not paths:
             return self._tool_error(error_msg or "No image returned.", code="PROVIDER_ERROR", provider=provider)
@@ -218,11 +177,7 @@ class ListImages(ToolWriterImageBase):
     name = "list_images"
     intent = "media"
     description = "List all images/graphic objects in the document with name, dimensions, title, and description."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -335,16 +290,7 @@ class GetImageInfo(ToolWriterImageBase):
     name = "get_image_info"
     intent = "media"
     description = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, and paragraph index."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "image_name": {
-                "type": "string",
-                "description": "Name of the image (from list_images).",
-            },
-        },
-        "required": ["image_name"],
-    }
+    parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image (from list_images)."}}, "required": ["image_name"]}
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -446,38 +392,14 @@ class SetImageProperties(ToolWriterImageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "image_name": {
-                "type": "string",
-                "description": "Name of the image (from list_images).",
-            },
-            "width_mm": {
-                "type": "number",
-                "description": "New width in millimetres.",
-            },
-            "height_mm": {
-                "type": "number",
-                "description": "New height in millimetres.",
-            },
-            "title": {
-                "type": "string",
-                "description": "Image title (tooltip text).",
-            },
-            "description": {
-                "type": "string",
-                "description": "Image alternative text (alt-text).",
-            },
-            "anchor_type": {
-                "type": "integer",
-                "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
-            },
-            "hori_orient": {
-                "type": "integer",
-                "description": "Horizontal orientation constant.",
-            },
-            "vert_orient": {
-                "type": "integer",
-                "description": "Vertical orientation constant.",
-            },
+            "image_name": {"type": "string", "description": "Name of the image (from list_images)."},
+            "width_mm": {"type": "number", "description": "New width in millimetres."},
+            "height_mm": {"type": "number", "description": "New height in millimetres."},
+            "title": {"type": "string", "description": "Image title (tooltip text)."},
+            "description": {"type": "string", "description": "Image alternative text (alt-text)."},
+            "anchor_type": {"type": "integer", "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.")},
+            "hori_orient": {"type": "integer", "description": "Horizontal orientation constant."},
+            "vert_orient": {"type": "integer", "description": "Vertical orientation constant."},
         },
         "required": ["image_name"],
     }
@@ -523,21 +445,9 @@ class SetImageProperties(ToolWriterImageBase):
         # Anchor type
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
-            from com.sun.star.text.TextContentAnchorType import (
-                AT_PARAGRAPH,
-                AS_CHARACTER,
-                AT_PAGE,
-                AT_FRAME,
-                AT_CHARACTER,
-            )
+            from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
 
-            anchor_map = {
-                0: AT_PARAGRAPH,
-                1: AS_CHARACTER,
-                2: AT_PAGE,
-                3: AT_FRAME,
-                4: AT_CHARACTER,
-            }
+            anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
             if anchor_type in anchor_map:
                 graphic.setPropertyValue("AnchorType", anchor_map[anchor_type])
                 updated.append("anchor_type")
@@ -553,11 +463,7 @@ class SetImageProperties(ToolWriterImageBase):
             graphic.setPropertyValue("VertOrient", vert_orient)
             updated.append("vert_orient")
 
-        return {
-            "status": "ok",
-            "image_name": image_name,
-            "updated": updated,
-        }
+        return {"status": "ok", "image_name": image_name, "updated": updated}
 
 
 # ------------------------------------------------------------------
@@ -574,18 +480,9 @@ class DownloadImage(ToolWriterImageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "url": {
-                "type": "string",
-                "description": "URL of the image to download.",
-            },
-            "verify_ssl": {
-                "type": "boolean",
-                "description": "Verify SSL certificates (default: false).",
-            },
-            "force": {
-                "type": "boolean",
-                "description": "Force re-download even if cached (default: false).",
-            },
+            "url": {"type": "string", "description": "URL of the image to download."},
+            "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."},
+            "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."},
         },
         "required": ["url"],
     }
@@ -598,11 +495,7 @@ class DownloadImage(ToolWriterImageBase):
         force = kwargs.get("force", False)
 
         local_path = _download_image_to_cache(url, verify_ssl=verify_ssl, force=force)
-        return {
-            "status": "ok",
-            "local_path": local_path,
-            "url": url,
-        }
+        return {"status": "ok", "local_path": local_path, "url": url}
 
 
 # ------------------------------------------------------------------
@@ -619,26 +512,11 @@ class InsertImage(ToolWriterImageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "image_path": {
-                "type": "string",
-                "description": ("Local file path or URL of the image to insert."),
-            },
-            "locator": {
-                "type": "string",
-                "description": ("Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title')."),
-            },
-            "paragraph_index": {
-                "type": "integer",
-                "description": "Paragraph index for insertion point.",
-            },
-            "width_mm": {
-                "type": "integer",
-                "description": "Width in millimetres (default: 80).",
-            },
-            "height_mm": {
-                "type": "integer",
-                "description": "Height in millimetres (default: 80).",
-            },
+            "image_path": {"type": "string", "description": ("Local file path or URL of the image to insert.")},
+            "locator": {"type": "string", "description": ("Unified locator for insertion point (e.g. 'bookmark:NAME', 'heading_text:Title').")},
+            "paragraph_index": {"type": "integer", "description": "Paragraph index for insertion point."},
+            "width_mm": {"type": "integer", "description": "Width in millimetres (default: 80)."},
+            "height_mm": {"type": "integer", "description": "Height in millimetres (default: 80)."},
         },
         "required": ["image_path"],
     }
@@ -716,12 +594,7 @@ class InsertImage(ToolWriterImageBase):
 
             doc_text.insertTextContent(cursor, graphic, False)
 
-        return {
-            "status": "ok",
-            "image_name": graphic.getName(),
-            "width_mm": width_mm,
-            "height_mm": height_mm,
-        }
+        return {"status": "ok", "image_name": graphic.getName(), "width_mm": width_mm, "height_mm": height_mm}
 
 
 # ------------------------------------------------------------------
@@ -738,14 +611,8 @@ class DeleteImage(ToolWriterImageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "image_name": {
-                "type": "string",
-                "description": "Name of the image to delete (from list_images).",
-            },
-            "remove_frame": {
-                "type": "boolean",
-                "description": "Also remove the containing frame (default: true).",
-            },
+            "image_name": {"type": "string", "description": "Name of the image to delete (from list_images)."},
+            "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."},
         },
         "required": ["image_name"],
     }
@@ -786,22 +653,10 @@ class ReplaceImage(ToolWriterImageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "image_name": {
-                "type": "string",
-                "description": "Name of the image to replace (from list_images).",
-            },
-            "new_image_path": {
-                "type": "string",
-                "description": "Local file path or URL of the replacement image.",
-            },
-            "width_mm": {
-                "type": "number",
-                "description": "Optionally update width in millimetres.",
-            },
-            "height_mm": {
-                "type": "number",
-                "description": "Optionally update height in millimetres.",
-            },
+            "image_name": {"type": "string", "description": "Name of the image to replace (from list_images)."},
+            "new_image_path": {"type": "string", "description": "Local file path or URL of the replacement image."},
+            "width_mm": {"type": "number", "description": "Optionally update width in millimetres."},
+            "height_mm": {"type": "number", "description": "Optionally update height in millimetres."},
         },
         "required": ["image_name", "new_image_path"],
     }
@@ -840,10 +695,7 @@ class ReplaceImage(ToolWriterImageBase):
             new_size.Height = int(height_mm * 100) if height_mm is not None else current.Height
             graphic.setPropertyValue("Size", new_size)
 
-        return {
-            "status": "ok",
-            "image_name": image_name,
-        }
+        return {"status": "ok", "image_name": image_name}
 
 
 # ------------------------------------------------------------------

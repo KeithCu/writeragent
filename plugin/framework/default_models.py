@@ -64,20 +64,8 @@ def get_provider_defaults(provider):
 
 
 DEFAULT_MODELS: list[dict[str, Any]] = [
-    {
-        "display_name": "DeepSeek V3",
-        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
-        "context_length": 163840,
-        "ids": {"deepseek": "deepseek-chat"},
-        "default_text": True,
-    },
-    {
-        "display_name": "MiniMax M2.7",
-        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
-        "context_length": 197000,
-        "ids": {"together": "MiniMaxAI/MiniMax-M2.7"},
-        "default_text": True,
-    },
+    {"display_name": "DeepSeek V3", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 163840, "ids": {"deepseek": "deepseek-chat"}, "default_text": True},
+    {"display_name": "MiniMax M2.7", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 197000, "ids": {"together": "MiniMaxAI/MiniMax-M2.7"}, "default_text": True},
     {
         "display_name": "GPT-OSS 120B",
         "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
@@ -85,13 +73,7 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b"},
         "default_text": True,
     },
-    {
-        "display_name": "GPT-OSS 20B",
-        "capability": ModelCapability.CHAT | ModelCapability.TOOLS,
-        "context_length": 128000,
-        "ids": {"together": "openai/gpt-oss-20b"},
-        "default_text": True,
-    },
+    {"display_name": "GPT-OSS 20B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 128000, "ids": {"together": "openai/gpt-oss-20b"}, "default_text": True},
     {
         "display_name": "Mistral Large 3",
         "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS,
@@ -105,16 +87,6 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
         "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"},
         "default_audio": True,
     },
-    {
-        "display_name": "Gemini Flash Image 2.5",
-        "capability": ModelCapability.IMAGE,
-        "ids": {"together": "google/flash-image-2.5"},
-        "default_image": True,
-    },
-    {
-        "display_name": "Voxtral Mini 3B",
-        "capability": ModelCapability.AUDIO,
-        "ids": {"together": "mistralai/Voxtral-Mini-3B-2507"},
-        "default_audio": True,
-    },
+    {"display_name": "Gemini Flash Image 2.5", "capability": ModelCapability.IMAGE, "ids": {"together": "google/flash-image-2.5"}, "default_image": True},
+    {"display_name": "Voxtral Mini 3B", "capability": ModelCapability.AUDIO, "ids": {"together": "mistralai/Voxtral-Mini-3B-2507"}, "default_audio": True},
 ]

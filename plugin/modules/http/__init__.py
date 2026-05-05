@@ -210,16 +210,7 @@ class HttpModule(ModuleBase):
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self, services):
-        for method, path in [
-            ("POST", "/mcp"),
-            ("GET", "/mcp"),
-            ("DELETE", "/mcp"),
-            ("POST", "/sse"),
-            ("POST", "/messages"),
-            ("GET", "/sse"),
-            ("GET", "/debug"),
-            ("POST", "/debug"),
-        ]:
+        for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
             try:
                 self._registry.remove(method, path)
             except Exception:
@@ -334,29 +325,14 @@ class HttpModule(ModuleBase):
     def _handle_health(self, body, headers, query):
         from plugin.version import EXTENSION_VERSION
 
-        return (
-            200,
-            {
-                "status": "healthy",
-                "server": "WriterAgent",
-                "version": EXTENSION_VERSION,
-            },
-        )
+        return (200, {"status": "healthy", "server": "WriterAgent", "version": EXTENSION_VERSION})
 
     def _handle_info(self, body, headers, query):
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
         from plugin.version import EXTENSION_VERSION
 
         routes = self._registry.list_routes()
-        return (
-            200,
-            {
-                "name": "WriterAgent",
-                "version": EXTENSION_VERSION,
-                "description": "WriterAgent HTTP server",
-                "routes": ["%s %s" % (m, p) for m, p in sorted(routes)],
-            },
-        )
+        return (200, {"name": "WriterAgent", "version": EXTENSION_VERSION, "description": "WriterAgent HTTP server", "routes": ["%s %s" % (m, p) for m, p in sorted(routes)]})
 
     def _handle_config_get(self, body, headers, query):
         """GET /api/config — read config values.

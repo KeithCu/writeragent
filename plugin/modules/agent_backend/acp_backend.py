@@ -85,10 +85,7 @@ class ACPBackend(AgentBackend):
 
         # Check common install locations
         home = os.path.expanduser("~")
-        for candidate in (
-            os.path.join(home, ".local", "bin", binary_name),
-            os.path.join(home, ".cargo", "bin", binary_name),
-        ):
+        for candidate in (os.path.join(home, ".local", "bin", binary_name), os.path.join(home, ".cargo", "bin", binary_name)):
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
 
@@ -153,10 +150,7 @@ class ACPBackend(AgentBackend):
                 "initialize",
                 {
                     "protocolVersion": _ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": {"read_text_file": False, "write_text_file": False},
-                        "terminal": False,
-                    },
+                    "clientCapabilities": {"fs": {"read_text_file": False, "write_text_file": False}, "terminal": False},
                     "clientInfo": {"name": "WriterAgent", "version": "1.0"},
                 },
                 timeout=15,
@@ -176,19 +170,9 @@ class ACPBackend(AgentBackend):
         # mcp_servers is required by the ACP schema
         mcp_servers = []
         if mcp_url:
-            mcp_servers.append(
-                {
-                    "url": mcp_url,
-                    "name": "writeragent",
-                    "type": "http",
-                    "headers": [],
-                }
-            )
+            mcp_servers.append({"url": mcp_url, "name": "writeragent", "type": "http", "headers": []})
 
-        params = {
-            "cwd": os.getcwd(),
-            "mcpServers": mcp_servers,
-        }
+        params = {"cwd": os.getcwd(), "mcpServers": mcp_servers}
 
         try:
             if self._conn:
@@ -212,43 +196,18 @@ class ACPBackend(AgentBackend):
         else:
             # Add system prompt if provided
             if system_prompt:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": system_prompt,
-                    }
-                )
+                prompt_blocks.append({"type": "text", "text": system_prompt})
             # Add document context if provided
             if document_context:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": f"[DOCUMENT CONTENT]\n{document_context}",
-                    }
-                )
+                prompt_blocks.append({"type": "text", "text": f"[DOCUMENT CONTENT]\n{document_context}"})
             # Add selection text if provided
             if selection_text:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": f"[SELECTED TEXT]\n{selection_text}",
-                    }
-                )
+                prompt_blocks.append({"type": "text", "text": f"[SELECTED TEXT]\n{selection_text}"})
             # Add document URL if provided
             if document_url:
-                prompt_blocks.append(
-                    {
-                        "type": "text",
-                        "text": f"Document URL: {document_url}",
-                    }
-                )
+                prompt_blocks.append({"type": "text", "text": f"Document URL: {document_url}"})
             # Always add the user message last
-            prompt_blocks.append(
-                {
-                    "type": "text",
-                    "text": user_message,
-                }
-            )
+            prompt_blocks.append({"type": "text", "text": user_message})
 
         return prompt_blocks
 
@@ -378,14 +337,7 @@ class ACPBackend(AgentBackend):
         # Send prompt
         try:
             if self._conn:
-                result = self._conn.send_request(
-                    "session/prompt",
-                    {
-                        "sessionId": self._session_id,
-                        "prompt": prompt_blocks,
-                    },
-                    timeout=600,
-                )
+                result = self._conn.send_request("session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, timeout=600)
 
                 # Process the final response
                 if result:

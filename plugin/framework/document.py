@@ -236,10 +236,7 @@ class WriterStreamedRewriteSession:
                 self.text_range.setString(self.generated_text)
                 return None
             except Exception as commit_error:
-                logging.getLogger(__name__).warning(
-                    "Failed to collapse streamed edit into one tracked change: %s",
-                    commit_error,
-                )
+                logging.getLogger(__name__).warning("Failed to collapse streamed edit into one tracked change: %s", commit_error)
 
                 fallback_errors: list[str] = []
                 try:
@@ -822,13 +819,7 @@ def build_heading_tree(model) -> HeadingTreeNode:
         check_disposed(model, "Document Model")
         text = safe_call(model.getText, "Get document text")
         enum = safe_call(text.createEnumeration, "Create enumeration")
-        root: HeadingTreeNode = {
-            "level": 0,
-            "text": "root",
-            "para_index": -1,
-            "children": [],
-            "body_paragraphs": 0,
-        }
+        root: HeadingTreeNode = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
         stack: list[HeadingTreeNode] = [root]
         para_index = 0
 
@@ -844,13 +835,7 @@ def build_heading_tree(model) -> HeadingTreeNode:
                 if isinstance(outline_level, int) and outline_level > 0:
                     while len(stack) > 1 and int(stack[-1]["level"]) >= outline_level:
                         stack.pop()
-                    node: HeadingTreeNode = {
-                        "level": outline_level,
-                        "text": safe_call(element.getString, "Get paragraph string"),
-                        "para_index": para_index,
-                        "children": [],
-                        "body_paragraphs": 0,
-                    }
+                    node: HeadingTreeNode = {"level": outline_level, "text": safe_call(element.getString, "Get paragraph string"), "para_index": para_index, "children": [], "body_paragraphs": 0}
                     stack[-1]["children"].append(node)
                     stack.append(node)
                 else:
@@ -861,13 +846,7 @@ def build_heading_tree(model) -> HeadingTreeNode:
         return root
     except UnoObjectError as e:
         logging.getLogger(__name__).warning("build_heading_tree error: %s", e)
-        return {
-            "level": 0,
-            "text": "root",
-            "para_index": -1,
-            "children": [],
-            "body_paragraphs": 0,
-        }
+        return {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
 
 
 def ensure_heading_bookmarks(model):

@@ -32,11 +32,7 @@ class ListTextFrames(ToolWriterTextFramesBase):
 
     name = "list_text_frames"
     description = "List all text frames in the document."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -66,14 +62,7 @@ class ListTextFrames(ToolWriterTextFramesBase):
                     pass
 
                 frames.append(
-                    {
-                        "name": name,
-                        "width_mm": size.Width / 100.0,
-                        "height_mm": size.Height / 100.0,
-                        "width_100mm": size.Width,
-                        "height_100mm": size.Height,
-                        "content_preview": content_preview,
-                    }
+                    {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview}
                 )
             except Exception as e:
                 log.debug("list_text_frames: skip '%s': %s", name, e)
@@ -91,16 +80,7 @@ class GetTextFrameInfo(ToolWriterTextFramesBase):
 
     name = "get_text_frame_info"
     description = "Get detailed info about a text frame."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "frame_name": {
-                "type": "string",
-                "description": "Name of the text frame (from list_text_frames).",
-            },
-        },
-        "required": ["frame_name"],
-    }
+    parameters = {"type": "object", "properties": {"frame_name": {"type": "string", "description": "Name of the text frame (from list_text_frames)."}}, "required": ["frame_name"]}
 
     def execute(self, ctx, **kwargs):
         frame_name = kwargs.get("frame_name", "")
@@ -185,30 +165,12 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
     parameters = {
         "type": "object",
         "properties": {
-            "frame_name": {
-                "type": "string",
-                "description": "Name of the text frame (from list_text_frames).",
-            },
-            "width_mm": {
-                "type": "number",
-                "description": "New width in millimetres.",
-            },
-            "height_mm": {
-                "type": "number",
-                "description": "New height in millimetres.",
-            },
-            "anchor_type": {
-                "type": "integer",
-                "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER."),
-            },
-            "hori_orient": {
-                "type": "integer",
-                "description": "Horizontal orientation constant.",
-            },
-            "vert_orient": {
-                "type": "integer",
-                "description": "Vertical orientation constant.",
-            },
+            "frame_name": {"type": "string", "description": "Name of the text frame (from list_text_frames)."},
+            "width_mm": {"type": "number", "description": "New width in millimetres."},
+            "height_mm": {"type": "number", "description": "New height in millimetres."},
+            "anchor_type": {"type": "integer", "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.")},
+            "hori_orient": {"type": "integer", "description": "Horizontal orientation constant."},
+            "vert_orient": {"type": "integer", "description": "Vertical orientation constant."},
         },
         "required": ["frame_name"],
     }
@@ -241,21 +203,9 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
         # Anchor type
         anchor_type = kwargs.get("anchor_type")
         if anchor_type is not None:
-            from com.sun.star.text.TextContentAnchorType import (
-                AT_PARAGRAPH,
-                AS_CHARACTER,
-                AT_PAGE,
-                AT_FRAME,
-                AT_CHARACTER,
-            )
+            from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
 
-            anchor_map = {
-                0: AT_PARAGRAPH,
-                1: AS_CHARACTER,
-                2: AT_PAGE,
-                3: AT_FRAME,
-                4: AT_CHARACTER,
-            }
+            anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
             if anchor_type in anchor_map:
                 frame.setPropertyValue("AnchorType", anchor_map[anchor_type])
                 updated.append("anchor_type")
@@ -271,8 +221,4 @@ class SetTextFrameProperties(ToolWriterTextFramesBase):
             frame.setPropertyValue("VertOrient", vert_orient)
             updated.append("vert_orient")
 
-        return {
-            "status": "ok",
-            "frame_name": frame_name,
-            "updated": updated,
-        }
+        return {"status": "ok", "frame_name": frame_name, "updated": updated}

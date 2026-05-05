@@ -174,16 +174,7 @@ class SpecializedWorkflowFinished(ToolBase):
 
     name = "specialized_workflow_finished"
     description = "Provides a final answer to the given task and exits the specialized toolset mode."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "answer": {
-                "type": "string",
-                "description": "The final answer to the task.",
-            },
-        },
-        "required": ["answer"],
-    }
+    parameters = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task."}}, "required": ["answer"]}
     tier = "specialized_control"
 
     def execute(self, ctx, **kwargs):

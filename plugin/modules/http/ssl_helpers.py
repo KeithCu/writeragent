@@ -23,14 +23,7 @@ def _is_certificate_verify_error(e):
     if isinstance(reason, ssl.SSLCertVerificationError):
         return True
     msg = ("%s %s" % (e, reason or "")).lower()
-    for marker in (
-        "certificate_verify_failed",
-        "certificate verify failed",
-        "self-signed certificate",
-        "self signed certificate",
-        "unable to get local issuer certificate",
-        "hostname mismatch",
-    ):
+    for marker in ("certificate_verify_failed", "certificate verify failed", "self-signed certificate", "self signed certificate", "unable to get local issuer certificate", "hostname mismatch"):
         if marker in msg:
             return True
     return False

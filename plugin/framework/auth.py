@@ -47,67 +47,16 @@ class ProviderConfig:
 
 
 PROVIDERS: Dict[str, ProviderConfig] = {
-    "openrouter": ProviderConfig(
-        id="openrouter",
-        name="OpenRouter",
-        header_style="bearer",
-        host_matches=("openrouter.ai",),
-    ),
-    "together": ProviderConfig(
-        id="together",
-        name="Together AI",
-        header_style="bearer",
-        host_matches=("api.together.xyz", "together.xyz"),
-    ),
-    "mistral": ProviderConfig(
-        id="mistral",
-        name="Mistral",
-        header_style="bearer",
-        host_matches=("api.mistral.ai",),
-    ),
-    "openai": ProviderConfig(
-        id="openai",
-        name="OpenAI",
-        header_style="bearer",
-        host_matches=("api.openai.com",),
-    ),
-    "deepseek": ProviderConfig(
-        id="deepseek",
-        name="DeepSeek",
-        header_style="bearer",
-        host_matches=("api.deepseek.com",),
-    ),
-    "groq": ProviderConfig(
-        id="groq",
-        name="Groq",
-        header_style="bearer",
-        host_matches=("api.groq.com",),
-    ),
-    "cerebras": ProviderConfig(
-        id="cerebras",
-        name="Cerebras",
-        header_style="bearer",
-        host_matches=("api.cerebras.ai",),
-    ),
-    "perplexity": ProviderConfig(
-        id="perplexity",
-        name="Perplexity",
-        header_style="bearer",
-        host_matches=("api.perplexity.ai",),
-    ),
-    "xai": ProviderConfig(
-        id="xai",
-        name="X.ai (Grok)",
-        header_style="bearer",
-        host_matches=("api.x.ai",),
-    ),
-    "anthropic": ProviderConfig(
-        id="anthropic",
-        name="Anthropic Claude",
-        header_style="x-api-key",
-        host_matches=("api.anthropic.com",),
-        extra_headers={"anthropic-version": "2023-06-01"},
-    ),
+    "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", host_matches=("openrouter.ai",)),
+    "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", host_matches=("api.together.xyz", "together.xyz")),
+    "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer", host_matches=("api.mistral.ai",)),
+    "openai": ProviderConfig(id="openai", name="OpenAI", header_style="bearer", host_matches=("api.openai.com",)),
+    "deepseek": ProviderConfig(id="deepseek", name="DeepSeek", header_style="bearer", host_matches=("api.deepseek.com",)),
+    "groq": ProviderConfig(id="groq", name="Groq", header_style="bearer", host_matches=("api.groq.com",)),
+    "cerebras": ProviderConfig(id="cerebras", name="Cerebras", header_style="bearer", host_matches=("api.cerebras.ai",)),
+    "perplexity": ProviderConfig(id="perplexity", name="Perplexity", header_style="bearer", host_matches=("api.perplexity.ai",)),
+    "xai": ProviderConfig(id="xai", name="X.ai (Grok)", header_style="bearer", host_matches=("api.x.ai",)),
+    "anthropic": ProviderConfig(id="anthropic", name="Anthropic Claude", header_style="x-api-key", host_matches=("api.anthropic.com",), extra_headers={"anthropic-version": "2023-06-01"}),
     "google": ProviderConfig(
         id="google",
         name="Google Gemini",
@@ -116,19 +65,9 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         header_style="none",
         host_matches=("generativelanguage.googleapis.com",),
     ),
-    "ollama": ProviderConfig(
-        id="ollama",
-        name="Ollama",
-        header_style="none",
-        host_matches=("localhost:11434", "127.0.0.1:11434", "ollama"),
-    ),
+    "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none", host_matches=("localhost:11434", "127.0.0.1:11434", "ollama")),
     # Fallback for endpoints we don't recognize explicitly.
-    "custom": ProviderConfig(
-        id="custom",
-        name="Custom",
-        header_style="bearer",
-        host_matches=(),
-    ),
+    "custom": ProviderConfig(id="custom", name="Custom", header_style="bearer", host_matches=()),
 }
 
 
@@ -198,19 +137,9 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
     # For "custom" endpoints (typically local/self-hosted), an empty key is
     # allowed and we simply omit auth headers.
     if not api_key and provider_id != "custom" and provider_cfg.header_style != "none":
-        raise AuthError(
-            f"No API key configured for endpoint '{endpoint}'.",
-            provider=provider_id,
-            code="missing_api_key",
-        )
+        raise AuthError(f"No API key configured for endpoint '{endpoint}'.", provider=provider_id, code="missing_api_key")
 
-    return {
-        "provider": provider_cfg.id,
-        "endpoint": endpoint,
-        "api_key": api_key,
-        "header_style": provider_cfg.header_style,
-        "headers": dict(provider_cfg.extra_headers),
-    }
+    return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}
 
 
 def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:

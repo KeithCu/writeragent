@@ -122,17 +122,11 @@ def _initialize_extension_paths(ctx):
         init_logging(ctx)
         log.info("Initialized extension paths for session: %s" % ext_path)
         try:
-            from plugin.modules.writer.ai_grammar_proofreader import (
-                ensure_writeragent_proofreader_configured,
-            )
+            from plugin.modules.writer.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
             ensure_writeragent_proofreader_configured(ctx)
         except Exception as e:
-            log.warning(
-                "[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s",
-                e,
-                exc_info=True,
-            )
+            log.warning("[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
         _paths_initialized = True
     except Exception as e:
         init_logging(ctx)
@@ -201,16 +195,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
                 log.debug("getHeightForWidth: PanelWindow likely disposed: %s", e)
             before = None
 
-        log.debug(
-            "getHeightForWidth deck_hint=%s parent=%sx%s eff_W=%s root_before=%s"
-            % (
-                deck_w,
-                parent_w,
-                parent_h,
-                eff_w,
-                "%sx%s" % (before.Width, before.Height) if before else None,
-            )
-        )
+        log.debug("getHeightForWidth deck_hint=%s parent=%sx%s eff_W=%s root_before=%s" % (deck_w, parent_w, parent_h, eff_w, "%sx%s" % (before.Width, before.Height) if before else None))
         try:
             self.PanelWindow.setPosSize(0, 0, eff_w, h, 15)
             after = self.PanelWindow.getPosSize()
@@ -393,10 +378,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         try:
             from plugin.framework.config import get_config
             from plugin.framework.i18n import _
-            from plugin.modules.agent_backend.registry import (
-                AGENT_BACKEND_REGISTRY,
-                normalize_backend_id,
-            )
+            from plugin.modules.agent_backend.registry import AGENT_BACKEND_REGISTRY, normalize_backend_id
 
             root = root_window or (getattr(self, "m_panelRootWindow", None))
             if not root or not hasattr(root, "getControl"):
@@ -694,13 +676,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         clear_listener = None
         if controls["clear"]:
             try:
-                clear_listener = ClearButtonListener(
-                    self.session,
-                    controls["response"],
-                    controls["status"],
-                    greeting=active_greeting,
-                    send_listener=send_listener,
-                )
+                clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
                 controls["clear"].addActionListener(clear_listener)
             except Exception as e:
                 log.exception("Clear button wiring error: %s", e)
@@ -767,8 +743,4 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    ChatPanelFactory,
-    "org.extension.writeragent.ChatPanelFactory",
-    ("com.sun.star.ui.UIElementFactory",),
-)
+g_ImplementationHelper.addImplementation(ChatPanelFactory, "org.extension.writeragent.ChatPanelFactory", ("com.sun.star.ui.UIElementFactory",))

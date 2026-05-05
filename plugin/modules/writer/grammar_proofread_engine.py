@@ -17,9 +17,7 @@ from typing import Any, Iterable, Mapping, cast
 import json_repair
 
 from plugin.framework.json_utils import safe_json_loads
-from plugin.modules.writer.grammar_locale_registry import (
-    GRAMMAR_REGISTRY_LOCALE_TAGS as _GRAMMAR_REGISTRY_LOCALE_TAGS,
-)
+from plugin.modules.writer.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS as _GRAMMAR_REGISTRY_LOCALE_TAGS
 
 log = logging.getLogger(__name__)
 _grammar_diag = logging.getLogger("writeragent.grammar")
@@ -175,14 +173,7 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
         correct = row.get("correct")
         if wrong is None or correct is None:
             continue
-        out.append(
-            {
-                "wrong": str(wrong),
-                "correct": str(correct),
-                "type": str(row.get("type", "grammar")),
-                "reason": str(row.get("reason", "")),
-            }
-        )
+        out.append({"wrong": str(wrong), "correct": str(correct), "type": str(row.get("type", "grammar")), "reason": str(row.get("reason", ""))})
     return out
 
 
@@ -214,13 +205,7 @@ def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list
 
 
 def normalize_errors_for_text(
-    full_text: str,
-    n_slice_start: int,
-    n_slice_end: int,
-    items: Iterable[dict[str, Any]],
-    ignored: set[str] | None = None,
-    ctx: Any = None,
-    loc_key: str | None = None,
+    full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ignored: set[str] | None = None, ctx: Any = None, loc_key: str | None = None
 ) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
     ignored = ignored or set()
@@ -297,23 +282,9 @@ def normalize_errors_for_text(
         short = f"({typ}) {reason}".strip() if reason else str(typ)
         full = reason or short
         try:
-            results.append(
-                NormalizedProofError(
-                    n_error_start=pos,
-                    n_error_length=length,
-                    suggestions=sugg,
-                    short_comment=short[:500],
-                    full_comment=full[:2000],
-                    rule_identifier=rule_id,
-                )
-            )
+            results.append(NormalizedProofError(n_error_start=pos, n_error_length=length, suggestions=sugg, short_comment=short[:500], full_comment=full[:2000], rule_identifier=rule_id))
         except Exception as e:
-            _grammar_diag.warning(
-                "[grammar] normalize_errors_for_text: skipped item idx=%s: %s",
-                idx,
-                e,
-                exc_info=True,
-            )
+            _grammar_diag.warning("[grammar] normalize_errors_for_text: skipped item idx=%s: %s", idx, e, exc_info=True)
     return results
 
 
@@ -557,9 +528,7 @@ class GrammarWorkItem:
     enqueue_seq: int
 
 
-def deduplicate_grammar_batch(
-    batch: list[GrammarWorkItem],
-) -> list[GrammarWorkItem]:
+def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:
     """Remove stale items from a batch using newest-first semantics.
 
     Within each ``(doc_id, locale)`` group, prefix-related conflicts are resolved
@@ -579,12 +548,7 @@ def deduplicate_grammar_batch(
         if prev is None or item.enqueue_seq > prev.enqueue_seq:
             best_by_key[item.inflight_key] = item
         elif prev is not None and item.enqueue_seq < prev.enqueue_seq:
-            _grammar_diag.info(
-                "[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)",
-                item.enqueue_seq,
-                item.inflight_key,
-                prev.enqueue_seq,
-            )
+            _grammar_diag.info("[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)", item.enqueue_seq, item.inflight_key, prev.enqueue_seq)
     unique = list(best_by_key.values())
 
     # Step 2: prefix dedup within (doc_id, locale) groups (newest-first)
@@ -604,12 +568,7 @@ def deduplicate_grammar_batch(
             if any((kept.startswith(slice_txt) or slice_txt.startswith(kept)) and kept != slice_txt for kept in kept_texts):
                 conflict_idx = next(i for i, kept in enumerate(kept_texts) if (kept.startswith(slice_txt) or slice_txt.startswith(kept)) and kept != slice_txt)
                 newer_seq = kept_seqs[conflict_idx]
-                _grammar_diag.info(
-                    "[grammar] queue dedup: dropped older prefix-related item seq=%s len=%s (newer seq=%s kept)",
-                    item.enqueue_seq,
-                    len(slice_txt),
-                    newer_seq,
-                )
+                _grammar_diag.info("[grammar] queue dedup: dropped older prefix-related item seq=%s len=%s (newer seq=%s kept)", item.enqueue_seq, len(slice_txt), newer_seq)
                 continue
             kept_texts.append(slice_txt)
             kept_seqs.append(item.enqueue_seq)

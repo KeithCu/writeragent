@@ -73,12 +73,7 @@ def _try_ole_shape_content_size_hmm(shape: Any) -> tuple[int, int] | None:
         map_unit = vo.getMapUnit(aspect)
         out = _visual_size_to_hundredth_mm(sz, map_unit)
         if out is None:
-            log.debug(
-                "math_insert: unsupported embed map_unit=%s size=%sx%s",
-                map_unit,
-                getattr(sz, "Width", "?"),
-                getattr(sz, "Height", "?"),
-            )
+            log.debug("math_insert: unsupported embed map_unit=%s size=%sx%s", map_unit, getattr(sz, "Width", "?"), getattr(sz, "Height", "?"))
         return out
     except Exception:
         log.debug("math_insert: getVisualAreaSize path failed", exc_info=True)
@@ -112,34 +107,15 @@ class InsertMathDraw(ToolDrawSpecialBase):
     parameters = {
         "type": "object",
         "properties": {
-            "formula_type": {
-                "type": "string",
-                "enum": ["latex", "mathml"],
-                "description": "Whether formula is LaTeX (converted via LO) or MathML.",
-            },
-            "formula": {
-                "type": "string",
-                "description": "LaTeX or MathML formula text, per formula_type.",
-            },
-            "page_index": {
-                "type": "integer",
-                "description": "Zero-based index of the draw page or slide.",
-            },
-            "x": {
-                "type": "integer",
-                "description": "X position of the shape (100ths of mm).",
-            },
-            "y": {
-                "type": "integer",
-                "description": "Y position of the shape (100ths of mm).",
-            },
+            "formula_type": {"type": "string", "enum": ["latex", "mathml"], "description": "Whether formula is LaTeX (converted via LO) or MathML."},
+            "formula": {"type": "string", "description": "LaTeX or MathML formula text, per formula_type."},
+            "page_index": {"type": "integer", "description": "Zero-based index of the draw page or slide."},
+            "x": {"type": "integer", "description": "X position of the shape (100ths of mm)."},
+            "y": {"type": "integer", "description": "Y position of the shape (100ths of mm)."},
         },
         "required": ["formula_type", "formula", "page_index", "x", "y"],
     }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
     specialized_domain = "math"
 
@@ -166,10 +142,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
 
         if not res.ok:
             detail = (res.error_message or "").strip() or "unknown_error"
-            return self._tool_error(
-                f"Failed to convert math expression: {detail}",
-                conversion_detail=detail,
-            )
+            return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
 
         try:
             page_index = int(kwargs["page_index"])
@@ -208,9 +181,4 @@ class InsertMathDraw(ToolDrawSpecialBase):
         except Exception as e:
             return self._tool_error(f"Failed to insert math shape: {e}")
 
-        return {
-            "status": "ok",
-            "message": "Math formula inserted successfully",
-            "shape_index": page.getCount() - 1,
-            "page_index": page_index,
-        }
+        return {"status": "ok", "message": "Math formula inserted successfully", "shape_index": page.getCount() - 1, "page_index": page_index}

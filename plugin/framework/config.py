@@ -70,16 +70,7 @@ CONFIG_FILENAME = "writeragent.json"
 LRU_MAX_ITEMS = 10
 
 # Keys used by populate_combobox_with_lru / update_lru_history (including endpoint-scoped "name@url").
-_LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset(
-    {
-        "model_lru",
-        "prompt_lru",
-        "image_model_lru",
-        "audio_model_lru",
-        "endpoint_lru",
-        "image_base_size_lru",
-    }
-)
+_LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_lru", "image_model_lru", "audio_model_lru", "endpoint_lru", "image_base_size_lru"})
 
 
 def _is_lru_list_config_key(key: str) -> bool:
@@ -257,11 +248,7 @@ class WriterAgentConfig:
         for f in dataclasses.fields(self):
             val = getattr(self, f.name)
             if isinstance(val, str) and "Project-Id-Version:" in val:
-                log.debug(
-                    "config validate: stripped PO/header from dataclass field %r (len=%s)",
-                    f.name,
-                    len(val),
-                )
+                log.debug("config validate: stripped PO/header from dataclass field %r (len=%s)", f.name, len(val))
                 # Default seed should be -1, not empty string.
                 if f.name == "seed":
                     setattr(self, f.name, "-1")
@@ -270,11 +257,7 @@ class WriterAgentConfig:
 
         for k, v in list(self._extra_config.items()):
             if isinstance(v, str) and "Project-Id-Version:" in v:
-                log.debug(
-                    "config validate: stripped PO/header from extra key %r (len=%s)",
-                    k,
-                    len(v),
-                )
+                log.debug("config validate: stripped PO/header from extra key %r (len=%s)", k, len(v))
                 self._extra_config[k] = ""
 
         self.endpoint = normalize_endpoint_url(str(self.endpoint or ""))
@@ -417,11 +400,7 @@ def _resolve_default(key):
             return val
 
     # Strict check: if not in schema and not a recognized dynamic pattern, it's a bug.
-    raise ConfigError(
-        f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.",
-        "CONFIG_KEY_NOT_FOUND",
-        details={"key": key},
-    )
+    raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
 
 
 # In-memory configuration cache so we don't open/parse/validate writeragent.json
@@ -446,12 +425,7 @@ def _build_validated_config_export(data: Dict[str, Any], config: "WriterAgentCon
         else:
             merged = config._extra_config.get(k, v)
             if merged != v:
-                log.debug(
-                    "config export: extra key %r merged after validate (raw_len=%s merged_len=%s)",
-                    k,
-                    len(str(v)),
-                    len(str(merged)),
-                )
+                log.debug("config export: extra key %r merged after validate (raw_len=%s merged_len=%s)", k, len(str(v)), len(str(merged)))
             out[k] = merged
     return out
 
@@ -534,11 +508,7 @@ def get_config_int(ctx, key) -> int:
         v = _resolve_default(key)
     # _resolve_default returns "" for unknown keys that slip through without a dataclass default.
     if v == "":
-        raise ConfigError(
-            f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.",
-            "CONFIG_KEY_NOT_FOUND",
-            details={"key": key},
-        )
+        raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
     try:
         return int(float(cast("Any", v)))
     except (ValueError, TypeError) as e:
@@ -779,12 +749,7 @@ def set_native_audio_support(ctx, model_id, endpoint, supported):
 _model_fetch_cache: dict[str, list[str] | None] = {}
 
 
-def _model_fetch_cache_key(
-    url: str,
-    ctx: Any,
-    base: str,
-    api_key_override: str | None = None,
-) -> str:
+def _model_fetch_cache_key(url: str, ctx: Any, base: str, api_key_override: str | None = None) -> str:
     if ctx is None:
         return url
     if api_key_override is not None:
@@ -854,12 +819,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             api_key = str(get_api_key_for_endpoint(ctx, base) or "").strip()
         is_openwebui = as_bool(get_config(ctx, "is_openwebui")) or "open-webui" in base.lower() or "openwebui" in base.lower()
         is_openrouter = "openrouter.ai" in base.lower() or as_bool(get_config(ctx, "is_openrouter"))
-        mini = {
-            "endpoint": base,
-            "api_key": api_key,
-            "is_openwebui": is_openwebui,
-            "is_openrouter": is_openrouter,
-        }
+        mini = {"endpoint": base, "api_key": api_key, "is_openwebui": is_openwebui, "is_openrouter": is_openrouter}
         try:
             req_headers = build_auth_headers(resolve_auth_for_config(mini))
         except AuthError as e:
@@ -910,16 +870,7 @@ def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     return False
 
 
-def populate_combobox_with_lru(
-    ctx,
-    ctrl,
-    current_val,
-    lru_key,
-    endpoint,
-    *,
-    remote_models: list[str] | None = None,
-    skip_remote_fetch: bool = False,
-):
+def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, *, remote_models: list[str] | None = None, skip_remote_fetch: bool = False):
     """Helper to populate a combobox with values from an LRU list in config.
     LRU is scoped to the provided endpoint.
     Merges relevant default models based on the capability inferred from lru_key.
@@ -1259,14 +1210,7 @@ def get_api_config(ctx):
     return api_config
 
 
-def populate_image_model_selector(
-    ctx,
-    ctrl,
-    override_endpoint=None,
-    *,
-    remote_models: list[str] | None = None,
-    skip_remote_fetch: bool = False,
-):
+def populate_image_model_selector(ctx, ctrl, override_endpoint=None, *, remote_models: list[str] | None = None, skip_remote_fetch: bool = False):
     """Adaptive population of image model selector (ComboBox) based on provider.
     When image_provider is endpoint, uses override_endpoint if provided else config endpoint;
     uses strict=True so only models for that endpoint are shown. Returns the value set."""
@@ -1283,15 +1227,7 @@ def populate_image_model_selector(
         return current_image_model
     current_image_model = get_image_model(ctx)
     endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint(ctx)
-    return populate_combobox_with_lru(
-        ctx,
-        ctrl,
-        current_image_model,
-        "image_model_lru",
-        endpoint,
-        remote_models=remote_models,
-        skip_remote_fetch=skip_remote_fetch,
-    )
+    return populate_combobox_with_lru(ctx, ctrl, current_image_model, "image_model_lru", endpoint, remote_models=remote_models, skip_remote_fetch=skip_remote_fetch)
 
 
 class ConfigAccessError(ConfigError):

@@ -17,18 +17,9 @@ class PrintDocument(ToolBaseDummy):
     parameters = {
         "type": "object",
         "properties": {
-            "printer": {
-                "type": "string",
-                "description": "Printer name (default printer if omitted).",
-            },
-            "pages": {
-                "type": "string",
-                "description": ("Page range to print (e.g. '1-3', '1,3,5'). All pages if omitted."),
-            },
-            "copies": {
-                "type": "integer",
-                "description": "Number of copies (default: 1).",
-            },
+            "printer": {"type": "string", "description": "Printer name (default printer if omitted)."},
+            "pages": {"type": "string", "description": ("Page range to print (e.g. '1-3', '1,3,5'). All pages if omitted.")},
+            "copies": {"type": "integer", "description": "Number of copies (default: 1)."},
         },
         "required": [],
     }
@@ -59,12 +50,6 @@ class PrintDocument(ToolBaseDummy):
 
             doc.print(tuple(opts))
 
-            return {
-                "status": "ok",
-                "message": "Document sent to printer.",
-                "printer": printer_name or "(default)",
-                "pages": pages or "all",
-                "copies": copies,
-            }
+            return {"status": "ok", "message": "Document sent to printer.", "printer": printer_name or "(default)", "pages": pages or "all", "copies": copies}
         except Exception as e:
             return self._tool_error(str(e))

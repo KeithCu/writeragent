@@ -34,30 +34,12 @@ class SearchInDocument(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "pattern": {
-                "type": "string",
-                "description": "Search string or regex pattern.",
-            },
-            "regex": {
-                "type": "boolean",
-                "description": "Use regular expression (default: false).",
-            },
-            "case_sensitive": {
-                "type": "boolean",
-                "description": "Case-sensitive search (default: false).",
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum results to return (default: 20).",
-            },
-            "context_paragraphs": {
-                "type": "integer",
-                "description": ("Number of paragraphs of context around each match (default: 1)."),
-            },
-            "return_offsets": {
-                "type": "boolean",
-                "description": ("If true, returns {start, end, text} character offsets instead of paragraph context. (Regex not supported)."),
-            },
+            "pattern": {"type": "string", "description": "Search string or regex pattern."},
+            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "max_results": {"type": "integer", "description": "Maximum results to return (default: 20)."},
+            "context_paragraphs": {"type": "integer", "description": ("Number of paragraphs of context around each match (default: 1).")},
+            "return_offsets": {"type": "boolean", "description": ("If true, returns {start, end, text} character offsets instead of paragraph context. (Regex not supported).")},
         },
         "required": ["pattern"],
     }
@@ -77,14 +59,7 @@ class SearchInDocument(ToolBase):
         return_offsets = kwargs.get("return_offsets", False)
 
         if return_offsets:
-            ranges = format_support.find_text_ranges(
-                ctx.doc,
-                ctx.ctx,
-                pattern,
-                start=0,
-                limit=max_results,
-                case_sensitive=case_sensitive,
-            )
+            ranges = format_support.find_text_ranges(ctx.doc, ctx.ctx, pattern, start=0, limit=max_results, case_sensitive=case_sensitive)
             return {"status": "ok", "ranges": ranges}
 
         doc = ctx.doc
@@ -110,10 +85,7 @@ class SearchInDocument(ToolBase):
             try:
                 compiled = re_mod.compile(pattern, flags)
             except re_mod.error as e:
-                return {
-                    "status": "error",
-                    "error": "Invalid regex: %s" % e,
-                }
+                return {"status": "error", "error": "Invalid regex: %s" % e}
 
         # Search within paragraphs
         matches = []
@@ -127,15 +99,7 @@ class SearchInDocument(ToolBase):
                 for m in compiled.finditer(ptext):
                     total_count += 1
                     if len(matches) < max_results:
-                        matches.append(
-                            _build_match(
-                                m.group(),
-                                i,
-                                context_paragraphs,
-                                para_count,
-                                para_texts,
-                            )
-                        )
+                        matches.append(_build_match(m.group(), i, context_paragraphs, para_count, para_texts))
             else:
                 haystack = ptext if case_sensitive else ptext.lower()
                 needle = pattern if case_sensitive else pattern.lower()
@@ -147,22 +111,10 @@ class SearchInDocument(ToolBase):
                         break
                     total_count += 1
                     if len(matches) < max_results:
-                        matches.append(
-                            _build_match(
-                                ptext[pos : pos + len(pattern)],
-                                i,
-                                context_paragraphs,
-                                para_count,
-                                para_texts,
-                            )
-                        )
+                        matches.append(_build_match(ptext[pos : pos + len(pattern)], i, context_paragraphs, para_count, para_texts))
                     pos += step
 
-        return {
-            "status": "ok",
-            "matches": matches,
-            "count": total_count,
-        }
+        return {"status": "ok", "matches": matches, "count": total_count}
 
 
 def _build_match(text, para_idx, ctx_paras, para_count, para_texts):
@@ -170,11 +122,7 @@ def _build_match(text, para_idx, ctx_paras, para_count, para_texts):
     ctx_lo = max(0, para_idx - ctx_paras)
     ctx_hi = min(para_count, para_idx + ctx_paras + 1)
     context = [{"index": j, "text": para_texts[j]} for j in range(ctx_lo, ctx_hi)]
-    return {
-        "text": text,
-        "paragraph_index": para_idx,
-        "context": context,
-    }
+    return {"text": text, "paragraph_index": para_idx, "context": context}
 
 
 class AdvancedSearch(ToolBaseDummy):
@@ -190,30 +138,12 @@ class AdvancedSearch(ToolBaseDummy):
     parameters = {
         "type": "object",
         "properties": {
-            "query": {
-                "type": "string",
-                "description": ("Search query. Examples: 'climate change', 'energy AND renewable', 'solar OR wind', 'climate NOT politics', 'ocean NEAR/3 warming'"),
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum results to return (default: 20)",
-            },
-            "context_paragraphs": {
-                "type": "integer",
-                "description": "Paragraphs of context around each match (default: 1)",
-            },
-            "around_page": {
-                "type": "integer",
-                "description": ("Restrict results to paragraphs near this page (optional). Enables page numbers in results."),
-            },
-            "page_radius": {
-                "type": "integer",
-                "description": ("Page radius for around_page filter (default: 1, meaning +/-1 page)"),
-            },
-            "include_pages": {
-                "type": "boolean",
-                "description": ("Add page numbers to results. Automatic when around_page is set. (default: false)"),
-            },
+            "query": {"type": "string", "description": ("Search query. Examples: 'climate change', 'energy AND renewable', 'solar OR wind', 'climate NOT politics', 'ocean NEAR/3 warming'")},
+            "max_results": {"type": "integer", "description": "Maximum results to return (default: 20)"},
+            "context_paragraphs": {"type": "integer", "description": "Paragraphs of context around each match (default: 1)"},
+            "around_page": {"type": "integer", "description": ("Restrict results to paragraphs near this page (optional). Enables page numbers in results.")},
+            "page_radius": {"type": "integer", "description": ("Page radius for around_page filter (default: 1, meaning +/-1 page)")},
+            "include_pages": {"type": "boolean", "description": ("Add page numbers to results. Automatic when around_page is set. (default: false)")},
         },
         "required": ["query"],
     }
@@ -229,12 +159,7 @@ class AdvancedSearch(ToolBaseDummy):
             include_pages = True
 
         try:
-            result = idx_svc.search_boolean(
-                ctx.doc,
-                kwargs["query"],
-                max_results=kwargs.get("max_results", 20),
-                context_paragraphs=kwargs.get("context_paragraphs", 1),
-            )
+            result = idx_svc.search_boolean(ctx.doc, kwargs["query"], max_results=kwargs.get("max_results", 20), context_paragraphs=kwargs.get("context_paragraphs", 1))
         except ValueError as e:
             return self._tool_error(str(e))
 
@@ -252,11 +177,7 @@ class AdvancedSearch(ToolBaseDummy):
                 before_count = len(result["matches"])
                 result["matches"] = [m for m in result["matches"] if lo <= m.get("page", 0) <= hi]
                 result["returned"] = len(result["matches"])
-                result["filtered_by_page"] = {
-                    "around_page": around_page,
-                    "page_radius": page_radius,
-                    "before_filter": before_count,
-                }
+                result["filtered_by_page"] = {"around_page": around_page, "page_radius": page_radius, "before_filter": before_count}
 
         return {"status": "ok", **result}
 

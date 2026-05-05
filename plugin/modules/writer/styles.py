@@ -25,34 +25,12 @@ from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer")
 
-_STYLE_FAMILIES = [
-    "ParagraphStyles",
-    "CharacterStyles",
-]
+_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
 
 # Properties to read per style family.
 _FAMILY_PROPS = {
-    "ParagraphStyles": [
-        "ParentStyle",
-        "FollowStyle",
-        "CharFontName",
-        "CharHeight",
-        "CharWeight",
-        "ParaAdjust",
-        "ParaTopMargin",
-        "ParaBottomMargin",
-    ],
-    "CharacterStyles": [
-        "ParentStyle",
-        "CharFontName",
-        "CharHeight",
-        "CharWeight",
-        "CharPosture",
-        "CharColor",
-        "CharUnderline",
-        "CharStrikeout",
-        "CharCaseMap",
-    ],
+    "ParagraphStyles": ["ParentStyle", "FollowStyle", "CharFontName", "CharHeight", "CharWeight", "ParaAdjust", "ParaTopMargin", "ParaBottomMargin"],
+    "CharacterStyles": ["ParentStyle", "CharFontName", "CharHeight", "CharWeight", "CharPosture", "CharColor", "CharUnderline", "CharStrikeout", "CharCaseMap"],
 }
 
 
@@ -71,13 +49,7 @@ class ListStyles(ToolBase):
     description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
     parameters = {
         "type": "object",
-        "properties": {
-            "family": {
-                "type": "string",
-                "enum": ["ParagraphStyles", "CharacterStyles"],
-                "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles."),
-            },
-        },
+        "properties": {"family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles.")}},
         "required": [],
     }
 
@@ -89,11 +61,7 @@ class ListStyles(ToolBase):
         if not family or not str(family).strip():
             # Only return the families we officially support in this tool.
             available = [f for f in families.getElementNames() if f in _STYLE_FAMILIES]
-            return {
-                "status": "ok",
-                "families": available,
-                "count": len(available),
-            }
+            return {"status": "ok", "families": available, "count": len(available)}
 
         family = str(family or "ParagraphStyles").strip()
         style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
@@ -173,11 +141,7 @@ class ListStyles(ToolBase):
             if not show:
                 continue
 
-            entry = {
-                "name": name,
-                "is_user_defined": user_defined,
-                "is_in_use": in_use,
-            }
+            entry = {"name": name, "is_user_defined": user_defined, "is_in_use": in_use}
             # Present the UNO "Default Style" as "No Character Style" — the
             # clearer name that matches what the LLM should pass to apply_style.
             if family == "CharacterStyles" and name == "Default Style":
@@ -188,12 +152,7 @@ class ListStyles(ToolBase):
                 pass
             styles.append(entry)
 
-        return {
-            "status": "ok",
-            "family": family,
-            "styles": styles,
-            "count": len(styles),
-        }
+        return {"status": "ok", "family": family, "styles": styles, "count": len(styles)}
 
 
 class GetStyleInfo(ToolBase):
@@ -203,16 +162,7 @@ class GetStyleInfo(ToolBase):
     description = "Get detailed properties of a specific style (font, size, margins, etc.)."
     parameters = {
         "type": "object",
-        "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "Name of the style to inspect.",
-            },
-            "family": {
-                "type": "string",
-                "description": "Style family. Default: ParagraphStyles.",
-            },
-        },
+        "properties": {"style_name": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles."}},
         "required": ["style_name"],
     }
 
@@ -229,12 +179,7 @@ class GetStyleInfo(ToolBase):
             return self._tool_error("Style '%s' not found in %s." % (style_name, family))
 
         style = style_family.getByName(style_name)
-        info = {
-            "name": style_name,
-            "family": family,
-            "is_user_defined": style.isUserDefined(),
-            "is_in_use": style.isInUse(),
-        }
+        info = {"name": style_name, "family": family, "is_user_defined": style.isUserDefined(), "is_in_use": style.isInUse()}
 
         for prop_name in _FAMILY_PROPS.get(family, []):
             try:
@@ -262,24 +207,10 @@ class ApplyStyle(FrameworkToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "Style name (e.g. Heading 1, Source Text).",
-            },
-            "family": {
-                "type": "string",
-                "enum": ["ParagraphStyles", "CharacterStyles"],
-                "description": ("Style family. Default: ParagraphStyles."),
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to apply the style.",
-            },
-            "old_content": {
-                "type": "string",
-                "description": "Text to find and apply style to if target = 'search'.",
-            },
+            "style_name": {"type": "string", "description": "Style name (e.g. Heading 1, Source Text)."},
+            "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family. Default: ParagraphStyles.")},
+            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the style."},
+            "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
         },
         "required": ["style_name"],
     }
@@ -287,10 +218,7 @@ class ApplyStyle(FrameworkToolBase):
     is_mutation = True
 
     # Maps family to the UNO property that holds the style name.
-    _PROPERTY_MAP = {
-        "ParagraphStyles": "ParaStyleName",
-        "CharacterStyles": "CharStyleName",
-    }
+    _PROPERTY_MAP = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
     def execute(self, ctx, **kwargs):
         style_name = (kwargs.get("style_name") or "").strip()

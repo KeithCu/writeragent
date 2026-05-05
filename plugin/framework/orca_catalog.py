@@ -66,13 +66,7 @@ def aggregate_pricing(providers: list[dict[str, Any]]) -> dict[str, Any] | None:
 def aggregate_providers(providers: list[dict[str, Any]] | None) -> dict[str, Any]:
     """Merge all provider rows into one aggregate (max context, union params, any-flags)."""
     if not providers:
-        return {
-            "context_length": None,
-            "supported_parameters": [],
-            "chat_completions": None,
-            "native_web_search": None,
-            "pricing": None,
-        }
+        return {"context_length": None, "supported_parameters": [], "chat_completions": None, "native_web_search": None, "pricing": None}
     ctx_max: int | None = None
     params: set[str] = set()
     chat_any: bool | None = None
@@ -98,13 +92,7 @@ def aggregate_providers(providers: list[dict[str, Any]] | None) -> dict[str, Any
         if isinstance(nw, bool):
             web_any = nw if web_any is None else (web_any or nw)
     pricing = aggregate_pricing(providers)
-    return {
-        "context_length": ctx_max,
-        "supported_parameters": sorted(params),
-        "chat_completions": chat_any,
-        "native_web_search": web_any,
-        "pricing": pricing,
-    }
+    return {"context_length": ctx_max, "supported_parameters": sorted(params), "chat_completions": chat_any, "native_web_search": web_any, "pricing": pricing}
 
 
 def normalize_orca_model(raw: dict[str, Any]) -> dict[str, Any]:
@@ -145,27 +133,13 @@ def filter_slim_catalog_tool_calling_only(payload: dict[str, Any]) -> dict[str, 
     return newp
 
 
-def slim_catalog_payload(
-    raw_api: dict[str, Any],
-    *,
-    source_url: str,
-    generator: str = "orca_openrouter_catalog",
-) -> dict[str, Any]:
+def slim_catalog_payload(raw_api: dict[str, Any], *, source_url: str, generator: str = "orca_openrouter_catalog") -> dict[str, Any]:
     """Build the JSON object written by the sync script (tool-calling models only)."""
     models_raw = raw_api.get("models")
     if not isinstance(models_raw, list):
         raise ValueError("API response missing 'models' list")
     slim_models = [normalize_orca_model(m) for m in models_raw if isinstance(m, dict) and m.get("id")]
-    return filter_slim_catalog_tool_calling_only(
-        {
-            "updated_at": raw_api.get("updated_at"),
-            "models": slim_models,
-            "_meta": {
-                "source_url": source_url,
-                "generator": generator,
-            },
-        }
-    )
+    return filter_slim_catalog_tool_calling_only({"updated_at": raw_api.get("updated_at"), "models": slim_models, "_meta": {"source_url": source_url, "generator": generator}})
 
 
 def orca_slim_to_model_capability(slim: dict[str, Any]) -> ModelCapability:
@@ -190,17 +164,7 @@ def orca_slim_to_model_capability(slim: dict[str, Any]) -> ModelCapability:
     return caps
 
 
-_CAPABILITY_LABEL_ORDER = (
-    "CHAT",
-    "IMAGE",
-    "EMBEDDINGS",
-    "AUDIO",
-    "MODERATIONS",
-    "REALTIME",
-    "CODE",
-    "VISION",
-    "TOOLS",
-)
+_CAPABILITY_LABEL_ORDER = ("CHAT", "IMAGE", "EMBEDDINGS", "AUDIO", "MODERATIONS", "REALTIME", "CODE", "VISION", "TOOLS")
 
 
 def format_capability_labels(mask: int | ModelCapability) -> str:
@@ -219,12 +183,7 @@ def format_capability_labels(mask: int | ModelCapability) -> str:
     return ", ".join(parts)
 
 
-def context_length_mismatch_warning(
-    openrouter_id: str,
-    display_name: str,
-    existing: Any,
-    orca_value: Any,
-) -> str | None:
+def context_length_mismatch_warning(openrouter_id: str, display_name: str, existing: Any, orca_value: Any) -> str | None:
     """Return a warning line if curated context_length does not match Orca (before merge)."""
 
     def _as_int(x: Any) -> int | None:
@@ -242,12 +201,7 @@ def context_length_mismatch_warning(
     return f"openrouter {openrouter_id!r} ({display_name}): context_length differs — default_models={existing!r} Orca={orca_value!r}"
 
 
-def capability_mismatch_warning(
-    openrouter_id: str,
-    display_name: str,
-    existing_int: int,
-    orca_int: int,
-) -> str | None:
+def capability_mismatch_warning(openrouter_id: str, display_name: str, existing_int: int, orca_int: int) -> str | None:
     """Return a warning line if curated capability bitmask does not match Orca (before merge)."""
     if existing_int == orca_int:
         return None
@@ -262,10 +216,7 @@ def capability_mismatch_warning(
     )
 
 
-def merge_default_entry_from_slim(
-    entry: dict[str, Any],
-    slim: dict[str, Any] | None,
-) -> dict[str, Any]:
+def merge_default_entry_from_slim(entry: dict[str, Any], slim: dict[str, Any] | None) -> dict[str, Any]:
     """Update context_length and OR-in capabilities from a slim Orca row."""
     if slim is None:
         return entry

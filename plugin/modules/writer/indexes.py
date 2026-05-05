@@ -103,28 +103,11 @@ class IndexesCreate(ToolWriterIndexBase):
     parameters = {
         "type": "object",
         "properties": {
-            "index_kind": {
-                "type": "string",
-                "enum": ["toc", "alphabetical", "user", "illustration", "table", "object", "bibliography"],
-                "description": "The type of index to create.",
-            },
-            "title": {
-                "type": "string",
-                "description": "The title for the index (e.g., 'Table of Contents').",
-            },
-            "create_from_outline": {
-                "type": "boolean",
-                "description": "Whether to create the index from the document outline (mainly for toc). Default true.",
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to insert the index.",
-            },
-            "old_content": {
-                "type": "string",
-                "description": "Text to find and replace if target = 'search'.",
-            },
+            "index_kind": {"type": "string", "enum": ["toc", "alphabetical", "user", "illustration", "table", "object", "bibliography"], "description": "The type of index to create."},
+            "title": {"type": "string", "description": "The title for the index (e.g., 'Table of Contents')."},
+            "create_from_outline": {"type": "boolean", "description": "Whether to create the index from the document outline (mainly for toc). Default true."},
+            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the index."},
+            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
         },
         "required": ["index_kind"],
     }
@@ -190,32 +173,12 @@ class IndexesAddMark(ToolWriterIndexBase):
     parameters = {
         "type": "object",
         "properties": {
-            "mark_text": {
-                "type": "string",
-                "description": "Visible text or entry key for the mark.",
-            },
-            "index_kind": {
-                "type": "string",
-                "enum": ["alphabetical", "user"],
-                "description": "The type of index mark to create (default 'alphabetical').",
-            },
-            "primary_key": {
-                "type": "string",
-                "description": "The primary key for an alphabetical index entry (optional).",
-            },
-            "secondary_key": {
-                "type": "string",
-                "description": "The secondary key for an alphabetical index entry (optional).",
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to insert the index mark.",
-            },
-            "old_content": {
-                "type": "string",
-                "description": "Text to find and replace if target = 'search'.",
-            },
+            "mark_text": {"type": "string", "description": "Visible text or entry key for the mark."},
+            "index_kind": {"type": "string", "enum": ["alphabetical", "user"], "description": "The type of index mark to create (default 'alphabetical')."},
+            "primary_key": {"type": "string", "description": "The primary key for an alphabetical index entry (optional)."},
+            "secondary_key": {"type": "string", "description": "The secondary key for an alphabetical index entry (optional)."},
+            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the index mark."},
+            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
         },
         "required": ["mark_text"],
     }

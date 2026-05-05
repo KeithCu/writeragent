@@ -24,13 +24,7 @@ if TYPE_CHECKING:
 
 
 def build_toolcalling_agent(
-    ctx: ToolContext,
-    tools: Sequence[SmolTool],
-    *,
-    instructions: str,
-    final_answer_tool_name: str,
-    examples_block: str,
-    status_callback: object | None = None,
+    ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None
 ) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     uno_ctx = ctx.ctx
@@ -38,16 +32,5 @@ def build_toolcalling_agent(
     max_tokens = get_config_int(uno_ctx, "chat_max_tokens")
     max_steps = get_config_int(uno_ctx, "chat_max_tool_rounds")
 
-    smol_model = WriterAgentSmolModel(
-        LlmClient(config, uno_ctx),
-        max_tokens=max_tokens,
-        status_callback=status_callback,
-    )
-    return ToolCallingAgent(
-        tools=list(tools),
-        model=smol_model,
-        max_steps=max_steps,
-        instructions=instructions,
-        final_answer_tool_name=final_answer_tool_name,
-        system_prompt_examples=examples_block,
-    )
+    smol_model = WriterAgentSmolModel(LlmClient(config, uno_ctx), max_tokens=max_tokens, status_callback=status_callback)
+    return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)

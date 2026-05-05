@@ -54,15 +54,8 @@ class DelegateToSpecializedBase(ToolBase):
         self.parameters = {
             "type": "object",
             "properties": {
-                "domain": {
-                    "type": "string",
-                    "enum": domains,
-                    "description": "The specialized domain to activate.",
-                },
-                "task": {
-                    "type": "string",
-                    "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
-                },
+                "domain": {"type": "string", "enum": domains, "description": "The specialized domain to activate."},
+                "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT},
             },
             "required": ["domain", "task"],
         }
@@ -94,10 +87,7 @@ class DelegateToSpecializedBase(ToolBase):
             if status_callback:
                 status_callback(f"Switched to '{domain}' tools.")
 
-            return {
-                "status": "ok",
-                "message": msg,
-            }
+            return {"status": "ok", "message": msg}
 
         if status_callback:
             status_callback(f"Delegating to specialized agent ({domain})...")
@@ -106,10 +96,7 @@ class DelegateToSpecializedBase(ToolBase):
         registry = ctx.services.get("tools")
 
         # Get ALL registered tools
-        all_tools = registry.get_tools(
-            filter_doc_type=False,
-            exclude_tiers=(),
-        )
+        all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=())
 
         domain_tools = []
         for t in all_tools:
@@ -143,12 +130,7 @@ class DelegateToSpecializedBase(ToolBase):
         )
 
         agent = build_toolcalling_agent(
-            ctx,
-            smol_tools,
-            instructions=instructions,
-            final_answer_tool_name="specialized_workflow_finished",
-            examples_block=SPECIALIZED_EXAMPLES_BLOCK,
-            status_callback=status_callback,
+            ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=SPECIALIZED_EXAMPLES_BLOCK, status_callback=status_callback
         )
 
         executor = SmolAgentExecutor(ctx)
@@ -164,8 +146,4 @@ class DelegateToSpecializedBase(ToolBase):
         if isinstance(final_ans, dict) and "status" in final_ans:
             return final_ans
 
-        return {
-            "status": "ok",
-            "message": _(f"Specialized task ({domain}) completed."),
-            "result": str(final_ans),
-        }
+        return {"status": "ok", "message": _(f"Specialized task ({domain}) completed."), "result": str(final_ans)}

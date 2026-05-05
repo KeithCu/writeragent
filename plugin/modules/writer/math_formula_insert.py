@@ -18,13 +18,7 @@ _PARAGRAPH_BREAK = 0
 _ANCHOR_AS_CHARACTER = 1
 
 
-def insert_writer_math_formula(
-    model: Any,
-    cursor: Any,
-    starmath: str,
-    *,
-    display_block: bool,
-) -> None:
+def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, display_block: bool) -> None:
     """Insert a Writer formula object at *cursor* and leave the cursor after it.
 
     *display_block*: surround the object with paragraph breaks so it occupies

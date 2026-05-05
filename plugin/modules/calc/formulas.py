@@ -41,11 +41,7 @@ class DetectErrors(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.'),
-            },
+            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}
         },
         "required": [],
     }
@@ -65,13 +61,7 @@ class DetectErrors(ToolBase):
             combined_errors = []
             for res in results:
                 combined_errors.extend(res.get("errors", []))
-            return {
-                "status": "ok",
-                "result": {
-                    "error_count": len(combined_errors),
-                    "errors": combined_errors,
-                },
-            }
+            return {"status": "ok", "result": {"error_count": len(combined_errors), "errors": combined_errors}}
         else:
             result = error_detector.detect_and_explain(range_str=cast("str", rn))
             return {"status": "ok", "result": result}

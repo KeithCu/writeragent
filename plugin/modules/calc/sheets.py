@@ -36,10 +36,7 @@ class ListSheets(ToolCalcSheetBase):
 
     name = "list_sheets"
     description = "Lists all sheet names in the workbook."
-    parameters = {
-        "type": "object",
-        "properties": {},
-    }
+    parameters = {"type": "object", "properties": {}}
     is_mutation = False
 
     def execute(self, ctx, **kwargs):
@@ -64,16 +61,7 @@ class SwitchSheet(ToolCalcSheetBase):
     name = "switch_sheet"
     intent = "edit"
     description = "Switches to the specified sheet (makes it active)."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "sheet_name": {
-                "type": "string",
-                "description": "Name of the sheet to switch to",
-            },
-        },
-        "required": ["sheet_name"],
-    }
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet_name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -105,14 +93,8 @@ class CreateSheet(ToolCalcSheetBase):
     parameters = {
         "type": "object",
         "properties": {
-            "sheet_name": {
-                "type": "string",
-                "description": "New sheet name",
-            },
-            "position": {
-                "type": "integer",
-                "description": ("Sheet position (0-based). Appended to end if not specified."),
-            },
+            "sheet_name": {"type": "string", "description": "New sheet name"},
+            "position": {"type": "integer", "description": ("Sheet position (0-based). Appended to end if not specified.")},
         },
         "required": ["sheet_name"],
     }
@@ -142,16 +124,7 @@ class GetSheetSummary(ToolCalcSheetBase):
 
     name = "get_sheet_summary"
     description = "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet name (active sheet if empty)",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "Sheet name (active sheet if empty)"}}, "required": []}
     is_mutation = False
 
     def execute(self, ctx, **kwargs):

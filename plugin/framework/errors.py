@@ -22,12 +22,7 @@ All custom exceptions should inherit from WriterAgentException.
 from __future__ import annotations
 
 from plugin.framework.i18n import _
-from plugin.framework.base_errors import (
-    ConfigError,
-    NetworkError,
-    WriterAgentException,
-    format_error_payload,
-)
+from plugin.framework.base_errors import ConfigError, NetworkError, WriterAgentException, format_error_payload
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
 
 

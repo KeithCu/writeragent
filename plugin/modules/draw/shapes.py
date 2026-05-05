@@ -39,17 +39,7 @@ def _parse_color(color_str):
     if not color_str:
         return None
     color_str = color_str.strip().lower()
-    names = {
-        "red": 0xFF0000,
-        "green": 0x00FF00,
-        "blue": 0x0000FF,
-        "yellow": 0xFFFF00,
-        "white": 0xFFFFFF,
-        "black": 0x000000,
-        "orange": 0xFF8C00,
-        "purple": 0x800080,
-        "gray": 0x808080,
-    }
+    names = {"red": 0xFF0000, "green": 0x00FF00, "blue": 0x0000FF, "yellow": 0xFFFF00, "white": 0xFFFFFF, "black": 0x000000, "orange": 0xFF8C00, "purple": 0x800080, "gray": 0x808080}
     if color_str in names:
         return names[color_str]
     if color_str.startswith("#"):
@@ -82,21 +72,14 @@ def _try_writer_anchor_shape_before_add(doc, shape) -> None:
             log.debug("create_shape writer_anchor: PropertySetInfo failed: %s", ex)
 
         shape.setPropertyValue("AnchorType", AT_PAGE)
-        log.debug(
-            "create_shape writer_anchor: set AnchorType=AT_PAGE ok has_anchor_prop=%s",
-            has_anchor,
-        )
+        log.debug("create_shape writer_anchor: set AnchorType=AT_PAGE ok has_anchor_prop=%s", has_anchor)
         try:
             cur = shape.getPropertyValue("AnchorType")
             log.debug("create_shape writer_anchor: readback AnchorType=%r", cur)
         except Exception as ex:
             log.debug("create_shape writer_anchor: readback AnchorType failed: %s", ex)
     except Exception as ex:
-        log.warning(
-            "create_shape writer_anchor: set AnchorType failed: %s: %s",
-            type(ex).__name__,
-            ex,
-        )
+        log.warning("create_shape writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
 
 
 def _log_shape_uno_snapshot(phase: str, shape) -> None:
@@ -186,13 +169,7 @@ def _log_shape_property_names_sample(shape, phase: str, limit: int = 60) -> None
             except Exception:
                 pass
         names.sort()
-        log.debug(
-            "create_shape prop_names [%s]: total=%s first_%s=%s",
-            phase,
-            len(names),
-            limit,
-            names[:limit],
-        )
+        log.debug("create_shape prop_names [%s]: total=%s first_%s=%s", phase, len(names), limit, names[:limit])
     except Exception as ex:
         log.debug("create_shape prop_names [%s]: failed: %s", phase, ex)
 
@@ -218,11 +195,7 @@ def _log_writer_document_shape_context(doc) -> None:
                 n_para += 1
         except Exception as ex:
             log.debug("create_shape writer_doc_ctx: enum failed: %s", ex)
-        log.debug(
-            "create_shape writer_doc_ctx: body_elements_enumerated=%s url=%r",
-            n_para,
-            url[:120] if url else "",
-        )
+        log.debug("create_shape writer_doc_ctx: body_elements_enumerated=%s url=%r", n_para, url[:120] if url else "")
     except Exception as ex:
         log.debug("create_shape writer_doc_ctx: %s", ex)
 
@@ -243,11 +216,7 @@ def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
         shape.setPropertyValue("VertOrient", 0)
         shape.setPropertyValue("HoriOrientRelation", 8)  # PAGE_PRINT_AREA
         shape.setPropertyValue("VertOrientRelation", 8)  # PAGE_PRINT_AREA
-        log.debug(
-            "create_shape writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0",
-            anchor_no,
-            idx,
-        )
+        log.debug("create_shape writer_at_page_finalize: AnchorPageNo=%s draw_page_index=%s HoriOrient=0 VertOrient=0", anchor_no, idx)
         try:
             log.debug(
                 "create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r",
@@ -258,11 +227,7 @@ def _try_writer_at_page_shape_finalize(doc, bridge, page, shape) -> None:
         except Exception as ex:
             log.debug("create_shape writer_at_page_finalize: readback failed: %s", ex)
     except Exception as ex:
-        log.warning(
-            "create_shape writer_at_page_finalize: failed %s: %s",
-            type(ex).__name__,
-            ex,
-        )
+        log.warning("create_shape writer_at_page_finalize: failed %s: %s", type(ex).__name__, ex)
 
 
 def _try_writer_reapply_position_after_anchor(doc, shape, position, size) -> None:
@@ -272,13 +237,7 @@ def _try_writer_reapply_position_after_anchor(doc, shape, position, size) -> Non
             return
         shape.setPosition(position)
         shape.setSize(size)
-        log.debug(
-            "create_shape writer_reapply_pos: pos=(%s,%s) size=(%sx%s)",
-            position.X,
-            position.Y,
-            size.Width,
-            size.Height,
-        )
+        log.debug("create_shape writer_reapply_pos: pos=(%s,%s) size=(%sx%s)", position.X, position.Y, size.Width, size.Height)
     except Exception as ex:
         log.warning("create_shape writer_reapply_pos: %s: %s", type(ex).__name__, ex)
 
@@ -346,12 +305,7 @@ def _log_create_shape_page_context(doc, bridge, page) -> None:
         pages = bridge.get_pages()
         n_draw_pages = pages.getCount() if pages is not None else -1
         n_on_page = page.getCount() if page is not None else -1
-        log.debug(
-            "create_shape page_context: is_writer=%s draw_pages=%s shapes_on_target_page=%s",
-            is_writer,
-            n_draw_pages,
-            n_on_page,
-        )
+        log.debug("create_shape page_context: is_writer=%s draw_pages=%s shapes_on_target_page=%s", is_writer, n_draw_pages, n_on_page)
         ctrl = doc.getCurrentController() if doc else None
         if ctrl is None:
             log.debug("create_shape page_context: controller=None")
@@ -365,11 +319,7 @@ def _log_create_shape_page_context(doc, bridge, page) -> None:
         except Exception as ex:
             log.debug("create_shape page_context: getCurrentPage raised %s: %s", type(ex).__name__, ex)
             return
-        log.debug(
-            "create_shape page_context: getCurrentPage is_none=%s same_ref_as_target=%s",
-            cur is None,
-            (cur is page) if cur is not None and page is not None else None,
-        )
+        log.debug("create_shape page_context: getCurrentPage is_none=%s same_ref_as_target=%s", cur is None, (cur is page) if cur is not None and page is not None else None)
         try:
             if cur is not None and page is not None and cur is not page:
                 eq = cur == page
@@ -427,19 +377,10 @@ def _apply_enhanced_custom_shape_type(shape, custom_shape_type: str) -> tuple[bo
         shape.setPropertyValue("CustomShapeEngine", _ENHANCED_CUSTOM_SHAPE_ENGINE)
         prop_seq = uno.Any("[]com.sun.star.beans.PropertyValue", (prop,))  # type: ignore
         uno.invoke(shape, "setPropertyValue", typing.cast("typing.Any", ("CustomShapeGeometry", prop_seq)))
-        log.debug(
-            "create_shape enhanced_geometry: ok type=%r engine=%r",
-            custom_shape_type,
-            _ENHANCED_CUSTOM_SHAPE_ENGINE,
-        )
+        log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
     except Exception as ex:
-        log.debug(
-            "create_shape enhanced_geometry: failed type=%r err=%s: %s",
-            custom_shape_type,
-            type(ex).__name__,
-            ex,
-        )
+        log.debug("create_shape enhanced_geometry: failed type=%r err=%s: %s", custom_shape_type, type(ex).__name__, ex)
         return False, f"{type(ex).__name__}: {ex}"
 
 
@@ -447,10 +388,7 @@ class ListPages(ToolBase):
     name = "list_pages"
     description = "Lists all pages (slides) in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     tier = "core"
 
@@ -459,31 +397,15 @@ class ListPages(ToolBase):
 
         bridge = DrawBridge(ctx.doc)
         pages = bridge.get_pages()
-        return {
-            "status": "ok",
-            "pages": [f"Page {i}" for i in range(pages.getCount())],
-            "count": pages.getCount(),
-        }
+        return {"status": "ok", "pages": [f"Page {i}" for i in range(pages.getCount())], "count": pages.getCount()}
 
 
 class GetDrawSummary(ToolDrawShapeBase):
     name = "get_draw_summary"
     intent = "edit"
     description = "Returns a summary of shapes on the active or specified page."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based page index (active page if omitted)",
-            }
-        },
-        "required": [],
-    }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
 
     def execute(self, ctx, **kwargs):
@@ -497,14 +419,7 @@ class GetDrawSummary(ToolDrawShapeBase):
         shapes = []
         for i in range(page.getCount()):
             s = page.getByIndex(i)
-            info = {
-                "index": i,
-                "type": s.getShapeType(),
-                "x": s.getPosition().X,
-                "y": s.getPosition().Y,
-                "width": s.getSize().Width,
-                "height": s.getSize().Height,
-            }
+            info = {"index": i, "type": s.getShapeType(), "x": s.getPosition().X, "y": s.getPosition().Y, "width": s.getSize().Width, "height": s.getSize().Height}
             if hasattr(s, "getString"):
                 info["text"] = s.getString()
             shapes.append(info)
@@ -524,15 +439,7 @@ class DrawShapes:
             return False
         return True
 
-    def safe_create_shape(
-        self,
-        doc,
-        page,
-        shape_type,
-        position,
-        size,
-        custom_shape_type: str | None = None,
-    ):
+    def safe_create_shape(self, doc, page, shape_type, position, size, custom_shape_type: str | None = None):
         """Safely create shape with error handling.
 
         Shapes are created via the document's factory (``doc.createInstance``);
@@ -573,11 +480,7 @@ class DrawShapes:
             if custom_shape_type:
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
                 if not geometry_applied:
-                    log.warning(
-                        "create_shape safe_create: enhanced geometry failed before add type=%s err=%s",
-                        custom_shape_type,
-                        geometry_error,
-                    )
+                    log.warning("create_shape safe_create: enhanced geometry failed before add type=%s err=%s", custom_shape_type, geometry_error)
 
             _try_writer_anchor_shape_before_add(doc, shape)
 
@@ -588,11 +491,7 @@ class DrawShapes:
                 n_after = page.getCount()
             except Exception:
                 n_after = -1
-            log.debug(
-                "create_shape safe_create: added uno=%s page_shape_count=%s",
-                full_type,
-                n_after,
-            )
+            log.debug("create_shape safe_create: added uno=%s page_shape_count=%s", full_type, n_after)
             _log_shape_uno_snapshot("after_page_add", shape)
 
             return shape, geometry_applied, geometry_error
@@ -739,10 +638,7 @@ class CreateShape(ToolDrawShapeBase):
     parameters = {
         "type": "object",
         "properties": {
-            "shape_type": {
-                "type": "string",
-                "description": _CREATE_SHAPE_SHAPE_TYPE_DESC,
-            },
+            "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC},
             "x": {"type": "integer", "description": "X position (100ths of mm)"},
             "y": {"type": "integer", "description": "Y position (100ths of mm)"},
             "width": {"type": "integer", "description": "Width (100ths of mm)"},
@@ -760,10 +656,7 @@ class CreateShape(ToolDrawShapeBase):
         },
         "required": ["shape_type", "x", "y", "width", "height"],
     }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     is_mutation = True
 
@@ -772,13 +665,7 @@ class CreateShape(ToolDrawShapeBase):
         from com.sun.star.awt import Point, Size
 
         bridge = DrawBridge(ctx.doc)
-        type_map = {
-            "rectangle": "RectangleShape",
-            "ellipse": "EllipseShape",
-            "text": "TextShape",
-            "line": "LineShape",
-            "connector": "ConnectorShape",
-        }
+        type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
 
         page = bridge.get_active_page()
@@ -850,22 +737,9 @@ class CreateShape(ToolDrawShapeBase):
         shape_count_after = page.getCount()
         shape_index = shape_count_after - 1
 
-        log.debug(
-            "create_shape: page_index=%s shape_index=%s shape_type=%s is_custom=%s geometry_applied=%s",
-            page_index,
-            shape_index,
-            shape_type_raw,
-            is_custom_shape,
-            geometry_applied,
-        )
+        log.debug("create_shape: page_index=%s shape_index=%s shape_type=%s is_custom=%s geometry_applied=%s", page_index, shape_index, shape_type_raw, is_custom_shape, geometry_applied)
 
-        result: dict = {
-            "status": "ok",
-            "message": f"Created {shape_type_raw}",
-            "shape_index": shape_index,
-            "page_index": page_index,
-            "shape_count_after": shape_count_after,
-        }
+        result: dict = {"status": "ok", "message": f"Created {shape_type_raw}", "shape_index": shape_index, "page_index": page_index, "shape_count_after": shape_count_after}
         if is_custom_shape:
             result["custom_shape_engine"] = _ENHANCED_CUSTOM_SHAPE_ENGINE
             result["geometry_applied"] = bool(geometry_applied)
@@ -902,10 +776,7 @@ class EditShape(ToolDrawShapeBase):
         },
         "required": ["shape_index"],
     }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -942,24 +813,15 @@ class ConnectShapes(ToolDrawShapeBase):
     parameters = {
         "type": "object",
         "properties": {
-            "start_shape_index": {
-                "type": "integer",
-                "description": "Index of the starting shape.",
-            },
-            "end_shape_index": {
-                "type": "integer",
-                "description": "Index of the ending shape.",
-            },
+            "start_shape_index": {"type": "integer", "description": "Index of the starting shape."},
+            "end_shape_index": {"type": "integer", "description": "Index of the ending shape."},
             "page_index": {"type": "integer", "description": "Page index containing the shapes"},
             "line_color": {"type": "string", "description": "Color of the connector line"},
             "line_width": {"type": "integer", "description": "Line width (100ths of mm)"},
         },
         "required": ["start_shape_index", "end_shape_index"],
     }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     is_mutation = True
 
@@ -1012,22 +874,12 @@ class GroupShapes(ToolDrawShapeBase):
     parameters = {
         "type": "object",
         "properties": {
-            "shape_indices": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "description": "List of shape indices to group.",
-            },
-            "page_index": {
-                "type": "integer",
-                "description": "Page index containing the shapes",
-            },
+            "shape_indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."},
+            "page_index": {"type": "integer", "description": "Page index containing the shapes"},
         },
         "required": ["shape_indices"],
     }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     is_mutation = True
 
@@ -1067,18 +919,8 @@ class DeleteShape(ToolDrawShapeBase):
     name = "delete_shape"
     intent = "edit"
     description = "Deletes a shape by index."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "shape_index": {"type": "integer"},
-            "page_index": {"type": "integer"},
-        },
-        "required": ["shape_index"],
-    }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    parameters = {"type": "object", "properties": {"shape_index": {"type": "integer"}, "page_index": {"type": "integer"}}, "required": ["shape_index"]}
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

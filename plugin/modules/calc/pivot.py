@@ -72,20 +72,8 @@ def _field_name_map(desc) -> dict[str, Any]:
     return out
 
 
-def _set_field_orientations(
-    desc,
-    row_fields: list[str],
-    column_fields: list[str],
-    data_fields: list[str],
-    page_fields: list[str],
-) -> None:
-    from com.sun.star.sheet.DataPilotFieldOrientation import (
-        COLUMN,
-        DATA,
-        HIDDEN,
-        PAGE,
-        ROW,
-    )
+def _set_field_orientations(desc, row_fields: list[str], column_fields: list[str], data_fields: list[str], page_fields: list[str]) -> None:
+    from com.sun.star.sheet.DataPilotFieldOrientation import COLUMN, DATA, HIDDEN, PAGE, ROW
 
     names = row_fields + column_fields + data_fields + page_fields
     if len(names) != len(set(names)):
@@ -151,46 +139,15 @@ class CreatePivotTable(ToolCalcPivotBase):
     parameters = {
         "type": "object",
         "properties": {
-            "pivot_table_name": {
-                "type": "string",
-                "description": "Unique name for this pivot table in the document.",
-            },
-            "source_range": {
-                "type": "string",
-                "description": "Data range including headers, e.g. A1:D20.",
-            },
-            "source_sheet_name": {
-                "type": "string",
-                "description": "Sheet containing source_range. Omit to use the active sheet.",
-            },
-            "destination_cell": {
-                "type": "string",
-                "description": "Top-left cell for the pivot output, e.g. A1 or F3.",
-            },
-            "destination_sheet_name": {
-                "type": "string",
-                "description": "Sheet where the pivot is drawn. Omit to use the active sheet.",
-            },
-            "row_fields": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Source column headers to use as row fields.",
-            },
-            "column_fields": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Source column headers to use as column fields.",
-            },
-            "data_fields": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Source column headers to aggregate in the data area (required).",
-            },
-            "page_fields": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Optional page/filter fields (headers).",
-            },
+            "pivot_table_name": {"type": "string", "description": "Unique name for this pivot table in the document."},
+            "source_range": {"type": "string", "description": "Data range including headers, e.g. A1:D20."},
+            "source_sheet_name": {"type": "string", "description": "Sheet containing source_range. Omit to use the active sheet."},
+            "destination_cell": {"type": "string", "description": "Top-left cell for the pivot output, e.g. A1 or F3."},
+            "destination_sheet_name": {"type": "string", "description": "Sheet where the pivot is drawn. Omit to use the active sheet."},
+            "row_fields": {"type": "array", "items": {"type": "string"}, "description": "Source column headers to use as row fields."},
+            "column_fields": {"type": "array", "items": {"type": "string"}, "description": "Source column headers to use as column fields."},
+            "data_fields": {"type": "array", "items": {"type": "string"}, "description": "Source column headers to aggregate in the data area (required)."},
+            "page_fields": {"type": "array", "items": {"type": "string"}, "description": "Optional page/filter fields (headers)."},
         },
         "required": ["pivot_table_name", "source_range", "destination_cell", "data_fields"],
     }
@@ -244,11 +201,7 @@ class CreatePivotTable(ToolCalcPivotBase):
             desc.setSourceRange(_range_address_for_sheet(src_idx, range_str))
             _set_field_orientations(desc, row_fields, column_fields, data_fields, page_fields)
 
-            dp_tables.insertNewByName(
-                pivot_name,
-                _cell_address(dest_idx, dest_cell),
-                desc,
-            )
+            dp_tables.insertNewByName(pivot_name, _cell_address(dest_idx, dest_cell), desc)
 
             # Refresh so output is materialized (avoids #VALUE! in some layouts).
             tbl_any = dp_tables.getByName(pivot_name)
@@ -279,10 +232,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
         "type": "object",
         "properties": {
             "pivot_table_name": {"type": "string", "description": "Name of the pivot table."},
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet containing the pivot. Omit to search the workbook.",
-            },
+            "sheet_name": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."},
         },
         "required": ["pivot_table_name"],
     }
@@ -330,16 +280,7 @@ class ListPivotTables(ToolCalcPivotBase):
 
     name = "list_pivot_tables"
     description = "List pivot tables in the spreadsheet, optionally limited to one sheet."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "sheet_name": {
-                "type": "string",
-                "description": "If set, only list pivot tables on this sheet.",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
     is_mutation = False
 
     def execute(self, ctx, **kwargs):
@@ -361,10 +302,7 @@ class ListPivotTables(ToolCalcPivotBase):
             for sheet in sheet_iter:
                 dp_tables = _get_dp_tables(sheet)
                 for pname in dp_tables.getElementNames():
-                    entry: dict[str, Any] = {
-                        "name": pname,
-                        "sheet": sheet.getName(),
-                    }
+                    entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}
                     try:
                         tbl_any = dp_tables.getByName(pname)
                         dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")

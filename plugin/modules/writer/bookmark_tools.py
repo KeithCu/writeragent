@@ -31,12 +31,7 @@ class ListBookmarks(ToolWriterBookmarkBase):
             for name in names:
                 bm = bookmarks.getByName(name)
                 anchor_text = bm.getAnchor().getString()
-                result.append(
-                    {
-                        "name": name,
-                        "text": anchor_text[:100] if anchor_text else "",
-                    }
-                )
+                result.append({"name": name, "text": anchor_text[:100] if anchor_text else ""})
             return {"status": "ok", "bookmarks": result, "count": len(result)}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -57,16 +52,7 @@ class CleanupBookmarks(ToolWriterBookmarkBase):
 class CreateBookmark(ToolWriterBookmarkBase):
     name = "create_bookmark"
     description = "Create a new bookmark at the current cursor or selection in Writer. If text is selected, the bookmark will span the selection."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": "The unique name for the new bookmark.",
-            }
-        },
-        "required": ["name"],
-    }
+    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The unique name for the new bookmark."}}, "required": ["name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -111,16 +97,7 @@ class CreateBookmark(ToolWriterBookmarkBase):
 class DeleteBookmark(ToolWriterBookmarkBase):
     name = "delete_bookmark"
     description = "Delete an existing bookmark by its name."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": "The name of the bookmark to delete.",
-            }
-        },
-        "required": ["name"],
-    }
+    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark to delete."}}, "required": ["name"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -153,16 +130,7 @@ class RenameBookmark(ToolWriterBookmarkBase):
     description = "Rename an existing bookmark."
     parameters = {
         "type": "object",
-        "properties": {
-            "old_name": {
-                "type": "string",
-                "description": "The current name of the bookmark.",
-            },
-            "new_name": {
-                "type": "string",
-                "description": "The new name for the bookmark.",
-            },
-        },
+        "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}},
         "required": ["old_name", "new_name"],
     }
     is_mutation = True
@@ -197,16 +165,7 @@ class RenameBookmark(ToolWriterBookmarkBase):
 class GetBookmark(ToolWriterBookmarkBase):
     name = "get_bookmark"
     description = "Get details about a specific bookmark, including the text it spans."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": "The name of the bookmark.",
-            }
-        },
-        "required": ["name"],
-    }
+    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark."}}, "required": ["name"]}
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -226,13 +185,7 @@ class GetBookmark(ToolWriterBookmarkBase):
             anchor = bm.getAnchor()
             text_content = anchor.getString()
 
-            return {
-                "status": "ok",
-                "bookmark": {
-                    "name": name,
-                    "text": text_content,
-                },
-            }
+            return {"status": "ok", "bookmark": {"name": name, "text": text_content}}
         except Exception as e:
             return self._tool_error(f"Failed to get bookmark details: {str(e)}")
 
@@ -245,16 +198,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
     description = (
         "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "bookmark_name": {
-                "type": "string",
-                "description": "Bookmark name (e.g. _mcp_a1b2c3d4).",
-            },
-        },
-        "required": ["bookmark_name"],
-    }
+    parameters = {"type": "object", "properties": {"bookmark_name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["bookmark_name"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -285,11 +229,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
         text_obj = doc.getText()
         para_idx = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
 
-        result = {
-            "status": "ok",
-            "bookmark": bookmark_name,
-            "paragraph_index": para_idx,
-        }
+        result = {"status": "ok", "bookmark": bookmark_name, "paragraph_index": para_idx}
 
         # Get heading text if available
         if 0 <= para_idx < len(para_ranges):

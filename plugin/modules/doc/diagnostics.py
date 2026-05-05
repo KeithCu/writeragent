@@ -18,11 +18,7 @@ class DocumentHealthCheck(ToolBaseDummy):
     name = "document_health_check"
     intent = "review"
     description = "Run structural health checks on the document. Detects empty headings, heading level jumps, orphan images, large unstructured blocks."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -67,23 +63,9 @@ class DocumentHealthCheck(ToolBaseDummy):
                             "type": "heading_level_skip",
                             "severity": "info",
                             "paragraph_index": i,
-                            "message": (
-                                "Heading jumps from level %d to %d "
-                                "at paragraph %d: '%s'"
-                                % (
-                                    last_heading_level,
-                                    outline_level,
-                                    i,
-                                    heading_preview,
-                                )
-                            ),
+                            "message": ("Heading jumps from level %d to %d at paragraph %d: '%s'" % (last_heading_level, outline_level, i, heading_preview)),
                             "detail": (
-                                "Heading jumps from level %d to %d (skips %s)."
-                                % (
-                                    last_heading_level,
-                                    outline_level,
-                                    ", ".join(str(lv) for lv in range(last_heading_level + 1, outline_level)),
-                                )
+                                "Heading jumps from level %d to %d (skips %s)." % (last_heading_level, outline_level, ", ".join(str(lv) for lv in range(last_heading_level + 1, outline_level)))
                             ),
                         }
                     )
@@ -185,13 +167,7 @@ class DocumentHealthCheck(ToolBaseDummy):
         except Exception:
             pass
 
-        return {
-            "status": "ok",
-            "issues": issues,
-            "issue_count": len(issues),
-            "paragraph_count": len(para_ranges),
-            "total_headings": total_headings,
-        }
+        return {"status": "ok", "issues": issues, "issue_count": len(issues), "paragraph_count": len(para_ranges), "total_headings": total_headings}
 
 
 class SetDocumentProtection(ToolBaseDummy):
@@ -202,16 +178,7 @@ class SetDocumentProtection(ToolBaseDummy):
     description = "Set or remove document section protection."
     parameters = {
         "type": "object",
-        "properties": {
-            "enabled": {
-                "type": "boolean",
-                "description": "True to protect sections, False to unprotect.",
-            },
-            "password": {
-                "type": "string",
-                "description": "Optional protection password.",
-            },
-        },
+        "properties": {"enabled": {"type": "boolean", "description": "True to protect sections, False to unprotect."}, "password": {"type": "string", "description": "Optional protection password."}},
         "required": ["enabled"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -229,12 +196,7 @@ class SetDocumentProtection(ToolBaseDummy):
 
         count = sections.getCount()
         if count == 0:
-            return {
-                "status": "ok",
-                "protected": enabled,
-                "sections_count": 0,
-                "message": "No text sections found in document.",
-            }
+            return {"status": "ok", "protected": enabled, "sections_count": 0, "message": "No text sections found in document."}
 
         for i in range(count):
             section = sections.getByIndex(i)
@@ -252,8 +214,4 @@ class SetDocumentProtection(ToolBaseDummy):
             except Exception as exc:
                 log.warning("Could not set protection on section %d: %s", i, exc)
 
-        return {
-            "status": "ok",
-            "protected": enabled,
-            "sections_count": count,
-        }
+        return {"status": "ok", "protected": enabled, "sections_count": count}

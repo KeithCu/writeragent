@@ -104,15 +104,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         effects.append(ParseRequestEffect())
         effects.append(ResolveDocumentEffect(document_url=document_url, is_long_running=is_long_running))
         return FsmTransition(
-            dataclasses.replace(
-                state,
-                status=MCPStateStr.RESOLVING_DOCUMENT,
-                tool_name=tool_name,
-                arguments=arguments,
-                document_url=document_url,
-                is_long_running=is_long_running,
-            ),
-            effects,
+            dataclasses.replace(state, status=MCPStateStr.RESOLVING_DOCUMENT, tool_name=tool_name, arguments=arguments, document_url=document_url, is_long_running=is_long_running), effects
         )
 
     elif event.kind == EventKind.DOCUMENT_RESOLVED:
@@ -124,15 +116,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         if error_payload:
             # Resolution failed
             effects.append(StreamResponseEffect(result=error_payload, is_error=True))
-            return FsmTransition(
-                dataclasses.replace(
-                    state,
-                    status=MCPStateStr.ERROR,
-                    is_error=True,
-                    result=error_payload,
-                ),
-                effects,
-            )
+            return FsmTransition(dataclasses.replace(state, status=MCPStateStr.ERROR, is_error=True, result=error_payload), effects)
 
         # Move to executing tool
         import typing
@@ -148,16 +132,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
                 document_url=state.document_url,
             )
         )
-        return FsmTransition(
-            dataclasses.replace(
-                state,
-                status=MCPStateStr.EXECUTING_TOOL,
-                doc_context=doc_context,
-                doc_type=doc_type,
-                uno_ctx=uno_ctx,
-            ),
-            effects,
-        )
+        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.EXECUTING_TOOL, doc_context=doc_context, doc_type=doc_type, uno_ctx=uno_ctx), effects)
 
     elif event.kind == EventKind.TOOL_EXECUTION_STARTED:
         # Just an informational event, we stay in EXECUTING_TOOL
@@ -168,15 +143,7 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         is_error = isinstance(result, dict) and result.get("status") == "error"
 
         effects.append(StreamResponseEffect(result=result, is_error=is_error))
-        return FsmTransition(
-            dataclasses.replace(
-                state,
-                status=MCPStateStr.STREAMING_RESPONSE,
-                result=result,
-                is_error=is_error,
-            ),
-            effects,
-        )
+        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.STREAMING_RESPONSE, result=result, is_error=is_error), effects)
 
     elif event.kind == EventKind.REQUEST_ERROR:
         message = event.data.get("message", "Unknown error")
@@ -186,16 +153,6 @@ def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
         # For simplicity, we can trigger StreamResponseEffect with an error payload
         err_payload = {"status": "error", "code": code, "message": message}
         effects.append(StreamResponseEffect(result=err_payload, is_error=True))
-        return FsmTransition(
-            dataclasses.replace(
-                state,
-                status=MCPStateStr.ERROR,
-                is_error=True,
-                error_message=message,
-                error_code=code,
-                result=err_payload,
-            ),
-            effects,
-        )
+        return FsmTransition(dataclasses.replace(state, status=MCPStateStr.ERROR, is_error=True, error_message=message, error_code=code, result=err_payload), effects)
 
     return FsmTransition(state, effects)

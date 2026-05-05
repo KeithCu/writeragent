@@ -34,10 +34,7 @@ def _extend_writer(services, ctx, doc):
     from plugin.framework.dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
-    from plugin.framework.document import (
-        WriterCompoundUndo,
-        get_string_without_tracked_deletions,
-    )
+    from plugin.framework.document import WriterCompoundUndo, get_string_without_tracked_deletions
     from plugin.modules.http.client import LlmClient
 
     try:
@@ -96,16 +93,7 @@ def _extend_writer(services, ctx, doc):
 
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)
-    run_stream_async(
-        ctx,
-        client,
-        messages,
-        tools=None,
-        apply_chunk_fn=apply_chunk,
-        on_done_fn=on_done,
-        on_error_fn=on_error,
-        max_tokens=max_tokens,
-    )
+    run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=on_done, on_error_fn=on_error, max_tokens=max_tokens)
 
 
 def _extend_calc(services, ctx, doc):
@@ -185,16 +173,7 @@ def _extend_calc(services, ctx, doc):
             log.error("Extend selection (calc) failed: %s", e)
             msgbox(ctx, _("WriterAgent: Extend Selection"), str(e))
 
-        run_stream_async(
-            ctx,
-            client,
-            msgs,
-            tools=None,
-            apply_chunk_fn=apply_chunk,
-            on_done_fn=run_next_cell,
-            on_error_fn=on_error,
-            max_tokens=max_tokens,
-        )
+        run_stream_async(ctx, client, msgs, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=run_next_cell, on_error_fn=on_error, max_tokens=max_tokens)
 
     run_next_cell()
 
@@ -240,11 +219,7 @@ def _edit_writer(services, ctx, doc):
     from plugin.framework.dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
-    from plugin.framework.document import (
-        build_writer_rewrite_prompt,
-        get_string_without_tracked_deletions,
-        WriterStreamedRewriteSession,
-    )
+    from plugin.framework.document import build_writer_rewrite_prompt, get_string_without_tracked_deletions, WriterStreamedRewriteSession
     from plugin.modules.http.client import LlmClient
 
     try:
@@ -315,16 +290,7 @@ def _edit_writer(services, ctx, doc):
 
     api_config = get_api_config(ctx)
     client = LlmClient(api_config, ctx)
-    run_stream_async(
-        ctx,
-        client,
-        messages,
-        tools=None,
-        apply_chunk_fn=apply_chunk,
-        on_done_fn=on_done,
-        on_error_fn=on_error,
-        max_tokens=max_tokens,
-    )
+    run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=on_done, on_error_fn=on_error, max_tokens=max_tokens)
 
 
 def _edit_calc(services, ctx, doc):
@@ -433,15 +399,6 @@ def _edit_calc(services, ctx, doc):
             log.error("Edit selection (calc) failed: %s", e)
             msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
 
-        run_stream_async(
-            ctx,
-            client,
-            msgs,
-            tools=None,
-            apply_chunk_fn=apply_chunk,
-            on_done_fn=run_next_cell,
-            on_error_fn=on_error,
-            max_tokens=max_tok,
-        )
+        run_stream_async(ctx, client, msgs, tools=None, apply_chunk_fn=apply_chunk, on_done_fn=run_next_cell, on_error_fn=on_error, max_tokens=max_tok)
 
     run_next_cell()

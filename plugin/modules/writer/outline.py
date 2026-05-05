@@ -46,15 +46,8 @@ class GetDocumentTree(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "content_strategy": {
-                "type": "string",
-                "enum": ["heading_only", "first_lines", "full"],
-                "description": "Content to include with headings (default: first_lines)",
-            },
-            "depth": {
-                "type": "integer",
-                "description": "Max tree depth (0=unlimited, default: 1)",
-            },
+            "content_strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content to include with headings (default: first_lines)"},
+            "depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default: 1)"},
         },
         "required": [],
     }
@@ -62,11 +55,7 @@ class GetDocumentTree(ToolBase):
 
     def execute(self, ctx, **kwargs):
         tree_svc = ctx.services.writer_tree
-        result = tree_svc.get_document_tree(
-            ctx.doc,
-            content_strategy=kwargs.get("content_strategy", "first_lines"),
-            depth=kwargs.get("depth", 1),
-        )
+        result = tree_svc.get_document_tree(ctx.doc, content_strategy=kwargs.get("content_strategy", "first_lines"), depth=kwargs.get("depth", 1))
         return {"status": "ok", **result}
 
 
@@ -79,27 +68,11 @@ class GetHeadingChildren(ToolWriterStructuralBase):
     parameters = {
         "type": "object",
         "properties": {
-            "locator": {
-                "type": "string",
-                "description": "Locator string (e.g. 'bookmark:_mcp_xxx', 'heading:1.2')",
-            },
-            "heading_para_index": {
-                "type": "integer",
-                "description": "Paragraph index of the heading",
-            },
-            "heading_bookmark": {
-                "type": "string",
-                "description": "Bookmark name of the heading",
-            },
-            "content_strategy": {
-                "type": "string",
-                "enum": ["heading_only", "first_lines", "full"],
-                "description": "Content strategy (default: first_lines)",
-            },
-            "depth": {
-                "type": "integer",
-                "description": "Max sub-heading depth (default: 1)",
-            },
+            "locator": {"type": "string", "description": "Locator string (e.g. 'bookmark:_mcp_xxx', 'heading:1.2')"},
+            "heading_para_index": {"type": "integer", "description": "Paragraph index of the heading"},
+            "heading_bookmark": {"type": "string", "description": "Bookmark name of the heading"},
+            "content_strategy": {"type": "string", "enum": ["heading_only", "first_lines", "full"], "description": "Content strategy (default: first_lines)"},
+            "depth": {"type": "integer", "description": "Max sub-heading depth (default: 1)"},
         },
         "required": [],
     }

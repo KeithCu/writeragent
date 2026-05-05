@@ -12,20 +12,7 @@
 
 """LibreOffice ``ConditionOperator`` / ``ConditionOperator2`` code labels (no UNO import)."""
 
-_CONDITION_OPERATOR_CODE_NAMES: tuple[str, ...] = (
-    "NONE",
-    "EQUAL",
-    "NOT_EQUAL",
-    "GREATER",
-    "GREATER_EQUAL",
-    "LESS",
-    "LESS_EQUAL",
-    "BETWEEN",
-    "NOT_BETWEEN",
-    "FORMULA",
-    "DUPLICATE",
-    "NOT_DUPLICATE",
-)
+_CONDITION_OPERATOR_CODE_NAMES: tuple[str, ...] = ("NONE", "EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE")
 
 
 def condition_operator_code_to_name(code: int) -> str:

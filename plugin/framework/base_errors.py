@@ -58,21 +58,10 @@ class NetworkError(WriterAgentException):
 def format_error_payload(e: Exception) -> dict[str, Any]:
     """Format an exception into the standard JSON error payload schema."""
     if isinstance(e, WriterAgentException):
-        payload: dict[str, Any] = {
-            "status": "error",
-            "code": e.code,
-            "message": e.message,
-        }
+        payload: dict[str, Any] = {"status": "error", "code": e.code, "message": e.message}
         if e.details:
             payload["details"] = e.details
         return payload
 
     # For unexpected exceptions
-    return {
-        "status": "error",
-        "code": "INTERNAL_ERROR",
-        "message": str(e),
-        "details": {
-            "type": type(e).__name__,
-        },
-    }
+    return {"status": "error", "code": "INTERNAL_ERROR", "message": str(e), "details": {"type": type(e).__name__}}

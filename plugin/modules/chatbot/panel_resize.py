@@ -123,13 +123,7 @@ class _PanelResizeListener(BaseWindowListener):
 
         _resize_debug(
             "_capture_initial: win=(%d,%d) resp_bottom=%s bottom_top=%s gap=%s"
-            % (
-                info["win_w"],
-                info["win_h"],
-                str(info.get("resp_bottom")),
-                str(info.get("bottom_top")),
-                str(info.get("gap_below_response")),
-            )
+            % (info["win_w"], info["win_h"], str(info.get("resp_bottom")), str(info.get("bottom_top")), str(info.get("gap_below_response")))
         )
         # Lightweight per-control width summary for debugging GTK issues.
         try:
@@ -208,14 +202,7 @@ class _PanelResizeListener(BaseWindowListener):
         # Controls in fluid_controls will stretch to fill available width with a
         # small fixed right margin; buttons and labels stay fixed size and
         # anchored left.
-        fluid_controls = (
-            "response",
-            "query",
-            "model_selector",
-            "image_model_selector",
-            "status",
-            "aspect_ratio_selector",
-        )
+        fluid_controls = ("response", "query", "model_selector", "image_model_selector", "status", "aspect_ratio_selector")
 
         top_of_bottom = h  # will track highest new_y (smallest Y) below response
         for name, ctrl in self._c.items():

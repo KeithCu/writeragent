@@ -28,11 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Generic, List, Protocol, TypeVar
 
-__all__ = [
-    "BaseState",
-    "Effect",
-    "FsmTransition",
-]
+__all__ = ["BaseState", "Effect", "FsmTransition"]
 
 
 @dataclass(frozen=True)

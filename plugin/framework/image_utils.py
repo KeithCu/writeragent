@@ -67,10 +67,7 @@ class EndpointImageProvider(ImageProvider):
         source_image = kwargs.get("source_image")
         if self.client.config.get("is_openrouter"):
             if source_image:
-                content = [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}},
-                ]
+                content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}}]
             else:
                 content = prompt
             messages = [{"role": "user", "content": content}]
@@ -117,14 +114,7 @@ class EndpointImageProvider(ImageProvider):
         else:
             # Use standard /images/generations endpoint (Together, OpenAI, etc.). Optional source_image for img2img.
             valid_steps = steps if (steps is not None and steps > 0) else None
-            method, path, body, headers = self.client.make_image_request(
-                prompt,
-                model=model,
-                width=width,
-                height=height,
-                steps=valid_steps,
-                source_image=kwargs.get("source_image"),
-            )
+            method, path, body, headers = self.client.make_image_request(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"))
 
             try:
                 conn = self.client._get_connection()

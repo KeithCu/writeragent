@@ -46,17 +46,7 @@ def _parse_color(color_str):
     if not color_str:
         return None
     color_str = color_str.strip().lower()
-    color_names = {
-        "red": 0xFF0000,
-        "green": 0x00FF00,
-        "blue": 0x0000FF,
-        "yellow": 0xFFFF00,
-        "white": 0xFFFFFF,
-        "black": 0x000000,
-        "orange": 0xFF8C00,
-        "purple": 0x800080,
-        "gray": 0x808080,
-    }
+    color_names = {"red": 0xFF0000, "green": 0x00FF00, "blue": 0x0000FF, "yellow": 0xFFFF00, "white": 0xFFFFFF, "black": 0x000000, "orange": 0xFF8C00, "purple": 0x800080, "gray": 0x808080}
     if color_str in color_names:
         return color_names[color_str]
     if color_str.startswith("#"):
@@ -77,13 +67,7 @@ class ReadCellRange(ToolBase):
     description = "Reads values from the specified cell range(s). Supports lists for non-contiguous areas."
     parameters = {
         "type": "object",
-        "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.'),
-            },
-        },
+        "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.')}},
         "required": ["range_name"],
     }
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -118,11 +102,7 @@ class WriteCellRange(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ('Target range(s) (e.g. ["A1:A10"] or ["A1", "B2:D2"]) for one or more ranges.'),
-            },
+            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Target range(s) (e.g. ["A1:A10"] or ["A1", "B2:D2"]) for one or more ranges.')},
             "formula_or_values": {
                 "type": "string",
                 "description": (
@@ -174,14 +154,8 @@ class InsertCellHtml(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "cell_address": {
-                "type": "string",
-                "description": 'Single cell (e.g. "A1") on the active sheet.',
-            },
-            "html": {
-                "type": "string",
-                "description": "HTML fragment or small document (UTF-8).",
-            },
+            "cell_address": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'},
+            "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."},
         },
         "required": ["cell_address", "html"],
     }
@@ -207,20 +181,11 @@ class InsertCellHtml(ToolBase):
             config_svc = ctx.services.get("config")
 
         try:
-            insert_cell_html_rich(
-                ctx.doc,
-                ctx.ctx,
-                addr,
-                html if isinstance(html, str) else "",
-                config_svc=config_svc,
-            )
+            insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html if isinstance(html, str) else "", config_svc=config_svc)
         except ToolExecutionError as e:
             return self._tool_error(str(e))
 
-        return {
-            "status": "ok",
-            "message": f"Inserted rich HTML into cell {addr.upper()}.",
-        }
+        return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
 
 
 class SetCellStyle(ToolBase):
@@ -232,41 +197,17 @@ class SetCellStyle(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ('Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).'),
-            },
+            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).')},
             "bold": {"type": "boolean", "description": "Bold font"},
             "italic": {"type": "boolean", "description": "Italic font"},
             "font_size": {"type": "number", "description": "Font size (points)"},
-            "bg_color": {
-                "type": "string",
-                "description": "Background color (hex: #FF0000 or name: yellow)",
-            },
-            "font_color": {
-                "type": "string",
-                "description": "Font color (hex: #000000 or name: red)",
-            },
-            "h_align": {
-                "type": "string",
-                "enum": ["left", "center", "right", "justify"],
-                "description": "Horizontal alignment",
-            },
-            "v_align": {
-                "type": "string",
-                "enum": ["top", "center", "bottom"],
-                "description": "Vertical alignment",
-            },
+            "bg_color": {"type": "string", "description": "Background color (hex: #FF0000 or name: yellow)"},
+            "font_color": {"type": "string", "description": "Font color (hex: #000000 or name: red)"},
+            "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal alignment"},
+            "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
-            "border_color": {
-                "type": "string",
-                "description": ("Border color (hex or name). Draws a frame around the cell/range."),
-            },
-            "number_format": {
-                "type": "string",
-                "description": "Number format (e.g. #,##0.00, 0%, dd.mm.yyyy)",
-            },
+            "border_color": {"type": "string", "description": ("Border color (hex or name). Draws a frame around the cell/range.")},
+            "number_format": {"type": "string", "description": "Number format (e.g. #,##0.00, 0%, dd.mm.yyyy)"},
         },
         "required": ["range_name"],
     }
@@ -330,10 +271,7 @@ class SetCellStyle(ToolBase):
             return {"status": "ok", "message": f"Style applied to {rn[0]}"}
         for r in rn:
             manipulator.set_cell_style(r, **style_kwargs)
-        return {
-            "status": "ok",
-            "message": f"Style applied to {len(rn)} ranges",
-        }
+        return {"status": "ok", "message": f"Style applied to {len(rn)} ranges"}
 
 
 class MergeCells(ToolBase):
@@ -347,15 +285,8 @@ class MergeCells(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).'),
-            },
-            "center": {
-                "type": "boolean",
-                "description": "Center content (default: true)",
-            },
+            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')},
+            "center": {"type": "boolean", "description": "Center content (default: true)"},
         },
         "required": ["range_name"],
     }
@@ -376,10 +307,7 @@ class MergeCells(ToolBase):
             return {"status": "ok", "message": f"Merged cells {rn[0]}"}
         for r in rn:
             manipulator.merge_cells(r, center=center)
-        return {
-            "status": "ok",
-            "message": f"Merged cells in {len(rn)} ranges",
-        }
+        return {"status": "ok", "message": f"Merged cells in {len(rn)} ranges"}
 
 
 class SortRange(ToolBase):
@@ -391,23 +319,10 @@ class SortRange(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).'),
-            },
-            "sort_column": {
-                "type": "integer",
-                "description": ("0-based column index within the range to sort by (default: 0)"),
-            },
-            "ascending": {
-                "type": "boolean",
-                "description": ("True for ascending, False for descending (default: true)"),
-            },
-            "has_header": {
-                "type": "boolean",
-                "description": ("Is the first row a header that should not be sorted? (default: true)"),
-            },
+            "range_name": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
+            "sort_column": {"type": "integer", "description": ("0-based column index within the range to sort by (default: 0)")},
+            "ascending": {"type": "boolean", "description": ("True for ascending, False for descending (default: true)")},
+            "has_header": {"type": "boolean", "description": ("Is the first row a header that should not be sorted? (default: true)")},
         },
         "required": ["range_name"],
     }
@@ -426,24 +341,11 @@ class SortRange(ToolBase):
         if len(rn) == 0:
             return self._tool_error("range_name is required")
         if len(rn) == 1:
-            result = manipulator.sort_range(
-                rn[0],
-                sort_column=sort_column,
-                ascending=ascending,
-                has_header=has_header,
-            )
+            result = manipulator.sort_range(rn[0], sort_column=sort_column, ascending=ascending, has_header=has_header)
             return {"status": "ok", "message": result}
         for r in rn:
-            manipulator.sort_range(
-                r,
-                sort_column=sort_column,
-                ascending=ascending,
-                has_header=has_header,
-            )
-        return {
-            "status": "ok",
-            "message": f"Sorted {len(rn)} ranges",
-        }
+            manipulator.sort_range(r, sort_column=sort_column, ascending=ascending, has_header=has_header)
+        return {"status": "ok", "message": f"Sorted {len(rn)} ranges"}
 
 
 class DeleteStructure(ToolBase):
@@ -455,19 +357,9 @@ class DeleteStructure(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "structure_type": {
-                "type": "string",
-                "enum": ["rows", "columns"],
-                "description": "Type of structure to delete.",
-            },
-            "start": {
-                "type": "string",
-                "description": ('For rows: 1-based row number (e.g. "5"); for columns: column letter (e.g. "C").'),
-            },
-            "count": {
-                "type": "integer",
-                "description": "Number to delete (default 1).",
-            },
+            "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
+            "start": {"type": "string", "description": ('For rows: 1-based row number (e.g. "5"); for columns: column letter (e.g. "C").')},
+            "count": {"type": "integer", "description": "Number to delete (default 1)."},
         },
         "required": ["structure_type", "start"],
     }

@@ -74,17 +74,7 @@ def _debug_newline_stats(prefix: str, s: str, *, max_repr: int = 400) -> None:
         return
     head = s[:max_repr]
     tail = " …[truncated]" if len(s) > max_repr else ""
-    log.debug(
-        "%s len=%d nl=%d cr=%d crlf=%d tab=%d repr_head=%s%s",
-        prefix,
-        len(s),
-        s.count("\n"),
-        s.count("\r"),
-        len(re.findall(r"\r\n", s)),
-        s.count("\t"),
-        repr(head),
-        tail,
-    )
+    log.debug("%s len=%d nl=%d cr=%d crlf=%d tab=%d repr_head=%s%s", prefix, len(s), s.count("\n"), s.count("\r"), len(re.findall(r"\r\n", s)), s.count("\t"), repr(head), tail)
 
 
 def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = False) -> MathConversionResult:
@@ -142,24 +132,12 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
         try:
             formula = doc.getPropertyValue("Formula")
             if not isinstance(formula, str) or not formula.strip():
-                return MathConversionResult(
-                    False,
-                    None,
-                    "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).",
-                )
+                return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
             _formula_stripped = formula.strip()
-            _debug_newline_stats(
-                "convert_mathml_to_starmath: Formula from LO (before return.strip)",
-                formula,
-                max_repr=500,
-            )
+            _debug_newline_stats("convert_mathml_to_starmath: Formula from LO (before return.strip)", formula, max_repr=500)
             _for_writer = collapse_starmath_newline_tokens_for_writer_embed(_formula_stripped)
             if _for_writer != _formula_stripped:
-                log.debug(
-                    "convert_mathml_to_starmath: collapsed newline operators for Writer embed (len %d -> %d)",
-                    len(_formula_stripped),
-                    len(_for_writer),
-                )
+                log.debug("convert_mathml_to_starmath: collapsed newline operators for Writer embed (len %d -> %d)", len(_formula_stripped), len(_for_writer))
             return MathConversionResult(True, _for_writer, None)
         finally:
             try:

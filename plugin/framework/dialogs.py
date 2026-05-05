@@ -91,10 +91,7 @@ def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
             desktop = get_desktop(ctx)
             frame = desktop.getCurrentFrame()
         if frame is None:
-            log.warning(
-                "show_approval_dialog: no frame (parent_frame=%r, getCurrentFrame=None)",
-                parent_frame,
-            )
+            log.warning("show_approval_dialog: no frame (parent_frame=%r, getCurrentFrame=None)", parent_frame)
             return False
         window = frame.getContainerWindow()
         if window is None:
@@ -104,11 +101,7 @@ def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         title = _("Agent requests approval")
         message = (description or _("Proceed with this action?")) + ("\n\n" + _("Tool: %s") % tool_name if tool_name else "")
-        log.debug(
-            "show_approval_dialog: tool_name=%s parent_frame=%s",
-            tool_name,
-            parent_frame is not None,
-        )
+        log.debug("show_approval_dialog: tool_name=%s parent_frame=%s", tool_name, parent_frame is not None)
         # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
         box = toolkit.createMessageBox(window, 4, 3, title, message)
         result = box.execute()

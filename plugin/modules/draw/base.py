@@ -43,31 +43,20 @@ class ToolDrawWebResearchBase(ToolDrawSpecialBase):
 
 class ToolDrawChartBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawShapeBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawFormBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "forms"
     intent = "edit"
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawHeaderFooterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "headers_footers"
-    uno_services = [
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.presentation.PresentationDocument"]

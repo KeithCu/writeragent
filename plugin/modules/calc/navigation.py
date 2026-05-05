@@ -15,12 +15,7 @@ log = logging.getLogger("nelson.calc")
 
 def _range_address_str(ra):
     """Convert a RangeAddress to 'Sheet.A1:D10' style."""
-    return "%s%d:%s%d" % (
-        index_to_column(ra.StartColumn),
-        ra.StartRow + 1,
-        index_to_column(ra.EndColumn),
-        ra.EndRow + 1,
-    )
+    return "%s%d:%s%d" % (index_to_column(ra.StartColumn), ra.StartRow + 1, index_to_column(ra.EndColumn), ra.EndRow + 1)
 
 
 class ListNamedRanges(ToolBase):
@@ -29,11 +24,7 @@ class ListNamedRanges(ToolBase):
     name = "list_named_ranges"
     intent = "navigate"
     description = "List all named ranges defined in the Calc spreadsheet. Returns name, formula/content, and range address."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -53,8 +44,4 @@ class ListNamedRanges(ToolBase):
             except Exception as e:
                 log.debug("list_named_ranges getRangeAddress error for %s: %s", entry["name"], e)
             result.append(entry)
-        return {
-            "status": "ok",
-            "named_ranges": result,
-            "count": len(result),
-        }
+        return {"status": "ok", "named_ranges": result, "count": len(result)}

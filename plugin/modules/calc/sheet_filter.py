@@ -28,10 +28,7 @@ import logging
 import uno
 from typing import Any
 
-from plugin.framework.calc_filter_constants import (
-    FILTER_OPERATOR2_LABELS,
-    filter_operator2_code_to_name,
-)
+from plugin.framework.calc_filter_constants import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name
 from plugin.framework.calc_sheet_filter_criteria import parse_sheet_filter_criterion
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.modules.calc.base import ToolCalcSheetFilterBase
@@ -125,28 +122,11 @@ _CRITERIA_ARRAY_DESCRIPTION = (
 _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "field": {
-            "type": "integer",
-            "description": "0-based column index within range_name (leftmost column = 0).",
-        },
-        "operator": {
-            "type": "string",
-            "enum": list(FILTER_OPERATOR2_LABELS),
-            "description": "LibreOffice FilterOperator2 (see enum).",
-        },
-        "value": {
-            "type": "string",
-            "description": ("Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. Otherwise set is_numeric when comparing numbers."),
-        },
-        "is_numeric": {
-            "type": "boolean",
-            "description": "If true, value is NumericValue; else StringValue.",
-        },
-        "connection": {
-            "type": "string",
-            "enum": ["AND", "OR"],
-            "description": ("Combines with previous criterion only. Omit on first item. Case-insensitive AND/OR."),
-        },
+        "field": {"type": "integer", "description": "0-based column index within range_name (leftmost column = 0)."},
+        "operator": {"type": "string", "enum": list(FILTER_OPERATOR2_LABELS), "description": "LibreOffice FilterOperator2 (see enum)."},
+        "value": {"type": "string", "description": ("Omit for EMPTY/NOT_EMPTY. Numeric string for TOP_*/BOTTOM_* operators. Otherwise set is_numeric when comparing numbers.")},
+        "is_numeric": {"type": "boolean", "description": "If true, value is NumericValue; else StringValue."},
+        "connection": {"type": "string", "enum": ["AND", "OR"], "description": ("Combines with previous criterion only. Omit on first item. Case-insensitive AND/OR.")},
     },
     "required": ["field", "operator"],
 }
@@ -166,20 +146,9 @@ class ApplySheetFilter(ToolCalcSheetFilterBase):
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
         "properties": {
-            "range_name": {
-                "type": "string",
-                "description": "Range to filter (e.g. 'A1:D20').",
-            },
-            "contains_header": {
-                "type": "boolean",
-                "description": "First row is headers only (default true).",
-            },
-            "criteria": {
-                "type": "array",
-                "items": _CRITERION_ITEM_SCHEMA,
-                "description": _CRITERIA_ARRAY_DESCRIPTION,
-                "minItems": 1,
-            },
+            "range_name": {"type": "string", "description": "Range to filter (e.g. 'A1:D20')."},
+            "contains_header": {"type": "boolean", "description": "First row is headers only (default true)."},
+            "criteria": {"type": "array", "items": _CRITERION_ITEM_SCHEMA, "description": _CRITERIA_ARRAY_DESCRIPTION, "minItems": 1},
         },
         "required": ["range_name", "criteria"],
     }
@@ -209,11 +178,7 @@ class ApplySheetFilter(ToolCalcSheetFilterBase):
             xf.filter(fd)
 
             logger.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), len(fields))
-            return {
-                "status": "ok",
-                "range_name": range_name,
-                "criteria_count": len(fields),
-            }
+            return {"status": "ok", "range_name": range_name, "criteria_count": len(fields)}
         except UnoObjectError:
             raise
         except Exception as e:
@@ -234,14 +199,8 @@ class ClearSheetFilter(ToolCalcSheetFilterBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "string",
-                "description": "Same data range string used when applying the filter (e.g. 'A1:D20').",
-            },
-            "contains_header": {
-                "type": "boolean",
-                "description": "Should match apply_sheet_filter (default true).",
-            },
+            "range_name": {"type": "string", "description": "Same data range string used when applying the filter (e.g. 'A1:D20')."},
+            "contains_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."},
         },
         "required": ["range_name"],
     }
@@ -279,16 +238,7 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
     name = "get_sheet_filter"
     intent = "navigate"
     description = "Return active filter criteria and contains_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheet_filter')."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "range_name": {
-                "type": "string",
-                "description": "Same range as apply_sheet_filter.",
-            },
-        },
-        "required": ["range_name"],
-    }
+    parameters = {"type": "object", "properties": {"range_name": {"type": "string", "description": "Same range as apply_sheet_filter."}}, "required": ["range_name"]}
 
     def execute(self, ctx, **kwargs):
         range_name = kwargs["range_name"]
@@ -315,13 +265,7 @@ class GetSheetFilter(ToolCalcSheetFilterBase):
                 except Exception:
                     pass
 
-            return {
-                "status": "ok",
-                "range_name": range_name,
-                "contains_header": ch,
-                "criteria": crit,
-                "count": len(crit),
-            }
+            return {"status": "ok", "range_name": range_name, "contains_header": ch, "criteria": crit, "count": len(crit)}
         except UnoObjectError:
             raise
         except Exception as e:

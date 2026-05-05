@@ -125,11 +125,7 @@ def get_toolkit(ctx=None):
         from typing import cast
 
         ctx_any = cast("Any", ctx)
-        smgr = getattr(
-            ctx_any,
-            "ServiceManager",
-            getattr(ctx_any, "getServiceManager", lambda: None)(),
-        )
+        smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         if smgr is None:
             return None
         return cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)

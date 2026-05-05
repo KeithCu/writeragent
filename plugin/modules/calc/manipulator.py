@@ -121,11 +121,7 @@ def _parse_formula_or_values_string(s: str):
         # If it has a delimiter or is multiline, try to parse it
         if delimiter in s or "\n" in s:
             try:
-                reader = csv.reader(
-                    io.StringIO(s),
-                    delimiter=delimiter,
-                    skipinitialspace=True,
-                )
+                reader = csv.reader(io.StringIO(s), delimiter=delimiter, skipinitialspace=True)
                 rows = list(reader)
                 if rows:
                     if len(rows) == 1:
@@ -231,19 +227,7 @@ class CellManipulator:
         sheet = self.bridge.get_active_sheet()
         return self.bridge.get_cell(sheet, col, row)
 
-    def _apply_style_properties(
-        self,
-        obj,
-        bold,
-        italic,
-        bg_color,
-        font_color,
-        font_size,
-        h_align,
-        v_align,
-        wrap_text,
-        border_color,
-    ):
+    def _apply_style_properties(self, obj, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color):
         """Apply common style properties to a cell or range object."""
         if bold is not None:
             FW = sys.modules.get("com.sun.star.awt.FontWeight", None)
@@ -266,23 +250,12 @@ class CellManipulator:
             obj.setPropertyValue("CharHeight", font_size)
 
         if h_align is not None:
-            align_map = {
-                "left": LEFT,
-                "center": CENTER,
-                "right": RIGHT,
-                "justify": BLOCK,
-                "standard": STANDARD,
-            }
+            align_map = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
             if h_align.lower() in align_map:
                 obj.setPropertyValue("HoriJustify", align_map[h_align.lower()])
 
         if v_align is not None:
-            align_map = {
-                "top": TOP,
-                "center": CENTER,
-                "bottom": BOTTOM,
-                "standard": STANDARD,
-            }
+            align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
             if v_align.lower() in align_map:
                 obj.setPropertyValue("VertJustify", align_map[v_align.lower()])
 
@@ -459,18 +432,7 @@ class CellManipulator:
                 logger.info("Range %s style updated.", address_or_range.upper())
             else:
                 cell = self._get_cell(address_or_range)
-                self._apply_style_properties(
-                    cell,
-                    bold,
-                    italic,
-                    bg_color,
-                    font_color,
-                    font_size,
-                    h_align,
-                    v_align,
-                    wrap_text,
-                    border_color,
-                )
+                self._apply_style_properties(cell, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
                 if number_format:
                     self._set_number_format(address_or_range, number_format)
                 logger.info("Cell %s style updated.", address_or_range.upper())
@@ -478,33 +440,10 @@ class CellManipulator:
             logger.error("Style application error (%s): %s", address_or_range, str(e))
             raise ToolExecutionError(str(e)) from e
 
-    def _set_range_style(
-        self,
-        range_str,
-        bold=None,
-        italic=None,
-        bg_color=None,
-        font_color=None,
-        font_size=None,
-        h_align=None,
-        v_align=None,
-        wrap_text=None,
-        border_color=None,
-    ):
+    def _set_range_style(self, range_str, bold=None, italic=None, bg_color=None, font_color=None, font_size=None, h_align=None, v_align=None, wrap_text=None, border_color=None):
         sheet = self.bridge.get_active_sheet()
         cell_range = self.bridge.get_cell_range(sheet, range_str)
-        self._apply_style_properties(
-            cell_range,
-            bold,
-            italic,
-            bg_color,
-            font_color,
-            font_size,
-            h_align,
-            v_align,
-            wrap_text,
-            border_color,
-        )
+        self._apply_style_properties(cell_range, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
 
     def _set_range_number_format(self, range_str: str, format_str: str):
         sheet = self.bridge.get_active_sheet()
@@ -565,13 +504,7 @@ class CellManipulator:
             logger.error("Cell merge error (%s): %s", range_str, str(e))
             raise ToolExecutionError(str(e)) from e
 
-    def sort_range(
-        self,
-        range_str: str,
-        sort_column: int = 0,
-        ascending: bool = True,
-        has_header: bool = True,
-    ):
+    def sort_range(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True):
         """Sort a range.
 
         Args:
@@ -605,12 +538,7 @@ class CellManipulator:
             cell_range.sort(tuple(sort_desc))
 
             direction = "ascending" if ascending else "descending"
-            logger.info(
-                "Range %s sorted %s by column %d.",
-                range_str.upper(),
-                direction,
-                sort_column,
-            )
+            logger.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
             return f"Range {range_str} sorted {direction} by column {sort_column}."
         except Exception as e:
             logger.error("Sort error (%s): %s", range_str, str(e))
@@ -735,11 +663,7 @@ class CellManipulator:
                     string_formulas.append(tuple(row_data))
                 cell_range.setFormulaArray(tuple(string_formulas))
 
-            logger.info(
-                "Range %s filled with %d values.",
-                range_str.upper(),
-                len(values),
-            )
+            logger.info("Range %s filled with %d values.", range_str.upper(), len(values))
             return f"Range {range_str} filled with {len(values)} values."
         except Exception as e:
             logger.error("Range formula write error (%s): %s", range_str, str(e))
@@ -768,11 +692,7 @@ class CellManipulator:
             columns = sheet.getColumns()
             col_index = self.bridge._column_to_index(col_letter.upper())
             columns.removeByIndex(col_index, count)
-            logger.info(
-                "%d column(s) deleted starting from column %s.",
-                count,
-                col_letter.upper(),
-            )
+            logger.info("%d column(s) deleted starting from column %s.", count, col_letter.upper())
             return f"{count} column(s) deleted starting from column {col_letter.upper()}."
         except Exception as e:
             logger.error("Column deletion error: %s", str(e))

@@ -33,10 +33,7 @@ from plugin.modules.writer.base import WriterAgentSpecialTracking
 
 log = logging.getLogger("writeragent.writer")
 
-_TRACK_CHANGES_UNO_SERVICES = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-]
+_TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
 
 def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, show: bool) -> dict[str, Any]:
@@ -66,11 +63,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_start"
     description = "Start recording changes (track changes) in the document."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -87,11 +80,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_stop"
     description = "Stop recording changes (track changes) in the document."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -108,11 +97,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_list"
     description = "List all tracked changes (redlines) in the document, including type, author, date, and comment."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -123,13 +108,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             pass
 
         if not hasattr(doc, "getRedlines"):
-            return {
-                "status": "ok",
-                "recording": recording,
-                "changes": [],
-                "count": 0,
-                "message": "Document does not expose redlines API.",
-            }
+            return {"status": "ok", "recording": recording, "changes": [], "count": 0, "message": "Document does not expose redlines API."}
 
         try:
             redlines = doc.getRedlines()
@@ -139,12 +118,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             while enum.hasMoreElements():
                 redline = enum.nextElement()
                 entry: dict[str, Any] = {"index": index}
-                for prop in (
-                    "RedlineType",
-                    "RedlineAuthor",
-                    "RedlineComment",
-                    "RedlineIdentifier",
-                ):
+                for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
                     try:
                         entry[prop] = redline.getPropertyValue(prop)
                     except Exception:
@@ -157,12 +131,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 changes.append(entry)
                 index += 1
 
-            return {
-                "status": "ok",
-                "recording": recording,
-                "changes": changes,
-                "count": len(changes),
-            }
+            return {"status": "ok", "recording": recording, "changes": changes, "count": len(changes)}
         except Exception as e:
             return self._tool_error(f"Failed to list tracked changes: {e}")
 
@@ -177,16 +146,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         "On Calc, recording still works; this call returns guidance to use LibreOffice "
         "menus for show/hide markup until UNO support is implemented."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "show": {
-                "type": "boolean",
-                "description": "True to show changes, False to hide them.",
-            },
-        },
-        "required": ["show"],
-    }
+    parameters = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -201,10 +161,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             try:
                 view_settings: Any = view_getter()
                 view_settings.setPropertyValue("ShowChangesInMargin", show_b)
-                return {
-                    "status": "ok",
-                    "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup.",
-                }
+                return {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."}
             except Exception as e:
                 return self._tool_error(f"Failed to set track changes visibility: {e}")
 
@@ -217,11 +174,7 @@ class TrackChangesAcceptAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking)
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_accept_all"
     description = "Accept all tracked changes in the document."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -242,11 +195,7 @@ class TrackChangesRejectAll(WriterAgentSpecialTracking, ToolCalcSpecialTracking)
     uno_services = _TRACK_CHANGES_UNO_SERVICES
     name = "track_changes_reject_all"
     description = "Reject all tracked changes in the document."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -317,16 +266,7 @@ class TrackChangesAccept(_TrackChangesSingleAction):
 
     name = "track_changes_accept"
     description = "Accept a specific tracked change by its index (from track_changes_list)."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "index": {
-                "type": "integer",
-                "description": "The zero-based index of the tracked change to accept.",
-            },
-        },
-        "required": ["index"],
-    }
+    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "The zero-based index of the tracked change to accept."}}, "required": ["index"]}
 
     def execute(self, ctx, **kwargs):
         index = kwargs.get("index")
@@ -340,16 +280,7 @@ class TrackChangesReject(_TrackChangesSingleAction):
 
     name = "track_changes_reject"
     description = "Reject a specific tracked change by its index (from track_changes_list)."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "index": {
-                "type": "integer",
-                "description": "The zero-based index of the tracked change to reject.",
-            },
-        },
-        "required": ["index"],
-    }
+    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "The zero-based index of the tracked change to reject."}}, "required": ["index"]}
 
     def execute(self, ctx, **kwargs):
         index = kwargs.get("index")
@@ -369,14 +300,8 @@ class TrackChangesCommentInsert(WriterAgentSpecialTracking):
     parameters = {
         "type": "object",
         "properties": {
-            "content": {
-                "type": "string",
-                "description": "The text content of the comment.",
-            },
-            "author": {
-                "type": "string",
-                "description": "The author's name for the comment (e.g., 'WriterAgent').",
-            },
+            "content": {"type": "string", "description": "The text content of the comment."},
+            "author": {"type": "string", "description": "The author's name for the comment (e.g., 'WriterAgent')."},
         },
         "required": ["content", "author"],
     }
@@ -421,11 +346,7 @@ class TrackChangesCommentList(WriterAgentSpecialTracking):
 
     name = "track_changes_comment_list"
     description = "List all comments (annotations) currently in the document."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
         try:
@@ -438,11 +359,7 @@ class TrackChangesCommentList(WriterAgentSpecialTracking):
             while enum.hasMoreElements():
                 field = enum.nextElement()
                 if field.supportsService("com.sun.star.text.textfield.Annotation"):
-                    entry = {
-                        "index": index,
-                        "author": field.getPropertyValue("Author"),
-                        "content": field.getPropertyValue("Content"),
-                    }
+                    entry = {"index": index, "author": field.getPropertyValue("Author"), "content": field.getPropertyValue("Content")}
                     try:
                         dt = field.getPropertyValue("Date")
                         entry["date"] = f"{dt.Year:04d}-{dt.Month:02d}-{dt.Day:02d}"
@@ -452,11 +369,7 @@ class TrackChangesCommentList(WriterAgentSpecialTracking):
                     comments.append(entry)
                     index += 1
 
-            return {
-                "status": "ok",
-                "comments": comments,
-                "count": len(comments),
-            }
+            return {"status": "ok", "comments": comments, "count": len(comments)}
         except Exception as e:
             return self._tool_error(f"Failed to list comments: {e}")
 
@@ -466,16 +379,7 @@ class TrackChangesCommentDelete(WriterAgentSpecialTracking):
 
     name = "track_changes_comment_delete"
     description = "Delete a specific comment (annotation) by its index (from track_changes_comment_list)."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "index": {
-                "type": "integer",
-                "description": "The zero-based index of the comment to delete.",
-            },
-        },
-        "required": ["index"],
-    }
+    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "The zero-based index of the comment to delete."}}, "required": ["index"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

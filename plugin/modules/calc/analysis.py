@@ -38,11 +38,7 @@ logger = logging.getLogger("writeragent.calc")
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
 # NLPSolver engines that open status dialogs (see docs/calc-analysis-tools.md).
-_PREFERRED_SOLVER_SERVICES: tuple[str, ...] = (
-    "com.sun.star.sheet.SolverLinear",
-    "com.sun.star.comp.Calc.CoinMPSolver",
-    "com.sun.star.comp.Calc.LpsolveSolver",
-)
+_PREFERRED_SOLVER_SERVICES: tuple[str, ...] = ("com.sun.star.sheet.SolverLinear", "com.sun.star.comp.Calc.CoinMPSolver", "com.sun.star.comp.Calc.LpsolveSolver")
 
 
 def _solver_impl_name(solver_obj: Any) -> str:
@@ -128,22 +124,10 @@ class GoalSeekTool(ToolCalcAnalysisBase):
     parameters = {
         "type": "object",
         "properties": {
-            "formula_cell": {
-                "type": "string",
-                "description": "Address of the formula cell (e.g. 'Sheet1.B1').",
-            },
-            "variable_cell": {
-                "type": "string",
-                "description": "Address of the variable cell to adjust (e.g. 'Sheet1.A1').",
-            },
-            "target_value": {
-                "type": "number",
-                "description": "The desired result of the formula.",
-            },
-            "apply_result": {
-                "type": "boolean",
-                "description": "Whether to automatically apply the found result to the variable cell (default: true).",
-            },
+            "formula_cell": {"type": "string", "description": "Address of the formula cell (e.g. 'Sheet1.B1')."},
+            "variable_cell": {"type": "string", "description": "Address of the variable cell to adjust (e.g. 'Sheet1.A1')."},
+            "target_value": {"type": "number", "description": "The desired result of the formula."},
+            "apply_result": {"type": "boolean", "description": "Whether to automatically apply the found result to the variable cell (default: true)."},
         },
         "required": ["formula_cell", "variable_cell", "target_value"],
     }
@@ -198,43 +182,23 @@ class SolverTool(ToolCalcAnalysisBase):
     parameters = {
         "type": "object",
         "properties": {
-            "objective_cell": {
-                "type": "string",
-                "description": "Cell address of the objective function (e.g. 'Sheet1.C1').",
-            },
-            "variables": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of cell addresses that the solver can change.",
-            },
-            "maximize": {
-                "type": "boolean",
-                "description": "Whether to maximize (true) or minimize (false) the objective (default: true).",
-            },
+            "objective_cell": {"type": "string", "description": "Cell address of the objective function (e.g. 'Sheet1.C1')."},
+            "variables": {"type": "array", "items": {"type": "string"}, "description": "List of cell addresses that the solver can change."},
+            "maximize": {"type": "boolean", "description": "Whether to maximize (true) or minimize (false) the objective (default: true)."},
             "constraints": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
                         "left": {"type": "string", "description": "Cell address for the left side of the constraint."},
-                        "operator": {
-                            "type": "string",
-                            "enum": ["EQUAL", "GREATER_EQUAL", "LESS_EQUAL"],
-                            "description": "Comparison operator.",
-                        },
-                        "right": {
-                            "type": "string",
-                            "description": "A constant value or a cell address for the right side.",
-                        },
+                        "operator": {"type": "string", "enum": ["EQUAL", "GREATER_EQUAL", "LESS_EQUAL"], "description": "Comparison operator."},
+                        "right": {"type": "string", "description": "A constant value or a cell address for the right side."},
                     },
                     "required": ["left", "operator", "right"],
                 },
                 "description": "List of constraints for the optimization.",
             },
-            "engine": {
-                "type": "string",
-                "description": "Specific solver engine service name (e.g. 'com.sun.star.sheet.SolverLinear').",
-            },
+            "engine": {"type": "string", "description": "Specific solver engine service name (e.g. 'com.sun.star.sheet.SolverLinear')."},
         },
         "required": ["objective_cell", "variables"],
     }
@@ -345,11 +309,7 @@ class SolverTool(ToolCalcAnalysisBase):
             if not solver:
                 return self._tool_error("No Solver engine available in this LibreOffice installation")
 
-            logger.info(
-                "calc_solver: engine=%s implementation=%s",
-                selected_engine_label or "unknown",
-                _solver_impl_name(solver),
-            )
+            logger.info("calc_solver: engine=%s implementation=%s", selected_engine_label or "unknown", _solver_impl_name(solver))
 
             solver.Document = doc
             solver.Maximize = maximize

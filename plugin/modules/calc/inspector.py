@@ -108,12 +108,7 @@ class CellInspector:
 
             formula = cell.getFormula() if cell_type == FORMULA else None
 
-            return {
-                "address": address.upper(),
-                "value": value,
-                "formula": formula,
-                "type": self._cell_type_name(cell_type),
-            }
+            return {"address": address.upper(), "value": value, "formula": formula, "type": self._cell_type_name(cell_type)}
         except Exception as e:
             logger.error("Cell reading error (%s): %s", address, str(e))
             raise ToolExecutionError(str(e)) from e
@@ -213,14 +208,7 @@ class CellInspector:
                     col_letter = self.bridge._index_to_column(col)
                     cell_address = f"{col_letter}{row + 1}"
 
-                    row_data.append(
-                        {
-                            "address": cell_address,
-                            "value": value,
-                            "formula": formula,
-                            "type": self._cell_type_name(cell_type),
-                        }
-                    )
+                    row_data.append({"address": cell_address, "value": value, "formula": formula, "type": self._cell_type_name(cell_type)})
                 result.append(row_data)
 
             return result
@@ -274,14 +262,7 @@ class CellInspector:
                         refs = _FORMULA_REF_RE.findall(formula.upper())
                         precedents = list({f"{c}{r}" for c, r in refs})
 
-                        formulas.append(
-                            {
-                                "address": cell_address,
-                                "formula": formula,
-                                "value": value,
-                                "precedents": precedents,
-                            }
-                        )
+                        formulas.append({"address": cell_address, "formula": formula, "value": value, "precedents": precedents})
 
             return formulas
         except Exception as e:

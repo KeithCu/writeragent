@@ -63,11 +63,7 @@ class FieldsList(ToolWriterFieldBase):
     name = "fields_list"
     intent = "examine"
     description = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -123,13 +119,7 @@ class FieldsDelete(ToolWriterFieldBase):
     description = "Deletes one or more text fields from the document by their 1-based ID. Use fields_list first to obtain the IDs of the fields you wish to remove."
     parameters = {
         "type": "object",
-        "properties": {
-            "ids": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "description": "A list of 1-based IDs representing the text fields to delete.",
-            },
-        },
+        "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}},
         "required": ["ids"],
     }
     is_mutation = True
@@ -198,15 +188,8 @@ class FieldsInsert(ToolWriterFieldBase):
                 ),
                 "default": {},
             },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to insert the field.",
-            },
-            "old_content": {
-                "type": "string",
-                "description": "Text to find and replace if target = 'search'.",
-            },
+            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the field."},
+            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
         },
         "required": ["field_type"],
     }

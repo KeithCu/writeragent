@@ -17,9 +17,7 @@ from typing import Any
 from plugin.framework.calc_filter_constants import filter_operator2_code_to_name, filter_operator2_name_to_code
 from plugin.framework.errors import UnoObjectError
 
-_FILTER_OP_NUMERIC_ONLY = frozenset(
-    {"TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "BOTTOM_PERCENT"},
-)
+_FILTER_OP_NUMERIC_ONLY = frozenset({"TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "BOTTOM_PERCENT"})
 _FILTER_OP_NO_VALUE = frozenset({"EMPTY", "NOT_EMPTY"})
 
 
@@ -48,10 +46,7 @@ def resolve_filter_operator_code(operator: str) -> int:
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 
-def parse_sheet_filter_criterion(
-    raw: dict[str, Any],
-    is_first: bool,
-) -> tuple[int, int, int, bool, float, str]:
+def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[int, int, int, bool, float, str]:
     """Return ``Field``, ``Operator``, ``Connection``, ``IsNumeric``, ``NumericValue``, ``StringValue``.
 
     ``Connection`` on the first ``TableFilterField2`` is always AND in UNO; any

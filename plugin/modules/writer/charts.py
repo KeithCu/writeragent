@@ -32,12 +32,7 @@ log = logging.getLogger("writeragent.writer")
 
 # Union services: Writer wrappers share tool names with Calc; last registration wins,
 # so both must be listed or spreadsheets fail ToolRegistry.execute compatibility.
-_ALL_CHART_DOCS = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-]
+_ALL_CHART_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ListCharts(CalcListCharts, ToolWriterChartBase):

@@ -61,14 +61,7 @@ class ACPConnection:
         if self._env:
             env.update(self._env)
 
-        self._proc = subprocess.Popen(
-            self._cmd_line,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-            cwd=self._cwd,
-        )
+        self._proc = subprocess.Popen(self._cmd_line, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd)
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader")
 
@@ -106,12 +99,7 @@ class ACPConnection:
             raise ToolExecutionError("ACP process is not running")
 
         req_id = self._next_id()
-        msg = {
-            "jsonrpc": _JSONRPC_VERSION,
-            "id": req_id,
-            "method": method,
-            "params": params or {},
-        }
+        msg = {"jsonrpc": _JSONRPC_VERSION, "id": req_id, "method": method, "params": params or {}}
 
         event = threading.Event()
         with self._lock:
@@ -149,11 +137,7 @@ class ACPConnection:
         """Send a JSON-RPC notification (no response expected)."""
         if not self.is_alive:
             return
-        msg = {
-            "jsonrpc": _JSONRPC_VERSION,
-            "method": method,
-            "params": params or {},
-        }
+        msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params or {}}
         line = json.dumps(msg) + "\n"
         try:
             if self._proc and self._proc.stdin:
@@ -166,10 +150,7 @@ class ACPConnection:
         """Send a JSON-RPC response to a request from the agent."""
         if not self.is_alive:
             return
-        msg = {
-            "jsonrpc": _JSONRPC_VERSION,
-            "id": msg_id,
-        }
+        msg = {"jsonrpc": _JSONRPC_VERSION, "id": msg_id}
         if error is not None:
             msg["error"] = error
         else:

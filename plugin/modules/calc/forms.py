@@ -27,11 +27,4 @@ from plugin.modules.writer.forms import EditFormControl as WriterEditFormControl
 from plugin.modules.writer.forms import GenerateForm as WriterGenerateForm
 from plugin.modules.writer.forms import ListFormControls as WriterListFormControls
 
-__all__ = [
-    "WriterCreateForm",
-    "WriterCreateFormControl",
-    "WriterDeleteFormControl",
-    "WriterEditFormControl",
-    "WriterGenerateForm",
-    "WriterListFormControls",
-]
+__all__ = ["WriterCreateForm", "WriterCreateFormControl", "WriterDeleteFormControl", "WriterEditFormControl", "WriterGenerateForm", "WriterListFormControls"]

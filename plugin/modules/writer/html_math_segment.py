@@ -98,22 +98,14 @@ def _tag_end(s: str, start: int) -> int:
 
 def _display_block_from_open_tag(open_tag: str) -> bool:
     """True for display-style math per MathML / common authoring conventions."""
-    m = re.search(
-        r"\bdisplay\s*=\s*(['\"])(.*?)\1",
-        open_tag,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
+    m = re.search(r"\bdisplay\s*=\s*(['\"])(.*?)\1", open_tag, flags=re.IGNORECASE | re.DOTALL)
     if m:
         v = m.group(2).strip().lower()
         if v == "block":
             return True
         if v == "inline":
             return False
-    m2 = re.search(
-        r"\bmode\s*=\s*(['\"])(.*?)\1",
-        open_tag,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
+    m2 = re.search(r"\bmode\s*=\s*(['\"])(.*?)\1", open_tag, flags=re.IGNORECASE | re.DOTALL)
     if m2:
         v = m2.group(2).strip().lower()
         if v == "display":
@@ -191,10 +183,7 @@ def _try_close_tex(s: str, open_start: int, delim: Literal["$$", "$", "\\[", "\\
     return None
 
 
-def _next_complete_tex_region(
-    s: str,
-    pos: int,
-) -> tuple[int, int, str, bool] | None:
+def _next_complete_tex_region(s: str, pos: int) -> tuple[int, int, str, bool] | None:
     """First closed TeX region at/after *pos*: ``(start, end, inner, display)``."""
     while True:
         opened = _scan_next_tex_open(s, pos)

@@ -301,12 +301,7 @@ class TreeService(ServiceBase):
 
         return {
             "status": "ok",
-            "parent": {
-                "level": target["level"],
-                "text": target["text"],
-                "para_index": target["para_index"],
-                "bookmark": bookmark_map.get(target["para_index"]),
-            },
+            "parent": {"level": target["level"], "text": target["text"], "para_index": target["para_index"], "bookmark": bookmark_map.get(target["para_index"])},
             "content_strategy": content_strategy,
             "depth": depth,
             "children": children,
@@ -434,12 +429,6 @@ class TreeService(ServiceBase):
     def _flatten_headings(self, node):
         result = []
         for child in node.get("children", []):
-            result.append(
-                {
-                    "text": child["text"],
-                    "para_index": child["para_index"],
-                    "level": child["level"],
-                }
-            )
+            result.append({"text": child["text"], "para_index": child["para_index"], "level": child["level"]})
             result.extend(self._flatten_headings(child))
         return result

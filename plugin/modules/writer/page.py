@@ -33,12 +33,7 @@ class GetPageStyleProperties(ToolWriterPageBase):
     description = "Get dimensions, margins, and header/footer states of a page style."
     parameters = {
         "type": "object",
-        "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
-            },
-        },
+        "properties": {"style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}},
         "required": [],
     }
 
@@ -104,10 +99,7 @@ class SetPageStyleProperties(ToolWriterPageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
-            },
+            "style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
             "width_mm": {"type": "number", "description": "New width in mm."},
             "height_mm": {"type": "number", "description": "New height in mm."},
             "is_landscape": {"type": "boolean", "description": "Set orientation to landscape."},
@@ -240,15 +232,8 @@ class GetHeaderFooterText(ToolWriterPageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
-            },
-            "region": {
-                "type": "string",
-                "enum": ["header", "footer"],
-                "description": "Whether to get the header or footer text.",
-            },
+            "style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
+            "region": {"type": "string", "enum": ["header", "footer"], "description": "Whether to get the header or footer text."},
         },
         "required": ["region"],
     }
@@ -299,19 +284,9 @@ class SetHeaderFooterText(ToolWriterPageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
-            },
-            "region": {
-                "type": "string",
-                "enum": ["header", "footer"],
-                "description": "Whether to set the header or footer text.",
-            },
-            "content": {
-                "type": "string",
-                "description": "The text to insert into the header or footer.",
-            },
+            "style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."},
+            "region": {"type": "string", "enum": ["header", "footer"], "description": "Whether to set the header or footer text."},
+            "content": {"type": "string", "description": "The text to insert into the header or footer."},
         },
         "required": ["region", "content"],
     }
@@ -363,16 +338,7 @@ class GetPageColumns(ToolWriterPageBase):
 
     name = "get_page_columns"
     description = "Get the column layout for a page style."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "The name of the page style. Defaults to 'Standard'.",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"style_name": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
     def execute(self, ctx, **kwargs):
         style_name = kwargs.get("style_name", "Standard")
@@ -397,13 +363,7 @@ class GetPageColumns(ToolWriterPageBase):
 
             columns_data = []
             for col in cols:
-                columns_data.append(
-                    {
-                        "width": col.Width,
-                        "left_margin_mm": col.LeftMargin / 100.0,
-                        "right_margin_mm": col.RightMargin / 100.0,
-                    }
-                )
+                columns_data.append({"width": col.Width, "left_margin_mm": col.LeftMargin / 100.0, "right_margin_mm": col.RightMargin / 100.0})
 
             return {"status": "ok", "style_name": style_name, "column_count": column_count, "columns": columns_data}
         except Exception as e:
@@ -423,18 +383,9 @@ class SetPageColumns(ToolWriterPageBase):
     parameters = {
         "type": "object",
         "properties": {
-            "style_name": {
-                "type": "string",
-                "description": "The name of the page style. Defaults to 'Standard'.",
-            },
-            "column_count": {
-                "type": "integer",
-                "description": "Number of columns (e.g., 2).",
-            },
-            "spacing_mm": {
-                "type": "number",
-                "description": "Spacing between columns in mm. Defaults to 0.",
-            },
+            "style_name": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."},
+            "column_count": {"type": "integer", "description": "Number of columns (e.g., 2)."},
+            "spacing_mm": {"type": "number", "description": "Spacing between columns in mm. Defaults to 0."},
         },
         "required": ["column_count"],
     }
@@ -495,11 +446,7 @@ class InsertPageBreak(ToolWriterPageBase):
 
     name = "insert_page_break"
     description = "Insert a page break at the current cursor position."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

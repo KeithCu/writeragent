@@ -136,13 +136,7 @@ class ChatSession:
             self.db.add_message("assistant", content)
 
     def add_tool_result(self, tool_call_id, content):
-        self.messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": content,
-            }
-        )
+        self.messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
         # Note: We do NOT persist tool results to history_db.
         # This keeps the persistent history clean of tool formatting requirements.
 
@@ -183,23 +177,8 @@ class ChatSession:
 
 from plugin.framework.listeners import BaseTextListener, BaseActionListener
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
-from plugin.modules.chatbot.send_state import (
-    SendButtonState,
-    SendEvent,
-    SendEventKind,
-    StartRecordingEffect,
-    StartSendEffect,
-    StopRecordingEffect,
-    StopSendEffect,
-    UpdateUIEffect,
-)
-from plugin.modules.chatbot.sidebar_state import (
-    LogSidebarEffect,
-    SidebarCompositeState,
-    SidebarEvent,
-    SidebarEventKind,
-    sidebar_next_state,
-)
+from plugin.modules.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, StartRecordingEffect, StartSendEffect, StopRecordingEffect, StopSendEffect, UpdateUIEffect
+from plugin.modules.chatbot.sidebar_state import LogSidebarEffect, SidebarCompositeState, SidebarEvent, SidebarEventKind, sidebar_next_state
 
 log = logging.getLogger(__name__)
 
@@ -313,18 +292,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self.audio_recorder = None
         self.queue_executor = QueueExecutor()
 
-        send_initial = SendButtonState(
-            is_busy=False,
-            is_recording=False,
-            has_text=False,
-            has_audio=False,
-            audio_supported=HAS_RECORDING,
-        )
-        self.sidebar_state = SidebarCompositeState(
-            send=send_initial,
-            tool_loop=None,
-            audio=AudioRecorderState(status="idle"),
-        )
+        send_initial = SendButtonState(is_busy=False, is_recording=False, has_text=False, has_audio=False, audio_supported=HAS_RECORDING)
+        self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None, audio=AudioRecorderState(status="idle"))
 
         # Subscribe to MCP/tool bus events
         try:
@@ -443,12 +412,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.error("begin_inline_web_approval: %s", e)
 
         # Same block as non-approval path (see web_research_engine_chat_block), with approval header.
-        self._append_response(
-            web_research_engine_chat_block(
-                query or "",
-                approval_required=True,
-            )
-        )
+        self._append_response(web_research_engine_chat_block(query or "", approval_required=True))
         self._set_status(_("Waiting for approval…"))
         log.info("Inline web approval: waiting for Accept, Change, or Reject")
 
@@ -461,10 +425,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         text = show_web_search_query_edit_dialog(self.ctx, self.frame, initial)
         if text is None:
             return
-        log.debug(
-            "_open_web_search_change_dialog: applying edited query len=%d",
-            len(text),
-        )
+        log.debug("_open_web_search_change_dialog: applying edited query len=%d", len(text))
         self._append_response(web_search_engine_step_chat_text(text, 0, approval_required=False))
         self._finish_inline_web_approval(True, query_override=text)
 
@@ -508,10 +469,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             ev.approved = approved
             ev.query_override = query_override if approved else None
             if approved and query_override is not None:
-                log.debug(
-                    "_finish_inline_web_approval: approved with query_override len=%d",
-                    len(query_override),
-                )
+                log.debug("_finish_inline_web_approval: approved with query_override len=%d", len(query_override))
             ev.set()
         except Exception as e:
             log.error("_finish_inline_web_approval threading event error: %s", e)
@@ -634,25 +592,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return model
 
         # Only log when chat send will fail (same moment as the sidebar error message).
-        detail_parts = [
-            "has_frame=%s" % bool(self.frame),
-            "frame_branch=%s" % _uno_model_probe_for_log(frame_model),
-            "desktop_current=%s" % _uno_model_probe_for_log(desktop_model),
-        ]
+        detail_parts = ["has_frame=%s" % bool(self.frame), "frame_branch=%s" % _uno_model_probe_for_log(frame_model), "desktop_current=%s" % _uno_model_probe_for_log(desktop_model)]
         if frame_exc is not None:
             detail_parts.append("frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc))
         if model is not None:
-            detail_parts.append(
-                "reject_reason=unsupported_component source=%s probe=%s"
-                % (
-                    "frame" if frame_model is not None else "desktop",
-                    _uno_model_probe_for_log(model),
-                )
-            )
-        log.error(
-            "SendButtonListener: no compatible document model for chat (%s)",
-            "; ".join(detail_parts),
-        )
+            detail_parts.append("reject_reason=unsupported_component source=%s probe=%s" % ("frame" if frame_model is not None else "desktop", _uno_model_probe_for_log(model)))
+        log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 
     def set_fixed_send_width(self, width_px):
@@ -681,10 +626,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def dispatch(self, event):
         """Dispatch an event to the state machine, compute new state, and apply effects."""
-        tr = sidebar_next_state(
-            self.sidebar_state,
-            SidebarEvent(kind=SidebarEventKind.SEND, payload=event),
-        )
+        tr = sidebar_next_state(self.sidebar_state, SidebarEvent(kind=SidebarEventKind.SEND, payload=event))
         self.sidebar_state = tr.state
         self._send_busy = self.sidebar_state.send.is_busy
 

@@ -23,12 +23,7 @@ from plugin.framework.dialogs import msgbox
 from plugin.framework.i18n import _
 from plugin.framework.config import set_config
 from plugin.modules.http.client import LlmClient
-from plugin.framework.document import (
-    WriterCompoundUndo,
-    WriterStreamedRewriteSession,
-    build_writer_rewrite_prompt,
-    get_string_without_tracked_deletions,
-)
+from plugin.framework.document import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt, get_string_without_tracked_deletions
 
 
 def do_extend_selection(ctx, model, input_box_fn):

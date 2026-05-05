@@ -33,16 +33,7 @@ class ToolWriterWebResearchBase(ToolBase):
     doc_types = ["writer"]
     parameters = {
         "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The research query or question.",
-            },
-            "history_text": {
-                "type": "string",
-                "description": "Recent conversation history for context.",
-            },
-        },
+        "properties": {"query": {"type": "string", "description": "The research query or question."}, "history_text": {"type": "string", "description": "Recent conversation history for context."}},
         "required": ["query"],
     }
 
@@ -130,11 +121,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         cache_max_age_days = get_config_int(ctx.ctx, "web_cache_validity_days")
         cache_path = os.path.join(udir, "localwriter_web_cache.db") if (udir and cache_max_mb > 0) else None
 
-        smol_model = WriterAgentSmolModel(
-            LlmClient(config, ctx.ctx),
-            max_tokens=max_tokens,
-            status_callback=status_callback,
-        )
+        smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx), max_tokens=max_tokens, status_callback=status_callback)
 
         import datetime
 
@@ -224,11 +211,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
 
         from plugin.framework.i18n import _
 
-        return {
-            "status": "ok",
-            "message": _("Web research completed."),
-            "result": str(final_ans),
-        }
+        return {"status": "ok", "message": _("Web research completed."), "result": str(final_ans)}
 
 
 def _web_search_query_from_arguments(arguments: Any) -> str:

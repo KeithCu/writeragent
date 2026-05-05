@@ -52,6 +52,10 @@ extend-exclude = [
     "plugin/tests",
 ]
 
+# Collapse multi-line calls when they fit line-length; do not treat a trailing comma as “keep expanded”.
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
 [tool.ruff.lint]
 extend-select = ["TC"]
 # UNO/bootstrap often uses imports after path setup; one-line if/for with colon is legacy style.

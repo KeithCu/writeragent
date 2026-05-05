@@ -241,10 +241,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 else:
                     log.debug("send button width stabilize skipped: %s", e)
             try:
-                for c, lab_list in (
-                    (controls.get("stop"), ["Stop", "Change", "Reject"]),
-                    (controls.get("clear"), ["Clear", "Reject"]),
-                ):
+                for c, lab_list in ((controls.get("stop"), ["Stop", "Change", "Reject"]), (controls.get("clear"), ["Clear", "Reject"])):
                     if not c:
                         continue
                     aw = _measure_aux_button_max_width(c, lab_list)

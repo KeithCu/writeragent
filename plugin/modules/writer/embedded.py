@@ -24,19 +24,9 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     parameters = {
         "type": "object",
         "properties": {
-            "object_type": {
-                "type": "string",
-                "description": "Target type, e.g. spreadsheet, chart.",
-            },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to insert the embedded object.",
-            },
-            "old_content": {
-                "type": "string",
-                "description": "Text to find and replace if target = 'search'.",
-            },
+            "object_type": {"type": "string", "description": "Target type, e.g. spreadsheet, chart."},
+            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to insert the embedded object."},
+            "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
         },
         "required": [],
     }
@@ -60,16 +50,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
 class EmbeddedEdit(ToolWriterEmbeddedBase):
     name = "embedded_edit"
     description = "Activate or edit an embedded OLE object (planned)."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "description": "Object name or anchor hint when available.",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

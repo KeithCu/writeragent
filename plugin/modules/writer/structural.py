@@ -39,13 +39,7 @@ class ListSections(ToolWriterStructuralBase):
         sections = []
         for name in names:
             section = supplier.getByName(name)
-            sections.append(
-                {
-                    "name": name,
-                    "is_visible": getattr(section, "IsVisible", True),
-                    "is_protected": getattr(section, "IsProtected", False),
-                }
-            )
+            sections.append({"name": name, "is_visible": getattr(section, "IsVisible", True), "is_protected": getattr(section, "IsProtected", False)})
         return {"status": "ok", "sections": sections, "count": len(sections)}
 
 
@@ -53,13 +47,7 @@ class GotoPage(ToolWriterStructuralBase):
     name = "goto_page"
     intent = "navigate"
     description = "Navigate the view cursor to a specific page."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page": {"type": "integer", "description": "Page number to navigate to"},
-        },
-        "required": ["page"],
-    }
+    parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -127,14 +115,7 @@ class GetPageObjects(ToolBase):
                     vc.gotoRange(g.getAnchor(), False)
                     if vc.getPage() == page:
                         size = g.getPropertyValue("Size")
-                        images.append(
-                            {
-                                "name": name,
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                                "title": g.getPropertyValue("Title"),
-                            }
-                        )
+                        images.append({"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100, "title": g.getPropertyValue("Title")})
                 except Exception:
                     pass
 
@@ -145,13 +126,7 @@ class GetPageObjects(ToolBase):
                     t = doc.getTextTables().getByName(name)
                     vc.gotoRange(t.getAnchor(), False)
                     if vc.getPage() == page:
-                        tables.append(
-                            {
-                                "name": name,
-                                "rows": t.getRows().getCount(),
-                                "cols": t.getColumns().getCount(),
-                            }
-                        )
+                        tables.append({"name": name, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
                 except Exception:
                     pass
 
@@ -163,13 +138,7 @@ class GetPageObjects(ToolBase):
                     vc.gotoRange(fr.getAnchor(), False)
                     if vc.getPage() == page:
                         size = fr.getPropertyValue("Size")
-                        frames.append(
-                            {
-                                "name": fname,
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                            }
-                        )
+                        frames.append({"name": fname, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
                 except Exception:
                     pass
 
@@ -213,11 +182,7 @@ class GetPageObjects(ToolBase):
 
                     if include_shape:
                         shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
-                        shape_info = {
-                            "type": shape_type,
-                            "name": getattr(shape, "Name", ""),
-                            "text": shape.getString().strip() if hasattr(shape, "getString") else "",
-                        }
+                        shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": shape.getString().strip() if hasattr(shape, "getString") else ""}
                         try:
                             pos = shape.getPosition()
                             size = shape.getSize()
@@ -235,16 +200,7 @@ class ReadSection(ToolWriterStructuralBase):
     name = "read_section"
     intent = "navigate"
     description = "Read the text content of a named section. Returns the full text within the section boundaries."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "section_name": {
-                "type": "string",
-                "description": "Name of the section to read.",
-            },
-        },
-        "required": ["section_name"],
-    }
+    parameters = {"type": "object", "properties": {"section_name": {"type": "string", "description": "Name of the section to read."}}, "required": ["section_name"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -275,10 +231,4 @@ class ReadSection(ToolWriterStructuralBase):
                 paragraphs.append("[Table]")
 
         content = "\n".join(paragraphs)
-        return {
-            "status": "ok",
-            "section_name": section_name,
-            "paragraphs": paragraphs,
-            "content": content,
-            "length": len(content),
-        }
+        return {"status": "ok", "section_name": section_name, "paragraphs": paragraphs, "content": content, "length": len(content)}

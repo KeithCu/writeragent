@@ -97,14 +97,7 @@ class SmolAgentExecutor:
 
         return final_ans
 
-    def execute_safe(
-        self,
-        agent,
-        task: str,
-        tool_call_handler: Callable[[ToolCall], Any] | None = None,
-        stop_message: str = "Stopped by user.",
-        error_prefix: str = "Task failed",
-    ) -> Any:
+    def execute_safe(self, agent, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, stop_message: str = "Stopped by user.", error_prefix: str = "Task failed") -> Any:
         """Execute the agent safely, catching errors and formatting them for the UI.
 
         Args:

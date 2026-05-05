@@ -70,12 +70,7 @@ def _prepend_dev_build_system_prefix_to_messages(messages: list) -> None:
 
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
 from plugin.framework.streaming_deltas import accumulate_delta
-from plugin.framework.constants import (
-    APP_REFERER,
-    APP_TITLE,
-    LLM_DEV_BUILD_SYSTEM_PREFIX,
-    should_prepend_dev_llm_system_prefix,
-)
+from plugin.framework.constants import APP_REFERER, APP_TITLE, LLM_DEV_BUILD_SYSTEM_PREFIX, should_prepend_dev_llm_system_prefix
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, AuthError
@@ -83,18 +78,8 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.utils import get_url_hostname, get_url_path_and_query
 
 from plugin.modules.http.errors import format_error_message, _format_http_error_response
-from plugin.modules.http.ssl_helpers import (
-    get_unverified_ssl_context,
-    get_verified_ssl_context,
-    _is_certificate_verify_error,
-    _is_local_host,
-)
-from plugin.modules.http.stream_normalizer import (
-    iterate_sse,
-    _extract_thinking_from_delta,
-    _normalize_message_content,
-    _normalize_delta,
-)
+from plugin.modules.http.ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
+from plugin.modules.http.stream_normalizer import iterate_sse, _extract_thinking_from_delta, _normalize_message_content, _normalize_delta
 from plugin.modules.http.requests import sync_request
 from plugin.framework.openrouter_chat_extra import merge_openrouter_chat_extra
 
@@ -332,17 +317,7 @@ class LlmClient:
 
         return content, finish_reason, thinking, delta
 
-    def make_chat_request(
-        self,
-        messages,
-        max_tokens=512,
-        tools=None,
-        stream=False,
-        model=None,
-        response_format=None,
-        *,
-        prepend_dev_build_system_prefix: bool = True,
-    ):
+    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None, *, prepend_dev_build_system_prefix: bool = True):
         """Build a chat completions request from a full messages array (provider-aware).
 
         ``prepend_dev_build_system_prefix``: when True (default), non-release bundles may prepend
@@ -407,13 +382,7 @@ class LlmClient:
                 else:
                     converted.append({"role": m["role"], "content": m["content"]})
 
-            data: dict[str, Any] = {
-                "model": model_name or "claude-3-5-sonnet-20241022",
-                "messages": converted,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": stream,
-            }
+            data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "temperature": temperature, "stream": stream}
             if system_msg:
                 data["system"] = system_msg
             if tools:
@@ -490,13 +459,7 @@ class LlmClient:
                         role = "model"
                     contents.append({"role": role, "parts": parts})
 
-            google_data: dict[str, Any] = {
-                "contents": contents,
-                "generationConfig": {
-                    "maxOutputTokens": max_tokens,
-                    "temperature": temperature,
-                },
-            }
+            google_data: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature}}
             if system_instruction:
                 google_data["system_instruction"] = system_instruction
             if tools:
@@ -519,13 +482,7 @@ class LlmClient:
         api_path = self._api_path()
         url = endpoint + api_path + "/chat/completions"
 
-        data = {
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "top_p": 0.9,
-            "stream": stream,
-        }
+        data = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature, "top_p": 0.9, "stream": stream}
 
         if prepend_dev_build_system_prefix:
             _prepend_dev_build_system_prefix_to_messages(messages)
@@ -562,12 +519,7 @@ class LlmClient:
         url = endpoint + api_path + "/images/generations"
         model_name = model or self.config.get("model", "")
 
-        data = {
-            "prompt": prompt,
-            "n": 1,
-            "size": f"{width}x{height}",
-            "response_format": "url",
-        }
+        data = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "url"}
         if model_name:
             data["model"] = model_name
         if steps:
@@ -664,40 +616,12 @@ class LlmClient:
         res = sync_request(url, data=body_bytes, headers=headers)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
-    def stream_completion(
-        self,
-        prompt,
-        system_prompt,
-        max_tokens,
-        append_callback,
-        append_thinking_callback=None,
-        stop_checker=None,
-        status_callback=None,
-    ):
+    def stream_completion(self, prompt, system_prompt, max_tokens, append_callback, append_thinking_callback=None, stop_checker=None, status_callback=None):
         """Stream a chat completions response via callbacks."""
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
-        self.stream_request(
-            method,
-            path,
-            body,
-            headers,
-            append_callback,
-            append_thinking_callback,
-            stop_checker=stop_checker,
-        )
+        self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker)
 
-    def _run_streaming_loop(
-        self,
-        method,
-        path,
-        body,
-        headers,
-        on_content,
-        on_thinking=None,
-        on_delta=None,
-        stop_checker=None,
-        _retry=True,
-    ):
+    def _run_streaming_loop(self, method, path, body, headers, on_content, on_thinking=None, on_delta=None, stop_checker=None, _retry=True):
         """Common low-level streaming engine."""
         init_logging(self.ctx)
         log.debug("=== Starting streaming loop (persistent, level=logging.INFO) ===")
@@ -812,32 +736,12 @@ class LlmClient:
                 log.error("Connection error during stop; exiting streaming loop")
                 return "stop"
             if self._enable_local_ssl_fallback(e):
-                return self._run_streaming_loop(
-                    method,
-                    path,
-                    body,
-                    headers,
-                    on_content=on_content,
-                    on_thinking=on_thinking,
-                    on_delta=on_delta,
-                    stop_checker=stop_checker,
-                    _retry=False,
-                )
+                return self._run_streaming_loop(method, path, body, headers, on_content=on_content, on_thinking=on_thinking, on_delta=on_delta, stop_checker=stop_checker, _retry=False)
 
             err_msg = format_error_message(e)
             if _retry:
                 log.warning("Retrying streaming request once on fresh connection")
-                return self._run_streaming_loop(
-                    method,
-                    path,
-                    body,
-                    headers,
-                    on_content=on_content,
-                    on_thinking=on_thinking,
-                    on_delta=on_delta,
-                    stop_checker=stop_checker,
-                    _retry=False,
-                )
+                return self._run_streaming_loop(method, path, body, headers, on_content=on_content, on_thinking=on_thinking, on_delta=on_delta, stop_checker=stop_checker, _retry=False)
             log.error("Connection retry failed: %s" % err_msg)
             raise NetworkError(err_msg, code="CONNECTION_ERROR", context={"url": path}) from e
         except NetworkError:
@@ -851,54 +755,14 @@ class LlmClient:
 
         return last_finish_reason
 
-    def stream_request(
-        self,
-        method,
-        path,
-        body,
-        headers,
-        append_callback,
-        append_thinking_callback=None,
-        stop_checker=None,
-    ):
+    def stream_request(self, method, path, body, headers, append_callback, append_thinking_callback=None, stop_checker=None):
         """Stream a chat response and append chunks via callbacks."""
-        self._run_streaming_loop(
-            method,
-            path,
-            body,
-            headers,
-            on_content=append_callback,
-            on_thinking=append_thinking_callback,
-            stop_checker=stop_checker,
-        )
+        self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, stop_checker=stop_checker)
 
-    def stream_chat_response(
-        self,
-        messages,
-        max_tokens,
-        append_callback,
-        append_thinking_callback=None,
-        stop_checker=None,
-        *,
-        prepend_dev_build_system_prefix: bool = True,
-    ):
+    def stream_chat_response(self, messages, max_tokens, append_callback, append_thinking_callback=None, stop_checker=None, *, prepend_dev_build_system_prefix: bool = True):
         """Stream a final chat response (no tools) using the messages array."""
-        method, path, body, headers = self.make_chat_request(
-            messages,
-            max_tokens,
-            tools=None,
-            stream=True,
-            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
-        )
-        self.stream_request(
-            method,
-            path,
-            body,
-            headers,
-            append_callback,
-            append_thinking_callback,
-            stop_checker=stop_checker,
-        )
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        self.stream_request(method, path, body, headers, append_callback, append_thinking_callback, stop_checker=stop_checker)
 
     def request_with_tools(
         self,
@@ -924,21 +788,9 @@ class LlmClient:
         init_logging(self.ctx)
         eff_model = model or self.config.get("model", "")
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
-        log.debug(
-            "request_with_tools: model=%s stream=%s n_messages=%s n_tool_defs=%s",
-            eff_model,
-            stream,
-            len(messages),
-            n_tool_defs,
-        )
+        log.debug("request_with_tools: model=%s stream=%s n_messages=%s n_tool_defs=%s", eff_model, stream, len(messages), n_tool_defs)
         method, path, body, headers = self.make_chat_request(
-            messages,
-            max_tokens,
-            tools=tools,
-            stream=stream,
-            model=model,
-            response_format=response_format,
-            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
+            messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix
         )
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
@@ -957,14 +809,7 @@ class LlmClient:
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
                 last_finish_reason = self._run_streaming_loop(
-                    method,
-                    path,
-                    body,
-                    headers,
-                    on_content=append_callback,
-                    on_thinking=append_thinking_callback,
-                    on_delta=lambda d: accumulate_delta(message_snapshot, d),
-                    stop_checker=stop_checker,
+                    method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=lambda d: accumulate_delta(message_snapshot, d), stop_checker=stop_checker
                 )
             except NetworkError:
                 raise
@@ -992,10 +837,7 @@ class LlmClient:
                         log.error("Provider API Error %d: %s" % (response.status, err_body))
                         try:
                             redacted_msgs = redact_sensitive_payload_for_log(messages)
-                            log.error(
-                                "request_with_tools outgoing messages (redacted): %s",
-                                json.dumps(redacted_msgs, indent=2, ensure_ascii=False),
-                            )
+                            log.error("request_with_tools outgoing messages (redacted): %s", json.dumps(redacted_msgs, indent=2, ensure_ascii=False))
                         except Exception as log_exc:
                             log.warning("Could not log redacted outgoing messages: %s", log_exc)
                         self._close_connection()
@@ -1055,17 +897,8 @@ class LlmClient:
         if content:
             cleaned = strip_leaked_chat_template_control_tokens(content)
             if cleaned != content:
-                log.info(
-                    "Stripped leaked <|...|> chat-template tokens from assistant content (model=%s, original_len=%d, cleaned_len=%d)",
-                    eff_model,
-                    len(content),
-                    len(cleaned),
-                )
-                log.debug(
-                    "Stripped leaked chat-template control tokens from model content. original=%r cleaned=%r",
-                    content,
-                    cleaned,
-                )
+                log.info("Stripped leaked <|...|> chat-template tokens from assistant content (model=%s, original_len=%d, cleaned_len=%d)", eff_model, len(content), len(cleaned))
+                log.debug("Stripped leaked chat-template control tokens from model content. original=%r cleaned=%r", content, cleaned)
                 content = cleaned
 
         if not tool_calls and content:
@@ -1080,39 +913,17 @@ class LlmClient:
                     if last_finish_reason != "tool_calls":
                         last_finish_reason = "tool_calls"
 
-        return {
-            "role": "assistant",
-            "content": content,
-            "tool_calls": tool_calls,
-            "finish_reason": last_finish_reason,
-            "images": images,
-            "usage": usage,
-        }
+        return {"role": "assistant", "content": content, "tool_calls": tool_calls, "finish_reason": last_finish_reason, "images": images, "usage": usage}
 
     def stream_request_with_tools(self, *args, **kwargs):
         """Streaming chat request with tools. Wrapper around request_with_tools."""
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(
-        self,
-        messages,
-        max_tokens=512,
-        model=None,
-        response_format=None,
-        *,
-        prepend_dev_build_system_prefix: bool = True,
-    ):
+    def chat_completion_sync(self, messages, max_tokens=512, model=None, response_format=None, *, prepend_dev_build_system_prefix: bool = True):
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.
         """
-        result = self.request_with_tools(
-            messages,
-            max_tokens=max_tokens,
-            tools=None,
-            model=model,
-            response_format=response_format,
-            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
-        )
+        result = self.request_with_tools(messages, max_tokens=max_tokens, tools=None, model=model, response_format=response_format, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
         return result.get("content") or ""

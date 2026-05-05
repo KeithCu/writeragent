@@ -67,10 +67,7 @@ class FormatService(ServiceBase):
                 tmp_path = tmp.name
 
             url = uno.systemPathToFileUrl(tmp_path)
-            props = (
-                PropertyValue("FilterName", 0, "HTML (StarWriter)", 0),
-                PropertyValue("Overwrite", 0, True, 0),
-            )
+            props = (PropertyValue("FilterName", 0, "HTML (StarWriter)", 0), PropertyValue("Overwrite", 0, True, 0))
             safe_call(model.storeToURL, "Store document to HTML", url, props)
 
             with open(tmp_path, "r", encoding="utf-8") as f:

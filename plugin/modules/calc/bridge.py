@@ -24,11 +24,7 @@ plugin framework.
 
 import logging
 
-from plugin.modules.calc.address_utils import (
-    index_to_column,
-    column_to_index,
-    parse_range_string,
-)
+from plugin.modules.calc.address_utils import index_to_column, column_to_index, parse_range_string
 
 logger = logging.getLogger("writeragent.calc")
 
@@ -90,9 +86,4 @@ class CalcBridge:
     @staticmethod
     def _range_to_str(range_addr):
         """Convert a CellRangeAddress to a string."""
-        return "%s%d:%s%d" % (
-            index_to_column(range_addr.StartColumn),
-            range_addr.StartRow + 1,
-            index_to_column(range_addr.EndColumn),
-            range_addr.EndRow + 1,
-        )
+        return "%s%d:%s%d" % (index_to_column(range_addr.StartColumn), range_addr.StartRow + 1, index_to_column(range_addr.EndColumn), range_addr.EndRow + 1)

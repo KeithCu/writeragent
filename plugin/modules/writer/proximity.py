@@ -89,26 +89,14 @@ class ProximityService(ServiceBase):
         node = entry["node"]
         was_heading = node["para_index"] == para_index
 
-        return pos, {
-            "was_heading": was_heading,
-            "heading_node": node,
-            "heading_text": node.get("text", ""),
-            "heading_level": node.get("level", 0),
-        }
+        return pos, {"was_heading": was_heading, "heading_node": node, "heading_text": node.get("text", ""), "heading_level": node.get("level", 0)}
 
     def _get_heading_chain(self, flat, ctx_idx, bookmark_map):
         chain = []
         entry = flat[ctx_idx] if ctx_idx is not None else None
         while entry is not None:
             node = entry["node"]
-            chain.append(
-                {
-                    "level": node["level"],
-                    "text": node["text"],
-                    "para_index": node["para_index"],
-                    "bookmark": bookmark_map.get(node["para_index"]),
-                }
-            )
+            chain.append({"level": node["level"], "text": node["text"], "para_index": node["para_index"], "bookmark": bookmark_map.get(node["para_index"])})
             entry = entry["parent"]
         chain.reverse()
         return chain
@@ -143,10 +131,7 @@ class ProximityService(ServiceBase):
 
         ctx_idx, ctx_info = self._find_heading_context(flat, para_index)
 
-        from_info = {
-            "para_index": para_index,
-            "was_heading": ctx_info["was_heading"],
-        }
+        from_info = {"para_index": para_index, "was_heading": ctx_info["was_heading"]}
         if ctx_idx is not None:
             ctx_node = flat[ctx_idx]["node"]
             from_info["context_heading"] = ctx_node["text"]
@@ -222,11 +207,7 @@ class ProximityService(ServiceBase):
         if target_entry is None:
             return {"error": "Unexpectedly found no target entry.", "from": from_info}
 
-        return {
-            "heading": self._build_heading_result(target_entry["node"], bookmark_map),
-            "from": from_info,
-            "direction": direction,
-        }
+        return {"heading": self._build_heading_result(target_entry["node"], bookmark_map), "from": from_info, "direction": direction}
 
     def _find_sibling(self, flat, ctx_idx, offset):
         entry = flat[ctx_idx]
@@ -279,10 +260,7 @@ class ProximityService(ServiceBase):
         end_idx = min(total - 1, center_idx + radius)
         text_obj = doc.getText()
 
-        result = {
-            "center_para_index": center_idx,
-            "range": {"start": start_idx, "end": end_idx},
-        }
+        result = {"center_para_index": center_idx, "range": {"start": start_idx, "end": end_idx}}
 
         bookmark_map = {}
         if "headings" in include:
@@ -306,11 +284,7 @@ class ProximityService(ServiceBase):
                 except Exception:
                     pass
                 text = el.getString()
-                entry = {
-                    "para_index": i,
-                    "text": text[:200] if len(text) > 200 else text,
-                    "outline_level": level,
-                }
+                entry = {"para_index": i, "text": text[:200] if len(text) > 200 else text, "outline_level": level}
                 bm = bookmark_map.get(i)
                 if bm:
                     entry["bookmark"] = bm
@@ -327,15 +301,7 @@ class ProximityService(ServiceBase):
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
                         size = g.getPropertyValue("Size")
-                        images.append(
-                            {
-                                "name": name,
-                                "paragraph_index": pi,
-                                "title": g.getPropertyValue("Title"),
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                            }
-                        )
+                        images.append({"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100})
                 except Exception:
                     pass
             result["images"] = images
@@ -349,14 +315,7 @@ class ProximityService(ServiceBase):
                     anchor = t.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
-                        tables.append(
-                            {
-                                "name": name,
-                                "paragraph_index": pi,
-                                "rows": t.getRows().getCount(),
-                                "cols": t.getColumns().getCount(),
-                            }
-                        )
+                        tables.append({"name": name, "paragraph_index": pi, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
                 except Exception:
                     pass
             result["tables"] = tables
@@ -371,14 +330,7 @@ class ProximityService(ServiceBase):
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
                         size = fr.getPropertyValue("Size")
-                        frames.append(
-                            {
-                                "name": fname,
-                                "paragraph_index": pi,
-                                "width_mm": size.Width // 100,
-                                "height_mm": size.Height // 100,
-                            }
-                        )
+                        frames.append({"name": fname, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
                 except Exception:
                     pass
             result["frames"] = frames
@@ -405,14 +357,7 @@ class ProximityService(ServiceBase):
                             resolved_flag = field.getPropertyValue("Resolved")
                         except Exception:
                             pass
-                        comments.append(
-                            {
-                                "author": author,
-                                "content": content[:200],
-                                "paragraph_index": pi,
-                                "resolved": resolved_flag,
-                            }
-                        )
+                        comments.append({"author": author, "content": content[:200], "paragraph_index": pi, "resolved": resolved_flag})
             except Exception:
                 pass
             result["comments"] = comments

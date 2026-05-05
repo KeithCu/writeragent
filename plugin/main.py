@@ -256,57 +256,21 @@ def _register_core_handlers():
     register_action_handler(
         "main",
         "RunFormatTests",
-        lambda: (
-            _run_test_suite(
-                importlib.import_module("plugin.tests.uno.format_tests"),
-                is_writer,
-                "writer.format_tests",
-            )
-            if _tests_bundled()
-            else _show_tests_unavailable("writer.format_tests")
-        ),
+        lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.format_tests"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"),
     )
 
     register_action_handler(
-        "main",
-        "RunCalcTests",
-        lambda: (
-            _run_test_suite(
-                importlib.import_module("plugin.tests.uno.test_calc"),
-                is_calc,
-                "calc.tests",
-            )
-            if _tests_bundled()
-            else _show_tests_unavailable("calc.tests")
-        ),
+        "main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests")
     )
 
     register_action_handler(
         "main",
         "RunCalcIntegrationTests",
-        lambda: (
-            _run_test_suite(
-                importlib.import_module("plugin.tests.uno.test_calc"),
-                is_calc,
-                "calc.integration_tests",
-            )
-            if _tests_bundled()
-            else _show_tests_unavailable("calc.integration_tests")
-        ),
+        lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"),
     )
 
     register_action_handler(
-        "main",
-        "RunDrawTests",
-        lambda: (
-            _run_test_suite(
-                importlib.import_module("plugin.tests.uno.test_draw"),
-                is_draw,
-                "draw.tests",
-            )
-            if _tests_bundled()
-            else _show_tests_unavailable("draw.tests")
-        ),
+        "main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_draw"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests")
     )
 
     register_action_handler("main", "NoOp", lambda: None)
@@ -343,11 +307,7 @@ def _show_tests_unavailable(test_name: str) -> None:
         from plugin.framework.dialogs import msgbox
         from plugin.framework.uno_context import get_ctx
 
-        msgbox(
-            get_ctx(),
-            test_name,
-            "This WriterAgent build was packaged without the optional `plugin.tests` test modules.",
-        )
+        msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
     except Exception:
         # Never let test menu state/messaging break core UI dispatch.
         pass
@@ -527,12 +487,7 @@ def _fire_status_event(listener, url, text):
     ev.FeatureURL = url
     command = url.Path
     ev.IsEnabled = True
-    if command in {
-        "main.RunFormatTests",
-        "main.RunCalcTests",
-        "main.RunCalcIntegrationTests",
-        "main.RunDrawTests",
-    }:
+    if command in {"main.RunFormatTests", "main.RunCalcTests", "main.RunCalcIntegrationTests", "main.RunDrawTests"}:
         ev.IsEnabled = _tests_bundled()
     ev.Requery = False
     if text is not None:
@@ -543,12 +498,7 @@ def _fire_status_event(listener, url, text):
 # ── Dynamic menu icons via XImageManager ──────────────────────────────
 
 # LO document modules that have their own ImageManager
-_IMAGE_MANAGER_MODULES = (
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.presentation.PresentationDocument",
-    "com.sun.star.drawing.DrawingDocument",
-)
+_IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument")
 
 
 def _get_menu_icon(command):
@@ -727,17 +677,11 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         except Exception as e:
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         try:
-            from plugin.modules.writer.ai_grammar_proofreader import (
-                ensure_writeragent_proofreader_configured,
-            )
+            from plugin.modules.writer.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
             ensure_writeragent_proofreader_configured(self.ctx)
         except Exception as e:
-            log.warning(
-                "[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s",
-                e,
-                exc_info=True,
-            )
+            log.warning("[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
         return ()
 
     def trigger(self, Event):
@@ -913,9 +857,5 @@ g_ImplementationHelper.addImplementation(
     "org.extension.writeragent.Main",  # implementation name
     ("com.sun.star.task.Job",),
 )  # implemented services (only 1)
-g_ImplementationHelper.addImplementation(
-    DispatchHandler,
-    DispatchHandler.IMPL_NAME,
-    DispatchHandler.SERVICE_NAMES,
-)
+g_ImplementationHelper.addImplementation(DispatchHandler, DispatchHandler.IMPL_NAME, DispatchHandler.SERVICE_NAMES)
 # vim: set shiftwidth=4 softtabstop=4 expandtab:

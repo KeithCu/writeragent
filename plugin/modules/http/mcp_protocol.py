@@ -222,22 +222,10 @@ class MCPProtocolHandler:
                 "debug": True,
                 "usage": "POST /debug with JSON body",
                 "actions": {
-                    "call_tool": {
-                        "description": "Call a registered tool",
-                        "body": {"action": "call_tool", "tool": "get_document_info", "args": {}},
-                    },
-                    "trigger": {
-                        "description": "Simulate a menu trigger command",
-                        "body": {"action": "trigger", "command": "settings"},
-                    },
-                    "services": {
-                        "description": "List registered services",
-                        "body": {"action": "services"},
-                    },
-                    "config": {
-                        "description": "Get/set config values",
-                        "body": {"action": "config", "key": "mcp.port", "value": None},
-                    },
+                    "call_tool": {"description": "Call a registered tool", "body": {"action": "call_tool", "tool": "get_document_info", "args": {}}},
+                    "trigger": {"description": "Simulate a menu trigger command", "body": {"action": "trigger", "command": "settings"}},
+                    "services": {"description": "List registered services", "body": {"action": "services"}},
+                    "config": {"description": "Get/set config values", "body": {"action": "config", "key": "mcp.port", "value": None}},
                 },
                 "tools": tools,
             },
@@ -333,15 +321,8 @@ class MCPProtocolHandler:
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
         return {
             "protocolVersion": client_version,
-            "capabilities": {
-                "tools": {"listChanged": False},
-                "resources": {"listChanged": False},
-                "prompts": {"listChanged": False},
-            },
-            "serverInfo": {
-                "name": "WriterAgent MCP",
-                "version": self.version,
-            },
+            "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}},
+            "serverInfo": {"name": "WriterAgent MCP", "version": self.version},
             "instructions": (
                 "WriterAgent MCP — AI document workspace. "
                 "WORKFLOW: 1) Use tools to interact with LibreOffice documents. "
@@ -425,15 +406,7 @@ class MCPProtocolHandler:
                         snippet = str(effect.result)[:100] if effect.result else ""
                         event_bus.emit("mcp:result", tool=state.tool_name, result_snippet=snippet, args=state.arguments)
 
-                    final_result = {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": json.dumps(effect.result, ensure_ascii=False, default=str),
-                            }
-                        ],
-                        "isError": effect.is_error,
-                    }
+                    final_result = {"content": [{"type": "text", "text": json.dumps(effect.result, ensure_ascii=False, default=str)}], "isError": effect.is_error}
 
                 elif isinstance(effect, SendErrorEffect):
                     raise ValueError(effect.message)
@@ -536,13 +509,7 @@ class MCPProtocolHandler:
 
         from plugin.framework.tool_context import ToolContext
 
-        context = ToolContext(
-            doc=doc,
-            ctx=ctx,
-            doc_type=doc_type,
-            services=self.services,
-            caller="mcp",
-        )
+        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp")
 
         t0 = time.perf_counter()
         result = self.tool_registry.execute(tool_name, context, **arguments)
@@ -590,13 +557,7 @@ class MCPProtocolHandler:
 
         from plugin.framework.tool_context import ToolContext
 
-        context = ToolContext(
-            doc=doc,
-            ctx=ctx,
-            doc_type=doc_type,
-            services=self.services,
-            caller="mcp",
-        )
+        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp")
 
         t0 = time.perf_counter()
         result = self.tool_registry.execute(tool_name, context, **arguments)

@@ -23,12 +23,7 @@ log = logging.getLogger("nelson.draw")
 # In practice, the simplest approach is to iterate shapes and check
 # their "PresObj" or "ClassName" property.
 
-_PLACEHOLDER_ROLES = {
-    "title": ["Title", "TitleText"],
-    "subtitle": ["SubTitle", "Subtitle"],
-    "body": ["Outline", "Text", "Body"],
-    "notes": ["Notes"],
-}
+_PLACEHOLDER_ROLES = {"title": ["Title", "TitleText"], "subtitle": ["SubTitle", "Subtitle"], "body": ["Outline", "Text", "Body"], "notes": ["Notes"]}
 
 
 def _get_slide(doc, page_index=None):
@@ -109,10 +104,7 @@ def _list_placeholders(page):
         shape = page.getByIndex(i)
         if not hasattr(shape, "getString"):
             continue
-        entry = {
-            "shape_index": i,
-            "text": shape.getString(),
-        }
+        entry = {"shape_index": i, "text": shape.getString()}
         try:
             if hasattr(shape, "Name") and shape.Name:
                 entry["name"] = shape.Name
@@ -147,27 +139,13 @@ class ListPlaceholders(ToolBase):
     name = "list_placeholders"
     intent = "navigate"
     description = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and shape index."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
         placeholders = _list_placeholders(page)
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "placeholders": placeholders,
-            "count": len(placeholders),
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "placeholders": placeholders, "count": len(placeholders)}
 
 
 class GetPlaceholderText(ToolBase):
@@ -179,18 +157,9 @@ class GetPlaceholderText(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "role": {
-                "type": "string",
-                "description": "Placeholder role: 'title', 'subtitle', or 'body'.",
-            },
-            "shape_index": {
-                "type": "integer",
-                "description": "Shape index (from list_placeholders).",
-            },
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
+            "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
+            "shape_index": {"type": "integer", "description": "Shape index (from list_placeholders)."},
+            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
         },
         "required": [],
     }
@@ -208,22 +177,14 @@ class GetPlaceholderText(ToolBase):
         elif role:
             shape, _ = _find_placeholder(page, role)
             if shape is None:
-                return self._tool_error(
-                    "Placeholder '%s' not found." % role,
-                    available=_list_placeholders(page),
-                )
+                return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
         else:
             return self._tool_error("Specify role or shape_index.")
 
         if not hasattr(shape, "getString"):
             return self._tool_error("Shape has no text.")
 
-        return {
-            "status": "ok",
-            "text": shape.getString(),
-            "role": role,
-            "shape_index": shape_index,
-        }
+        return {"status": "ok", "text": shape.getString(), "role": role, "shape_index": shape_index}
 
 
 class SetPlaceholderText(ToolBase):
@@ -235,22 +196,10 @@ class SetPlaceholderText(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "text": {
-                "type": "string",
-                "description": "Text to set on the placeholder.",
-            },
-            "role": {
-                "type": "string",
-                "description": "Placeholder role: 'title', 'subtitle', or 'body'.",
-            },
-            "shape_index": {
-                "type": "integer",
-                "description": "Shape index (from list_placeholders).",
-            },
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
+            "text": {"type": "string", "description": "Text to set on the placeholder."},
+            "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
+            "shape_index": {"type": "integer", "description": "Shape index (from list_placeholders)."},
+            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
         },
         "required": ["text"],
     }
@@ -270,10 +219,7 @@ class SetPlaceholderText(ToolBase):
         elif role:
             shape, shape_index = _find_placeholder(page, role)
             if shape is None:
-                return self._tool_error(
-                    "Placeholder '%s' not found." % role,
-                    available=_list_placeholders(page),
-                )
+                return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
         else:
             return self._tool_error("Specify role or shape_index.")
 
@@ -281,9 +227,4 @@ class SetPlaceholderText(ToolBase):
             return self._tool_error("Shape does not support text.")
 
         shape.setString(text)
-        return {
-            "status": "ok",
-            "text": text,
-            "role": role,
-            "shape_index": shape_index,
-        }
+        return {"status": "ok", "text": text, "role": role, "shape_index": shape_index}

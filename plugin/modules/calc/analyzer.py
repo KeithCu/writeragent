@@ -92,13 +92,7 @@ class SheetAnalyzer:
                     str_val = str(val) if val != "" else None
                     headers.append(str_val)
 
-            result = {
-                "sheet_name": sheet.getName(),
-                "used_range": used_range,
-                "row_count": row_count,
-                "col_count": col_count,
-                "headers": headers,
-            }
+            result = {"sheet_name": sheet.getName(), "used_range": used_range, "row_count": row_count, "col_count": col_count, "headers": headers}
 
             # Charts
             try:

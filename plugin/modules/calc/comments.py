@@ -9,10 +9,7 @@ from plugin.framework.errors import UnoObjectError
 import logging
 
 from plugin.modules.calc.base import ToolCalcCommentBase
-from plugin.modules.calc.address_utils import (
-    index_to_column,
-    parse_range_string,
-)
+from plugin.modules.calc.address_utils import index_to_column, parse_range_string
 
 log = logging.getLogger("nelson.calc")
 
@@ -46,16 +43,7 @@ class ListCellComments(ToolCalcCommentBase):
     name = "list_cell_comments"
     intent = "review"
     description = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet name (active sheet if omitted).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": []}
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -65,21 +53,8 @@ class ListCellComments(ToolCalcCommentBase):
         for i in range(annotations.getCount()):
             ann = annotations.getByIndex(i)
             pos = ann.getPosition()
-            comments.append(
-                {
-                    "cell": _cell_label(pos.Column, pos.Row),
-                    "author": ann.getAuthor(),
-                    "date": ann.getDate(),
-                    "text": ann.getString(),
-                    "is_visible": ann.getIsVisible(),
-                }
-            )
-        return {
-            "status": "ok",
-            "comments": comments,
-            "count": len(comments),
-            "sheet": sheet.getName(),
-        }
+            comments.append({"cell": _cell_label(pos.Column, pos.Row), "author": ann.getAuthor(), "date": ann.getDate(), "text": ann.getString(), "is_visible": ann.getIsVisible()})
+        return {"status": "ok", "comments": comments, "count": len(comments), "sheet": sheet.getName()}
 
 
 class AddCellComment(ToolCalcCommentBase):
@@ -91,18 +66,9 @@ class AddCellComment(ToolCalcCommentBase):
     parameters = {
         "type": "object",
         "properties": {
-            "cell": {
-                "type": "string",
-                "description": "Cell address (e.g. 'B3').",
-            },
-            "text": {
-                "type": "string",
-                "description": "Comment text.",
-            },
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet name (active sheet if omitted).",
-            },
+            "cell": {"type": "string", "description": "Cell address (e.g. 'B3')."},
+            "text": {"type": "string", "description": "Comment text."},
+            "sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."},
         },
         "required": ["cell", "text"],
     }
@@ -135,12 +101,7 @@ class AddCellComment(ToolCalcCommentBase):
         else:
             annotations.insertNew(addr, text)
 
-        return {
-            "status": "ok",
-            "cell": cell_ref,
-            "text": text,
-            "sheet": sheet.getName(),
-        }
+        return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
 
 
 class DeleteCellComment(ToolCalcCommentBase):
@@ -151,16 +112,7 @@ class DeleteCellComment(ToolCalcCommentBase):
     description = "Delete the comment (annotation) from a specific cell."
     parameters = {
         "type": "object",
-        "properties": {
-            "cell": {
-                "type": "string",
-                "description": "Cell address (e.g. 'B3').",
-            },
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet name (active sheet if omitted).",
-            },
-        },
+        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3')."}, "sheet_name": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
         "required": ["cell"],
     }
     is_mutation = True
@@ -181,10 +133,6 @@ class DeleteCellComment(ToolCalcCommentBase):
             pos = ann.getPosition()
             if pos.Column == col and pos.Row == row:
                 annotations.removeByIndex(i)
-                return {
-                    "status": "ok",
-                    "cell": cell_ref,
-                    "message": "Comment deleted.",
-                }
+                return {"status": "ok", "cell": cell_ref, "message": "Comment deleted."}
 
         return self._tool_error("No comment found at %s." % cell_ref)

@@ -116,10 +116,7 @@ TOOLS FOR COMPLETION:
 """
             agent = build_toolcalling_agent(
                 ctx,
-                [
-                    SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"),
-                    SmolToolAdapter(SwitchToDocumentModeTool(), ctx, safe=False, inputs_style="librarian"),
-                ],
+                [SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"), SmolToolAdapter(SwitchToDocumentModeTool(), ctx, safe=False, inputs_style="librarian")],
                 instructions=instructions,
                 final_answer_tool_name="reply_to_user",
                 examples_block=LIBRARIAN_EXAMPLES_BLOCK,
@@ -164,10 +161,7 @@ TOOLS FOR COMPLETION:
                                 match = re.search(r"'message': '([^']*)'", obs_str)
                                 handoff = match.group(1) if match else None
                                 append_thinking_callback(msg + "\n")
-                                return {
-                                    "status": "switch_mode",
-                                    "result": str(handoff) if handoff else "Switching to document mode.",
-                                }
+                                return {"status": "switch_mode", "result": str(handoff) if handoff else "Switching to document mode."}
 
                         append_thinking_callback(msg + "\n")
                     elif step.observations:
@@ -175,17 +169,11 @@ TOOLS FOR COMPLETION:
                         if "'status': 'switch_mode'" in obs_str:
                             match = re.search(r"'message': '([^']*)'", obs_str)
                             handoff = match.group(1) if match else None
-                            return {
-                                "status": "switch_mode",
-                                "result": str(handoff) if handoff else "Switching to document mode.",
-                            }
+                            return {"status": "switch_mode", "result": str(handoff) if handoff else "Switching to document mode."}
                 elif isinstance(step, FinalAnswerStep):
                     final_ans = step.output
 
-            return {
-                "status": "ok",
-                "result": str(final_ans),
-            }
+            return {"status": "ok", "result": str(final_ans)}
         except Exception as e:
             tb = traceback.format_exc()
             log.error("Librarian error: %s", e)

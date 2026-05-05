@@ -207,13 +207,7 @@ class SendHandlersMixin:
                 if self.aspect_ratio_selector and hasattr(self.aspect_ratio_selector, "getText"):
                     aspect_ratio_str = self.aspect_ratio_selector.getText()
 
-                aspect_map = {
-                    "Square": "square",
-                    "Landscape (16:9)": "landscape_16_9",
-                    "Portrait (9:16)": "portrait_9_16",
-                    "Landscape (3:2)": "landscape_3_2",
-                    "Portrait (2:3)": "portrait_2_3",
-                }
+                aspect_map = {"Square": "square", "Landscape (16:9)": "landscape_16_9", "Portrait (9:16)": "portrait_9_16", "Landscape (3:2)": "landscape_3_2", "Portrait (2:3)": "portrait_2_3"}
                 mapped_aspect = aspect_map.get(aspect_ratio_str, "square")
 
                 image_model_text = ""
@@ -265,22 +259,10 @@ class SendHandlersMixin:
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 res = get_tools().execute(
-                    "generate_image",
-                    tctx,
-                    bypass_thread_guard=False,
-                    **{
-                        "prompt": query_text,
-                        "aspect_ratio": mapped_aspect,
-                        "base_size": base_size_val,
-                        "image_model": image_model_text,
-                    },
+                    "generate_image", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text}
                 )
                 if isinstance(res, dict) and res.get("status") == "error":
-                    log.error(
-                        "generate_image (direct) failed: %s details=%s",
-                        res.get("message"),
-                        res.get("details"),
-                    )
+                    log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
                 data = safe_json_loads(result, default={})
                 if isinstance(data, dict):
@@ -333,13 +315,7 @@ class SendHandlersMixin:
 
         max_context = get_config_int(self.ctx, "chat_context_length")
         try:
-            doc_context = get_document_context_for_chat(
-                model,
-                max_context,
-                include_end=True,
-                include_selection=True,
-                ctx=self.ctx,
-            )
+            doc_context = get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=self.ctx)
         except Exception as e:
             from plugin.framework.i18n import _
             from com.sun.star.lang import DisposedException
@@ -550,10 +526,7 @@ class SendHandlersMixin:
                         # halt the entire tool call loop, acting exactly as if the
                         # user clicked the explicit 'Stop' button in the UI.
                         q.put((StreamQueueKind.STOPPED,))
-                    return (
-                        bool(getattr(event, "approved", False)),
-                        getattr(event, "query_override", None),
-                    )
+                    return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
                 from plugin.framework.tool_context import ToolContext
 
@@ -652,10 +625,7 @@ class SendHandlersMixin:
             event_obj = item[3] if len(item) > 3 else None
             if event_obj is not None:
                 self.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
-            log.info(
-                "web_research on_approval_required: tool=%s (inline Accept/Change/Reject)",
-                tool_name,
-            )
+            log.info("web_research on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
         self._run_unified_worker_drain_loop(q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 

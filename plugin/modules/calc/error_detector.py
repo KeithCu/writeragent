@@ -45,95 +45,24 @@ logger = logging.getLogger("writeragent.calc")
 
 # LibreOffice Calc error types and descriptions
 ERROR_TYPES = {
-    501: {
-        "code": "#NULL!",
-        "name": "Invalid character",
-        "description": "An invalid character was found in the formula.",
-    },
-    502: {
-        "code": "#NULL!",
-        "name": "Invalid argument",
-        "description": "The function argument is invalid.",
-    },
-    504: {
-        "code": "#NAME?",
-        "name": "Name error",
-        "description": ("An unrecognised function or area name was used. Make sure the function name is spelled correctly."),
-    },
-    507: {
-        "code": "#NULL!",
-        "name": "Missing parenthesis",
-        "description": "There is an unclosed parenthesis in the formula.",
-    },
-    508: {
-        "code": "#NULL!",
-        "name": "Parenthesis error",
-        "description": "An extra or missing parenthesis was found in the formula.",
-    },
-    510: {
-        "code": "#NULL!",
-        "name": "Missing operator",
-        "description": "A required operator is missing in the formula.",
-    },
-    511: {
-        "code": "#NULL!",
-        "name": "Missing variable",
-        "description": "A required variable is missing in the formula.",
-    },
-    519: {
-        "code": "#VALUE!",
-        "name": "Value error",
-        "description": ("A value in the formula is not of the expected type. Text may have been used instead of a number or vice versa."),
-    },
-    521: {
-        "code": "#NULL!",
-        "name": "Internal error",
-        "description": "An internal calculation error occurred.",
-    },
-    522: {
-        "code": "#REF!",
-        "name": "Circular reference",
-        "description": "The formula refers to itself directly or indirectly.",
-    },
-    524: {
-        "code": "#REF!",
-        "name": "Reference error",
-        "description": ("A cell reference in the formula is invalid. It may be a deleted cell or sheet reference."),
-    },
-    525: {
-        "code": "#NAME?",
-        "name": "Name error",
-        "description": "An invalid name or undefined identifier was used.",
-    },
-    532: {
-        "code": "#DIV/0!",
-        "name": "Division by zero",
-        "description": ("An attempt was made to divide a number by zero. Check the value of the divisor cell."),
-    },
-    533: {
-        "code": "#NULL!",
-        "name": "Intersection error",
-        "description": "The intersection of two ranges is empty.",
-    },
+    501: {"code": "#NULL!", "name": "Invalid character", "description": "An invalid character was found in the formula."},
+    502: {"code": "#NULL!", "name": "Invalid argument", "description": "The function argument is invalid."},
+    504: {"code": "#NAME?", "name": "Name error", "description": ("An unrecognised function or area name was used. Make sure the function name is spelled correctly.")},
+    507: {"code": "#NULL!", "name": "Missing parenthesis", "description": "There is an unclosed parenthesis in the formula."},
+    508: {"code": "#NULL!", "name": "Parenthesis error", "description": "An extra or missing parenthesis was found in the formula."},
+    510: {"code": "#NULL!", "name": "Missing operator", "description": "A required operator is missing in the formula."},
+    511: {"code": "#NULL!", "name": "Missing variable", "description": "A required variable is missing in the formula."},
+    519: {"code": "#VALUE!", "name": "Value error", "description": ("A value in the formula is not of the expected type. Text may have been used instead of a number or vice versa.")},
+    521: {"code": "#NULL!", "name": "Internal error", "description": "An internal calculation error occurred."},
+    522: {"code": "#REF!", "name": "Circular reference", "description": "The formula refers to itself directly or indirectly."},
+    524: {"code": "#REF!", "name": "Reference error", "description": ("A cell reference in the formula is invalid. It may be a deleted cell or sheet reference.")},
+    525: {"code": "#NAME?", "name": "Name error", "description": "An invalid name or undefined identifier was used."},
+    532: {"code": "#DIV/0!", "name": "Division by zero", "description": ("An attempt was made to divide a number by zero. Check the value of the divisor cell.")},
+    533: {"code": "#NULL!", "name": "Intersection error", "description": "The intersection of two ranges is empty."},
 }
 
 # Cell error text patterns
-ERROR_PATTERNS = [
-    "#REF!",
-    "#NAME?",
-    "#VALUE!",
-    "#DIV/0!",
-    "#NULL!",
-    "#N/A",
-    "#NUM!",
-    "Err:502",
-    "Err:504",
-    "Err:519",
-    "Err:522",
-    "Err:524",
-    "Err:525",
-    "Err:532",
-]
+ERROR_PATTERNS = ["#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532"]
 
 
 class ErrorDetector:
@@ -164,22 +93,14 @@ class ErrorDetector:
                 return {}
             if error_code in ERROR_TYPES:
                 return ERROR_TYPES[error_code].copy()
-            return {
-                "code": f"Err:{error_code}",
-                "name": "Unknown error",
-                "description": f"Unknown error code: {error_code}",
-            }
+            return {"code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
         except Exception as e:
             logger.debug("Explain error getError exception: %s", e)
             try:
                 text = cell.getString()
                 for pattern in ERROR_PATTERNS:
                     if pattern in text:
-                        return {
-                            "code": pattern,
-                            "name": "Formula error",
-                            "description": f"'{pattern}' error detected in the cell.",
-                        }
+                        return {"code": pattern, "name": "Formula error", "description": f"'{pattern}' error detected in the cell."}
             except Exception as e2:
                 logger.debug("Explain error getString exception: %s", e2)
             return {}
@@ -227,19 +148,9 @@ class ErrorDetector:
                             addr = cell.getCellAddress()
                             col_str = self.bridge._index_to_column(addr.Column)
                             address = f"{col_str}{addr.Row + 1}"
-                            errors.append(
-                                {
-                                    "address": address,
-                                    "formula": cell.getFormula(),
-                                    "error": error_info,
-                                }
-                            )
+                            errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
 
-            logger.info(
-                "%d errors detected (range: %s).",
-                len(errors),
-                range_str or "full sheet",
-            )
+            logger.info("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
             return errors
         except Exception as e:
             logger.error("Error detection failure: %s", str(e))
@@ -268,13 +179,7 @@ class ErrorDetector:
             error_info = self.get_error_type(cell)
 
             if not error_info:
-                return {
-                    "address": address.upper(),
-                    "formula": cell_details.get("formula", ""),
-                    "error": None,
-                    "precedents": [],
-                    "suggestion": "No error detected in this cell.",
-                }
+                return {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
 
             precedent_details = []
             for prec_addr in precedent_addrs:
@@ -282,23 +187,11 @@ class ErrorDetector:
                     prec_info = self.inspector.read_cell(prec_addr)
                     precedent_details.append(prec_info)
                 except Exception:
-                    precedent_details.append(
-                        {
-                            "address": prec_addr,
-                            "value": "UNREADABLE",
-                            "type": "unknown",
-                        }
-                    )
+                    precedent_details.append({"address": prec_addr, "value": "UNREADABLE", "type": "unknown"})
 
             suggestion = self._generate_suggestion(error_info, precedent_details)
 
-            return {
-                "address": address.upper(),
-                "formula": cell_details.get("formula", ""),
-                "error": error_info,
-                "precedents": precedent_details,
-                "suggestion": suggestion,
-            }
+            return {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
         except Exception as e:
             logger.error("Error explanation failure (%s): %s", address, str(e))
             raise ToolExecutionError(str(e)) from e
@@ -323,21 +216,9 @@ class ErrorDetector:
                 detailed.append(self.explain_error(address))
             except Exception as e:
                 logger.warning("Explain errors failed for %s: %s", address, e)
-                detailed.append(
-                    {
-                        "address": address,
-                        "formula": item.get("formula", ""),
-                        "error": item.get("error"),
-                        "precedents": [],
-                        "suggestion": "Could not explain error; basic info shown.",
-                    }
-                )
+                detailed.append({"address": address, "formula": item.get("formula", ""), "error": item.get("error"), "precedents": [], "suggestion": "Could not explain error; basic info shown."})
 
-        return {
-            "range": range_str or "used_area",
-            "error_count": len(detailed),
-            "errors": detailed,
-        }
+        return {"range": range_str or "used_area", "error_count": len(detailed), "errors": detailed}
 
     @staticmethod
     def _generate_suggestion(error_info: dict, precedents: list) -> str:

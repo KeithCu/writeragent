@@ -82,18 +82,9 @@ class GetDocumentContent(ToolBase):
                 "enum": ["full", "selection", "range"],
                 "description": ("Return full document (default), current selection/cursor region, or a character range (requires start and end)."),
             },
-            "max_chars": {
-                "type": "integer",
-                "description": "Maximum characters to return.",
-            },
-            "start": {
-                "type": "integer",
-                "description": "Start character offset (0-based). Required for scope 'range'.",
-            },
-            "end": {
-                "type": "integer",
-                "description": "End character offset (exclusive). Required for scope 'range'.",
-            },
+            "max_chars": {"type": "integer", "description": "Maximum characters to return."},
+            "start": {"type": "integer", "description": "Start character offset (0-based). Required for scope 'range'."},
+            "end": {"type": "integer", "description": "End character offset (exclusive). Required for scope 'range'."},
         },
         "required": [],
     }
@@ -109,22 +100,9 @@ class GetDocumentContent(ToolBase):
         if scope == "range" and (range_start is None or range_end is None):
             return self._tool_error("scope 'range' requires start and end.")
 
-        content = format_support.document_to_content(
-            ctx.doc,
-            ctx.ctx,
-            ctx.services,
-            max_chars=max_chars,
-            scope=scope,
-            range_start=range_start,
-            range_end=range_end,
-        )
+        content = format_support.document_to_content(ctx.doc, ctx.ctx, ctx.services, max_chars=max_chars, scope=scope, range_start=range_start, range_end=range_end)
         doc_len = ctx.services.document.get_document_length(ctx.doc)
-        result = {
-            "status": "ok",
-            "content": content,
-            "length": len(content),
-            "document_length": doc_len,
-        }
+        result = {"status": "ok", "content": content, "length": len(content), "document_length": doc_len}
         if scope == "range" and range_start is not None and range_end is not None:
             result["start"] = int(range_start)
             result["end"] = int(range_end)
@@ -191,19 +169,9 @@ class ApplyDocumentContent(ToolBase):
                 "items": {"type": "string"},
                 "description": ("List of HTML fragments or plain-text fragments (one per block); shape and math per system prompt (APPLY_DOCUMENT_CONTENT AND HTML). No Markdown."),
             },
-            "target": {
-                "type": "string",
-                "enum": ["beginning", "end", "selection", "full_document", "search"],
-                "description": "Where to apply the content.",
-            },
-            "old_content": {
-                "type": "string",
-                "description": ("Text to find and replace with content if target = 'search'."),
-            },
-            "all_matches": {
-                "type": "boolean",
-                "description": "Replace all occurrences (true) or first only. Default false. Only for target='search'.",
-            },
+            "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the content."},
+            "old_content": {"type": "string", "description": ("Text to find and replace with content if target = 'search'.")},
+            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search'."},
         },
         "required": ["content"],
     }
@@ -246,12 +214,7 @@ class ApplyDocumentContent(ToolBase):
                 sum(len(p) for p in _parts),
             )
             content = "\n".join(_parts)
-            log.debug(
-                "apply_document_content: after join newline_count=%d has_math_tag=%s join_preview=%r",
-                content.count("\n"),
-                ("<math" in content.lower()),
-                content[:500],
-            )
+            log.debug("apply_document_content: after join newline_count=%d has_math_tag=%s join_preview=%r", content.count("\n"), ("<math" in content.lower()), content[:500])
         # Detect markup BEFORE any HTML wrapping.
         use_preserve = isinstance(content, str) and not format_support.content_has_markup(content)
 
@@ -260,11 +223,7 @@ class ApplyDocumentContent(ToolBase):
             content = content.replace("\\n", "\n").replace("\\t", "\t")
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
-                log.debug(
-                    "apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d",
-                    _nl_before_esc,
-                    _nl_after_esc,
-                )
+                log.debug("apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d", _nl_before_esc, _nl_after_esc)
 
         raw_content = content
 
@@ -297,24 +256,9 @@ class ApplyDocumentContent(ToolBase):
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
             if use_preserve:
-                count = format_support._preserving_search_replace(
-                    doc,
-                    ctx.ctx,
-                    raw_content,
-                    search_string,
-                    all_matches=True,
-                    case_sensitive=True,
-                )
+                count = format_support._preserving_search_replace(doc, ctx.ctx, raw_content, search_string, all_matches=True, case_sensitive=True)
             else:
-                count = format_support.apply_content_at_search(
-                    doc,
-                    ctx.ctx,
-                    content,
-                    search_string,
-                    all_matches=True,
-                    case_sensitive=True,
-                    config_svc=config_svc,
-                )
+                count = format_support.apply_content_at_search(doc, ctx.ctx, content, search_string, all_matches=True, case_sensitive=True, config_svc=config_svc)
             msg = "Replaced %d occurrence(s)." % count
             if use_preserve and count > 0:
                 msg += " (formatting preserved)"
@@ -341,10 +285,7 @@ class ApplyDocumentContent(ToolBase):
         if found is None:
             found = _find_range_by_offset(doc, search_string)
         if found is None:
-            return {
-                "status": "error",
-                "message": "old_content not found in document. Try a shorter, unique substring.",
-            }
+            return {"status": "error", "message": "old_content not found in document. Try a shorter, unique substring."}
         if use_preserve:
             format_support.replace_preserving_format(doc, found, raw_content, ctx.ctx)
             return {"status": "ok", "message": "Replaced 1 occurrence (by old_content). (formatting preserved)"}
@@ -366,14 +307,8 @@ class CloneHeadingBlock(ToolBaseDummy):
     parameters = {
         "type": "object",
         "properties": {
-            "locator": {
-                "type": "string",
-                "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction')."),
-            },
-            "paragraph_index": {
-                "type": "integer",
-                "description": "Paragraph index of the heading (0-based).",
-            },
+            "locator": {"type": "string", "description": ("Locator of the heading to clone (e.g. 'bookmark:_mcp_abc123', 'heading_text:Introduction').")},
+            "paragraph_index": {"type": "integer", "description": "Paragraph index of the heading (0-based)."},
         },
     }
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -430,12 +365,7 @@ class CloneHeadingBlock(ToolBaseDummy):
             cursor.setPropertyValue("ParaStyleName", sty)
             cursor.gotoEndOfParagraph(False)
 
-        return {
-            "status": "ok",
-            "message": "Cloned heading block '%s' (%d paragraphs)." % (node.get("text", ""), total),
-            "heading_text": node.get("text", ""),
-            "block_size": total,
-        }
+        return {"status": "ok", "message": "Cloned heading block '%s' (%d paragraphs)." % (node.get("text", ""), total), "heading_text": node.get("text", ""), "block_size": total}
 
 
 # ------------------------------------------------------------------
@@ -480,11 +410,7 @@ class GetDocumentStats(ToolBase):
 
     name = "get_document_stats"
     description = "Returns document statistics: character count, word count, paragraph count, page count, and heading count."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
 
@@ -528,14 +454,7 @@ class GetDocumentStats(ToolBase):
         except Exception:
             pass
 
-        return {
-            "status": "ok",
-            "character_count": char_count,
-            "word_count": word_count,
-            "paragraph_count": para_count,
-            "page_count": page_count,
-            "heading_count": heading_count,
-        }
+        return {"status": "ok", "character_count": char_count, "word_count": word_count, "paragraph_count": para_count, "page_count": page_count, "heading_count": heading_count}
 
 
 def _count_headings(nodes):

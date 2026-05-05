@@ -28,15 +28,8 @@ class NavigateHeading(ToolWriterStructuralBase):
     parameters = {
         "type": "object",
         "properties": {
-            "locator": {
-                "type": "string",
-                "description": ("Starting position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42', 'heading_text:Introduction')"),
-            },
-            "direction": {
-                "type": "string",
-                "enum": ["next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"],
-                "description": "Navigation direction",
-            },
+            "locator": {"type": "string", "description": ("Starting position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42', 'heading_text:Introduction')")},
+            "direction": {"type": "string", "enum": ["next", "previous", "parent", "first_child", "next_sibling", "previous_sibling"], "description": "Navigation direction"},
         },
         "required": ["locator", "direction"],
     }
@@ -60,19 +53,9 @@ class GetSurroundings(ToolWriterStructuralBase):
     parameters = {
         "type": "object",
         "properties": {
-            "locator": {
-                "type": "string",
-                "description": "Center position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42')",
-            },
-            "radius": {
-                "type": "integer",
-                "description": "Number of paragraphs in each direction (default: 10, max: 50)",
-            },
-            "include": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": ("Object types to include: paragraphs, images, tables, frames, comments, headings (default: all)"),
-            },
+            "locator": {"type": "string", "description": "Center position (e.g. 'bookmark:_mcp_xxx', 'paragraph:42')"},
+            "radius": {"type": "integer", "description": "Number of paragraphs in each direction (default: 10, max: 50)"},
+            "include": {"type": "array", "items": {"type": "string"}, "description": ("Object types to include: paragraphs, images, tables, frames, comments, headings (default: all)")},
         },
         "required": ["locator"],
     }

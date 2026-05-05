@@ -24,11 +24,7 @@ _spec_log = logging.getLogger("writeragent.specialized")
 SmolInputsStyle = Literal["librarian", "specialized"]
 
 
-def to_smol_inputs(
-    parameters: dict[str, Any] | None,
-    *,
-    style: SmolInputsStyle = "librarian",
-) -> dict[str, dict[str, Any]]:
+def to_smol_inputs(parameters: dict[str, Any] | None, *, style: SmolInputsStyle = "librarian") -> dict[str, dict[str, Any]]:
     """Convert ToolBase ``parameters`` (JSON Schema) to smolagents ``inputs`` dict.
 
     * **librarian** — minimal keys, ``nullable`` from ``required`` (legacy librarian onboarding).
@@ -41,11 +37,7 @@ def to_smol_inputs(
         required = set(schema.get("required") or [])
         out: dict[str, dict[str, Any]] = {}
         for p_name, p_schema in props.items():
-            out[p_name] = {
-                "type": p_schema.get("type", "string"),
-                "description": p_schema.get("description", ""),
-                "nullable": p_name not in required,
-            }
+            out[p_name] = {"type": p_schema.get("type", "string"), "description": p_schema.get("description", ""), "nullable": p_name not in required}
         return out
 
     out_sp: dict[str, dict[str, Any]] = {}
@@ -62,16 +54,7 @@ class SmolToolAdapter(SmolTool):
 
     skip_forward_signature_validation = True
 
-    def __init__(
-        self,
-        tool: ToolBase,
-        tctx: ToolContext,
-        *,
-        safe: bool = False,
-        main_thread_sync: bool = False,
-        inputs_style: SmolInputsStyle = "librarian",
-        output_type: str | None = None,
-    ) -> None:
+    def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, main_thread_sync: bool = False, inputs_style: SmolInputsStyle = "librarian", output_type: str | None = None) -> None:
         self._inner_tool = tool
         self._inner_tctx = tctx
         self._safe = safe
@@ -97,17 +80,11 @@ class SmolToolAdapter(SmolTool):
         if not self._safe:
             return tool.execute(ctx, **kwargs)
         if getattr(tool, "is_async", lambda: False)():
-            _spec_log.debug(
-                "Specialized agent executing async tool '%s' on worker",
-                self.name,
-            )
+            _spec_log.debug("Specialized agent executing async tool '%s' on worker", self.name)
             return tool.execute_safe(ctx, **kwargs)
         if self._main_thread_sync:
             from plugin.framework.queue_executor import execute_on_main_thread
 
-            _spec_log.debug(
-                "Specialized agent executing sync tool '%s' on main thread",
-                self.name,
-            )
+            _spec_log.debug("Specialized agent executing sync tool '%s' on main thread", self.name)
             return execute_on_main_thread(tool.execute_safe, ctx, **kwargs)
         return tool.execute_safe(ctx, **kwargs)

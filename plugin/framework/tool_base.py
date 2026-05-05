@@ -129,10 +129,7 @@ class ToolBase(ABC):
                     )
             return self.execute(ctx, **kwargs)
         except Exception as e:
-            _log.exception(
-                "Tool '%s' execution failed",
-                self.name if self.name else "<unknown>",
-            )
+            _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
             return self._tool_error(f"Tool execution failed: {str(e)}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
 
     def get_collection(self, doc, getter_name, missing_msg=None):

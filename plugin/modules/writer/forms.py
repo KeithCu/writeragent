@@ -30,12 +30,7 @@ from plugin.framework.queue_executor import execute_on_main_thread
 log = logging.getLogger("writeragent.writer.forms")
 
 # One registration per tool name; union services for Writer + Calc (see AGENTS.md shared tools).
-_FORM_DOC_SERVICES = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.sheet.SpreadsheetDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-]
+_FORM_DOC_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 _CONTROL_TYPE_MAP = {
     "checkbox": "com.sun.star.form.component.CheckBox",
@@ -140,44 +135,15 @@ class CreateFormControl(ToolWriterFormBase):
     parameters = {
         "type": "object",
         "properties": {
-            "type": {
-                "type": "string",
-                "enum": ["checkbox", "text", "radio", "date", "combobox"],
-                "description": "The type of form control to create.",
-            },
-            "label": {
-                "type": "string",
-                "description": "Label text for the control (e.g. 'I agree').",
-            },
-            "name": {
-                "type": "string",
-                "description": "Internal name/key for the control.",
-            },
-            "group_name": {
-                "type": "string",
-                "description": "Group name for radio buttons (mutually exclusive in the same group).",
-            },
-            "items": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of options for a combobox.",
-            },
-            "placeholder": {
-                "type": "string",
-                "description": "Placeholder/hint text for text fields.",
-            },
-            "default_value": {
-                "type": "string",
-                "description": "Initial value for text or date fields.",
-            },
-            "width": {
-                "type": "integer",
-                "description": "Width in 100ths of mm (default varies by type).",
-            },
-            "height": {
-                "type": "integer",
-                "description": "Height in 100ths of mm (default varies by type).",
-            },
+            "type": {"type": "string", "enum": ["checkbox", "text", "radio", "date", "combobox"], "description": "The type of form control to create."},
+            "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
+            "name": {"type": "string", "description": "Internal name/key for the control."},
+            "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
+            "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox."},
+            "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
+            "default_value": {"type": "string", "description": "Initial value for text or date fields."},
+            "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
+            "height": {"type": "integer", "description": "Height in 100ths of mm (default varies by type)."},
         },
         "required": ["type", "name"],
     }
@@ -440,11 +406,7 @@ class ListFormControls(ToolWriterFormBase):
             shape = dp.getByIndex(i)
             if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
                 model = shape.Control
-                info = {
-                    "index": i,
-                    "name": getattr(model, "Name", ""),
-                    "type": _get_readable_type(model),
-                }
+                info = {"index": i, "name": getattr(model, "Name", ""), "type": _get_readable_type(model)}
                 if hasattr(model, "Label"):
                     info["label"] = model.Label
                 if hasattr(model, "Text"):
@@ -462,11 +424,7 @@ class ListFormControls(ToolWriterFormBase):
 
                 controls.append(info)
 
-        out: dict = {
-            "status": "ok",
-            "controls": controls,
-            "count": len(controls),
-        }
+        out: dict = {"status": "ok", "controls": controls, "count": len(controls)}
         if _is_spreadsheet_doc(doc):
             out["note"] = "Indices are ControlShapes on the active sheet draw page only."
         return out

@@ -38,9 +38,6 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
         "charts, and other page elements. Including inserting math formulas (domain='math')."
     )
 
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     _special_base_class = ToolDrawSpecialBase
     _agent_label = "Draw"

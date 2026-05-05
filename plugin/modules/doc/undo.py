@@ -20,16 +20,7 @@ class Undo(ToolBaseDummy):
 
     name = "undo"
     description = "Undo the last action in the document. Can undo multiple steps. Works on all document types."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "steps": {
-                "type": "integer",
-                "description": "Number of steps to undo (default: 1).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to undo (default: 1)."}}, "required": []}
     uno_services = None
     is_mutation = True
 
@@ -43,12 +34,7 @@ class Undo(ToolBaseDummy):
                     break
                 um.undo()
                 undone += 1
-            return {
-                "status": "ok",
-                "undone": undone,
-                "can_undo": um.isUndoPossible(),
-                "can_redo": um.isRedoPossible(),
-            }
+            return {"status": "ok", "undone": undone, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
         except Exception as e:
             return self._tool_error(str(e))
 
@@ -58,16 +44,7 @@ class Redo(ToolBaseDummy):
 
     name = "redo"
     description = "Redo the last undone action in the document. Can redo multiple steps. Works on all document types."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "steps": {
-                "type": "integer",
-                "description": "Number of steps to redo (default: 1).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}
     uno_services = None
     is_mutation = True
 
@@ -81,11 +58,6 @@ class Redo(ToolBaseDummy):
                     break
                 um.redo()
                 redone += 1
-            return {
-                "status": "ok",
-                "redone": redone,
-                "can_undo": um.isUndoPossible(),
-                "can_redo": um.isRedoPossible(),
-            }
+            return {"status": "ok", "redone": redone, "can_undo": um.isUndoPossible(), "can_redo": um.isRedoPossible()}
         except Exception as e:
             return self._tool_error(str(e))

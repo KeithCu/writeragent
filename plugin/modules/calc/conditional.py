@@ -106,16 +106,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
         "Returns operator, formulas, and applied cell style for each rule. "
         "Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "range_name": {
-                "type": "string",
-                "description": "Cell range (e.g. 'A1:D10'). If omitted, scans used area.",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"range_name": {"type": "string", "description": "Cell range (e.g. 'A1:D10'). If omitted, scans used area."}}, "required": []}
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
@@ -140,12 +131,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
                     entry = formats.getByIndex(i)
                     rules.append(_entry_to_dict(entry, i))
 
-            return {
-                "status": "ok",
-                "range_name": range_str or "(used area)",
-                "rules": rules,
-                "count": len(rules),
-            }
+            return {"status": "ok", "range_name": range_str or "(used area)", "rules": rules, "count": len(rules)}
         except Exception as e:
             logger.error("List conditional formats error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
@@ -168,25 +154,10 @@ class AddConditionalFormat(ToolCalcConditionalBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "string",
-                "description": "Cell range to apply the rule to (e.g. 'A1:D10').",
-            },
+            "range_name": {"type": "string", "description": "Cell range to apply the rule to (e.g. 'A1:D10')."},
             "operator": {
                 "type": "string",
-                "enum": [
-                    "EQUAL",
-                    "NOT_EQUAL",
-                    "GREATER",
-                    "GREATER_EQUAL",
-                    "LESS",
-                    "LESS_EQUAL",
-                    "BETWEEN",
-                    "NOT_BETWEEN",
-                    "FORMULA",
-                    "DUPLICATE",
-                    "NOT_DUPLICATE",
-                ],
+                "enum": ["EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE"],
                 "description": "Condition operator.",
             },
             "formula1": {
@@ -195,14 +166,8 @@ class AddConditionalFormat(ToolCalcConditionalBase):
                     "First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE."
                 ),
             },
-            "formula2": {
-                "type": "string",
-                "description": "Second value (required for BETWEEN and NOT_BETWEEN).",
-            },
-            "style_name": {
-                "type": "string",
-                "description": ("Cell style to apply when condition is true. Use list_styles with family='CellStyles' to see available styles."),
-            },
+            "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
+            "style_name": {"type": "string", "description": ("Cell style to apply when condition is true. Use list_styles with family='CellStyles' to see available styles.")},
         },
         "required": ["range_name", "operator", "style_name"],
     }
@@ -218,18 +183,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
         try:
             from com.sun.star.beans import PropertyValue
-            from com.sun.star.sheet.ConditionOperator import (
-                BETWEEN,
-                EQUAL,
-                FORMULA,
-                GREATER,
-                GREATER_EQUAL,
-                LESS,
-                LESS_EQUAL,
-                NONE,
-                NOT_BETWEEN,
-                NOT_EQUAL,
-            )
+            from com.sun.star.sheet.ConditionOperator import BETWEEN, EQUAL, FORMULA, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, NONE, NOT_BETWEEN, NOT_EQUAL
 
             try:
                 from com.sun.star.sheet import ConditionOperator2 as CO2
@@ -296,11 +250,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             logger.info("Conditional format added to %s.", range_str.upper())
             count = formats.getCount()
 
-            return {
-                "status": "ok",
-                "range_name": range_str,
-                "rule_count": count,
-            }
+            return {"status": "ok", "range_name": range_str, "rule_count": count}
         except Exception as e:
             logger.error("Add conditional format error: %s", str(e))
             raise ToolExecutionError(str(e)) from e
@@ -317,14 +267,8 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     parameters = {
         "type": "object",
         "properties": {
-            "range_name": {
-                "type": "string",
-                "description": "Cell range (e.g. 'A1:D10').",
-            },
-            "rule_index": {
-                "type": "integer",
-                "description": "0-based index of the rule to remove. If omitted, all rules are cleared.",
-            },
+            "range_name": {"type": "string", "description": "Cell range (e.g. 'A1:D10')."},
+            "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."},
         },
         "required": ["range_name"],
     }

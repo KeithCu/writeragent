@@ -70,13 +70,7 @@ class StopSendEffect:
     pass
 
 
-SendEffects = Union[
-    UpdateUIEffect,
-    StartRecordingEffect,
-    StopRecordingEffect,
-    StartSendEffect,
-    StopSendEffect,
-]
+SendEffects = Union[UpdateUIEffect, StartRecordingEffect, StopRecordingEffect, StartSendEffect, StopSendEffect]
 
 
 # --- Pure Transition Function ---

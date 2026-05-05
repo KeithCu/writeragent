@@ -35,12 +35,7 @@ class ListComments(ToolWriterCommentBase):
     description = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
     parameters = {
         "type": "object",
-        "properties": {
-            "author_filter": {
-                "type": "string",
-                "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all."),
-            },
-        },
+        "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}},
         "required": [],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -84,16 +79,7 @@ class AddComment(ToolBase):
     description = "Add a comment/annotation. Anchor the comment to text matching search_text."
     parameters = {
         "type": "object",
-        "properties": {
-            "content": {
-                "type": "string",
-                "description": "The comment text.",
-            },
-            "search_text": {
-                "type": "string",
-                "description": "Anchor the comment to text containing this string.",
-            },
-        },
+        "properties": {"content": {"type": "string", "description": "The comment text."}, "search_text": {"type": "string", "description": "Anchor the comment to text containing this string."}},
         "required": ["content", "search_text"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -116,10 +102,7 @@ class AddComment(ToolBase):
         sd.SearchRegularExpression = False
         found = doc.findFirst(sd)
         if found is None:
-            return {
-                "status": "not_found",
-                "message": "Text '%s' not found." % search_text,
-            }
+            return {"status": "not_found", "message": "Text '%s' not found." % search_text}
         anchor_range = found.getStart()
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
@@ -143,14 +126,8 @@ class DeleteComment(ToolWriterCommentBase):
     parameters = {
         "type": "object",
         "properties": {
-            "comment_name": {
-                "type": "string",
-                "description": "The 'name' field returned by list_comments.",
-            },
-            "author": {
-                "type": "string",
-                "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."),
-            },
+            "comment_name": {"type": "string", "description": "The 'name' field returned by list_comments."},
+            "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")},
         },
         "required": [],
     }
@@ -189,10 +166,7 @@ class DeleteComment(ToolWriterCommentBase):
         for field in to_delete:
             text_obj.removeTextContent(field)
 
-        return {
-            "status": "ok",
-            "deleted": len(to_delete),
-        }
+        return {"status": "ok", "deleted": len(to_delete)}
 
 
 class ResolveComment(ToolWriterCommentBase):
@@ -204,18 +178,9 @@ class ResolveComment(ToolWriterCommentBase):
     parameters = {
         "type": "object",
         "properties": {
-            "comment_name": {
-                "type": "string",
-                "description": "The 'name' field returned by list_comments.",
-            },
-            "resolution": {
-                "type": "string",
-                "description": "Optional resolution text added as a reply.",
-            },
-            "author": {
-                "type": "string",
-                "description": "Author name for the resolution reply. Default: AI.",
-            },
+            "comment_name": {"type": "string", "description": "The 'name' field returned by list_comments."},
+            "resolution": {"type": "string", "description": "Optional resolution text added as a reply."},
+            "author": {"type": "string", "description": "Author name for the resolution reply. Default: AI."},
         },
         "required": ["comment_name"],
     }
@@ -246,10 +211,7 @@ class ResolveComment(ToolWriterCommentBase):
                 break
 
         if target is None:
-            return {
-                "status": "not_found",
-                "message": "Comment '%s' not found." % comment_name,
-            }
+            return {"status": "not_found", "message": "Comment '%s' not found." % comment_name}
 
         if resolution:
             reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
@@ -263,11 +225,7 @@ class ResolveComment(ToolWriterCommentBase):
 
         target.setPropertyValue("Resolved", True)
 
-        return {
-            "status": "ok",
-            "comment_name": comment_name,
-            "resolved": True,
-        }
+        return {"status": "ok", "comment_name": comment_name, "resolved": True}
 
 
 _WORKFLOW_TASK_PREFIXES = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
@@ -286,24 +244,10 @@ class Workflow(ToolWriterCommentBase):
     parameters = {
         "type": "object",
         "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["scan_tasks", "get_status", "set_status", "check_stop"],
-                "description": "Operation to perform.",
-            },
-            "unresolved_only": {
-                "type": "boolean",
-                "description": "For scan_tasks: only unresolved tasks (default true).",
-            },
-            "prefix_filter": {
-                "type": "string",
-                "enum": ["TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE"],
-                "description": "For scan_tasks: filter by task prefix.",
-            },
-            "content": {
-                "type": "string",
-                "description": "For set_status: workflow status as key: value lines.",
-            },
+            "action": {"type": "string", "enum": ["scan_tasks", "get_status", "set_status", "check_stop"], "description": "Operation to perform."},
+            "unresolved_only": {"type": "boolean", "description": "For scan_tasks: only unresolved tasks (default true)."},
+            "prefix_filter": {"type": "string", "enum": ["TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE"], "description": "For scan_tasks: filter by task prefix."},
+            "content": {"type": "string", "description": "For set_status: workflow status as key: value lines."},
         },
         "required": ["action"],
     }
@@ -443,13 +387,7 @@ class Workflow(ToolWriterCommentBase):
                 if upper.startswith("STOP") or upper.startswith("CANCEL"):
                     stop_signals.append({"author": author, "content": content[:100]})
         should_stop = bool(stop_signals) or workflow_stop
-        return {
-            "status": "ok",
-            "should_stop": should_stop,
-            "workflow_stop": workflow_stop,
-            "stop_signals": stop_signals,
-            "count": len(stop_signals),
-        }
+        return {"status": "ok", "should_stop": should_stop, "workflow_stop": workflow_stop, "stop_signals": stop_signals, "count": len(stop_signals)}
 
 
 # ------------------------------------------------------------------
@@ -484,13 +422,7 @@ def _set_annotation_date(annotation):
 def _read_annotation(field, para_ranges, text_obj):
     """Extract annotation properties into a plain dict."""
     entry = {}
-    for prop, default in [
-        ("Author", ""),
-        ("Content", ""),
-        ("Name", ""),
-        ("ParentName", ""),
-        ("Resolved", False),
-    ]:
+    for prop, default in [("Author", ""), ("Content", ""), ("Name", ""), ("ParentName", ""), ("Resolved", False)]:
         try:
             entry[prop.lower() if prop != "ParentName" else "parent_name"] = field.getPropertyValue(prop)
         except Exception:

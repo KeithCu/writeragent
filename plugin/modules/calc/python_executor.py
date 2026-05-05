@@ -73,14 +73,7 @@ class PythonExecutor:
             """Write values back to the spreadsheet."""
             return manipulator.write_formula_range(addr, data)
 
-        self.executor.send_variables(
-            {
-                "lp": lp_helper,
-                "Sheet": lp_helper,
-                "get_range": lp_helper,
-                "set_range": set_range_helper,
-            }
-        )
+        self.executor.send_variables({"lp": lp_helper, "Sheet": lp_helper, "get_range": lp_helper, "set_range": set_range_helper})
 
     def format_result(self, result: Any) -> Any:
         """Processes the result for storage and display."""
@@ -148,14 +141,8 @@ class ExecutePythonScript(ToolBaseDummy):
     parameters = {
         "type": "object",
         "properties": {
-            "script": {
-                "type": "string",
-                "description": "The Python code to execute.",
-            },
-            "target_range": {
-                "type": "string",
-                "description": "Optional: Cell range (e.g. 'A1') to write the script result to.",
-            },
+            "script": {"type": "string", "description": "The Python code to execute."},
+            "target_range": {"type": "string", "description": "Optional: Cell range (e.g. 'A1') to write the script result to."},
             "reset": {"type": "boolean", "description": "If true, resets the Python environment for this document before executing.", "default": False},
         },
         "required": ["script"],

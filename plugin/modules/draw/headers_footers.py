@@ -57,24 +57,15 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     bridge = DrawBridge(ctx.doc)
     pages = bridge.get_pages()
     if page_index < 0 or page_index >= pages.getCount():
-        raise WriterAgentException(
-            "invalid_index",
-            f"Slide index {page_index} is out of bounds. Must be between 0 and {pages.getCount() - 1}",
-        )
+        raise WriterAgentException("invalid_index", f"Slide index {page_index} is out of bounds. Must be between 0 and {pages.getCount() - 1}")
     slide = pages.getByIndex(page_index)
     if is_master_page:
         try:
             master = slide.MasterPage
         except Exception as e:
-            raise WriterAgentException(
-                "no_master",
-                f"Could not resolve master page for slide {page_index}: {e}",
-            ) from e
+            raise WriterAgentException("no_master", f"Could not resolve master page for slide {page_index}: {e}") from e
         if master is None:
-            raise WriterAgentException(
-                "no_master",
-                f"Slide {page_index} has no master page assigned.",
-            )
+            raise WriterAgentException("no_master", f"Slide {page_index} has no master page assigned.")
         return master
     return slide
 
@@ -267,10 +258,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
                 "type": "integer",
                 "description": ("0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index)."),
             },
-            "is_master_page": {
-                "type": "boolean",
-                "description": "If True, read the master page linked to the slide at page_index. Defaults to False.",
-            },
+            "is_master_page": {"type": "boolean", "description": "If True, read the master page linked to the slide at page_index. Defaults to False."},
         },
         "required": ["page_index"],
     }
@@ -283,17 +271,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
 
         result: Dict[str, Any] = {"status": "ok", "page_index": page_index, "is_master_page": is_master_page, "properties": {}}
 
-        props_to_fetch = [
-            "HeaderText",
-            "FooterText",
-            "DateTimeText",
-            "IsHeaderVisible",
-            "IsFooterVisible",
-            "IsPageNumberVisible",
-            "IsDateTimeVisible",
-            "IsDateTimeFixed",
-            "DateTimeFormat",
-        ]
+        props_to_fetch = ["HeaderText", "FooterText", "DateTimeText", "IsHeaderVisible", "IsFooterVisible", "IsPageNumberVisible", "IsDateTimeVisible", "IsDateTimeFixed", "DateTimeFormat"]
 
         props = result["properties"]
         if _impress_master_hf_use_shapes(ctx.doc, is_master_page):
@@ -316,46 +294,16 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
     parameters = {
         "type": "object",
         "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide."),
-            },
-            "is_master_page": {
-                "type": "boolean",
-                "description": "If True, update the master page linked to the slide at page_index. Defaults to False.",
-            },
-            "header_text": {
-                "type": "string",
-                "description": "The text for the header.",
-            },
-            "footer_text": {
-                "type": "string",
-                "description": "The text for the footer.",
-            },
-            "date_time_text": {
-                "type": "string",
-                "description": "The fixed date/time text.",
-            },
-            "is_header_visible": {
-                "type": "boolean",
-                "description": "Whether the header is visible.",
-            },
-            "is_footer_visible": {
-                "type": "boolean",
-                "description": "Whether the footer is visible.",
-            },
-            "is_page_number_visible": {
-                "type": "boolean",
-                "description": "Whether the slide number is visible.",
-            },
-            "is_date_time_visible": {
-                "type": "boolean",
-                "description": "Whether the date/time is visible.",
-            },
-            "is_date_time_fixed": {
-                "type": "boolean",
-                "description": "If True, uses 'date_time_text'. If False, LibreOffice automatically updates it.",
-            },
+            "page_index": {"type": "integer", "description": ("0-based slide index. When is_master_page is false, updates that slide. When true, updates the master page assigned to that slide.")},
+            "is_master_page": {"type": "boolean", "description": "If True, update the master page linked to the slide at page_index. Defaults to False."},
+            "header_text": {"type": "string", "description": "The text for the header."},
+            "footer_text": {"type": "string", "description": "The text for the footer."},
+            "date_time_text": {"type": "string", "description": "The fixed date/time text."},
+            "is_header_visible": {"type": "boolean", "description": "Whether the header is visible."},
+            "is_footer_visible": {"type": "boolean", "description": "Whether the footer is visible."},
+            "is_page_number_visible": {"type": "boolean", "description": "Whether the slide number is visible."},
+            "is_date_time_visible": {"type": "boolean", "description": "Whether the date/time is visible."},
+            "is_date_time_fixed": {"type": "boolean", "description": "If True, uses 'date_time_text'. If False, LibreOffice automatically updates it."},
         },
         "required": ["page_index"],
     }

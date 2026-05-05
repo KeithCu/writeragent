@@ -21,12 +21,7 @@ from plugin.modules.writer.base import ToolWriterFootnoteBase
 from plugin.framework.errors import ToolExecutionError
 
 
-def _cursor_after_nth_match(
-    doc: Any,
-    search: str,
-    occurrence: int,
-    case_sensitive: bool,
-) -> Any:
+def _cursor_after_nth_match(doc: Any, search: str, occurrence: int, case_sensitive: bool) -> Any:
     """Return an ``XTextCursor`` collapsed to the end of the *occurrence*-th match (0-based)."""
     sd = doc.createSearchDescriptor()
     sd.SearchString = search
@@ -86,19 +81,9 @@ class FootnotesInsert(ToolWriterFootnoteBase):
     parameters = {
         "type": "object",
         "properties": {
-            "note_type": {
-                "type": "string",
-                "enum": ["footnote", "endnote"],
-                "description": "Whether to insert a footnote or an endnote.",
-            },
-            "text": {
-                "type": "string",
-                "description": "The content of the footnote or endnote.",
-            },
-            "label": {
-                "type": "string",
-                "description": "Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering.",
-            },
+            "note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to insert a footnote or an endnote."},
+            "text": {"type": "string", "description": "The content of the footnote or endnote."},
+            "label": {"type": "string", "description": "Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering."},
             "insert_after_text": {
                 "type": "string",
                 "description": (
@@ -108,14 +93,8 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                     "position matters and the tool is run outside normal user cursor control."
                 ),
             },
-            "occurrence": {
-                "type": "integer",
-                "description": ("0-based index when insert_after_text matches multiple times (default 0 = first match)."),
-            },
-            "case_sensitive": {
-                "type": "boolean",
-                "description": "Search matching for insert_after_text (default true).",
-            },
+            "occurrence": {"type": "integer", "description": ("0-based index when insert_after_text matches multiple times (default 0 = first match).")},
+            "case_sensitive": {"type": "boolean", "description": "Search matching for insert_after_text (default true)."},
         },
         "required": ["note_type", "text"],
     }
@@ -178,11 +157,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
             # Set text inside the note
             note.setString(text)
 
-            return {
-                "status": "ok",
-                "message": f"Successfully inserted {note_type}.",
-                "label": note.getLabel(),
-            }
+            return {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
 
         except Exception as e:
             return self._tool_error(f"Failed to insert {note_type}: {str(e)}")
@@ -193,13 +168,7 @@ class FootnotesList(ToolWriterFootnoteBase):
     description = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting."
     parameters = {
         "type": "object",
-        "properties": {
-            "note_type": {
-                "type": "string",
-                "enum": ["footnote", "endnote"],
-                "description": "Whether to list footnotes or endnotes.",
-            },
-        },
+        "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to list footnotes or endnotes."}},
         "required": ["note_type"],
     }
     is_mutation = False
@@ -219,11 +188,7 @@ class FootnotesList(ToolWriterFootnoteBase):
                 text = note.getString()
                 results.append({"index": i, "label": label, "text": text})
 
-            return {
-                "status": "ok",
-                "count": count,
-                "notes": results,
-            }
+            return {"status": "ok", "count": count, "notes": results}
         except Exception as e:
             return self._tool_error(f"Failed to list {note_type}s: {str(e)}")
 
@@ -238,23 +203,10 @@ class FootnotesEdit(ToolWriterFootnoteBase):
     parameters = {
         "type": "object",
         "properties": {
-            "note_type": {
-                "type": "string",
-                "enum": ["footnote", "endnote"],
-                "description": "Whether to edit a footnote or an endnote.",
-            },
-            "index": {
-                "type": "integer",
-                "description": "The 0-based index of the note to edit (from footnotes_list).",
-            },
-            "text": {
-                "type": "string",
-                "description": "The new text content for the note.",
-            },
-            "label": {
-                "type": "string",
-                "description": "Optional custom mark (e.g., '*'). Leave empty to revert to auto-numbering.",
-            },
+            "note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to edit a footnote or an endnote."},
+            "index": {"type": "integer", "description": "The 0-based index of the note to edit (from footnotes_list)."},
+            "text": {"type": "string", "description": "The new text content for the note."},
+            "label": {"type": "string", "description": "Optional custom mark (e.g., '*'). Leave empty to revert to auto-numbering."},
         },
         "required": ["note_type", "index"],
     }
@@ -282,10 +234,7 @@ class FootnotesEdit(ToolWriterFootnoteBase):
             if "label" in kwargs:
                 note.setLabel(kwargs["label"])
 
-            return {
-                "status": "ok",
-                "message": f"Successfully edited {note_type} at index {index}.",
-            }
+            return {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
 
         except Exception as e:
             return self._tool_error(f"Failed to edit {note_type}: {str(e)}")
@@ -297,15 +246,8 @@ class FootnotesDelete(ToolWriterFootnoteBase):
     parameters = {
         "type": "object",
         "properties": {
-            "note_type": {
-                "type": "string",
-                "enum": ["footnote", "endnote"],
-                "description": "Whether to delete a footnote or an endnote.",
-            },
-            "index": {
-                "type": "integer",
-                "description": "The 0-based index of the note to delete (from footnotes_list).",
-            },
+            "note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to delete a footnote or an endnote."},
+            "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnotes_list)."},
         },
         "required": ["note_type", "index"],
     }
@@ -333,10 +275,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
             # Deleting the anchor text removes the footnote
             anchor.setString("")
 
-            return {
-                "status": "ok",
-                "message": f"Successfully deleted {note_type} at index {index}.",
-            }
+            return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
 
         except Exception as e:
             return self._tool_error(f"Failed to delete {note_type}: {str(e)}")
@@ -347,13 +286,7 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
     description = "Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles."
     parameters = {
         "type": "object",
-        "properties": {
-            "note_type": {
-                "type": "string",
-                "enum": ["footnote", "endnote"],
-                "description": "Whether to get settings for footnotes or endnotes.",
-            },
-        },
+        "properties": {"note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to get settings for footnotes or endnotes."}},
         "required": ["note_type"],
     }
     is_mutation = False
@@ -384,10 +317,7 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
                 props["PositionEndOfDoc"] = settings.getPropertyValue("PositionEndOfDoc")
                 props["FootnoteCounting"] = settings.getPropertyValue("FootnoteCounting")
 
-            return {
-                "status": "ok",
-                "settings": props,
-            }
+            return {"status": "ok", "settings": props}
         except Exception as e:
             return self._tool_error(f"Failed to get {note_type} settings: {str(e)}")
 
@@ -398,15 +328,8 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
     parameters = {
         "type": "object",
         "properties": {
-            "note_type": {
-                "type": "string",
-                "enum": ["footnote", "endnote"],
-                "description": "Whether to update settings for footnotes or endnotes.",
-            },
-            "properties": {
-                "type": "object",
-                "description": "A dictionary of properties to update (e.g., {'Prefix': '[', 'Suffix': ']'})",
-            },
+            "note_type": {"type": "string", "enum": ["footnote", "endnote"], "description": "Whether to update settings for footnotes or endnotes."},
+            "properties": {"type": "object", "description": "A dictionary of properties to update (e.g., {'Prefix': '[', 'Suffix': ']'})"},
         },
         "required": ["note_type", "properties"],
     }
@@ -433,10 +356,6 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
                 except Exception as e:
                     return self._tool_error(f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}")
 
-            return {
-                "status": "ok",
-                "message": f"Successfully updated {note_type} settings.",
-                "updated_properties": updated_props,
-            }
+            return {"status": "ok", "message": f"Successfully updated {note_type} settings.", "updated_properties": updated_props}
         except Exception as e:
             return self._tool_error(f"Failed to update {note_type} settings: {str(e)}")

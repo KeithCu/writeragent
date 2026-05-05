@@ -21,17 +21,7 @@ from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
 from plugin.framework.listeners import BaseActionListener, BaseListener
 from com.sun.star.awt import XItemListener, XTextListener
-from plugin.framework.dialogs import (
-    TabListener,
-    is_checkbox_control,
-    get_checkbox_state,
-    set_checkbox_state,
-    get_optional,
-    set_control_enabled,
-    set_control_text,
-    get_control_text,
-    translate_dialog,
-)
+from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history, get_config_str
 from plugin.framework.logging import init_logging, agent_log
@@ -276,13 +266,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                 except Exception as e:
                                     log.error("EndpointCombinedListener _sync_api_key_only: %s", e, exc_info=True)
 
-                            def _apply_dropdowns(
-                                self,
-                                resolved,
-                                *,
-                                text_remote_models=None,
-                                skip_remote_fetch=False,
-                            ):
+                            def _apply_dropdowns(self, resolved, *, text_remote_models=None, skip_remote_fetch=False):
                                 try:
                                     if not resolved:
                                         return
@@ -290,45 +274,17 @@ def settings_box(ctx, title="Settings", x=None, y=None):
                                     image_ctrl = self._dlg.getControl("image_model")
                                     if text_ctrl:
                                         if text_remote_models is not None:
-                                            populate_combobox_with_lru(
-                                                self._ctx,
-                                                text_ctrl,
-                                                "",
-                                                "model_lru",
-                                                resolved,
-                                                remote_models=text_remote_models,
-                                            )
+                                            populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, remote_models=text_remote_models)
                                         else:
-                                            populate_combobox_with_lru(
-                                                self._ctx,
-                                                text_ctrl,
-                                                "",
-                                                "model_lru",
-                                                resolved,
-                                                skip_remote_fetch=skip_remote_fetch,
-                                            )
+                                            populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
                                     if image_ctrl:
                                         if get_config_str(self._ctx, "image_provider") == "endpoint":
-                                            populate_combobox_with_lru(
-                                                self._ctx,
-                                                image_ctrl,
-                                                "",
-                                                "image_model_lru",
-                                                resolved,
-                                                skip_remote_fetch=skip_remote_fetch,
-                                            )
+                                            populate_combobox_with_lru(self._ctx, image_ctrl, "", "image_model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
                                         else:
                                             populate_image_model_selector(self._ctx, image_ctrl)
                                     stt_ctrl = self._dlg.getControl("stt_model")
                                     if stt_ctrl:
-                                        populate_combobox_with_lru(
-                                            self._ctx,
-                                            stt_ctrl,
-                                            "",
-                                            "audio_model_lru",
-                                            resolved,
-                                            skip_remote_fetch=skip_remote_fetch,
-                                        )
+                                        populate_combobox_with_lru(self._ctx, stt_ctrl, "", "audio_model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
                                 except Exception as e:
                                     log.error("EndpointCombinedListener _apply_dropdowns: %s", e, exc_info=True)
 

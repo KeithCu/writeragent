@@ -16,15 +16,9 @@ if TYPE_CHECKING:
     from plugin.modules.http.client import LlmClient
     from plugin.modules.chatbot.panel import ChatSession
 
-from plugin.framework.async_stream import (
-    run_stream_drain_loop,
-    StreamQueueKind,
-)
+from plugin.framework.async_stream import run_stream_drain_loop, StreamQueueKind
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.modules.http.errors import (
-    format_error_message,
-    is_audio_unsupported_error,
-)
+from plugin.modules.http.errors import format_error_message, is_audio_unsupported_error
 from plugin.framework.config import (
     get_api_config,
     get_config,
@@ -166,15 +160,7 @@ class ToolCallingMixin:
             active_domain = getattr(self.session, "active_specialized_domain", None) if hasattr(self, "session") else None
             active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain)
 
-            def execute_fn(
-                name,
-                args,
-                doc,
-                ctx,
-                status_callback=None,
-                append_thinking_callback=None,
-                stop_checker=None,
-            ):
+            def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
                 import json
                 import threading
                 from plugin.framework.tool_context import ToolContext
@@ -199,12 +185,7 @@ class ToolCallingMixin:
                 # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
                 # they must receive the same HITL wiring as the outer web_research tool.
                 needs_web_research_ui = name == "web_research" or (
-                    name
-                    in (
-                        "delegate_to_specialized_writer_toolset",
-                        "delegate_to_specialized_calc_toolset",
-                        "delegate_to_specialized_draw_toolset",
-                    )
+                    name in ("delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset")
                     and str(safe_args.get("domain") or "") == "web_research"
                 )
                 if needs_web_research_ui:
@@ -228,21 +209,11 @@ class ToolCallingMixin:
                                 # Use setattr/getattr to avoid static attribute errors on Event
                                 setattr(event, "approved", False)
                                 setattr(event, "query_override", None)
-                                q.put(
-                                    (
-                                        StreamQueueKind.APPROVAL_REQUIRED,
-                                        query_for_engine,
-                                        tool_name,
-                                        event,
-                                    )
-                                )
+                                q.put((StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
                                 event.wait()
                                 if not getattr(event, "approved", False):
                                     q.put((StreamQueueKind.STOPPED,))
-                                return (
-                                    bool(getattr(event, "approved", False)),
-                                    getattr(event, "query_override", None),
-                                )
+                                return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
                             approval_cb = _web_approval
                     except Exception as ex:
@@ -335,22 +306,12 @@ class ToolCallingMixin:
 
         self._set_status("Reading document...")
         try:
-            doc_text = get_document_context_for_chat(
-                model,
-                max_context,
-                include_end=True,
-                include_selection=True,
-                ctx=self.ctx,
-            )
+            doc_text = get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=self.ctx)
             log.debug("_do_send: document context length=%d" % len(doc_text))
             agent_log(
                 "chat_panel.py:doc_context",
                 "Document context for AI",
-                data={
-                    "doc_length": len(doc_text),
-                    "doc_prefix_first_200": (doc_text or "")[:200],
-                    "max_context": max_context,
-                },
+                data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": max_context},
                 hypothesis_id="B",
             )
             self.session.update_document_context(doc_text)
@@ -387,10 +348,7 @@ class ToolCallingMixin:
                 with open(self.audio_wav_path, "rb") as f:
                     wav_data = f.read()
                 b64_audio = base64.b64encode(wav_data).decode("utf-8")
-                audio_msg = {
-                    "type": "input_audio",
-                    "input_audio": {"data": b64_audio, "format": "wav"},
-                }
+                audio_msg = {"type": "input_audio", "input_audio": {"data": b64_audio, "format": "wav"}}
 
                 content_list: list[dict[str, Any]] = []
                 if query_text:
@@ -430,15 +388,7 @@ class ToolCallingMixin:
         log.debug("_do_send: calling AI, use_tools=%s, messages=%d" % (use_tools, len(self.session.messages)))
 
         max_tool_rounds = api_config["chat_max_tool_rounds"]
-        self._start_tool_calling_async(
-            client,
-            model,
-            max_tokens,
-            active_tools,
-            execute_fn,
-            max_tool_rounds,
-            query_text=query_text,
-        )
+        self._start_tool_calling_async(client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text)
 
         log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
@@ -512,13 +462,7 @@ class ToolCallingMixin:
                     q.put((StreamQueueKind.THINKING, t))
 
                 with llm_request_lane():
-                    client.stream_chat_response(
-                        self.session.messages,
-                        max_tokens,
-                        append_c,
-                        append_t,
-                        stop_checker=lambda: self.stop_requested,
-                    )
+                    client.stream_chat_response(self.session.messages, max_tokens, append_c, append_t, stop_checker=lambda: self.stop_requested)
                 if self.stop_requested:
                     q.put((StreamQueueKind.STOPPED,))
                 else:
@@ -598,13 +542,7 @@ class ToolCallingMixin:
                 doc = self._get_document_model() if hasattr(self, "_get_document_model") else None
                 if doc:
                     max_ctx = get_config_int(self.ctx, "chat_context_length")
-                    doc_text = get_document_context_for_chat(
-                        doc,
-                        max_ctx,
-                        include_end=True,
-                        include_selection=True,
-                        ctx=self.ctx,
-                    )
+                    doc_text = get_document_context_for_chat(doc, max_ctx, include_end=True, include_selection=True, ctx=self.ctx)
                     self.session.update_document_context(doc_text)
             except Exception:
                 pass
@@ -632,14 +570,7 @@ class ToolCallingMixin:
 
         elif isinstance(effect, SpawnLLMWorkerEffect):
             self._refresh_active_tools_for_session()
-            self._spawn_llm_worker(
-                self._active_q,
-                self._active_client,
-                self._active_max_tokens,
-                self._active_tools,
-                effect.round_num,
-                query_text=self._active_query_text,
-            )
+            self._spawn_llm_worker(self._active_q, self._active_client, self._active_max_tokens, self._active_tools, effect.round_num, query_text=self._active_query_text)
 
         elif isinstance(effect, UpdateActivityStateEffect):
             if effect.action == "tool_execute":
@@ -692,13 +623,7 @@ class ToolCallingMixin:
                                 stop_checker=lambda: self.stop_requested,
                             )
                         else:
-                            res = self._active_execute_tool_fn(
-                                func_name,
-                                func_args,
-                                self._active_model,
-                                self.ctx,
-                                stop_checker=lambda: self.stop_requested,
-                            )
+                            res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, stop_checker=lambda: self.stop_requested)
                         self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                     except Exception as e:
                         import json
@@ -711,13 +636,7 @@ class ToolCallingMixin:
             else:
                 try:
                     if self._active_supports_status:
-                        res = self._active_execute_tool_fn(
-                            func_name,
-                            func_args,
-                            self._active_model,
-                            self.ctx,
-                            status_callback=tool_status_callback,
-                        )
+                        res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, status_callback=tool_status_callback)
                     else:
                         res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx)
                     self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
@@ -815,10 +734,7 @@ class ToolCallingMixin:
         event_obj = item[3] if len(item) > 3 else None
         if event_obj is not None:
             self.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
-        log.info(
-            "tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)",
-            tool_name,
-        )
+        log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
 
     def _start_tool_calling_async(
         self: ToolLoopHost,

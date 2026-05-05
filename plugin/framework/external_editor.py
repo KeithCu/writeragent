@@ -91,20 +91,12 @@ def open_writeragent_json_in_editor(ctx) -> None:
             if notepad:
                 subprocess.Popen([notepad, path], close_fds=True)  # noqa: S603
             else:
-                msgbox(
-                    ctx,
-                    _("Error"),
-                    _("Could not open an editor. Path:\n{0}").format(path),
-                )
+                msgbox(ctx, _("Error"), _("Could not open an editor. Path:\n{0}").format(path))
         return
 
     argv = resolve_editor_argv(path)
     if argv is None:
-        msgbox(
-            ctx,
-            _("Error"),
-            _("No editor found (install Kate or Gedit, or set EDITOR). Path:\n{0}").format(path),
-        )
+        msgbox(ctx, _("Error"), _("No editor found (install Kate or Gedit, or set EDITOR). Path:\n{0}").format(path))
         return
     try:
         _popen_detached(argv)

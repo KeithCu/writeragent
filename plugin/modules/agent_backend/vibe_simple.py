@@ -105,14 +105,7 @@ class VibeBackend(ACPBackend):
         # Send prompt
         try:
             if self._conn:
-                result = self._conn.send_request(
-                    "session/prompt",
-                    {
-                        "sessionId": self._session_id,
-                        "prompt": prompt_blocks,
-                    },
-                    timeout=600,
-                )
+                result = self._conn.send_request("session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, timeout=600)
 
                 # Process the final response - Vibe returns content in result
                 log.info(f"Vibe prompt result: {result}")  # DEBUG: Log full result

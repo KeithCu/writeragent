@@ -37,10 +37,7 @@ class ListMasterSlides(ToolBase):
         result = []
         for i in range(masters.getCount()):
             m = masters.getByIndex(i)
-            entry = {
-                "index": i,
-                "name": m.Name if hasattr(m, "Name") else "",
-            }
+            entry = {"index": i, "name": m.Name if hasattr(m, "Name") else ""}
             try:
                 entry["width_mm"] = m.Width // 100
                 entry["height_mm"] = m.Height // 100
@@ -56,26 +53,13 @@ class GetSlideMaster(ToolBase):
     name = "get_slide_master"
     intent = "navigate"
     description = "Get the master slide assigned to a specific slide. Returns the master slide name."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
         master = page.MasterPage
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "master_name": master.Name if hasattr(master, "Name") else "",
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "master_name": master.Name if hasattr(master, "Name") else ""}
 
 
 class SetSlideMaster(ToolBase):
@@ -87,14 +71,8 @@ class SetSlideMaster(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-            "master_name": {
-                "type": "string",
-                "description": "Name of the master slide to assign.",
-            },
+            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
+            "master_name": {"type": "string", "description": "Name of the master slide to assign."},
         },
         "required": ["master_name"],
     }
@@ -119,14 +97,7 @@ class SetSlideMaster(ToolBase):
             for i in range(masters.getCount()):
                 m = masters.getByIndex(i)
                 available.append(m.Name if hasattr(m, "Name") else "")
-            return self._tool_error(
-                "Master '%s' not found." % master_name,
-                available=available,
-            )
+            return self._tool_error("Master '%s' not found." % master_name, available=available)
 
         page.MasterPage = target
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "master_name": master_name,
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "master_name": master_name}

@@ -45,10 +45,7 @@ class HermesBackend(ACPBackend):
         if path:
             return path
         home = os.path.expanduser("~")
-        for candidate in (
-            os.path.join(home, ".local", "bin", binary_name),
-            os.path.join(home, ".cargo", "bin", binary_name),
-        ):
+        for candidate in (os.path.join(home, ".local", "bin", binary_name), os.path.join(home, ".cargo", "bin", binary_name)):
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 return candidate
         return None

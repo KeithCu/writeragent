@@ -103,12 +103,7 @@ class AudioRecorder:
                         # sounddevice returns bytes if we pass dtype='int16' when opening as RawInputStream
                         self.wav_file.writeframes(indata)
 
-                self.stream = sd.RawInputStream(
-                    samplerate=self.fs,
-                    channels=self.channels,
-                    dtype="int16",
-                    callback=callback,
-                )
+                self.stream = sd.RawInputStream(samplerate=self.fs, channels=self.channels, dtype="int16", callback=callback)
 
                 # Signal readiness
                 self._apply_event(DeviceReadyEvent())

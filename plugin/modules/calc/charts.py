@@ -143,34 +143,18 @@ def _process_events(ctx=None):
 
 # Shared parameters for Create and Edit
 CHART_PROPERTIES = {
-    "data_range": {
-        "type": "string",
-        "description": "Cell range for chart data (Calc only, e.g. 'A1:B10').",
-    },
-    "chart_type": {
-        "type": "string",
-        "enum": list(CHART_SERVICE_MAP.keys()),
-        "description": "Type of chart to create.",
-    },
-    "title": {
-        "type": "string",
-        "description": "Chart title.",
-    },
+    "data_range": {"type": "string", "description": "Cell range for chart data (Calc only, e.g. 'A1:B10')."},
+    "chart_type": {"type": "string", "enum": list(CHART_SERVICE_MAP.keys()), "description": "Type of chart to create."},
+    "title": {"type": "string", "description": "Chart title."},
     "is_3d": {"type": "boolean", "description": "Enable 3D mode."},
     "stacked": {"type": "boolean", "description": "Stacked data series."},
     "percent": {"type": "boolean", "description": "Percentage stacked."},
     "x_axis_title": {"type": "string"},
     "y_axis_title": {"type": "string"},
-    "legend_position": {
-        "type": "string",
-        "enum": ["none", "top", "bottom", "left", "right"],
-    },
+    "legend_position": {"type": "string", "enum": ["none", "top", "bottom", "left", "right"]},
     "has_legend": {"type": "boolean"},
     "subtitle": {"type": "string"},
-    "position": {
-        "type": "string",
-        "description": "Cell address (Calc) or anchoring position (Writer/Draw).",
-    },
+    "position": {"type": "string", "description": "Cell address (Calc) or anchoring position (Writer/Draw)."},
 }
 
 
@@ -285,17 +269,8 @@ class ListCharts(ToolBase):
     name = "list_charts"
     intent = "navigate"
     description = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
-    parameters = {
-        "type": "object",
-        "properties": {},
-        "required": [],
-    }
-    uno_services = [
-        "com.sun.star.sheet.SpreadsheetDocument",
-        "com.sun.star.text.TextDocument",
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    parameters = {"type": "object", "properties": {}, "required": []}
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
@@ -335,11 +310,7 @@ class ListCharts(ToolBase):
                         if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
                             result.append(self._get_summary(shape, shape.Name or f"Chart_{i}_{j}"))
 
-        return {
-            "status": "ok",
-            "charts": result,
-            "count": len(result),
-        }
+        return {"status": "ok", "charts": result, "count": len(result)}
 
     def _get_summary(self, chart_obj, name):
         entry = {"name": name}
@@ -359,16 +330,7 @@ class GetChartInfo(ToolBase):
     name = "get_chart_info"
     intent = "navigate"
     description = "Get detailed info about a chart: type, title, ranges (if Calc), axis titles, and legend properties."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "chart_name": {
-                "type": "string",
-                "description": "Chart name (from list_charts).",
-            },
-        },
-        "required": ["chart_name"],
-    }
+    parameters = {"type": "object", "properties": {"chart_name": {"type": "string", "description": "Chart name (from list_charts)."}}, "required": ["chart_name"]}
     uno_services = ListCharts.uno_services
 
     def execute(self, ctx, **kwargs):
@@ -430,11 +392,7 @@ class CreateChart(ToolBase):
     name = "create_chart"
     intent = "edit"
     description = "Creates a chart in the current context. In Calc, data_range is required. In Writer/Impress, a chart is inserted at the cursor or on the active slide."
-    parameters = {
-        "type": "object",
-        "properties": CHART_PROPERTIES,
-        "required": ["chart_type"],
-    }
+    parameters = {"type": "object", "properties": CHART_PROPERTIES, "required": ["chart_type"]}
     uno_services = ListCharts.uno_services
     is_mutation = True
 
@@ -622,14 +580,7 @@ class EditChart(ToolBase):
     name = "edit_chart"
     intent = "edit"
     description = "Edit a chart's properties: title, 3D mode, stacking, legend, axes, etc."
-    parameters = {
-        "type": "object",
-        "properties": {
-            **CHART_PROPERTIES,
-            "chart_name": {"type": "string", "description": "Name of the chart to edit."},
-        },
-        "required": ["chart_name"],
-    }
+    parameters = {"type": "object", "properties": {**CHART_PROPERTIES, "chart_name": {"type": "string", "description": "Name of the chart to edit."}}, "required": ["chart_name"]}
     uno_services = ListCharts.uno_services
     is_mutation = True
 
@@ -663,16 +614,7 @@ class DeleteChart(ToolBase):
     name = "delete_chart"
     intent = "edit"
     description = "Delete a chart by name."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "chart_name": {
-                "type": "string",
-                "description": "Chart name to delete.",
-            },
-        },
-        "required": ["chart_name"],
-    }
+    parameters = {"type": "object", "properties": {"chart_name": {"type": "string", "description": "Chart name to delete."}}, "required": ["chart_name"]}
     uno_services = ListCharts.uno_services
     is_mutation = True
 

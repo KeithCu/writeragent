@@ -31,16 +31,7 @@ class GetDrawTree(ToolBase):
         "Use this instead of requesting a screenshot to understand the layout, text, "
         "connections, and hierarchy of objects (like flowcharts or diagrams)."
     )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based page index (active page if omitted)",
-            }
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types = ["draw", "impress"]
     tier = "core"

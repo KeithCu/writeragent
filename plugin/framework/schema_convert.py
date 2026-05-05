@@ -69,14 +69,7 @@ def to_openai_schema(tool):
         params["type"] = "object"
     params = _normalize_schema_for_strict_providers(params)
 
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description or "",
-            "parameters": params,
-        },
-    }
+    return {"type": "function", "function": {"name": tool.name, "description": tool.description or "", "parameters": params}}
 
 
 def to_mcp_schema(tool):
@@ -94,8 +87,4 @@ def to_mcp_schema(tool):
     if "type" not in input_schema:
         input_schema["type"] = "object"
 
-    return {
-        "name": tool.name,
-        "description": tool.description or "",
-        "inputSchema": input_schema,
-    }
+    return {"name": tool.name, "description": tool.description or "", "inputSchema": input_schema}

@@ -18,16 +18,8 @@ from typing import Any, Optional, cast
 
 from plugin.framework.state import BaseState, FsmTransition
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
-from plugin.modules.chatbot.send_state import (
-    SendButtonState,
-    SendEvent,
-    next_state as send_next_state,
-)
-from plugin.modules.chatbot.tool_loop_state import (
-    ToolLoopEvent,
-    ToolLoopState,
-    next_state as tool_loop_next_state,
-)
+from plugin.modules.chatbot.send_state import SendButtonState, SendEvent, next_state as send_next_state
+from plugin.modules.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState, next_state as tool_loop_next_state
 
 
 class SidebarEventKind(str, Enum):
@@ -56,38 +48,18 @@ class SidebarCompositeState(BaseState):
     audio: AudioRecorderState
 
 
-def sidebar_next_state(
-    composite: SidebarCompositeState,
-    event: SidebarEvent,
-) -> FsmTransition[SidebarCompositeState]:
+def sidebar_next_state(composite: SidebarCompositeState, event: SidebarEvent) -> FsmTransition[SidebarCompositeState]:
     """Route a tagged sidebar event to the appropriate child FSM."""
 
     match event.kind:
         case SidebarEventKind.SEND:
             send_tr = send_next_state(composite.send, cast("SendEvent", event.payload))
-            return FsmTransition(
-                SidebarCompositeState(
-                    send=send_tr.state,
-                    tool_loop=composite.tool_loop,
-                    audio=composite.audio,
-                ),
-                list(send_tr.effects),
-            )
+            return FsmTransition(SidebarCompositeState(send=send_tr.state, tool_loop=composite.tool_loop, audio=composite.audio), list(send_tr.effects))
         case SidebarEventKind.TOOL_LOOP:
             if composite.tool_loop is None:
-                return FsmTransition(
-                    composite,
-                    [LogSidebarEffect(message="Ignoring tool_loop event: no active session")],
-                )
+                return FsmTransition(composite, [LogSidebarEffect(message="Ignoring tool_loop event: no active session")])
             tool_loop_tr = tool_loop_next_state(composite.tool_loop, cast("ToolLoopEvent", event.payload))
-            return FsmTransition(
-                SidebarCompositeState(
-                    send=composite.send,
-                    tool_loop=tool_loop_tr.state,
-                    audio=composite.audio,
-                ),
-                list(tool_loop_tr.effects),
-            )
+            return FsmTransition(SidebarCompositeState(send=composite.send, tool_loop=tool_loop_tr.state, audio=composite.audio), list(tool_loop_tr.effects))
         case SidebarEventKind.AUDIO:
             # Strategy A: hardware stays in AudioRecorder; composite.audio is mirrored in the shell.
             return FsmTransition(composite, [])

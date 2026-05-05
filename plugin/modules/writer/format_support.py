@@ -84,15 +84,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, cast
 import html as html_mod
-from plugin.modules.writer.html_math_segment import (
-    html_fragment_contains_mixed_math,
-    segment_html_with_mixed_math,
-)
+from plugin.modules.writer.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from plugin.modules.writer.math_formula_insert import insert_writer_math_formula
-from plugin.modules.writer.math_mml_convert import (
-    convert_latex_to_starmath,
-    convert_mathml_to_starmath,
-)
+from plugin.modules.writer.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
 from plugin.modules.writer.ops import get_selection_range
 from plugin.modules.writer.ops import get_text_cursor_at_range
 
@@ -196,17 +190,7 @@ def _ensure_html_linebreaks(content):
         return content
     content = _normalize(content)
     unescaped = html_mod.unescape(content)
-    html_tags = [
-        "<p>",
-        "<br>",
-        "</h1>",
-        "<h2>",
-        "<h3>",
-        "</ul>",
-        "</li>",
-        "</div>",
-        "<html>",
-    ]
+    html_tags = ["<p>", "<br>", "</h1>", "<h2>", "<h3>", "</ul>", "</li>", "</div>", "<html>"]
     has_html = any(tag in unescaped.lower() for tag in html_tags)
     if has_html:
         return _wrap_html_fragment(unescaped)
@@ -419,23 +403,10 @@ def _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped: str, co
         _math_i = 0
         for _si, _s in enumerate(_segs):
             if _s.kind == "html":
-                log.debug(
-                    "mixed_html_math: segment[%d] html nl=%d len=%d",
-                    _si,
-                    _s.text.count("\n"),
-                    len(_s.text),
-                )
+                log.debug("mixed_html_math: segment[%d] html nl=%d len=%d", _si, _s.text.count("\n"), len(_s.text))
             else:
                 _math_i += 1
-                log.debug(
-                    "mixed_html_math: segment[%d] %s#%d display_block=%s src_nl=%d src_len=%d",
-                    _si,
-                    _s.kind,
-                    _math_i,
-                    _s.display_block,
-                    _s.text.count("\n"),
-                    len(_s.text),
-                )
+                log.debug("mixed_html_math: segment[%d] %s#%d display_block=%s src_nl=%d src_len=%d", _si, _s.kind, _math_i, _s.display_block, _s.text.count("\n"), len(_s.text))
     for seg in _segs:
         if seg.kind == "html":
             chunk = seg.text
@@ -457,30 +428,16 @@ def _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped: str, co
         else:
             res = convert_mathml_to_starmath(ctx, seg.text)
         if res.ok and res.starmath and log.isEnabledFor(logging.DEBUG):
-            log.debug(
-                "mixed_html_math: StarMath from converter nl=%d len=%d repr=%r",
-                res.starmath.count("\n"),
-                len(res.starmath),
-                res.starmath[:500],
-            )
+            log.debug("mixed_html_math: StarMath from converter nl=%d len=%d repr=%r", res.starmath.count("\n"), len(res.starmath), res.starmath[:500])
         if res.ok and res.starmath:
-            insert_writer_math_formula(
-                model,
-                cursor,
-                res.starmath,
-                display_block=seg.display_block,
-            )
+            insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
             _cursor_goto_document_end(model, cursor)
         else:
             snippet = (seg.text or "").replace("\n", " ")[:120]
             fallback = "[Math import failed] " + snippet
             model.getText().insertString(cursor, fallback, False)
             _cursor_goto_document_end(model, cursor)
-            log.debug(
-                "math import failed: %s snippet=%r",
-                res.error_message,
-                snippet,
-            )
+            log.debug("math import failed: %s snippet=%r", res.error_message, snippet)
 
 
 def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None):
@@ -646,13 +603,7 @@ def find_text_ranges(model, ctx, search, start=0, limit=None, case_sensitive=Tru
             m_start = len(measure.getString())
             matched_text = found.getString()
             m_end = m_start + len(matched_text)
-            matches.append(
-                {
-                    "start": m_start,
-                    "end": m_end,
-                    "text": matched_text,
-                }
-            )
+            matches.append({"start": m_start, "end": m_end, "text": matched_text})
             if limit and len(matches) >= limit:
                 break
             found = model.findNext(found, sd)

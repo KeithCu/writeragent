@@ -34,10 +34,7 @@ class WriterAgentSmolModel(Model):
 
     def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
         completion_kwargs = self._prepare_completion_kwargs(
-            messages=cast("list[ChatMessage | dict[str, Any]]", messages),
-            stop_sequences=stop_sequences,
-            tools_to_call_from=tools_to_call_from,
-            **kwargs,
+            messages=cast("list[ChatMessage | dict[str, Any]]", messages), stop_sequences=stop_sequences, tools_to_call_from=tools_to_call_from, **kwargs
         )
 
         msg_dicts = completion_kwargs.get("messages", [])
@@ -49,33 +46,11 @@ class WriterAgentSmolModel(Model):
         # smol prompt and on the wire. Some local backends select a different parser
         # path when OpenAI-style tools are present.
         tools = completion_kwargs.get("tools", None)
-        result = self.api.request_with_tools(
-            msg_dicts,
-            max_tokens=self.max_tokens,
-            tools=tools,
-            model=self.model_id,
-            response_format=response_format,
-            prepend_dev_build_system_prefix=False,
-        )
+        result = self.api.request_with_tools(msg_dicts, max_tokens=self.max_tokens, tools=tools, model=self.model_id, response_format=response_format, prepend_dev_build_system_prefix=False)
 
         if self._status_callback:
             self._status_callback("Model responded, processing...")
 
         usage = result.get("usage") or {}
-        token_usage = (
-            TokenUsage(
-                input_tokens=usage.get("prompt_tokens", 0),
-                output_tokens=usage.get("completion_tokens", 0),
-            )
-            if usage
-            else None
-        )
-        return ChatMessage.from_dict(
-            {
-                "role": "assistant",
-                "content": result.get("content") or "",
-                "tool_calls": result.get("tool_calls") or None,
-            },
-            raw=result,
-            token_usage=token_usage,
-        )
+        token_usage = TokenUsage(input_tokens=usage.get("prompt_tokens", 0), output_tokens=usage.get("completion_tokens", 0)) if usage else None
+        return ChatMessage.from_dict({"role": "assistant", "content": result.get("content") or "", "tool_calls": result.get("tool_calls") or None}, raw=result, token_usage=token_usage)

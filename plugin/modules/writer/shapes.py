@@ -32,11 +32,7 @@ log = logging.getLogger("writeragent.writer")
 # 2. Inherit from the specialized ToolWriterShapeBase to enforce Writer scoping.
 # 3. Union services: same names as Draw tools; include Draw/Impress so registration
 # order does not drop support for non-Writer documents.
-_WRITER_DRAW_SHAPE_DOCS = [
-    "com.sun.star.text.TextDocument",
-    "com.sun.star.drawing.DrawingDocument",
-    "com.sun.star.presentation.PresentationDocument",
-]
+_WRITER_DRAW_SHAPE_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class CreateShape(DrawCreateShape, ToolWriterShapeBase):
@@ -85,14 +81,7 @@ class ListWriterImages(ToolWriterShapeBase):
                     title = g.getPropertyValue("Title")
                 except Exception:
                     pass
-                images.append(
-                    {
-                        "name": name,
-                        "width_mm": size.Width / 100.0,
-                        "height_mm": size.Height / 100.0,
-                        "title": title,
-                    }
-                )
+                images.append({"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "title": title})
             except Exception as e:
                 log.debug("list_writer_images skip %s: %s", name, e)
         return {"status": "ok", "images": images, "count": len(images)}

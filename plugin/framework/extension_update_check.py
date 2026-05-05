@@ -73,11 +73,7 @@ def run_extension_update_check(ctx: Any) -> None:
 
     attempted = False
     try:
-        log.info(
-            "extension update check: worker started (local EXTENSION_VERSION=%r, url=%s)",
-            EXTENSION_VERSION,
-            UPDATE_XML_URL,
-        )
+        log.info("extension update check: worker started (local EXTENSION_VERSION=%r, url=%s)", EXTENSION_VERSION, UPDATE_XML_URL)
         now = time.time()
         from plugin.framework.config import get_config_int
 
@@ -95,11 +91,7 @@ def run_extension_update_check(ctx: Any) -> None:
                     )
                     return
             except (TypeError, ValueError):
-                log.info(
-                    "extension update check: ignoring invalid %r value %r",
-                    CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH,
-                    raw_last,
-                )
+                log.info("extension update check: ignoring invalid %r value %r", CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH, raw_last)
 
         attempted = True
         log.info("extension update check: fetching update.xml …")
@@ -109,35 +101,18 @@ def run_extension_update_check(ctx: Any) -> None:
             return
         log.info("extension update check: received %s bytes", len(raw))
         ident, remote_ver = parse_update_xml(raw)
-        log.info(
-            "extension update check: parsed identifier=%r remote_version=%r",
-            ident,
-            remote_ver,
-        )
+        log.info("extension update check: parsed identifier=%r remote_version=%r", ident, remote_ver)
         if ident != EXPECTED_EXTENSION_ID:
-            log.info(
-                "extension update check: identifier mismatch (got %r, expected %r), not notifying",
-                ident,
-                EXPECTED_EXTENSION_ID,
-            )
+            log.info("extension update check: identifier mismatch (got %r, expected %r), not notifying", ident, EXPECTED_EXTENSION_ID)
             return
         if not remote_ver:
             log.info("extension update check: no version in XML, not notifying")
             return
         rt = version_tuple(remote_ver)
         lt = version_tuple(EXTENSION_VERSION)
-        log.info(
-            "extension update check: comparing remote_tuple=%s local_tuple=%s (local %r)",
-            rt,
-            lt,
-            EXTENSION_VERSION,
-        )
+        log.info("extension update check: comparing remote_tuple=%s local_tuple=%s (local %r)", rt, lt, EXTENSION_VERSION)
         if not remote_is_newer(remote_ver, EXTENSION_VERSION):
-            log.info(
-                "extension update check: not notifying (remote %s is not newer than local %s)",
-                remote_ver,
-                EXTENSION_VERSION,
-            )
+            log.info("extension update check: not notifying (remote %s is not newer than local %s)", remote_ver, EXTENSION_VERSION)
             return
 
         from plugin.framework.i18n import _
@@ -147,22 +122,11 @@ def run_extension_update_check(ctx: Any) -> None:
             message = _("A newer WriterAgent (%s) is available. Use Tools → Extension Manager to check for updates and install the latest extension.") % (remote_ver,)
             msgbox(ctx, title, message)
 
-        log.info(
-            "extension update check: posting update dialog (remote %s > local %s)",
-            remote_ver,
-            EXTENSION_VERSION,
-        )
+        log.info("extension update check: posting update dialog (remote %s > local %s)", remote_ver, EXTENSION_VERSION)
         QueueExecutor().post(_show)
     except Exception as e:
-        log.warning(
-            "extension update check failed: %s",
-            e,
-            exc_info=True,
-        )
+        log.warning("extension update check failed: %s", e, exc_info=True)
     finally:
         if attempted:
             set_config(ctx, CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH, time.time())
-            log.info(
-                "extension update check: recorded %s in config (attempt finished)",
-                CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH,
-            )
+            log.info("extension update check: recorded %s in config (attempt finished)", CONFIG_KEY_EXTENSION_UPDATE_CHECK_EPOCH)

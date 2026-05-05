@@ -43,30 +43,12 @@ class SearchInSpreadsheet(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "pattern": {
-                "type": "string",
-                "description": "Search string or regex pattern.",
-            },
-            "regex": {
-                "type": "boolean",
-                "description": "Use regular expression (default: false).",
-            },
-            "case_sensitive": {
-                "type": "boolean",
-                "description": "Case-sensitive search (default: false).",
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum results to return (default: 50).",
-            },
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet to search (active sheet if omitted).",
-            },
-            "all_sheets": {
-                "type": "boolean",
-                "description": "Search all sheets (default: false).",
-            },
+            "pattern": {"type": "string", "description": "Search string or regex pattern."},
+            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "max_results": {"type": "integer", "description": "Maximum results to return (default: 50)."},
+            "sheet_name": {"type": "string", "description": "Sheet to search (active sheet if omitted)."},
+            "all_sheets": {"type": "boolean", "description": "Search all sheets (default: false)."},
         },
         "required": ["pattern"],
     }
@@ -107,21 +89,11 @@ class SearchInSpreadsheet(ToolBase):
                 if len(matches) >= max_results:
                     break
                 cell = found.getByIndex(i)
-                matches.append(
-                    {
-                        "sheet": sname,
-                        "cell": _cell_address_str(cell),
-                        "value": cell.getString(),
-                    }
-                )
+                matches.append({"sheet": sname, "cell": _cell_address_str(cell), "value": cell.getString()})
             if len(matches) >= max_results:
                 break
 
-        return {
-            "status": "ok",
-            "matches": matches,
-            "count": len(matches),
-        }
+        return {"status": "ok", "matches": matches, "count": len(matches)}
 
 
 class ReplaceInSpreadsheet(ToolBase):
@@ -132,30 +104,12 @@ class ReplaceInSpreadsheet(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "search": {
-                "type": "string",
-                "description": "Text or regex pattern to find.",
-            },
-            "replace": {
-                "type": "string",
-                "description": "Replacement text.",
-            },
-            "regex": {
-                "type": "boolean",
-                "description": "Use regular expression (default: false).",
-            },
-            "case_sensitive": {
-                "type": "boolean",
-                "description": "Case-sensitive matching (default: false).",
-            },
-            "sheet_name": {
-                "type": "string",
-                "description": "Sheet to operate on (active sheet if omitted).",
-            },
-            "all_sheets": {
-                "type": "boolean",
-                "description": "Replace across all sheets (default: false).",
-            },
+            "search": {"type": "string", "description": "Text or regex pattern to find."},
+            "replace": {"type": "string", "description": "Replacement text."},
+            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": "Case-sensitive matching (default: false)."},
+            "sheet_name": {"type": "string", "description": "Sheet to operate on (active sheet if omitted)."},
+            "all_sheets": {"type": "boolean", "description": "Replace across all sheets (default: false)."},
         },
         "required": ["search", "replace"],
     }
@@ -190,9 +144,4 @@ class ReplaceInSpreadsheet(ToolBase):
             rd.SearchCaseSensitive = bool(case_sensitive)
             total += sheet.replaceAll(rd)
 
-        return {
-            "status": "ok",
-            "replacements": total,
-            "search": search,
-            "replace": replace,
-        }
+        return {"status": "ok", "replacements": total, "search": search, "replace": replace}

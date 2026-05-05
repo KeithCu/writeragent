@@ -99,16 +99,7 @@ class GetSlideTransition(ToolBase):
     name = "get_slide_transition"
     intent = "navigate"
     description = "Get the transition effect, speed, duration, and advance mode for an Impress slide."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -180,32 +171,12 @@ class SetSlideTransition(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-            "effect": {
-                "type": "string",
-                "description": ("Transition effect name (e.g. 'dissolve', 'fade_from_left', 'random', 'none'). Case-insensitive."),
-            },
-            "speed": {
-                "type": "string",
-                "enum": ["slow", "medium", "fast"],
-                "description": "Transition speed (default: medium).",
-            },
-            "duration": {
-                "type": "integer",
-                "description": "Auto-advance duration in seconds (0 = manual advance).",
-            },
-            "transition_duration": {
-                "type": "number",
-                "description": "Transition animation time in seconds (e.g. 1.5).",
-            },
-            "advance": {
-                "type": "string",
-                "enum": ["on_click", "auto"],
-                "description": "How to advance: on_click (default) or auto.",
-            },
+            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
+            "effect": {"type": "string", "description": ("Transition effect name (e.g. 'dissolve', 'fade_from_left', 'random', 'none'). Case-insensitive.")},
+            "speed": {"type": "string", "enum": ["slow", "medium", "fast"], "description": "Transition speed (default: medium)."},
+            "duration": {"type": "integer", "description": "Auto-advance duration in seconds (0 = manual advance)."},
+            "transition_duration": {"type": "number", "description": "Transition animation time in seconds (e.g. 1.5)."},
+            "advance": {"type": "string", "enum": ["on_click", "auto"], "description": "How to advance: on_click (default) or auto."},
         },
         "required": [],
     }
@@ -281,21 +252,14 @@ class SetSlideTransition(ToolBase):
                     page.setPropertyValue("Effect", effects_map[uno_name])
                     updated.append("effect")
                 else:
-                    return self._tool_error(
-                        "Unknown effect: %s" % effect_name,
-                        available=sorted(_FADE_EFFECTS.keys()),
-                    )
+                    return self._tool_error("Unknown effect: %s" % effect_name, available=sorted(_FADE_EFFECTS.keys()))
             except ImportError:
                 return self._tool_error("FadeEffect enum not available.")
 
         # Speed
         speed = kwargs.get("speed")
         if speed is not None:
-            from com.sun.star.presentation.AnimationSpeed import (
-                SLOW,
-                MEDIUM,
-                FAST,
-            )
+            from com.sun.star.presentation.AnimationSpeed import SLOW, MEDIUM, FAST
 
             speed_map = {"slow": SLOW, "medium": MEDIUM, "fast": FAST}
             if speed.lower() in speed_map:
@@ -324,11 +288,7 @@ class SetSlideTransition(ToolBase):
             page.setPropertyValue("Change", change)
             updated.append("advance")
 
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "updated": updated,
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "updated": updated}
 
 
 class GetSlideLayout(ToolBase):
@@ -337,29 +297,14 @@ class GetSlideLayout(ToolBase):
     name = "get_slide_layout"
     intent = "navigate"
     description = "Get the layout type of an Impress slide. Returns the layout ID and a human-readable name."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx, **kwargs):
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
         layout_id = page.Layout
         layout_name = _LAYOUT_NAMES.get(layout_id, "unknown_%d" % layout_id)
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "layout_id": layout_id,
-            "layout_name": layout_name,
-            "available_layouts": sorted(_LAYOUTS.keys()),
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "layout_id": layout_id, "layout_name": layout_name, "available_layouts": sorted(_LAYOUTS.keys())}
 
 
 class SetSlideLayout(ToolBase):
@@ -378,14 +323,8 @@ class SetSlideLayout(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (active slide if omitted).",
-            },
-            "layout": {
-                "type": "string",
-                "description": "Layout name (e.g. 'blank', 'title', 'text_and_object').",
-            },
+            "page_index": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
+            "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."},
         },
         "required": ["layout"],
     }
@@ -395,14 +334,7 @@ class SetSlideLayout(ToolBase):
     def execute(self, ctx, **kwargs):
         layout_name = kwargs.get("layout", "").strip().lower()
         if layout_name not in _LAYOUTS:
-            return self._tool_error(
-                "Unknown layout: %s" % layout_name,
-                available=sorted(_LAYOUTS.keys()),
-            )
+            return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
         page = _get_slide(ctx.doc, kwargs.get("page_index"))
         page.Layout = _LAYOUTS[layout_name]
-        return {
-            "status": "ok",
-            "page_index": kwargs.get("page_index"),
-            "layout": layout_name,
-        }
+        return {"status": "ok", "page_index": kwargs.get("page_index"), "layout": layout_name}

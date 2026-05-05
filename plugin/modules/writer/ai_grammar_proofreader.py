@@ -158,11 +158,7 @@ def _proofreading_markup_type() -> int:
         v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
         return int(v)
     except Exception as e:
-        log.warning(
-            "[grammar] _proofreading_markup_type: falling back to 4: %s",
-            e,
-            exc_info=True,
-        )
+        log.warning("[grammar] _proofreading_markup_type: falling back to 4: %s", e, exc_info=True)
         return 4
 
 
@@ -171,32 +167,16 @@ def _grammar_text_preview(text: str) -> str:
     return " ".join(words[:3]) if words else "(empty)"
 
 
-def _emit_grammar_status(
-    phase: str,
-    text: str,
-    *,
-    result: str = "",
-    elapsed_ms: int | None = None,
-) -> None:
+def _emit_grammar_status(phase: str, text: str, *, result: str = "", elapsed_ms: int | None = None) -> None:
     try:
         from plugin.framework.event_bus import global_event_bus
 
-        global_event_bus.emit(
-            "grammar:status",
-            phase=phase,
-            preview=_grammar_text_preview(text),
-            length=len(text),
-            result=result,
-            elapsed_ms=elapsed_ms,
-        )
+        global_event_bus.emit("grammar:status", phase=phase, preview=_grammar_text_preview(text), length=len(text), result=result, elapsed_ms=elapsed_ms)
     except Exception as e:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
 
 
-from plugin.modules.writer.grammar_proofread_engine import (
-    GrammarWorkItem as _GrammarWorkItem,
-    deduplicate_grammar_batch as _deduplicate_grammar_batch,
-)
+from plugin.modules.writer.grammar_proofread_engine import GrammarWorkItem as _GrammarWorkItem, deduplicate_grammar_batch as _deduplicate_grammar_batch
 
 
 class _GrammarWorkQueue:
@@ -240,10 +220,7 @@ class _GrammarWorkQueue:
             prev_seq = self._latest_seq.get(item.inflight_key)
             if prev_seq is not None and item.enqueue_seq < prev_seq:
                 log.error(
-                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable",
-                    item.inflight_key,
-                    item.enqueue_seq,
-                    prev_seq,
+                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, prev_seq
                 )
             self._latest_seq[item.inflight_key] = item.enqueue_seq
         log.info(
@@ -262,20 +239,10 @@ class _GrammarWorkQueue:
         with self._q.mutex:
             if self._q.queue and self._q.queue[-1].inflight_key == item.inflight_key:
                 if item.enqueue_seq > self._q.queue[-1].enqueue_seq:
-                    log.info(
-                        "[grammar] queue replace-at-tail key=%s: seq=%s replacing older seq=%s",
-                        item.inflight_key,
-                        item.enqueue_seq,
-                        self._q.queue[-1].enqueue_seq,
-                    )
+                    log.info("[grammar] queue replace-at-tail key=%s: seq=%s replacing older seq=%s", item.inflight_key, item.enqueue_seq, self._q.queue[-1].enqueue_seq)
                     self._q.queue[-1] = item
                 else:
-                    log.info(
-                        "[grammar] queue skip-stale-tail key=%s: incoming seq=%s <= existing seq=%s",
-                        item.inflight_key,
-                        item.enqueue_seq,
-                        self._q.queue[-1].enqueue_seq,
-                    )
+                    log.info("[grammar] queue skip-stale-tail key=%s: incoming seq=%s <= existing seq=%s", item.inflight_key, item.enqueue_seq, self._q.queue[-1].enqueue_seq)
             else:
                 self._q.queue.append(item)
                 self._q.unfinished_tasks += 1
@@ -288,11 +255,7 @@ class _GrammarWorkQueue:
             if self._worker_started:
                 return
             self._worker_started = True
-        t = threading.Thread(
-            target=self._drain_loop,
-            name="writeragent-grammar-queue",
-            daemon=True,
-        )
+        t = threading.Thread(target=self._drain_loop, name="writeragent-grammar-queue", daemon=True)
         t.start()
 
     def _drain_loop(self) -> None:
@@ -339,16 +302,7 @@ class _GrammarWorkQueue:
                         len(item.full_text[item.n_start : item.n_end]),
                         self._slice_preview(item),
                     )
-                    _run_llm_and_cache(
-                        item.ctx,
-                        item.full_text,
-                        item.n_start,
-                        item.n_end,
-                        item.enqueue_seq,
-                        item.inflight_key,
-                        item.grammar_bcp47,
-                        partial_sentence=item.partial_sentence,
-                    )
+                    _run_llm_and_cache(item.ctx, item.full_text, item.n_start, item.n_end, item.enqueue_seq, item.inflight_key, item.grammar_bcp47, partial_sentence=item.partial_sentence)
                 except Exception as e:
                     log.error("[grammar] queue worker item failed: %s", e, exc_info=True)
 
@@ -394,10 +348,7 @@ def _locale_tuple() -> tuple[Any, ...]:
     not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
     when opening Tools → Options → Language Settings (Writing aids).
     """
-    from plugin.modules.writer.grammar_locale_registry import (
-        GRAMMAR_REGISTRY_LOCALE_TAGS,
-        bcp47_to_uno_lang_country,
-    )
+    from plugin.modules.writer.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS, bcp47_to_uno_lang_country
 
     out: list[Any] = []
     try:
@@ -433,11 +384,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     try:
         enabled = get_config_bool(ctx, "doc.grammar_proofreader_enabled")
     except Exception as e:
-        log.warning(
-            "[grammar] ensure_proofreader_selection: cannot read doc.grammar_proofreader_enabled: %s",
-            e,
-            exc_info=True,
-        )
+        log.warning("[grammar] ensure_proofreader_selection: cannot read doc.grammar_proofreader_enabled: %s", e, exc_info=True)
         return
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
@@ -450,14 +397,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
 
 
 @no_type_check
-def _build_empty_result(
-    proofreader: Any,
-    a_document_identifier: Any,
-    a_text: str,
-    a_locale: Any,
-    n_start_of_sentence_position: int,
-    n_suggested_behind_end_of_sentence_position: int,
-) -> Any:
+def _build_empty_result(proofreader: Any, a_document_identifier: Any, a_text: str, a_locale: Any, n_start_of_sentence_position: int, n_suggested_behind_end_of_sentence_position: int) -> Any:
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
     try:
         a_res: Any = uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult")
@@ -492,12 +432,7 @@ def _build_empty_result(
 
 
 @no_type_check
-def _finalize_proofreading_sentence_positions(
-    a_res: Any,
-    a_text: str,
-    n_suggested_behind_end: int,
-    proofread_batch_end: int,
-) -> None:
+def _finalize_proofreading_sentence_positions(a_res: Any, a_text: str, n_suggested_behind_end: int, proofread_batch_end: int) -> None:
     """Lightproof-style batching (``lightproof/Lightproof.py`` after LO 4 patch).
 
     Writer grows ``nSuggestedBehindEndOfSentencePosition`` per keystroke; we treat the
@@ -517,13 +452,7 @@ def _finalize_proofreading_sentence_positions(
         # is nearly unreachable because proofread_batch_end < n_suggested_behind_end,
         # but it is kept for parity with Lightproof lines 126-132.
         if n_next == n_suggested_behind_end and ch != "":
-            log.debug(
-                "[grammar] _finalize: Lightproof fallback nudge fired n_next=%s n_suggested=%s batch_end=%s text_len=%s",
-                n_next,
-                n_suggested_behind_end,
-                proofread_batch_end,
-                len(a_text),
-            )
+            log.debug("[grammar] _finalize: Lightproof fallback nudge fired n_next=%s n_suggested=%s batch_end=%s text_len=%s", n_next, n_suggested_behind_end, proofread_batch_end, len(a_text))
             assert proofread_batch_end >= n_suggested_behind_end, f"Lightproof fallback expected proofread_batch_end ({proofread_batch_end}) >= n_suggested_behind_end ({n_suggested_behind_end})"
             n_next = n_suggested_behind_end + 1
     a_res.nStartOfNextSentencePosition = n_next
@@ -549,9 +478,7 @@ def _looks_complete_sentence(text: str) -> bool:
 
 
 @no_type_check
-def _errors_to_uno_tuple(
-    norms: list[Any],
-) -> tuple[Any, ...]:
+def _errors_to_uno_tuple(norms: list[Any]) -> tuple[Any, ...]:
     out: list[Any] = []
     for idx, e in enumerate(norms):
         try:
@@ -566,41 +493,16 @@ def _errors_to_uno_tuple(
             a_err.aProperties = ()
             out.append(a_err)
         except Exception as ex:
-            log.warning(
-                "[grammar] _errors_to_uno_tuple: skipped error index=%s rule=%r: %s",
-                idx,
-                getattr(e, "rule_identifier", ""),
-                ex,
-                exc_info=True,
-            )
+            log.warning("[grammar] _errors_to_uno_tuple: skipped error index=%s rule=%r: %s", idx, getattr(e, "rule_identifier", ""), ex, exc_info=True)
     return tuple(out)
 
 
-def _run_llm_and_cache(
-    ctx: Any,
-    full_text: str,
-    n_start: int,
-    n_end: int,
-    enqueue_seq: int,
-    inflight_key: str,
-    grammar_bcp47: str,
-    partial_sentence: bool = False,
-) -> None:
+def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enqueue_seq: int, inflight_key: str, grammar_bcp47: str, partial_sentence: bool = False) -> None:
     try:
-        from plugin.framework.config import (
-            get_api_config,
-            get_config_bool,
-            get_config_str,
-            get_text_model,
-        )
-        from plugin.framework.llm_concurrency import (
-            is_agent_active,
-            llm_request_lane,
-        )
+        from plugin.framework.config import get_api_config, get_config_bool, get_config_str, get_text_model
+        from plugin.framework.llm_concurrency import is_agent_active, llm_request_lane
         from plugin.modules.writer import grammar_proofread_engine as engine
-        from plugin.modules.writer.grammar_locale_registry import (
-            grammar_english_name_for_bcp47,
-        )
+        from plugin.modules.writer.grammar_locale_registry import grammar_english_name_for_bcp47
 
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
@@ -612,39 +514,23 @@ def _run_llm_and_cache(
         try:
             pause_during_agent = get_config_bool(ctx, "doc.grammar_proofreader_pause_during_agent")
         except Exception as e:
-            log.warning(
-                "[grammar] worker: get_config_bool pause_during_agent: %s",
-                e,
-                exc_info=True,
-            )
+            log.warning("[grammar] worker: get_config_bool pause_during_agent: %s", e, exc_info=True)
             pause_during_agent = False
         if pause_during_agent and is_agent_active():
             log.info("[grammar] worker skipped: agent active and pause_during_agent enabled")
             return
         slice_txt = full_text[n_start:n_end]
         if len(slice_txt) > GRAMMAR_PROOFREAD_MAX_CHARS:
-            log.info(
-                "[grammar] worker skipped: slice len %s > GRAMMAR_PROOFREAD_MAX_CHARS %s",
-                len(slice_txt),
-                GRAMMAR_PROOFREAD_MAX_CHARS,
-            )
+            log.info("[grammar] worker skipped: slice len %s > GRAMMAR_PROOFREAD_MAX_CHARS %s", len(slice_txt), GRAMMAR_PROOFREAD_MAX_CHARS)
             return
         # Check which sentences are already cached; only send uncached ones to the LLM.
         sentences = engine.split_into_sentences(ctx, grammar_bcp47, slice_txt)
         if sentences:
             uncached: list[tuple[int, str]] = [(off, txt) for off, txt in sentences if engine.cache_get_sentence(grammar_bcp47, txt) is None]
             if not uncached:
-                log.info(
-                    "[grammar] worker skipped: all %s sentence(s) already cached for batch len=%s",
-                    len(sentences),
-                    len(slice_txt),
-                )
+                log.info("[grammar] worker skipped: all %s sentence(s) already cached for batch len=%s", len(sentences), len(slice_txt))
                 return
-            log.info(
-                "[grammar] worker: %s/%s sentence(s) uncached, sending only uncached to LLM",
-                len(uncached),
-                len(sentences),
-            )
+            log.info("[grammar] worker: %s/%s sentence(s) uncached, sending only uncached to LLM", len(uncached), len(sentences))
         else:
             # No sentence boundaries found — treat entire slice as one uncached chunk
             uncached = [(0, slice_txt)]
@@ -668,10 +554,7 @@ def _run_llm_and_cache(
         sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
         if partial_sentence:
             sys_prompt += " The input may be a partial sentence; prefer conservative grammar suggestions and avoid broad rewrites."
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": llm_text},
-        ]
+        messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": llm_text}]
         log.info(
             "[grammar] LLM request llm_text_len=%s (uncached %s/%s sent) max_tokens=%s model=%s",
             len(llm_text),
@@ -686,13 +569,7 @@ def _run_llm_and_cache(
 
         client = LlmClient(get_api_config(ctx), ctx)
         with llm_request_lane():
-            content = client.chat_completion_sync(
-                messages,
-                max_tokens=max_tok,
-                model=model or None,
-                response_format={"type": "json_object"},
-                prepend_dev_build_system_prefix=False,
-            )
+            content = client.chat_completion_sync(messages, max_tokens=max_tok, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
         elapsed_ms = int((time.monotonic() - request_start) * 1000)
         log.debug("[grammar] LLM raw response length=%s", len(content or ""))
         items = engine.parse_grammar_json(content or "")
@@ -705,11 +582,7 @@ def _run_llm_and_cache(
             sent_end_in_llm = llm_offset + len(sent_text)
             sent_errors = [{**asdict(n), "n_error_start": n.n_error_start - llm_offset} for n in norms if llm_offset <= n.n_error_start < sent_end_in_llm]
             engine.cache_put_sentence(grammar_bcp47, sent_text, sent_errors)
-        log.info(
-            "[grammar] cached errors for %s uncached sentence(s), batch len=%s",
-            len(uncached),
-            len(slice_txt),
-        )
+        log.info("[grammar] cached errors for %s uncached sentence(s), batch len=%s", len(uncached), len(slice_txt))
         issue_word = "issue" if len(norms) == 1 else "issues"
         _emit_grammar_status("complete", llm_text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
     except Exception as e:
@@ -721,14 +594,7 @@ def _run_llm_and_cache(
 
 
 @no_type_check
-class WriterAgentAiGrammarProofreader(
-    unohelper.Base,
-    XProofreader,
-    XServiceInfo,
-    XServiceName,
-    XServiceDisplayName,
-    XSupportedLocales,
-):
+class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales):
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
     def __init__(self, ctx: Any, *args: Any):
@@ -761,9 +627,7 @@ class WriterAgentAiGrammarProofreader(
     # --- XSupportedLocales ---
     def hasLocale(self, aLocale: Any) -> bool:
         try:
-            from plugin.modules.writer.grammar_locale_registry import (
-                normalize_uno_locale_to_bcp47,
-            )
+            from plugin.modules.writer.grammar_locale_registry import normalize_uno_locale_to_bcp47
 
             if aLocale is None or not self._locales:
                 return False
@@ -783,15 +647,7 @@ class WriterAgentAiGrammarProofreader(
     def isSpellChecker(self) -> bool:
         return False
 
-    def doProofreading(
-        self,
-        aDocumentIdentifier: str,
-        aText: str,
-        aLocale: Any,
-        nStartOfSentencePosition: int,
-        nSuggestedBehindEndOfSentencePosition: int,
-        aProperties: Any,
-    ) -> Any:
+    def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
         if uno_mod is None:
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
@@ -800,30 +656,17 @@ class WriterAgentAiGrammarProofreader(
             from plugin.framework.config import get_config_bool
             from plugin.framework.logging import init_logging
             from plugin.modules.writer import grammar_proofread_engine as engine
-            from plugin.modules.writer.grammar_locale_registry import (
-                normalize_uno_locale_to_bcp47,
-            )
+            from plugin.modules.writer.grammar_locale_registry import normalize_uno_locale_to_bcp47
 
             try:
                 init_logging(self.ctx)
             except Exception as e:
                 log.warning("[grammar] doProofreading: init_logging: %s", e, exc_info=True)
-            a_res = _build_empty_result(
-                self,
-                aDocumentIdentifier,
-                aText,
-                aLocale,
-                nStartOfSentencePosition,
-                nSuggestedBehindEndOfSentencePosition,
-            )
+            a_res = _build_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             try:
                 enabled = get_config_bool(self.ctx, "doc.grammar_proofreader_enabled")
             except Exception as e:
-                log.warning(
-                    "[grammar] doProofreading: could not read doc.grammar_proofreader_enabled -> off: %s",
-                    e,
-                    exc_info=True,
-                )
+                log.warning("[grammar] doProofreading: could not read doc.grammar_proofreader_enabled -> off: %s", e, exc_info=True)
                 enabled = False
             loc_raw = _locale_key(aLocale)
             grammar_bcp47 = normalize_uno_locale_to_bcp47(aLocale)
@@ -831,28 +674,17 @@ class WriterAgentAiGrammarProofreader(
                 log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
                 return a_res
             if grammar_bcp47 is None:
-                log.info(
-                    "[grammar] doProofreading: locale not in WriterAgent registry: %s",
-                    loc_raw,
-                )
+                log.info("[grammar] doProofreading: locale not in WriterAgent registry: %s", loc_raw)
                 return a_res
             loc_key = grammar_bcp47
             # Lightproof.py "PATCH FOR LO 4": Writer issues incremental calls with nStart != 0; return
             # empty until the sentence-start pass. Otherwise we spam LLM/cache on every sub-span and
             # fight Writer's real grammar pass (same pattern as lightproof/Lightproof.py).
             if nStartOfSentencePosition != 0:
-                log.debug(
-                    "[grammar] doProofreading: skip incremental nStart=%s (await nStart==0 pass)",
-                    nStartOfSentencePosition,
-                )
+                log.debug("[grammar] doProofreading: skip incremental nStart=%s (await nStart==0 pass)", nStartOfSentencePosition)
                 return a_res
             proofread_batch_end = min(len(aText), GRAMMAR_PROOFREAD_MAX_CHARS)
-            _finalize_proofreading_sentence_positions(
-                a_res,
-                aText,
-                nSuggestedBehindEndOfSentencePosition,
-                proofread_batch_end,
-            )
+            _finalize_proofreading_sentence_positions(a_res, aText, nSuggestedBehindEndOfSentencePosition, proofread_batch_end)
             log.info(
                 "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) batch_end=%s enabled=%s",
                 aDocumentIdentifier,
@@ -876,11 +708,7 @@ class WriterAgentAiGrammarProofreader(
             complete_sentence = _looks_complete_sentence(slice_txt)
             partial_allowed = nonspace_len >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
             if not complete_sentence and not partial_allowed:
-                log.info(
-                    "[grammar] doProofreading: skip incomplete short sentence len_nonspace=%s min=%s",
-                    nonspace_len,
-                    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
-                )
+                log.info("[grammar] doProofreading: skip incomplete short sentence len_nonspace=%s min=%s", nonspace_len, GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS)
                 return a_res
 
             # Per-sentence cache lookup: split the batch into individual sentences
@@ -905,12 +733,7 @@ class WriterAgentAiGrammarProofreader(
                     # All sentences cached — return full result, no enqueue needed
                     try:
                         a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
-                        log.info(
-                            "[grammar] per-sentence cache ALL HIT: %s sentence(s), %s error(s) for batch len=%s",
-                            len(sentences),
-                            len(combined_errors),
-                            len(slice_txt),
-                        )
+                        log.info("[grammar] per-sentence cache ALL HIT: %s sentence(s), %s error(s) for batch len=%s", len(sentences), len(combined_errors), len(slice_txt))
                     except Exception as e:
                         log.exception("[grammar] doProofreading: per-sentence cache HIT path failed: %s", e)
                         try:
@@ -941,12 +764,7 @@ class WriterAgentAiGrammarProofreader(
             with _ENQUEUE_SEQ_LOCK:
                 _ENQUEUE_SEQ += 1
                 seq = _ENQUEUE_SEQ
-            log.info(
-                "[grammar] cache MISS enqueuing slice_len=%s key=%s seq=%s",
-                len(slice_txt),
-                inflight_key,
-                seq,
-            )
+            log.info("[grammar] cache MISS enqueuing slice_len=%s key=%s seq=%s", len(slice_txt), inflight_key, seq)
             _emit_grammar_status("start", slice_txt, result="queued")
             _grammar_queue.enqueue(
                 _GrammarWorkItem(
@@ -965,10 +783,7 @@ class WriterAgentAiGrammarProofreader(
             log.info("[grammar] doProofreading: async miss returning empty errors; sentence cache fills in background")
             return a_res
         except Exception as e:
-            log.exception(
-                "[grammar] doProofreading failed (returning empty errors if possible): %s",
-                e,
-            )
+            log.exception("[grammar] doProofreading failed (returning empty errors if possible): %s", e)
             if a_res is not None:
                 try:
                     a_res.aErrors = ()
@@ -981,14 +796,7 @@ class WriterAgentAiGrammarProofreader(
                 init_logging(self.ctx)
             except Exception:
                 pass
-            return _build_empty_result(
-                self,
-                aDocumentIdentifier,
-                aText,
-                aLocale,
-                nStartOfSentencePosition,
-                nSuggestedBehindEndOfSentencePosition,
-            )
+            return _build_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
@@ -1018,8 +826,4 @@ class WriterAgentAiGrammarProofreader(
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
-g_ImplementationHelper.addImplementation(
-    WriterAgentAiGrammarProofreader,
-    IMPLEMENTATION_NAME,
-    (SERVICE_NAME,),
-)
+g_ImplementationHelper.addImplementation(WriterAgentAiGrammarProofreader, IMPLEMENTATION_NAME, (SERVICE_NAME,))

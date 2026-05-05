@@ -23,20 +23,8 @@ class AddSlide(ToolBase):
     name = "add_slide"
     intent = "edit"
     description = "Inserts a new slide (page) at the specified index."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "index": {
-                "type": "integer",
-                "description": "Index where to insert (end if omitted)",
-            }
-        },
-        "required": [],
-    }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "Index where to insert (end if omitted)"}}, "required": []}
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -51,20 +39,8 @@ class DeleteSlide(ToolBase):
     name = "delete_slide"
     intent = "edit"
     description = "Deletes the slide (page) at the specified index."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "index": {
-                "type": "integer",
-                "description": "Index of slide to delete",
-            }
-        },
-        "required": ["index"],
-    }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
+    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "Index of slide to delete"}}, "required": ["index"]}
+    uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -80,16 +56,7 @@ class ReadSlideText(ToolBase):
 
     name = "read_slide_text"
     description = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "page_index": {
-                "type": "integer",
-                "description": "0-based slide index (default: active slide).",
-            },
-        },
-        "required": [],
-    }
+    parameters = {"type": "object", "properties": {"page_index": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
     uno_services = ["com.sun.star.drawing.DrawingDocument"]
     tier = "core"
 
@@ -134,12 +101,7 @@ class ReadSlideText(ToolBase):
         except Exception:
             pass
 
-        return {
-            "status": "ok",
-            "page_index": page_index,
-            "texts": texts,
-            "notes": notes_text,
-        }
+        return {"status": "ok", "page_index": page_index, "texts": texts, "notes": notes_text}
 
 
 class GetPresentationInfo(ToolBase):
@@ -179,11 +141,4 @@ class GetPresentationInfo(ToolBase):
 
         is_impress = hasattr(doc, "getPresentation")
 
-        return {
-            "status": "ok",
-            "slide_count": count,
-            "width_mm": width_mm,
-            "height_mm": height_mm,
-            "master_slides": masters,
-            "is_impress": is_impress,
-        }
+        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress}
