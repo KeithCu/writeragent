@@ -96,7 +96,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
+        set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-format-check
 
 # ── Help ─────────────────────────────────────────────────────────────────────
@@ -153,6 +153,10 @@ help:
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
 	@echo "  make ruff                   Ruff lint (plugin/, excludes contrib + tests; see pyproject.toml)"
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check"
+	@echo ""
+	@echo "Translation:"
+	@echo "  make translate-missing      Auto-translate missing strings with AI"
+	@echo "  make reset-lang LANG=pt     Clear all translations for a language and reset to template"
 	@echo ""
 
 # ── Build ────────────────────────────────────────────────────────────────────
@@ -341,6 +345,11 @@ add-language:
 	mkdir -p plugin/locales/$(LANG)/LC_MESSAGES
 	cp plugin/locales/writeragent.pot plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
 	msgfmt -o plugin/locales/$(LANG)/LC_MESSAGES/writeragent.mo plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
+
+reset-lang: refresh-pot
+	@if [ -z "$(LANG)" ]; then echo "Usage: make reset-lang LANG=pt"; exit 1; fi
+	@echo "Resetting $(LANG) to template..."
+	$(MAKE) add-language LANG=$(LANG)
 
 translate-missing:
 	$(PYTHON) scripts/translate_missing.py --execute

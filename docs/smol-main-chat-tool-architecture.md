@@ -10,12 +10,10 @@ This document is for maintainers who already understand OpenAI-style chat comple
 
 | Layer | Approach |
 |-------|----------|
-| **HTTP wire policy** | One explicit split: main chat may send OpenAI **`tools`**; smol defaults to **`tools=None`**. That is **one** intentional branch at the boundary—not a matrix of modes. |
+| **HTTP wire policy** | Main chat and smol both send OpenAI **`tools`** when tools are available. Smol also keeps the ReAct prompt tool list. This preserves the historical LocalAI-compatible request shape; avoid config matrices. |
 | **Everything below that** | **Unify aggressively**: same **`LlmClient`**, same **`ToolBase`**, same registry execution semantics, shared **`WriterAgentSmolModel`** → `request_with_tools`, shared **`build_toolcalling_agent`**, **`to_smol_inputs` / `SmolToolAdapter`**. Fix bugs once. |
 
 **Do not** “unify” by adding capability detection, automatic retries that toggle wire tools, or observability layers **unless** a concrete bug forces it—those paths **grow** the codebase and the test surface.
-
-**Wire tools for smol** are not a user or JSON setting; see **§9** (local edit to **`smol_model.py`** only for developer experiments).
 
 ---
 
@@ -24,12 +22,12 @@ This document is for maintainers who already understand OpenAI-style chat comple
 | Term | Meaning in WriterAgent |
 |------|-------------------------|
 | **Wire tools** | The JSON `tools` array in the HTTP body. The server may return `tool_calls`. |
-| **Prompt-only tools (smol default)** | Tool definitions in the smol system prompt (`__TOOLS_LIST__` / ReAct). Request uses **`tools=None`**. |
+| **Smol ReAct tools** | Tool definitions in the smol system prompt (`__TOOLS_LIST__` / ReAct). WriterAgent also sends smol's generated OpenAI schemas on the wire for compatibility with the historical request shape. |
 | **Main chat tool loop** | Streaming + FSM (`tool_loop`, `tool_loop_state`), OpenAI-shaped history (`assistant` / `tool` / `tool_call_id`). |
 | **Smolagents runtime** | Vendored `ToolCallingAgent` + ReAct steps (`ActionStep`, `ToolCall`, `FinalAnswerStep`). Librarian + specialized delegation. |
 | **Client-side parsing** | Plain-text responses: `LlmClient` + parsers; smol may also parse `Action:` / JSON in **content**. Native `tool_calls` still flow through `ChatMessage.from_dict` when present. |
 
-“Smol doesn’t use tool calling” means: **by default it does not rely on server-side wire `tools`** on typical local setups. It still **runs tools** via adapters.
+Smol still **runs tools** via adapters and ReAct parsing; sending OpenAI schemas on the wire helps some backends choose their tool-call/parser path.
 
 ---
 
@@ -61,7 +59,7 @@ flowchart TB
     ADAPT[SmolToolAdapter_to_smol_inputs]
     FACT[build_toolcalling_agent]
     WSM[WriterAgentSmolModel]
-    LLM2[LlmClient_tools_None]
+    LLM2[LlmClient_tools_on_wire]
     TCA[ToolCallingAgent_ReAct]
   end
   subgraph shared [Shared]
@@ -80,7 +78,7 @@ flowchart TB
 ```
 
 - **Main chat:** registry schemas → wire `tools` → `tool_calls` → `ToolRegistry.execute` → history.
-- **Smol:** `ToolBase` → `SmolToolAdapter` → `ToolCallingAgent` → **`WriterAgentSmolModel`** → `request_with_tools(..., tools=None)` → `ChatMessage.from_dict` → smol steps.
+- **Smol:** `ToolBase` → `SmolToolAdapter` → `ToolCallingAgent` → **`WriterAgentSmolModel`** → `request_with_tools(..., tools=completion_kwargs.get("tools"))` → `ChatMessage.from_dict` → smol steps.
 
 **Shared:** [`LlmClient`](../plugin/modules/http/client.py) only—no duplicate strip/shim/parser logic in smol-specific files.
 
@@ -90,7 +88,7 @@ flowchart TB
 
 | Concern | Location |
 |---------|-----------|
-| Smol wire policy **`tools=None`** | [`plugin/framework/smol_model.py`](../plugin/framework/smol_model.py) — `WriterAgentSmolModel.generate` |
+| Smol wire policy **send generated schemas** | [`plugin/framework/smol_model.py`](../plugin/framework/smol_model.py) — `WriterAgentSmolModel.generate` |
 | Smol agent construction | [`plugin/framework/smol_agent_factory.py`](../plugin/framework/smol_agent_factory.py) — `build_toolcalling_agent` |
 | `ToolBase` → smol `inputs` | [`plugin/framework/smol_tool_adapter.py`](../plugin/framework/smol_tool_adapter.py) |
 | Librarian | [`plugin/modules/chatbot/librarian.py`](../plugin/modules/chatbot/librarian.py) |
@@ -103,14 +101,15 @@ Tests: [`test_smol_model.py`](../plugin/tests/test_smol_model.py), [`test_smol_t
 
 ---
 
-## 6. Why `tools=None` for smol stays the default
+## 6. Why smol sends wire tools
 
-One branch, maximum compatibility:
+This restores the request shape that worked in earlier WriterAgent builds:
 
-- Many **local** stacks fail or degrade when **`tools`** is present.
-- Smol prompts already carry tool definitions; **`LlmClient`** still normalizes responses (including native `tool_calls` when the server emits them without needing wire schemas—rare but supported in the adapter).
+- Smol prompts still carry tool definitions for ReAct parsing.
+- The same tool schemas are also sent in the OpenAI-compatible request body.
+- Some LocalAI/Harmony-style backends appear to select a safer parser path when OpenAI **`tools`** are present.
 
-Sending wire **`tools`** for smol “because main chat works” is **not** free: it adds **server-dependent** behavior and support burden. **Default `None`** keeps the implementation **small** and **predictable**.
+Keep this centralized in **`WriterAgentSmolModel`**. Do not add user-facing toggles unless a concrete backend requires it and tests pin the behavior.
 
 ---
 
@@ -135,18 +134,16 @@ Do **not** merge **`tool_loop`** with **`ToolCallingAgent`** without a product d
 
 ---
 
-## 9. Wire tools for smol (developer-only, not in config)
+## 9. Wire tools for smol
 
-Shipped behavior: **`tools=None`** in **`WriterAgentSmolModel`**. There is **no** user or JSON toggle.
-
-To experiment with the same OpenAI function list on the wire as smol already builds, **edit** [`smol_model.py`](../plugin/framework/smol_model.py) locally: pass **`completion_kwargs.get("tools")`** instead of **`None`** in **`request_with_tools`**. Do not ship that as default without validating the endpoint; many local stacks 500 when **`tools`** is in the body.
+Shipped behavior: **`WriterAgentSmolModel`** passes **`completion_kwargs.get("tools")`** into **`LlmClient.request_with_tools`**. There is no JSON toggle; this is source-level policy.
 
 ---
 
 ## 10. Anti-patterns
 
 - Second smol HTTP path bypassing **`WriterAgentSmolModel`**.
-- Forwarding **`completion_kwargs["tools"]`** to the wire in release builds without proving the stack tolerates it.
+- Adding a user config flag or second HTTP path for smol wire tools before a concrete backend requires it.
 - Duplicating strip/parse/shim logic outside **`LlmClient`**.
 - Large “unification roadmaps” before a concrete need—prefer **delete duplication** and **one** wire policy in source.
 
@@ -154,9 +151,9 @@ To experiment with the same OpenAI function list on the wire as smol already bui
 
 ## 11. Summary
 
-- **Small:** **`WriterAgentSmolModel`** always **`tools=None`** on the wire in tree; one **`LlmClient`**, shared adapters/factory, no parallel HTTP implementations.
-- **Robust:** default avoids broken local stacks.
-- **Reuse:** maximal **below** the wire split. Developers may temporarily wire **`completion_kwargs["tools"]`** in **`smol_model.py`** only for experiments.
+- **Small:** **`WriterAgentSmolModel`** owns one smol HTTP policy; one **`LlmClient`**, shared adapters/factory, no parallel HTTP implementations.
+- **Robust:** preserves the known-good LocalAI request shape while keeping smol's ReAct parser.
+- **Reuse:** maximal **below** the wire policy.
 
 ---
 

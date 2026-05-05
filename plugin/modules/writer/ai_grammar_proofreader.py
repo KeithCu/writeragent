@@ -63,9 +63,10 @@ GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
 # reducing unnecessary LLM calls and backend stampedes.
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
-# Locale-agnostic sentence terminators used as a conservative fallback signal.
-# Full Unicode 15.1 Sentence_Terminal (STerm) property set — equivalent to \p{STerm}.
-# Source: https://www.unicode.org/Public/15.1.0/ucd/PropList.txt
+# Sentence-ending punctuation by script (period, question mark, ideographic stop, …).
+# Used to decide whether a proofread slice is complete enough to run or counts as a
+# short skip / partial clause for the prompt. Sentence splitting uses BreakIterator elsewhere.
+# Matches Unicode 15.1 Sentence_Terminal (STerm); PropList.txt in Unicode UCD releases.
 _SENTENCE_TERMINATORS = frozenset((
     "!", ".", "?",              # ASCII
     "…",                        # Horizontal ellipsis
@@ -101,9 +102,11 @@ _SENTENCE_TERMINATORS = frozenset((
     "𝪈",                        # Signwriting full stop
     "𞥞", "𞥟",                  # Adlam
 ))
-# Pe+Pf spans 87 chars; hardcoded from Unicode 15 Pe+Pf property set.
-# ASCII ", ', > are informal closers not classified Pe/Pf but common in prose.
-# To regenerate after a Unicode update, run:
+
+# Characters skipped when scanning backward for the sentence end: brackets, closing quotes,
+# and similar trail the period
+# Mostly Unicode closing punctuation (Pe/Pf); `"` `'` `>` added for prose that omits curly quotes.
+# Regenerate Pe/Pf subset after a Unicode update:
 #   import sys, unicodedata
 #   chars = sorted(chr(cp) for cp in range(sys.maxunicode + 1)
 #                  if unicodedata.category(chr(cp)) in ('Pe', 'Pf'))

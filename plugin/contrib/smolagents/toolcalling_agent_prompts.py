@@ -52,7 +52,7 @@ Observation: {"status": "ok"}
 Action:
 {
   "name": "reply_to_user",
-  "arguments": {"message": "Hello, Joe! Would you like to learn more about WriterAgent?"}
+  "arguments": {"answer": "Hello, Joe! Would you like to learn more about WriterAgent?"}
 }
 Observation: {"status": "ok"}
 

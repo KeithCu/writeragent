@@ -18,8 +18,8 @@ class _ReplyTool(Tool):
         return answer
 
 
-def test_request_with_tools_receives_none_for_tools():
-    """Smol path must not send OpenAI tool schemas; local servers can 500 on constrained parse."""
+def test_request_with_tools_receives_smol_generated_tools():
+    """Smol path preserves the older request shape: prompt tools plus OpenAI schemas on the wire."""
     client = MagicMock()
     client.config = {"model": "test/local"}
     model = WriterAgentSmolModel(client, max_tokens=256)
@@ -33,7 +33,9 @@ def test_request_with_tools_receives_none_for_tools():
     msgs = [ChatMessage(role=MessageRole.USER, content="hello")]
     model.generate(msgs, tools_to_call_from=[_ReplyTool()])
     assert client.request_with_tools.call_count == 1
-    assert client.request_with_tools.call_args.kwargs.get("tools") is None
+    tools = client.request_with_tools.call_args.kwargs.get("tools")
+    assert tools and tools[0]["type"] == "function"
+    assert tools[0]["function"]["name"] == "reply_to_user"
     assert client.request_with_tools.call_args.kwargs.get("model") == "test/local"
 
 
@@ -60,7 +62,7 @@ def test_smol_path_strips_control_tokens():
     assert "<|" not in result.content
     assert clean_content in result.content
     assert client.request_with_tools.call_count == 1
-    assert client.request_with_tools.call_args.kwargs.get("tools") is None
+    assert client.request_with_tools.call_args.kwargs.get("tools")
 
 
 def test_native_tool_calls_are_converted_by_chatmessage():
