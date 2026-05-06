@@ -66,7 +66,7 @@ class TestLibrarianSmol(unittest.TestCase):
         ctx.stop_checker.return_value = False
         
         # Mock ToolCallingAgent to simulate a switch_mode observation
-        with patch("plugin.framework.smol_agent_factory.ToolCallingAgent") as mock_agent_class:
+        with patch("plugin.framework.smol_agent.ToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
             
             # Simulate steps: one ActionStep with switch_mode
@@ -103,7 +103,7 @@ class TestLibrarianSmol(unittest.TestCase):
         )
         fa = FinalAnswerStep(output="Hello")
 
-        with patch("plugin.framework.smol_agent_factory.ToolCallingAgent") as mock_agent_class:
+        with patch("plugin.framework.smol_agent.ToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
             mock_agent.run.return_value = [tc, fa]
 

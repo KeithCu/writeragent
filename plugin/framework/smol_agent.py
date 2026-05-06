@@ -14,15 +14,62 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Shared utility to execute and stream smolagents steps to the UI."""
+"""WriterAgent smolagents integration: model wrapper, executor, and factory."""
+
+from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Iterable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
 
+from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
+from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage
+from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.errors import ToolExecutionError
+from plugin.modules.http.client import LlmClient
 
-log = logging.getLogger("writeragent.smol_executor")
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from plugin.contrib.smolagents.tools import Tool as SmolTool
+    from plugin.framework.tool_context import ToolContext
+
+log = logging.getLogger("writeragent.smol_agent")
+
+
+class WriterAgentSmolModel(Model):
+    """
+    A wrapper that implements `smolagents.models.Model` by delegating
+    requests to WriterAgent's `LlmClient` (`core.api`).
+    """
+
+    def __init__(self, llm_client, max_tokens=1024, status_callback=None, **kwargs):
+        super().__init__(**kwargs)
+        self.api = llm_client
+        self.max_tokens = max_tokens
+        self.model_id = self.api.config.get("model", "localwriter/model")
+        self._status_callback = status_callback
+
+    def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
+        completion_kwargs = self._prepare_completion_kwargs(messages=cast("list[ChatMessage | dict[str, Any]]", messages), stop_sequences=stop_sequences, tools_to_call_from=tools_to_call_from, **kwargs)
+
+        msg_dicts = completion_kwargs.get("messages", [])
+
+        if self._status_callback:
+            self._status_callback("Thinking...")
+
+        # Preserve the known-good smolagents request shape: schemas are both in the
+        # smol prompt and on the wire. Some local backends select a different parser
+        # path when OpenAI-style tools are present.
+        tools = completion_kwargs.get("tools", None)
+        result = self.api.request_with_tools(msg_dicts, max_tokens=self.max_tokens, tools=tools, model=self.model_id, response_format=response_format, prepend_dev_build_system_prefix=False)
+
+        if self._status_callback:
+            self._status_callback("Model responded, processing...")
+
+        usage = result.get("usage") or {}
+        token_usage = TokenUsage(input_tokens=usage.get("prompt_tokens", 0), output_tokens=usage.get("completion_tokens", 0)) if usage else None
+        return ChatMessage.from_dict({"role": "assistant", "content": result.get("content") or "", "tool_calls": result.get("tool_calls") or None}, raw=result, token_usage=token_usage)
 
 
 class SmolAgentExecutor:
@@ -110,7 +157,7 @@ class SmolAgentExecutor:
         Returns:
             The final answer or a formatted error payload.
         """
-        from plugin.framework.errors import format_error_payload, ToolExecutionError
+        from plugin.framework.errors import format_error_payload
         from plugin.framework.i18n import _
 
         try:
@@ -131,3 +178,14 @@ class SmolAgentExecutor:
                 log.error(f"{error_prefix}: %s", e)
             err = ToolExecutionError(f"{error_prefix}: {str(e)}")
             return format_error_payload(err)
+
+
+def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None) -> ToolCallingAgent:
+    """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
+    uno_ctx = ctx.ctx
+    config = get_api_config(uno_ctx)
+    max_tokens = get_config_int(uno_ctx, "chat_max_tokens")
+    max_steps = get_config_int(uno_ctx, "chat_max_tool_rounds")
+
+    smol_model = WriterAgentSmolModel(LlmClient(config, uno_ctx), max_tokens=max_tokens, status_callback=status_callback)
+    return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)

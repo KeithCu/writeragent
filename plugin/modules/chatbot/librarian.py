@@ -52,7 +52,7 @@ class LibrarianOnboardingTool(ToolBase):
         from plugin.framework.errors import format_error_payload, ToolExecutionError
 
         try:
-            from plugin.framework.smol_agent_factory import build_toolcalling_agent
+            from plugin.framework.smol_agent import build_toolcalling_agent
             from plugin.framework.smol_tool_adapter import SmolToolAdapter
             from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
             from plugin.contrib.smolagents.toolcalling_agent_prompts import LIBRARIAN_EXAMPLES_BLOCK

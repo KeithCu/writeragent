@@ -87,13 +87,13 @@ def _mock_get_config_int_for_sub_agent(ctx, key):
 
 
 @patch(
-    "plugin.framework.smol_agent_factory.get_config_int",
+    "plugin.framework.smol_agent.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
 )
-@patch("plugin.framework.smol_agent_factory.get_api_config", create=True)
-@patch("plugin.framework.smol_agent_factory.ToolCallingAgent")
-@patch("plugin.framework.smol_agent_factory.WriterAgentSmolModel")
-@patch("plugin.framework.smol_agent_factory.LlmClient")
+@patch("plugin.framework.smol_agent.get_api_config", create=True)
+@patch("plugin.framework.smol_agent.ToolCallingAgent")
+@patch("plugin.framework.smol_agent.WriterAgentSmolModel")
+@patch("plugin.framework.smol_agent.LlmClient")
 def test_specialized_delegation_sub_agent_mode(
     mock_llm,
     mock_smol_model,
@@ -158,13 +158,13 @@ def test_specialized_delegation_sub_agent_mode(
 
 
 @patch(
-    "plugin.framework.smol_agent_factory.get_config_int",
+    "plugin.framework.smol_agent.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
 )
-@patch("plugin.framework.smol_agent_factory.get_api_config", create=True)
-@patch("plugin.framework.smol_agent_factory.ToolCallingAgent")
-@patch("plugin.framework.smol_agent_factory.WriterAgentSmolModel")
-@patch("plugin.framework.smol_agent_factory.LlmClient")
+@patch("plugin.framework.smol_agent.get_api_config", create=True)
+@patch("plugin.framework.smol_agent.ToolCallingAgent")
+@patch("plugin.framework.smol_agent.WriterAgentSmolModel")
+@patch("plugin.framework.smol_agent.LlmClient")
 def test_shapes_delegation_includes_canvas_in_instructions(
     mock_llm,
     mock_smol_model,
@@ -267,13 +267,13 @@ def test_active_domain_schemas_include_calc_and_draw(registry):
 
 
 @patch(
-    "plugin.framework.smol_agent_factory.get_config_int",
+    "plugin.framework.smol_agent.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
 )
-@patch("plugin.framework.smol_agent_factory.get_api_config", create=True)
-@patch("plugin.framework.smol_agent_factory.ToolCallingAgent")
-@patch("plugin.framework.smol_agent_factory.WriterAgentSmolModel")
-@patch("plugin.framework.smol_agent_factory.LlmClient")
+@patch("plugin.framework.smol_agent.get_api_config", create=True)
+@patch("plugin.framework.smol_agent.ToolCallingAgent")
+@patch("plugin.framework.smol_agent.WriterAgentSmolModel")
+@patch("plugin.framework.smol_agent.LlmClient")
 def test_calc_specialized_delegation_sub_agent(
     mock_llm,
     mock_smol_model,
@@ -306,13 +306,13 @@ def test_calc_specialized_delegation_sub_agent(
 
 
 @patch(
-    "plugin.framework.smol_agent_factory.get_config_int",
+    "plugin.framework.smol_agent.get_config_int",
     side_effect=_mock_get_config_int_for_sub_agent,
 )
-@patch("plugin.framework.smol_agent_factory.get_api_config", create=True)
-@patch("plugin.framework.smol_agent_factory.ToolCallingAgent")
-@patch("plugin.framework.smol_agent_factory.WriterAgentSmolModel")
-@patch("plugin.framework.smol_agent_factory.LlmClient")
+@patch("plugin.framework.smol_agent.get_api_config", create=True)
+@patch("plugin.framework.smol_agent.ToolCallingAgent")
+@patch("plugin.framework.smol_agent.WriterAgentSmolModel")
+@patch("plugin.framework.smol_agent.LlmClient")
 def test_draw_specialized_delegation_sub_agent(
     mock_llm,
     mock_smol_model,

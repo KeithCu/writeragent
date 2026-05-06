@@ -61,6 +61,7 @@ def test_do_send_direct_image():
     mock_awt.XItemListener = DummyBase2
     mock_awt.XTextListener = DummyBase2
     mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
@@ -131,6 +132,7 @@ def test_do_send_direct_image_error():
     mock_awt.XItemListener = DummyBase2
     mock_awt.XTextListener = DummyBase2
     mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
@@ -232,7 +234,7 @@ def test_web_research_tool():
             )
 
 
-    with patch("plugin.framework.smol_model.WriterAgentSmolModel.generate", new=mock_generate):
+    with patch("plugin.framework.smol_agent.WriterAgentSmolModel.generate", new=mock_generate):
         # We also need to mock requests.get/post that the default tools use under the hood
         # We can just mock the output of the VisitWebpageTool entirely to avoid making HTTP requests.
 
@@ -284,7 +286,7 @@ def test_web_research_tool_stop():
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
     ctx.stop_checker = lambda: True  # Stop immediately
 
-    with patch("plugin.framework.smol_model.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
+    with patch("plugin.framework.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
                 from plugin.modules.writer.specialized import DelegateToSpecializedWriter
@@ -330,6 +332,7 @@ def test_run_web_research_invalid_json():
     mock_awt.XItemListener = DummyBase2
     mock_awt.XTextListener = DummyBase2
     mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
     with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
@@ -393,6 +396,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
     mock_awt.XItemListener = DummyBase2
     mock_awt.XTextListener = DummyBase2
     mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
@@ -465,6 +469,7 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
     mock_awt.XItemListener = DummyBase2
     mock_awt.XTextListener = DummyBase2
     mock_awt.XWindowListener = DummyBase2
+    mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.smol_agent_factory import build_toolcalling_agent
+from plugin.framework.smol_agent import build_toolcalling_agent
 from plugin.framework.smol_tool_adapter import SmolToolAdapter, to_smol_inputs
 from plugin.framework.tool_base import ToolBase
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -82,11 +82,11 @@ def test_smol_tool_adapter_safe_async_uses_execute_safe():
     tool.execute_safe.assert_called_once()
 
 
-@patch("plugin.framework.smol_agent_factory.ToolCallingAgent")
-@patch("plugin.framework.smol_agent_factory.WriterAgentSmolModel")
-@patch("plugin.framework.smol_agent_factory.LlmClient")
-@patch("plugin.framework.smol_agent_factory.get_config_int")
-@patch("plugin.framework.smol_agent_factory.get_api_config")
+@patch("plugin.framework.smol_agent.ToolCallingAgent")
+@patch("plugin.framework.smol_agent.WriterAgentSmolModel")
+@patch("plugin.framework.smol_agent.LlmClient")
+@patch("plugin.framework.smol_agent.get_config_int")
+@patch("plugin.framework.smol_agent.get_api_config")
 def test_build_toolcalling_agent_wires_max_tokens_and_steps(
     mock_get_api, mock_get_int, mock_llm, mock_wsm, mock_tca
 ):
