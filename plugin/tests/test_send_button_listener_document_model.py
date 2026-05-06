@@ -1,4 +1,4 @@
-"""Tests for SendButtonListener._get_document_model (frame-first vs getCurrentComponent)."""
+"""Tests for SendButtonListener._get_document_model (frame-only; no Desktop fallback)."""
 
 from __future__ import annotations
 
@@ -67,30 +67,23 @@ class TestSendButtonListenerDocumentModel(unittest.TestCase):
             self.session,
         )
 
-    def test_prefers_frame_document_when_get_active_differs(self) -> None:
+    def test_returns_compatible_document_from_frame(self) -> None:
         writer = _writer_model()
-        wrong = _non_document_component()
         self.frame.getController.return_value.getModel.return_value = writer
-        with patch("plugin.modules.chatbot.panel.get_active_document", return_value=wrong):
-            self.assertIs(self.listener._get_document_model(), writer)
+        self.assertIs(self.listener._get_document_model(), writer)
 
     def test_returns_none_when_frame_missing(self) -> None:
         self.listener.frame = None
-        writer = _writer_model()
-        with patch("plugin.modules.chatbot.panel.get_active_document", return_value=writer):
-            self.assertIsNone(self.listener._get_document_model())
+        self.assertIsNone(self.listener._get_document_model())
 
     def test_returns_none_when_frame_get_model_raises(self) -> None:
         self.frame.getController.return_value.getModel.side_effect = ValueError("simulated frame failure")
-        writer = _writer_model()
-        with patch("plugin.modules.chatbot.panel.get_active_document", return_value=writer):
-            self.assertIsNone(self.listener._get_document_model())
+        self.assertIsNone(self.listener._get_document_model())
 
     def test_returns_none_when_no_compatible_document(self) -> None:
         bad = _non_document_component()
         self.frame.getController.return_value.getModel.return_value = bad
-        with patch("plugin.modules.chatbot.panel.get_active_document", return_value=bad):
-            self.assertIsNone(self.listener._get_document_model())
+        self.assertIsNone(self.listener._get_document_model())
 
 
 if __name__ == "__main__":

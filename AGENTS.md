@@ -1,18 +1,20 @@
 # AGENTS.md — Context for AI Assistants
 
-**Assume the reader knows nothing about this project.** This file states **invariants**, **where to look**, and **tips that are easy to get wrong**. Detailed behavior lives in the referenced modules and docs—open them when you touch that area.
+**Assume the reader knows nothing about this project.** This file lists **invariants**, **entry points**, and **easy mistakes**. Everything else is in the linked modules and docs—open those when you change behavior.
 
 > [!IMPORTANT]
-> **AI Assistants: On every nontrivial change, update `AGENTS.md` or the relevant doc.** Most updates belong in the relevant doc; update **`AGENTS.md`** when the change is cross-cutting (e.g. the grammar checker).
+> **Docs:** After any nontrivial change, update documentation. Prefer the **topic doc** under `docs/`; touch **`AGENTS.md`** only when the change affects **many areas** or **global rules**.
 
 > [!IMPORTANT]
-> **Testing Requirement: When adding a feature or fixing a bug, you MUST add test code.**
-> - Use **unit tests** (in `plugin/tests/`) for logic that can be mocked; these can use **pytest**.
-> - Use **UNO tests** (in `plugin/tests/uno/`) to verify that code calling into LibreOffice works correctly in a real environment; these run via **`testing_runner.py`** and **cannot use pytest**—use `@native_test`, `@setup`, `@teardown` decorators instead, and functions must accept a `ctx` parameter.
-> - Run **`make test`** to ensure full coverage and prevent regressions.
+> **Tests:** New features and bugfixes **must** include tests.
+> - **Unit:** `plugin/tests/`, **pytest** when logic can be mocked.
+> - **UNO / LibreOffice:** `plugin/tests/uno/` via **`testing_runner.py`** (no pytest)—use **`@native_test`**, **`@setup`**, **`@teardown`**; test functions take **`ctx`**.
+> - Run **`make test`** before you consider the work done.
 
 > [!IMPORTANT]
-> **Code comments: Explain the *why*, not the *what***.** Comment non-obvious choices, constants' rationale, and edge-case handling. **Every bug-fix MUST include a comment explaining the issue.** Skip self-evident code. The goal: enough that the next reader isn't lost, but not so much that comments echo the code. Keep the living history near the code, not in this file.
+> **Comments:** Write why this code is there for the reader who would otherwise be **lost**. **Good comments are the bridge** from opaque to understandable and maintainable code. Some files have no comments: inserting footnotes is standard, little different from other UNO objects. Meanwhile some comments are critical to understanding why the code is there. Write clear, short comments.
+> - **Bugfixes (required):** at the fix, **what was wrong**, **how it happened**, and **why this change** fixes it.
+> - **LibreOffice / UNO / Etc.:** quirks. When matching upstream behavior, cite **source** (file + line or function), not a vague “like Lightproof.”
 
 ---
 

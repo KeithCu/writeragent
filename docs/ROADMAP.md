@@ -1,9 +1,113 @@
 # WriterAgent Roadmap 🗺️
 
-**Last Updated**: 2026-04-04
+**Last Updated**: 2026-05-06
 **Status**: Active Development
 
 This document outlines the planned features, improvements, and technical debt to address in WriterAgent. Items are organized by priority and domain.
+
+---
+
+## Large modules (navigation)
+
+> - **Very large modules:** optional **section markers** (`# --- … ---`) so major entrypoints (e.g. UNO interfaces) stay discoverable.
+
+---
+
+## File license headers (SPDX, attribution, upstream tracking)
+
+**Status**: Planned housekeeping — an optional sweep to align **original / non-derived** source files on a **short, consistent** header. **Derived or adapted** files keep **all upstream copyright lines** and add explicit **upstream metadata** (below).
+
+**Why this section exists**: WriterAgent is **GNU GPL version 3 or later**. Per-file comments should make that obvious **without** pasting the entire GPL into every file. Separately, **attribution** should satisfy upstream licenses **and** give **you** a stable pointer for **re-syncing** when upstream ships fixes or features.
+
+### SPDX — what it is (short tutorial)
+
+**SPDX** is **Software Package Data Exchange** — a standard for labeling **which license applies** to a file or package using short, **machine-readable** identifiers. Registries and tools (compliance scanners, REUSE, distros) recognize these tags; humans can grep them. Official overview: [spdx.dev](https://spdx.dev/).
+
+In source files, the usual pattern is one line:
+
+```text
+# SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+- **`SPDX-License-Identifier`** — tells automated tools “the license for this file is…”
+- **`GPL-3.0-or-later`** — **GNU GPL version 3**, and the recipient may follow **GPLv3 or any later published GPL version** (“GPLv3+”). That matches a typical `LICENSE` file that contains GPLv3 and the project’s “or any later version” intent.
+
+**Important**: That one line does **not** replace shipping the **full license text** to people who receive the software. The **canonical GPLv3 text** lives in the repository root as **`LICENSE`**. The SPDX line answers “which license applies to this file?” in one line; **`LICENSE`** is the actual legal text recipients should read.
+
+If you had never seen SPDX before: think of it as **the license name in a standard spelling** so tools and reviewers do not have to guess from informal wording.
+
+### Decisions (keep sweeps consistent)
+
+| Topic | Decision | Why |
+|-------|-----------|-----|
+| Copyleft goal | **GPLv3+** | Compared to permissive licenses (e.g. MIT), GPLv3+ **requires** that people who **convey** modified versions generally **share source on the same terms** — aligned with “give back,” not “extract and close.” |
+| Full license text | **Single `LICENSE` at repo root** | One canonical GPLv3 document; avoids huge duplicated banners in every file. |
+| Original files | **`# Copyright …` + `# SPDX-License-Identifier: GPL-3.0-or-later`** | States license clearly; **same intent** as the long “This program is free software…” GPL banner, in compact form. Long banners are optional legacy style, not “stronger GPL.” |
+| Derived / adapted files | **Preserve upstream copyright lines** + optional **`Copyright … KeithCu (adaptations)`** + **Upstream** block | Legal notices from upstream must stay if their license requires them; erasing them is not “cleanup.” |
+| **`GPL-3.0-only` vs `GPL-3.0-or-later`** | Prefer **`or-later`** project-wide unless you **intentionally** forbid future GPL versions | Wrong identifier = wrong meaning; do not mix casually across files. |
+
+### Original vs derived — two shapes
+
+**Original (non-derived) work you wrote**
+
+- Project line (existing convention) + **your** copyright + SPDX.
+- No upstream block unless you want an internal note.
+
+**Derived, forked, or adapted upstream**
+
+- Keep **all** copyright lines required by the upstream license.
+- Add **your** copyright for substantive changes when appropriate.
+- Add an **Upstream** comment block so **you** can open the **same revision** later and diff or merge new upstream work.
+
+### Attribution block with link (recommended for adapted code)
+
+**Primary reason for the URL**: **your workflow** — when upstream adds a feature or bugfix, you follow **Source** / **Pinned** and compare or cherry-pick into WriterAgent. **Secondary**: clear provenance for readers and license compliance.
+
+**Rules**
+
+1. Keep **`SPDX-License-Identifier`** as **exactly one line** — **do not** put URLs or prose inside it.
+2. Put **Upstream**, **Source**, **Pinned**, **Notes** in normal `#` comments **above** the SPDX line (order: copyrights → upstream block → SPDX).
+3. **Pin** a **tag**, **release**, or **commit hash** (and ideally a **date**). Avoid “only `main` branch” as the sole pointer — **`main` moves** and you lose a reproducible “what we imported.”
+
+**Template (Python `#` comments)**
+
+```text
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 20XX Original Author
+# Copyright (c) 20YY KeithCu (adaptations for WriterAgent)
+#
+# Upstream: <short project or component name>
+#   Source: https://example.org/repo-or-release-page
+#   Pinned: v1.2.3 or commit abcdef1234… (YYYY-MM-DD)
+#   Notes: optional — how this file diverges (API, UNO, packaging)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+**Optional pattern when one upstream touches many files**: a **one-line pointer** in each file (`Upstream: see docs/<topic>-upstream.md`) plus **one** maintained table in `docs/` — fewer duplicated URLs; **per-file Source + Pinned** is still the fastest when you already have the file open.
+
+### Tutorial: applying this when you edit a file
+
+1. **Copyright**: Ensure **your** line is accurate for **your** contributions; **keep** upstream copyright lines on derived files.
+2. **SPDX**: If missing, add `# SPDX-License-Identifier: GPL-3.0-or-later` after the copyright block (use `#` for Python; adjust for other languages’ comment syntax).
+3. **Adapted code**: Add or refresh **Upstream** / **Source** / **Pinned** when you **import or re-sync** from upstream (update **Pinned** when you deliberately merge new upstream revisions).
+4. **Consistency**: Match **`LICENSE`** — if the project ever used **`GPL-3.0-only`**, the SPDX string would change **deliberately** project-wide; do not mix identifiers without a documented reason.
+
+### Roadmap tasks (optional sweep)
+
+- [ ] Audit **`plugin/`** for **purely original** files → normalize to **short header** (copyright + SPDX).
+- [ ] Audit **derived** files → replace long GPL boilerplate with SPDX **only where** upstream notices remain complete; add **Upstream** blocks where missing.
+- [ ] Treat **`contrib/`**, vendored bundles, and third-party subtrees per **their** documented notices unless there is an explicit project policy to consolidate.
+
+---
+
+## Config / chat model (`text_model` vs `model_lru`)
+
+The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same as Settings apply). Larger cleanup is deferred:
+
+- [ ] Optionally derive active chat model from `model_lru@<endpoint>[0]` with `get_active_text_model` / `set_active_text_model`, legacy fallbacks, and one-shot migration from `text_model` / `model`.
+- [ ] Migrate readers (`get_text_model`, `get_api_config`) and writers (`set_config(..., "text_model")`) off the duplicate global key; special-case `AI_SIMPLE_FIELDS` / MCP if needed.
+- [ ] Belt-and-suspenders: in [`plugin/framework/legacy_ui.py`](plugin/framework/legacy_ui.py) `_apply_dropdowns`, pass `text_ctrl.getText()` instead of `""` when repopulating text/image/STT combos after endpoint refresh.
 
 ---
 

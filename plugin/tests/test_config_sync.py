@@ -240,6 +240,17 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
         items = ctrl.addItems.call_args[0][0]
         self.assertIn("openai/gpt-oss-120b", items)
 
+    def test_empty_current_val_uses_lru_head_after_sidebar_style_pick(self):
+        """Simulates Settings _apply_dropdowns passing "" — active pick must stay LRU head so setText is not a stale model."""
+        from plugin.framework.config import populate_combobox_with_lru
+
+        ep = "http://localhost:8080"
+        self.config_data[f"model_lru@{ep}"] = ["picked-model", "other-model"]
+        ctrl = MagicMock()
+        ctrl.getItemCount.return_value = 0
+        populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, skip_remote_fetch=True)
+        ctrl.setText.assert_called_with("picked-model")
+
 
 class TestFetchAvailableModelsCache(unittest.TestCase):
     """_model_fetch_cache is process-wide; same normalized endpoint hits HTTP once."""

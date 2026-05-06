@@ -48,6 +48,29 @@ There is **no** separate “poll the paragraph and append grammar blocks into ch
 - **Offset Normalization**: `normalize_errors_for_text` uses **`search_pos` tracking** to handle multiple occurrences of the same erroneous text within a window. It searches for `wrong` substrings starting from the last matched position, matching the LLM's ordered reporting. Global `full_text.find` fallback removed to ensure errors stay within their intended paragraph/slice.
 - **`TextMarkupType.PROOFREADING`**: resolved with `uno.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")` (avoids fragile `TextMarkupType` submodule imports for typecheckers).
 
+### 2.3.1 Why `enqueue_seq` exists (queue FIFO is not enough)
+
+**Terminology.** The shipped code uses a **global integer counter** (`_ENQUEUE_SEQ` in [`ai_grammar_proofreader.py`](../plugin/modules/writer/ai_grammar_proofreader.py)), incremented when a cache miss enqueues work; each [`GrammarWorkItem`](../plugin/modules/writer/grammar_proofread_engine.py) stores it as **`enqueue_seq`**. This is **not** the same as `time.monotonic()` — that clock is used elsewhere only for **elapsed milliseconds** on LLM requests (status/diagnostics), not for ordering queue items.
+
+**Why not rely only on “everything goes through `queue.Queue`”?** A FIFO queue orders **`get()` dequeue order** among objects that are actually retrieved in sequence. The grammar worker deliberately does **more** than strict FIFO:
+
+1. **Tail replace-in-place** — For the same `inflight_key`, a newer item can **overwrite** the last slot of the internal deque without establishing a simple FIFO relationship to items already consumed in an **earlier** batch. Queue position alone does not record “this snapshot superseded that one” across batches.
+
+2. **Batch drain + `deduplicate_grammar_batch`** — The worker collects multiple `get()` results into one batch, then resolves conflicts (same key and prefix-related slices). The implementation needs an explicit **“newest wins”** tie-break; it uses **highest `enqueue_seq`**, not only insertion index in the batch.
+
+3. **`_latest_seq` / pre-execute stale skip** — Before calling the LLM, the worker asks whether a **newer** enqueue has already been recorded for that `inflight_key`. That can be true even when the physical queue does not place “newest next” (e.g. tail was replaced, or newer work will appear after the current drain). `_latest_seq[key]` holds the **last assigned sequence** for that key; each item carries its stamp so survivors can be compared to that mirror.
+
+So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a substitute for the queue. Something must play that role whenever work is merged, replaced, or skipped outside pure FIFO.
+
+**Alternatives (same role, different representation):**
+
+| Approach | Notes |
+|----------|--------|
+| **Per-`inflight_key` counter** | Bump only when enqueueing for that document+locale key. Same semantics as today’s global counter for same-key comparisons; avoids mixing sequence space across unrelated documents (clearer for logs and reasoning). |
+| **Enqueue-time monotonic value** | e.g. `time.monotonic()` at enqueue as the order key. Requires discipline if two enqueues share an identical timestamp resolution; still needs to be stored on each `GrammarWorkItem` and mirrored (like `_latest_seq`) for stale checks. |
+| **Post-LLM staleness guard** | Keep a generation stamp **and** re-check before `cache_put_sentence` that no newer enqueue superseded this item while the HTTP call was in flight. The current pre-execute `_is_stale` does not cover the whole LLM duration; mitigations today include sentence-text–keyed cache (reduces wrong writes when text changes). |
+| **Remove unused plumbing** | `_run_llm_and_cache` accepts `enqueue_seq` but does not use it inside the function body as shipped; a future change could either drop the parameter or use it for a post-LLM guard above. |
+
 ### 2.4 Tests
 
 - Unit: [`plugin/tests/test_grammar_proofread_engine.py`](../plugin/tests/test_grammar_proofread_engine.py) — JSON parsing, offset normalization, sentence cache roundtrip, trailing whitespace cache normalization, ignore rules, overlap expansion.

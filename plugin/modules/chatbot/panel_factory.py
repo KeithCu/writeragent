@@ -455,12 +455,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self.ctx = ctx
 
                 def on_item_state_changed(self, rEvent):
-                    from plugin.framework.config import get_text_model, set_config
+                    from plugin.framework.config import get_current_endpoint, get_text_model, set_config, update_lru_history
 
                     txt = model_selector.getText()
                     if not txt or txt == get_text_model(self.ctx):
                         return
                     set_config(self.ctx, "text_model", txt)
+                    # Bug fix: sidebar only wrote text_model; Settings dialog debounced refresh calls populate_combobox_with_lru(..., "", ...) which falls back to to_show[0] from LRU — stale head reverted the UI. Mirror apply_settings_result (update model_lru).
+                    update_lru_history(self.ctx, txt, "model_lru", get_current_endpoint(self.ctx))
 
             model_selector.addItemListener(ModelSyncListener(self.ctx))
 
