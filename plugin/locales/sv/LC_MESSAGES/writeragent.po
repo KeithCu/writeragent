@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-04 20:03-0400\n"
+"POT-Creation-Date: 2026-05-05 20:15-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -12,35 +12,33 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:790
+#: plugin/contrib/aihordeclient/__init__.py plugin/modules/chatbot/panel.py
 msgid "Starting..."
 msgstr "Startar..."
 
-#: plugin/contrib/aihordeclient/__init__.py:370
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Updating model requirements..."
 msgstr "Uppdaterar modellkrav..."
 
-#: plugin/contrib/aihordeclient/__init__.py:517
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Updating Models..."
 msgstr "Uppdaterar modeller..."
 
-#: plugin/contrib/aihordeclient/__init__.py:610
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Register at "
 msgstr "Registrera på "
 
-#: plugin/contrib/aihordeclient/__init__.py:617
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "You have {} kudos"
 msgstr "Du har {} kudos"
 
-#: plugin/contrib/aihordeclient/__init__.py:625
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
 msgstr "«{}» är inte en giltig API-nyckel, dubbelkolla den eller skapa en ny"
 
-#: plugin/contrib/aihordeclient/__init__.py:632
-#: plugin/contrib/aihordeclient/__init__.py:675
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
@@ -48,11 +46,11 @@ msgstr ""
 "För närvarande kan vi inte bearbeta din förfrågan, vänligen försök igen "
 "senare. Om detta pågår under lång tid, meddela oss via Discord"
 
-#: plugin/contrib/aihordeclient/__init__.py:638
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
 msgstr "Problem vid begäran av kudos"
 
-#: plugin/contrib/aihordeclient/__init__.py:648
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
@@ -60,7 +58,7 @@ msgstr ""
 "Horden är i underhållsläge, vänligen försök igen senare. Om du har provat "
 "och tjänsten inte svarar i timmar, kontakta oss via Discord"
 
-#: plugin/contrib/aihordeclient/__init__.py:656
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
@@ -68,7 +66,7 @@ msgstr ""
 "Du har gjort för många förfrågningar, vänligen vänta på att de ska slutföras "
 "och försök igen senare"
 
-#: plugin/contrib/aihordeclient/__init__.py:662
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
@@ -77,112 +75,105 @@ msgstr ""
 "Det verkar som att «{}» har problem, dubbelkolla det, skapa en ny eller gå "
 "med i Discord för att be om hjälp"
 
-#: plugin/contrib/aihordeclient/__init__.py:670
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
 msgstr "Vi stötte på ett fel, ändå: "
 
-#: plugin/contrib/aihordeclient/__init__.py:681
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "No longer valid, please try again.  Your request took too long"
 msgstr ""
 "Inte längre giltig, vänligen försök igen. Din förfrågan tog för lång tid"
 
-#: plugin/contrib/aihordeclient/__init__.py:724
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Contacting the Horde..."
 msgstr "Kontaktar Horden..."
 
-#: plugin/contrib/aihordeclient/__init__.py:803
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Horde Contacted"
 msgstr "Horden kontaktad"
 
-#: plugin/contrib/aihordeclient/__init__.py:821
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
 "När vi försökte begära bilden var Horden för långsam, prova igen senare"
 
-#: plugin/contrib/aihordeclient/__init__.py:843
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "to learn to earn kudos. Detail:"
 msgstr "för att lära dig att tjäna kudos. Detalj:"
 
-#: plugin/contrib/aihordeclient/__init__.py:865
-#: plugin/contrib/aihordeclient/__init__.py:884
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Service failed: "
 msgstr "Tjänsten misslyckades: "
 
-#: plugin/contrib/aihordeclient/__init__.py:935
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Downloading generated image..."
 msgstr "Laddar ner genererad bild..."
 
-#: plugin/contrib/aihordeclient/__init__.py:941
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "You are first in the queue"
 msgstr "Du är först i kön"
 
-#: plugin/contrib/aihordeclient/__init__.py:943
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Queue position: "
 msgstr "Position i kön: "
 
-#: plugin/contrib/aihordeclient/__init__.py:946
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Generating..."
 msgstr "Genererar..."
 
-#: plugin/contrib/aihordeclient/__init__.py:963
-#: plugin/contrib/aihordeclient/__init__.py:999
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Get a free API Key at "
 msgstr "Få en gratis API-nyckel på "
 
-#: plugin/contrib/aihordeclient/__init__.py:965
-#: plugin/contrib/aihordeclient/__init__.py:1001
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "."
 msgstr "."
 
-#: plugin/contrib/aihordeclient/__init__.py:965
-#: plugin/contrib/aihordeclient/__init__.py:1001
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "This model takes more time than your current configuration."
 msgstr "Denna modell tar längre tid än din nuvarande konfiguration."
 
-#: plugin/contrib/aihordeclient/__init__.py:970
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vänligen prova en annan modell. {0} skulle ta längre tid än du konfigurerat."
 
-#: plugin/contrib/aihordeclient/__init__.py:974
-#: plugin/contrib/aihordeclient/__init__.py:994
-#: plugin/contrib/aihordeclient/__init__.py:1011
-#: plugin/contrib/aihordeclient/__init__.py:1018
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Please try again later."
 msgstr "Vänligen försök igen senare."
 
-#: plugin/contrib/aihordeclient/__init__.py:992
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "There are no workers available with these settings."
 msgstr "Det finns inga tillgängliga arbetare med dessa inställningar."
 
-#: plugin/contrib/aihordeclient/__init__.py:1009
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Probably your image will take one additional minute."
 msgstr "Din bild tar förmodligen en extra minut."
 
-#: plugin/contrib/aihordeclient/__init__.py:1016
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
 msgstr "Din bild tar förmodligen {} extra minuter."
 
-#: plugin/contrib/aihordeclient/__init__.py:1030
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Fetching images..."
 msgstr "Hämtar bilder..."
 
-#: plugin/contrib/aihordeclient/__init__.py:1040
+#: plugin/contrib/aihordeclient/__init__.py
 msgid " is censored, try changing the prompt wording"
 msgstr " är censurerad, prova att ändra promptens formulering"
 
-#: plugin/contrib/aihordeclient/__init__.py:1068
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Downloading result..."
 msgstr "Laddar ner resultat..."
 
-#: plugin/contrib/aihordeclient/__init__.py:1071
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Downloading image"
 msgstr "Laddar ner bild"
 
-#: plugin/contrib/aihordeclient/__init__.py:1087
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
@@ -190,87 +181,77 @@ msgstr ""
 "Du kanske behöver sänka dina inställningar eller välja en annan modell, "
 "eller så har du blivit censurerad. Horde-meddelande"
 
-#: plugin/contrib/aihordeclient/__init__.py:1114
-#: plugin/contrib/aihordeclient/__init__.py:1126
+#: plugin/contrib/aihordeclient/__init__.py
 msgid " generated by "
 msgstr " genererad av "
 
-#: plugin/contrib/aihordeclient/__init__.py:1124
+#: plugin/contrib/aihordeclient/__init__.py
 msgid " with "
 msgstr " med "
 
-#: plugin/framework/dialogs.py:107
+#: plugin/framework/dialogs.py
 msgid "Agent requests approval"
 msgstr "Agenten begär godkännande"
 
-#: plugin/framework/dialogs.py:108
+#: plugin/framework/dialogs.py
 msgid "Proceed with this action?"
 msgstr "Fortsätt med denna åtgärd?"
 
-#: plugin/framework/dialogs.py:109
-#: plugin/modules/chatbot/web_research_chat.py:33
-#: plugin/modules/chatbot/web_research_chat.py:38
+#: plugin/framework/dialogs.py plugin/modules/chatbot/web_research_chat.py
 #, python-format
 msgid "Tool: %s"
 msgstr "Verktyg: %s"
 
-#: plugin/framework/dialogs.py:154
+#: plugin/framework/dialogs.py
 msgid "Edit search query"
 msgstr "Redigera sökfråga"
 
-#: plugin/framework/dialogs.py:159
+#: plugin/framework/dialogs.py
 msgid "Search query:"
 msgstr "Sökfråga:"
 
-#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
-#: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:39
+#: plugin/framework/dialogs.py plugin/modules/http/__init__.py
+#: plugin/xdl_strings.py
 msgid "OK"
 msgstr "OK"
 
-#: plugin/framework/dialogs.py:168
+#: plugin/framework/dialogs.py
 msgid "Cancel"
 msgstr "Avbryt"
 
-#: plugin/framework/dialogs.py:335
+#: plugin/framework/dialogs.py
 msgid "Copy"
 msgstr "Kopiera"
 
-#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
+#: plugin/framework/dialogs.py
 msgid "Copied!"
 msgstr "Kopierat!"
 
-#: plugin/framework/dialogs.py:403
+#: plugin/framework/dialogs.py
 msgid "Copy URL"
 msgstr "Kopiera URL"
 
-#: plugin/framework/errors.py:52
+#: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} hittades inte: {identifier}"
 
-#: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:45
+#: plugin/framework/legacy_ui.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Inställningar"
 
-#: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
-#: plugin/framework/external_editor.py:83
-#: plugin/framework/external_editor.py:96
-#: plugin/framework/external_editor.py:105
-#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:866
-#: plugin/modules/chatbot/send_handlers.py:365
-#: plugin/modules/chatbot/send_handlers.py:375
-#: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
+#: plugin/framework/legacy_ui.py plugin/framework/external_editor.py
+#: plugin/modules/chatbot/panel.py plugin/modules/chatbot/send_handlers.py
+#: plugin/main.py
 msgid "Error"
 msgstr "Fel"
 
-#: plugin/framework/legacy_ui.py:561
+#: plugin/framework/legacy_ui.py
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "Kunde inte öppna Inställningar: {0}"
 
-#: plugin/framework/specialized_base.py:91
+#: plugin/framework/specialized_base.py
 #, python-brace-format
 msgid ""
 "Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
@@ -281,15 +262,15 @@ msgstr ""
 "specialiserade verktyg. Du måste anropa 'specialized_workflow_finished' när "
 "du är klar för att återställa hela uppsättningen API:er."
 
-#: plugin/framework/settings_dialog.py:172
+#: plugin/framework/settings_dialog.py
 msgid "Invalid Setting"
 msgstr "Ogiltig inställning"
 
-#: plugin/framework/settings_dialog.py:172
+#: plugin/framework/settings_dialog.py
 msgid "Temperature must be <= 1.0"
 msgstr "Temperatur måste vara <= 1.0"
 
-#: plugin/framework/constants.py:287
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
@@ -297,14 +278,14 @@ msgstr ""
 "AI: Jag kan redigera eller översätta ditt dokument omedelbart med "
 "professionell formatering och färg. Prova mig!"
 
-#: plugin/framework/constants.py:288
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: Jag kan hjälpa dig med formler, dataanalys och färgglada diagram. Prova "
 "mig!"
 
-#: plugin/framework/constants.py:289
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
@@ -312,7 +293,7 @@ msgstr ""
 "AI: Jag kan hjälpa dig att skapa och redigera polerade, färgglada former i "
 "Draw och Impress. Prova mig!"
 
-#: plugin/framework/constants.py:290
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -320,12 +301,12 @@ msgstr ""
 "AI: Jag kan söka på webben för att besvara frågor eller sammanfatta en "
 "webbsida, utan att se eller ändra ditt dokument. Låt oss chatta."
 
-#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
 msgstr "Kunde inte skapa konfigurationsfil: {0}"
 
-#: plugin/framework/external_editor.py:97
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid ""
 "Could not open an editor. Path:\n"
@@ -334,7 +315,7 @@ msgstr ""
 "Kunde inte öppna en editor. Sökväg:\n"
 "{0}"
 
-#: plugin/framework/external_editor.py:107
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
@@ -344,16 +325,16 @@ msgstr ""
 "Sökväg:\n"
 "{0}"
 
-#: plugin/framework/external_editor.py:114
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "Kunde inte starta editor: {0}"
 
-#: plugin/framework/extension_update_check.py:150
+#: plugin/framework/extension_update_check.py
 msgid "Update available"
 msgstr "Uppdatering tillgänglig"
 
-#: plugin/framework/extension_update_check.py:152
+#: plugin/framework/extension_update_check.py
 #, python-format
 msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
@@ -362,73 +343,73 @@ msgstr ""
 "En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare "
 "för att söka efter uppdateringar och installera det senaste tillägget."
 
-#: plugin/modules/http/errors.py:14
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL-fel: {0}"
 
-#: plugin/modules/http/errors.py:25
+#: plugin/modules/http/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "Ogiltig API-nyckel. Kontrollera dina inställningar."
 
-#: plugin/modules/http/errors.py:27
+#: plugin/modules/http/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
 "API-åtkomst förbjuden. Din nyckel saknar kanske behörigheter för denna "
 "modell."
 
-#: plugin/modules/http/errors.py:29
+#: plugin/modules/http/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "Slutpunkt hittades inte (404). Kontrollera din URL och modellnamn."
 
-#: plugin/modules/http/errors.py:31
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "Serverfel ({0}). AI-leverantören har problem."
 
-#: plugin/modules/http/errors.py:32
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP-fel {0}: {1}"
 
-#: plugin/modules/http/errors.py:35
+#: plugin/modules/http/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
 "Begäran har tagit för lång tid. Prova att öka \"Begärans tidsgräns\" i "
 "Inställningar."
 
-#: plugin/modules/http/errors.py:43
+#: plugin/modules/http/errors.py
 msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
-#: plugin/modules/http/errors.py:45
+#: plugin/modules/http/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
 msgstr "DNS-fel. Kunde inte lösa upp slutpunktens URL."
 
-#: plugin/modules/http/errors.py:46
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "Connection Error: {0}"
 msgstr "Anslutningsfel: {0}"
 
-#: plugin/modules/http/errors.py:49
+#: plugin/modules/http/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "AI-leverantören rapporterade ett fel. Försök igen."
 
-#: plugin/modules/http/errors.py:56
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP-fel {0} från AI-leverantör: {1}"
 
-#: plugin/modules/http/errors.py:77
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Fel: {0}"
 
-#: plugin/modules/http/client.py:808
+#: plugin/modules/http/client.py
 msgid "Stream ended with finish_reason=error"
 msgstr "Strömmen avslutades med finish_reason=error"
 
-#: plugin/modules/http/client.py:821
+#: plugin/modules/http/client.py
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
@@ -436,124 +417,118 @@ msgstr ""
 "Modellen upprepar samma segment (oändlig loop). Försök igen eller använd en "
 "annan modell."
 
-#: plugin/modules/http/__init__.py:243
+#: plugin/modules/http/__init__.py
 msgid "Stop MCP Server"
 msgstr "Stoppa MCP-server"
 
-#: plugin/modules/http/__init__.py:244
+#: plugin/modules/http/__init__.py
 msgid "Start MCP Server"
 msgstr "Starta MCP-server"
 
-#: plugin/modules/http/__init__.py:267
+#: plugin/modules/http/__init__.py
 msgid "MCP server stopped"
 msgstr "MCP-server stoppad"
 
-#: plugin/modules/http/__init__.py:275
+#: plugin/modules/http/__init__.py
 msgid "MCP server started"
 msgstr "MCP-server startad"
 
-#: plugin/modules/http/__init__.py:278
+#: plugin/modules/http/__init__.py
 msgid "MCP server failed to start"
 msgstr "MCP-server misslyckades med att starta"
 
-#: plugin/modules/http/__init__.py:278
+#: plugin/modules/http/__init__.py
 msgid "Check ~/localwriter.log"
 msgstr "Kontrollera ~/localwriter.log"
 
-#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
+#: plugin/modules/http/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP-server körs inte"
 
-#: plugin/modules/http/__init__.py:299
+#: plugin/modules/http/__init__.py
 msgid "MCP server running"
 msgstr "MCP-servern körs"
 
-#: plugin/modules/http/__init__.py:299
+#: plugin/modules/http/__init__.py
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "Rutter: {0}"
 
-#: plugin/modules/http/__init__.py:310
+#: plugin/modules/http/__init__.py
 msgid "Server Status"
 msgstr "Serverstatus"
 
-#: plugin/modules/http/__init__.py:331
+#: plugin/modules/http/__init__.py
 #, python-brace-format
 msgid "URL: {0}"
 msgstr "URL: {0}"
 
-#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/modules/calc/legacy.py plugin/modules/writer/legacy.py
 msgid "Please enter edit instructions!"
 msgstr "Vänligen ange redigeringsinstruktioner!"
 
-#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
-#: plugin/xdl_strings.py:33
+#: plugin/modules/calc/legacy.py plugin/modules/writer/legacy.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Inmatning"
 
-#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+#: plugin/modules/calc/legacy.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Redigera markering (Calc)"
 
-#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+#: plugin/modules/calc/legacy.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utöka markering (Calc)"
 
-#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
-#: plugin/modules/chatbot/selection.py:90
-#: plugin/modules/chatbot/selection.py:177
+#: plugin/modules/writer/legacy.py plugin/modules/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Utöka markering"
 
-#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
-#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
-#: plugin/modules/chatbot/selection.py:286
-#: plugin/modules/chatbot/selection.py:297
-#: plugin/modules/chatbot/selection.py:411
+#: plugin/modules/writer/legacy.py plugin/modules/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Redigera urval"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
+#: plugin/modules/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Redo"
 
-#: plugin/modules/chatbot/tool_loop.py:931
+#: plugin/modules/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Fel: Verktygskit otillgängligt"
 
-#: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
+#: plugin/modules/chatbot/panel.py
 msgid "Accept"
 msgstr "Acceptera"
 
-#: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
+#: plugin/modules/chatbot/panel.py
 msgid "Change"
 msgstr "Ändra"
 
-#: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
+#: plugin/modules/chatbot/panel.py
 msgid "Reject"
 msgstr "Avvisa"
 
-#: plugin/modules/chatbot/panel.py:429
+#: plugin/modules/chatbot/panel.py
 msgid "Waiting for approval…"
 msgstr "Väntar på godkännande…"
 
-#: plugin/modules/chatbot/panel.py:771
+#: plugin/modules/chatbot/panel.py
 msgid "Record"
 msgstr "Spela in"
 
-#: plugin/modules/chatbot/panel.py:773
+#: plugin/modules/chatbot/panel.py
 msgid "Stop Rec"
 msgstr "Stoppa insp."
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py plugin/xdl_strings.py
 msgid "Send"
 msgstr "Skicka"
 
-#: plugin/modules/chatbot/panel.py:799
+#: plugin/modules/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Hämtar dokument..."
 
-#: plugin/modules/chatbot/panel.py:803
+#: plugin/modules/chatbot/panel.py
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
@@ -561,7 +536,7 @@ msgstr ""
 "[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
 "det aktiva fönstret.]"
 
-#: plugin/modules/chatbot/panel.py:812
+#: plugin/modules/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
@@ -570,7 +545,7 @@ msgstr ""
 "[Internt fel: Dokumenttypen ändrades från {0} till {1}! Vänligen rapportera "
 "ett fel.]"
 
-#: plugin/modules/chatbot/panel.py:819
+#: plugin/modules/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
@@ -579,7 +554,7 @@ msgstr ""
 "[Internt fel: Kunde inte identifiera dokumenttyp för {0}. Vänligen "
 "rapportera detta!]"
 
-#: plugin/modules/chatbot/panel.py:863
+#: plugin/modules/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
@@ -588,373 +563,372 @@ msgstr ""
 "[Modellen {0} stöder inte inbyggt ljud. Välj en STT-modell i "
 "Inställningarna.]"
 
-#: plugin/modules/chatbot/web_research_chat.py:15
+#: plugin/modules/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "Denna sökfråga '%s' kommer att skickas till sökmotorn."
 
-#: plugin/modules/chatbot/web_research_chat.py:28
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Web search — approval required]"
 msgstr "[Webbsökning — godkännande krävs]"
 
-#: plugin/modules/chatbot/web_research_chat.py:30
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Web search]"
 msgstr "[Webbsökning]"
 
-#: plugin/modules/chatbot/web_research_chat.py:37
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Additional web search]"
 msgstr "[Ytterligare webbsökning]"
 
-#: plugin/modules/chatbot/web_research_chat.py:59
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[Webforskning]"
 
-#: plugin/modules/chatbot/web_research_chat.py:60
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "Research request:"
 msgstr "Forskningsförfrågan:"
 
-#: plugin/modules/chatbot/web_research_chat.py:65
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "Context for the research agent:"
 msgstr "Kontext för forskningsagenten:"
 
-#: plugin/modules/chatbot/web_research.py:234
+#: plugin/modules/chatbot/web_research.py
 msgid "Web research completed."
 msgstr "Webbforskning slutförd."
 
-#: plugin/modules/chatbot/send_handlers.py:109
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Transcribing audio..."
 msgstr "Transkriberar ljud..."
 
-#: plugin/modules/chatbot/send_handlers.py:121
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr "[Transkriberingsfel: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:363
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Dokumentkontextfel: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:373
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[Agent-backend '{0}' hittades inte.]"
 
-#: plugin/modules/chatbot/send_handlers.py:380
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
 "installation).]"
 
-#: plugin/modules/chatbot/send_handlers.py:626
-#: plugin/modules/chatbot/send_handlers.py:634
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "Bibliotekarie: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:633
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "Perfekt! Nu byter jag till huvudassistenten."
 
-#: plugin/modules/chatbot/send_handlers.py:639
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Unknown librarian error."
 msgstr "Okänt bibliotekarfel."
 
-#: plugin/modules/chatbot/send_handlers.py:640
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[Bibliotekarfel: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:664
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "AI (forskning): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:670
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "Okänt forskningsfel."
 
-#: plugin/modules/chatbot/send_handlers.py:671
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[Forskningsfel: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:44
+#: plugin/modules/chatbot/librarian.py
 msgid "Switching to document mode..."
 msgstr "Byter till dokumentläge..."
 
-#: plugin/modules/chatbot/panel_factory.py:517
+#: plugin/modules/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Storlek:"
 
-#: plugin/modules/chatbot/panel_factory.py:518
+#: plugin/modules/chatbot/panel_factory.py
 msgid "Height:"
 msgstr "Höjd:"
 
-#: plugin/modules/chatbot/panel_factory.py:519
+#: plugin/modules/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Bredd:"
 
-#: plugin/tests/test_i18n.py:24
+#: plugin/tests/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
+#: plugin/tests/test_i18n.py
 msgid "Built-in"
 msgstr "Inbyggd"
 
-#: plugin/tests/test_i18n.py:217
+#: plugin/tests/test_i18n.py
 msgid "Backend"
 msgstr "Backend"
 
-#: plugin/main.py:354
+#: plugin/main.py
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} godkända, {2} misslyckade."
 
-#: plugin/main.py:357
+#: plugin/main.py
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "Kunde inte köra tester: {0}"
 
-#: plugin/main.py:432
+#: plugin/main.py
 msgid "Extend Selection"
 msgstr "Utöka markering"
 
-#: plugin/main.py:433
+#: plugin/main.py
 msgid "Edit Selection"
 msgstr "Redigera markering"
 
-#: plugin/main.py:435
+#: plugin/main.py
 msgid "Toggle MCP Server"
 msgstr "Växla MCP-server"
 
-#: plugin/main.py:436
+#: plugin/main.py
 msgid "MCP Server Status"
 msgstr "MCP-serverstatus"
 
-#: plugin/main.py:438
+#: plugin/main.py
 msgid "Run format tests"
 msgstr "Kör formattester"
 
-#: plugin/main.py:439
+#: plugin/main.py
 msgid "Run calc tests"
 msgstr "Kör beräkningstester"
 
-#: plugin/main.py:440
+#: plugin/main.py
 msgid "Run Calc API integration tests"
 msgstr "Kör Calc API-integreringstester"
 
-#: plugin/main.py:441
+#: plugin/main.py
 msgid "Run draw tests"
 msgstr "Kör rit-tester"
 
-#: plugin/main.py:442
+#: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Utvärderingspanel"
 
-#: plugin/main.py:829
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "Dispatch-fel"
 
-#: plugin/xdl_strings.py:4
+#: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
 
-#: plugin/xdl_strings.py:5
+#: plugin/xdl_strings.py
 msgid "7.5"
 msgstr "7.5"
 
-#: plugin/xdl_strings.py:6
+#: plugin/xdl_strings.py
 msgid "AI Horde API Key:"
 msgstr "AI Horde API-nyckel:"
 
-#: plugin/xdl_strings.py:7
+#: plugin/xdl_strings.py
 msgid "AI Model:"
 msgstr "AI-modell:"
 
-#: plugin/xdl_strings.py:8
+#: plugin/xdl_strings.py
 msgid "API Key:"
 msgstr "API-nyckel:"
 
-#: plugin/xdl_strings.py:9
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "Ytterligare instruktioner (historik):"
 
-#: plugin/xdl_strings.py:10
+#: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "Ytterligare instruktioner:"
 
-#: plugin/xdl_strings.py:11
+#: plugin/xdl_strings.py
 msgid "Allow NSFW"
 msgstr "Tillåt NSFW"
 
-#: plugin/xdl_strings.py:12
+#: plugin/xdl_strings.py
 msgid "Ask / instruct:"
 msgstr "Fråga / instruera:"
 
-#: plugin/xdl_strings.py:13
+#: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "Bildförhållande:"
 
-#: plugin/xdl_strings.py:14
+#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "Ljudmodell:"
 
-#: plugin/xdl_strings.py:15
+#: plugin/xdl_strings.py
 msgid "Auto Gallery"
 msgstr "Autogalleri"
 
-#: plugin/xdl_strings.py:16
+#: plugin/xdl_strings.py
 msgid "Base Size:"
 msgstr "Grundstorlek:"
 
-#: plugin/xdl_strings.py:17
+#: plugin/xdl_strings.py
 msgid "Base:"
 msgstr "Bas:"
 
-#: plugin/xdl_strings.py:18
+#: plugin/xdl_strings.py
 msgid "CFG Scale:"
 msgstr "CFG-skala:"
 
-#: plugin/xdl_strings.py:19
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
 
-#: plugin/xdl_strings.py:20
+#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "Kategorier:"
 
-#: plugin/xdl_strings.py:21
+#: plugin/xdl_strings.py
 msgid "Censor NSFW"
 msgstr "Censurera NSFW"
 
-#: plugin/xdl_strings.py:22
+#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "Chatt (Testning):"
 
-#: plugin/xdl_strings.py:23
+#: plugin/xdl_strings.py
 msgid "Clear"
 msgstr "Rensa"
 
-#: plugin/xdl_strings.py:24
+#: plugin/xdl_strings.py
 msgid "Close"
 msgstr "Stäng"
 
-#: plugin/xdl_strings.py:25
+#: plugin/xdl_strings.py
 msgid "Context Len:"
 msgstr "Kontextlängd:"
 
-#: plugin/xdl_strings.py:26
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Rita"
 
-#: plugin/xdl_strings.py:27
+#: plugin/xdl_strings.py
 msgid "Edit config file (JSON)…"
 msgstr "Redigera konfigurationsfil (JSON)…"
 
-#: plugin/xdl_strings.py:28
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "Slutpunkt-URL (/v1 tillagd):"
 
-#: plugin/xdl_strings.py:29
+#: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "Slutpunkt-URL:"
 
-#: plugin/xdl_strings.py:30
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "Allmänt"
 
-#: plugin/xdl_strings.py:31
+#: plugin/xdl_strings.py
 msgid "Image Model:"
 msgstr "Bildmodell:"
 
-#: plugin/xdl_strings.py:32
+#: plugin/xdl_strings.py
 msgid "Image Settings"
 msgstr "Bildinställningar"
 
-#: plugin/xdl_strings.py:34
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "Infoga ram"
 
-#: plugin/xdl_strings.py:35
+#: plugin/xdl_strings.py
 msgid "Max Tokens:"
 msgstr "Max tokens:"
 
-#: plugin/xdl_strings.py:36
+#: plugin/xdl_strings.py
 msgid "Max Wait (s):"
 msgstr "Max väntetid (s):"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "Modeller att testa:"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py
 msgid "Multimodal"
 msgstr "Multimodal"
 
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "Ange redigeringsinstruktioner:"
 
-#: plugin/xdl_strings.py:42
+#: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "Kör benchmark"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "Seed:"
 
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "Kvadrat"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py
 msgid "Steps:"
 msgstr "Steg:"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py
 msgid "Stop"
 msgstr "Stoppa"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py
 msgid "Temperature:"
 msgstr "Temperatur:"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py
 msgid "Text/Chat Model:"
 msgstr "Text-/chatmodell:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Tidsgräns (s):"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py
 msgid "Translate Prompt"
 msgstr "Översätt prompt"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py
 msgid "Translate from (e.g. es):"
 msgstr "Översätt från (t.ex. es):"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
 msgstr "Använd AI Horde för bildgenerering"
 
-#: plugin/xdl_strings.py:55
+#: plugin/xdl_strings.py
 msgid "Use Image model"
 msgstr "Använd bildmodell"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py
 msgid "Web Research"
 msgstr "Webbforskning"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent utvärderingspanel"
 
@@ -1103,6 +1077,14 @@ msgid ""
 msgstr ""
 "När aktiverat hoppar AI-grammatik över bakgrundsförfrågningar medan "
 "sidopanelchatt eller agent körs, för att undvika simultana API-anrop."
+
+msgid "Enter key sends sidebar chat message"
+msgstr ""
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
 
 msgid "Draw and Impress tools"
 msgstr "Draw- och Impress-verktyg"

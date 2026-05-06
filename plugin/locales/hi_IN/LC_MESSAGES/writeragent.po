@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-04 20:54-0400\n"
+"POT-Creation-Date: 2026-05-05 20:15-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,328 +17,298 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: plugin/contrib/aihordeclient/__init__.py:262
-#: plugin/modules/chatbot/panel.py:790
+#: plugin/contrib/aihordeclient/__init__.py plugin/modules/chatbot/panel.py
 msgid "Starting..."
 msgstr "प्रारंभ हो रहा है..."
 
-#: plugin/contrib/aihordeclient/__init__.py:370
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Updating model requirements..."
 msgstr "मॉडल आवश्यकताओं को अपडेट किया जा रहा है..."
 
-#: plugin/contrib/aihordeclient/__init__.py:517
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Updating Models..."
 msgstr "मॉडल अपडेट किए जा रहे हैं..."
 
-#: plugin/contrib/aihordeclient/__init__.py:610
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Register at "
 msgstr "यहाँ रजिस्टर करें "
 
-#: plugin/contrib/aihordeclient/__init__.py:617
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "You have {} kudos"
 msgstr "आपके पास {} कुडोस (kudos) हैं"
 
-#: plugin/contrib/aihordeclient/__init__.py:625
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "«{}» is not a valid API KEY, double check it or create a new one"
-msgstr ""
-"«{}» एक मान्य API KEY नहीं है, कृपया इसे दोबारा जांचें या एक नया बनाएं"
+msgstr "«{}» एक मान्य API KEY नहीं है, कृपया इसे दोबारा जांचें या एक नया बनाएं"
 
-#: plugin/contrib/aihordeclient/__init__.py:632
-#: plugin/contrib/aihordeclient/__init__.py:675
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"इस समय हम आपके अनुरोध को संसाधित नहीं कर सकते, कृपया बाद में पुनः प्रयास "
-"करें। यदि ऐसा लंबे समय तक हो रहा है, तो कृपया हमें Discord के माध्यम से "
-"बताएं"
+"इस समय हम आपके अनुरोध को संसाधित नहीं कर सकते, कृपया बाद में पुनः प्रयास करें। यदि ऐसा "
+"लंबे समय तक हो रहा है, तो कृपया हमें Discord के माध्यम से बताएं"
 
-#: plugin/contrib/aihordeclient/__init__.py:638
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
 msgstr "कुडोस (kudos) का अनुरोध करने में समस्या"
 
-#: plugin/contrib/aihordeclient/__init__.py:648
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"हॉर्ड (Horde) रखरखाव मोड में है, कृपया बाद में पुनः प्रयास करें, यदि आपने "
-"प्रयास किया है और सेवा घंटों तक प्रतिक्रिया नहीं देती है, तो कृपया Discord "
-"के माध्यम से संपर्क करें"
+"हॉर्ड (Horde) रखरखाव मोड में है, कृपया बाद में पुनः प्रयास करें, यदि आपने प्रयास किया है "
+"और सेवा घंटों तक प्रतिक्रिया नहीं देती है, तो कृपया Discord के माध्यम से संपर्क करें"
 
-#: plugin/contrib/aihordeclient/__init__.py:656
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"आपने बहुत अधिक अनुरोध किए हैं, कृपया उनके पूरा होने की प्रतीक्षा करें, और "
-"बाद में पुनः प्रयास करें"
+"आपने बहुत अधिक अनुरोध किए हैं, कृपया उनके पूरा होने की प्रतीक्षा करें, और बाद में पुनः प्रयास "
+"करें"
 
-#: plugin/contrib/aihordeclient/__init__.py:662
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"ऐसा लगता है कि «{}» में समस्याएँ हैं, इसे दोबारा जाँचें, एक नया बनाएँ या "
-"सहायता के लिए Discord से जुड़ें"
+"ऐसा लगता है कि «{}» में समस्याएँ हैं, इसे दोबारा जाँचें, एक नया बनाएँ या सहायता के लिए "
+"Discord से जुड़ें"
 
-#: plugin/contrib/aihordeclient/__init__.py:670
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
 msgstr "हमें एक त्रुटि मिली, फिर भी: "
 
-#: plugin/contrib/aihordeclient/__init__.py:681
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "No longer valid, please try again.  Your request took too long"
-msgstr ""
-"अब मान्य नहीं है, कृपया पुनः प्रयास करें। आपके अनुरोध में बहुत अधिक समय लगा"
+msgstr "अब मान्य नहीं है, कृपया पुनः प्रयास करें। आपके अनुरोध में बहुत अधिक समय लगा"
 
-#: plugin/contrib/aihordeclient/__init__.py:724
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Contacting the Horde..."
 msgstr "Horde से संपर्क किया जा रहा है..."
 
-#: plugin/contrib/aihordeclient/__init__.py:803
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Horde Contacted"
 msgstr "Horde से संपर्क हो गया"
 
-#: plugin/contrib/aihordeclient/__init__.py:821
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
-msgstr ""
-"छवि के लिए पूछने का प्रयास करते समय, Horde बहुत धीमा था, बाद में पुनः प्रयास"
-" करें"
+msgstr "छवि के लिए पूछने का प्रयास करते समय, Horde बहुत धीमा था, बाद में पुनः प्रयास करें"
 
-#: plugin/contrib/aihordeclient/__init__.py:843
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "to learn to earn kudos. Detail:"
 msgstr "kudos अर्जित करना सीखने के लिए। विवरण:"
 
-#: plugin/contrib/aihordeclient/__init__.py:865
-#: plugin/contrib/aihordeclient/__init__.py:884
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Service failed: "
 msgstr "सेवा विफल रही: "
 
-#: plugin/contrib/aihordeclient/__init__.py:935
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Downloading generated image..."
 msgstr "जनरेट की गई छवि डाउनलोड की जा रही है..."
 
-#: plugin/contrib/aihordeclient/__init__.py:941
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "You are first in the queue"
 msgstr "आप कतार में सबसे पहले हैं"
 
-#: plugin/contrib/aihordeclient/__init__.py:943
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Queue position: "
 msgstr "कतार स्थिति: "
 
-#: plugin/contrib/aihordeclient/__init__.py:946
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Generating..."
 msgstr "उत्पन्न हो रहा है..."
 
-#: plugin/contrib/aihordeclient/__init__.py:963
-#: plugin/contrib/aihordeclient/__init__.py:999
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Get a free API Key at "
 msgstr "निःशुल्क API कुंजी यहाँ प्राप्त करें "
 
-#: plugin/contrib/aihordeclient/__init__.py:965
-#: plugin/contrib/aihordeclient/__init__.py:1001
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "."
 msgstr "."
 
-#: plugin/contrib/aihordeclient/__init__.py:965
-#: plugin/contrib/aihordeclient/__init__.py:1001
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "This model takes more time than your current configuration."
 msgstr "यह मॉडल आपके वर्तमान कॉन्फ़िगरेशन की तुलना में अधिक समय लेता है।"
 
-#: plugin/contrib/aihordeclient/__init__.py:970
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
-"कृपया कोई अन्य मॉडल आज़माएँ। {0} आपके द्वारा कॉन्फ़िगर किए गए समय से अधिक "
-"समय लेगा।"
+"कृपया कोई अन्य मॉडल आज़माएँ। {0} आपके द्वारा कॉन्फ़िगर किए गए समय से अधिक समय लेगा।"
 
-#: plugin/contrib/aihordeclient/__init__.py:974
-#: plugin/contrib/aihordeclient/__init__.py:994
-#: plugin/contrib/aihordeclient/__init__.py:1011
-#: plugin/contrib/aihordeclient/__init__.py:1018
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Please try again later."
 msgstr "कृपया बाद में पुनः प्रयास करें।"
 
-#: plugin/contrib/aihordeclient/__init__.py:992
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "There are no workers available with these settings."
 msgstr "इन सेटिंग्स के साथ कोई वर्कर उपलब्ध नहीं है।"
 
-#: plugin/contrib/aihordeclient/__init__.py:1009
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Probably your image will take one additional minute."
 msgstr "संभवतः आपकी छवि को एक अतिरिक्त मिनट लगेगा।"
 
-#: plugin/contrib/aihordeclient/__init__.py:1016
+#: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
 msgid "Probably your image will take {} additional minutes."
 msgstr "संभवतः आपकी छवि को {} अतिरिक्त मिनट लगेंगे।"
 
-#: plugin/contrib/aihordeclient/__init__.py:1030
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Fetching images..."
 msgstr "छवियाँ प्राप्त की जा रही हैं..."
 
-#: plugin/contrib/aihordeclient/__init__.py:1040
+#: plugin/contrib/aihordeclient/__init__.py
 msgid " is censored, try changing the prompt wording"
 msgstr " सेंसर किया गया है, प्रॉम्प्ट के शब्दों को बदलने का प्रयास करें"
 
-#: plugin/contrib/aihordeclient/__init__.py:1068
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Downloading result..."
 msgstr "परिणाम डाउनलोड किया जा रहा है..."
 
-#: plugin/contrib/aihordeclient/__init__.py:1071
+#: plugin/contrib/aihordeclient/__init__.py
 msgid "Downloading image"
 msgstr "छवि डाउनलोड की जा रही है"
 
-#: plugin/contrib/aihordeclient/__init__.py:1087
+#: plugin/contrib/aihordeclient/__init__.py
 msgid ""
 "You may need to reduce your settings or choose another model, or you may "
 "have been censored. Horde message"
 msgstr ""
-"आपको अपनी सेटिंग्स कम करने या कोई अन्य मॉडल चुनने की आवश्यकता हो सकती है, या"
-" आपको सेंसर किया गया हो सकता है। होर्ड संदेश"
+"आपको अपनी सेटिंग्स कम करने या कोई अन्य मॉडल चुनने की आवश्यकता हो सकती है, या आपको सेंसर "
+"किया गया हो सकता है। होर्ड संदेश"
 
-#: plugin/contrib/aihordeclient/__init__.py:1114
-#: plugin/contrib/aihordeclient/__init__.py:1126
+#: plugin/contrib/aihordeclient/__init__.py
 msgid " generated by "
 msgstr " द्वारा उत्पन्न "
 
-#: plugin/contrib/aihordeclient/__init__.py:1124
+#: plugin/contrib/aihordeclient/__init__.py
 msgid " with "
 msgstr " के साथ "
 
-#: plugin/framework/dialogs.py:107
+#: plugin/framework/dialogs.py
 msgid "Agent requests approval"
 msgstr "एजेंट अनुमोदन का अनुरोध करता है"
 
-#: plugin/framework/dialogs.py:108
+#: plugin/framework/dialogs.py
 msgid "Proceed with this action?"
 msgstr "क्या इस क्रिया के साथ आगे बढ़ें?"
 
-#: plugin/framework/dialogs.py:109
-#: plugin/modules/chatbot/web_research_chat.py:33
-#: plugin/modules/chatbot/web_research_chat.py:38
+#: plugin/framework/dialogs.py plugin/modules/chatbot/web_research_chat.py
 #, python-format
 msgid "Tool: %s"
 msgstr "टूल: %s"
 
-#: plugin/framework/dialogs.py:154
+#: plugin/framework/dialogs.py
 msgid "Edit search query"
 msgstr "खोज क्वेरी संपादित करें"
 
-#: plugin/framework/dialogs.py:159
+#: plugin/framework/dialogs.py
 msgid "Search query:"
 msgstr "खोज क्वेरी:"
 
-#: plugin/framework/dialogs.py:167 plugin/framework/dialogs.py:336
-#: plugin/framework/dialogs.py:406 plugin/modules/http/__init__.py:319
-#: plugin/xdl_strings.py:39
+#: plugin/framework/dialogs.py plugin/modules/http/__init__.py
+#: plugin/xdl_strings.py
 msgid "OK"
 msgstr "ठीक"
 
-#: plugin/framework/dialogs.py:168
+#: plugin/framework/dialogs.py
 msgid "Cancel"
 msgstr "रद्द करें"
 
-#: plugin/framework/dialogs.py:335
+#: plugin/framework/dialogs.py
 msgid "Copy"
 msgstr "कॉपी करें"
 
-#: plugin/framework/dialogs.py:355 plugin/framework/dialogs.py:428
+#: plugin/framework/dialogs.py
 msgid "Copied!"
 msgstr "कॉपी किया गया!"
 
-#: plugin/framework/dialogs.py:403
+#: plugin/framework/dialogs.py
 msgid "Copy URL"
 msgstr "URL कॉपी करें"
 
-#: plugin/framework/errors.py:52
+#: plugin/framework/errors.py
 #, python-brace-format
 msgid "{resource_type} not found: {identifier}"
 msgstr "{resource_type} नहीं मिला: {identifier}"
 
-#: plugin/framework/legacy_ui.py:509 plugin/main.py:434
-#: plugin/xdl_strings.py:45
+#: plugin/framework/legacy_ui.py plugin/main.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "सेटिंग्स"
 
-#: plugin/framework/legacy_ui.py:561 plugin/framework/external_editor.py:78
-#: plugin/framework/external_editor.py:83
-#: plugin/framework/external_editor.py:96
-#: plugin/framework/external_editor.py:105
-#: plugin/framework/external_editor.py:114 plugin/modules/chatbot/panel.py:866
-#: plugin/modules/chatbot/send_handlers.py:365
-#: plugin/modules/chatbot/send_handlers.py:375
-#: plugin/modules/chatbot/send_handlers.py:384 plugin/main.py:337
+#: plugin/framework/legacy_ui.py plugin/framework/external_editor.py
+#: plugin/modules/chatbot/panel.py plugin/modules/chatbot/send_handlers.py
+#: plugin/main.py
 msgid "Error"
 msgstr "त्रुटि"
 
-#: plugin/framework/legacy_ui.py:561
+#: plugin/framework/legacy_ui.py
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "सेटिंग्स खोलने में विफल: {0}"
 
-#: plugin/framework/specialized_base.py:91
+#: plugin/framework/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"टूल कॉल '{0}' पर स्विच हो गया है। आप एक विशेष टूलसेट मोड में हैं। पूर्ण API "
-"सेट को पुनर्स्थापित करने के लिए आपको कार्य पूरा होने पर "
-"'specialized_workflow_finished' कॉल करना होगा।"
+"टूल कॉल '{0}' पर स्विच हो गया है। आप एक विशेष टूलसेट मोड में हैं। पूर्ण API सेट को "
+"पुनर्स्थापित करने के लिए आपको कार्य पूरा होने पर 'specialized_workflow_finished' कॉल "
+"करना होगा।"
 
-#: plugin/framework/settings_dialog.py:172
+#: plugin/framework/settings_dialog.py
 msgid "Invalid Setting"
 msgstr "अमान्य सेटिंग"
 
-#: plugin/framework/settings_dialog.py:172
+#: plugin/framework/settings_dialog.py
 msgid "Temperature must be <= 1.0"
 msgstr "तापमान <= 1.0 होना चाहिए"
 
-#: plugin/framework/constants.py:287
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: मैं आपके दस्तावेज़ को पेशेवर फ़ॉर्मेटिंग और रंग के साथ तुरंत संपादित या "
-"अनुवादित कर सकता हूँ। मुझे आज़माएँ!"
-
-#: plugin/framework/constants.py:288
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-"AI: मैं फ़ार्मुलों, डेटा विश्लेषण और रंगीन चार्ट के साथ आपकी मदद कर सकता "
+"AI: मैं आपके दस्तावेज़ को पेशेवर फ़ॉर्मेटिंग और रंग के साथ तुरंत संपादित या अनुवादित कर सकता "
 "हूँ। मुझे आज़माएँ!"
 
-#: plugin/framework/constants.py:289
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: मैं फ़ार्मुलों, डेटा विश्लेषण और रंगीन चार्ट के साथ आपकी मदद कर सकता हूँ। मुझे आज़माएँ!"
+
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: मैं Draw और Impress में पॉलिश की हुई, रंगीन आकृतियाँ बनाने और संपादित "
-"करने में आपकी मदद कर सकता हूँ। मुझे आज़माएँ!"
+"AI: मैं Draw और Impress में पॉलिश की हुई, रंगीन आकृतियाँ बनाने और संपादित करने में आपकी "
+"मदद कर सकता हूँ। मुझे आज़माएँ!"
 
-#: plugin/framework/constants.py:290
+#: plugin/framework/constants.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: मैं किसी भी प्रश्न का उत्तर देने के लिए वेब रिसर्च कर सकता हूँ, या आपके "
-"दस्तावेज़ को देखे या बदले बिना किसी वेब पेज का सारांश दे सकता हूँ। चलिए चैट "
-"करते हैं।"
+"AI: मैं किसी भी प्रश्न का उत्तर देने के लिए वेब रिसर्च कर सकता हूँ, या आपके दस्तावेज़ को देखे "
+"या बदले बिना किसी वेब पेज का सारांश दे सकता हूँ। चलिए चैट करते हैं।"
 
-#: plugin/framework/external_editor.py:83
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid "Could not create config file: {0}"
 msgstr "कॉन्फ़िगरेशन फ़ाइल नहीं बनाई जा सकी: {0}"
 
-#: plugin/framework/external_editor.py:97
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid ""
 "Could not open an editor. Path:\n"
@@ -347,629 +317,611 @@ msgstr ""
 "एडिटर नहीं खोला जा सका। पथ:\n"
 "{0}"
 
-#: plugin/framework/external_editor.py:107
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
-msgstr ""
-"कोई एडिटर नहीं मिला (Kate या Gedit इंस्टॉल करें, या EDITOR सेट करें)। पथ: "
-"{0}"
+msgstr "कोई एडिटर नहीं मिला (Kate या Gedit इंस्टॉल करें, या EDITOR सेट करें)। पथ: {0}"
 
-#: plugin/framework/external_editor.py:114
+#: plugin/framework/external_editor.py
 #, python-brace-format
 msgid "Could not start editor: {0}"
 msgstr "एडिटर शुरू नहीं किया जा सका: {0}"
 
-#: plugin/framework/extension_update_check.py:150
+#: plugin/framework/extension_update_check.py
 msgid "Update available"
 msgstr "अपडेट उपलब्ध है"
 
-#: plugin/framework/extension_update_check.py:152
+#: plugin/framework/extension_update_check.py
 #, python-format
 msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"एक नया WriterAgent (%s) उपलब्ध है। अपडेट की जाँच करने और नवीनतम एक्सटेंशन "
-"इंस्टॉल करने के लिए Tools → Extension Manager का उपयोग करें।"
+"एक नया WriterAgent (%s) उपलब्ध है। अपडेट की जाँच करने और नवीनतम एक्सटेंशन इंस्टॉल करने "
+"के लिए Tools → Extension Manager का उपयोग करें।"
 
-#: plugin/modules/http/errors.py:14
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "TLS/SSL Error: {0}"
 msgstr "TLS/SSL त्रुटि: {0}"
 
-#: plugin/modules/http/errors.py:25
+#: plugin/modules/http/errors.py
 msgid "Invalid API Key. Please check your settings."
 msgstr "अमान्य API कुंजी। कृपया अपनी सेटिंग्स की जाँच करें।"
 
-#: plugin/modules/http/errors.py:27
+#: plugin/modules/http/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
 msgstr ""
-"API एक्सेस वर्जित है। हो सकता है कि आपकी कुंजी में इस मॉडल के लिए अनुमतियों "
-"की कमी हो।"
+"API एक्सेस वर्जित है। हो सकता है कि आपकी कुंजी में इस मॉडल के लिए अनुमतियों की कमी हो।"
 
-#: plugin/modules/http/errors.py:29
+#: plugin/modules/http/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
 msgstr "एंडपॉइंट नहीं मिला (404)। अपने URL और मॉडल नाम की जाँच करें।"
 
-#: plugin/modules/http/errors.py:31
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
 msgstr "सर्वर त्रुटि ({0})। AI प्रदाता को समस्याओं का सामना करना पड़ रहा है।"
 
-#: plugin/modules/http/errors.py:32
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "HTTP Error {0}: {1}"
 msgstr "HTTP त्रुटि {0}: {1}"
 
-#: plugin/modules/http/errors.py:35
+#: plugin/modules/http/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr ""
-"अनुरोध का समय समाप्त हो गया। सेटिंग्स में 'Request Timeout' बढ़ाने का प्रयास"
-" करें।"
+msgstr "अनुरोध का समय समाप्त हो गया। सेटिंग्स में 'Request Timeout' बढ़ाने का प्रयास करें।"
 
-#: plugin/modules/http/errors.py:43
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+#: plugin/modules/http/errors.py
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"कनेक्शन अस्वीकार कर दिया गया। क्या आपका स्थानीय AI सर्वर (Ollama/LM Studio) "
-"चल रहा है?"
+"कनेक्शन अस्वीकार कर दिया गया। क्या आपका स्थानीय AI सर्वर (Ollama/LM Studio) चल रहा "
+"है?"
 
-#: plugin/modules/http/errors.py:45
+#: plugin/modules/http/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
 msgstr "DNS त्रुटि। एंडपॉइंट URL को हल नहीं किया जा सका।"
 
-#: plugin/modules/http/errors.py:46
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "Connection Error: {0}"
 msgstr "कनेक्शन त्रुटि: {0}"
 
-#: plugin/modules/http/errors.py:49
+#: plugin/modules/http/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "AI प्रदाता ने एक त्रुटि की सूचना दी है। पुनः प्रयास करें।"
 
-#: plugin/modules/http/errors.py:56
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "AI प्रदाता से HTTP त्रुटि {0}: {1}"
 
-#: plugin/modules/http/errors.py:77
+#: plugin/modules/http/errors.py
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "त्रुटि: {0}"
 
-#: plugin/modules/http/client.py:808
+#: plugin/modules/http/client.py
 msgid "Stream ended with finish_reason=error"
 msgstr "स्ट्रीम finish_reason=error के साथ समाप्त हुई"
 
-#: plugin/modules/http/client.py:821
+#: plugin/modules/http/client.py
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"मॉडल एक ही हिस्से को दोहरा रहा है (अनंत लूप)। पुनः प्रयास करें या किसी अन्य "
-"मॉडल का उपयोग करें।"
+"मॉडल एक ही हिस्से को दोहरा रहा है (अनंत लूप)। पुनः प्रयास करें या किसी अन्य मॉडल का "
+"उपयोग करें।"
 
-#: plugin/modules/http/__init__.py:243
+#: plugin/modules/http/__init__.py
 msgid "Stop MCP Server"
 msgstr "MCP सर्वर रोकें"
 
-#: plugin/modules/http/__init__.py:244
+#: plugin/modules/http/__init__.py
 msgid "Start MCP Server"
 msgstr "MCP सर्वर प्रारंभ करें"
 
-#: plugin/modules/http/__init__.py:267
+#: plugin/modules/http/__init__.py
 msgid "MCP server stopped"
 msgstr "MCP सर्वर रुक गया"
 
-#: plugin/modules/http/__init__.py:275
+#: plugin/modules/http/__init__.py
 msgid "MCP server started"
 msgstr "MCP सर्वर प्रारंभ हो गया"
 
-#: plugin/modules/http/__init__.py:278
+#: plugin/modules/http/__init__.py
 msgid "MCP server failed to start"
 msgstr "MCP सर्वर प्रारंभ होने में विफल"
 
-#: plugin/modules/http/__init__.py:278
+#: plugin/modules/http/__init__.py
 msgid "Check ~/localwriter.log"
 msgstr "~/localwriter.log की जाँच करें"
 
-#: plugin/modules/http/__init__.py:288 plugin/modules/http/__init__.py:294
+#: plugin/modules/http/__init__.py
 msgid "MCP server is not running"
 msgstr "MCP सर्वर नहीं चल रहा है"
 
-#: plugin/modules/http/__init__.py:299
+#: plugin/modules/http/__init__.py
 msgid "MCP server running"
 msgstr "MCP सर्वर चल रहा है"
 
-#: plugin/modules/http/__init__.py:299
+#: plugin/modules/http/__init__.py
 #, python-brace-format
 msgid "Routes: {0}"
 msgstr "रूट्स: {0}"
 
-#: plugin/modules/http/__init__.py:310
+#: plugin/modules/http/__init__.py
 msgid "Server Status"
 msgstr "सर्वर स्थिति"
 
-#: plugin/modules/http/__init__.py:331
+#: plugin/modules/http/__init__.py
 #, python-brace-format
 msgid "URL: {0}"
 msgstr "URL: {0}"
 
-#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
+#: plugin/modules/calc/legacy.py plugin/modules/writer/legacy.py
 msgid "Please enter edit instructions!"
 msgstr "कृपया संपादन निर्देश दर्ज करें!"
 
-#: plugin/modules/calc/legacy.py:34 plugin/modules/writer/legacy.py:89
-#: plugin/xdl_strings.py:33
+#: plugin/modules/calc/legacy.py plugin/modules/writer/legacy.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "इनपुट"
 
-#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+#: plugin/modules/calc/legacy.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: चयन संपादित करें (Calc)"
 
-#: plugin/modules/calc/legacy.py:73 plugin/modules/calc/legacy.py:105
+#: plugin/modules/calc/legacy.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: चयन का विस्तार करें (Calc)"
 
-#: plugin/modules/writer/legacy.py:55 plugin/modules/writer/legacy.py:71
-#: plugin/modules/chatbot/selection.py:90
-#: plugin/modules/chatbot/selection.py:177
+#: plugin/modules/writer/legacy.py plugin/modules/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: चयन का विस्तार करें"
 
-#: plugin/modules/writer/legacy.py:96 plugin/modules/writer/legacy.py:106
-#: plugin/modules/writer/legacy.py:119 plugin/modules/writer/legacy.py:123
-#: plugin/modules/chatbot/selection.py:286
-#: plugin/modules/chatbot/selection.py:297
-#: plugin/modules/chatbot/selection.py:411
+#: plugin/modules/writer/legacy.py plugin/modules/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: चयन संपादित करें"
 
-#: plugin/modules/chatbot/panel_wiring.py:190 plugin/xdl_strings.py:41
+#: plugin/modules/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
 msgstr "तैयार"
 
-#: plugin/modules/chatbot/tool_loop.py:931
+#: plugin/modules/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "त्रुटि: टूलकिट अनुपलब्ध है"
 
-#: plugin/modules/chatbot/panel.py:392 plugin/modules/chatbot/panel.py:765
+#: plugin/modules/chatbot/panel.py
 msgid "Accept"
 msgstr "स्वीकार करें"
 
-#: plugin/modules/chatbot/panel.py:408 plugin/modules/chatbot/panel.py:987
+#: plugin/modules/chatbot/panel.py
 msgid "Change"
 msgstr "बदलें"
 
-#: plugin/modules/chatbot/panel.py:412 plugin/modules/chatbot/panel.py:994
+#: plugin/modules/chatbot/panel.py
 msgid "Reject"
 msgstr "अस्वीकार करें"
 
-#: plugin/modules/chatbot/panel.py:429
+#: plugin/modules/chatbot/panel.py
 msgid "Waiting for approval…"
 msgstr "अनुमोदन की प्रतीक्षा है…"
 
-#: plugin/modules/chatbot/panel.py:771
+#: plugin/modules/chatbot/panel.py
 msgid "Record"
 msgstr "रिकॉर्ड करें"
 
-#: plugin/modules/chatbot/panel.py:773
+#: plugin/modules/chatbot/panel.py
 msgid "Stop Rec"
 msgstr "रिकॉर्डिंग रोकें"
 
-#: plugin/modules/chatbot/panel.py:775 plugin/xdl_strings.py:44
+#: plugin/modules/chatbot/panel.py plugin/xdl_strings.py
 msgid "Send"
 msgstr "भेजें"
 
-#: plugin/modules/chatbot/panel.py:799
+#: plugin/modules/chatbot/panel.py
 msgid "Getting document..."
 msgstr "दस्तावेज़ प्राप्त किया जा रहा है..."
 
-#: plugin/modules/chatbot/panel.py:803
+#: plugin/modules/chatbot/panel.py
 msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[सक्रिय विंडो में कोई संगत लिब्रे ऑफिस दस्तावेज़ (Writer, Calc, या Draw) "
-"नहीं मिला।]"
+"[सक्रिय विंडो में कोई संगत लिब्रे ऑफिस दस्तावेज़ (Writer, Calc, या Draw) नहीं मिला।]"
 
-#: plugin/modules/chatbot/panel.py:812
+#: plugin/modules/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[आंतरिक त्रुटि: दस्तावेज़ का प्रकार {0} से बदलकर {1} हो गया है! कृपया एक "
-"त्रुटि दर्ज करें।]"
+"[आंतरिक त्रुटि: दस्तावेज़ का प्रकार {0} से बदलकर {1} हो गया है! कृपया एक त्रुटि दर्ज करें।]"
 
-#: plugin/modules/chatbot/panel.py:819
+#: plugin/modules/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[आंतरिक त्रुटि: {0} के लिए दस्तावेज़ के प्रकार की पहचान नहीं हो सकी। कृपया "
-"इसकी रिपोर्ट करें!]"
+"[आंतरिक त्रुटि: {0} के लिए दस्तावेज़ के प्रकार की पहचान नहीं हो सकी। कृपया इसकी रिपोर्ट "
+"करें!]"
 
-#: plugin/modules/chatbot/panel.py:863
+#: plugin/modules/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
 msgstr ""
-"[मॉडल {0} नेटिव ऑडियो का समर्थन नहीं करता है। कृपया सेटिंग्स में एक STT मॉडल"
-" चुनें।]"
+"[मॉडल {0} नेटिव ऑडियो का समर्थन नहीं करता है। कृपया सेटिंग्स में एक STT मॉडल चुनें।]"
 
-#: plugin/modules/chatbot/web_research_chat.py:15
+#: plugin/modules/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
 msgstr "यह खोज क्वेरी '%s' सर्च इंजन को भेजी जाएगी।"
 
-#: plugin/modules/chatbot/web_research_chat.py:28
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Web search — approval required]"
 msgstr "[वेब खोज — अनुमोदन आवश्यक]"
 
-#: plugin/modules/chatbot/web_research_chat.py:30
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Web search]"
 msgstr "[वेब खोज]"
 
-#: plugin/modules/chatbot/web_research_chat.py:37
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Additional web search]"
 msgstr "[अतिरिक्त वेब खोज]"
 
-#: plugin/modules/chatbot/web_research_chat.py:59
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "[Web research]"
 msgstr "[वेब अनुसंधान]"
 
-#: plugin/modules/chatbot/web_research_chat.py:60
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "Research request:"
 msgstr "अनुसंधान अनुरोध:"
 
-#: plugin/modules/chatbot/web_research_chat.py:65
+#: plugin/modules/chatbot/web_research_chat.py
 msgid "Context for the research agent:"
 msgstr "अनुसंधान एजेंट के लिए संदर्भ:"
 
-#: plugin/modules/chatbot/web_research.py:234
+#: plugin/modules/chatbot/web_research.py
 msgid "Web research completed."
 msgstr "वेब अनुसंधान पूर्ण हुआ।"
 
-#: plugin/modules/chatbot/send_handlers.py:109
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Transcribing audio..."
 msgstr "ऑडियो ट्रांसक्राइब किया जा रहा है..."
 
-#: plugin/modules/chatbot/send_handlers.py:121
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Transcription error: {0}]"
 msgstr "[ट्रांसक्रिप्शन त्रुटि: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:363
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[दस्तावेज़ संदर्भ त्रुटि: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:373
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Agent backend '{0}' not found.]"
 msgstr "[एजेंट बैकएंड '{0}' नहीं मिला।]"
 
-#: plugin/modules/chatbot/send_handlers.py:380
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[एजेंट बैकएंड '{0}' उपलब्ध नहीं है। सेटिंग्स (पथ, इंस्टॉल) की जाँच करें।]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[एजेंट बैकएंड '{0}' उपलब्ध नहीं है। सेटिंग्स (पथ, इंस्टॉल) की जाँच करें।]"
 
-#: plugin/modules/chatbot/send_handlers.py:626
-#: plugin/modules/chatbot/send_handlers.py:634
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "Librarian: {0}"
 msgstr "लाइब्रेरियन: {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:633
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
 msgstr "उत्तम! मैं अब आपको मुख्य सहायक पर स्विच कर रहा हूँ।"
 
-#: plugin/modules/chatbot/send_handlers.py:639
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Unknown librarian error."
 msgstr "अज्ञात लाइब्रेरियन त्रुटि।"
 
-#: plugin/modules/chatbot/send_handlers.py:640
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Librarian error: {0}]"
 msgstr "[लाइब्रेरियन त्रुटि: {0}]"
 
-#: plugin/modules/chatbot/send_handlers.py:664
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "AI (research): {0}"
 msgstr "AI (अनुसंधान): {0}"
 
-#: plugin/modules/chatbot/send_handlers.py:670
+#: plugin/modules/chatbot/send_handlers.py
 msgid "Unknown research error."
 msgstr "अज्ञात अनुसंधान त्रुटि।"
 
-#: plugin/modules/chatbot/send_handlers.py:671
+#: plugin/modules/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Research error: {0}]"
 msgstr "[अनुसंधान त्रुटि: {0}]"
 
-#: plugin/modules/chatbot/librarian.py:44
+#: plugin/modules/chatbot/librarian.py
 msgid "Switching to document mode..."
 msgstr "दस्तावेज़ मोड पर स्विच किया जा रहा है..."
 
-#: plugin/modules/chatbot/panel_factory.py:517
+#: plugin/modules/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "आकार:"
 
-#: plugin/modules/chatbot/panel_factory.py:518
+#: plugin/modules/chatbot/panel_factory.py
 msgid "Height:"
 msgstr "ऊँचाई:"
 
-#: plugin/modules/chatbot/panel_factory.py:519
+#: plugin/modules/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "चौड़ाई:"
 
-#: plugin/tests/test_i18n.py:24
+#: plugin/tests/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
 msgstr "ThisIsAnUntranslatedString999"
 
-#: plugin/tests/test_i18n.py:216 plugin/tests/test_i18n.py:223
+#: plugin/tests/test_i18n.py
 msgid "Built-in"
 msgstr "इन-बिल्ट"
 
-#: plugin/tests/test_i18n.py:217
+#: plugin/tests/test_i18n.py
 msgid "Backend"
 msgstr "बैकएंड"
 
-#: plugin/main.py:354
+#: plugin/main.py
 #, python-brace-format
 msgid "{0}: {1} passed, {2} failed."
 msgstr "{0}: {1} सफल, {2} विफल।"
 
-#: plugin/main.py:357
+#: plugin/main.py
 #, python-brace-format
 msgid "Tests failed to run: {0}"
 msgstr "परीक्षण चलाने में विफल: {0}"
 
-#: plugin/main.py:432
+#: plugin/main.py
 msgid "Extend Selection"
 msgstr "चयन का विस्तार करें"
 
-#: plugin/main.py:433
+#: plugin/main.py
 msgid "Edit Selection"
 msgstr "चयन संपादित करें"
 
-#: plugin/main.py:435
+#: plugin/main.py
 msgid "Toggle MCP Server"
 msgstr "MCP सर्वर टॉगल करें"
 
-#: plugin/main.py:436
+#: plugin/main.py
 msgid "MCP Server Status"
 msgstr "MCP सर्वर स्थिति"
 
-#: plugin/main.py:438
+#: plugin/main.py
 msgid "Run format tests"
 msgstr "प्रारूप परीक्षण चलाएँ"
 
-#: plugin/main.py:439
+#: plugin/main.py
 msgid "Run calc tests"
 msgstr "Calc परीक्षण चलाएँ"
 
-#: plugin/main.py:440
+#: plugin/main.py
 msgid "Run Calc API integration tests"
 msgstr "Calc API एकीकरण परीक्षण चलाएँ"
 
-#: plugin/main.py:441
+#: plugin/main.py
 msgid "Run draw tests"
 msgstr "Draw परीक्षण चलाएँ"
 
-#: plugin/main.py:442
+#: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "मूल्यांकन डैशबोर्ड"
 
-#: plugin/main.py:829
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "डिस्पैच त्रुटि"
 
-#: plugin/xdl_strings.py:4
+#: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
 
-#: plugin/xdl_strings.py:5
+#: plugin/xdl_strings.py
 msgid "7.5"
 msgstr "7.5"
 
-#: plugin/xdl_strings.py:6
+#: plugin/xdl_strings.py
 msgid "AI Horde API Key:"
 msgstr "AI Horde API कुंजी:"
 
-#: plugin/xdl_strings.py:7
+#: plugin/xdl_strings.py
 msgid "AI Model:"
 msgstr "AI मॉडल:"
 
-#: plugin/xdl_strings.py:8
+#: plugin/xdl_strings.py
 msgid "API Key:"
 msgstr "API कुंजी:"
 
-#: plugin/xdl_strings.py:9
+#: plugin/xdl_strings.py
 msgid "Additional Instructions (History):"
 msgstr "अतिरिक्त निर्देश (इतिहास):"
 
-#: plugin/xdl_strings.py:10
+#: plugin/xdl_strings.py
 msgid "Additional Instructions:"
 msgstr "अतिरिक्त निर्देश:"
 
-#: plugin/xdl_strings.py:11
+#: plugin/xdl_strings.py
 msgid "Allow NSFW"
 msgstr "NSFW की अनुमति दें"
 
-#: plugin/xdl_strings.py:12
+#: plugin/xdl_strings.py
 msgid "Ask / instruct:"
 msgstr "पूछें / निर्देश दें:"
 
-#: plugin/xdl_strings.py:13
+#: plugin/xdl_strings.py
 msgid "Aspect Ratio:"
 msgstr "आस्पेक्ट रेशियो:"
 
-#: plugin/xdl_strings.py:14
+#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "ऑडियो मॉडल:"
 
-#: plugin/xdl_strings.py:15
+#: plugin/xdl_strings.py
 msgid "Auto Gallery"
 msgstr "ऑटो गैलरी"
 
-#: plugin/xdl_strings.py:16
+#: plugin/xdl_strings.py
 msgid "Base Size:"
 msgstr "आधार आकार:"
 
-#: plugin/xdl_strings.py:17
+#: plugin/xdl_strings.py
 msgid "Base:"
 msgstr "आधार:"
 
-#: plugin/xdl_strings.py:18
+#: plugin/xdl_strings.py
 msgid "CFG Scale:"
 msgstr "CFG स्केल:"
 
-#: plugin/xdl_strings.py:19
+#: plugin/xdl_strings.py
 msgid "Calc"
 msgstr "Calc"
 
-#: plugin/xdl_strings.py:20
+#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "श्रेणियाँ:"
 
-#: plugin/xdl_strings.py:21
+#: plugin/xdl_strings.py
 msgid "Censor NSFW"
 msgstr "NSFW सेंसर करें"
 
-#: plugin/xdl_strings.py:22
+#: plugin/xdl_strings.py
 msgid "Chat (Testing):"
 msgstr "चैट (परीक्षण):"
 
-#: plugin/xdl_strings.py:23
+#: plugin/xdl_strings.py
 msgid "Clear"
 msgstr "साफ़ करें"
 
-#: plugin/xdl_strings.py:24
+#: plugin/xdl_strings.py
 msgid "Close"
 msgstr "बंद करें"
 
-#: plugin/xdl_strings.py:25
+#: plugin/xdl_strings.py
 msgid "Context Len:"
 msgstr "संदर्भ लंबाई:"
 
-#: plugin/xdl_strings.py:26
+#: plugin/xdl_strings.py
 msgid "Draw"
 msgstr "Draw"
 
-#: plugin/xdl_strings.py:27
+#: plugin/xdl_strings.py
 msgid "Edit config file (JSON)…"
 msgstr "कॉन्फ़िगरेशन फ़ाइल संपादित करें (JSON)…"
 
-#: plugin/xdl_strings.py:28
+#: plugin/xdl_strings.py
 msgid "Endpoint URL (/v1 added):"
 msgstr "एंडपॉइंट URL (/v1 जोड़ा गया):"
 
-#: plugin/xdl_strings.py:29
+#: plugin/xdl_strings.py
 msgid "Endpoint URL:"
 msgstr "एंडपॉइंट URL:"
 
-#: plugin/xdl_strings.py:30
+#: plugin/xdl_strings.py
 msgid "General"
 msgstr "सामान्य"
 
-#: plugin/xdl_strings.py:31
+#: plugin/xdl_strings.py
 msgid "Image Model:"
 msgstr "छवि मॉडल:"
 
-#: plugin/xdl_strings.py:32
+#: plugin/xdl_strings.py
 msgid "Image Settings"
 msgstr "छवि सेटिंग्स"
 
-#: plugin/xdl_strings.py:34
+#: plugin/xdl_strings.py
 msgid "Insert Frame"
 msgstr "फ़्रेम डालें"
 
-#: plugin/xdl_strings.py:35
+#: plugin/xdl_strings.py
 msgid "Max Tokens:"
 msgstr "अधिकतम टोकन:"
 
-#: plugin/xdl_strings.py:36
+#: plugin/xdl_strings.py
 msgid "Max Wait (s):"
 msgstr "अधिकतम प्रतीक्षा (सेकंड):"
 
-#: plugin/xdl_strings.py:37
+#: plugin/xdl_strings.py
 msgid "Models to Test:"
 msgstr "परीक्षण हेतु मॉडल:"
 
-#: plugin/xdl_strings.py:38
+#: plugin/xdl_strings.py
 msgid "Multimodal"
 msgstr "मल्टीमॉडल"
 
-#: plugin/xdl_strings.py:40
+#: plugin/xdl_strings.py
 msgid "Please enter edit instructions:"
 msgstr "कृपया संपादन निर्देश दर्ज करें:"
 
-#: plugin/xdl_strings.py:42
+#: plugin/xdl_strings.py
 msgid "Run Benchmark"
 msgstr "बेंचमार्क चलाएँ"
 
-#: plugin/xdl_strings.py:43
+#: plugin/xdl_strings.py
 msgid "Seed:"
 msgstr "सीड:"
 
-#: plugin/xdl_strings.py:46
+#: plugin/xdl_strings.py
 msgid "Square"
 msgstr "वर्ग"
 
-#: plugin/xdl_strings.py:47
+#: plugin/xdl_strings.py
 msgid "Steps:"
 msgstr "चरण:"
 
-#: plugin/xdl_strings.py:48
+#: plugin/xdl_strings.py
 msgid "Stop"
 msgstr "रोकें"
 
-#: plugin/xdl_strings.py:49
+#: plugin/xdl_strings.py
 msgid "Temperature:"
 msgstr "तापमान:"
 
-#: plugin/xdl_strings.py:50
+#: plugin/xdl_strings.py
 msgid "Text/Chat Model:"
 msgstr "टेक्स्ट/चैट मॉडल:"
 
-#: plugin/xdl_strings.py:51
+#: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "टाइमआउट (सेकंड):"
 
-#: plugin/xdl_strings.py:52
+#: plugin/xdl_strings.py
 msgid "Translate Prompt"
 msgstr "प्रॉम्प्ट का अनुवाद करें"
 
-#: plugin/xdl_strings.py:53
+#: plugin/xdl_strings.py
 msgid "Translate from (e.g. es):"
 msgstr "यहाँ से अनुवाद करें (उदाहरण: es):"
 
-#: plugin/xdl_strings.py:54
+#: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
 msgstr "छवि निर्माण के लिए AI Horde का उपयोग करें"
 
-#: plugin/xdl_strings.py:55
+#: plugin/xdl_strings.py
 msgid "Use Image model"
 msgstr "छवि मॉडल का उपयोग करें"
 
-#: plugin/xdl_strings.py:56
+#: plugin/xdl_strings.py
 msgid "Web Research"
 msgstr "वेब रिसर्च"
 
-#: plugin/xdl_strings.py:57
+#: plugin/xdl_strings.py
 msgid "Writer"
 msgstr "Writer"
 
-#: plugin/xdl_strings.py:58
+#: plugin/xdl_strings.py
 msgid "WriterAgent Evaluation Dashboard"
 msgstr "WriterAgent मूल्यांकन डैशबोर्ड"
 
@@ -989,11 +941,11 @@ msgid "Path / URL"
 msgstr "पथ / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"बैकएंड CLI (जैसे aider) का पथ या ACP सर्वर URL (जैसे हर्मेस के लिए "
-"http://localhost:8000)। खाली = डिफ़ॉल्ट का प्रयास करें।"
+"बैकएंड CLI (जैसे aider) का पथ या ACP सर्वर URL (जैसे हर्मेस के लिए http://"
+"localhost:8000)। खाली = डिफ़ॉल्ट का प्रयास करें।"
 
 msgid "Extra arguments"
 msgstr "अतिरिक्त तर्क"
@@ -1007,9 +959,7 @@ msgstr "ACP एजेंट का नाम"
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
-msgstr ""
-"ACP सर्वर पर एजेंट का नाम (जैसे हर्मेस)। खाली = पहले एजेंट की स्वतः खोज "
-"करें।"
+msgstr "ACP सर्वर पर एजेंट का नाम (जैसे हर्मेस)। खाली = पहले एजेंट की स्वतः खोज करें।"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc स्प्रेडशीट उपकरण"
@@ -1082,13 +1032,12 @@ msgstr "AI व्याकरण जाँचक सक्षम करें (W
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
-"सक्रिय होने पर, WriterAgent अपने AI व्याकरण प्रूफरीडर को Linguistic के साथ "
-"पंजीकृत करता है; जाँचे गए टेक्स्ट के लिए आपके API (उपकरण → विकल्प → AI) का "
-"उपयोग होता है। टाइपिंग रोकने के कुछ देर बाद रेखांकन दिखाई देते हैं। डिफ़ॉल्ट"
-" रूप से बंद।"
+"सक्रिय होने पर, WriterAgent अपने AI व्याकरण प्रूफरीडर को Linguistic के साथ पंजीकृत "
+"करता है; जाँचे गए टेक्स्ट के लिए आपके API (उपकरण → विकल्प → AI) का उपयोग होता है। "
+"टाइपिंग रोकने के कुछ देर बाद रेखांकन दिखाई देते हैं। डिफ़ॉल्ट रूप से बंद।"
 
 msgid "Grammar check wait timeout (ms)"
 msgstr "व्याकरण जाँच प्रतीक्षा समय (ms)"
@@ -1098,9 +1047,8 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"भविष्य में संभावित उपयोग के लिए आरक्षित। प्रूफरीडर कैश मिस (async) होने पर "
-"तुरंत परिणाम देता है; वाक्य कैश भर जाने के बाद परिणाम बाद के Writer पास पर "
-"दिखाई देते हैं।"
+"भविष्य में संभावित उपयोग के लिए आरक्षित। प्रूफरीडर कैश मिस (async) होने पर तुरंत परिणाम "
+"देता है; वाक्य कैश भर जाने के बाद परिणाम बाद के Writer पास पर दिखाई देते हैं।"
 
 msgid "Grammar check model (optional)"
 msgstr "व्याकरण जाँच मॉडल (वैकल्पिक)"
@@ -1115,8 +1063,16 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"सक्रिय होने पर, AI व्याकरण बैकग्राउंड अनुरोधों को छोड़ देता है यदि साइडबार "
-"चैट या एजेंट चल रहा हो, ताकि एक साथ कई API कॉल से बचा जा सके।"
+"सक्रिय होने पर, AI व्याकरण बैकग्राउंड अनुरोधों को छोड़ देता है यदि साइडबार चैट या एजेंट चल "
+"रहा हो, ताकि एक साथ कई API कॉल से बचा जा सके।"
+
+msgid "Enter key sends sidebar chat message"
+msgstr ""
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
 
 msgid "Draw and Impress tools"
 msgstr "Draw और Impress उपकरण"
@@ -1129,8 +1085,7 @@ msgstr "MCP सर्वर सक्षम करें"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
 msgstr ""
-"केवल लोकलहोस्ट, कोई प्रमाणीकरण नहीं। stdio के माध्यम से एक्सेस हमेशा सक्षम "
-"रहता है।"
+"केवल लोकलहोस्ट, कोई प्रमाणीकरण नहीं। stdio के माध्यम से एक्सेस हमेशा सक्षम रहता है।"
 
 msgid "MCP Port"
 msgstr "MCP पोर्ट"
