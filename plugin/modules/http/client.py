@@ -361,7 +361,15 @@ class LlmClient:
         if system_message:
             old_content = system_message.get("content")
             if isinstance(old_content, str):
-                if not (old_content.startswith(date_msg) or old_content.startswith("Today's date is ")):
+                # Include ``date_msg in old_content`` so we do not prepend again after
+                # ``LLM_DEV_BUILD_SYSTEM_PREFIX`` moved today's date away from the first line;
+                # otherwise tool-loop reuse repeatedly stacks date + dev-prefix blocks.
+                already_has_date_line = (
+                    old_content.startswith(date_msg)
+                    or old_content.startswith("Today's date is ")
+                    or date_msg in old_content
+                )
+                if not already_has_date_line:
                     if old_content:
                         system_message["content"] = f"{date_msg}\n\n{old_content}"
                     else:

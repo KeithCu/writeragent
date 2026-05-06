@@ -390,6 +390,22 @@ def test_make_chat_request_skips_dev_build_prefix_when_disabled():
     )
 
 
+def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
+    """Tool loops reuse the same messages list; date + dev-prefix injection must stay idempotent."""
+    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
+    messages = [{"role": "system", "content": "Core instructions."}]
+    with patch("plugin.modules.http.client.should_prepend_dev_llm_system_prefix", return_value=True):
+        client.make_chat_request(messages, max_tokens=50)
+        client.make_chat_request(messages, max_tokens=50)
+    sys_content = messages[0]["content"]
+    marker = "[WriterAgent development build]"
+    assert sys_content.count(marker) == 1
+    assert sys_content.startswith(LLM_DEV_BUILD_SYSTEM_PREFIX)
+
+
 def test_strip_leaked_chat_template_control_tokens_removes_harmony_style():
     raw = (
         '<|channel|>final <|constrain|>commentary<|message|>{\n'

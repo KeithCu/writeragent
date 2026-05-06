@@ -299,7 +299,8 @@ class UpdateStyle(ToolBase):
     description = (
         "Update the properties of an existing style. "
         "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
-        "a dictionary of 'properties' to update (e.g., {'CharColor': '#FF0000', 'CharWeight': 150}). "
+        "'property_updates': a dictionary of UNO property names to values "
+        "(e.g. {'CharColor': '#FF0000', 'CharWeight': 150}). "
         "Colors can be provided as hex strings or integers."
     )
     parameters = {
@@ -307,14 +308,13 @@ class UpdateStyle(ToolBase):
         "properties": {
             "style_name": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
             "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": "Style family. Default: ParagraphStyles."},
-            "properties": {
+            "property_updates": {
                 "type": "object",
-                "description": "Dictionary of properties to update.",
+                "description": "Dictionary of UNO property names to values (keys are listed in the schema).",
                 "properties": _ALL_KNOWN_PROPERTIES,
-                "additionalProperties": True
             },
         },
-        "required": ["style_name", "properties"],
+        "required": ["style_name", "property_updates"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
@@ -325,9 +325,9 @@ class UpdateStyle(ToolBase):
             return self._tool_error("style_name is required.")
 
         family = kwargs.get("family", "ParagraphStyles")
-        properties = kwargs.get("properties", {})
-        if not isinstance(properties, dict) or not properties:
-            return self._tool_error("properties must be a non-empty dictionary.")
+        property_updates = kwargs.get("property_updates", {})
+        if not isinstance(property_updates, dict) or not property_updates:
+            return self._tool_error("property_updates must be a non-empty dictionary.")
 
         doc = ctx.doc
         style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
@@ -342,7 +342,7 @@ class UpdateStyle(ToolBase):
         applied = {}
         failed = {}
 
-        for prop_name, prop_val in properties.items():
+        for prop_name, prop_val in property_updates.items():
             # Handle color conversions
             if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
                 prop_val = _parse_color(prop_val)

@@ -1,3 +1,5 @@
+import json
+
 from plugin.framework.schema_convert import to_openai_schema, to_mcp_schema, _normalize_schema_for_strict_providers
 from plugin.framework.tool_base import ToolBase
 
@@ -111,4 +113,14 @@ def test_normalize_schema_not_array_remove_items():
 def test_normalize_schema_none_dict():
     assert _normalize_schema_for_strict_providers(None) is None
     assert _normalize_schema_for_strict_providers("string") == "string"
+
+
+def test_update_style_schema_emits_no_additional_properties_keyword():
+    """xAI/OpenRouter reject nested additionalProperties; UpdateStyle uses exhaustive properties only."""
+    from plugin.modules.writer.styles import UpdateStyle
+
+    schema = to_openai_schema(UpdateStyle())
+    wire = json.dumps(schema["function"]["parameters"])
+    assert "additionalProperties" not in wire
+    assert "property_updates" in schema["function"]["parameters"]["properties"]
 

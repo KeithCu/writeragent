@@ -86,7 +86,7 @@ The LLM can call the `update_style` tool to dynamically change properties of any
 **Tool Parameters:**
 * `style_name`: The name of the style to modify (e.g., "Heading 1", "Source Text").
 * `family`: The style family (`ParagraphStyles` or `CharacterStyles`).
-* `properties`: A dictionary of LibreOffice UNO API properties to update.
+* `property_updates`: A dictionary of LibreOffice UNO API properties to update (schema lists supported keys).
 
 ### Setting Colors and Properties
 
@@ -102,7 +102,7 @@ When updating styles, the LLM sets underlying **LibreOffice UNO API properties**
 {
   "style_name": "Heading 1",
   "family": "ParagraphStyles",
-  "properties": {
+  "property_updates": {
     "CharColor": "#0055A4",
     "CharWeight": 150,
     "ParaTopMargin": 500
