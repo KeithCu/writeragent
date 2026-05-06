@@ -60,7 +60,7 @@ WriterAgent follows the same pattern as [`plugin/modules/calc/pivot.py`](../plug
 
 Listing output includes:
 
-- **`operator`**: stable string (e.g. `DUPLICATE`) via [`condition_operator_code_to_name()`](../plugin/framework/calc_conditional_constants.py).
+- **`operator`**: stable string (e.g. `DUPLICATE`) via [`condition_operator_code_to_name()`](../plugin/modules/calc/conditional.py) in the same module as the tools.
 - **`operator_code`**: present when `XSheetCondition2` succeeds (integer, e.g. `10`).
 ---
 
@@ -87,8 +87,7 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
    - Safer behavior when the container is missing or empty (clear is a no-op if there is nothing to clear).
 
 6. **Tests**  
-   - Unit: [`plugin/tests/test_calc_conditional.py`](../plugin/tests/test_calc_conditional.py) — imports [`condition_operator_code_to_name`](../plugin/framework/calc_conditional_constants.py) without loading the Calc package (avoids UNO side effects during `pytest`).  
-   - UNO: [`plugin/tests/uno/test_calc.py`](../plugin/tests/uno/test_calc.py) — `test_calc_conditional_formatting` extended with **BETWEEN** and **DUPLICATE** cases.
+   - UNO: [`plugin/tests/uno/test_calc.py`](../plugin/tests/uno/test_calc.py) — `test_calc_conditional_formatting` covers **BETWEEN** and **DUPLICATE** behavior (operator labels exercised indirectly).
 ---
 
 ## 5. What to do next (recommended roadmap)
@@ -115,7 +114,7 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 
 - **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../plugin/modules/calc/conditional.py) and [`pivot.py`](../plugin/modules/calc/pivot.py).  
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
-- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against [`calc_conditional_constants`](../plugin/framework/calc_conditional_constants.py).  
+- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against [`condition_operator_code_to_name()`](../plugin/modules/calc/conditional.py) in [`conditional.py`](../plugin/modules/calc/conditional.py).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).
 ---
 
@@ -123,8 +122,7 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 
 | File | Purpose |
 |------|---------|
-| [`plugin/framework/calc_conditional_constants.py`](../plugin/framework/calc_conditional_constants.py) | Pure operator code → name mapping (importable without loading `calc` package / UNO) |
-| [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.py) | Tools + UNO helpers |
+| [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.py) | Tools + UNO helpers + `condition_operator_code_to_name()` |
 | [`plugin/modules/calc/base.py`](../plugin/modules/calc/base.py) | `ToolCalcConditionalBase`, `specialized_domain` |
 | [`plugin/modules/calc/bridge.py`](../plugin/modules/calc/bridge.py) | Range resolution |
 | [`plugin/modules/calc/specialized.py`](../plugin/modules/calc/specialized.py) | `delegate_to_specialized_calc_toolset` |

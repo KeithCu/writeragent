@@ -14,7 +14,7 @@ Sheet filter tools live in the **specialized** tier with domain **`sheet_filter`
 | `clear_sheet_filter` | Remove the filter on that range (show all rows again). |
 | `get_sheet_filter` | Read back active criteria (round-trip / debugging). |
 
-Implementation: [`plugin/modules/calc/sheet_filter.py`](../plugin/modules/calc/sheet_filter.py). Base class: `ToolCalcSheetFilterBase` in [`plugin/modules/calc/base.py`](../plugin/modules/calc/base.py). Operator name ↔ code helpers: [`plugin/framework/calc_filter_constants.py`](../plugin/framework/calc_filter_constants.py).
+Implementation: [`plugin/modules/calc/sheet_filter.py`](../plugin/modules/calc/sheet_filter.py). Base class: `ToolCalcSheetFilterBase` in [`plugin/modules/calc/base.py`](../plugin/modules/calc/base.py). Operator labels and JSON → `TableFilterField2` parsing: [`plugin/modules/calc/sheet_filter_criteria.py`](../plugin/modules/calc/sheet_filter_criteria.py).
 
 ---
 
@@ -88,8 +88,7 @@ Future scope, pass-through ideas, and out-of-scope workflows are in **§5** belo
 
 | File | Purpose |
 |------|---------|
-| [`plugin/framework/calc_filter_constants.py`](../plugin/framework/calc_filter_constants.py) | `FilterOperator2` name/code mapping (no UNO import). |
-| [`plugin/framework/calc_sheet_filter_criteria.py`](../plugin/framework/calc_sheet_filter_criteria.py) | Pure JSON → `TableFilterField2` field tuple parsing (unit-tested; no Calc package import). |
+| [`plugin/modules/calc/sheet_filter_criteria.py`](../plugin/modules/calc/sheet_filter_criteria.py) | `FilterOperator2` labels + JSON → `TableFilterField2` field tuple parsing (covered by sheet-filter UNO tests in [`plugin/tests/uno/test_calc.py`](../plugin/tests/uno/test_calc.py), e.g. `test_calc_sheet_filter_apply_get_clear`). |
 | [`plugin/modules/calc/sheet_filter.py`](../plugin/modules/calc/sheet_filter.py) | Tools + UNO helpers. |
 | [`plugin/modules/calc/bridge.py`](../plugin/modules/calc/bridge.py) | Range resolution. |
 
@@ -114,12 +113,12 @@ For **linear AND/OR** semantics and expressivity limits, see **§3** above. Anyt
 
 ### 5.2 UNO surface already covered
 
-Implementation split: pure criteria parsing in [`plugin/framework/calc_sheet_filter_criteria.py`](../plugin/framework/calc_sheet_filter_criteria.py); UNO wiring in [`plugin/modules/calc/sheet_filter.py`](../plugin/modules/calc/sheet_filter.py).
+Implementation split: criteria parsing + operator labels in [`plugin/modules/calc/sheet_filter_criteria.py`](../plugin/modules/calc/sheet_filter_criteria.py); UNO wiring in [`plugin/modules/calc/sheet_filter.py`](../plugin/modules/calc/sheet_filter.py).
 
 | Area | Status |
 |------|--------|
 | `TableFilterField2.Field` | Mapped as JSON `field` (0-based within range). |
-| `FilterOperator2` | Mapped by name via [`plugin/framework/calc_filter_constants.py`](../plugin/framework/calc_filter_constants.py); unknown names fall back to `com.sun.star.sheet.FilterOperator2` enum if present. |
+| `FilterOperator2` | Mapped by name via [`sheet_filter_criteria.py`](../plugin/modules/calc/sheet_filter_criteria.py); unknown names fall back to `com.sun.star.sheet.FilterOperator2` enum if present. |
 | `FilterConnection` (AND/OR) | Mapped as JSON `connection` from the **second** criterion onward; first row always AND (ignored in JSON, matches LO convention). |
 | `IsNumeric` / `NumericValue` / `StringValue` | Via `is_numeric` + `value` heuristics and operator classes (e.g. TOP_*, EMPTY). |
 | `ContainsHeader` | `contains_header` on apply/clear. |

@@ -28,8 +28,7 @@ import logging
 import uno
 from typing import Any
 
-from plugin.framework.calc_filter_constants import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name
-from plugin.framework.calc_sheet_filter_criteria import parse_sheet_filter_criterion
+from plugin.modules.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name, parse_sheet_filter_criterion
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.modules.calc.base import ToolCalcSheetFilterBase
 from plugin.modules.calc.bridge import CalcBridge

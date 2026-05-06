@@ -22,12 +22,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.calc_conditional_constants import condition_operator_code_to_name
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.modules.calc.base import ToolCalcConditionalBase
 from plugin.modules.calc.bridge import CalcBridge
 
 logger = logging.getLogger("writeragent.calc")
+
+# LibreOffice ``ConditionOperator`` / ``ConditionOperator2`` code labels (no UNO import).
+_CONDITION_OPERATOR_CODE_NAMES: tuple[str, ...] = ("NONE", "EQUAL", "NOT_EQUAL", "GREATER", "GREATER_EQUAL", "LESS", "LESS_EQUAL", "BETWEEN", "NOT_BETWEEN", "FORMULA", "DUPLICATE", "NOT_DUPLICATE")
+
+
+def condition_operator_code_to_name(code: int) -> str:
+    """Map UNO condition operator *code* (long) to a stable string label."""
+    if 0 <= code < len(_CONDITION_OPERATOR_CODE_NAMES):
+        return _CONDITION_OPERATOR_CODE_NAMES[code]
+    return str(int(code))
 
 
 def _query_interface(obj: Any, typename: str) -> Any:
