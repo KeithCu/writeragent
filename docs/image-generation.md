@@ -89,12 +89,12 @@ The backend exposes a single `generate_image(prompt, **kwargs)`; when `source_im
 1. In the provider’s `generate()` method, accept `source_image` (base64 str) and optionally `strength` in `**kwargs`.
 2. **OpenRouter-style** (chat completions with image output): Include the source image in the chat message content (e.g. text part + `image_url` part with data URL) and keep using the same request/response path; parse images from the response as for create.
 3. **Together-style** (dedicated images endpoint): Pass `source_image` or `image_url` into the image request builder (e.g. `make_image_request`); add `"image_url": <data URL or URL>` to the JSON body. Use the same POST and response parsing as for create.
-4. Document the provider and any model-specific behavior (e.g. which models support edit) in this section or in AGENTS.md Section 3d.
+4. Document the provider and any model-specific behavior (e.g. which models support edit) in this section or in [`AGENTS.md`](../AGENTS.md).
 
 ---
 
 ## Technical References
-- **AI Horde Client**: [core/aihordeclient/](core/aihordeclient/) — low-level API (async submit, queue, poll, download). See [AGENTS.md](AGENTS.md) Section 3d for overview.
+- **AI Horde Client**: [core/aihordeclient/](core/aihordeclient/) — low-level API (async submit, queue, poll, download). See [`AGENTS.md`](../AGENTS.md) for a short project overview.
 - **Text vs image model**: [core/config.py](core/config.py) — `get_text_model(ctx)` for chat model; `get_api_config(ctx)` returns `"model"` for LlmClient. Image model is `image_model` (used when `image_provider=endpoint`).
 - **Image extraction**: `get_selected_image_base64(model, ctx=None)` in [core/image_tools.py](core/image_tools.py) — bridge for Img2Img. Pass `ctx` from the chat panel or MainJob for Calc.
 - **Error logging**: `localwriter_debug.log`; UI shows errors if `createDialog` or image generation fails.

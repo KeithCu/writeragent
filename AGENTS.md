@@ -7,9 +7,12 @@
 
 > [!IMPORTANT]
 > **Testing Requirement: When adding a feature or fixing a bug, you MUST add test code.**
-> - Use **unit tests** (in `plugin/tests/`) for logic that can be mocked.
-> - Use **UNO tests** (in `plugin/tests/uno/`) to verify that code calling into LibreOffice works correctly in a real environment.
+> - Use **unit tests** (in `plugin/tests/`) for logic that can be mocked; these can use **pytest**.
+> - Use **UNO tests** (in `plugin/tests/uno/`) to verify that code calling into LibreOffice works correctly in a real environment; these run via **`testing_runner.py`** and **cannot use pytest**—use `@native_test`, `@setup`, `@teardown` decorators instead, and functions must accept a `ctx` parameter.
 > - Run **`make test`** to ensure full coverage and prevent regressions.
+
+> [!IMPORTANT]
+> **Code comments: Explain the *why*, not the *what***.** Comment non-obvious choices, constants' rationale, and edge-case handling. **Every bug-fix MUST include a comment explaining the issue.** Skip self-evident code. The goal: enough that the next reader isn't lost, but not so much that comments echo the code. Keep the living history near the code, not in this file.
 
 ---
 
