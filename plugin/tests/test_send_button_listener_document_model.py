@@ -74,17 +74,17 @@ class TestSendButtonListenerDocumentModel(unittest.TestCase):
         with patch("plugin.modules.chatbot.panel.get_active_document", return_value=wrong):
             self.assertIs(self.listener._get_document_model(), writer)
 
-    def test_falls_back_when_frame_missing(self) -> None:
+    def test_returns_none_when_frame_missing(self) -> None:
         self.listener.frame = None
         writer = _writer_model()
         with patch("plugin.modules.chatbot.panel.get_active_document", return_value=writer):
-            self.assertIs(self.listener._get_document_model(), writer)
+            self.assertIsNone(self.listener._get_document_model())
 
-    def test_falls_back_when_frame_get_model_raises(self) -> None:
+    def test_returns_none_when_frame_get_model_raises(self) -> None:
         self.frame.getController.return_value.getModel.side_effect = ValueError("simulated frame failure")
         writer = _writer_model()
         with patch("plugin.modules.chatbot.panel.get_active_document", return_value=writer):
-            self.assertIs(self.listener._get_document_model(), writer)
+            self.assertIsNone(self.listener._get_document_model())
 
     def test_returns_none_when_no_compatible_document(self) -> None:
         bad = _non_document_component()

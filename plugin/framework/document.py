@@ -330,28 +330,7 @@ def set_document_property(model, name, value):
         raise
 
 
-# class DocumentCache:
-#     """Cache for expensive UNO calls, tied to a document model."""
-#     _instances = {}  # {id(model): cache}
-#
-#     def __init__(self):
-#         self.length = None
-#         self.para_ranges = None
-#         self.page_cache = {}  # (search_key) -> page_number
-#         self.last_invalidated = time.time()
-#
-#     @classmethod
-#     def get(cls, model):
-#         mid = id(model)
-#         if mid not in cls._instances:
-#             cls._instances[mid] = DocumentCache()
-#         return cls._instances[mid]
-#
-#     @classmethod
-#     def invalidate(cls, model):
-#         mid = id(model)
-#         if mid in cls._instances:
-#             del cls._instances[mid]
+
 
 
 def _normalize_doc_url(url):
@@ -1024,7 +1003,7 @@ class DocumentService(ServiceBase):
         return id(doc)
 
     def get_paragraph_ranges(self, doc):
-        """Return list of top-level paragraph elements. Uses DocumentCache."""
+        """Return list of top-level paragraph elements."""
         return get_paragraph_ranges(doc)
 
     def find_paragraph_for_range(self, anchor, para_ranges, text_obj=None):

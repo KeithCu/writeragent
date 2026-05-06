@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 import uno
-from plugin.framework.uno_context import get_active_document
 from plugin.framework.dialogs import get_checkbox_state
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
@@ -592,25 +591,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             log.error("_on_mcp_result post error: %s" % e)
 
     def _get_document_model(self):
-        """Get the Writer document model.
+        """Get the document model strictly from the frame.
 
-        Prefer the document bound to this sidebar's frame (same window as the user)
-        over ``Desktop.getCurrentComponent()``, which can point at the sidebar or
-        another focus target when the user types in the query field and clicks Send.
+        Always prefers the document bound to this sidebar's frame (same window as the user)
+        instead of ``Desktop.getCurrentComponent()``, which can point at the wrong
+        document if focus changes.
         """
-        frame_model = None
+        model = None
         frame_exc: BaseException | None = None
         if self.frame:
             try:
-                frame_model = self.frame.getController().getModel()
+                model = self.frame.getController().getModel()
             except Exception as e:
                 frame_exc = e
-
-        desktop_model = None
-        if frame_model is None:
-            desktop_model = get_active_document(self.ctx)
-
-        model = frame_model if frame_model is not None else desktop_model
 
         from plugin.framework.document import is_writer, is_calc, is_draw
 
@@ -618,11 +611,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return model
 
         # Only log when chat send will fail (same moment as the sidebar error message).
-        detail_parts = ["has_frame=%s" % bool(self.frame), "frame_branch=%s" % _uno_model_probe_for_log(frame_model), "desktop_current=%s" % _uno_model_probe_for_log(desktop_model)]
+        detail_parts = ["has_frame=%s" % bool(self.frame), "model_probe=%s" % _uno_model_probe_for_log(model)]
         if frame_exc is not None:
             detail_parts.append("frame_get_model_failed=[%s] %s" % (type(frame_exc).__name__, frame_exc))
         if model is not None:
-            detail_parts.append("reject_reason=unsupported_component source=%s probe=%s" % ("frame" if frame_model is not None else "desktop", _uno_model_probe_for_log(model)))
+            detail_parts.append("reject_reason=unsupported_component probe=%s" % _uno_model_probe_for_log(model))
         log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 

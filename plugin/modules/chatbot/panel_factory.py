@@ -59,7 +59,7 @@ except ImportError:
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
 from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, set_control_text, set_control_enabled, set_control_visible
-from plugin.framework.uno_context import get_active_document, get_extension_url, get_extension_path
+from plugin.framework.uno_context import get_extension_url, get_extension_path
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
 if TYPE_CHECKING:
@@ -417,7 +417,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             log.error("_update_backend_indicator error: %s" % e)
 
     def _get_document_model(self):
-        """Helper to get the current document model."""
+        """Helper to get the current document model strictly from the frame."""
         model = None
         if self.xFrame:
             try:
@@ -428,8 +428,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                     log.debug("Failed to get model from frame controller (likely disposed): %s", e)
-        if model is None:
-            model = get_active_document(self.ctx)
         return model
 
     def _wire_model_selectors(self, model_selector, image_model_selector):
