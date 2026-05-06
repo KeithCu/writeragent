@@ -73,6 +73,41 @@ If the LLM needs a style outside of this injected "shortlist", it can rely on th
 
 ## Example System Prompt Instruction
 
-If you choose to manage this via the LocalWriter **Settings → Additional Instructions**, you can add a rule like:
-
 > *"When writing text, use the `<p class="Style Name">` and `<span class="Style Name">` HTML tags to apply formatting. Make sure the class names precisely match the custom styles provided in your context. Available preferred paragraph styles include: 'Warning Box', 'Aside', 'Code Block', and 'Appendix'."*
+
+## Editing Styles Dynamically
+
+LocalWriter also provides tools for the LLM to inspect and modify existing document styles directly.
+
+### The `update_style` Tool
+
+The LLM can call the `update_style` tool to dynamically change properties of any style within the document. This gives the AI the ability to fine-tune the look and feel of the document template based on user requests (e.g., "Change the heading color to match my company branding").
+
+**Tool Parameters:**
+* `style_name`: The name of the style to modify (e.g., "Heading 1", "Source Text").
+* `family`: The style family (`ParagraphStyles` or `CharacterStyles`).
+* `properties`: A dictionary of LibreOffice UNO API properties to update.
+
+### Setting Colors and Properties
+
+When updating styles, the LLM sets underlying **LibreOffice UNO API properties**. The `update_style` tool has built-in support to parse common web hex colors (like `#FF0000` or `FF0000`) into the 24-bit integers that LibreOffice expects.
+
+**Key Color Properties (CharacterStyles and ParagraphStyles):**
+* `CharColor`: The main text color.
+* `CharBackColor`: The background (highlight) color of the text.
+* `CharUnderlineColor`: The color of the text underline.
+
+**Example Tool Call:**
+```json
+{
+  "style_name": "Heading 1",
+  "family": "ParagraphStyles",
+  "properties": {
+    "CharColor": "#0055A4",
+    "CharWeight": 150,
+    "ParaTopMargin": 500
+  }
+}
+```
+
+By leveraging `update_style`, the LLM can act as a fully autonomous designer, adjusting typography, spacing, and brand colors without the user having to manually edit LibreOffice style templates.
