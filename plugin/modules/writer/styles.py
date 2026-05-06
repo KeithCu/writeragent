@@ -27,10 +27,41 @@ log = logging.getLogger("writeragent.writer")
 
 _STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
 
-# Properties to read per style family.
+_KNOWN_CHARACTER_PROPERTIES = {
+    "CharColor": {"type": "string", "description": "Main text color (hex string like '#FF0000' or '#0055A4')."},
+    "CharBackColor": {"type": "string", "description": "Background/highlight color (hex string)."},
+    "CharUnderlineColor": {"type": "string", "description": "Underline color (hex string)."},
+    "CharWeight": {"type": "number", "description": "Font weight (e.g., 100 for normal, 150 for bold)."},
+    "CharHeight": {"type": "number", "description": "Font size in points."},
+    "CharFontName": {"type": "string", "description": "Font family name (e.g., 'Arial')."},
+    "CharStrikeout": {"type": "integer", "description": "Strikeout type (0=None, 1=Single, 2=Double)."},
+    "CharCaseMap": {"type": "integer", "description": "Case mapping (0=None, 1=Uppercase, 2=Lowercase, 3=Title, 4=SmallCaps)."},
+    "CharPosture": {"type": "integer", "description": "Italics/posture (0=None, 1=Italic, 2=Oblique)."},
+    "CharShadowed": {"type": "boolean", "description": "Whether text is shadowed."},
+    # "CharRelief": {"type": "integer", "description": "Relief style (0=None, 1=Embossed, 2=Engraved)."},
+    # "CharHidden": {"type": "boolean", "description": "Whether text is hidden."},
+    "CharWordMode": {"type": "boolean", "description": "Whether underline/strikeout applies only to words."}
+}
+
+_KNOWN_PARAGRAPH_PROPERTIES = {
+    "ParaTopMargin": {"type": "integer", "description": "Top margin in 1/100th mm (1 inch = 2540)."},
+    "ParaBottomMargin": {"type": "integer", "description": "Bottom margin in 1/100th mm."},
+    "ParaLeftMargin": {"type": "integer", "description": "Left margin in 1/100th mm."},
+    "ParaRightMargin": {"type": "integer", "description": "Right margin in 1/100th mm."},
+    "ParaFirstLineIndent": {"type": "integer", "description": "First line indent in 1/100th mm."},
+    "ParaAdjust": {"type": "integer", "description": "Paragraph alignment (0=Left, 1=Right, 2=Block, 3=Center)."},
+    "ParaBackColor": {"type": "string", "description": "Paragraph background color (hex string)."},
+    "ParaKeepTogether": {"type": "boolean", "description": "Keep lines of the paragraph together."},
+    "ParaSplit": {"type": "boolean", "description": "Whether the paragraph is allowed to split across pages."}
+}
+
+# Combine properties for schema use
+_ALL_KNOWN_PROPERTIES = {**_KNOWN_CHARACTER_PROPERTIES, **_KNOWN_PARAGRAPH_PROPERTIES}
+
+# Properties to read per style family. Paragraph styles inherit character properties.
 _FAMILY_PROPS = {
-    "ParagraphStyles": ["ParentStyle", "FollowStyle", "CharFontName", "CharHeight", "CharWeight", "ParaAdjust", "ParaTopMargin", "ParaBottomMargin"],
-    "CharacterStyles": ["ParentStyle", "CharFontName", "CharHeight", "CharWeight", "CharPosture", "CharColor", "CharUnderline", "CharStrikeout", "CharCaseMap"],
+    "ParagraphStyles": ["ParentStyle", "FollowStyle"] + list(_KNOWN_PARAGRAPH_PROPERTIES.keys()) + list(_KNOWN_CHARACTER_PROPERTIES.keys()),
+    "CharacterStyles": ["ParentStyle"] + list(_KNOWN_CHARACTER_PROPERTIES.keys()),
 }
 
 
@@ -40,6 +71,21 @@ def _get_bool_prop(obj, prop_name, default=False):
         return bool(obj.getPropertyValue(prop_name))
     except Exception:
         return default
+
+
+def _parse_color(val):
+    """Parse a web color string (e.g., #FF0000, FF0000) or integer to a UNO color (integer)."""
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        val = val.strip()
+        if val.startswith("#"):
+            val = val[1:]
+        try:
+            return int(val, 16)
+        except ValueError:
+            pass
+    return val
 
 
 class ListStyles(ToolBase):
@@ -242,3 +288,78 @@ class ApplyStyle(FrameworkToolBase):
         except Exception as e:
             return self._tool_error("Could not apply style: %s" % e)
         return {"status": "ok", "style_name": style_name, "family": family}
+
+
+class UpdateStyle(ToolBase):
+    """Update properties of an existing paragraph or character style."""
+
+    name = "update_style"
+    intent = "edit"
+    tier = "extended"
+    description = (
+        "Update the properties of an existing style. "
+        "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
+        "a dictionary of 'properties' to update (e.g., {'CharColor': '#FF0000', 'CharWeight': 150}). "
+        "Colors can be provided as hex strings or integers."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "style_name": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
+            "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": "Style family. Default: ParagraphStyles."},
+            "properties": {
+                "type": "object",
+                "description": "Dictionary of properties to update.",
+                "properties": _ALL_KNOWN_PROPERTIES,
+                "additionalProperties": True
+            },
+        },
+        "required": ["style_name", "properties"],
+    }
+    uno_services = ["com.sun.star.text.TextDocument"]
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        style_name = kwargs.get("style_name", "").strip()
+        if not style_name:
+            return self._tool_error("style_name is required.")
+
+        family = kwargs.get("family", "ParagraphStyles")
+        properties = kwargs.get("properties", {})
+        if not isinstance(properties, dict) or not properties:
+            return self._tool_error("properties must be a non-empty dictionary.")
+
+        doc = ctx.doc
+        style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
+        if isinstance(style_family, dict):
+            return style_family
+
+        if not style_family.hasByName(style_name):
+            return self._tool_error("Style '%s' not found in %s." % (style_name, family))
+
+        style = style_family.getByName(style_name)
+
+        applied = {}
+        failed = {}
+
+        for prop_name, prop_val in properties.items():
+            # Handle color conversions
+            if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
+                prop_val = _parse_color(prop_val)
+
+            try:
+                style.setPropertyValue(prop_name, prop_val)
+                applied[prop_name] = prop_val
+            except Exception as e:
+                failed[prop_name] = str(e)
+
+        result = {"status": "ok", "style_name": style_name, "family": family}
+        if applied:
+            result["updated_properties"] = applied
+        if failed:
+            result["failed_properties"] = failed
+            if not applied:
+                result["status"] = "error"
+                result["message"] = "Failed to apply any properties."
+
+        return result
