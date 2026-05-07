@@ -25,7 +25,7 @@ import json
 import logging
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.inspector import CellInspector
 from plugin.modules.calc.manipulator import CellManipulator

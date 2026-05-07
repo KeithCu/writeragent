@@ -36,7 +36,7 @@ def teardown_draw_form_tests(ctx):
 
 def _exec_tool(name, args):
     from plugin.main import get_tools
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     tctx = ToolContext(_test_doc, _test_ctx, "draw", {}, "test")
     res = get_tools().execute(name, tctx, **args)
     return res

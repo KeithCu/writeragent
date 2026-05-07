@@ -5,7 +5,7 @@
 
 """Undo/redo tools for all document types via XUndoManager."""
 
-from plugin.framework.tool_base import ToolBaseDummy
+from plugin.framework.tool import ToolBaseDummy
 
 
 def _get_undo_manager(doc):

@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Any, Mapping, cast
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.framework.config import user_config_dir
 from plugin.framework.errors import ConfigError
 

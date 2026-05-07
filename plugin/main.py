@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
     from com.sun.star.util import URL as UnoURL
     from plugin.framework.module_base import ModuleBase
-    from plugin.framework.tool_registry import ToolRegistry
+    from plugin.framework.tool import ToolRegistry
 
 officehelper: ModuleType | None = None
 try:
@@ -190,7 +190,7 @@ def bootstrap(ctx=None):
         _services.register("events", get_event_bus())
 
         # 4. Tool Registry
-        from plugin.framework.tool_registry import ToolRegistry
+        from plugin.framework.tool import ToolRegistry
 
         _tools = ToolRegistry(_services)
         _services.register("tools", _tools)

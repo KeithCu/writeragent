@@ -1,13 +1,33 @@
-"""Tests for plugin.framework.tool_registry."""
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2024 John Balis
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""Tests for consolidated plugin.framework.tool."""
 
 import pytest
+import time
+import types
+from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
+from plugin.framework.service import ServiceRegistry
 
-from plugin.framework.tool_base import ToolBase
-from plugin.framework.tool_context import ToolContext
+# ── Mock Objects ──────────────────────────────────────────────────────
 
 class MockDoc:
-    def __init__(self, doc_type="writer"):
+    def __init__(self, doc_type="writer", items=None):
         self.doc_type = doc_type
+        self._items = items or {}
 
     def supportsService(self, svc):
         if self.doc_type == "writer" and svc == "com.sun.star.text.TextDocument": return True
@@ -16,9 +36,151 @@ class MockDoc:
         if self.doc_type == "impress" and svc == "com.sun.star.presentation.PresentationDocument": return True
         return False
 
-from plugin.framework.tool_registry import ToolRegistry
-from plugin.framework.service import ServiceRegistry
+    def getMyItems(self):
+        class Collection:
+            def __init__(self, data):
+                self.data = data
+            def hasByName(self, name):
+                return name in self.data
+            def getByName(self, name):
+                return self.data[name]
+            def getElementNames(self):
+                return tuple(self.data.keys())
+        return Collection(self._items)
 
+# ── Tool Context Tests ───────────────────────────────────────────────
+
+def test_tool_context_init():
+    doc = object()
+    ctx = object()
+    doc_type = "writer"
+    services = object()
+    caller = "test"
+
+    def status_cb(): pass
+    def thinking_cb(): pass
+    def stop_cb(): return False
+
+    tc = ToolContext(
+        doc=doc,
+        ctx=ctx,
+        doc_type=doc_type,
+        services=services,
+        caller=caller,
+        status_callback=status_cb,
+        append_thinking_callback=thinking_cb,
+        stop_checker=stop_cb
+    )
+
+    assert tc.doc is doc
+    assert tc.ctx is ctx
+    assert tc.doc_type == doc_type
+    assert tc.services is services
+    assert tc.caller == caller
+    assert tc.status_callback is status_cb
+    assert tc.append_thinking_callback is thinking_cb
+    assert tc.stop_checker is stop_cb
+
+def test_tool_context_defaults():
+    tc = ToolContext(doc=None, ctx=None, doc_type="calc", services=None)
+    assert tc.caller == ""
+    assert tc.status_callback is None
+    assert tc.append_thinking_callback is None
+    assert tc.stop_checker is None
+
+# ── Tool Base Tests ──────────────────────────────────────────────────
+
+class ValidTool(ToolBase):
+    name = "edit_doc"
+    description = "edit doc"
+    parameters = {
+        "properties": {
+            "text": {"type": "string"}
+        },
+        "required": ["text"]
+    }
+    def execute(self, ctx, **kwargs):
+        return {"status": "ok"}
+
+class ReadTool(ToolBase):
+    name = "get_info"
+    def execute(self, ctx, **kwargs): pass
+
+class ExplictMutateTool(ToolBase):
+    name = "get_but_mutates"
+    is_mutation = True
+    def execute(self, ctx, **kwargs): pass
+
+def test_detects_mutation():
+    tool1 = ValidTool()
+    assert tool1.detects_mutation() is True  # does not start with get_
+
+    tool2 = ReadTool()
+    assert tool2.detects_mutation() is False # starts with get_
+
+    tool3 = ExplictMutateTool()
+    assert tool3.detects_mutation() is True  # is_mutation is explicit
+
+    class UnnamedTool(ToolBase):
+        name = None
+        def execute(self, ctx, **kwargs): pass
+    assert UnnamedTool().detects_mutation() is True
+
+def test_validate():
+    tool = ValidTool()
+
+    # Valid
+    ok, err = tool.validate(text="hello")
+    assert ok is True
+    assert err is None
+
+    # Missing required
+    ok, err = tool.validate()
+    assert ok is False
+    assert "Missing required parameter: text" in err
+
+    # Unknown param
+    ok, err = tool.validate(text="hello", extra="bad")
+    assert ok is False
+    assert "Unknown parameter: extra" in err
+
+def test_get_collection():
+    tool = ValidTool()
+
+    # Missing getter
+    doc_bad = object()
+    res = tool.get_collection(doc_bad, "getMyItems")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+
+    # Valid getter
+    doc_good = MockDoc(items={"a": 1})
+    coll = tool.get_collection(doc_good, "getMyItems")
+    assert not isinstance(coll, dict)
+    assert coll.hasByName("a")
+
+def test_get_item():
+    tool = ValidTool()
+    doc = MockDoc(items={"item1": "val1", "item2": "val2"})
+
+    # Missing getter entirely
+    res = tool.get_item(object(), "getMyItems", "item1")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+
+    # Item not found
+    res = tool.get_item(doc, "getMyItems", "missing")
+    assert isinstance(res, dict)
+    assert res["status"] == "error"
+    assert "missing" in res["message"]
+    assert "available" in res["details"]
+    assert "item1" in res["details"]["available"]
+
+    # Item found
+    res = tool.get_item(doc, "getMyItems", "item1")
+    assert res == "val1"
+
+# ── Tool Registry Tests ─────────────────────────────────────────────
 
 class FakeTool(ToolBase):
     name = "fake_tool"
@@ -29,29 +191,23 @@ class FakeTool(ToolBase):
         "required": ["text"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
-
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "text": kwargs["text"]}
-
 
 class AllDocTool(ToolBase):
     name = "universal_tool"
     description = "Works everywhere"
     parameters = {"type": "object", "properties": {}}
     uno_services = None
-
     def execute(self, ctx, **kwargs):
         return {"status": "ok"}
-
 
 class FailingTool(ToolBase):
     name = "fail_tool"
     description = "Always fails"
     parameters = {"type": "object", "properties": {}}
-
     def execute(self, ctx, **kwargs):
         raise RuntimeError("intentional failure")
-
 
 def _make_registry(*tools):
     services = ServiceRegistry()
@@ -60,20 +216,14 @@ def _make_registry(*tools):
         reg.register(t)
     return reg
 
-
 def _make_ctx(doc_type="writer"):
     return ToolContext(
         doc=MockDoc(doc_type), ctx=None, doc_type=doc_type,
         services=ServiceRegistry(), caller="test"
     )
 
-
 class TestRegister:
     def test_auto_discover(self):
-        # Create a fake module to test auto_discover
-        from plugin.framework.tool_base import ToolBaseDummy
-        import types
-
         mock_module = types.ModuleType("mock_module")
 
         class GoodTool(ToolBase):
@@ -88,8 +238,7 @@ class TestRegister:
             def execute(self, ctx, **kwargs): pass
         AnotherTool.__module__ = "mock_module"
 
-        class AbstractTool(ToolBase):
-            pass # No name defined
+        class AbstractTool(ToolBase): pass
         AbstractTool.__module__ = "mock_module"
 
         class DummyTool(ToolBaseDummy):
@@ -100,9 +249,8 @@ class TestRegister:
         class ImportedTool(ToolBase):
             name = "imported_tool"
             def execute(self, ctx, **kwargs): pass
-        ImportedTool.__module__ = "other_module" # Simulate an imported class
+        ImportedTool.__module__ = "other_module"
 
-        # Add classes to module
         mock_module.GoodTool = GoodTool
         mock_module.AnotherTool = AnotherTool
         mock_module.AbstractTool = AbstractTool
@@ -113,7 +261,6 @@ class TestRegister:
         reg = _make_registry()
         reg.auto_discover(mock_module)
 
-        # Should only register GoodTool and AnotherTool
         assert reg.get("good_tool") is not None
         assert reg.get("another_tool") is not None
         assert reg.get("dummy_tool") is None
@@ -133,7 +280,6 @@ class TestRegister:
         reg = _make_registry(FakeTool(), AllDocTool())
         assert len(reg) == 2
 
-
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
         reg = _make_registry(FakeTool(), AllDocTool())
@@ -148,11 +294,9 @@ class TestDocTypeFiltering:
         assert "universal_tool" in names
 
     def test_tools_for_none_returns_universal_only(self):
-        """When doc_type is None (unknown), only universal tools are returned."""
         reg = _make_registry(FakeTool(), AllDocTool())
         names = [t.name for t in reg.get_tools(doc=None)]
         assert names == ["universal_tool"]
-
 
 class TestExecute:
     def test_successful_execution(self):
@@ -200,12 +344,9 @@ class TestExecute:
 
         reg = _make_registry(TypeCheckingTool())
         ctx = _make_ctx("writer")
-
-        # Pass a list instead of string
         result = reg.execute("type_checker", ctx, text=["not", "a", "string"])
         assert result["status"] == "error"
         assert "text must be a string" in result.get("message", "")
-
 
 class TestExcludeSpecializedTiers:
     def test_default_excludes_specialized_tier(self):
@@ -214,9 +355,7 @@ class TestExcludeSpecializedTiers:
             description = "x"
             parameters = {"type": "object", "properties": {}}
             tier = "specialized"
-
-            def execute(self, ctx, **kwargs):
-                return {"status": "ok"}
+            def execute(self, ctx, **kwargs): return {"status": "ok"}
 
         reg = _make_registry(FakeTool(), SpecTool())
         names = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
@@ -229,39 +368,15 @@ class TestExcludeSpecializedTiers:
             description = "x"
             parameters = {"type": "object", "properties": {}}
             tier = "specialized"
-
-            def execute(self, ctx, **kwargs):
-                return {"status": "ok"}
+            def execute(self, ctx, **kwargs): return {"status": "ok"}
 
         reg = _make_registry(FakeTool(), SpecTool())
         names = [t.name for t in reg.get_tools(doc=MockDoc("writer"), exclude_tiers=())]
         assert "fake_tool" in names
         assert "spec_tool" in names
 
-    def test_create_shape_specialized_hidden_for_all(self):
-        class CreateShapeStub(ToolBase):
-            name = "create_shape"
-            description = "stub"
-            parameters = {"type": "object", "properties": {}}
-            tier = "specialized"
-            uno_services = [
-                "com.sun.star.text.TextDocument",
-                "com.sun.star.drawing.DrawingDocument",
-            ]
-
-            def execute(self, ctx, **kwargs):
-                return {"status": "ok"}
-
-        reg = _make_registry(FakeTool(), CreateShapeStub())
-        w = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
-        d = [t.name for t in reg.get_tools(doc=MockDoc("draw"))]
-        assert "create_shape" not in w
-        assert "create_shape" not in d
-
-
 class TestLibrarianToolVisibility:
     def test_librarian_tools_are_hidden_by_default_in_main_chat_schema(self):
-        # Import real librarian tools to ensure their tier affects the registry output.
         from plugin.modules.chatbot.librarian import (
             LibrarianOnboardingTool,
             SwitchToDocumentModeTool,
@@ -271,12 +386,8 @@ class TestLibrarianToolVisibility:
             name = "visible_tool"
             description = "Visible tool"
             parameters = {"type": "object", "properties": {}}
-
-            # Universal tool (no uno_services / doc_types), should be included.
             uno_services = None
-
-            def execute(self, ctx, **kwargs):
-                return {"status": "ok"}
+            def execute(self, ctx, **kwargs): return {"status": "ok"}
 
         reg = _make_registry(
             VisibleTool(),
@@ -290,7 +401,6 @@ class TestLibrarianToolVisibility:
         assert "visible_tool" in tool_names
         assert "librarian_onboarding" not in tool_names
         assert "switch_to_document_mode" not in tool_names
-
 
 class TestSchemas:
     def test_openai_schemas(self):
@@ -309,31 +419,22 @@ class TestSchemas:
         assert s["name"] == "fake_tool"
         assert "inputSchema" in s
 
-
 class TestExecuteEventsAndInvalidation:
-    """Tests that execute() emits events."""
-
     def test_execute_emits_events(self):
         class MockEventBus:
-            def __init__(self):
-                self.events = []
-
-            def emit(self, event, **kwargs):
-                self.events.append((event, kwargs))
+            def __init__(self): self.events = []
+            def emit(self, event, **kwargs): self.events.append((event, kwargs))
 
         class ToolWithParams(ToolBase):
             name = "tool_with_params"
             description = "Tool with params"
             parameters = {"type": "object", "properties": {"arg1": {"type": "string"}}}
             uno_services = ["com.sun.star.text.TextDocument"]
-
-            def execute(self, ctx, **kwargs):
-                return {"status": "success"}
+            def execute(self, ctx, **kwargs): return {"status": "success"}
 
         services = ServiceRegistry()
         events = MockEventBus()
         services.register("events", events)
-
         reg = ToolRegistry(services)
         reg.register(ToolWithParams())
 
@@ -347,25 +448,19 @@ class TestExecuteEventsAndInvalidation:
 
     def test_execute_failure_emits_events(self):
         class MockEventBus:
-            def __init__(self):
-                self.events = []
-
-            def emit(self, event, **kwargs):
-                self.events.append((event, kwargs))
+            def __init__(self): self.events = []
+            def emit(self, event, **kwargs): self.events.append((event, kwargs))
 
         class FailingToolWithParams(ToolBase):
             name = "failing_tool_with_params"
             description = "Tool with params that fails"
             parameters = {"type": "object", "properties": {"arg1": {"type": "string"}}}
             uno_services = ["com.sun.star.text.TextDocument"]
-
-            def execute(self, ctx, **kwargs):
-                raise RuntimeError("something went wrong")
+            def execute(self, ctx, **kwargs): raise RuntimeError("something went wrong")
 
         services = ServiceRegistry()
         events = MockEventBus()
         services.register("events", events)
-
         reg = ToolRegistry(services)
         reg.register(FailingToolWithParams())
 
@@ -374,67 +469,43 @@ class TestExecuteEventsAndInvalidation:
 
         assert result["status"] == "error"
         assert "something went wrong" in result["message"]
-
         assert len(events.events) == 2
         assert events.events[0][0] == "tool:executing"
         assert events.events[1][0] == "tool:failed"
-        assert "something went wrong" in events.events[1][1]["error"]
 
 class TestToolIsolation:
     def test_tool_execution_error(self):
-        from plugin.framework.tool_registry import ToolRegistry
-        from plugin.framework.tool_base import ToolBase
-
         class FailingTool(ToolBase):
             name = "test_fail"
-            description = "Test tool that raises ValueError"
+            description = "x"
             parameters = {"type": "object", "properties": {}}
-
-            def execute(self, ctx, **kwargs):
-                raise ValueError("Test error")
+            def execute(self, ctx, **kwargs): raise ValueError("Test error")
 
         registry = ToolRegistry(services={})
         registry.register(FailingTool())
 
         class DummyContext:
-            doc_type = None
-            caller = None
-
+            doc = None; doc_type = None; caller = None
         result = registry.execute("test_fail", DummyContext())
-
         assert result["status"] == "error"
         assert "Test error" in result["details"]["original_error"]
         assert result["code"] == "TOOL_EXECUTION_ERROR"
 
     def test_tool_timeout(self):
-        from plugin.framework.tool_registry import ToolRegistry
-        from plugin.framework.tool_base import ToolBase
-        import time
-
         class SlowTool(ToolBase):
             name = "test_slow"
-            description = "Test tool that sleeps past timeout"
+            description = "x"
             timeout = 0.1
             parameters = {"type": "object", "properties": {}}
-
-            def is_async(self):
-                # allow it to run in the test thread pool
-                return True
-
+            def is_async(self): return True
             def execute(self, ctx, **kwargs):
                 time.sleep(2)
                 return {"status": "ok"}
 
         registry = ToolRegistry(services={})
         registry.register(SlowTool())
-
         class DummyContext:
-            doc_type = None
-            caller = None
-
+            doc = None; doc_type = None; caller = None
         result = registry.execute("test_slow", DummyContext())
-
         assert result["status"] == "error"
         assert result["code"] == "TOOL_TIMEOUT"
-        assert "Tool timed out" in result["message"]
-

@@ -37,7 +37,7 @@ def _move_cursor_by_offset(cursor, offset, expand=False):
 def _tool_ctx(doc, ctx):
     """Build ToolContext for writer tools (uses real get_services())."""
     from plugin.main import get_services
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     return ToolContext(doc, ctx, "writer", get_services(), "test")
 
 

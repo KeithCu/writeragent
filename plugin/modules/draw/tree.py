@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 log = logging.getLogger(__name__)
 

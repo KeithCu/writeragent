@@ -8,7 +8,7 @@ import re
 import traceback
 from typing import Iterable, cast
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.modules.chatbot.memory import format_upsert_memory_chat_line_from_arguments
 
 log = logging.getLogger(__name__)

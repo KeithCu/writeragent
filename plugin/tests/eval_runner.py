@@ -91,7 +91,7 @@ class EvalRunner:
                 
                 # Execute the tool with appropriate dispatcher
                 try:
-                    from plugin.framework.tool_context import ToolContext
+                    from plugin.framework.tool import ToolContext
                     tctx = ToolContext(self.doc, self.ctx, doc_type, {}, "eval")
                     registry.execute(t_name, tctx, **t_args)
                 except Exception as e:

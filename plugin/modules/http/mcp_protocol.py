@@ -495,7 +495,7 @@ class MCPProtocolHandler:
         elif doc is None:
             return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": "No document open matching X-Document-URL: %s" % document_url, "details": {"document_url": document_url}}
 
-        from plugin.framework.tool_context import ToolContext
+        from plugin.framework.tool import ToolContext
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp")
 
@@ -538,7 +538,7 @@ class MCPProtocolHandler:
             log.warning("Error getting UNO context in execution: %s", type(e).__name__)
             pass
 
-        from plugin.framework.tool_context import ToolContext
+        from plugin.framework.tool import ToolContext
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp")
 

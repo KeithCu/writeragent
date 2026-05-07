@@ -6,7 +6,7 @@
 """Impress speaker notes tools."""
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 
 def _get_slide(doc, page_index=None):

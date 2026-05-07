@@ -12,7 +12,7 @@ To enable the tool:
 
 Suggested implementation (commented out for now):
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.contrib.todo_store import TodoStore, todo_tool, VALID_STATUSES
 
 

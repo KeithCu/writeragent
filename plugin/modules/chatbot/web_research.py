@@ -20,7 +20,7 @@ import logging
 import os
 from typing import Any, cast
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 

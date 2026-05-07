@@ -29,7 +29,7 @@ import logging
 from typing import Any
 
 from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
-from plugin.framework.tool_base import ToolBaseDummy
+from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import WriterAgentException
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.manipulator import CellManipulator

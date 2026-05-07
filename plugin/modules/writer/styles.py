@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase as FrameworkToolBase
+from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.modules.writer.base import ToolWriterStyleBase as ToolBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 

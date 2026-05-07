@@ -53,7 +53,7 @@ def teardown_calc_analysis_tests(ctx):
 
 def _execute_calc_tool(name, args):
     from plugin.main import get_tools, get_services
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     tctx = ToolContext(_test_doc, _test_ctx, "calc", get_services(), "test")
     # Add callbacks for specialized delegation emulation
     tctx.status_callback = lambda m: None

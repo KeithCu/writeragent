@@ -24,7 +24,7 @@ CellInspector, and ErrorDetector per call using ``ctx.doc``.
 import logging
 from typing import cast
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
 from plugin.modules.calc.inspector import CellInspector
 from plugin.modules.calc.error_detector import ErrorDetector

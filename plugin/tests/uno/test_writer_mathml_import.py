@@ -127,7 +127,7 @@ def test_apply_document_content_end_with_mathml() -> None:
     """End-to-end: ``apply_document_content`` tool on a hidden doc with MathML HTML."""
     assert _test_doc is not None and _test_ctx is not None
     from plugin.main import get_services, get_tools
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
 
     text = _test_doc.getText()
     text.setString("")

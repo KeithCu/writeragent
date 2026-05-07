@@ -26,7 +26,7 @@
 | Sidebar, send, document resolution | [`plugin/modules/chatbot/panel_factory.py`](plugin/modules/chatbot/panel_factory.py), [`plugin/modules/chatbot/panel.py`](plugin/modules/chatbot/panel.py) |
 | Tool loop / chat FSM | [`plugin/modules/chatbot/tool_loop.py`](plugin/modules/chatbot/tool_loop.py), [`plugin/modules/chatbot/tool_loop_state.py`](plugin/modules/chatbot/tool_loop_state.py) |
 | HTTP / LLM | [`plugin/modules/http/client.py`](plugin/modules/http/client.py) (`make_chat_request`, `request_with_tools`, token stripping, shims, pacing) |
-| Tools registry | [`plugin/framework/tool_registry.py`](plugin/framework/tool_registry.py) |
+| Tools registry | [`plugin/framework/tool.py`](plugin/framework/tool.py) |
 | UNO document helpers | [`plugin/framework/document.py`](plugin/framework/document.py) |
 | Config / keys / LRU | [`plugin/framework/config.py`](plugin/framework/config.py) |
 | Dialogs / XDL helpers | [`plugin/framework/dialogs.py`](plugin/framework/dialogs.py) |
@@ -127,7 +127,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 ### Tools / Writer / Calc
 
-- **Specialized tools in tests:** `plugin.main.get_tools().get("tool_name")`—not fragile internal imports; see [`tool_registry.py`](plugin/framework/tool_registry.py).
+- **Specialized tools in tests:** `plugin.main.get_tools().get("tool_name")`—not fragile internal imports; see [`tool.py`](plugin/framework/tool.py).
 - **In-place specialized mode:** `USE_SUB_AGENT` / `active_domain` / [`ToolCallingMixin._refresh_active_tools_for_session`](plugin/modules/chatbot/tool_loop.py)—[`plugin/framework/constants.py`](plugin/framework/constants.py).
 - **HTML / content:** [`format_support.py`](plugin/modules/writer/format_support.py)—prefer **plain-text** `apply_document_content` to preserve character formatting; **`safe_json_loads`** repair/LaTeX clash recovery in [`plugin/framework/errors.py`](plugin/framework/errors.py). Math segments: [`html_math_segment.py`](plugin/modules/writer/html_math_segment.py), [`math_formula_insert.py`](plugin/modules/writer/math_formula_insert.py).
 - **Outline API:** `get_document_tree`, `get_heading_children` in [`outline.py`](plugin/modules/writer/outline.py)—legacy names like `get_document_outline` are obsolete.

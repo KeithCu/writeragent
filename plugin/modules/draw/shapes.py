@@ -19,7 +19,7 @@
 import logging
 
 from plugin.framework.errors import WriterAgentException
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from .base import ToolDrawShapeBase
 
 log = logging.getLogger(__name__)

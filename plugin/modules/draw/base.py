@@ -18,7 +18,7 @@
 
 from typing import ClassVar
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 
 class ToolDrawSpecialBase(ToolBase):

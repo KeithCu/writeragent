@@ -20,7 +20,7 @@ import datetime
 import logging
 import uno
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.modules.writer.base import ToolWriterCommentBase
 from plugin.modules.writer.ops import find_paragraph_for_range
 

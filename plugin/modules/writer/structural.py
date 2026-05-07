@@ -18,7 +18,7 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 from plugin.modules.writer.base import ToolWriterStructuralBase
 

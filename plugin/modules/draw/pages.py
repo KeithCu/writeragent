@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Page/slide management tools for Draw/Impress documents."""
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 
 class AddSlide(ToolBase):

@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.tool_base import ToolBase, ToolBaseDummy
+from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.modules.writer import format_support
 import re as re_mod
 

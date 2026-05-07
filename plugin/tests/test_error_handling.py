@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from plugin.framework.errors import WriterAgentException, format_error_payload, safe_json_loads
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.modules.http.errors import format_error_for_display
 
 class DummyTool(ToolBase):

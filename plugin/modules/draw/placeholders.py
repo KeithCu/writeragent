@@ -13,7 +13,7 @@ to placeholders by role rather than shape index.
 from plugin.framework.errors import ToolExecutionError
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 log = logging.getLogger("nelson.draw")
 

@@ -41,7 +41,7 @@ def teardown_docs(ctx):
 
 def _execute(doc, name, args, domain="calc"):
     from plugin.main import get_tools, get_services
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     tctx = ToolContext(doc, None, domain, get_services(), "test")
     return get_tools().execute(name, tctx, **args)
 

@@ -5,7 +5,7 @@
 
 """Print tool for all document types via XPrintable."""
 
-from plugin.framework.tool_base import ToolBaseDummy
+from plugin.framework.tool import ToolBaseDummy
 
 
 class PrintDocument(ToolBaseDummy):

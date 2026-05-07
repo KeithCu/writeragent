@@ -24,7 +24,7 @@ Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties
 import logging
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.modules.calc.bridge import CalcBridge
 import uno
 

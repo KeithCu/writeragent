@@ -32,8 +32,8 @@ from plugin.modules.http.client import LlmClient
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from plugin.framework.tool_base import ToolBase
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolBase
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.smol_agent")
 

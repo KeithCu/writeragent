@@ -201,7 +201,7 @@ class SendHandlersMixin:
                     base_size_val = 512
 
                 from plugin.main import get_tools
-                from plugin.framework.tool_context import ToolContext
+                from plugin.framework.tool import ToolContext
 
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type="writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)))
                 try:
@@ -482,7 +482,7 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.STOPPED,))
                     return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
-                from plugin.framework.tool_context import ToolContext
+                from plugin.framework.tool import ToolContext
 
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb)
 

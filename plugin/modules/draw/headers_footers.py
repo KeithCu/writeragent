@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Dict
 from plugin.framework.errors import WriterAgentException
 
 if TYPE_CHECKING:
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
 
 from plugin.modules.draw.base import ToolDrawHeaderFooterBase
 from plugin.modules.draw.bridge import DrawBridge

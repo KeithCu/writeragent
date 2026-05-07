@@ -19,7 +19,7 @@
 import logging
 from typing import cast, Type, ClassVar
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
 from plugin.framework.i18n import _
 from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
@@ -70,8 +70,9 @@ class DelegateToSpecializedBase(ToolBase):
 
         if not USE_SUB_AGENT:
             # Tell the main LLM loop to switch tools for the next round
-            if getattr(ctx, "set_active_domain_callback", None):
-                ctx.set_active_domain_callback(domain)
+            callback = getattr(ctx, "set_active_domain_callback", None)
+            if callback:
+                callback(domain)
 
             msg = _("Tool call switched to '{0}'. You are in a specialized toolset mode. You must call 'specialized_workflow_finished' when done to restore the full set of APIs.").format(domain)
 

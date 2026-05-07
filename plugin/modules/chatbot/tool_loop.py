@@ -148,7 +148,7 @@ class ToolCallingMixin:
             def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
                 import json
                 import threading
-                from plugin.framework.tool_context import ToolContext
+                from plugin.framework.tool import ToolContext
                 from plugin.main import get_tools as _get_tools
 
                 # NOTE: Experimental planning/TodoStore wiring is intentionally

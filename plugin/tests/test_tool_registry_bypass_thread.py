@@ -7,8 +7,8 @@
 import threading
 from unittest.mock import MagicMock
 
-from plugin.framework.tool_context import ToolContext
-from plugin.framework.tool_registry import ToolRegistry
+from plugin.framework.tool import ToolContext
+from plugin.framework.tool import ToolRegistry
 
 
 def test_execute_bypass_thread_guard_allows_background_thread() -> None:

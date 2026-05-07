@@ -57,7 +57,7 @@ def teardown_impress_tests(ctx):
 
 def _exec_tool(name, args):
     from plugin.main import get_tools, get_services
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     tctx = ToolContext(_test_doc, _test_ctx, "impress", get_services(), "test")
     res = get_tools().execute(name, tctx, **args)
     return json.dumps(res) if isinstance(res, dict) else res

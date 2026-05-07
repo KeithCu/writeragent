@@ -23,7 +23,7 @@ with content_strategy=\"heading_only\". For content under a heading by path
 
 import logging
 
-from plugin.framework.tool_base import ToolBase
+from plugin.framework.tool import ToolBase
 
 from plugin.modules.writer.base import ToolWriterStructuralBase
 

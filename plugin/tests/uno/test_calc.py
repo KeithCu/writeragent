@@ -108,7 +108,7 @@ def test_cells_parse_color():
 
 def _execute_calc_tool(name, args):
     from plugin.main import get_tools, get_services
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     # Pass suite bootstrap ctx (same as setup_calc_tests); None makes
     # get_desktop() use uno.getComponentContext() and can segfault under
     # python -m plugin.testing_runner.
@@ -125,7 +125,7 @@ def _execute_calc_tool(name, args):
 def test_calc_track_changes_record_toggle():
     """SpreadsheetDocument exposes RecordChanges via SpreadsheetDocumentSettings."""
     from plugin.main import get_services
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
     from plugin.modules.writer.tracking import TrackChangesStart, TrackChangesStop
 
     doc = _test_doc
@@ -300,7 +300,7 @@ def test_unknown_tool():
 @native_test
 def test_formulas_error_detector():
     from plugin.modules.calc.formulas import DetectErrors
-    from plugin.framework.tool_context import ToolContext
+    from plugin.framework.tool import ToolContext
 
     active_sheet = _test_doc.getCurrentController().getActiveSheet()
 
