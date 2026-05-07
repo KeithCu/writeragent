@@ -15,6 +15,12 @@
 
 There is **no** separate “poll the paragraph and append grammar blocks into chat” feature. That overlap is unnecessary: **Chat with Document** already provides document-grounded assistance with the same configured endpoint and models.
 
+**Sentence-scoped native grammar vs document-wide comments**
+
+- **Native Linguistic grammar** (`XProofreader`) feeds the LLM **only a capped proofread slice** of paragraph text—not the whole document—and builds requests from **sentence-sized units** cached **per sentence** (splitting described in §2.3). That keeps corrections local and reduces failures where models return broken JSON or bad offsets when asked to chew on **many error-dense sentences at once**. When several sentences in the slice are uncached, the worker may **concatenate** them into **one HTTP request**; in practice the flow is still **sentence-oriented**. Broader refactors remain a possible future change.
+- **Whole-document editorial review** uses the **sidebar chat + tools** path: the model can read wide context and use **`add_comment`** ([`plugin/modules/writer/comments.py`](../plugin/modules/writer/comments.py)) to leave Writer comments on specific spans (copyeditor-style). Review-oriented instructions live in [`plugin/framework/constants.py`](../plugin/framework/constants.py) (`TOOL_USAGE_PATTERNS`). Same HTTP stack; different job than in-flow underlines.
+- **Compared to LanguageTool** (for integrators): LT analyzes the **full text the client submits** in one check, then **segments into sentences internally**; most XML rules match **inside one sentence**, with **some** cross-sentence logic via **special Java rules** or rarer patterns—not one-sentence API calls. WriterAgent’s **capped slice + per-sentence LLM cache** is a **product/engineering** choice for stable model output, not a copy of LT’s chunking policy. Detail: [`languagetool-local-parity-phased-plan.md`](languagetool-local-parity-phased-plan.md) (opening **WriterAgent / LLM grammar** section).
+
 ---
 
 ## 2. What we shipped (native grammar)
@@ -123,10 +129,12 @@ The standalone [`GrammarChecker.py`](../GrammarChecker.py) (root of repo) was us
 12. **Ignore rules & parity**: Persist `ignoreRule` across sessions; locale-specific ignores if the API evolves.
 13. **Observability**: Debug metrics (cache hit rate, worker supersede count, p50/p95 latency from schedule → `cache_put`) behind a verbose flag for field debugging.
 14. **Accessibility / UX copy**: Clear user-facing text that grammar is **asynchronous** (squiggles after pause); link to Writing aids selection when multiple proofreaders exist.
+15. **LanguageTool-class local checking (research)**: Phased roadmap for a **Python-first** checker consuming LT-open rule data toward LanguageTool-grade quality over time, **without JVM** in-stack (`nlprule`/fork accelerator optional). See [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md).
 
 ### Docs / agents
 
 - Keep [`AGENTS.md`](../AGENTS.md) in sync when behavior or config keys change (per project rules).
+- Optional non-LLM checker roadmap grounded in LT behavior: [`languagetool-local-parity-phased-plan.md`](languagetool-local-parity-phased-plan.md).
 
 ---
 
@@ -151,3 +159,6 @@ The standalone [`GrammarChecker.py`](../GrammarChecker.py) (root of repo) was us
 - **2026-05-02 (doc)**: Removed the deferred “sidebar living assistant” track; documented **Chat with Document** as the conversational alternative; fixed enable-location wording (Doc tab); renumbered sections.
 - **2026-05-02 (queue)**: **`inflight_key`** no longer includes a fingerprint of the proofread slice. Same-key supersede and `_latest_seq` stale suppression now apply when the user types in the middle of a sentence (successive slices are not prefix-related). Regression: `test_mid_sentence_typing_dedup` in `test_grammar_work_queue.py`.
 - **2026-05-04 (queue)**: Added **enqueue-time replace-in-place** to `_GrammarWorkQueue.enqueue()`. Uses CPython `queue.Queue` internals (`self._q.mutex`, `self._q.queue`) for an **O(1) tail check** to replace an existing same-`inflight_key` item with the incoming newer one — no new locks introduced. Drain-time `deduplicate_grammar_batch` is retained as a safety net for cross-key prefix dedup.
+- **2026-05-07 (doc)**: Linked [LanguageTool-class phased plan](languagetool-local-parity-phased-plan.md) from §5 and `AGENTS.md`. Plan centers a **Python-first** checker consuming LT-open resources; JVM/Java not part of that roadmap (see §5 item 15).
+- **2026-05-07 (doc)**: §1 — **Sentence-scoped native grammar** vs **`add_comment`** / chat for document-wide copyediting; clarifies LLM slice limits and why multi-sentence error dumps are avoided.
+- **2026-05-07 (doc)**: §1 — Brief **LanguageTool** contrast (internal sentence segmentation; rules mostly per-sentence; some cross-sentence via special rules)—vs WriterAgent capped LLM context.
