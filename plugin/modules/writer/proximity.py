@@ -24,7 +24,7 @@ import bisect
 import logging
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceBase
 import typing
 
 

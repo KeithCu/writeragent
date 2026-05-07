@@ -20,7 +20,7 @@ import logging
 import os
 import tempfile
 
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceBase
 
 log = logging.getLogger("writeragent.format")
 

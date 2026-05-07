@@ -1,9 +1,8 @@
-"""Tests for plugin.framework.service_registry."""
+"""Tests for plugin.framework.service."""
 
 import pytest
 
-from plugin.framework.service_registry import ServiceRegistry
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceRegistry, ServiceBase
 
 
 class DummyService(ServiceBase):
@@ -12,6 +11,17 @@ class DummyService(ServiceBase):
 
 class AnotherService(ServiceBase):
     name = "another"
+
+
+class TestServiceBase:
+    def test_service_base_methods(self):
+        class MyService(ServiceBase):
+            name = "my_service"
+        
+        svc = MyService()
+        # These should not raise exceptions
+        svc.initialize("mock_ctx")
+        svc.shutdown()
 
 
 class TestRegister:

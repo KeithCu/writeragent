@@ -173,7 +173,7 @@ def bootstrap(ctx=None):
             ctx = get_ctx()
 
         # 2. Service Container
-        from plugin.framework.service_registry import ServiceRegistry
+        from plugin.framework.service import ServiceRegistry
 
         _services = ServiceRegistry()
         _services.register("uno", ctx)

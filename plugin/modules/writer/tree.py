@@ -22,7 +22,7 @@ Ported from mcp-libre services/writer/tree.py.
 import logging
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceBase
 from typing import Any
 
 

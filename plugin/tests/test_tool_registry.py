@@ -17,7 +17,7 @@ class MockDoc:
         return False
 
 from plugin.framework.tool_registry import ToolRegistry
-from plugin.framework.service_registry import ServiceRegistry
+from plugin.framework.service import ServiceRegistry
 
 
 class FakeTool(ToolBase):

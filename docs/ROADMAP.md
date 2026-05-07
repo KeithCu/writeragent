@@ -111,6 +111,20 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 
 ---
 
+## 🧹 Framework Consolidation (Technical Debt)
+
+**Goal**: Reduce technical debt and improve code discoverability by merging small, highly related framework modules.
+
+- [ ] **Service Infrastructure**: Merge `service_base.py` and `service_registry.py` into **`services.py`**.
+- [ ] **Module Infrastructure**: Merge `module_base.py` and `module_loader.py` into **`modules.py`**.
+- [ ] **Tool Infrastructure**: Merge `tool_base.py`, `tool_registry.py`, and `tool_context.py` into **`tools.py`**.
+- [ ] **Image Handling**: Merge `image_tools.py` and `image_utils.py` into **`images.py`**.
+- [ ] **Error Hierarchy**: Merge `base_errors.py` into **`errors.py`**.
+- [ ] **Specialized Agent Helpers**: Merge `specialized_shapes_context.py` into **`specialized_base.py`**.
+- [ ] **State & Types**: Merge `state.py` and `types.py` into **`types.py`** (or `common.py`).
+
+---
+
 ## 🚀 High Priority Features
 
 ### 1. **Shape API Enhancements** 🎨 ✅ **COMPLETED**

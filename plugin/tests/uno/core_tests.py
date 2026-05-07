@@ -56,7 +56,7 @@ def test_event_bus():
 
 @native_test
 def test_service_registry():
-    from plugin.framework.service_registry import ServiceRegistry
+    from plugin.framework.service import ServiceRegistry
     registry = ServiceRegistry()
 
     class DummyService:

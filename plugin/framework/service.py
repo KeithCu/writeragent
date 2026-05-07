@@ -15,7 +15,35 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Dependency injection container for services."""
+"""Service infrastructure: base class and registry."""
+
+from abc import ABC
+
+
+class ServiceBase(ABC):
+    """Abstract base for services registered in the ServiceRegistry.
+
+    Services provide horizontal capabilities (document manipulation,
+    config access, LLM streaming, etc.) that modules and tools consume.
+
+    Attributes:
+        name: Unique service identifier (e.g. "document", "config").
+    """
+
+    name: str | None = None
+
+    def initialize(self, ctx):
+        """Called once during bootstrap with the UNO component context.
+
+        Override to perform setup that requires UNO (desktop access,
+        service manager, etc.).
+
+        Args:
+            ctx: UNO component context (com.sun.star.uno.XComponentContext).
+        """
+
+    def shutdown(self):
+        """Called on extension unload. Override to clean up."""
 
 
 class ServiceRegistry:
@@ -48,7 +76,6 @@ class ServiceRegistry:
         """Automatically discover and register ServiceBase subclasses in a module."""
         import inspect
         import logging
-        from plugin.framework.service_base import ServiceBase
 
         log = logging.getLogger("writeragent.services")
 

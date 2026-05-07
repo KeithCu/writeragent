@@ -907,7 +907,7 @@ def resolve_locator(model, locator: str):
     return {"para_index": 0}
 
 
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import get_ctx
 
 

@@ -31,7 +31,7 @@ from typing import Any, Callable, Dict, cast
 
 from plugin.framework.utils import get_plugin_dir
 from plugin.framework.event_bus import global_event_bus
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, get_provider_defaults
 from plugin.framework.base_errors import ConfigError, NetworkError

@@ -22,7 +22,7 @@ Ported from mcp-libre services/writer/tree.py (bookmark methods).
 import logging
 import uuid
 
-from plugin.framework.service_base import ServiceBase
+from plugin.framework.service import ServiceBase
 
 log = logging.getLogger("writeragent.writer.nav.bookmarks")
 
