@@ -9,6 +9,7 @@ from plugin.framework.document import (
 )
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import setup, teardown, native_test
+from plugin.tests.testing_utils import TestingFactory
 
 
 _test_doc: Any = None
@@ -20,15 +21,7 @@ def setup_writer_tests(ctx):
     global _test_doc, _test_ctx
     _test_ctx = ctx
 
-    desktop = get_desktop(ctx)
-    import uno
-
-    hidden_prop = uno.createUnoStruct(
-        "com.sun.star.beans.PropertyValue",
-        Name="Hidden",
-        Value=True,
-    )
-    _test_doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+    _test_doc = TestingFactory.create_native_doc(ctx, "writer", hidden=True)
     assert _test_doc is not None, "Could not create hidden test writer document"
 
     # 1. Setup doc content
@@ -331,17 +324,7 @@ def test_writer_structural_and_tree_service():
     assert res is not None and res.get("para_index") == 2, f"Failed to resolve heading_text:H1.1, got {res}"
 
     # 3. Test structural.py tools natively
-    class MockCtx:
-        def __init__(self, doc, services):
-            self.doc = doc
-            self.services = services
-
-    class MockServices:
-        def __init__(self, bm_svc, doc_svc):
-            self.writer_bookmarks = bm_svc
-            self.document = doc_svc
-
-    mock_ctx = MockCtx(_test_doc, MockServices(bm_svc, doc_svc))
+    mock_ctx = TestingFactory.create_context(doc=_test_doc, ctx=_test_ctx, env="native", doc_type="writer")
 
     # Test ListBookmarks via registry (Specialized API testing pattern)
     from plugin.main import get_tools

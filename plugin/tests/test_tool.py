@@ -21,32 +21,7 @@ import time
 import types
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
 from plugin.framework.service import ServiceRegistry
-
-# ── Mock Objects ──────────────────────────────────────────────────────
-
-class MockDoc:
-    def __init__(self, doc_type="writer", items=None):
-        self.doc_type = doc_type
-        self._items = items or {}
-
-    def supportsService(self, svc):
-        if self.doc_type == "writer" and svc == "com.sun.star.text.TextDocument": return True
-        if self.doc_type == "calc" and svc == "com.sun.star.sheet.SpreadsheetDocument": return True
-        if self.doc_type == "draw" and svc == "com.sun.star.drawing.DrawingDocument": return True
-        if self.doc_type == "impress" and svc == "com.sun.star.presentation.PresentationDocument": return True
-        return False
-
-    def getMyItems(self):
-        class Collection:
-            def __init__(self, data):
-                self.data = data
-            def hasByName(self, name):
-                return name in self.data
-            def getByName(self, name):
-                return self.data[name]
-            def getElementNames(self):
-                return tuple(self.data.keys())
-        return Collection(self._items)
+from plugin.tests.testing_utils import TestingFactory
 
 # ── Tool Context Tests ───────────────────────────────────────────────
 
@@ -154,14 +129,14 @@ def test_get_collection():
     assert res["status"] == "error"
 
     # Valid getter
-    doc_good = MockDoc(items={"a": 1})
+    doc_good = TestingFactory.create_doc(doc_type="writer", content=[], items={"a": 1})
     coll = tool.get_collection(doc_good, "getMyItems")
     assert not isinstance(coll, dict)
     assert coll.hasByName("a")
 
 def test_get_item():
     tool = ValidTool()
-    doc = MockDoc(items={"item1": "val1", "item2": "val2"})
+    doc = TestingFactory.create_doc(doc_type="writer", items={"item1": "val1", "item2": "val2"})
 
     # Missing getter entirely
     res = tool.get_item(object(), "getMyItems", "item1")
@@ -217,10 +192,7 @@ def _make_registry(*tools):
     return reg
 
 def _make_ctx(doc_type="writer"):
-    return ToolContext(
-        doc=MockDoc(doc_type), ctx=None, doc_type=doc_type,
-        services=ServiceRegistry(), caller="test"
-    )
+    return TestingFactory.create_context(doc_type=doc_type)
 
 class TestRegister:
     def test_auto_discover(self):
@@ -283,13 +255,13 @@ class TestRegister:
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
+        names = [t.name for t in reg.get_tools(doc=TestingFactory.create_doc(doc_type="writer"))]
         assert "fake_tool" in names
         assert "universal_tool" in names
 
     def test_tools_for_calc_excludes_writer_only(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        names = [t.name for t in reg.get_tools(doc=MockDoc("calc"))]
+        names = [t.name for t in reg.get_tools(doc=TestingFactory.create_doc(doc_type="calc"))]
         assert "fake_tool" not in names
         assert "universal_tool" in names
 
@@ -358,7 +330,7 @@ class TestExcludeSpecializedTiers:
             def execute(self, ctx, **kwargs): return {"status": "ok"}
 
         reg = _make_registry(FakeTool(), SpecTool())
-        names = [t.name for t in reg.get_tools(doc=MockDoc("writer"))]
+        names = [t.name for t in reg.get_tools(doc=TestingFactory.create_doc(doc_type="writer"))]
         assert "fake_tool" in names
         assert "spec_tool" not in names
 
@@ -371,7 +343,7 @@ class TestExcludeSpecializedTiers:
             def execute(self, ctx, **kwargs): return {"status": "ok"}
 
         reg = _make_registry(FakeTool(), SpecTool())
-        names = [t.name for t in reg.get_tools(doc=MockDoc("writer"), exclude_tiers=())]
+        names = [t.name for t in reg.get_tools(doc=TestingFactory.create_doc(doc_type="writer"), exclude_tiers=())]
         assert "fake_tool" in names
         assert "spec_tool" in names
 
@@ -395,7 +367,7 @@ class TestLibrarianToolVisibility:
             SwitchToDocumentModeTool(),
         )
 
-        schemas = reg.get_schemas("openai", doc=MockDoc("writer"))
+        schemas = reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"))
         tool_names = {s["function"]["name"] for s in schemas}
 
         assert "visible_tool" in tool_names
@@ -405,7 +377,7 @@ class TestLibrarianToolVisibility:
 class TestSchemas:
     def test_openai_schemas(self):
         reg = _make_registry(FakeTool())
-        schemas = reg.get_schemas("openai", doc=MockDoc("writer"))
+        schemas = reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"))
         assert len(schemas) == 1
         s = schemas[0]
         assert s["type"] == "function"
@@ -413,7 +385,7 @@ class TestSchemas:
 
     def test_mcp_schemas(self):
         reg = _make_registry(FakeTool())
-        schemas = reg.get_schemas("mcp", doc=MockDoc("writer"))
+        schemas = reg.get_schemas("mcp", doc=TestingFactory.create_doc(doc_type="writer"))
         assert len(schemas) == 1
         s = schemas[0]
         assert s["name"] == "fake_tool"
@@ -438,7 +410,7 @@ class TestExecuteEventsAndInvalidation:
         reg = ToolRegistry(services)
         reg.register(ToolWithParams())
 
-        ctx = ToolContext(doc=MockDoc("writer"), ctx=None, doc_type="writer", services=services, caller="test")
+        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="test")
         result = reg.execute("tool_with_params", ctx, arg1="val1", extra="ignored")
 
         assert result == {"status": "success"}
@@ -464,7 +436,7 @@ class TestExecuteEventsAndInvalidation:
         reg = ToolRegistry(services)
         reg.register(FailingToolWithParams())
 
-        ctx = ToolContext(doc=MockDoc("writer"), ctx=None, doc_type="writer", services=services, caller="test")
+        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="test")
         result = reg.execute("failing_tool_with_params", ctx, arg1="val1")
 
         assert result["status"] == "error"

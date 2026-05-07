@@ -16,12 +16,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from plugin.modules.writer.styles import ListStyles, GetStyleInfo, ApplyStyle
+from plugin.tests.testing_utils import TestingFactory
 
 @pytest.fixture
 def mock_ctx():
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    return ctx
+    return TestingFactory.create_context(doc_type="writer")
 
 def create_mock_style(name, display_name=None, is_in_use=False, is_user_defined=False, is_physical=True, is_hidden=False, category=None):
     style = MagicMock()
