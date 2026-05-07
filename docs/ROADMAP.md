@@ -1,5 +1,10 @@
 # WriterAgent Roadmap 🗺️
 
+**High Priority / Immediate Action**:
+- **Consolidate Test Infrastructure**: Create a `TestingFactory` in `plugin/tests/testing_utils.py` to provide a unified way to setup/teardown document instances and ToolContexts for both native (LO) and mock (pytest) environments. This will significantly reduce test boilerplate and enforce engineering standards for all new features.
+
+---
+
 **Last Updated**: 2026-05-06
 **Status**: Active Development
 

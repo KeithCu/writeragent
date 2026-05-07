@@ -13,13 +13,34 @@
 | **Native Writer grammar (Linguistic2)** | Same as other grammar extensions: Writer’s grammar pass, underlines, grammar dialog. Uses `XProofreader` + `Linguistic` / `GrammarCheckers` registry. | **Shipped / experimental** — Python `XProofreader` + Lightproof-style XCU are in the default OXT; users enable LLM work on the **Doc** tab and pick the active proofreader under Writing aids. Earlier native crashes were fixed by accepting extra UNO constructor args (`__init__(self, ctx, *args)`). |
 | **Chat with Document (sidebar)** | Multi-turn chat with document context and tools — not a duplicate linguistic pipeline. | Use this when you want **explanations, rewrites, or whole-paragraph help**; it does not replace underlined in-flow proofreading. |
 
-There is **no** separate “poll the paragraph and append grammar blocks into chat” feature. That overlap is unnecessary: **Chat with Document** already provides document-grounded assistance with the same configured endpoint and models.
+## 1. Native grammar vs chat (do not conflate)
 
-**Sentence-scoped native grammar vs document-wide comments**
+| Surface | UX | Role |
+|--------|-----|------|
+| **Native Writer grammar (Linguistic2)** | Same as other grammar extensions: Writer’s grammar pass, underlines, grammar dialog. Uses `XProofreader` + `Linguistic` / `GrammarCheckers` registry. | **Shipped / experimental** — Python `XProofreader` + Lightproof-style XCU are in the default OXT; users enable LLM work on the **Doc** tab and pick the active proofreader under Writing aids. Earlier native crashes were fixed by accepting extra UNO constructor args (`__init__(self, ctx, *args)`). |
+| **Chat with Document (sidebar)** | Multi-turn chat with document context and tools — not a duplicate linguistic pipeline. | Use this when you want **explanations, rewrites, or whole-paragraph help**; it does not replace underlined in-flow proofreading. |
 
-- **Native Linguistic grammar** (`XProofreader`) feeds the LLM **only a capped proofread slice** of paragraph text—not the whole document—and builds requests from **sentence-sized units** cached **per sentence** (splitting described in §2.3). That keeps corrections local and reduces failures where models return broken JSON or bad offsets when asked to chew on **many error-dense sentences at once**. When several sentences in the slice are uncached, the worker may **concatenate** them into **one HTTP request**; in practice the flow is still **sentence-oriented**. Broader refactors remain a possible future change.
-- **Whole-document editorial review** uses the **sidebar chat + tools** path: the model can read wide context and use **`add_comment`** ([`plugin/modules/writer/comments.py`](../plugin/modules/writer/comments.py)) to leave Writer comments on specific spans (copyeditor-style). Review-oriented instructions live in [`plugin/framework/constants.py`](../plugin/framework/constants.py) (`TOOL_USAGE_PATTERNS`). Same HTTP stack; different job than in-flow underlines.
-- **Compared to LanguageTool** (for integrators): LT analyzes the **full text the client submits** in one check, then **segments into sentences internally**; most XML rules match **inside one sentence**, with **some** cross-sentence logic via **special Java rules** or rarer patterns—not one-sentence API calls. WriterAgent’s **capped slice + per-sentence LLM cache** is a **product/engineering** choice for stable model output, not a copy of LT’s chunking policy. Detail: [`languagetool-local-parity-phased-plan.md`](languagetool-local-parity-phased-plan.md) (opening **WriterAgent / LLM grammar** section).
+### Architectural Scope: Sentence vs. Paragraph
+The implementation draws heavily from `Lightproof` as a mature, robust foundation, but evolves significantly. Currently, the checker operates on a **sentence-at-a-time** basis for the native `XProofreader` surface. 
+
+**Why Sentence-Scoped?**
+- **Cost & Latency**: Sending a full paragraph every time a single character is typed is computationally expensive and introduces unnecessary latency into the foreground UI.
+- **Precision**: By focusing on the sentence, the LLM can provide more accurate, localized error reports, reducing the risk of "offset hallucination" where squiggles appear in the wrong place.
+- **Cacheability**: Sentence-level caching is highly effective; semantically identical sentences typed in different parts of a document re-trigger hits, whereas paragraph-level caching would be invalidated by almost any minor edit.
+
+### The 500-Character "Goldilocks" Window
+We currently enforce a **500-character cap** on the text slice sent to the LLM. 
+- **The Rationale**: This is a performance safety net. A 500-character slice (typically 1–3 sentences) keeps our `search_pos` string-matching engine reliable, avoids LLM "attention" fatigue, and keeps grammar squiggles highly responsive.
+- **The "Truncation Bug"**: A known limitation is that our current slice-based approach can truncate a sentence mid-stream if it hits the 500-character limit. While our prompt instructs the LLM to ignore incomplete fragments, this can lead to missed grammar errors at the end of the slice.
+- **Dynamic Batching Policy**: While we default to sentence-level analysis, our pipeline is not dogmatically bound to single sentences. During the initial paragraph load (the `nStart == 0` pass) or when multiple sentences within a single paragraph have cache misses, the engine dynamically batches these into a single HTTP request for efficiency. Our goal is to balance the *speed* of sentence-level checks with the *efficiency* of batching multiple sentences whenever it doesn't cross the complexity or latency threshold.
+- **Future Evolution: Sentence-Boundary-Aware Chunking**: We are actively refactoring the engine to prioritize complete sentences over hard character caps. The system will detect the sentence boundary closest to the cap, ensuring the LLM always receives semantically complete units, even if the total slice is slightly larger.
+- **Future Evolution: Hybrid Analysis Strategy**:
+  We are evolving from a "Hard Cap" to a **Hybrid Analysis Strategy**:
+  1.  **Fast Path (Sentence-level)**: Keep the current, highly responsive sentence-level grammar check.
+  2.  **Deep Path (Paragraph-level)**: If the sentence-level check identifies high complexity or multiple potential errors, the system will trigger a secondary, asynchronous paragraph-wide analysis to validate the results and catch global errors (e.g., consistency, paragraph-level tone). This maintains the "no-lag" requirement while delivering the depth of a human copyeditor who has read the full paragraph.
+
+**The "High-Level" Strategy**
+While sentence-scoped checking is excellent for localized grammar, it inherently misses global context (e.g., tone consistency or paragraph-level flow). Rather than forcing the grammar checker to handle high-level context (and increasing cost/complexity), we utilize the **Chat Sidebar + `add_comment` tool**. This allows the model to analyze wide context at once and leave copyeditor-style comments. This separation of concerns—**native squiggles for local grammar, sidebar chat for high-level editorial review**—is a deliberate design choice that optimizes performance while maintaining editorial depth. Future work may explore sliding-window paragraph analysis, but only if optimized to avoid the overhead of full-context re-submission on every edit.
 
 ---
 
