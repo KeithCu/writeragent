@@ -2,8 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.smol_agent import build_toolcalling_agent
-from plugin.framework.smol_tool_adapter import SmolToolAdapter, to_smol_inputs
+from plugin.framework.smol_agent import build_toolcalling_agent, SmolToolAdapter, to_smol_inputs
 from plugin.framework.tool_base import ToolBase
 from plugin.tests.testing_utils import setup_uno_mocks
 

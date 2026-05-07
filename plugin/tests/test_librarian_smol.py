@@ -1,7 +1,7 @@
 import unittest
 import time
 from unittest.mock import MagicMock, patch
-from plugin.framework.smol_tool_adapter import SmolToolAdapter
+from plugin.framework.smol_agent import SmolToolAdapter
 from plugin.modules.chatbot.librarian import (
     SwitchToDocumentModeTool,
     LibrarianOnboardingTool,
