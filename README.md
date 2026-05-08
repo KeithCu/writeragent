@@ -9,7 +9,9 @@
 
 A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer, Calc, and Draw.
 
-**Development story:** Read the writeup of how WriterAgent was built [here](https://keithcu.com/wordpress/?p=5060).
+**Week 1:** Initial fork, sidebar chat, multi-turn tools, and async streaming [here](https://keithcu.com/wordpress/?p=5060).
+**Week 2 & 3:** MCP, research sub-agent, voice support, and evaluation dashboard [here](https://keithcu.com/wordpress/?p=5112).
+**Week 4-6:** State machines, formal verification, and specialized toolsets [here](https://keithcu.com/wordpress/?p=5245).
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
 
