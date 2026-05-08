@@ -314,3 +314,30 @@ You now have a **production-ready mail merge system** that:
 - ✅ Is fully customizable via markdown
 
 **Just edit `instructions.md` and run the script!** 🎉
+
+---
+
+## 🤖 Batch Processing with Google Jules
+
+You can automate the execution of these tasks using the **Google Jules** coding agent.
+
+### Prerequisites
+- Install the Jules CLI: `npm install -g @google/jules`
+- Connect your repository at [jules.google.com](https://jules.google.com)
+
+### 🚀 Usage
+Use the batch submitter script to send tasks to Jules in manageable chunks:
+
+```bash
+# Submit the next 10 tasks to Jules
+python scripts/jules_batch_submit.py --limit 10
+
+# Dry run (verify what would be submitted)
+python scripts/jules_batch_submit.py --limit 5 --dry-run
+
+# Re-submit even if already marked as submitted
+python scripts/jules_batch_submit.py --limit 1 --force
+```
+
+### 📈 Tracking Progress
+The script maintains `mail_merge_tasks/jules_status.json` to keep track of which tasks have been sent to the cloud. You can monitor the actual execution progress on the [Jules Dashboard](https://jules.google.com).

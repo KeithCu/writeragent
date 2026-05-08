@@ -31,9 +31,9 @@ Please note, the prompts to free models are often saved and used for training pu
 
 Another option is [Together.AI](https://www.together.ai/), which also has a variety of high-performance and intelligent cost-effective models with a generous, private,  free tier.
 
-### 2. Intelligent Document Interaction
+### 2. Intelligent Document Interaction (LO-DOM)
 
-More than just a chatbot, this is a "Document Agent." It doesn't just read your text; it understands the structure—headings, bookmarks, cell ranges, and styles. **Its primary job is to act on your behalf**, performing complex edits that would otherwise take dozens of manual clicks.
+More than just a chatbot, this is a "Document Agent." It doesn't just read your text; it understands the structure—headings, bookmarks, cell ranges, and styles—via a recursive **LO-DOM (Document Object Model)**. **Its primary job is to act on your behalf**, performing complex edits that would otherwise take dozens of manual clicks. The LLMs are given document object relationships, which allow them to reason about structure and perform complex edits.
 
 #### Features
 
@@ -42,13 +42,13 @@ More than just a chatbot, this is a "Document Agent." It doesn't just read your 
 - **Nested tool-calling API**: The full LibreOffice API would overwhelm any model and bloat context, so the tool-calling is broken up into a simple API with commonly used-tools, and specialized toolsets that LLMs can request to switch into. Via this design, the extension currently supports: rich text and page layout, shapes, charts, bookmarks, fields, footnotes, forms, comments, and track-changes for Writer, and most of the common features for Calc. See [Writer-specialized-toolsets.md](docs/writer-specialized-toolsets.md), [Calc](docs/calc-specialized-toolsets.md) and [Draw/Impress](docs/draw-impress-specialized-toolsets.md) for details and current status. 
 - **Audio Recording**: Integrated cross-platform voice support directly in the sidebar.
 - **Image Generation**: Generate from chat or edit selected images (Img2Img) using AI Horde or your configured endpoint.
-- **Calc =PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
+- **Calc =PROMPT() Function & Specialized Intelligence**: Run AI prompts directly within spreadsheet cells. Beyond simple formulas, WriterAgent can analyze **pivot tables** and detect **complex logical errors** in spreadsheets.
 - **Calc rich text in one cell**: The `insert_cell_html` tool pastes **HTML** into a **single cell** on the active sheet (inline bold, italics, links, line breaks) using the same StarWriter import path as Writer, then a transferable paste—see [docs/calc-specialized-toolsets.md](docs/calc-specialized-toolsets.md#rich-html-in-a-single-cell).
 - **Calc batch edits**: Range tools (`write_formula_range`, `set_cell_style`, and similar) apply formulas, bulk data, and formats in one shot instead of cell-by-cell.
 - **Librarian onboarding agent**: For new users, a Librarian / Welcome sub-agent chats with the user to learn preferences (name and favorite colors) and give tips. The librarian and general chat agent use the `upsert_memory` tool to store user preferences.
-- **Multilingual & HiDPI**: Ships with support for 34 locales (`de`, `es`, `fr`, `it`, `ja`, `ko`, `pl`, `pt`, `ru`, `zh_CN`, `zh_TW`, `hi_IN`, `id`, `bn_IN`, `ur_PK`, `nl`, `sv`, `da`, `fi`, `ca`, `el`, `cs`, `hu`, `ro`, `nb_NO`, `nn_NO`, `uk`, `tr`, `sk`, `bg`, `hr`, `lt`, `lv`, `et`); Optimized for modern high-resolution displays using device-independent units.
+- **Multilingual & HiDPI**: Ships with support for 34 locales (`de`, `es`, `fr`, `it`, `ja`, `ko`, `pl`, `pt`, `ru`, `zh_CN`, `zh_TW`, `hi_IN`, `id`, `bn_IN`, `ur_PK`, `nl`, `sv`, `da`, `fi`, `ca`, `el`, `cs`, `hu`, `ro`, `nb_NO`, `nn_NO`, `uk`, `tr`, `sk`, `bg`, `hr`, `lt`, `lv`, `et`); The localization is maintained via an **automated AI-driven pipeline** (with a review mode for comparing results from different models.) Optimized for modern high-resolution displays using device-independent units.
 - **Writer math in HTML**: **MathML** (`<math>…</math>`) and common **TeX** delimiters (`$…$`, `$$…$$`, `\(...\)`, `\[...\]`) are turned into **editable LibreOffice Math** formulas (OLE objects), not screenshots. Details: [libreoffice-html-math-dev-plan.md](docs/libreoffice-html-math-dev-plan.md).
-- **Real-time grammar checker**: An experimental Linguistic2-backed grammar proofreader runs **asynchronously**—results show up shortly after you type, then you can right-click suggestions and apply fixes. Enable in Settings - Doc.
+- **Real-time grammar checker**: An experimental Linguistic2-backed grammar proofreader runs **asynchronously**—results show up shortly after you type. It utilizes a **sentence cache** and **Unicode-aware sentence splitting**. To handle LLM "sloppiness," it features **Token-aware Overlap Repair**: if a model flags a single word but suggests a multi-word fix repeating other words, the engine automatically reconciles the overlap for a clean, surgical replacement. Enable in Settings - Doc.
 - **LibreOffice Resource**: Many models know LibreOffice well, so you can ask questions like: *What is the page gutter feature?*
 
 #### Showcase

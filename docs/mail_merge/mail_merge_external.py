@@ -44,21 +44,30 @@ class ExternalMailMergeSystem:
         with open(instruction_path, 'r', encoding='utf-8') as f:
             return f.read()
     
-    def organize_codebase(self) -> Dict[str, List[List[str]]]:
-        """Organize the entire codebase into file groups."""
+    def organize_codebase(self, mode: str = "core") -> Dict[str, List[List[str]]]:
+        """
+        Organize the codebase into file groups.
+        mode: "core" (default) or "tests"
+        """
         
-        # Define the modules to organize
-        modules = {
-            'framework': 'plugin/framework',
-            'writer': 'plugin/modules/writer',
-            'draw': 'plugin/modules/draw',
-            'calc': 'plugin/modules/calc',
-            'chatbot': 'plugin/modules/chatbot',
-            'http': 'plugin/modules/http'
-        }
+        # Define the modules to organize based on mode
+        if mode == "tests":
+            modules = {
+                'tests': 'plugin/tests'
+            }
+        else:
+            modules = {
+                'framework': 'plugin/framework',
+                'writer': 'plugin/modules/writer',
+                'draw': 'plugin/modules/draw',
+                'calc': 'plugin/modules/calc',
+                'chatbot': 'plugin/modules/chatbot',
+                'http': 'plugin/modules/http'
+            }
         
         result = {}
         
+        print(f"\n📂 Mode: {mode.upper()}")
         for module_name, module_path in modules.items():
             if os.path.exists(module_path):
                 files = self._get_all_python_files(module_path)
@@ -73,7 +82,8 @@ class ExternalMailMergeSystem:
         return result
     
     def generate_merge_documents(self, instruction_path: str, 
-                                output_dir: str = "mail_merge_tasks") -> Dict:
+                                output_dir: str = "mail_merge_tasks",
+                                mode: str = "core") -> Dict:
         """Generate mail merge documents using external instruction file."""
         
         # Read instructions from external file
@@ -81,7 +91,7 @@ class ExternalMailMergeSystem:
         instructions = self._read_instruction_file(instruction_path)
         
         # Organize the codebase
-        groups = self.organize_codebase()
+        groups = self.organize_codebase(mode=mode)
         
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
@@ -179,23 +189,41 @@ def create_example_instruction_file():
 
 def main():
     """Main entry point."""
+    import argparse
+    parser = argparse.ArgumentParser(description="External Instruction Mail Merge System")
+    parser.add_argument("--mode", choices=["core", "tests"], default="core", help="Mode: core (plugin code) or tests (plugin/tests)")
+    parser.add_argument("--instructions", type=str, help="Path to instruction markdown file")
+    parser.add_argument("--output", type=str, default="mail_merge_tasks", help="Output directory for tasks")
+    
+    args = parser.parse_args()
+    
     print("📨 External Instruction Mail Merge System")
     print("=" * 45)
     
-    # Check if instruction file exists
-    instruction_file = "instructions.md"
+    # Determine default instruction file based on mode if not provided
+    instruction_file = args.instructions
+    if not instruction_file:
+        if args.mode == "tests":
+            # Check if our newly created test instructions exist
+            test_instr = os.path.join(os.path.dirname(__file__), "test_refactor_instructions.md")
+            if os.path.exists(test_instr):
+                instruction_file = test_instr
+            else:
+                instruction_file = "test_instructions.md"
+        else:
+            instruction_file = "instructions.md"
     
     if not os.path.exists(instruction_file):
         print(f"⚠️  Instruction file '{instruction_file}' not found.")
-        create_example = input("Create example instruction file? [Y/n]: ").strip().lower()
-        
-        if create_example in ['', 'y', 'yes']:
-            instruction_file = create_example_instruction_file()
+        if instruction_file == "instructions.md":
+            create_example = input("Create example instruction file? [Y/n]: ").strip().lower()
+            if create_example in ['', 'y', 'yes']:
+                instruction_file = create_example_instruction_file()
+            else:
+                print("Please create an instruction file first.")
+                return
         else:
-            print("Please create an instruction file first.")
-            print("Example:")
-            print(f"  echo '# My Instructions' > {instruction_file}")
-            print(f"  edit {instruction_file}")
+            print(f"Please create {instruction_file} first.")
             return
     
     print(f"📖 Using instruction file: {instruction_file}")
@@ -203,17 +231,17 @@ def main():
     merge_system = ExternalMailMergeSystem()
     
     # Generate mail merge documents
-    tasks_dir = "mail_merge_tasks"
     tasks = merge_system.generate_merge_documents(
         instruction_path=instruction_file,
-        output_dir=tasks_dir
+        output_dir=args.output,
+        mode=args.mode
     )
     
     print(f"\n🎉 Mail merge setup complete!")
-    print(f"📁 All documents saved to: {tasks_dir}/")
+    print(f"📁 All documents saved to: {args.output}/")
     print(f"📋 Total tasks ready: {len(tasks)}")
     print(f"\n💡 Next steps:")
-    print(f"   1. Review task documents in {tasks_dir}/")
+    print(f"   1. Review task documents in {args.output}/")
     print(f"   2. Edit {instruction_file} to customize instructions")
     print(f"   3. Re-run this script to regenerate with new instructions")
     print(f"   4. Assign tasks to agents")
