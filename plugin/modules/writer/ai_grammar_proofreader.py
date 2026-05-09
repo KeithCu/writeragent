@@ -27,11 +27,11 @@ if os.path.isdir(_lib_dir) and _lib_dir not in sys.path:
 import threading
 import time
 from dataclasses import asdict
-from typing import Any, no_type_check
+from typing import Any, Sequence, cast
 
 import unohelper
 
-from com.sun.star.lang import Locale, XServiceDisplayName, XServiceInfo, XServiceName
+from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales
 
 log = logging.getLogger("writeragent.grammar")
@@ -152,14 +152,13 @@ _ENQUEUE_SEQ = 0
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
 
-@no_type_check
 def _proofreading_markup_type() -> int:
     """``com.sun.star.text.TextMarkupType.PROOFREADING`` via PyUNO constant lookup."""
     if uno_mod is None:
         return 0
     try:
         v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
-        return int(v)
+        return int(cast(int | float | str, v))
     except Exception as e:
         log.warning("[grammar] _proofreading_markup_type: falling back to 4: %s", e, exc_info=True)
         return 4
@@ -179,7 +178,7 @@ def _emit_grammar_status(phase: str, text: str, *, result: str = "", elapsed_ms:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
 
 
-from plugin.modules.writer.grammar_proofread_engine import GrammarWorkItem as _GrammarWorkItem, deduplicate_grammar_batch as _deduplicate_grammar_batch
+from plugin.modules.writer.grammar_proofread_engine import GrammarWorkItem as _GrammarWorkItem, NormalizedProofError, deduplicate_grammar_batch as _deduplicate_grammar_batch
 
 
 class _GrammarWorkQueue:
@@ -308,7 +307,6 @@ def _locale_key(loc: Any) -> str:
         return "unknown"
 
 
-@no_type_check
 def _locale_tuple() -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` — must match ``LinguisticWriterAgentGrammar.xcu`` ``Locales``.
 
@@ -321,18 +319,19 @@ def _locale_tuple() -> tuple[Any, ...]:
     """
     from plugin.modules.writer.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS, bcp47_to_uno_lang_country
 
+    if uno_mod is None:
+        return ()
     out: list[Any] = []
     try:
         for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
             la, ctry = bcp47_to_uno_lang_country(tag)
-            out.append(Locale(la, ctry, ""))
+            out.append(cast(Any, uno_mod.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry, Variant="")))
         return tuple(out)
     except Exception as e:
         log.error("[grammar] _locale_tuple: Locale construction failed: %s", e, exc_info=True)
         return ()
 
 
-@no_type_check
 def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     """Log Doc-tab grammar state only.
 
@@ -363,11 +362,12 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
 
 
-@no_type_check
 def _build_empty_result(proofreader: Any, a_document_identifier: Any, a_text: str, a_locale: Any, n_start_of_sentence_position: int, n_suggested_behind_end_of_sentence_position: int) -> Any:
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
+    if uno_mod is None:
+        raise RuntimeError("uno not available")
     try:
-        a_res: Any = uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult")
+        a_res = cast(Any, uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
     except Exception as e:
         log.exception("[grammar] _build_empty_result: createUnoStruct ProofreadingResult failed: %s", e)
         raise
@@ -398,7 +398,6 @@ def _build_empty_result(proofreader: Any, a_document_identifier: Any, a_text: st
         raise
 
 
-@no_type_check
 def _finalize_proofreading_sentence_positions(a_res: Any, a_text: str, n_suggested_behind_end: int, proofread_batch_end: int) -> None:
     """Lightproof-style batching (``lightproof/Lightproof.py`` after LO 4 patch).
 
@@ -444,12 +443,13 @@ def _looks_complete_sentence(text: str) -> bool:
     return _last_meaningful_char(text) in _SENTENCE_TERMINATORS
 
 
-@no_type_check
-def _errors_to_uno_tuple(norms: list[Any]) -> tuple[Any, ...]:
+def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ...]:
+    if uno_mod is None:
+        return ()
     out: list[Any] = []
     for idx, e in enumerate(norms):
         try:
-            a_err: Any = uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError")
+            a_err = cast(Any, uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
             a_err.nErrorStart = e.n_error_start
             a_err.nErrorLength = e.n_error_length
             a_err.nErrorType = _proofreading_markup_type()
@@ -554,8 +554,7 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
             pass
 
 
-@no_type_check
-class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales):
+class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales):  # pyright: ignore[reportGeneralTypeIssues] — multiple UNO interface bases  # pyrefly: ignore[invalid-inheritance]
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
     def __init__(self, ctx: Any, *args: Any):
