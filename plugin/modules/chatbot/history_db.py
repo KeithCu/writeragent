@@ -106,7 +106,7 @@ class SQLite3History:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
             msgs = [json.loads(row[0]) for row in cursor.fetchall()]
-            log.debug(f"SQLite3: Retreived {len(msgs)} messages for session {self.session_id}")
+            log.debug(f"SQLite3: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
 
     def clear(self):
@@ -150,7 +150,7 @@ class JSONHistory:
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 msgs = json.load(f)
-            log.debug(f"JSONHistory: Retreived {len(msgs)} messages for session {self.session_id}")
+            log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
         except (OSError, IOError, json.JSONDecodeError) as e:
             log.error("JSONHistory: Error reading messages: %s", e)

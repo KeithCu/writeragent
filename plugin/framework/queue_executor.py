@@ -119,15 +119,10 @@ class QueueExecutor:
         if self._async_callback_service is None or self._callback_instance is None:
             return
         try:
-            import uno
-
-            self._async_callback_service.addCallback(self._callback_instance, uno.Any("void", None))  # type: ignore
+            # PyUNO rejects uno.Any for addCallback userData on Linux; None is accepted on supported LO builds.
+            self._async_callback_service.addCallback(self._callback_instance, None)
         except Exception as e:
-            log.debug("_poke_main_thread with Any failed, retrying without: %s", e)
-            try:
-                self._async_callback_service.addCallback(self._callback_instance, None)
-            except Exception as e2:
-                log.warning("_poke_main_thread failed: %s", e2)
+            log.warning("_poke_main_thread addCallback failed: %s", e)
 
     def _enqueue_work(self, fn, args, kwargs, blocking=True):
         """Add work item to queue."""

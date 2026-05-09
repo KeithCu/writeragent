@@ -97,7 +97,7 @@ endif
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
-        ruff ruff-fix ruff-format-check
+        ruff ruff-fix ruff-format-check ruff-format-grammar
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -153,6 +153,7 @@ help:
 	@echo "  make pyrefly                Experimental Meta Pyrefly checker (same scope as ty; not part of make test)"
 	@echo "  make ruff                   Ruff lint (plugin/, excludes contrib + tests; see pyproject.toml)"
 	@echo "  make ruff-fix               Ruff with --fix; make ruff-format-check = ruff format --check"
+	@echo "  make ruff-format-grammar    Ruff format ai_grammar_proofreader.py only (project line-length 320)"
 	@echo ""
 	@echo "Translation:"
 	@echo "  make translate-missing      Auto-translate missing strings with AI"
@@ -489,3 +490,7 @@ ruff-fix:
 
 ruff-format-check:
 	$(PYTHON) -m ruff format --check plugin
+
+# Grammar proofreader: formatting this file only is faster than `ruff format plugin`.
+ruff-format-grammar:
+	$(PYTHON) -m ruff format plugin/modules/writer/ai_grammar_proofreader.py

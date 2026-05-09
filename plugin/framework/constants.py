@@ -82,7 +82,7 @@ TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - search_in_document (with return_offsets if needed) is for inspection/navigation; use apply_document_content with old_content for replacements.
 - If a tool call fails, verify content and target are provided (use target='beginning' / 'end' / 'selection' for insert-only).
 - When asked to review or give feedback or suggestions on a document, use the add_comment method to add your input to specific places in the document. Use for both positive and negative feedback.
-- When asked to improve or fix a sentence or paragraph or small document, re-write it rather than adding comments.
+- If the user says "fix this" (or a synonym or equivalent in another language with the same intent), assume they want you to correct spelling and grammar errors in the current sentence only, unless the context makes it clear there is another specific error they want you to fix.
 """
 # Shared Calc instruction blocks
 CALC_WORKFLOW = """WORKFLOW:

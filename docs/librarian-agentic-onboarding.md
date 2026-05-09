@@ -39,6 +39,21 @@ Librarian: [understands context, stores "Cash" as preferred name, "Keith" as ful
 Librarian: "Got it! I'll call you Cash. It's great to meet you, Cash! 😊"
 ```
 
+## Reply language and localized UI
+
+### What we learned (ship-ready behavior)
+
+- The Librarian’s **agent instructions** in code are **English**; there is **no** separate wiring that passes LibreOffice’s UI locale into the model as “always reply in language X.”
+- Reply language still **tracks the user’s locale in practice** because:
+  - The chat pane’s **`history_text`** passed into `librarian_onboarding` is the **full transcript** of the response control (see `send_handlers.py`), not a thin summary.
+  - The **first assistant line** in the sidebar is often a **gettext-localized** welcome string in the active UI language, so that line sits at the top of history as a strong anchor.
+  - **Role labels** (e.g. “Librarian:” vs “ライブラリアン：”) are localized via `_()` when the reply is emitted; the **body** of the reply comes from the model.
+- **Early turns matter:** short English tokens (`test`, Latin names like `Keith`) can nudge the model toward **English** even with a Japanese UI string above. Starting in the target language (e.g. はじめまして) and using a **Japanese-style name** (e.g. 太郎) keeps the thread language-consistent more reliably. Users can also steer back with an explicit request (e.g. 日本語で話すのを忘れないでください).
+
+### Optional future work (not urgent)
+
+If we ever need **guaranteed** alignment with UI language—e.g. first message with almost no history, or a product rule like “onboarding always English”—consider appending an explicit line to the Librarian instructions built from **UNO locale** or config (e.g. “Respond in …”). Until then, **context-driven** matching has been **good enough** for localized first messages plus conversation.
+
 ## System Design
 
 ### **The Agent's Mind**
@@ -470,6 +485,6 @@ def _init_chat_session(self):
 ---
 
 **Approved**: ⬜️  **In Progress**: ⬜️  **Completed**: ⬜️
-**Last Updated**: 2024-03-25
+**Last Updated**: 2026-05-09
 **Priority**: High 🚀
 **Approach**: Agent-Driven Conversation ✨

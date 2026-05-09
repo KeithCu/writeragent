@@ -288,7 +288,12 @@ def get_document_property(model, name, default=None):
                 # Fallback if hasByName is missing
                 return safe_call(props.getPropertyValue, "Get property value fallback", name)
     except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_document_property error: %s", e)
+        # WriterAgentSessionID is created on first session setup; missing until then is normal (often hits fallback path).
+        _lg = logging.getLogger(__name__)
+        if name == "WriterAgentSessionID":
+            _lg.debug("get_document_property (optional property not set yet): %s", e)
+        else:
+            _lg.warning("get_document_property error: %s", e)
     except Exception as e:
         logging.getLogger(__name__).warning("Unexpected error in get_document_property: %s", e)
     return default
@@ -328,9 +333,6 @@ def set_document_property(model, name, value):
 
         logging.getLogger(__name__).warning("set_document_property error: %s (url=%s, readonly=%s)", e, doc_url, readonly)
         raise
-
-
-
 
 
 def _normalize_doc_url(url):

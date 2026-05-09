@@ -68,7 +68,7 @@
 | `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`registry/openrouter_models.json`](registry/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |
 | `make fix-uno` | Link system UNO into `.venv` so `import uno` resolves for checkers |
 
-**Ruff:** `[tool.ruff]` line length **300**; `[tool.ruff.format]` **`skip-magic-trailing-comma` true**—see [`pyproject.toml`](pyproject.toml). **`make build`** runs **`ruff check`**; not part of **`make test`**.
+**Ruff:** `[tool.ruff]` line length **320** (Ruff’s maximum; fits dense one-line calls without wrapping); `[tool.ruff.format]` **`skip-magic-trailing-comma` true**—see [`pyproject.toml`](pyproject.toml). **`make build`** runs **`ruff check`**; not part of **`make test`**.
 
 **Optional:** **`make pyrefly`** — not in **`make test`**; see [`docs/type-checking.md`](docs/type-checking.md).
 
