@@ -534,8 +534,10 @@ def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkI
     length. This avoids cases where an older longer text wins over a newer
     shorter text from the same typing timeline.
 
-    Additionally, if two items share the same ``inflight_key`` (same document
-    identifier + locale), the one with the lower ``enqueue_seq`` is dropped.
+    Additionally, if two items share the same ``inflight_key`` (document +
+    locale + sentence-start offset), the one with the lower ``enqueue_seq``
+    is dropped so edits within one sentence supersede without collapsing
+    sibling sentences in the same paragraph.
     """
     from collections import defaultdict
 
