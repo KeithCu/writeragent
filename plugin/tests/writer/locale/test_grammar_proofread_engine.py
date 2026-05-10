@@ -273,3 +273,30 @@ def test_sentence_cache_locale_isolation() -> None:
     assert eng.cache_get_sentence("en-US", "Hello") is None
     assert eng.cache_get_sentence("fr-FR", "Bonjour") is not None  # unaffected
     eng.cache_clear()
+
+
+def test_sentence_cache_key_prefix_and_identity_fp() -> None:
+    assert eng.sentence_cache_key_prefix("en-US") == "sent|en-US|"
+    fp = eng.sentence_identity_fp("Hello.")
+    assert eng.make_sentence_key("en-US", "Hello.") == f"{eng.sentence_cache_key_prefix('en-US')}{fp}"
+
+
+def test_should_evict_incomplete_prefix_predecessor() -> None:
+    ev = eng.should_evict_incomplete_prefix_predecessor
+    assert ev(other_complete=True, other_canon="Hi", new_canon="Hi there") is False
+    assert ev(other_complete=False, other_canon="Hello", new_canon="Hell") is False
+    assert ev(other_complete=False, other_canon="The qu", new_canon="The quick") is True
+    assert ev(other_complete=False, other_canon="same", new_canon="same") is False
+
+
+def test_extend_through_trailing_whitespace() -> None:
+    assert eng.extend_through_trailing_whitespace("Hi.  There", 3) == 5
+    assert eng.extend_through_trailing_whitespace("word", 4) == 4
+
+
+def test_anchor_wrong_in_window() -> None:
+    assert eng.anchor_wrong_in_window("hello bob there", "bob", 0) == 6
+    assert eng.anchor_wrong_in_window("bob x bob", "bob", 0) == 0
+    assert eng.anchor_wrong_in_window("bob x bob", "bob", 1) == 6
+    assert eng.anchor_wrong_in_window("", "x", 0) is None
+    assert eng.anchor_wrong_in_window("aa aa", "aa", 4) is None  # global match before search_pos — reject

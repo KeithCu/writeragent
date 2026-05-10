@@ -80,6 +80,25 @@ def _normalize_for_sentence_cache(text: str) -> str:
     return s
 
 
+def sentence_identity_fp(sentence: str) -> str:
+    """Stable fingerprint for cache lookup: normalize then hash (same key space as ``make_sentence_key``)."""
+    return fingerprint_for_text(_normalize_for_sentence_cache(sentence))
+
+
+def sentence_cache_key_prefix(locale_key: str) -> str:
+    """Prefix for every sentence-cache OrderedDict key: ``sent|<locale>|``."""
+    return f"sent|{locale_key}|"
+
+
+def should_evict_incomplete_prefix_predecessor(*, other_complete: bool, other_canon: str, new_canon: str) -> bool:
+    """LRU prefix compaction: drop an older incomplete entry if ``new_canon`` strictly extends it."""
+    if other_complete:
+        return False
+    if len(other_canon) >= len(new_canon):
+        return False
+    return new_canon.startswith(other_canon)
+
+
 # Sentence completeness helpers (mirrored from ai_grammar_proofreader.py
 # to avoid import cycles). Used for deciding whether to evict incomplete
 # prefix predecessors during cache_put_sentence.
@@ -204,6 +223,27 @@ def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list
     return re.findall(r"\w+|\W+", text)
 
 
+def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_idx: int | None = None) -> int | None:
+    """Find ``wrong`` in ``window`` starting at ``search_pos``, with ordered-scan fallback.
+
+    Returns relative offset within ``window``, or ``None`` if no acceptable match.
+    """
+    if not wrong:
+        return None
+    rel = window.find(wrong, search_pos)
+    if rel >= 0:
+        return rel
+    rel = window.find(wrong)
+    if rel < 0:
+        return None
+    # Out-of-order vs ordered scan: only accept a global match if it does not lie
+    # **before** the next expected position (avoids anchoring to an earlier duplicate).
+    if rel < search_pos:
+        _grammar_diag.debug("[grammar] normalize_errors_for_text: skipped out-of-order duplicate wrong=%r idx=%s search_pos=%s", wrong, wrong_idx, search_pos)
+        return None
+    return rel
+
+
 def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ignored: set[str] | None = None, ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
     ignored = ignored or set()
@@ -222,19 +262,9 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
     for idx, it in enumerate(items):
         wrong = it.get("wrong", "")
         correct = it.get("correct", "")
-        if not wrong:
+        rel = anchor_wrong_in_window(window, wrong, search_pos, wrong_idx=idx)
+        if rel is None:
             continue
-
-        rel = window.find(wrong, search_pos)
-        if rel < 0:
-            rel = window.find(wrong)
-            if rel < 0:
-                continue
-            # Out-of-order vs ordered scan: only accept a global match if it does not lie
-            # **before** the next expected position (avoids anchoring to an earlier duplicate).
-            if rel < search_pos:
-                _grammar_diag.debug("[grammar] normalize_errors_for_text: skipped out-of-order duplicate wrong=%r idx=%s search_pos=%s", wrong, idx, search_pos)
-                continue
 
         pos = slice_start + rel
         length = len(wrong)
@@ -329,6 +359,14 @@ def _word_before_period_is_abbrev(word: str) -> bool:
     return 0 < len(word) <= 3 and word[0].isupper()
 
 
+def extend_through_trailing_whitespace(text: str, end_pos: int) -> int:
+    """Return index after ``end_pos`` including any following whitespace on the same line."""
+    ws_end = end_pos
+    while ws_end < len(text) and text[ws_end].isspace():
+        ws_end += 1
+    return ws_end
+
+
 def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int, str]]:
     """Split *text* into ``(start_offset, sentence_text)`` pairs.
 
@@ -401,9 +439,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
             break
 
         # Include trailing whitespace after the sentence so the LLM can flag double spaces etc.
-        ws_end = end_pos
-        while ws_end < len(text) and text[ws_end].isspace():
-            ws_end += 1
+        ws_end = extend_through_trailing_whitespace(text, end_pos)
 
         sentences.append((pos, text[pos:ws_end]))
         pos = ws_end
@@ -461,8 +497,7 @@ def make_sentence_key(locale_key: str, sentence: str) -> str:
     share the same cache entry, and ``'Hello?'`` and ``'Hello?... '`` share one,
     but the first terminator remains semantically significant.
     """
-    fp = fingerprint_for_text(_normalize_for_sentence_cache(sentence))
-    return f"sent|{locale_key}|{fp}"
+    return f"{sentence_cache_key_prefix(locale_key)}{sentence_identity_fp(sentence)}"
 
 
 def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] | None:
@@ -477,7 +512,7 @@ def cache_get_sentence(locale_key: str, sentence: str) -> list[dict[str, Any]] |
         if not hit:
             return None
         cached_fp, _canon, _is_complete, errors = hit
-        if cached_fp != fingerprint_for_text(_normalize_for_sentence_cache(sentence)):
+        if cached_fp != sentence_identity_fp(sentence):
             return None
         _SENTENCE_CACHE.move_to_end(key)
         return list(errors)  # return copy
@@ -498,7 +533,8 @@ def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, An
     """
     canon = _normalize_for_sentence_cache(sentence)
     fp = fingerprint_for_text(canon)
-    key = f"sent|{locale_key}|{fp}"
+    # Same assembly as ``make_sentence_key`` (single normalize — fp matches ``sentence_identity_fp``).
+    key = f"{sentence_cache_key_prefix(locale_key)}{fp}"
     clipped = _clip_errors_to_canonical_length(errors, len(canon))
     is_complete = _is_complete_sentence(canon)
 
@@ -511,16 +547,15 @@ def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, An
         if not is_complete:
             scan_count = 0
             to_remove: list[str] = []
+            prefix = sentence_cache_key_prefix(locale_key)
             # Snapshot to avoid modification-during-iteration
             for k, v in list(_SENTENCE_CACHE.items())[::-1]:
                 if scan_count >= MAX_RECENT_INCOMPLETE_SCAN:
                     break
-                if not k.startswith(f"sent|{locale_key}|"):
+                if not k.startswith(prefix):
                     continue
-                other_fp, other_canon, other_complete, _ = v
-                if other_complete:
-                    continue
-                if len(other_canon) < len(canon) and canon.startswith(other_canon):
+                _other_fp, other_canon, other_complete, _ = v
+                if should_evict_incomplete_prefix_predecessor(other_complete=other_complete, other_canon=other_canon, new_canon=canon):
                     to_remove.append(k)
                     break  # only the most recent matching predecessor
                 scan_count += 1
