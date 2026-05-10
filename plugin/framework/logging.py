@@ -30,7 +30,7 @@ from copy import deepcopy
 from typing import Any
 
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.base_errors import ConfigError, format_error_payload
+from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework import config
 

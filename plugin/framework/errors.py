@@ -21,9 +21,56 @@ All custom exceptions should inherit from WriterAgentException.
 
 from __future__ import annotations
 
+from typing import Any
+
 from plugin.framework.i18n import _
-from plugin.framework.base_errors import ConfigError, NetworkError, WriterAgentException, format_error_payload
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
+
+
+class WriterAgentException(Exception):
+    """Base exception for all WriterAgent errors.
+
+    Backwards compatibility: some older code paths use `context=` while
+    newer code uses `details=` for the JSON error payload.
+    """
+
+    def __init__(self, message, code="INTERNAL_ERROR", context=None, details=None):
+        # Accept both `context` and `details` (alias).
+        if details is None and context is not None:
+            details = context
+
+        super().__init__(message)
+        self.message = _(str(message))
+        self.code = code
+        self.details = details or {}
+        # Keep legacy attribute name too (some callers reference `.context`).
+        self.context = self.details
+
+
+class ConfigError(WriterAgentException):
+    """Configuration, Auth, or Settings issues."""
+
+    def __init__(self, message, code="CONFIG_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+
+
+class NetworkError(WriterAgentException):
+    """HTTP/Network related failures."""
+
+    def __init__(self, message, code="NETWORK_ERROR", context=None, details=None):
+        super().__init__(message, code=code, context=context, details=details)
+
+
+def format_error_payload(e: Exception) -> dict[str, Any]:
+    """Format an exception into the standard JSON error payload schema."""
+    if isinstance(e, WriterAgentException):
+        payload: dict[str, Any] = {"status": "error", "code": e.code, "message": e.message}
+        if e.details:
+            payload["details"] = e.details
+        return payload
+
+    # For unexpected exceptions
+    return {"status": "error", "code": "INTERNAL_ERROR", "message": str(e), "details": {"type": type(e).__name__}}
 
 
 class UnoObjectError(WriterAgentException):
