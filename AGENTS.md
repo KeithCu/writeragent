@@ -33,7 +33,7 @@
 | Async UI drain | [`plugin/framework/async_stream.py`](plugin/framework/async_stream.py), [`plugin/framework/uno_context.py`](plugin/framework/uno_context.py) (`get_toolkit`) |
 | Writer HTML / apply content | [`plugin/modules/writer/format_support.py`](plugin/modules/writer/format_support.py) |
 | Errors / `safe_json_loads` | [`plugin/framework/errors.py`](plugin/framework/errors.py) |
-| Weekly extension update check | [`plugin/framework/extension_update_check.py`](plugin/framework/extension_update_check.py) |
+| Weekly extension update check | [`plugin/modules/chatbot/extension_update_check.py`](plugin/modules/chatbot/extension_update_check.py) |
 
 **Layout:** `plugin/` → `framework/` (config, service, state, dialogs, logging), `modules/` (ai, chatbot, writer, calc, draw, http), [`WriterAgentDialogs/`](WriterAgentDialogs/) (XDL), [`registry/`](registry/), [`scripts/`](scripts/), [`Makefile`](Makefile), [`pyproject.toml`](pyproject.toml).
 

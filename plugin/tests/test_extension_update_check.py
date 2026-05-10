@@ -1,6 +1,6 @@
 # WriterAgent tests — extension update.xml parsing and version ordering
 
-from plugin.framework.extension_update_check import (
+from plugin.modules.chatbot.extension_update_check import (
     EXPECTED_EXTENSION_ID,
     parse_update_xml,
     remote_is_newer,

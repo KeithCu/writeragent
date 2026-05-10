@@ -38,7 +38,7 @@ class EditWriterAgentConfigListener(BaseActionListener):
         self._ctx = ctx
 
     def on_action_performed(self, rEvent):
-        from plugin.framework.external_editor import open_writeragent_json_in_editor
+        from plugin.modules.chatbot.external_editor import open_writeragent_json_in_editor
 
         open_writeragent_json_in_editor(self._ctx)
 

@@ -6,7 +6,11 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Weekly background check against published update.xml (GitHub).
+"""Extension version check vs published ``update.xml`` (weekly GitHub fetch; not chat logic).
+
+Scheduling runs once per process after sidebar wiring (see ``panel_wiring``)
+so logging and UI are ready; this module performs the fetch/compare/notify work.
+"""
 
 from __future__ import annotations
 

@@ -129,7 +129,7 @@ def _schedule_extension_update_check_once(ctx):
             return
         _extension_update_check_scheduled = True
     from plugin.framework.worker_pool import run_in_background
-    from plugin.framework.extension_update_check import run_extension_update_check
+    from plugin.modules.chatbot.extension_update_check import run_extension_update_check
 
     log.info("extension update check: scheduling background worker")
     run_in_background(run_extension_update_check, ctx, name="extension_update_check")

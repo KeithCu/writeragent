@@ -206,7 +206,7 @@ class WriterAgentConfig:
     seed: str = ""
     chatbot_show_search_thinking: bool = False
     enable_agent_log: bool = False
-    # Last extension update.xml check time (unix seconds); see extension_update_check.py
+    # Last extension update.xml check time (unix seconds); see modules/chatbot/extension_update_check.py
     extension_update_check_epoch: float = 0.0
     web_cache_max_mb: int = 50
     web_cache_validity_days: int = 7

@@ -48,21 +48,21 @@ def test_merge_nested_provider_dicts() -> None:
 
 
 def test_resolve_editor_argv_darwin(monkeypatch: "pytest.MonkeyPatch") -> None:
-    from plugin.framework import external_editor as ee
+    from plugin.modules.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "darwin")
     assert ee.resolve_editor_argv("/tmp/w.json") == ["open", "-t", "/tmp/w.json"]
 
 
 def test_resolve_editor_argv_windows_returns_none(monkeypatch: "pytest.MonkeyPatch") -> None:
-    from plugin.framework import external_editor as ee
+    from plugin.modules.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "win32")
     assert ee.resolve_editor_argv("C:\\a.json") is None
 
 
 def test_resolve_editor_argv_linux_kate_first(monkeypatch: "pytest.MonkeyPatch") -> None:
-    from plugin.framework import external_editor as ee
+    from plugin.modules.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "linux")
 
@@ -76,7 +76,7 @@ def test_resolve_editor_argv_linux_kate_first(monkeypatch: "pytest.MonkeyPatch")
 
 
 def test_resolve_editor_argv_linux_gedit_if_no_kate(monkeypatch: "pytest.MonkeyPatch") -> None:
-    from plugin.framework import external_editor as ee
+    from plugin.modules.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "linux")
 
@@ -90,7 +90,7 @@ def test_resolve_editor_argv_linux_gedit_if_no_kate(monkeypatch: "pytest.MonkeyP
 
 
 def test_resolve_editor_argv_linux_editor_env(monkeypatch: "pytest.MonkeyPatch") -> None:
-    from plugin.framework import external_editor as ee
+    from plugin.modules.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(ee.shutil, "which", lambda _cmd: None)
@@ -102,7 +102,7 @@ def test_resolve_editor_argv_linux_editor_env(monkeypatch: "pytest.MonkeyPatch")
 def test_resolve_editor_argv_linux_visual_when_editor_unset(
     monkeypatch: "pytest.MonkeyPatch",
 ) -> None:
-    from plugin.framework import external_editor as ee
+    from plugin.modules.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr(ee.shutil, "which", lambda _cmd: None)
