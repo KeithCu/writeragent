@@ -140,6 +140,16 @@ _TRAILING_CLOSERS: frozenset[str] = frozenset((
 _NONSPACE_RE = re.compile(r"\S", re.UNICODE)
 
 uno_mod: Any
+
+
+def _advance_past_leading_whitespace(text: str, index: int) -> int:
+    """Advance ``index`` while ``text[index]`` is Unicode whitespace (not ASCII space only)."""
+    n = min(max(0, index), len(text))
+    while n < len(text) and text[n].isspace():
+        n += 1
+    return n
+
+
 try:
     uno_mod = importlib.import_module("uno")
 except ImportError:
@@ -244,6 +254,11 @@ class _GrammarWorkQueue:
         latest = self._latest_seq_for(item.inflight_key)
         return latest is not None and item.enqueue_seq < latest
 
+    def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
+        """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
+        latest = self._latest_seq_for(inflight_key)
+        return latest is not None and enqueue_seq < latest
+
     def enqueue(self, item: _GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call."""
         with self._seq_lock:
@@ -299,6 +314,7 @@ class _GrammarWorkQueue:
                     break
             log.info("[grammar] queue drain: batch_size=%s", len(batch))
             _grammar_obs("queue_drain_batch", batch_size=len(batch), seqs=tuple(x.enqueue_seq for x in batch), keys=tuple(x.inflight_key for x in batch))
+            # deduplicate_grammar_batch: comments on cross-key prefix bug live above that function.
             survivors = _deduplicate_grammar_batch(batch)
             log.info("[grammar] queue drain: survivors=%s", len(survivors))
             _grammar_obs("queue_drain_survivors", survivor_count=len(survivors), seqs=tuple(x.enqueue_seq for x in survivors))
@@ -311,7 +327,17 @@ class _GrammarWorkQueue:
                 try:
                     log.info("[grammar] queue execute doc_id=%s locale=%s seq=%s latest=%s key=%s len=%s preview=%r", item.doc_id, item.grammar_bcp47, item.enqueue_seq, latest, item.inflight_key, len(item.full_text[item.n_start : item.n_end]), self._slice_preview(item))
                     _grammar_obs("queue_execute", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, latest_seq=latest, inflight_key=item.inflight_key, n_start=item.n_start, n_end=item.n_end, slice_len=len(item.full_text[item.n_start : item.n_end]), partial_sentence=item.partial_sentence)
-                    _run_llm_and_cache(item.ctx, item.full_text, item.n_start, item.n_end, item.enqueue_seq, item.inflight_key, item.grammar_bcp47, partial_sentence=item.partial_sentence)
+                    _run_llm_and_cache(
+                        item.ctx,
+                        item.full_text,
+                        item.n_start,
+                        item.n_end,
+                        item.enqueue_seq,
+                        item.inflight_key,
+                        item.grammar_bcp47,
+                        partial_sentence=item.partial_sentence,
+                        proofread_sentence_text=item.proofread_sentence_text,
+                    )
                 except Exception as e:
                     log.error("[grammar] queue worker item failed: %s", e, exc_info=True)
 
@@ -416,11 +442,10 @@ def _build_empty_result(proofreader: Any, a_document_identifier: Any, a_text: st
         # ``_apply_proofreading_end_positions`` when we cover a computed sentence span).
         n_next = n_suggested_behind_end_of_sentence_position
         if n_next < len(a_text):
-            ch = a_text[n_next : n_next + 1]
-            while ch == " ":
-                n_next += 1
-                ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
-            if n_next == n_suggested_behind_end_of_sentence_position and ch != "":
+            before = n_next
+            n_next = _advance_past_leading_whitespace(a_text, n_next)
+            ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
+            if n_next == before and ch != "":
                 n_next = n_suggested_behind_end_of_sentence_position + 1
         a_res.nStartOfNextSentencePosition = n_next
         a_res.nBehindEndOfSentencePosition = n_next
@@ -436,38 +461,7 @@ def _apply_proofreading_end_positions(a_res: Any, a_text: str, covered_end: int)
     Skips spaces after ``covered_end`` so Writer advances past inter-sentence whitespace.
     """
     n_next = min(max(0, covered_end), len(a_text))
-    if n_next < len(a_text):
-        ch = a_text[n_next : n_next + 1]
-        while ch == " ":
-            n_next += 1
-            ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
-    a_res.nStartOfNextSentencePosition = n_next
-    a_res.nBehindEndOfSentencePosition = n_next
-
-
-def _finalize_proofreading_sentence_positions(a_res: Any, a_text: str, n_suggested_behind_end: int, proofread_batch_end: int) -> None:
-    """Lightproof-style batching (``lightproof/Lightproof.py`` after LO 4 patch).
-
-    Writer grows ``nSuggestedBehindEndOfSentencePosition`` per keystroke; we treat the
-    proofread window as ``a_text[0:proofread_batch_end]`` with ``proofread_batch_end`` capped
-    by ``GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS``. Then set ``nStartOfNextSentencePosition`` /
-    ``nBehindEndOfSentencePosition`` from that batch end with the same space-skipping idea as
-    ``_build_empty_result`` / Lightproof lines 126–132.
-    """
-    n_next = proofread_batch_end
-    if n_next < len(a_text):
-        ch = a_text[n_next : n_next + 1]
-        while ch == " ":
-            n_next += 1
-            ch = a_text[n_next : n_next + 1] if n_next < len(a_text) else ""
-        # Lightproof fallback: if space-skipping didn't advance past LO's suggested end
-        # and we're not at EOF, nudge by one.  In the capped-batch path this condition
-        # is nearly unreachable because proofread_batch_end < n_suggested_behind_end,
-        # but it is kept for parity with Lightproof lines 126-132.
-        if n_next == n_suggested_behind_end and ch != "":
-            log.debug("[grammar] _finalize: Lightproof fallback nudge fired n_next=%s n_suggested=%s batch_end=%s text_len=%s", n_next, n_suggested_behind_end, proofread_batch_end, len(a_text))
-            assert proofread_batch_end >= n_suggested_behind_end, f"Lightproof fallback expected proofread_batch_end ({proofread_batch_end}) >= n_suggested_behind_end ({n_suggested_behind_end})"
-            n_next = n_suggested_behind_end + 1
+    n_next = _advance_past_leading_whitespace(a_text, n_next)
     a_res.nStartOfNextSentencePosition = n_next
     a_res.nBehindEndOfSentencePosition = n_next
 
@@ -562,7 +556,18 @@ def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ..
     return tuple(out)
 
 
-def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enqueue_seq: int, inflight_key: str, grammar_bcp47: str, partial_sentence: bool = False) -> None:
+def _run_llm_and_cache(
+    ctx: Any,
+    full_text: str,
+    n_start: int,
+    n_end: int,
+    enqueue_seq: int,
+    inflight_key: str,
+    grammar_bcp47: str,
+    partial_sentence: bool = False,
+    *,
+    proofread_sentence_text: str = "",
+) -> None:
     try:
         from plugin.framework.config import get_api_config, get_config_bool, get_config_str, get_text_model
         from plugin.framework.queue_executor import is_agent_active, llm_request_lane
@@ -593,17 +598,22 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
             log.info("[grammar] worker skipped: slice len %s > GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS %s", len(slice_txt), GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS)
             _grammar_obs("worker_skip", reason="slice_exceeds_safety_max_chars", slice_len=len(slice_txt), max_chars=GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS)
             return
-        sentences = engine.split_into_sentences(ctx, grammar_bcp47, slice_txt)
-        if not sentences:
-            to_process: list[str] = [slice_txt]
-            _grammar_obs("worker_split_fallback_whole_slice", enqueue_seq=enqueue_seq, slice_len=len(slice_txt))
+        if proofread_sentence_text:
+            # Main thread already chose this sentence; avoid BreakIterator on substring disagreeing with cache keys.
+            if proofread_sentence_text != slice_txt:
+                log.warning("[grammar] worker slice mismatch (using enqueue proofread_sentence_text) n_start=%s n_end=%s", n_start, n_end)
+            to_process = [proofread_sentence_text]
+            _grammar_obs("worker_use_enqueue_sentence_text", enqueue_seq=enqueue_seq, len_proof=len(proofread_sentence_text))
         else:
-            to_process = [txt for _off, txt in sentences]
-            # Pathological: splitter produced multiple units (should not happen for normal enqueue).
-            # One LLM request per unit — never concatenate multi-sentence prompts.
-            if len(to_process) > 1:
-                log.info("[grammar] worker: slice split into %s parts; processing each separately", len(to_process))
-                _grammar_obs("worker_multi_fragment_slice", enqueue_seq=enqueue_seq, fragment_count=len(to_process))
+            sentences = engine.split_into_sentences(ctx, grammar_bcp47, slice_txt)
+            if not sentences:
+                to_process = [slice_txt]
+                _grammar_obs("worker_split_fallback_whole_slice", enqueue_seq=enqueue_seq, slice_len=len(slice_txt))
+            else:
+                to_process = [txt for _off, txt in sentences]
+                if len(to_process) > 1:
+                    log.info("[grammar] worker: slice split into %s parts; processing each separately", len(to_process))
+                    _grammar_obs("worker_multi_fragment_slice", enqueue_seq=enqueue_seq, fragment_count=len(to_process))
 
         uncached_texts: list[str] = []
         for sent_text in to_process:
@@ -650,6 +660,10 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
                 content = client.chat_completion_sync(messages, max_tokens=max_tok, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
             elapsed_ms = int((time.monotonic() - request_start) * 1000)
             log.debug("[grammar] LLM raw response length=%s", len(content or ""))
+            if _grammar_queue.inflight_superseded(inflight_key, enqueue_seq):
+                log.info("[grammar] worker skip cache_put: superseded during LLM seq=%s key=%s", enqueue_seq, inflight_key)
+                _grammar_obs("worker_skip", reason="superseded_during_llm", enqueue_seq=enqueue_seq, inflight_key=inflight_key)
+                continue
             items = engine.parse_grammar_json(content or "")
             log.info("[grammar] parsed %s error item(s) from JSON", len(items))
             ignored = engine.ignored_rules_snapshot()
@@ -898,6 +912,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         doc_id=aDocumentIdentifier,
                         inflight_key=inflight_key,
                         enqueue_seq=seq,
+                        proofread_sentence_text=sent_text,
                     )
                 )
             log.info("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")

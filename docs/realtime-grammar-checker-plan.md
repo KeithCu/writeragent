@@ -4,6 +4,22 @@
 **Authors**: WriterAgent Team  
 **Audience**: Developers and PMs aligning on **native Writer linguistic grammar** vs optional **sidebar chat** (different surfaces, different jobs).
 
+### Design note: `deduplicate_grammar_batch` (cross-sentence prefix bug)
+
+**Problem:** An older implementation added a *second* dedup step that grouped queue items by `(doc_id, locale)` and dropped items whose **slice text** was in a **string prefix** relation with another item (newest `enqueue_seq` wins). That matches typing inside **one** sentence, but `inflight_key` is already `doc|locale|sentence_start` — one key per sentence. **Different sentences** in the same paragraph can still have texts where one is a prefix of the other (e.g. first sentence `No.` and a later sentence `No problem today.`). Cross-key prefix logic **dropped the shorter sentence’s work** and skipped a valid LLM check.
+
+**Fix shipped:** `deduplicate_grammar_batch` only keeps, for each **`inflight_key`**, the item with the highest **`enqueue_seq`**. No text-prefix pass across distinct keys. Same-sentence typing is covered by the same `inflight_key` plus enqueue tail-replace.
+
+**Other ways to fix** (if you revisit this — avoid regressions):
+
+| Approach | Notes |
+|----------|--------|
+| Prefix-newest-wins **only for the same `inflight_key`** | Narrow the old idea to the typing timeline only; often equivalent to “one survivor per key” after step 1. |
+| **Span-aware** prefix rules | Drop prefix-related items only when `n_start`/`n_end` ranges overlap (same physical sentence), not when offsets differ. |
+| **No cross-key text comparison** | Rely on `inflight_key` + tail-replace only (current direction). |
+
+**Regression test:** [`test_two_sentences_string_prefix_collision_both_survive`](../plugin/tests/writer/locale/test_grammar_work_queue.py). Implementation notes are in **comments directly above** [`deduplicate_grammar_batch`](../plugin/writer/locale/grammar_proofread_engine.py) in that file (not in the module docstring).
+
 ---
 
 ## 0. Tutorial: LibreOffice grammar proofreader API
@@ -92,13 +108,6 @@ The design target is therefore **sentence-sized work**, not "only the first sent
 | **Native Writer grammar (Linguistic2)** | Same as other grammar extensions: Writer’s grammar pass, underlines, grammar dialog. Uses `XProofreader` + `Linguistic` / `GrammarCheckers` registry. | **Shipped / experimental** — Python `XProofreader` + Lightproof-style XCU are in the default OXT; users enable LLM work on the **Doc** tab and pick the active proofreader under Writing aids. Earlier native crashes were fixed by accepting extra UNO constructor args (`__init__(self, ctx, *args)`). |
 | **Chat with Document (sidebar)** | Multi-turn chat with document context and tools — not a duplicate linguistic pipeline. | Use this when you want **explanations, rewrites, or whole-paragraph help**; it does not replace underlined in-flow proofreading. |
 
-## 1. Native grammar vs chat (do not conflate)
-
-| Surface | UX | Role |
-|--------|-----|------|
-| **Native Writer grammar (Linguistic2)** | Same as other grammar extensions: Writer’s grammar pass, underlines, grammar dialog. Uses `XProofreader` + `Linguistic` / `GrammarCheckers` registry. | **Shipped / experimental** — Python `XProofreader` + Lightproof-style XCU are in the default OXT; users enable LLM work on the **Doc** tab and pick the active proofreader under Writing aids. Earlier native crashes were fixed by accepting extra UNO constructor args (`__init__(self, ctx, *args)`). |
-| **Chat with Document (sidebar)** | Multi-turn chat with document context and tools — not a duplicate linguistic pipeline. | Use this when you want **explanations, rewrites, or whole-paragraph help**; it does not replace underlined in-flow proofreading. |
-
 ### Architectural Scope: Sentence vs. Paragraph
 The implementation draws heavily from `Lightproof` as a mature, robust foundation, but evolves significantly. Currently, the checker operates on a **sentence-at-a-time** basis for the native `XProofreader` surface. 
 
@@ -120,14 +129,14 @@ While sentence-scoped checking is excellent for localized grammar, it inherently
 
 ### 2.1 Code and packaging
 
-- **UNO component**: [`plugin/writer/ai_grammar_proofreader.py`](../plugin/writer/ai_grammar_proofreader.py) — `WriterAgentAiGrammarProofreader` (`unohelper` + `XProofreader`, locales, service info). Standalone entrypoint: extends `sys.path` like [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py) so `import plugin.*` works when LO loads the module.
-- **Engine (testable)**: [`plugin/writer/grammar_proofread_engine.py`](../plugin/writer/grammar_proofread_engine.py) — JSON parsing (`safe_json_loads`), offset normalization (with first-occurrence bias note), sentence-level LRU cache, ignore-rule set, hybrid sentence splitter, work-queue dedup.
-- **Registry**: [`extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu`](../extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu) — fuses `org.extension.writeragent.comp.pyuno.AiGrammarProofreader` under `GrammarCheckers` with `Locales` set to a space-separated list of BCP-47 tags (one `oor:string-list` `<value>`, matching Lightproof). Tags are defined in [`grammar_locale_registry.py`](../plugin/writer/grammar_locale_registry.py) as [`GRAMMAR_REGISTRY_LOCALE_TAGS`](../plugin/writer/grammar_proofread_engine.py) (same coverage as shipped gettext `locales/` plus `en-US` / `en-GB`). Must stay aligned with `getLocales()` (UNO `Locale` per tag) and `GRAMMAR_REGISTRY_LOCALE_TAGS` (unit test enforces parity). Document **regional** `CharLocale` values normalize to the canonical tag per language for cache and the LLM prompt.
+- **UNO component**: [`plugin/writer/locale/ai_grammar_proofreader.py`](../plugin/writer/locale/ai_grammar_proofreader.py) — `WriterAgentAiGrammarProofreader` (`unohelper` + `XProofreader`, locales, service info). Standalone entrypoint: extends `sys.path` like [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py) so `import plugin.*` works when LO loads the module.
+- **Engine (testable)**: [`plugin/writer/locale/grammar_proofread_engine.py`](../plugin/writer/locale/grammar_proofread_engine.py) — JSON parsing (`safe_json_loads`), offset normalization (with first-occurrence bias note), sentence-level LRU cache, ignore-rule set, hybrid sentence splitter, batch dedup (`deduplicate_grammar_batch`).
+- **Registry**: [`extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu`](../extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu) — fuses `org.extension.writeragent.comp.pyuno.AiGrammarProofreader` under `GrammarCheckers` with `Locales` set to a space-separated list of BCP-47 tags (one `oor:string-list` `<value>`, matching Lightproof). Tags are defined in [`grammar_locale_registry.py`](../plugin/writer/locale/grammar_locale_registry.py) as [`GRAMMAR_REGISTRY_LOCALE_TAGS`](../plugin/writer/locale/grammar_proofread_engine.py) (same coverage as shipped gettext `locales/` plus `en-US` / `en-GB`). Must stay aligned with `getLocales()` (UNO `Locale` per tag) and `GRAMMAR_REGISTRY_LOCALE_TAGS` (unit test enforces parity). Document **regional** `CharLocale` values normalize to the canonical tag per language for cache and the LLM prompt.
 - **Bundle**: [`scripts/manifest_registry.py`](../scripts/manifest_registry.py) — `META-INF/manifest.xml` always lists the Python UNO module and `registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu` in default `make manifest` / `make build` output.
 
 ### 2.2 Configuration
 
-- **All settings (Doc tab)**: `doc.grammar_proofreader_*` in [`plugin/doc/module.yaml`](../plugin/doc/module.yaml) — enable (default **off**), wait timeout (ms), optional model (empty = same as chat `text_model`), and `doc.grammar_proofreader_pause_during_agent` (default **off**) to pause grammar API requests while sidebar chat/agent work is active. LLM max output tokens (512) and the **pathological** slice ceiling **`GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS`** are **fixed in code** in [`ai_grammar_proofreader.py`](../plugin/writer/ai_grammar_proofreader.py). The Doc tab also inlines Calc’s **Max Rows Display** (`calc.max_rows_display` via `config_inline: doc` in [`plugin/calc/module.yaml`](../plugin/calc/module.yaml)).
+- **All settings (Doc tab)**: `doc.grammar_proofreader_*` in [`plugin/doc/module.yaml`](../plugin/doc/module.yaml) — enable (default **off**), wait timeout (ms), optional model (empty = same as chat `text_model`), and `doc.grammar_proofreader_pause_during_agent` (default **off**) to pause grammar API requests while sidebar chat/agent work is active. LLM max output tokens (512) and the **pathological** slice ceiling **`GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS`** are **fixed in code** in [`ai_grammar_proofreader.py`](../plugin/writer/locale/ai_grammar_proofreader.py). The Doc tab also inlines Calc’s **Max Rows Display** (`calc.max_rows_display` via `config_inline: doc` in [`plugin/calc/module.yaml`](../plugin/calc/module.yaml)).
 - **Diagnostics**: logger name `writeragent.grammar` — `INFO` lines prefixed `[grammar]` for each `doProofreading` call, cache hit/miss, worker skip/supersede, LLM request/result counts, and `WARNING` with stack trace on worker failure. Ensure `init_logging` has run (first grammar call attempts it); see `writeragent_debug.log` under the LO user config directory (see AGENTS.md).
 
 ### 2.3 Runtime behavior (summary)
@@ -135,29 +144,31 @@ While sentence-scoped checking is excellent for localized grammar, it inherently
 - **`doProofreading`** (async return path): On a **full cache miss**, WriterAgent returns with empty `aErrors` and enqueues a work item. On a **partial cache hit** (some sentences cached, some not), it **returns the cached errors immediately** (better than empty — squiggles appear for already-checked sentences) and enqueues for the remaining uncached sentences. On a **full cache hit** all errors are returned directly, no enqueue needed. It **does not** wait inside `doProofreading` or pump `processEventsToIdle()` for results. That keeps **menus and chrome responsive** while grammar runs.
 - **`doc.grammar_proofreader_wait_timeout_ms`**: No longer used by the proofreader return path (reserved for possible future options or removed from UI in a later cleanup).
 - **Sidebar status**: the proofreader emits `grammar:status` for meaningful phases (`start`, `request`, `complete`, `failed`, etc.). Skipped work is not reported to the status bar.
-- **Concurrency / work queue**: A single persistent daemon thread (`_GrammarWorkQueue`) drains a `queue.Queue` sequentially. On each iteration, the worker **batch-drains** all pending items and runs **`deduplicate_grammar_batch`** ([`grammar_proofread_engine.py`](../plugin/writer/grammar_proofread_engine.py)) before processing survivors. This eliminates the prior stampede where N cache misses spawned N workers that all contended for `llm_request_lane` simultaneously.
+- **Concurrency / work queue**: A single persistent daemon thread (`_GrammarWorkQueue`) drains a `queue.Queue` sequentially. On each iteration, the worker **batch-drains** all pending items and runs **`deduplicate_grammar_batch`** ([`grammar_proofread_engine.py`](../plugin/writer/locale/grammar_proofread_engine.py)) before processing survivors. This eliminates the prior stampede where N cache misses spawned N workers that all contended for `llm_request_lane` simultaneously.
 - **Enqueue-time replace-in-place (O(1) tail check)**: `_GrammarWorkQueue.enqueue()` acquires `queue.Queue`'s own internal mutex (`self._q.mutex`) and checks the **last item** of the internal deque (`self._q.queue`). If it has the same `inflight_key` and the incoming item is newer (higher `enqueue_seq`), it **replaces it in place**. This efficiently collapses typing bursts into a single pending request without a loop. If no match is found at the tail, the item is appended normally.
-- **Newest-wins dedup + stale suppression**: The drain-time **`deduplicate_grammar_batch`** pass remains as a belt-and-suspenders safety net: it handles items that slipped past the tail scan (e.g. a deep queue during a burst) and cross-key prefix dedup within each `(doc_id, locale)` group. Within each group, **prefix-related conflicts keep the newest request** (`enqueue_seq`). Items with the same `inflight_key` are also superseded by sequence number (highest survives). **`inflight_key`** is **`{aDocumentIdentifier}|{locale}|{sentence_start}`** (sentence start offset in `aText`; no full sentence text): edits within one sentence supersede queued work for that sentence while sibling sentences in the same paragraph keep distinct keys. `_GrammarWorkQueue` additionally performs a **pre-execute stale check** against `_latest_seq` and skips any survivor older than the latest known sequence for that key, which closes cross-batch race windows. This is combined with a 1-second pause mechanism: the worker collects requests and waits until there is a 1-second period of no new requests before processing the batch, ensuring checks only run when the user stops typing.
+- **Same-key newest wins + stale suppression**: Drain-time **`deduplicate_grammar_batch`** keeps, for each **`inflight_key`**, only the item with the highest **`enqueue_seq`** (multiple survivors from one drain batch can share one document but **different** sentence-start keys). There is **no** cross-key text-prefix dedup: unrelated sentences whose text happens to be a prefix of another (e.g. `No.` vs `No problem today.`) must **both** survive. **Do not** restore old cross-sentence prefix merging — see **Design note: `deduplicate_grammar_batch`** at the top of this document and the **comments above `deduplicate_grammar_batch`** in [`grammar_proofread_engine.py`](../plugin/writer/locale/grammar_proofread_engine.py). **`inflight_key`** is **`{aDocumentIdentifier}|{locale}|{sentence_start}`** (sentence start offset in `aText`). `_GrammarWorkQueue` performs a **pre-execute stale check** against `_latest_seq` and skips any survivor older than the latest known sequence for that key. After each LLM response returns, **`cache_put_sentence` is skipped** if a newer enqueue superseded this item during the HTTP call (`inflight_superseded`). Combined with a **1-second pause** before batch processing: the worker waits until there is a quiet period with no new queue items before draining.
 - **Queue diagnostics**: Explicit queue logs for enqueue, drain batch size, dedup survivors, stale-skip, and execute; each includes `doc_id`, `inflight_key`, `enqueue_seq`, slice length, and a compact text preview to diagnose intermittent ordering issues. Out-of-order sequence detection in `enqueue` logs at ERROR level if an incoming item has a lower sequence than the latest recorded for that key.
 - **Sentence-level gating**: grammar checks run when the slice looks like a complete sentence (terminal punctuation heuristic with multilingual marks such as `. ! ? … ؟ 。 ！ ？ ।`) **or** when partial text reaches `GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS` (15 non-space chars). Short incomplete fragments are skipped before cache/worker scheduling.
-- **Sentence cache**: Cache is keyed by **individual sentence** text (locale + fingerprint, trailing whitespace stripped via `rstrip()`). `MAX_CACHE_SIZE` is **2048**. `split_into_sentences` ([`grammar_proofread_engine.py`](../plugin/writer/grammar_proofread_engine.py)) uses a **hybrid approach**: for Western/CJK languages, it delegates to LibreOffice's native `BreakIterator` (via the `_get_break_iterator_and_locale` helper) with a custom heuristic to merge breaks after short abbreviations like "Mr.", "Dr.", "vs." — capped at 3-char words to avoid false positives on proper nouns like "USA.", "Tom."); for Thai, Lao, and Khmer, it intelligently splits on whitespace. On **lookup** (`doProofreading`): each sentence is checked independently — if **all** are cached, combined errors are returned immediately (no enqueue); on **partial hit**, cached errors are returned immediately (squiggles for checked sentences) while uncached sentences are enqueued **one queue item per sentence**. On **worker execution** (`_run_llm_and_cache`): each item is normally one sentence; the worker sends **one sentence per LLM request** and caches that sentence’s errors (pathological multi-fragment slices may trigger multiple sequential requests in one worker invocation).
+- **Pinned sentence text on enqueue**: Each [`GrammarWorkItem`](../plugin/writer/locale/grammar_proofread_engine.py) carries **`proofread_sentence_text`** — the exact sentence segment chosen during `doProofreading`. The worker uses it for LLM + cache and **does not** call `split_into_sentences` again on the slice, avoiding BreakIterator disagreements between substring vs full-buffer splits.
+- **Sentence cache**: Cache is keyed by **individual sentence** text (locale + fingerprint, trailing whitespace stripped via `rstrip()`). `MAX_CACHE_SIZE` is **2048**. `split_into_sentences` ([`grammar_proofread_engine.py`](../plugin/writer/locale/grammar_proofread_engine.py)) uses a **hybrid approach**: for Western/CJK languages, LibreOffice `BreakIterator` plus abbreviation merging (**short Title-case tokens** and a small **`_ABBREV_DOT_WORDS`** allowlist, e.g. `approx`, `dept`, `prof`); for Thai, Lao, and Khmer, whitespace splitting **includes** the delimiter run on each segment so the LLM can see spacing. Each sentence segment **includes trailing whitespace up to the next sentence** so double spaces between sentences are visible to the model; cache keys still normalize via `_normalize_for_sentence_cache`. On **lookup** (`doProofreading`): each sentence is checked independently — if **all** are cached, combined errors are returned immediately (no enqueue); on **partial hit**, cached errors are returned immediately while uncached sentences are enqueued **one queue item per sentence**. On **worker execution** (`_run_llm_and_cache`): **one LLM request per uncached sentence** (pathological multi-fragment slices without pinned text may still split).
 
   New (2026-05): For **incomplete** sentences (no terminator), `cache_put_sentence` performs a cheap newest-first scan (max 10 recent entries) to evict any incomplete strict-prefix predecessors for the same locale. This prevents LRU churn when a user types a long sentence incrementally ("The qu" → "The quick brown fox..."). Complete sentences are protected and never evicted. The common case collapses to 1 LRU slot. See `test_sentence_cache_incomplete_prefix_compaction`.
-- **LLM**: [`LlmClient.chat_completion_sync`](../plugin/framework/client/llm_client.py) with `response_format={"type":"json_object"}` on the OpenAI-compatible path (Together, OpenRouter, etc.; see docstring on `make_chat_request`), a system prompt (template moved to top of `ai_grammar_proofreader.py`) requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}` (schema description in English) plus the **document language** (BCP-47 and English name from the registry), and user message the **checked sentence text** for that worker item (one sentence per request in normal prose). The prompt explicitly asks for errors in the order they appear. For threshold-allowed partial slices, the prompt adds a conservative note that input may be partial. Parser: [`parse_grammar_json`](../plugin/writer/grammar_proofread_engine.py) uses `safe_json_loads` then `json_repair` (with logging) when needed.
-- **Offset Normalization**: `normalize_errors_for_text` uses **`search_pos` tracking** to handle multiple occurrences of the same erroneous text within a window. It searches for `wrong` substrings starting from the last matched position, matching the LLM's ordered reporting. Global `full_text.find` fallback removed to ensure errors stay within their intended paragraph/slice.
+- **LLM**: [`LlmClient.chat_completion_sync`](../plugin/framework/client/llm_client.py) with `response_format={"type":"json_object"}` on the OpenAI-compatible path (Together, OpenRouter, etc.; see docstring on `make_chat_request`), a system prompt (template moved to top of `ai_grammar_proofreader.py`) requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}` (schema description in English) plus the **document language** (BCP-47 and English name from the registry), and user message the **checked sentence text** for that worker item (one sentence per request in normal prose). The prompt explicitly asks for errors in the order they appear. For threshold-allowed partial slices, the prompt adds a conservative note that input may be partial. Parser: [`parse_grammar_json`](../plugin/writer/locale/grammar_proofread_engine.py) uses `safe_json_loads` then `json_repair` (with logging) when needed.
+- **Offset Normalization**: `normalize_errors_for_text` uses **`search_pos` tracking** to handle multiple occurrences of the same erroneous text within a window. If ordered scan fails and a global `find` matches **before** `search_pos`, that item is **skipped** (avoids anchoring duplicate substrings to the wrong occurrence).
+- **Traversal whitespace**: `_apply_proofreading_end_positions` and initial empty-result advancement use Unicode **`str.isspace()`**, not ASCII space only, so tabs/NBSP between sentences advance Writer’s next position correctly.
 - **`TextMarkupType.PROOFREADING`**: resolved with `uno.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")` (avoids fragile `TextMarkupType` submodule imports for typecheckers).
 
 ### 2.3.1 Why `enqueue_seq` exists (queue FIFO is not enough)
 
-**Terminology.** The shipped code uses a **global integer counter** (`_ENQUEUE_SEQ` in [`ai_grammar_proofreader.py`](../plugin/writer/ai_grammar_proofreader.py)), incremented when a cache miss enqueues work; each [`GrammarWorkItem`](../plugin/writer/grammar_proofread_engine.py) stores it as **`enqueue_seq`**. This is **not** the same as `time.monotonic()` — that clock is used elsewhere only for **elapsed milliseconds** on LLM requests (status/diagnostics), not for ordering queue items.
+**Terminology.** The shipped code uses a **global integer counter** (`_ENQUEUE_SEQ` in [`ai_grammar_proofreader.py`](../plugin/writer/locale/ai_grammar_proofreader.py)), incremented when a cache miss enqueues work; each [`GrammarWorkItem`](../plugin/writer/locale/grammar_proofread_engine.py) stores it as **`enqueue_seq`**. This is **not** the same as `time.monotonic()` — that clock is used elsewhere only for **elapsed milliseconds** on LLM requests (status/diagnostics), not for ordering queue items.
 
 **Why not rely only on “everything goes through `queue.Queue`”?** A FIFO queue orders **`get()` dequeue order** among objects that are actually retrieved in sequence. The grammar worker deliberately does **more** than strict FIFO:
 
 1. **Tail replace-in-place** — For the same `inflight_key`, a newer item can **overwrite** the last slot of the internal deque without establishing a simple FIFO relationship to items already consumed in an **earlier** batch. Queue position alone does not record “this snapshot superseded that one” across batches.
 
-2. **Batch drain + `deduplicate_grammar_batch`** — The worker collects multiple `get()` results into one batch, then resolves conflicts (same key and prefix-related slices). The implementation needs an explicit **“newest wins”** tie-break; it uses **highest `enqueue_seq`**, not only insertion index in the batch.
+2. **Batch drain + `deduplicate_grammar_batch`** — The worker collects multiple `get()` results into one batch, then for each **`inflight_key`** keeps only the highest **`enqueue_seq`**.
 
-3. **`_latest_seq` / pre-execute stale skip** — Before calling the LLM, the worker asks whether a **newer** enqueue has already been recorded for that `inflight_key`. That can be true even when the physical queue does not place “newest next” (e.g. tail was replaced, or newer work will appear after the current drain). `_latest_seq[key]` holds the **last assigned sequence** for that key; each item carries its stamp so survivors can be compared to that mirror.
+3. **`_latest_seq` / pre-execute stale skip** — Before calling the LLM, the worker asks whether a **newer** enqueue has already been recorded for that `inflight_key`. **`Post-LLM`**: re-check before `cache_put_sentence`; if superseded during the HTTP call, skip the cache write.
 
 So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a substitute for the queue. Something must play that role whenever work is merged, replaced, or skipped outside pure FIFO.
 
@@ -167,16 +178,14 @@ So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a 
 |----------|--------|
 | **Per-`inflight_key` counter** | Bump only when enqueueing for that document+locale key. Same semantics as today’s global counter for same-key comparisons; avoids mixing sequence space across unrelated documents (clearer for logs and reasoning). |
 | **Enqueue-time monotonic value** | e.g. `time.monotonic()` at enqueue as the order key. Requires discipline if two enqueues share an identical timestamp resolution; still needs to be stored on each `GrammarWorkItem` and mirrored (like `_latest_seq`) for stale checks. |
-| **Post-LLM staleness guard** | Keep a generation stamp **and** re-check before `cache_put_sentence` that no newer enqueue superseded this item while the HTTP call was in flight. The current pre-execute `_is_stale` does not cover the whole LLM duration; mitigations today include sentence-text–keyed cache (reduces wrong writes when text changes). |
-| **Remove unused plumbing** | `_run_llm_and_cache` accepts `enqueue_seq` but does not use it inside the function body as shipped; a future change could either drop the parameter or use it for a post-LLM guard above. |
+| **Post-LLM staleness guard** | **Shipped:** `inflight_superseded(inflight_key, enqueue_seq)` after `chat_completion_sync` returns and before `cache_put_sentence`. |
 
 ### 2.4 Tests
 
-- Unit: [`plugin/tests/test_grammar_proofread_engine.py`](../plugin/tests/test_grammar_proofread_engine.py) — JSON parsing, offset normalization, sentence cache roundtrip, trailing whitespace cache normalization, ignore rules, overlap expansion.
-- Unit (work queue dedup): [`plugin/tests/test_grammar_work_queue.py`](../plugin/tests/test_grammar_work_queue.py) — newest-wins prefix conflict resolution, supersede behavior, reverse-prefix chain reproducer (`"What is going on"` → `"W"`), mid-sentence non-prefix edits with shared `inflight_key`, mixed dedup, cross-locale independence.
-- Unit (queue stale checks): [`plugin/tests/test_ai_grammar_proofreader_worker.py`](../plugin/tests/test_ai_grammar_proofreader_worker.py) — `_GrammarWorkQueue` stale detection behavior (`_is_stale`) for older-vs-latest sequence handling.
-- UNO (native runner): [`plugin/tests/uno/test_ai_grammar_proofreader.py`](../plugin/tests/uno/test_ai_grammar_proofreader.py) — cache path and `ignoreRule` filtering.
-- UNO (native runner): [`plugin/tests/uno/test_writer_sentence_splitter.py`](../plugin/tests/uno/test_writer_sentence_splitter.py) — tests the hybrid LO `BreakIterator` and Thai whitespace splitting heuristics.
+- Unit: [`plugin/tests/writer/locale/test_grammar_proofread_engine.py`](../plugin/tests/writer/locale/test_grammar_proofread_engine.py) — JSON parsing, offset normalization, sentence cache roundtrip, trailing whitespace cache normalization, ignore rules, overlap expansion.
+- Unit (work queue dedup): [`plugin/tests/writer/locale/test_grammar_work_queue.py`](../plugin/tests/writer/locale/test_grammar_work_queue.py) — same-key supersede, reverse-prefix chain reproducer, distinct `inflight_key` survival when texts are string prefixes of each other, cross-locale independence.
+- Unit (queue / worker): [`plugin/tests/writer/locale/test_ai_grammar_proofreader_worker.py`](../plugin/tests/writer/locale/test_ai_grammar_proofreader_worker.py) — `_GrammarWorkQueue` stale detection, legacy Lightproof finalize regression helper, pinned `proofread_sentence_text` worker path.
+- UNO (native runner): [`plugin/tests/writer/locale/test_grammar_uno.py`](../plugin/tests/writer/locale/test_grammar_uno.py) — cache path, `ignoreRule`, incremental overlap (relocated paths; run via `plugin.testing_runner`).
 
 ### 2.5 Risks (still relevant)
 
@@ -184,7 +193,7 @@ So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a 
 |------|----------------------------|
 | Token cost / privacy | Master switch **off** by default; user must enable on the **Doc** tab; Writer tab documents that checked text is sent to the configured endpoint. |
 | UI freeze | `doProofreading` does **not** wait on the main thread for LLM results (avoids dead menus while grammar runs). HTTP/LLM runs on a background worker; underlines update on a **later** proofreading pass when the sentence cache is ready. |
-| Stale underlines | Sentence cache (locale + sentence text fingerprint) plus sequential work queue with newest-wins dedup and pre-execute stale suppression coalesce calls. **Cache hit** → immediate errors; **miss** → empty return once, queue worker fills cache for the next pass. See §6 for evolving this. |
+| Stale underlines | Sentence cache (locale + sentence text fingerprint) plus sequential work queue with same-key supersede, pre-execute stale skip, and post-LLM cache-write guard. **Cache hit** → immediate errors; **miss** → empty return once, queue worker fills cache for the next pass. See §5 for evolving this. |
 | Concurrent chat agent | Optional guard (`doc.grammar_proofreader_pause_during_agent`) can skip grammar worker calls while chat/agent sends are active; grammar and chat/agent LLM requests also share one in-process request lane to avoid overlap races. |
 
 ---
@@ -194,7 +203,7 @@ So **`enqueue_seq` is a generation stamp for supersede/dedup semantics**, not a 
 As of **2026-05**, the native grammar checker pairs **sentence-bound work units** with **sentence-level caching** (Lightproof-inspired scheduling ideas, evolved):
 
 1.  **Sentence-sized scheduling**: `doProofreading` maps LibreOffice’s call to **whole sentences** in `aText` (paragraph pass vs incremental overlap). `ProofreadingResult` traversal positions follow the **union of checked sentences** via `_apply_proofreading_end_positions` — no fixed 500-character proofread window.
-2.  **Sentence-level caching**: The old slice-level cache (`_proofread_cache` / `make_cache_key` / `cache_get` / `cache_put` keyed by doc + locale + fingerprint + bounds) has been **removed**. All caching now goes through the **sentence-level cache** (`cache_get_sentence` / `cache_put_sentence` in [`grammar_proofread_engine.py`](../plugin/writer/grammar_proofread_engine.py)). Normalization uses `_normalize_for_sentence_cache` so that trailing whitespace is stripped **and** any punctuation after the *first* sentence terminator is ignored for the cache key (`"Hello."` and `"Hello..."` share a key; `"Hello?"` and `"Hello?..."` share one; but `"Hello?"` vs `"Hello."` remain distinct). Errors are clipped to the canonical length. This means semantically equivalent sentence text anywhere in the document reuses the same errors regardless of document position or trailing punctuation style. See §2.3 "Sentence cache" for the full lookup/storage behavior.
+2.  **Sentence-level caching**: The old slice-level cache (`_proofread_cache` / `make_cache_key` / `cache_get` / `cache_put` keyed by doc + locale + fingerprint + bounds) has been **removed**. All caching now goes through the **sentence-level cache** (`cache_get_sentence` / `cache_put_sentence` in [`grammar_proofread_engine.py`](../plugin/writer/locale/grammar_proofread_engine.py)). Normalization uses `_normalize_for_sentence_cache` so that trailing whitespace is stripped **and** any punctuation after the *first* sentence terminator is ignored for the cache key (`"Hello."` and `"Hello..."` share a key; `"Hello?"` and `"Hello?..."` share one; but `"Hello?"` vs `"Hello."` remain distinct). Errors are clipped to the canonical length. This means semantically equivalent sentence text anywhere in the document reuses the same errors regardless of document position or trailing punctuation style. See §2.3 "Sentence cache" for the full lookup/storage behavior.
 
 ---
 
@@ -223,6 +232,7 @@ The standalone [`GrammarChecker.py`](../GrammarChecker.py) (root of repo) was us
 13. **Observability**: Debug metrics (cache hit rate, worker supersede count, p50/p95 latency from schedule → `cache_put`) behind a verbose flag for field debugging.
 14. **Accessibility / UX copy**: Clear user-facing text that grammar is **asynchronous** (squiggles after pause); link to Writing aids selection when multiple proofreaders exist.
 15. **LanguageTool-class local checking (research)**: Phased roadmap for a **Python-first** checker consuming LT-open rule data toward LanguageTool-grade quality over time, **without JVM** in-stack (`nlprule`/fork accelerator optional). See [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md).
+16. **Parallel grammar worker (optional)**: On paragraph handoff many sentences enqueue at once; processing remains **one sentence after another** on a single worker thread. Future option: limited parallelism for **distinct** `inflight_key` items within one batch while respecting `llm_request_lane`.
 
 ### Docs / agents
 
@@ -251,104 +261,10 @@ The standalone [`GrammarChecker.py`](../GrammarChecker.py) (root of repo) was us
 - **2026-04-29 (json robustness)**: Fixed a silent JSON corruption bug in `safe_json_loads` (`json_utils.py`) where unescaped LaTeX commands starting with valid JSON escape characters (e.g., `\times` natively parsed as `<tab>imes`, `\nabla` as `<newline>abla`) were being silently evaluated by Python's standard `json.loads` within the streaming client (`plugin/framework/client/llm_client.py`) before reaching our repair logic. Added `_SILENT_CORRUPTIONS` and updated `_repair_latex_clashes` to explicitly replace these literal control characters and word fragments with their properly double-escaped LaTeX equivalents. Additionally, implemented a structural fix by moving literal `\\n`/`\\t` expansion out of `content.py` and down into the specific `html` segment processing in `format_support.py`; this ensures `tex` math blocks bypass expansion entirely and preserve their backslashes. Added regression tests in `plugin/tests/test_writer_math_preservation.py`.
 - **2026-05-02 (doc)**: Removed the deferred “sidebar living assistant” track; documented **Chat with Document** as the conversational alternative; fixed enable-location wording (Doc tab); renumbered sections.
 - **2026-05-02 (queue)**: **`inflight_key`** no longer includes a fingerprint of the proofread slice. Same-key supersede and `_latest_seq` stale suppression now apply when the user types in the middle of a sentence (successive slices are not prefix-related). Regression: `test_mid_sentence_typing_dedup` in `test_grammar_work_queue.py`.
-- **2026-05-04 (queue)**: Added **enqueue-time replace-in-place** to `_GrammarWorkQueue.enqueue()`. Uses CPython `queue.Queue` internals (`self._q.mutex`, `self._q.queue`) for an **O(1) tail check** to replace an existing same-`inflight_key` item with the incoming newer one — no new locks introduced. Drain-time `deduplicate_grammar_batch` is retained as a safety net for cross-key prefix dedup.
+- **2026-05-04 (queue)**: Added **enqueue-time replace-in-place** to `_GrammarWorkQueue.enqueue()`. Uses CPython `queue.Queue` internals (`self._q.mutex`, `self._q.queue`) for an **O(1) tail check** to replace an existing same-`inflight_key` item with the incoming newer one — no new locks introduced. (Later **2026-05-10**: drain-time dedup was reduced to **same `inflight_key` only** — see design note at top of this doc — removing erroneous cross-sentence prefix dropping.)
 - **2026-05-07 (doc)**: Linked [LanguageTool-class phased plan](languagetool-local-parity-phased-plan.md) from §5 and `AGENTS.md`. Plan centers a **Python-first** checker consuming LT-open resources; JVM/Java not part of that roadmap (see §5 item 15).
 - **2026-05-07 (doc)**: §1 — **Sentence-scoped native grammar** vs **`add_comment`** / chat for document-wide copyediting; clarifies LLM slice limits and why multi-sentence error dumps are avoided.
 - **2026-05-07 (doc)**: §1 — Brief **LanguageTool** contrast (internal sentence segmentation; rules mostly per-sentence; some cross-sentence via special rules)—vs WriterAgent capped LLM context.
-- **2026-05-09**: **Sentence-sized proofread work** shipped: removed 500-character batching and `_finalize_proofreading_sentence_positions`; `inflight_key` includes sentence-start offset; one LLM request per sentence; incremental `nStart != 0` paths use overlap classification. See §7.
-
----
-
-## 7. Dev plan: sentence-sized proofread work
-
-### Goal
-
-Replace the current 500-character proofread batch with sentence-boundary work units. If LibreOffice hands us a whole paragraph, we still cover the whole paragraph by splitting it into sentences and queueing the uncached sentence work. In the common typing path, where Writer repeatedly calls into the checker while the user edits inside one paragraph, the active work collapses to the current sentence rather than resubmitting a 500-character slice.
-
-We are doing this because if we kept sending arbitrary 500-character windows then a sentence could be truncated mid-way, the LLM could hallucinate offsets outside the real sentence, and we would need fragile post-processing such as `_finalize_proofreading_sentence_positions`. By making the work unit exactly one sentence (or a small set of complete sentences on paragraph handoff) we eliminate truncation, simplify attribution, and remove the need for the Lightproof-era finalize hack.
-
-### Why this fits the current architecture
-
-- The cache is already keyed by individual sentence text (`cache_get_sentence` / `cache_put_sentence` in `grammar_proofread_engine.py`).
-- The worker already stores errors per sentence after LLM normalization.
-- The LLM prompt and `search_pos` offset normalization are most reliable when the checked text is one local unit.
-- The existing 1-second quiet-period drain, `inflight_key` supersede, and newest-wins dedup already prevent re-processing entire paragraphs on every character + pause; cached sibling sentences return immediately from `doProofreading` with no enqueue and no LLM call. We are keeping that machinery unchanged because if we touched the queue or cache we would risk re-introducing the stampede and duplicate-work problems that the current design already solves.
-
-### Implementation steps
-
-1. Add helpers in `ai_grammar_proofreader.py` that split the incoming proofread text into sentence-sized work units.
-   - Use LibreOffice's `BreakIterator`-backed `split_into_sentences(self.ctx, loc_key, text)` where possible.
-   - Return one or more `(n_start, n_end, complete_sentence)` candidates, preserving offsets into `aText`.
-   - Keep a hard fallback maximum only for pathological no-boundary text, not as the normal batching unit.
-   - We are dropping `GRAMMAR_PROOFREAD_MAX_CHARS` (500) as a first-class batch size because if we retained it then the normal path would still be limited by an arbitrary character count rather than sentence boundaries, re-introducing truncation risk and forcing us to keep the Lightproof finalize logic we are trying to remove. Only a high safety ceiling for text with no terminators remains.
-
-2. Rework `doProofreading` scheduling around paragraph-load vs typing-update behavior.
-   - If Writer hands us a paragraph-scale span, enqueue all uncached sentence candidates from that span so the paragraph is fully covered.
-   - If Writer hands us an incremental typing span inside an existing paragraph, narrow the work to the sentence containing the edit and let same-key queue supersede drop older versions.
-   - We are replacing the blanket `if nStartOfSentencePosition != 0: return` guard with a classification helper that uses `split_into_sentences` to map the provided range to the containing sentence(s) because if we kept the old Lightproof skip then any legitimate later sentence inside a paragraph that arrived with a nonzero start would be ignored forever, leaving parts of the document unproofread.
-   - We keep skipping true incremental sub-spans that do not meet the partial-sentence threshold because if we enqueued every sub-span then every keystroke would generate an LLM call even when the sentence is still too short to be meaningful.
-   - Set `nStartOfNextSentencePosition` and `nBehindEndOfSentencePosition` to the end of the covered span (now a sentence boundary) so Writer can advance cleanly. We are doing this because if the result positions did not match the actual sentence we checked then Writer's sentence traversal would get out of sync and we would either miss sentences or re-check them unnecessarily.
-
-3. Simplify cache lookup and enqueueing around sentence candidates.
-   - Look up each selected sentence in the sentence cache.
-   - On hit, return cached errors shifted by that sentence's `n_start`.
-   - On miss, enqueue sentence-sized work items. The worker can keep the existing per-sentence filtering, but paragraph handoff should be represented as multiple sentence-sized misses, not one multi-sentence prompt.
-   - We are doing the narrowing at `doProofreading` time (instead of leaving it to the worker) because if the worker still had to decide the focus sentence then the return path from `doProofreading` would remain complex and the partial-hit logic would be harder to reason about. By the time we reach the worker the item is already the right size.
-
-4. Preserve the async and queue guarantees.
-   - `doProofreading` must still never wait for the LLM or pump the UI loop.
-   - Keep `inflight_key = "{aDocumentIdentifier}|{loc_key}"` so mid-sentence edits still supersede older work.
-   - We are keeping the single `inflight_key` per (document, locale) even when a paragraph handoff creates multiple sentence-sized items because if we included sentence text in the key then every keystroke inside a sentence would produce a unique key, defeating the supersede and tail-replace logic and causing duplicate LLM calls.
-   - Keep newest-wins queue dedup and the one-second pause.
-
-5. Update tests.
-   - Add unit coverage for the new sentence-work helper: first sentence, later sentence with nonzero start, paragraph split into multiple sentence candidates, incomplete short skip, incomplete long partial, long no-punctuation fallback.
-   - Update UNO proofreader tests that currently use `min(len(text), 500)`.
-   - Add a regression proving two cached sentences in one paragraph are returned through sentence-sized candidates rather than one 500-character batch.
-   - Add a regression proving that a 1-second pause while editing inside sentence 3 of a 4-sentence paragraph produces an LLM request containing only sentence 3 and returns `ProofreadingResult` boundaries that exactly match sentence 3. We are adding this test because if the narrowing logic were off by one sentence then either adjacent sentences would be re-sent unnecessarily or the edited sentence would be missed.
-
-### Success criteria
-
-- No LLM request contains more than one sentence in normal punctuated prose.
-- A paragraph with multiple sentences still gets all sentences checked; paragraph-scale handoff queues multiple sentence-sized work items rather than checking only the first sentence.
-- Cached sentence errors still return immediately without worker scheduling.
-- Partial/incomplete sentence behavior remains conservative and does not churn the cache while typing.
-- The `doProofreading` hot path is short and obvious: split → map active range to focus sentence(s) → per-sentence cache lookup (immediate return on hit) → enqueue only misses → set result positions to the exact chosen sentence end. We are targeting this simplicity because if the hot path remained entangled with 500-character caps, Lightproof finalize, and blanket skips then future maintainers would have to re-learn the same legacy complexity we are removing.
-
----
-
-## 8. Noticed potential bugs in the WIP branch (`WIP-pure-sentence-caching`)
-
-During review of the `WIP-pure-sentence-caching` branch, several potential issues and architectural risks were identified that should be addressed before merging or as part of the next iteration:
-
-### 1. Inconsistent Sentence Splitting (Synchronization Risk)
-The UI thread and the worker thread both call `split_into_sentences`. 
-- **The Issue**: If the `ctx` object in the worker provides slightly different locale handling or if the `BreakIterator` state differs from the UI thread, they may disagree on where a sentence ends (e.g., UI thread sees end at index 50, worker sees index 55).
-- **Impact**: The worker will cache the result for the 55-char fingerprint, while the UI thread will continue to miss the cache because it is looking for the 50-char fingerprint. This leads to redundant LLM calls and squiggles that never appear.
-- **Recommendation**: Ensure the worker uses a consistent `ctx` or, ideally, pass the pre-split text fragments directly in the `GrammarWorkItem` to avoid re-splitting.
-
-### 2. Conservative Abbreviation Heuristic
-The current heuristic for merging sentences after abbreviations is limited to words of 3 characters or less:
-`if 0 < len(word) <= 3 and word[0].isupper():`
-- **The Issue**: Many common abbreviations exceed this limit (e.g., `approx.`, `assoc.`, `dept.`, `prof.`, `univ.`, `ext.`). 
-- **Impact**: The splitter will break sentences prematurely at these abbreviations, leading to fragmented, low-context LLM requests and incorrect grammar analysis.
-- **Recommendation**: Increase the character limit or implement a more comprehensive "common abbreviation" lookup list.
-
-### 3. Trailing Whitespace Gaps
-The `split_into_sentences` implementation (both the Thai/Lao/Khmer regex and the `BreakIterator` path) explicitly skips trailing whitespace between sentences.
-- **The Issue**: By stripping whitespace from the work unit before sending it to the LLM, the checker loses visibility into inter-sentence formatting issues.
-- **Impact**: Issues like double spaces, missing spaces, or incorrect whitespace formatting between sentences will never be identified or corrected by the AI.
-- **Recommendation**: Include trailing whitespace in the sentence slice sent for analysis, while continuing to use a normalized (stripped) version for the cache key to maintain hit stability.
-
-### 4. Serial LLM Processing in Worker
-The worker processes the deduplicated batch serially, one sentence at a time.
-- **The Issue**: On paragraph handoff (e.g., when opening a document or pasting text), many sentences are enqueued at once.
-- **Impact**: If a paragraph has 10 sentences and each LLM call takes 2 seconds, the user will wait 20 seconds for the last squiggle to appear. Since the architecture already includes `llm_request_lane` for concurrency management, this is a missed opportunity for performance.
-- **Recommendation**: Utilize a thread pool within the worker batch to process multiple uncached sentences in parallel (respecting the `llm_request_lane` limits).
-
-### 5. Architectural Desync (Merge Conflict Risk)
-The WIP branch was branched from a state prior to the major `plugin/framework` refactoring.
-- **The Issue**: It moves several files (like `dialogs.py`, `document.py`, `legacy_ui.py`) *back into* the `framework` directory that were recently moved *out* of it on the `main` branch.
-- **Impact**: A direct merge will be highly problematic and will revert the "lean framework" progress. 
-- **Recommendation**: Rebase the WIP branch onto `main` and resolve the directory structure conflicts before attempting to land the sentence-caching changes.
+- **2026-05-09**: **Sentence-sized proofread work** shipped: removed 500-character batching and production use of Lightproof-era finalize; `inflight_key` includes sentence-start offset; one LLM request per sentence; incremental `nStart != 0` paths use overlap classification (architecture summarized in §2.3).
+- **2026-05-10**: Further hardening — **`proofread_sentence_text`** on [`GrammarWorkItem`](../plugin/writer/locale/grammar_proofread_engine.py) pins the worker to the main-thread sentence (no worker-side `split_into_sentences` on normal enqueue); **`deduplicate_grammar_batch`** keeps highest `enqueue_seq` **per `inflight_key` only** (fixes sibling sentences whose texts are string prefixes of each other); **abbreviation allowlist** plus short Title-case merge; **inter-sentence whitespace** included in split segments for LLM visibility; **Unicode** traversal whitespace; **post-LLM** skip `cache_put_sentence` when superseded during HTTP; **`normalize_errors_for_text`** skips ambiguous duplicate substring anchors; tests live under [`plugin/tests/writer/locale/`](../plugin/tests/writer/locale/). Legacy capped-batch finalize preserved only as a **test helper** in [`test_ai_grammar_proofreader_worker.py`](../plugin/tests/writer/locale/test_ai_grammar_proofreader_worker.py). This doc updated (paths → `plugin/writer/locale/`, §7–§8 folded into §2–§6).
 

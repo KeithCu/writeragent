@@ -227,10 +227,13 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
 
         rel = window.find(wrong, search_pos)
         if rel < 0:
-            # If not found after search_pos, try finding from the beginning of the window
-            # but log it as a possible out-of-order issue.
             rel = window.find(wrong)
             if rel < 0:
+                continue
+            # Out-of-order vs ordered scan: only accept a global match if it does not lie
+            # **before** the next expected position (avoids anchoring to an earlier duplicate).
+            if rel < search_pos:
+                _grammar_diag.debug("[grammar] normalize_errors_for_text: skipped out-of-order duplicate wrong=%r idx=%s search_pos=%s", wrong, idx, search_pos)
                 continue
 
         pos = slice_start + rel
@@ -294,6 +297,37 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
 # Uses the same multilingual terminators as the proofreader's _looks_complete_sentence.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…؟。！？।])\s+")
 
+# Words before ``.`` where BreakIterator often splits too early; extend merge (case-insensitive).
+# Avoid very short ambiguous tokens (e.g. "no", "al") — those stay on the <=3-char Title-case rule.
+_ABBREV_DOT_WORDS = frozenset(
+    {
+        "approx",
+        "assoc",
+        "dept",
+        "prof",
+        "univ",
+        "ext",
+        "fig",
+        "vol",
+        "misc",
+        "vs",
+        "etc",
+        "mr",
+        "mrs",
+        "dr",
+        "ms",
+    }
+)
+
+
+def _word_before_period_is_abbrev(word: str) -> bool:
+    if not word:
+        return False
+    if word.lower() in _ABBREV_DOT_WORDS:
+        return True
+    # Short title-case token (Mr., Dr.) without listing every honorific.
+    return 0 < len(word) <= 3 and word[0].isupper()
+
 
 def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int, str]]:
     """Split *text* into ``(start_offset, sentence_text)`` pairs.
@@ -305,14 +339,16 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
         return []
 
     if locale_key.startswith(("th", "lo", "km")):
-        # Thai, Lao, Khmer: spaces indicate phrase/sentence boundaries
+        # Thai, Lao, Khmer: spaces indicate phrase/sentence boundaries.
+        # Include the delimiter whitespace in each segment so the LLM can flag spacing issues.
         _SPACE_RE = re.compile(r"\s+")
         result: list[tuple[int, str]] = []
         last = 0
         for m in _SPACE_RE.finditer(text):
             seg = text[last : m.start()]
+            ws = text[m.start() : m.end()]
             if seg:
-                result.append((last, seg))
+                result.append((last, seg + ws))
             last = m.end()
         tail = text[last:]
         if tail:
@@ -323,13 +359,14 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
     bi, locale = _get_break_iterator_and_locale(ctx, locale_key)
 
     if not bi or not locale:
-        # Fallback to regex if LO is unavailable
+        # Fallback to regex if LO is unavailable; include following whitespace in each segment.
         result = []
         last = 0
         for m in _SENTENCE_SPLIT_RE.finditer(text):
             seg = text[last : m.start()]
+            ws = text[m.start() : m.end()]
             if seg:
-                result.append((last, seg))
+                result.append((last, seg + ws))
             last = m.end()
         tail = text[last:]
         if tail:
@@ -346,10 +383,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
             # Prevent infinite loop if endOfSentence gets stuck
             end_pos = len(text)
 
-        # Abbreviation heuristic: merge BreakIterator splits that land
-        # after a likely abbreviation (e.g. "Mr.", "Dr.", "vs.").
-        # Only short words (<=3 chars) qualify to avoid false positives
-        # on proper nouns and acronyms like "USA.", "Tom.", "NYC.".
+        # Abbreviation heuristic: merge BreakIterator splits that land after a likely abbreviation.
         while end_pos < len(text):
             i = end_pos - 1
             while i >= pos and text[i].isspace():
@@ -359,19 +393,20 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                 while j >= pos and not text[j].isspace() and text[j] not in ".!?":
                     j -= 1
                 word = text[j + 1 : i]
-                if 0 < len(word) <= 3 and word[0].isupper():
+                if _word_before_period_is_abbrev(word):
                     next_end = bi.endOfSentence(text, end_pos, locale)
                     if next_end > end_pos:
                         end_pos = next_end
                         continue
             break
 
-        sentences.append((pos, text[pos:end_pos]))
-        pos = end_pos
+        # Include trailing whitespace after the sentence so the LLM can flag double spaces etc.
+        ws_end = end_pos
+        while ws_end < len(text) and text[ws_end].isspace():
+            ws_end += 1
 
-        # Skip trailing whitespace to the next sentence start
-        while pos < len(text) and text[pos].isspace():
-            pos += 1
+        sentences.append((pos, text[pos:ws_end]))
+        pos = ws_end
 
     return sentences or [(0, text)]
 
@@ -509,11 +544,7 @@ def clear_sentence_cache() -> None:
 
 @dataclass(frozen=True)
 class GrammarWorkItem:
-    """One unit of grammar work to be processed by the sequential queue worker.
-
-    Lives here (not in ``ai_grammar_proofreader``) so the dedup logic can be
-    unit-tested without UNO imports.
-    """
+    """One queued grammar job (defined here so dedup tests avoid UNO imports)."""
 
     ctx: Any
     full_text: str
@@ -524,53 +555,31 @@ class GrammarWorkItem:
     doc_id: str
     inflight_key: str
     enqueue_seq: int
+    # Main-thread sentence text from doProofreading; when set, worker skips split_into_sentences
+    # on the slice so substring BreakIterator cannot disagree with cache keys (see _run_llm_and_cache).
+    proofread_sentence_text: str = ""
 
 
 def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:
-    """Remove stale items from a batch using newest-first semantics.
-
-    Within each ``(doc_id, locale)`` group, prefix-related conflicts are resolved
-    in favor of the newest item (highest ``enqueue_seq``), regardless of text
-    length. This avoids cases where an older longer text wins over a newer
-    shorter text from the same typing timeline.
-
-    Additionally, if two items share the same ``inflight_key`` (document +
-    locale + sentence-start offset), the one with the lower ``enqueue_seq``
-    is dropped so edits within one sentence supersede without collapsing
-    sibling sentences in the same paragraph.
-    """
-    from collections import defaultdict
-
-    # Step 1: supersede by sequence (same inflight_key → keep latest only)
+    """Return one queue item per ``inflight_key``, keeping the highest ``enqueue_seq``."""
+    # --- Cross-sentence prefix bug (fixed): older code had a *second* pass that grouped
+    # by (doc_id, locale) and dropped slice A if slice B was a string-prefix extension
+    # of A (newest enqueue_seq wins). That wrongly dropped sentence 1 when sentence 2's
+    # text started with sentence 1's text (e.g. "No." vs "No problem today.") — different
+    # inflight_key values, unrelated timelines. One sentence while typing = one key.
+    #
+    # Do not add cross-key slice-text prefix logic here; tail-replace + this loop suffice.
+    #
+    # Alternatives if you redesign: (1) prefix-newest-wins restricted to *same*
+    # inflight_key only — usually redundant after this map; (2) span-aware dedup using
+    # overlapping [n_start,n_end); (3) keep distinct-key slices independent (current).
+    # Regression: test_two_sentences_string_prefix_collision_both_survive.
     best_by_key: dict[str, GrammarWorkItem] = {}
     for item in batch:
         prev = best_by_key.get(item.inflight_key)
+        # Same physical sentence / typing line: inflight_key matches → keep newer snapshot only.
         if prev is None or item.enqueue_seq > prev.enqueue_seq:
             best_by_key[item.inflight_key] = item
         elif prev is not None and item.enqueue_seq < prev.enqueue_seq:
             _grammar_diag.info("[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)", item.enqueue_seq, item.inflight_key, prev.enqueue_seq)
-    unique = list(best_by_key.values())
-
-    # Step 2: prefix dedup within (doc_id, locale) groups (newest-first)
-    groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
-    for item in unique:
-        groups[(item.doc_id, item.grammar_bcp47)].append(item)
-
-    result: list[GrammarWorkItem] = []
-    for _key, group in groups.items():
-        # Newest first: prefix-related conflicts keep the most recent request.
-        group.sort(key=lambda x: x.enqueue_seq, reverse=True)
-        kept_texts: list[str] = []
-        kept_seqs: list[int] = []
-        for item in group:
-            slice_txt = item.full_text[item.n_start : item.n_end]
-            # Drop if this text conflicts by prefix relation with any newer kept text.
-            if any((kept.startswith(slice_txt) or slice_txt.startswith(kept)) and kept != slice_txt for kept in kept_texts):
-                conflict_idx = next(i for i, kept in enumerate(kept_texts) if (kept.startswith(slice_txt) or slice_txt.startswith(kept)) and kept != slice_txt)
-                newer_seq = kept_seqs[conflict_idx]
-                _grammar_diag.info("[grammar] queue dedup: dropped older prefix-related item seq=%s len=%s (newer seq=%s kept)", item.enqueue_seq, len(slice_txt), newer_seq)
-                continue
-            kept_texts.append(slice_txt)
-            kept_seqs.append(item.enqueue_seq)
-            result.append(item)
-    return result
+    return list(best_by_key.values())

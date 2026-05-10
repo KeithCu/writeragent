@@ -188,3 +188,38 @@ def test_two_sentences_same_document_distinct_inflight_keys_survive() -> None:
     assert len(result) == 2
 
 
+def test_two_sentences_string_prefix_collision_both_survive() -> None:
+    """Regression: ``deduplicate_grammar_batch`` must not apply text-prefix rules across *different* ``inflight_key`` values.
+
+    Historical bug: grouping by (doc, locale) and dropping prefix-related slices removed
+    the first sentence when the second sentence's text extended the first (e.g. ``No.``
+    vs ``No problem today.``). Fix: dedup by ``inflight_key`` only (see comments above
+    ``deduplicate_grammar_batch`` in ``grammar_proofread_engine.py``).
+    """
+    items = [
+        GrammarWorkItem(
+            ctx=None,
+            full_text="No. No problem today.",
+            n_start=0,
+            n_end=3,
+            grammar_bcp47="en-US",
+            partial_sentence=False,
+            doc_id="doc1",
+            inflight_key="doc1|en-US|0",
+            enqueue_seq=1,
+        ),
+        GrammarWorkItem(
+            ctx=None,
+            full_text="No. No problem today.",
+            n_start=4,
+            n_end=len("No. No problem today."),
+            grammar_bcp47="en-US",
+            partial_sentence=False,
+            doc_id="doc1",
+            inflight_key="doc1|en-US|4",
+            enqueue_seq=2,
+        ),
+    ]
+    result = deduplicate_grammar_batch(items)
+    assert len(result) == 2
+

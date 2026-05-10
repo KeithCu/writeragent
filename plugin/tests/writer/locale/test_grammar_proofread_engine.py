@@ -38,6 +38,27 @@ def test_normalize_errors_respects_slice() -> None:
     assert norms[0].n_error_start >= 3
 
 
+def test_normalize_errors_duplicate_wrong_two_occurrences_ordered() -> None:
+    """Two occurrences of the same ``wrong`` substring map to successive positions when listed in order."""
+    full = "bob x bob"
+    items = [
+        {"wrong": "bob", "correct": "Bob", "type": "spelling", "reason": ""},
+        {"wrong": "bob", "correct": "Bob", "type": "spelling", "reason": ""},
+    ]
+    norms = eng.normalize_errors_for_text(full, 0, len(full), items)
+    assert len(norms) == 2
+    assert norms[0].n_error_start == 0
+    assert norms[1].n_error_start == 6
+
+
+def test_split_regex_includes_inter_sentence_whitespace() -> None:
+    """Regex fallback path attaches the matched whitespace run so double spaces are visible to the LLM."""
+    sents = eng.split_into_sentences(None, "en-US", "Hi.  There.")
+    assert len(sents) == 2
+    assert sents[0][1].startswith("Hi.")
+    assert "  " in sents[0][1]
+
+
 def test_sentence_cache_roundtrip() -> None:
     eng.cache_clear()
     assert eng.cache_get_sentence("en-US", "Hello world.") is None
