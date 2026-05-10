@@ -17,10 +17,10 @@ Models interact with Writer through tools (notably `apply_document_content`) usi
 
 The extension **normalizes** both into **LibreOffice Math** embedded objects (`TextEmbeddedObject` with the Math CLSID) by way of **StarMath** command text (`Formula` on the embedded model). See:
 
-- Segmentation: [`plugin/modules/writer/html_math_segment.py`](../plugin/modules/writer/html_math_segment.py)
-- Conversion: [`plugin/modules/writer/math_mml_convert.py`](../plugin/modules/writer/math_mml_convert.py) (`convert_latex_to_starmath`, `convert_mathml_to_starmath`)
-- Insertion: [`plugin/modules/writer/math_formula_insert.py`](../plugin/modules/writer/math_formula_insert.py)
-- Orchestration: [`plugin/modules/writer/format_support.py`](../plugin/modules/writer/format_support.py) (`_insert_mixed_html_and_math_at_cursor`)
+- Segmentation: [`plugin/writer/html_math_segment.py`](../plugin/writer/html_math_segment.py)
+- Conversion: [`plugin/writer/math_mml_convert.py`](../plugin/writer/math_mml_convert.py) (`convert_latex_to_starmath`, `convert_mathml_to_starmath`)
+- Insertion: [`plugin/writer/math_formula_insert.py`](../plugin/writer/math_formula_insert.py)
+- Orchestration: [`plugin/writer/format_support.py`](../plugin/writer/format_support.py) (`_insert_mixed_html_and_math_at_cursor`)
 
 For a **second turn** (“edit this equation”), the model needs a **stable, prompt-friendly** representation of what is in the document. Today:
 
@@ -83,7 +83,7 @@ flowchart TB
 
 **Phase 0 — Inventory**
 
-- Document UNO APIs used to iterate `XText` content and detect `TextEmbeddedObject` with [`math_formula_insert.MATH_CLSID`](../plugin/modules/writer/math_formula_insert.py).
+- Document UNO APIs used to iterate `XText` content and detect `TextEmbeddedObject` with [`math_formula_insert.MATH_CLSID`](../plugin/writer/math_formula_insert.py).
 - Confirm whether `getEmbeddedObject().Formula` is always sufficient for read-back on saved/reopened documents (expect yes for our insert path; verify edge cases: undo, ODF round-trip, clipboard).
 
 **Phase 1 — StarMath export (MVP)**
@@ -121,8 +121,8 @@ Everything here is **outside** WriterAgent’s tree unless noted. Use for **Math
 
 **In-repo building blocks (not reverse converters):**
 
-- [`math_mml_convert.py`](../plugin/modules/writer/math_mml_convert.py) — `convert_mathml_to_starmath`, `convert_latex_to_starmath`; reuse for **forward** tests and for understanding **StarMath** shape after LO import.
-- [`math_formula_insert.MATH_CLSID`](../plugin/modules/writer/math_formula_insert.py) — identify embedded objects during UNO walks.
+- [`math_mml_convert.py`](../plugin/writer/math_mml_convert.py) — `convert_mathml_to_starmath`, `convert_latex_to_starmath`; reuse for **forward** tests and for understanding **StarMath** shape after LO import.
+- [`math_formula_insert.MATH_CLSID`](../plugin/writer/math_formula_insert.py) — identify embedded objects during UNO walks.
 
 **Suggested evaluation order:** (1) UNO-only: read `Formula` (StarMath) and ship that in prompts if models tolerate it; (2) if TeX is required, try **mathml-to-latex** after any LO MathML export spike; (3) use **mml2tex** off-extension to judge quality ceiling; (4) mine **latex2mathml** tests + **mathml2latex** / **mathml2tex** source for edge-case ideas before writing a custom walker.
 

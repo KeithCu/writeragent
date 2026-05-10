@@ -258,7 +258,7 @@ def apply_document_content(content: str, old_content: str = "", all_matches: boo
 def find_text(search: str, start=0, limit=None, case_sensitive=True) -> str:
     def _do():
         doc = LOBackend.acquire_document()
-        from plugin.modules.writer.format_support import find_text_ranges
+        from plugin.writer.format import find_text_ranges
         try:
             ranges = find_text_ranges(doc, _lo_ctx, search, case_sensitive=case_sensitive)
             if limit:

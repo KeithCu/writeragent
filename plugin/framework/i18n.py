@@ -24,7 +24,7 @@ import gettext
 import logging
 from typing import Any, Optional, cast
 
-from plugin.framework.utils import get_plugin_dir
+from plugin.framework.constants import get_locales_dir
 
 log = logging.getLogger("writeragent.i18n")
 
@@ -76,7 +76,7 @@ def init_i18n(ctx=None) -> None:
 
     try:
         locale = get_lo_locale(ctx)
-        locales_dir = os.path.join(get_plugin_dir(), "locales")
+        locales_dir = get_locales_dir()
         mofiles = gettext.find("writeragent", localedir=locales_dir, languages=[locale], all=True)
         if not mofiles:
             mofiles = []

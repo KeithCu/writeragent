@@ -4,7 +4,7 @@ This document describes how translated UI strings are produced, loaded at runtim
 
 ## What ships today
 
-- **GNU gettext** (`.pot` template, per-locale `writeragent.po`, compiled `writeragent.mo` under `plugin/locales/<lang>/LC_MESSAGES/`).
+- **GNU gettext** (`.pot` template, per-locale `writeragent.po`, compiled `writeragent.mo` under `locales/<lang>/LC_MESSAGES/`).
 - **Runtime loading** in [`plugin/framework/i18n.py`](../plugin/framework/i18n.py): `init_i18n()` installs a `gettext.translation` for domain `writeragent`; user code wraps strings with `_()`.
 - **Locale source**: LibreOffice’s UI locale from configuration path `/org.openoffice.Setup/L10N` → property `ooLocale` (see `get_lo_locale()`). Values like `en-US` are normalized to gettext-style `en_US`. If lookup fails, the code falls back to `en_US` so behavior stays predictable in tests or early init.
 - **Missing strings**: `fallback=True` on the translation object means untranslated or absent catalogs show the English `msgid`.
@@ -17,9 +17,9 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 
 2. **XDL dialogs**: English strings in `.xdl` files are not read by `xgettext` directly. [`scripts/extract_xdl_strings.py`](../scripts/extract_xdl_strings.py) generates a temporary `plugin/xdl_strings.py` containing `_()` calls so those strings are picked up; that stub is removed after extraction.
 
-3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/modules/**/module.yaml` (titles, labels, options) into the same POT, deduplicated by `msgid`. Requires `polib` and PyYAML.
+3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, options) into the same POT, deduplicated by `msgid`. Requires `polib` and PyYAML.
 
-4. **Dialogs at runtime**: [`translate_dialog` in `plugin/modules/chatbot/dialogs.py`](../plugin/modules/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()` in [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py): empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`plugin/tests/test_i18n.py`](../plugin/tests/test_i18n.py).
+4. **Dialogs at runtime**: [`translate_dialog` in `plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()` in [`legacy_ui.py`](../plugin/chatbot/legacy_ui.py): empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`plugin/tests/test_i18n.py`](../plugin/tests/test_i18n.py).
 
 ## Build and maintenance commands
 
@@ -30,7 +30,7 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 | `make preview-translations` | `refresh-pot` then `scripts/translate_missing.py --preview` (status table of completion vs POT). Used by normal `make build`. |
 | `make merge-translations` | For each `writeragent.po`: `msgmerge --update` from `writeragent.pot`, then `msgattrib --no-obsolete` so removed strings do not linger as obsolete entries. |
 | `make compile-translations` | `msgfmt` every `.po` to `.mo` (required for LibreOffice to load catalogs efficiently). |
-| `make add-language LANG=xx` | Creates `plugin/locales/xx/LC_MESSAGES/writeragent.po` from the POT and compiles an initial `.mo`. |
+| `make add-language LANG=xx` | Creates `locales/xx/LC_MESSAGES/writeragent.po` from the POT and compiles an initial `.mo`. |
 
 **Note:** `make build` runs `preview-translations` (refresh POT + preview), not necessarily the full `extract-strings` + merge. Run **`make extract-strings`** when you add or change marked strings and need all locale files updated from the new template.
 
@@ -85,4 +85,4 @@ These are useful directions, not commitments:
 - **String freeze**: Before a release aimed at translators, freeze `msgid` churn to reduce merge noise.
 - **Coverage reporting**: Extend or reuse the logic in `translate_missing.py`’s status output to publish a simple per-language table in docs or CI logs.
 
-For day-to-day contributor steps (extract, merge, Poedit, compile), see [`plugin/locales/README.md`](../plugin/locales/README.md).
+For day-to-day contributor steps (extract, merge, Poedit, compile), see [`locales/README.md`](../locales/README.md).

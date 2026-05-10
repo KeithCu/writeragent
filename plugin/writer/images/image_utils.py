@@ -1,0 +1,361 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2024 John Balis
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""Unified Image Generation Service for WriterAgent."""
+
+import json
+import logging
+import tempfile
+import re
+import base64
+from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.requests import sync_request
+from plugin.framework.client.errors import _format_http_error_response
+from plugin.framework.logging import redact_sensitive_payload_for_log
+from plugin.contrib.aihordeclient import AiHordeClient
+from plugin.framework.config import get_config_bool, get_config_int, get_config_float, get_config_str
+
+log = logging.getLogger(__name__)
+
+logger = logging.getLogger(__name__)
+
+TRIM_IMAGES_IN_LOG = True
+
+
+class ImageProvider:
+    def generate(self, prompt, **kwargs):
+        raise NotImplementedError()
+
+
+class EndpointImageProvider(ImageProvider):
+    """Uses the endpoint URL and API key from Settings (same as chat). Model from image_model or text model."""
+
+    def __init__(self, api_config, ctx):
+        self.client = LlmClient(api_config, ctx)
+        self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
+
+    def _save_b64(self, b64_data):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            tmp.write(base64.b64decode(b64_data))
+            return [tmp.name]
+
+    def _save_url(self, url, suffix=".webp"):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(sync_request(url, parse_json=False))
+            return [tmp.name]
+
+    def generate(self, prompt, width=512, height=512, model=None, steps=None, **kwargs):
+        """Request image via the configured endpoint (modalities=['image'] where supported)."""
+        override = kwargs.pop("image_model", None)
+        if isinstance(override, str) and override.strip():
+            model = override.strip()
+        model = model or self.model
+        # For OpenRouter edit (img2img): send multimodal message with text + source image
+        source_image = kwargs.get("source_image")
+        if self.client.config.get("is_openrouter"):
+            if source_image:
+                content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}}]
+            else:
+                content = prompt
+            messages = [{"role": "user", "content": content}]
+        else:
+            messages = [{"role": "user", "content": prompt}]
+        logger.info("Requesting image via endpoint: %s", model)
+
+        fallback_content = ""
+
+        if self.client.config.get("is_openrouter"):
+            method, path, body, headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
+            body_dict = json.loads(body)
+            body_dict["modalities"] = ["image"]
+            if steps is not None and steps > 0:
+                body_dict["steps"] = steps
+            if "max_tokens" in kwargs:
+                body_dict["max_tokens"] = kwargs["max_tokens"]
+
+            chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model)
+            fallback_content = chat_resp.get("content") or ""
+
+            # Parse response: OpenRouter etc. may put image in message.images[].image_url.url
+            paths = []
+            for img in chat_resp.get("images") or []:
+                url = None
+                if isinstance(img, dict):
+                    if "image_url" in img and isinstance(img["image_url"], dict):
+                        url = img["image_url"].get("url")
+                    elif "image_url" in img and isinstance(img["image_url"], str):
+                        url = img["image_url"]
+
+                if not url:
+                    continue
+
+                if "data:image" in url:
+                    match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
+                    if match:
+                        paths.extend(self._save_b64(match.group(1)))
+                elif url.startswith("http"):
+                    paths.extend(self._save_url(url))
+
+            if paths:
+                return paths, ""
+        else:
+            # Use standard /images/generations endpoint (Together, OpenAI, etc.). Optional source_image for img2img.
+            valid_steps = steps if (steps is not None and steps > 0) else None
+            method, path, body, headers = self.client.make_image_request(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"))
+
+            try:
+                conn = self.client._get_connection()
+                conn.request(method, path, body=body, headers=headers)
+                http_resp = conn.getresponse()
+
+                if http_resp.status != 200:
+                    err_body = http_resp.read().decode("utf-8", errors="replace")
+                    logger.error("Image API Error %d: %s", http_resp.status, err_body)
+                    err_msg = _format_http_error_response(http_resp.status, http_resp.reason, err_body)
+                    return [], err_msg
+
+                result = json.loads(http_resp.read().decode("utf-8"))
+                log_result = redact_sensitive_payload_for_log(result) if TRIM_IMAGES_IN_LOG else result
+                log.debug("=== Image Response: %s" % json.dumps(log_result, indent=2))
+
+                # Standard OpenAI format: {"data": [{"url": "...", "b64_json": "..."}]}
+                paths = []
+                for img in result.get("data") or []:
+                    if b64 := img.get("b64_json"):
+                        paths.extend(self._save_b64(b64))
+                    elif url := img.get("url"):
+                        if "data:image" in url:
+                            match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
+                            if match:
+                                paths.extend(self._save_b64(match.group(1)))
+                        else:
+                            paths.extend(self._save_url(url))
+
+                if paths:
+                    return paths, ""
+            except (ValueError, TypeError, IOError) as e:
+                logger.error("Image generation IO/Parse error: %s", e)
+                return [], str(e)
+            except Exception as e:
+                from plugin.framework.errors import NetworkError
+
+                if isinstance(e, NetworkError):
+                    logger.error("Image generation NetworkError: %s", e)
+                    return [], str(e)
+                else:
+                    logger.exception("Image generation unexpected error")
+                    return [], str(e)
+
+        # Fallback: image in content string (some endpoints)
+        if "data:image" in fallback_content:
+            match = re.search(r"base64,([A-Za-z0-9+/=]+)", fallback_content)
+            if match:
+                return self._save_b64(match.group(1)), ""
+        if fallback_content.strip().startswith("http"):
+            return self._save_url(fallback_content.strip()), ""
+
+        return [], ""
+
+
+class AIHordeImageProvider(ImageProvider):
+    def __init__(self, config, ctx):
+        self.ctx = ctx
+        self.config = config
+        self.api_key = get_config_str(ctx, "aihorde_api_key")
+
+        # We need a minimal "informer" to bridge AIHordeClient's callbacks
+        class SimpleInformer:
+            def __init__(self, outer_ctx):
+                self.outer_ctx = outer_ctx
+                self.toolkit = None
+                self.last_error = ""
+                from plugin.framework.errors import UnoObjectError, safe_call
+
+                try:
+                    ctx = outer_ctx.get("ctx")
+                    if ctx:
+                        sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
+                        self.toolkit = safe_call(sm.createInstanceWithContext, "Create Toolkit", "com.sun.star.awt.Toolkit", ctx)
+                except UnoObjectError:
+                    pass
+
+            def update_status(self, text, progress):
+                msg = f"Horde: {text} ({progress}%)"
+                logger.info(msg)
+                if self.outer_ctx.get("status_callback"):
+                    try:
+                        self.outer_ctx["status_callback"](msg)
+                    except TypeError:
+                        pass
+
+            def show_error(self, msg, **kwargs):
+                logger.error(f"Horde Error: {msg}")
+                self.last_error = msg
+                if self.outer_ctx.get("status_callback"):
+                    try:
+                        self.outer_ctx["status_callback"](f"Error: {msg}")
+                    except TypeError:
+                        pass
+
+            def set_finished(self):
+                pass
+
+            def get_generated_image_url_status(self):
+                return ["", 0, ""]
+
+            def set_generated_image_url_status(self, *args):
+                pass
+
+            def get_toolkit(self):
+                return self.toolkit
+
+        # Pass context dict so we can inject callback later if needed,
+        # or just pass it in constructor if we rebuild every time.
+        # But here we are in __init__, so we store the dict.
+        self.callback_context = {"status_callback": None, "ctx": self.ctx}
+
+        self.informer = SimpleInformer(self.callback_context)
+
+        # Build a settings dict from config accessors for AiHordeClient compatibility
+        horde_settings = {"aihorde_api_key": get_config_str(ctx, "aihorde_api_key"), "image_nsfw": get_config_bool(ctx, "image_nsfw"), "image_censor_nsfw": get_config_bool(ctx, "image_censor_nsfw"), "image_max_wait": get_config_int(ctx, "image_max_wait")}
+
+        self.client = AiHordeClient(client_version="1.0.0", url_version_update="", client_help_url="", client_download_url="", settings=horde_settings, client_name="WriterAgent_Horde_Client", informer=self.informer)
+        # We need to manually inject the toolkit because SimpleInformer.__init__
+        # expects an object with ServiceManager if we passed ctx directly.
+        # Actually SimpleInformer above takes outer_ctx which is expected to be the UNO component context.
+        # Let's fix SimpleInformer to take (ctx, callback_dict).
+
+    def generate(self, prompt, width=512, height=512, model="stable_diffusion", source_image=None, status_callback=None, **kwargs):
+        # Update the callback in the context shared with the informer
+        if status_callback:
+            self.callback_context["status_callback"] = status_callback
+
+        options = {
+            "prompt": prompt,
+            "image_width": width,
+            "image_height": height,
+            "model": model,
+            "api_key": self.api_key,
+            "max_wait_minutes": kwargs.get("max_wait", 5),
+            "prompt_strength": kwargs.get("strength", 0.6),  # LOSHD uses 1 - init_strength
+            "steps": int(float(kwargs["steps"])) if kwargs.get("steps") is not None and int(float(kwargs["steps"] or 0)) > 0 else 30,
+            "seed": kwargs.get("seed", ""),
+            "nsfw": kwargs.get("nsfw", False),
+            "censor_nsfw": kwargs.get("censor_nsfw", True),
+        }
+        if source_image:
+            options["source_image"] = source_image
+            options["mode"] = "MODE_IMG2IMG"  # AIHordeClient constant
+            options["init_strength"] = kwargs.get("strength", 0.6)
+
+        # AiHordeClient.generate_image is blocking and handles polling internally
+        paths = []
+        try:
+            paths = self.client.generate_image(options)
+        except (ValueError, TypeError, IOError) as e:
+            logger.error("AIHorde generator crashed with IO/Parse error: %s", e)
+            self.informer.last_error = str(e)
+        except Exception as e:
+            from plugin.framework.errors import NetworkError
+
+            if isinstance(e, NetworkError):
+                logger.error("AIHorde generator crashed with NetworkError: %s", e)
+            else:
+                logger.exception("AIHorde generator crashed with unexpected error")
+            self.informer.last_error = str(e)
+
+        if not paths and self.informer.last_error:
+            return paths, self.informer.last_error
+        return paths, ""
+
+
+class ImageService:
+    def __init__(self, ctx, config):
+        self.ctx = ctx
+        self.config = config
+        self.providers = {}
+
+    def get_provider(self, name):
+        if name == "aihorde":
+            return AIHordeImageProvider(self.config, self.ctx)
+        if name == "endpoint":
+            from plugin.framework.config import get_api_config, get_image_model
+
+            api_config = get_api_config(self.ctx).copy()
+            cfg = self.config or {}
+            api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model(self.ctx)
+            return EndpointImageProvider(api_config, self.ctx)
+        return None
+
+    def generate_image(self, prompt, provider_name=None, status_callback=None, **kwargs):
+        if not provider_name:
+            provider_name = get_config_str(self.ctx, "image_provider")
+
+        provider = self.get_provider(provider_name)
+        if not provider:
+            raise ValueError(f"Unknown provider: {provider_name}")
+
+        # Merge configuration defaults with kwargs
+        # Note: width/height are explicitly calculated in tool_generate_image
+        # but we provide safe fallbacks here just in case of direct calls
+        base_size = get_config_int(self.ctx, "image_base_size")
+        steps = get_config_int(self.ctx, "image_steps")
+
+        from typing import Any
+
+        defaults: dict[str, Any] = {
+            "width": base_size,
+            "height": base_size,
+            "strength": get_config_float(self.ctx, "image_cfg_scale"),
+            "steps": steps,
+            "nsfw": get_config_bool(self.ctx, "image_nsfw"),
+            "censor_nsfw": get_config_bool(self.ctx, "image_censor_nsfw"),
+            "max_wait": get_config_int(self.ctx, "image_max_wait"),
+        }
+
+        # Provider-specific defaults
+        if provider_name == "aihorde":
+            defaults["model"] = get_config_str(self.ctx, "aihorde_model")
+
+        # Special case: prompt translation
+        if get_config_bool(self.ctx, "image_translate_prompt"):
+            # We could add translation logic here if needed,
+            # or let the provider handle it. LOSHD has it.
+            pass
+
+        for k, v in defaults.items():
+            if k not in kwargs:
+                kwargs[k] = v
+
+        # Optional: translate prompt to English when image_translate_prompt is True and source language is set
+        if get_config_bool(self.ctx, "image_translate_prompt"):
+            src_lang = get_config_str(self.ctx, "image_translate_from")
+            if src_lang:
+                try:
+                    from plugin.chatbot.translation_tool import opustm_hf_translate
+
+                    prompt = opustm_hf_translate(prompt, src_lang, "English")
+                except (ImportError, ValueError, TypeError) as e:
+                    logger.warning("Prompt translation failed (IO/Parse), using original: %s", e)
+                except Exception as e:
+                    from plugin.framework.errors import NetworkError
+
+                    if isinstance(e, NetworkError):
+                        logger.warning("Prompt translation failed (NetworkError), using original: %s", e)
+                    else:
+                        logger.warning("Prompt translation failed (unexpected), using original: %s", e)
+
+        return provider.generate(prompt, status_callback=status_callback, **kwargs)

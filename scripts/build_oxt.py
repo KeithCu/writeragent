@@ -40,13 +40,19 @@ ALWAYS_INCLUDE_EXTENSION = [
 ALWAYS_INCLUDE_PLUGIN = [
     "plugin/__init__.py",
     "plugin/main.py",
-    "plugin/modules/chatbot/panel_factory.py",
     "plugin/version.py",
     "plugin/prompt_function.py",
     "plugin/_manifest.py",
     "plugin/plugin.yaml",
     "plugin/framework/",
-    "plugin/locales/",
+    # Application packages (each has module.yaml); required at runtime — do not ship only panel_factory.
+    "plugin/doc/",
+    "plugin/draw/",
+    "plugin/calc/",
+    "plugin/writer/",
+    "plugin/mcp/",
+    "plugin/chatbot/",
+    "plugin/agent_backend/",
     "plugin/lib/",
     "plugin/contrib/",
 ]
@@ -59,6 +65,7 @@ RELEASE_INCLUDE_PLUGIN = [
 
 ALWAYS_INCLUDE_ROOT = [
     "contrib/",
+    "locales/",
 ]
 
 # Auto-discover all top-level module directories
@@ -101,7 +108,7 @@ def should_exclude(path, with_tests=False):
     if path_norm.startswith("plugin/tests/") or path_norm == "plugin/tests":
         return not with_tests
     # gettext source/template only; runtime loads .mo (see plugin/framework/i18n.py)
-    if path_norm.startswith("plugin/locales/") and (
+    if path_norm.startswith("locales/") and (
         path_norm.endswith(".po") or path_norm.endswith(".pot")
     ):
         return True
@@ -163,7 +170,7 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False):
     include.extend(ALWAYS_INCLUDE_ROOT)
 
     for mod in modules:
-        mod_dir = "plugin/modules/%s/" % mod
+        mod_dir = "plugin/%s/" % mod
         mod_path = os.path.join(base_dir, mod_dir)
         if os.path.isdir(mod_path):
             include.append(mod_dir)
@@ -175,13 +182,13 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False):
     files = collect_files(base_dir, include, with_tests=with_tests)
 
     if no_recording:
-        # Exclude voice recording: audio_recorder.py and entire contrib/audio/
+        # Exclude voice recording: audio_recorder.py and entire plugin/contrib/audio/
         files = [
             f for f in files
-            if f != "plugin/modules/chatbot/audio_recorder.py"
-            and not f.startswith("contrib/audio/")
+            if f != "plugin/chatbot/audio_recorder.py"
+            and not f.startswith("plugin/contrib/audio/")
         ]
-        print("  No-recording build: excluded audio_recorder.py and contrib/audio/")
+        print("  No-recording build: excluded audio_recorder.py and plugin/contrib/audio/")
 
     count = 0
     for f in files:
@@ -296,7 +303,7 @@ def main():
         help="Only re-zip build/bundle/ (skip assembly)")
     parser.add_argument(
         "--no-recording", action="store_true",
-        help="Exclude voice recording: do not bundle contrib/audio/ or plugin/modules/chatbot/audio_recorder.py")
+        help="Exclude voice recording: do not bundle plugin/contrib/audio/ or plugin/chatbot/audio_recorder.py")
     parser.add_argument(
         "--no-tests", action="store_true",
         help="Exclude plugin/tests/ and testing_runner.py (for release builds)")

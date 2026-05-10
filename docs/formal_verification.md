@@ -52,7 +52,7 @@ Attempting to verify 23 KLOC simultaneously is intractable. We must apply a tier
 
 ### Phase 1: Triage and "Hexagonal" Segregation
 The codebase must be categorized by its distance from the UNO boundary.
-1.  **Tier 0 (The Core - Immediate ROI):** Files with zero UNO dependencies. These are pure data-transformation pipelines (`url_utils.py`, `address_utils.py`, `pricing.py`, `streaming_deltas.py`).
+1.  **Tier 0 (The Core - Immediate ROI):** Files with zero UNO dependencies. These are pure data-transformation pipelines (`config.py` URL helpers, `address_utils.py`, `pricing.py`, `async_stream.py` delta accumulation).
 2.  **Tier 1 (The Adapters):** Code that parses complex UNO structures into pure Python data models (e.g., extracting an AST from LibreOffice).
 3.  **Tier 2 (The Orchestrators):** State machines and side-effect-heavy UI controllers (`panel_factory.py`).
 
@@ -83,14 +83,14 @@ def column_to_index(col_str: str) -> int:
 
 ### Phase 3: Concolic State Exploration with CrossHair
 With contracts in place, we unleash CrossHair. 
-`crosshair check plugin/modules/calc/address_utils.py`
+`crosshair check plugin/calc/address_utils.py`
 
 CrossHair's Z3 engine will not just throw random fuzzing data at the function; it will analytically dissect the bytecode. It will realize that `ord(char)` implies integer boundaries, and it will intentionally synthesize string inputs designed to trigger integer overflows, index out-of-bounds, or violate the `deal.ensure` inverse mapping contract. 
 
 When CrossHair finds a counterexample, it provides the exact symbolic input required to break our algorithm. We patch the code, and the state space is secured.
 
 ### Phase 4: SMT-Driven Protocol Verification
-Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (`plugin/modules/http/streaming_deltas.py`). 
+Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (in `plugin/framework/async_stream.py`). 
 
 By defining contracts that assert *"No matter how a JSON delta stream is arbitrarily chunked or fragmented over the network, the final assembled output string will exactly match the output of a synchronous, unfragmented payload,"* we can use CrossHair to mathematically prove our streaming parser's resilience against arbitrary network fragmentation.
 
@@ -102,7 +102,7 @@ The refactor **separates concerns** in the same “hexagonal” spirit as the re
 
 **Why this matters for formal verification:** We treat the UNO bridge as axiomatic (opening of this document); we want proofs about **our** Python. `deal` contracts and CrossHair apply to **pure** functions. Code that mixes UI updates, I/O, and state updates in one procedure is a poor verification target—see *Verification Anti-Patterns* (do not verify tangled orchestration; verify the extracted machine instead).
 
-**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`plugin/tests/test_tool_loop_state.py`, `plugin/tests/test_state_machine.py`, `plugin/tests/test_send_state.py`, `plugin/modules/chatbot/tests/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
+**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`plugin/tests/test_tool_loop_state.py`, `plugin/tests/test_state_machine.py`, `plugin/tests/test_send_state.py`, `plugin/chatbot/tests/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
 
 This was a **pragmatic** foundation: Phase 5 records design tradeoffs and what we avoided over-engineering. Attaching `deal` and running CrossHair on every transition is **Phase 6**, not something we claim is already complete.
 
@@ -123,30 +123,30 @@ The following summarizes the implemented modules and the simplified patterns we 
 
 ### Implemented State Machines
 
-1. **Tool Loop State Machine** (`plugin/modules/chatbot/tool_loop_state.py`)
+1. **Tool Loop State Machine** (`plugin/chatbot/tool_loop_state.py`)
    - Pure transition function with comprehensive event handling
    - Simple string effects mixed with structured effect types
    - Full test coverage in `plugin/tests/test_tool_loop_state.py`
 
-2. **Send Handler State Machine** (`plugin/modules/chatbot/state_machine.py`)
+2. **Send Handler State Machine** (`plugin/chatbot/state_machine.py`)
    - Handles audio, image, agent, and web workflows
    - Uses union types for events and effects (cleaner than inheritance hierarchies)
    - Comprehensive test coverage in `plugin/tests/test_state_machine.py`
 
-3. **Send Button State Machine** (`plugin/modules/chatbot/send_state.py`)
+3. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
    - Manages UI button state transitions
    - Simple enum-based events and union effects
    - Test coverage in `plugin/tests/test_send_state.py`
 
-4. **MCP State Machine** (`plugin/modules/http/mcp_state.py`)
+4. **MCP State Machine** (`plugin/mcp/mcp_state.py`)
    - HTTP protocol state management
    - Document resolution and tool execution workflows
    - Uses dataclasses for structured effects
 
-5. **Audio Recorder State Machine** (`plugin/modules/chatbot/audio_recorder_state.py`)
+5. **Audio Recorder State Machine** (`plugin/chatbot/audio_recorder_state.py`)
    - Audio recording lifecycle management
    - Minimal state and effect types
-   - Test coverage in `plugin/modules/chatbot/tests/test_audio_recorder_state.py`
+   - Test coverage in `plugin/chatbot/tests/test_audio_recorder_state.py`
 
 ### What We Avoided (Over-Engineering Traps)
 
@@ -203,9 +203,9 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
 ### Step 2: Run CrossHair Verification
 ```bash
-crosshair check plugin/modules/chatbot/tool_loop_state.py --contracts
-crosshair check plugin/modules/chatbot/state_machine.py --contracts
-crosshair check plugin/modules/chatbot/send_state.py --contracts
+crosshair check plugin/chatbot/tool_loop_state.py --contracts
+crosshair check plugin/chatbot/state_machine.py --contracts
+crosshair check plugin/chatbot/send_state.py --contracts
 ```
 
 ### Step 3: Add Verification to CI
@@ -218,10 +218,10 @@ Maintain a `verification_status.json` file tracking which components have been v
 
 With state machines verified, expand to utility modules:
 
-1. **`plugin/framework/utils.py`** - URL and path utilities
-2. **`plugin/modules/writer/format.py`** - Text normalization
-3. **`plugin/modules/calc/address_utils.py`** - Calc address math
-4. **`plugin/modules/http/streaming_deltas.py`** - Streaming protocol
+1. **`plugin/framework/config.py`** - Settings and URL utilities
+2. **`plugin/writer/format_support.py`** - Text normalization
+3. **`plugin/calc/address_utils.py`** - Calc address math
+4. **`plugin/framework/async_stream.py`** - Streaming protocol
 
 Add contracts and run CrossHair verification on each module.
 
@@ -235,10 +235,10 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
 
 **Priority Order for Framework Modules:**
 
-1. **`plugin/framework/utils.py`** (Highest Priority)
-   - Combined URL and path utilities
-   - Pure string and filesystem operations
-   - Critical for web operations and file system access
+1. **`plugin/framework/config.py`** (Highest Priority)
+   - Combined URL and settings utilities
+   - Pure string operations for URLs
+   - Critical for web operations and API access
    - Example contracts:
      ```python
      @deal.pre(lambda url: isinstance(url, str))
@@ -255,7 +255,7 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
          # ... implementation ...
      ```
 
-2. **`plugin/modules/writer/format.py`**
+2. **`plugin/writer/format_support.py`**
    - Text normalization functions
    - Used across all document types
    - Verify format preservation invariants
@@ -277,10 +277,10 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
 ```bash
 # 1. Add type hints and deal contracts
 # 2. Run static type checking
-mypy plugin/framework/utils.py --strict
+mypy plugin/framework/config.py --strict
 
 # 3. Run CrossHair verification
-crosshair check plugin/framework/utils.py --contracts
+crosshair check plugin/framework/config.py --contracts
 
 # 4. Add to test suite
 pytest tests/test_url_utils_verification.py
@@ -296,7 +296,7 @@ def test_url_utils_contracts():
     """Verify all contracts in url_utils module"""
     result = subprocess.run([
         "crosshair", "check",
-        "plugin/framework/url_utils.py",
+        "plugin/framework/config.py",
         "--contracts",
         "--per_condition_timeout=5"
     ], capture_output=True, text=True, timeout=60)
@@ -314,7 +314,7 @@ def test_url_utils_contracts():
 ```json
 {
   "framework": {
-    "utils.py": {
+    "config.py": {
       "status": "verified",
       "coverage": "100%",
       "contracts": 22,
@@ -332,7 +332,7 @@ def test_url_utils_contracts():
       "tool": "crosshair",
       "ci_integration": true
     },
-    "format.py": {
+    "format_support.py": {
       "status": "partial",
       "coverage": "65%",
       "contracts": 12,
@@ -405,8 +405,8 @@ jobs:
     strategy:
       matrix:
         module: [
-          "plugin/framework/utils.py",
-          "plugin/modules/writer/format.py"
+          "plugin/framework/config.py",
+          "plugin/writer/format_support.py"
         ]
     
     steps:
@@ -506,15 +506,15 @@ pip install deal crosshair mypy
 **Daily Workflow:**
 ```bash
 # Develop with contracts
-vim plugin/framework/url_utils.py  # Add @deal decorators
+vim plugin/framework/config.py  # Add @deal decorators
 
 # Verify locally
-mypy plugin/framework/url_utils.py --strict
-crosshair check plugin/framework/url_utils.py --contracts
+mypy plugin/framework/config.py --strict
+crosshair check plugin/framework/config.py --contracts
 
 # Commit with verification
-git add plugin/framework/url_utils.py
-python scripts/update_verification_status.py plugin/framework/url_utils.py
+git add plugin/framework/config.py
+python scripts/update_verification_status.py plugin/framework/config.py
 git add verification_status.json
 git commit -m "feat: add verified URL utilities"
 ```

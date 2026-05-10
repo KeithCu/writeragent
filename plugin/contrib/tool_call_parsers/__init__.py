@@ -10,7 +10,7 @@ non-streaming extract_tool_calls() logic. No VLLM dependency -- only standard li
 (re, json, uuid) and openai types.
 
 Usage:
-    from plugin.contrib.tool_call_parsers import get_parser
+    from . import get_parser
 
     parser = get_parser("hermes")
     content, tool_calls = parser.parse(raw_model_output)
@@ -22,7 +22,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple, Type
 
-from plugin.contrib.tool_call_parsers.openai_compat import (
+from .openai_compat import (
     ChatCompletionMessageToolCall as ChatCompletionMessageToolCall,
 )
 
@@ -120,17 +120,17 @@ def list_parsers() -> List[str]:
 
 # Import all parser modules to trigger registration via @register_parser decorators
 # Each module registers itself when imported
-from plugin.contrib.tool_call_parsers.hermes_parser import HermesToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.longcat_parser import LongcatToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.mistral_parser import MistralToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.llama_parser import LlamaToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.qwen_parser import QwenToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.deepseek_v3_parser import DeepSeekV3ToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.deepseek_v3_1_parser import DeepSeekV31ToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.kimi_k2_parser import KimiK2ToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.glm45_parser import Glm45ToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.glm47_parser import Glm47ToolCallParser  # noqa: E402, F401
-from plugin.contrib.tool_call_parsers.qwen3_coder_parser import Qwen3CoderToolCallParser  # noqa: E402, F401
+from .hermes_parser import HermesToolCallParser  # noqa: E402, F401
+from .longcat_parser import LongcatToolCallParser  # noqa: E402, F401
+from .mistral_parser import MistralToolCallParser  # noqa: E402, F401
+from .llama_parser import LlamaToolCallParser  # noqa: E402, F401
+from .qwen_parser import QwenToolCallParser  # noqa: E402, F401
+from .deepseek_v3_parser import DeepSeekV3ToolCallParser  # noqa: E402, F401
+from .deepseek_v3_1_parser import DeepSeekV31ToolCallParser  # noqa: E402, F401
+from .kimi_k2_parser import KimiK2ToolCallParser  # noqa: E402, F401
+from .glm45_parser import Glm45ToolCallParser  # noqa: E402, F401
+from .glm47_parser import Glm47ToolCallParser  # noqa: E402, F401
+from .qwen3_coder_parser import Qwen3CoderToolCallParser  # noqa: E402, F401
 
 
 def get_parser_for_model(model_name: str) -> Optional[ToolCallParser]:

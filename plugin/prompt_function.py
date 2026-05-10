@@ -45,7 +45,7 @@ except ImportError:
     _XPromptFunctionBase = _XPromptFunctionStub
 
 from plugin.framework.config import get_config, get_api_config, get_config_int
-from plugin.modules.http.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 
 import logging
 
@@ -163,7 +163,7 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
 
                 return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
             except Exception as e:
-                from plugin.modules.http.errors import format_error_for_display
+                from plugin.framework.client.errors import format_error_for_display
 
                 log.error("PROMPT error: %s" % str(e))
                 return format_error_for_display(e)

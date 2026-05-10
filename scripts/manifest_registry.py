@@ -229,7 +229,7 @@ def generate_addons_xcu(modules, framework_manifest, output_path):
                                      {_oor("name"): "UserDefinedImages"})
             small_prop = ET.SubElement(udi_node, "prop",
                                        {_oor("name"): "ImageSmallURL"})
-            icon_path = "%%origin%%/plugin/modules/%s/icons/%s_16.png" % (
+            icon_path = "%%origin%%/plugin/%s/icons/%s_16.png" % (
                 mod_name, icon_prefix)
             ET.SubElement(small_prop, "value").text = icon_path
 
@@ -555,8 +555,8 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-typelibrary;type=RDB', 'XPromptFunction.rdb'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/main.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/prompt_function.py'),
-        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/chatbot/panel_factory.py'),
-        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/modules/writer/ai_grammar_proofreader.py'),
+        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/chatbot/panel_factory.py'),
+        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/writer/ai_grammar_proofreader.py'),
         (
             'application/vnd.sun.star.configuration-data',
             'registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu',

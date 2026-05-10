@@ -50,7 +50,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 
 ### Optional and `None` narrowing
 
-- **`reportOptionalMemberAccess`**: Pyright is aggressive about **calling methods on values that may be `None`**. Example: **`DrawBridge.get_active_page()`** can return **`None`** at runtime; without an explicit **`if page is None: ...`** early exit, uses like **`page.getCount()`** were errors under Pyright even when **`ty`** accepted the file. **Fix**: guard or assert before use (Draw shape tools in **`plugin/modules/draw/shapes.py`**).
+- **`reportOptionalMemberAccess`**: Pyright is aggressive about **calling methods on values that may be `None`**. Example: **`DrawBridge.get_active_page()`** can return **`None`** at runtime; without an explicit **`if page is None: ...`** early exit, uses like **`page.getCount()`** were errors under Pyright even when **`ty`** accepted the file. **Fix**: guard or assert before use (Draw shape tools in **`plugin/draw/shapes.py`**).
 - **`reportPossiblyUnboundVariable`**: Assignments only on some branches (e.g. **`compiled`** only inside **`if use_regex:`**, or **`restore_snapshot`** only inside **`try`**) can be flagged when a later branch uses the name. **Fix**: initialize before the branch (**`compiled = None`**) or declare **`restore_snapshot: dict[str, Any] | None = None`** before **`try`**, then assign (**`search.py`**, **`testing_runner.py`**).
 
 ### Overrides, bases, and variance
@@ -70,7 +70,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 
 ### `getattr` / UNO context chains
 
-- Nested patterns like **`getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())`** triggered **`reportAttributeAccessIssue`** / optional access on **`Any`**. **Fix**: small helper or sequential **`getattr`** + **`callable`** checks, **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** (**`uno_context`**, **`dialogs._load_xdl`**, [**`image_tools`**](../plugin/modules/writer/image_tools.py), **`queue_executor`**, **`main`** icon loading).
+- Nested patterns like **`getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())`** triggered **`reportAttributeAccessIssue`** / optional access on **`Any`**. **Fix**: small helper or sequential **`getattr`** + **`callable`** checks, **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** (**`uno_context`**, **`dialogs._load_xdl`**, [**`image_tools`**](../plugin/writer/image_tools.py), **`queue_executor`**, **`main`** icon loading).
 
 ### Import / branch typing quirks
 
@@ -101,13 +101,13 @@ These are the recurring themes that dominated the cleanup, beyond “add `str | 
 
 Many modules import constants from `com.sun.star.*`. Stubs or resolution can fail; some code paths must run **without** LibreOffice (tests, analysis). The pattern is: **try real imports**, else **`cast(Any, …)`** integer stand-ins so the rest of the module still type-checks.
 
-See [`plugin/modules/calc/error_detector.py`](../plugin/modules/calc/error_detector.py) (and similarly analyzer/inspector): `CellContentType`, `FormulaResult`, and a fallback branch with `cast(Any, 0)` … `cast(Any, 4)`.
+See [`plugin/calc/error_detector.py`](../plugin/calc/error_detector.py) (and similarly analyzer/inspector): `CellContentType`, `FormulaResult`, and a fallback branch with `cast(Any, 0)` … `cast(Any, 4)`.
 
 Some imports stay as `# type: ignore[unresolved-import]` where the checker still cannot resolve a particular `com.sun.star` module path.
 
 ### 2. Structs, `Any`, and callbacks
 
-`uno.createUnoStruct("com.sun.star.beans.PropertyValue")` and similar return values that stubs treat loosely. The codebase uses **`cast(Any, …)`** where a struct is built and passed through (e.g. [`plugin/modules/writer/format_support.py`](../plugin/modules/writer/format_support.py)).
+`uno.createUnoStruct("com.sun.star.beans.PropertyValue")` and similar return values that stubs treat loosely. The codebase uses **`cast(Any, …)`** where a struct is built and passed through (e.g. [`plugin/writer/format_support.py`](../plugin/writer/format_support.py)).
 
 [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) passes **`uno.Any("void", None)`** into UNO callbacks; that line is explicitly ignored where the stub contract does not match pyuno’s usage.
 
@@ -115,7 +115,7 @@ Some imports stay as `# type: ignore[unresolved-import]` where the checker still
 
 `types-unopy` expects **the same parameter names as the `.pyi` stubs**. Implementations of `XActionListener`, `XEventListener`, etc. must use names like **`rEvent`** and **`Source`**, not arbitrary `ev` / `e`, or `ty` raises **`invalid-method-override`**.
 
-Examples: [`plugin/modules/chatbot/dialogs.py`](../plugin/modules/chatbot/dialogs.py) (`TabListener`: `actionPerformed(self, rEvent)`, `disposing(self, Source)`), [`plugin/modules/chatbot/panel_resize.py`](../plugin/modules/chatbot/panel_resize.py) (`on_window_resized(self, rEvent)` and use of `rEvent.Source`).
+Examples: [`plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) (`TabListener`: `actionPerformed(self, rEvent)`, `disposing(self, Source)`), [`plugin/chatbot/panel_resize.py`](../plugin/chatbot/panel_resize.py) (`on_window_resized(self, rEvent)` and use of `rEvent.Source`).
 
 ### 4. `queryInterface` and dynamic objects
 
@@ -123,7 +123,7 @@ Runtime UNO uses **`queryInterface`** heavily; return types are often opaque. Cl
 
 ### 5. Mixins: **`Protocol` for the host**
 
-`ToolCallingMixin` and send handlers are mixed into large panel classes. **`ToolLoopHost`** in [`plugin/modules/chatbot/tool_loop.py`](../plugin/modules/chatbot/tool_loop.py) and **`SendHandlerHost`** in [`plugin/modules/chatbot/send_handlers.py`](../plugin/modules/chatbot/send_handlers.py) declare the attributes and methods the mixin expects so `self` is checkable without circular imports.
+`ToolCallingMixin` and send handlers are mixed into large panel classes. **`ToolLoopHost`** in [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py) and **`SendHandlerHost`** in [`plugin/chatbot/send_handlers.py`](../plugin/chatbot/send_handlers.py) declare the attributes and methods the mixin expects so `self` is checkable without circular imports.
 
 ### 6. `TYPE_CHECKING` imports
 
@@ -131,7 +131,7 @@ Heavy or circular imports (e.g. `LlmClient`, `ChatSession`) are imported under *
 
 ### 7. Dynamic attributes on events / worker glue
 
-When attaching extra fields to objects (e.g. approval flows on events), the code uses **`setattr` / `getattr`** so the analyzer does not treat unknown attributes as errors—see tool-loop paths that set things like `query_override` on events ([`plugin/modules/chatbot/tool_loop.py`](../plugin/modules/chatbot/tool_loop.py)).
+When attaching extra fields to objects (e.g. approval flows on events), the code uses **`setattr` / `getattr`** so the analyzer does not treat unknown attributes as errors—see tool-loop paths that set things like `query_override` on events ([`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py)).
 
 ### 8. Context and services
 
@@ -158,19 +158,19 @@ Roughly **40+** files were edited; groupings below match the original tracking n
 
 **Framework**
 
-- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/modules/writer/image_utils.py), [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service_registry.py`](../plugin/framework/service_registry.py), [`settings_dialog.py`](../plugin/modules/chatbot/settings_dialog.py), [`smol_model.py`](../plugin/framework/smol_model.py), [`state.py`](../plugin/framework/state.py), [`tool_registry.py`](../plugin/framework/tool_registry.py)
+- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/writer/image_utils.py), [`legacy_ui.py`](../plugin/chatbot/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service.py`](../plugin/framework/service.py), [`settings_dialog.py`](../plugin/chatbot/settings_dialog.py), [`smol_agent.py`](../plugin/chatbot/smol_agent.py), [`tool.py`](../plugin/framework/tool.py)
 
 **Entry / backends**
 
-- [`plugin/main.py`](../plugin/main.py), [`plugin/modules/agent_backend/builtin.py`](../plugin/modules/agent_backend/builtin.py)
+- [`plugin/main.py`](../plugin/main.py), [`plugin/agent_backend/builtin.py`](../plugin/agent_backend/builtin.py)
 
 **Calc**
 
-- [`plugin/modules/calc/analyzer.py`](../plugin/modules/calc/analyzer.py), [`error_detector.py`](../plugin/modules/calc/error_detector.py), [`formulas.py`](../plugin/modules/calc/formulas.py), [`inspector.py`](../plugin/modules/calc/inspector.py), [`legacy.py`](../plugin/modules/calc/legacy.py), [`manipulator.py`](../plugin/modules/calc/manipulator.py)
+- [`plugin/calc/analyzer.py`](../plugin/calc/analyzer.py), [`error_detector.py`](../plugin/calc/error_detector.py), [`formulas.py`](../plugin/calc/formulas.py), [`inspector.py`](../plugin/calc/inspector.py), [`legacy.py`](../plugin/calc/legacy.py), [`manipulator.py`](../plugin/calc/manipulator.py)
 
 **Chatbot / sidebar**
 
-- Panel, factory, wiring, resize, state machine, send handlers, tool loop, web research, history, audio paths, etc. under [`plugin/modules/chatbot/`](../plugin/modules/chatbot/)
+- Panel, factory, wiring, resize, state machine, send handlers, tool loop, web research, history, audio paths, etc. under [`plugin/chatbot/`](../plugin/chatbot/)
 
 **Writer / HTTP / infra**
 

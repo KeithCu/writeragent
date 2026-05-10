@@ -1,4 +1,3 @@
-from plugin.framework.utils import normalize_endpoint_url
 
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
@@ -29,15 +28,13 @@ import dataclasses
 import time
 from typing import Any, Callable, Dict, cast
 
-from plugin.framework.utils import get_plugin_dir
-from plugin.framework.event_bus import global_event_bus
 from plugin.framework.service import ServiceBase
+from plugin.framework.event_bus import global_event_bus
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, get_provider_defaults
 from plugin.framework.errors import ConfigError, NetworkError, safe_call
-from plugin.framework.types import ModelCapability
+from plugin.framework.constants import ModelCapability, get_plugin_dir
 from plugin.framework.i18n import _
-from plugin.modules.http.requests import sync_request
 
 try:
     from plugin._manifest import MODULES
@@ -57,6 +54,79 @@ except ImportError:
     _unohelper_mod = None
 uno: Any = _uno_mod
 unohelper: Any = _unohelper_mod
+
+
+def normalize_endpoint_url(url):
+    """Clean up endpoint URL: strip whitespace, trailing slashes, and common v1 suffix."""
+    if not url:
+        return ""
+    url = url.strip()
+    # Remove trailing /
+    while url.endswith("/"):
+        url = url[:-1]
+    # Remove /v1 suffix (OpenAI compatible)
+    if url.lower().endswith("/v1"):
+        url = url[:-3]
+    return url
+
+
+def get_url_hostname(url):
+    """Return hostname from URL safely."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return parsed.hostname or ""
+    except ValueError:
+        return ""
+
+
+def get_url_domain(url):
+    """Return 'example.com' from 'https://api.example.com/v1'."""
+    host = get_url_hostname(url)
+    if not host:
+        return ""
+    parts = host.split(".")
+    if len(parts) >= 2:
+        return ".".join(parts[-2:])
+    return host
+
+
+def get_url_path(url):
+    """Return path from URL safely."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return parsed.path or ""
+    except ValueError:
+        return ""
+
+
+def get_url_query_dict(url):
+    """Return query parameters as dict."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return dict(urllib.parse.parse_qsl(parsed.query))
+    except ValueError:
+        return {}
+
+
+def get_url_path_and_query(url):
+    """Return path + query string from URL."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path or "/"
+        if parsed.query:
+            return f"{path}?{parsed.query}"
+        return path
+    except ValueError:
+        return "/"
+
+
+def is_pdf_url(url):
+    """Check for .pdf in the URL path safely."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return (parsed.path or "").lower().endswith(".pdf")
+    except ValueError:
+        return False
 
 log = logging.getLogger(__name__)
 
@@ -249,7 +319,7 @@ class WriterAgentConfig:
         # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
         try:
-            from plugin.modules.chatbot.settings_dialog import get_settings_field_specs
+            from plugin.chatbot.settings_dialog import get_settings_field_specs
 
             specs = get_settings_field_specs(None)
             for spec in specs:
@@ -795,7 +865,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
 
     req_headers: dict[str, str] = {}
     if ctx is not None:
-        from plugin.framework.auth import AuthError, build_auth_headers, resolve_auth_for_config
+        from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
 
         if api_key_override is not None:
             api_key = str(api_key_override).strip()
@@ -812,6 +882,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             return None
 
     try:
+        from plugin.framework.client.requests import sync_request
         data = sync_request(url, parse_json=True, headers=req_headers if req_headers else None)
         if data and isinstance(data, dict) and "data" in data:
             models = []

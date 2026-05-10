@@ -5,7 +5,7 @@ available for providers listed as keys in the ``ids`` dict.
 """
 
 from typing import Any
-from plugin.framework.types import ModelCapability
+from plugin.framework.constants import ModelCapability
 
 
 def resolve_model_id(model: dict[str, Any], provider):

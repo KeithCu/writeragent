@@ -112,7 +112,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 
 - [ ] Optionally derive active chat model from `model_lru@<endpoint>[0]` with `get_active_text_model` / `set_active_text_model`, legacy fallbacks, and one-shot migration from `text_model` / `model`.
 - [ ] Migrate readers (`get_text_model`, `get_api_config`) and writers (`set_config(..., "text_model")`) off the duplicate global key; special-case `AI_SIMPLE_FIELDS` / MCP if needed.
-- [ ] Belt-and-suspenders: in [`plugin/modules/chatbot/legacy_ui.py`](plugin/modules/chatbot/legacy_ui.py) `_apply_dropdowns`, pass `text_ctrl.getText()` instead of `""` when repopulating text/image/STT combos after endpoint refresh.
+- [ ] Belt-and-suspenders: in [`plugin/chatbot/legacy_ui.py`](plugin/chatbot/legacy_ui.py) `_apply_dropdowns`, pass `text_ctrl.getText()` instead of `""` when repopulating text/image/STT combos after endpoint refresh.
 
 ---
 
@@ -120,19 +120,19 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 
 **Goal**: Reduce technical debt and improve code discoverability by merging small, highly related framework modules.
 
-- [ ] **Service Infrastructure**: Merge `service_base.py` and `service_registry.py` into **`services.py`**.
-- [ ] **Module Infrastructure**: Merge `module_base.py` and `module_loader.py` into **`modules.py`**.
-- [ ] **Tool Infrastructure**: Merge `tool_base.py`, `tool_registry.py`, and `tool_context.py` into **`tools.py`**.
-- [ ] **Image Handling**: Merge `plugin/modules/writer/image_tools.py` and `plugin/modules/writer/image_utils.py` into **`images.py`**.
-- [ ] **Specialized Agent Helpers**: Merge `specialized_shapes_context.py` into **`specialized_base.py`**.
-- [ ] **State & Types**: Merge `state.py` and `types.py` into **`types.py`** (or `common.py`).
+- [x] **Service Infrastructure**: Merge `service_base.py` and `service_registry.py` into **`service.py`**.
+- [x] **Module Infrastructure**: Merge `module_base.py` and `module_loader.py` into **`module_base.py`**.
+- [x] **Tool Infrastructure**: Merge `tool_base.py`, `tool_registry.py`, and `tool_context.py` into **`tool.py`**.
+- [x] **Image Handling**: Merge `plugin/writer/image_tools.py` and `plugin/writer/image_utils.py`.
+- [x] **Specialized Agent Helpers**: Merge `specialized_shapes_context.py` into `plugin/doc/specialized_base.py`.
+- [x] **State & Types**: Merge `state.py` and `types.py` into appropriate framework files (`constants.py`, `service.py`, `errors.py`).
 
 ---
 
 ## 🚀 High Priority Features
 
 ### 1. **Shape API Enhancements** 🎨 ✅ **COMPLETED**
-**Files**: `plugin/modules/draw/shapes.py`, `plugin/modules/writer/shapes.py`
+**Files**: `plugin/draw/shapes.py`, `plugin/writer/shapes.py`
 **Status**: Fully implemented and tested
 
 - ✅ Enhanced `CreateShape` with rich formatting properties
@@ -154,7 +154,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 **Testing**: Need comprehensive UNO shape operation tests
 
 ### 2. **Fields Domain Completion** 📝 ✅ **COMPLETED**
-**Files**: `plugin/modules/writer/fields.py`
+**Files**: `plugin/writer/fields.py`
 **Status**: Fully implemented and tested
 
 - ✅ Complete `fields_insert` with full field type support
@@ -174,7 +174,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 **Testing**: Need test documents with various field types
 
 ### 3. **Indexes/TOC Domain** 📚 ✅ **COMPLETED**
-**Files**: `plugin/modules/writer/indexes.py`
+**Files**: `plugin/writer/indexes.py`
 **Status**: Fully implemented and tested
 
 - ✅ Implement `indexes_create` with full UNO wiring
@@ -199,7 +199,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 ## 📋 Medium Priority Features
 
 ### 4. **Enhanced Style Management** 🎭
-**Files**: `plugin/modules/writer/styles.py`
+**Files**: `plugin/writer/styles.py`
 **Status**: Partial implementation exists
 
 - [ ] Implement `styles_create_or_update`
@@ -321,7 +321,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 **Priority**: Medium
 
 ### 12. **Memory System Enhancements** 🧠
-**Files**: `plugin/modules/chatbot/memory.py`
+**Files**: `plugin/chatbot/memory.py`
 **Status**: Functional but limited
 
 - [ ] Add memory search capabilities
@@ -349,7 +349,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 ## 🌐 Integration & Ecosystem
 
 ### 14. **MCP Protocol Enhancements** 📡
-**Files**: `plugin/modules/http/mcp_protocol.py`
+**Files**: `plugin/mcp/mcp_protocol.py`
 **Status**: Functional but expandable
 
 - [ ] Add specialized tool opt-in for MCP
@@ -558,8 +558,8 @@ WriterAgent aims to be the most powerful, flexible, and user-friendly document a
 - ✅ Shape API enhancements (rich formatting, connectors, groups)
 - ✅ Fields domain (full field type support, master/dependent system)
 - ✅ Indexes domain (TOC creation, marks, comprehensive management)
-- ✅ Librarian agentic onboarding ([`plugin/modules/chatbot/librarian.py`](../plugin/modules/chatbot/librarian.py))
-- ✅ Track Changes domain ([`plugin/modules/writer/tracking.py`](../plugin/modules/writer/tracking.py))
+- ✅ Librarian agentic onboarding ([`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py))
+- ✅ Track Changes domain ([`plugin/writer/tracking.py`](../plugin/writer/tracking.py))
 - ✅ Tool switching architecture
 - ✅ Specialized domain system
 - ✅ Calc tool integration

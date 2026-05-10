@@ -23,7 +23,7 @@ import os
 from abc import ABC
 from typing import Any, cast
 
-from plugin.framework.utils import get_plugin_dir
+from plugin.framework.constants import get_plugin_dir
 
 log = logging.getLogger("writeragent.module_base")
 
@@ -109,13 +109,13 @@ class ModuleBase(ABC):
 
     def load_dialog(self, dialog_name):
         """Load an XDL dialog from this module's directory."""
-        from plugin.modules.chatbot.dialogs import load_module_dialog
+        from plugin.chatbot.dialogs import load_module_dialog
 
         return load_module_dialog(self.name, dialog_name)
 
     def load_framework_dialog(self, dialog_name):
         """Load a reusable framework dialog template."""
-        from plugin.modules.chatbot.dialogs import load_framework_dialog
+        from plugin.chatbot.dialogs import load_framework_dialog
 
         return load_framework_dialog(dialog_name)
 
@@ -185,14 +185,14 @@ class ModuleLoader:
 
             # Try nested path first (e.g. "launcher/providers/claude")
             rel_path = name.replace(".", os.sep)
-            module_dir = os.path.join(get_plugin_dir(), "modules", rel_path)
-            import_path = "plugin.modules." + name
+            module_dir = os.path.join(get_plugin_dir(), rel_path)
+            import_path = "plugin." + name
 
             if not os.path.isdir(module_dir):
                 # Legacy fallback for flat paths (e.g. "launcher_claude")
                 dir_name = name.replace(".", "_")
-                module_dir = os.path.join(get_plugin_dir(), "modules", dir_name)
-                import_path = "plugin.modules." + dir_name
+                module_dir = os.path.join(get_plugin_dir(), dir_name)
+                import_path = "plugin." + dir_name
                 if not os.path.isdir(module_dir):
                     continue
 

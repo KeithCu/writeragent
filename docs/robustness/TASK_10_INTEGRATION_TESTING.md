@@ -150,8 +150,8 @@ class TestStateMachineErrors(IntegrationTestBase):
     
     def test_error_state_transition(self):
         """Test state machine transitions to error state."""
-        from plugin.modules.chatbot.state_machine import SendHandlerState, ErrorEvent
-        from plugin.modules.chatbot.tool_loop_state import handle_error_event
+        from plugin.chatbot.state_machine import SendHandlerState, ErrorEvent
+        from plugin.chatbot.tool_loop_state import handle_error_event
         
         # Initial state
         initial_state = SendHandlerState(
@@ -184,8 +184,8 @@ class TestStateMachineErrors(IntegrationTestBase):
     
     def test_recovery_state_transition(self):
         """Test state machine recovery transitions."""
-        from plugin.modules.chatbot.state_machine import SendHandlerState, ErrorEvent
-        from plugin.modules.chatbot.tool_loop_state import handle_error_event
+        from plugin.chatbot.state_machine import SendHandlerState, ErrorEvent
+        from plugin.chatbot.tool_loop_state import handle_error_event
         
         # Initial state with recovery attempts
         initial_state = SendHandlerState(

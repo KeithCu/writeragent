@@ -17,10 +17,10 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from plugin.framework.errors import safe_json_loads
-from plugin.framework.utils import normalize_endpoint_url
+from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.tool import to_openai_schema
-from plugin.modules.http.client import LlmClient
-from plugin.modules.writer.content import ApplyDocumentContent, GetDocumentContent
+from plugin.framework.client.llm_client import LlmClient
+from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
 
 _SCRIPTS_PO = Path(__file__).resolve().parent
 _REPO = _SCRIPTS_PO.parent.parent
@@ -73,7 +73,7 @@ _FIND_TEXT_SCHEMA = SimpleNamespace(
 def build_eval_tool_schemas(include_draw: bool = False, include_calc: bool = False) -> list[dict[str, Any]]:
     """OpenAI function schemas for eval tools. include_draw for shapes, include_calc for
     sorting/tax column tests (see CalcStringState in string_eval_tools.py).
-    Matches production names from plugin/modules/calc/cells.py and plugin/modules/doc/document_helpers.py."""
+    Matches production names from plugin/calc/cells.py and plugin/doc/document_helpers.py."""
     g = GetDocumentContent()
     a = ApplyDocumentContent()
     schemas = [

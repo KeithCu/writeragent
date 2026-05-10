@@ -80,7 +80,7 @@ flowchart TB
 - **Main chat:** registry schemas → wire `tools` → `tool_calls` → `ToolRegistry.execute` → history.
 - **Smol:** `ToolBase` → `SmolToolAdapter` → `ToolCallingAgent` → **`WriterAgentSmolModel`** → `request_with_tools(..., tools=completion_kwargs.get("tools"))` → `ChatMessage.from_dict` → smol steps.
 
-**Shared:** [`LlmClient`](../plugin/modules/http/client.py) only—no duplicate strip/shim/parser logic in smol-specific files.
+**Shared:** [`LlmClient`](../plugin/framework/client/llm_client.py) only—no duplicate strip/shim/parser logic in smol-specific files.
 
 ---
 
@@ -89,12 +89,12 @@ flowchart TB
 | Concern | Location |
 |---------|-----------|
 | Smol wire policy **send generated schemas** | [`plugin/framework/smol_model.py`](../plugin/framework/smol_model.py) — `WriterAgentSmolModel.generate` |
-| Smol agent construction | [`plugin/framework/smol_agent_factory.py`](../plugin/framework/smol_agent_factory.py) — `build_toolcalling_agent` |
+| Smol agent construction | [`plugin/chatbot/smol_agent.py`](../plugin/chatbot/smol_agent.py) — `build_toolcalling_agent` |
 | `ToolBase` → smol `inputs` | [`plugin/framework/smol_tool_adapter.py`](../plugin/framework/smol_tool_adapter.py) |
-| Librarian | [`plugin/modules/chatbot/librarian.py`](../plugin/modules/chatbot/librarian.py) |
-| Specialized delegation | [`plugin/modules/doc/specialized_base.py`](../plugin/modules/doc/specialized_base.py) |
-| Main chat loop | [`plugin/modules/chatbot/tool_loop.py`](../plugin/modules/chatbot/tool_loop.py), [`tool_loop_state.py`](../plugin/modules/chatbot/tool_loop_state.py) |
-| HTTP client | [`plugin/modules/http/client.py`](../plugin/modules/http/client.py) |
+| Librarian | [`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py) |
+| Specialized delegation | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
+| Main chat loop | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py), [`tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py) |
+| HTTP client | [`plugin/framework/client/llm_client.py`](../plugin/framework/client/llm_client.py) |
 | Orientation | [`AGENTS.md`](../AGENTS.md) §4, §8 |
 
 Tests: [`test_smol_model.py`](../plugin/tests/test_smol_model.py), [`test_smol_tool_adapter.py`](../plugin/tests/test_smol_tool_adapter.py), [`test_librarian_smol.py`](../plugin/tests/test_librarian_smol.py), [`test_specialized_delegation.py`](../plugin/tests/test_specialized_delegation.py).

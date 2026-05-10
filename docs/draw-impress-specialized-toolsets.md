@@ -12,10 +12,10 @@ Draw/Impress tools follow the same **nested delegation** pattern as Writer:
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| `ToolDrawSpecialBase` | Base class for specialized Draw tools | `plugin/modules/draw/base.py` |
+| `ToolDrawSpecialBase` | Base class for specialized Draw tools | `plugin/draw/base.py` |
 | `specialized_domain` | Domain identifier (e.g., `"charts"`, `"web_research"`, `"forms"`) | Class attribute |
 | `tier = "specialized"` | Marks tool for domain-specific sub-agent | Class attribute |
-| `delegate_to_specialized_draw_toolset` | Gateway tool for delegation | `plugin/modules/draw/specialized.py` |
+| `delegate_to_specialized_draw_toolset` | Gateway tool for delegation | `plugin/draw/specialized.py` |
 | `uno_services` | Document type filtering | Class attribute |
 
 **Delegation flow:**
@@ -150,8 +150,8 @@ The following features are **intentionally Impress-only** as Draw does not suppo
 
 Some tools are implemented in shared modules but work with Draw/Impress:
 
-- **Charts** (`plugin/modules/draw/charts.py`): Chart tools work across all document types that support charts
-- **Forms** (`writer/forms.py`): Form tools inherit from `ToolDrawFormBase` (`plugin/modules/draw/base.py`) and work across document types that support form controls
+- **Charts** (`plugin/draw/charts.py`): Chart tools work across all document types that support charts
+- **Forms** (`writer/forms.py`): Form tools inherit from `ToolDrawFormBase` (`plugin/draw/base.py`) and work across document types that support form controls
 
 > This document focuses on Draw/Impress-specific usage of these shared tools.
 
@@ -305,7 +305,7 @@ The current `create_shape` implementation handles both cases with conditional lo
 
 ### 8.3 Bridge Pattern
 
-The `DrawBridge` class (`plugin/modules/draw/bridge.py`) provides a unified interface for:
+The `DrawBridge` class (`plugin/draw/bridge.py`) provides a unified interface for:
 - Page/slide management
 - Shape creation
 - Document navigation

@@ -58,11 +58,11 @@ class ExternalMailMergeSystem:
         else:
             modules = {
                 'framework': 'plugin/framework',
-                'writer': 'plugin/modules/writer',
-                'draw': 'plugin/modules/draw',
-                'calc': 'plugin/modules/calc',
-                'chatbot': 'plugin/modules/chatbot',
-                'http': 'plugin/modules/http'
+                'writer': 'plugin/writer',
+                'draw': 'plugin/draw',
+                'calc': 'plugin/calc',
+                'chatbot': 'plugin/chatbot',
+                'http': 'plugin/mcp'
             }
         
         result = {}

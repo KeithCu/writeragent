@@ -2,9 +2,9 @@
 
 ## Overview
 
-The chat sidebar uses a **hybrid XDL + runtime relayout** approach. Control definitions (types, labels, initial positions) live in `extension/WriterAgentDialogs/ChatPanelDialog.xdl`. At runtime, `_PanelResizeListener` (an `XWindowListener` in `plugin/modules/chatbot/panel_resize.py`) repositions and resizes controls when the panel size changes: the **response** area grows vertically to fill space above a bottom-anchored cluster; **fluid** controls stretch horizontally to a fixed right margin; other controls stay fixed width and left-anchored.
+The chat sidebar uses a **hybrid XDL + runtime relayout** approach. Control definitions (types, labels, initial positions) live in `extension/WriterAgentDialogs/ChatPanelDialog.xdl`. At runtime, `_PanelResizeListener` (an `XWindowListener` in `plugin/chatbot/panel_resize.py`) repositions and resizes controls when the panel size changes: the **response** area grows vertically to fill space above a bottom-anchored cluster; **fluid** controls stretch horizontally to a fixed right margin; other controls stay fixed width and left-anchored.
 
-Wiring happens in `plugin/modules/chatbot/panel_wiring.py`. `ChatToolPanel.getHeightForWidth()` in `plugin/modules/chatbot/panel_factory.py` negotiates width/height with LibreOffice’s sidebar deck layouter and must stay consistent with `_relayout()`’s width logic.
+Wiring happens in `plugin/chatbot/panel_wiring.py`. `ChatToolPanel.getHeightForWidth()` in `plugin/chatbot/panel_factory.py` negotiates width/height with LibreOffice’s sidebar deck layouter and must stay consistent with `_relayout()`’s width logic.
 
 ---
 
@@ -102,10 +102,10 @@ Debugging relied on `writeragent_debug.log` lines: `getHeightForWidth deck_hint=
 | File | Role |
 |------|------|
 | `extension/WriterAgentDialogs/ChatPanelDialog.xdl` | Control definitions; baseline Map AppFont layout |
-| `plugin/modules/chatbot/panel_resize.py` | `_PanelResizeListener`, `_MIN_WIDTHS`, `_relayout` / `relayout_now` |
-| `plugin/modules/chatbot/panel_factory.py` | `ChatToolPanel`, `getHeightForWidth`, `getMinimalWidth`, image-mode relayout hook |
-| `plugin/modules/chatbot/panel_wiring.py` | `_wireControls`, resize listener construction, Send width measurement |
-| `plugin/modules/chatbot/panel.py` | `QueryTextListener` (Send label + fixed width) |
+| `plugin/chatbot/panel_resize.py` | `_PanelResizeListener`, `_MIN_WIDTHS`, `_relayout` / `relayout_now` |
+| `plugin/chatbot/panel_factory.py` | `ChatToolPanel`, `getHeightForWidth`, `getMinimalWidth`, image-mode relayout hook |
+| `plugin/chatbot/panel_wiring.py` | `_wireControls`, resize listener construction, Send width measurement |
+| `plugin/chatbot/panel.py` | `QueryTextListener` (Send label + fixed width) |
 | `registry/.../Sidebar.xcu` | Deck / panel registration |
 
 ---

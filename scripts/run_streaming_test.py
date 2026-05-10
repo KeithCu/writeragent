@@ -22,7 +22,7 @@ if _root not in sys.path:
 
 MODEL = "x-ai/grok-4.1-fast"
 
-from plugin.framework.streaming_deltas import accumulate_delta
+from plugin.framework.async_stream import accumulate_delta
 from plugin.main import get_tools
 try:
     WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")
@@ -112,7 +112,7 @@ def run_streaming_with_tools(prompt: str):
             thinking_started = True
         print(t, end="", flush=True)
 
-    from plugin.modules.http.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
     config = {
         "endpoint": endpoint.replace("/v1", ""), # LlmClient._api_path() adds /v1 or /api
         "api_key": api_key,

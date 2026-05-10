@@ -13,7 +13,7 @@ References: OpenAI [Streaming](https://platform.openai.com/docs/api-reference/st
 3. [Reasoning / thinking in the stream](#3-reasoning--thinking-in-the-stream)
 4. [Summary table](#4-summary-table)
 5. [Testing with OpenRouter](#5-testing-with-openrouter)
-6. [Implementation: `streaming_deltas.py`](#6-implementation-streaming_deltaspy)
+6. [Implementation: Streaming deltas](#6-implementation-streaming-deltas)
 7. [Error Handling and UI Threading](#7-error-handling-and-ui-threading)
 8. [Parallel Tool Calling](#8-parallel-tool-calling)
 
@@ -203,11 +203,11 @@ Once you’ve run these tests, you can document the **actual** chunk shapes and 
 
 ---
 
-## 6. Implementation: `streaming_deltas.py`
+## 6. Implementation: Streaming deltas
 
 We chose the **lightweight, dependency-free** approach:
 
-- We copied **[`accumulate_delta`](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/_deltas.py)** from the OpenAI Python SDK into **`core/streaming_deltas.py`**.
+- We copied **[`accumulate_delta`](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/_deltas.py)** from the OpenAI Python SDK into **`plugin/framework/async_stream.py`**.
 - This function handles the complex logic of merging partial tool call arguments (which can be split across many chunks) and concatenating content strings.
 - logic: `accumulate_delta(snapshot, delta)` -> updates snapshot in place.
 
@@ -253,7 +253,7 @@ To handle both sync and async tools without freezing the UI, WriterAgent uses an
 This sequentializes tool execution while guaranteeing the UI never freezes during network-bound tool operations.
 # writeragent2 Threading Bug Fix: Why the "Background Thread" Was Actually Freezing/Crashing the UI
 
-You noticed that [writeragent2](file:///home/keithcu/Desktop/Python/writeragent/writeragent2) already contained a `threading.Thread` call in [panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/modules/chatbot/panel_factory.py) with the comment `Run in background thread to avoid UI freeze`. It's understandable to wonder why we needed to introduce a complex queuing system if the work was already happening off the main thread.
+You noticed that [writeragent2](file:///home/keithcu/Desktop/Python/writeragent/writeragent2) already contained a `threading.Thread` call in [panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py) with the comment `Run in background thread to avoid UI freeze`. It's understandable to wonder why we needed to introduce a complex queuing system if the work was already happening off the main thread.
 
 The short answer is: **the previous implementation threw everything onto a raw background worker, causing illegal, non-thread-safe modifications to LibreOffice's VCL (Visual Components Library) and UNO services, which frequently results in deadlocks (hard freezes) and memory corruption (segfaults/crashes).**
 
@@ -263,7 +263,7 @@ Here is a detailed breakdown of the original bug and how our new architecture fi
 
 ## The Original Implementation (The Bug)
 
-In [writeragent2/plugin/modules/chatbot/panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/modules/chatbot/panel_factory.py), clicking "Send" fired [actionPerformed](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#1108-1113) on the main LibreOffice UI thread. The original code immediately delegated all work to a background thread like this:
+In [writeragent2/plugin/chatbot/panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py), clicking "Send" fired [actionPerformed](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#1108-1113) on the main LibreOffice UI thread. The original code immediately delegated all work to a background thread like this:
 
 ```python
 # The Old Way
@@ -290,13 +290,13 @@ The VCL often "catches" these illegal crosses and attempts to wait on a lock, re
 
 To solve this we implemented the **Flat Event Loop** pattern, which properly separates duties.
 
-Instead of throwing the entire process on a background thread, the main thread maintains control, but we offload only the safe, slow pieces. To do this, we updated [panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/modules/chatbot/panel_factory.py) to stop launching its own thread, and execute [_do_send()](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#296-617) directly on the Main Thread.
+Instead of throwing the entire process on a background thread, the main thread maintains control, but we offload only the safe, slow pieces. To do this, we updated [panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py) to stop launching its own thread, and execute [_do_send()](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#296-617) directly on the Main Thread.
 
 ### How [_do_send()](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#296-617) Works Now
 Inside [panel.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py), the [_do_send()](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#296-617) establishes a cross-thread `queue.Queue()`.
 
 1. **The Network Worker:**
-   We launch a `def worker()` background thread whose *only* job is connecting to the API and fetching chunks via [chat_event_stream](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/modules/chatbot/streaming.py#21-114). It pushes UI updates and Tool requests into the queue as standard Python objects. It touches zero UNO objects.
+   We launch a `def worker()` background thread whose *only* job is connecting to the API and fetching chunks via [chat_event_stream](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/streaming.py#21-114). It pushes UI updates and Tool requests into the queue as standard Python objects. It touches zero UNO objects.
 
 2. **The Main Thread Pumping Loop:**
    The [_do_send()](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_panel.py#296-617) method acts as a message loop **on the main thread**:
@@ -317,12 +317,12 @@ Because we are doing `q.get(timeout=0.1)` followed by `toolkit.processEventsToId
 
 ### The `next_tool` Queuing System
 The final piece of the puzzle handles slow external tools (like Web Research or Image Generation).
-If we executed [web_research](file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/core/document_tools.py#213-291) on the main thread, the `processEventsToIdle` loop would halt until the search returned, freezing the UI again.
+If we executed [web_research](file:///home/keithcu/Desktop/Python/writeragent/plugin/core/document_tools.py#213-291) on the main thread, the `processEventsToIdle` loop would halt until the search returned, freezing the UI again.
 
 Our solution is the `next_tool` dispatcher:
 - When a tool is popped from the queue, we check `if name in ASYNC_TOOLS`.
 - **Sync Tools (UNO calls):** Run instantly on the main thread, avoiding VCL crashes.
-- **Async Tools (Network/OS calls):** A new minimal daemon thread is launched to execute the tool, pushing a [("tool_done", result)](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/modules/chatbot/panel_factory.py#393-404) message back onto the queue when finished. The Main event loop keeps ticking and pumping the UI while it waits for the async tool thread to return.
+- **Async Tools (Network/OS calls):** A new minimal daemon thread is launched to execute the tool, pushing a [("tool_done", result)](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py#393-404) message back onto the queue when finished. The Main event loop keeps ticking and pumping the UI while it waits for the async tool thread to return.
 
 ## Summary
 

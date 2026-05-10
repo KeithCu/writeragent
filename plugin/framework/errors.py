@@ -21,10 +21,36 @@ All custom exceptions should inherit from WriterAgentException.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
+
+
+# Status values for tool execution results
+StatusValue = Literal["ok", "error"]
+
+
+# Type for tool execution results (base type)
+class ToolResult(TypedDict, total=False):
+    status: StatusValue
+    code: str
+    message: str
+    details: dict[str, Any]
+
+
+# Type for successful tool execution results
+class ToolSuccess(TypedDict):
+    status: Literal["ok"]
+    # Other fields are optional in success case
+
+
+# Type for failed tool execution results
+class ToolError(TypedDict):
+    status: Literal["error"]
+    code: str
+    message: str
+    details: dict[str, Any]
 
 
 class WriterAgentException(Exception):

@@ -18,7 +18,7 @@ This is the core concurrency bridge. Because background threads (like the HTTP s
 *   **Synchronization:** The calling background thread blocks on a `threading.Event()` (`_WorkItem.event.wait()`) until the main thread picks up the item, executes it, and sets the result or exception. This provides a synchronous feel to the caller while executing safely on the UI thread.
 *   **Safety:** A `threading.Lock` (`_init_lock`) protects the lazy initialization of the AsyncCallback UNO service.
 
-### 2. HTTP Server and MCP Protocol (`plugin/modules/http/`)
+### 2. HTTP Server and MCP Protocol (`plugin/mcp/`)
 
 The plugin runs an embedded HTTP server to provide a local API and support the Model Context Protocol (MCP).
 
@@ -27,7 +27,7 @@ The plugin runs an embedded HTTP server to provide a local API and support the M
     *   **Synchronization:** It implements its own simple `_Future` class wrapping a `threading.Event` to wait for main-thread execution, similar to `main_thread.py`.
     *   **Concurrency limits:** A `threading.Semaphore(1)` (`_tool_semaphore`) is used to enforce backpressure, ensuring only one tool execution runs concurrently.
 
-### 3. Agent Backends and CLI Management (`plugin/modules/agent_backend/`)
+### 3. Agent Backends and CLI Management (`plugin/agent_backend/`)
 
 When interacting with external CLI-based agent tools (like Hermes), WriterAgent spawns background processes and needs to monitor their streams asynchronously.
 
@@ -38,7 +38,7 @@ When interacting with external CLI-based agent tools (like Hermes), WriterAgent 
     *   **Threads:** Spawns a dedicated daemon thread to continuously parse JSON-RPC messages from the subprocess stdout (ACP over stdio).
     *   **Synchronization:** Uses a `threading.Lock` to protect the `_pending` requests dictionary. Each outbound request creates a `threading.Event` which the caller waits on until the reader thread receives the corresponding response and sets the event.
 
-### 4. Chatbot Streaming and Tool Execution (`plugin/modules/chatbot/`)
+### 4. Chatbot Streaming and Tool Execution (`plugin/chatbot/`)
 
 The core chatbot interaction relies heavily on threads to handle streaming LLM responses and asynchronous tool executions.
 
@@ -51,10 +51,10 @@ The core chatbot interaction relies heavily on threads to handle streaming LLM r
 
 *   **`plugin/framework/async_stream.py`:** Provides an `async_stream` decorator and helper functions that wrap generator functions (like streaming network calls) using `run_in_background`. The worker consumes the stream and periodically calls a main-thread UI update function.
 *   **`plugin/main.py`:** Uses `run_in_background` to pre-load icons into the `ImageManager` (`_update_menu_icons`) and dispatch menu updates (`notify_menu_update`) without freezing the startup or dispatch sequence.
-*   **`plugin/modules/tunnel/__init__.py`:** Runs local tunneling tools (like ngrok or localtunnel) using an `AsyncProcess` to parse the tunnel URL from the subprocess output asynchronously. Uses a `threading.Lock()` to protect access to the `_process` and tunnel URL.
-*   **`plugin/modules/launcher/__init__.py`:** Spawns a launcher-monitor using `run_in_background` to `wait()` on launched external processes (like Claude or Gemini desktop apps) so the menu status can be updated when the user closes the external app.
+*   **`plugin/tunnel/__init__.py`:** Runs local tunneling tools (like ngrok or localtunnel) using an `AsyncProcess` to parse the tunnel URL from the subprocess output asynchronously. Uses a `threading.Lock()` to protect access to the `_process` and tunnel URL.
+*   **`plugin/launcher/__init__.py`:** Spawns a launcher-monitor using `run_in_background` to `wait()` on launched external processes (like Claude or Gemini desktop apps) so the menu status can be updated when the user closes the external app.
 *   **`plugin/framework/logging.py`:** Spawns a background thread (`_watchdog_loop`) to periodically flush status logs or monitor system health without interrupting document flow. Uses `_init_lock` and `_activity_lock` to protect logging state.
-*   **`plugin/modules/chatbot/dialogs.py`:** Spawns a probe update thread (`run_in_background(_probe_update)`) to dynamically update dialog UI elements in the background.
+*   **`plugin/chatbot/dialogs.py`:** Spawns a probe update thread (`run_in_background(_probe_update)`) to dynamically update dialog UI elements in the background.
 *   **`plugin/framework/worker_pool.py`:** Provides the `run_in_background(func, *args, error_callback=None)` function to spawn an un-blocking thread with standardized exception handling and logging.
 *   **`plugin/framework/process_manager.py`:** Provides the `AsyncProcess` class, standardizing how external processes are started and how their `stdout`, `stderr`, and exit callbacks are handled safely without blocking.
 

@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 officehelper: ModuleType | None = None
 try:
-    import officehelper as _officehelper_module
+    import officehelper as _officehelper_module  # type: ignore
 
     officehelper = _officehelper_module
 except ImportError:
@@ -80,8 +80,8 @@ from plugin.framework.uno_context import get_active_document, get_extension_url
 # ---------------------------------------------------------------------------
 
 
-class HttpMcpActions(Protocol):
-    """``plugin.modules.http`` entry points used from main for MCP menu commands."""
+class McpModuleActions(Protocol):
+    """``plugin.mcp`` entry points used from main for MCP menu commands."""
 
     name: str | None
 
@@ -129,7 +129,7 @@ def _schedule_extension_update_check_once(ctx):
             return
         _extension_update_check_scheduled = True
     from plugin.framework.worker_pool import run_in_background
-    from plugin.modules.chatbot.extension_update_check import run_extension_update_check
+    from plugin.chatbot.extension_update_check import run_extension_update_check
 
     log.info("extension update check: scheduling background worker")
     run_in_background(run_extension_update_check, ctx, name="extension_update_check")
@@ -180,8 +180,8 @@ def bootstrap(ctx=None):
 
         # 3. Core Services (Framework)
         from plugin.framework.config import ConfigService
-        from plugin.modules.doc.document_helpers import DocumentService
-        from plugin.modules.writer.format import FormatService
+        from plugin.doc.document_helpers import DocumentService
+        from plugin.writer.format import FormatService
         from plugin.framework.event_bus import get_event_bus
 
         _services.register("config", ConfigService())
@@ -220,7 +220,7 @@ def bootstrap(ctx=None):
 
         _modules.extend(ModuleLoader.load_modules(_services))
 
-        # 6. Background phase: modules that start listeners/servers (e.g. HttpModule when MCP enabled)
+        # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled)
         for mod in _modules:
             mod.start_background(_services)
 
@@ -242,8 +242,8 @@ def bootstrap(ctx=None):
 
 def _register_core_handlers():
     """Register core application handlers during bootstrap."""
-    from plugin.modules.chatbot.legacy_ui import settings_box, show_eval_dashboard
-    from plugin.modules.doc.document_helpers import is_writer, is_calc, is_draw
+    from plugin.chatbot.legacy_ui import settings_box, show_eval_dashboard
+    from plugin.doc.document_helpers import is_writer, is_calc, is_draw
     import importlib
 
     def _open_settings():
@@ -253,15 +253,12 @@ def _register_core_handlers():
 
     register_action_handler("main", "EvaluationDashboard", lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
-    register_action_handler("main", "RunFormatTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.format_tests"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
-
-    register_action_handler("main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests"))
-
-    register_action_handler("main", "RunCalcIntegrationTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_calc"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
-
-    register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.uno.test_draw"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
-
+    register_action_handler("main", "RunFormatTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.writer.test_format_uno"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
+    register_action_handler("main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.calc.test_calc_uno"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests"))
+    register_action_handler("main", "RunCalcIntegrationTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.calc.test_calc_uno"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
+    register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.draw.test_draw_uno"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
     register_action_handler("main", "NoOp", lambda: None)
+
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -283,7 +280,7 @@ def _tests_bundled() -> bool:
         try:
             import importlib.util
 
-            _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.uno") is not None
+            _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.conftest") is not None
         except Exception:
             _TESTS_AVAILABLE = False
     return bool(_TESTS_AVAILABLE)
@@ -292,7 +289,7 @@ def _tests_bundled() -> bool:
 def _show_tests_unavailable(test_name: str) -> None:
     """Show a message when test suites are not bundled (release builds)."""
     try:
-        from plugin.modules.chatbot.dialogs import msgbox
+        from plugin.chatbot.dialogs import msgbox
         from plugin.framework.uno_context import get_ctx
 
         msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
@@ -316,7 +313,7 @@ def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
     except Exception as e:
         log.error(f"{error_msg}: {e}", exc_info=True)
         # Show user-friendly error message
-        from plugin.modules.chatbot.dialogs import msgbox
+        from plugin.chatbot.dialogs import msgbox
         from plugin.framework.i18n import _
 
         msgbox(ctx_getter(), _("Error"), _(f"{error_msg}: {str(e)}"))
@@ -329,7 +326,14 @@ def _run_test_suite(test_func, doc_checker, test_name):
     worker threads (see ``ToolBase.execute_safe``).
     """
     from plugin.framework.uno_context import get_ctx
-    from plugin.modules.chatbot.dialogs import msgbox
+    from plugin.chatbot.dialogs import msgbox
+    
+    print(f"DEBUG: _run_test_suite entry. name={test_name}")
+    if not _tests_bundled():
+        print("DEBUG: _run_test_suite: tests not bundled!")
+        _show_tests_unavailable(test_name)
+        return
+    print("DEBUG: _run_test_suite: tests are bundled.")
 
     ctx = get_ctx()
     try:
@@ -549,7 +553,7 @@ def _load_icon_graphic(module_name, icon_filename, ctx=None):
         pv = PropertyValue()
         # Support nested module directories
         mod_dir = module_name.replace(".", "/")
-        pv.Value = "%s/plugin/modules/%s/icons/%s" % (ext_url, mod_dir, icon_filename)
+        pv.Value = "%s/plugin/%s/icons/%s" % (ext_url, mod_dir, icon_filename)
         return gp.queryGraphic((pv,))
     except Exception as e:
         log.warning("_load_icon_graphic failed for %s/%s: %s", module_name, icon_filename, e)
@@ -612,10 +616,10 @@ def _update_menu_icons():
         log.warning("_update_menu_icons: outer exception: %s", e)
 
 
-def _get_http_module(ctx=None) -> HttpMcpActions | None:
+def _get_http_module(ctx=None) -> McpModuleActions | None:
     for mod in _modules:
-        if mod.name == "http":
-            return cast("HttpMcpActions", mod)
+        if mod.name == "mcp":
+            return cast("McpModuleActions", mod)
     return None
 
 
@@ -668,7 +672,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         except Exception as e:
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         try:
-            from plugin.modules.writer.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+            from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
             ensure_writeragent_proofreader_configured(self.ctx)
         except Exception as e:
@@ -694,7 +698,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             return
 
         model = get_active_document(self.ctx)
-        from plugin.modules.doc.document_helpers import get_document_type, DocumentType
+        from plugin.doc.document_helpers import get_document_type, DocumentType
 
         doc_type = get_document_type(model)
         if doc_type == DocumentType.WRITER:
@@ -717,20 +721,20 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
     def _handle_writer_actions(self, args, model):
         if args == "ExtendSelection":
-            from plugin.modules.writer.legacy import do_extend_selection
-            from plugin.modules.chatbot.legacy_ui import input_box
+            from plugin.writer.legacy import do_extend_selection
+            from plugin.chatbot.legacy_ui import input_box
 
             do_extend_selection(self.ctx, model, input_box)
         elif args == "EditSelection":
-            from plugin.modules.writer.legacy import do_edit_selection
-            from plugin.modules.chatbot.legacy_ui import input_box
+            from plugin.writer.legacy import do_edit_selection
+            from plugin.chatbot.legacy_ui import input_box
 
             do_edit_selection(self.ctx, model, input_box)
 
     def _handle_calc_actions(self, args, model):
         if args in ("ExtendSelection", "EditSelection"):
-            from plugin.modules.calc.legacy import do_calc_extend_edit
-            from plugin.modules.chatbot.legacy_ui import input_box
+            from plugin.calc.legacy import do_calc_extend_edit
+            from plugin.chatbot.legacy_ui import input_box
 
             do_calc_extend_edit(self.ctx, model, input_box, args == "EditSelection")
 
@@ -802,7 +806,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     def dispatch(self, URL, Arguments):
         url = URL
         command = url.Path
-        from plugin.modules.chatbot.dialogs import msgbox
+        from plugin.chatbot.dialogs import msgbox
         from plugin.framework.logging import init_logging, log_exception
 
         try:

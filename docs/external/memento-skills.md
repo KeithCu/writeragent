@@ -64,20 +64,20 @@ Adopt the Hermes/Memento pattern of a **Background Agent**. After the main write
 
 To achieve this without destabilizing the current extension:
 
-1.  **Phase 1: Hydrate Memory**: Enable the [MemoryStore](cci:2://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/memory.py:11:0-32:19) and [MemoryTool](cci:2://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/memory.py:34:0-106:67) to start populating `USER.md` using the "Librarian" toggle (reducing the toolset to *only* memory/chat).
-2.  **Phase 2: Progressive Skill Disclosure**: Implement the "Skill Router" in `tool_registry.py`. Instead of returning all `tier=core` tools, return `core` + `matched_skills` based on a quick keyword match or embedding search of the [skills/](cci:1://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/skills.py:34:4-55:21) directory.
+1.  **Phase 1: Hydrate Memory**: Enable the [MemoryStore](cci:2://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py:11:0-32:19) and [MemoryTool](cci:2://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py:34:0-106:67) to start populating `USER.md` using the "Librarian" toggle (reducing the toolset to *only* memory/chat).
+2.  **Phase 2: Progressive Skill Disclosure**: Implement the "Skill Router" in `tool_registry.py`. Instead of returning all `tier=core` tools, return `core` + `matched_skills` based on a quick keyword match or embedding search of the [skills/](cci:1://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/skills.py:34:4-55:21) directory.
 3.  **Phase 3: Sandbox Evolution**: Introduce a `skill-creator` tool (inspired by Memento) that can write new `SKILL.md` files describing how to combine existing Writer tools (e.g., "First call `get_styles`, then `apply_style` to every Heading 1").
 4.  **Phase 4: Async Reflection**: Use the `run_in_background` pool to trigger a "Reflect" pass after the `UI_THREAD` has finished rendering the response to the user.
 
 ## 6. Conclusion
 
-Adding Memento-style features transforms WriterAgent from a **reactive** tool to a **proactive** assistant. By leveraging the existing [memory.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/memory.py:0:0-0:0) and [skills.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/skills.py:0:0-0:0) files and infusing them with Memento's **routing** and **reflection** logic, we can create an agent that actually gets smarter the more it is used within LibreOffice.
+Adding Memento-style features transforms WriterAgent from a **reactive** tool to a **proactive** assistant. By leveraging the existing [memory.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py:0:0-0:0) and [skills.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/skills.py:0:0-0:0) files and infusing them with Memento's **routing** and **reflection** logic, we can create an agent that actually gets smarter the more it is used within LibreOffice.
 
 ---
 
 **Next Steps Recommended**:
-- [ ] Uncomment [MemoryTool](cci:2://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/memory.py:34:0-106:67) and `SkillTools` in [plugin/modules/chatbot/__init__.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/__init__.py:0:0-0:0).
-- [ ] Wire the `[AGENT MEMORY]` injection in [plugin/modules/doc/document_helpers.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/doc/document_helpers.py:0:0-0:0).
+- [ ] Uncomment [MemoryTool](cci:2://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py:34:0-106:67) and `SkillTools` in [plugin/chatbot/__init__.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/__init__.py:0:0-0:0).
+- [ ] Wire the `[AGENT MEMORY]` injection in [plugin/doc/document_helpers.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/doc/document_helpers.py:0:0-0:0).
 - [ ] Create a prototype "Librarian" prompt in `constants.py` for "Profile/Onboarding" mode.
 
 ---
@@ -119,7 +119,7 @@ This document compares the implementation and design of memory and skill systems
 
 ## 2. Memory Implementation Details
 
-### WriterAgent ([memory.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/modules/chatbot/memory.py:0:0-0:0))
+### WriterAgent ([memory.py](cci:7://file:///home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py:0:0-0:0))
 *   **Mechanism**: Uses a standard Python dictionary persisted as JSON in `USER.md` and `MEMORY.md`.
 *   **Structure**: Supports nested keys via dot notation (e.g., `user.preferences.style`).
 *   **Injection**: Commented out in `document.py`. The model must currently call `memory_read` to see values.

@@ -1,0 +1,1135 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-10 14:24-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Η κλήση εργαλείου άλλαξε σε '{0}'. Βρίσκεστε σε λειτουργία εξειδικευμένου "
+"συνόλου εργαλείων. Πρέπει να καλέσετε το 'specialized_workflow_finished' "
+"όταν τελειώσετε για να επαναφέρετε το πλήρες σύνολο των API."
+
+#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Εκκίνηση..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Updating model requirements..."
+msgstr "Ενημέρωση απαιτήσεων μοντέλου..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Updating Models..."
+msgstr "Ενημέρωση μοντέλων..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Register at "
+msgstr "Εγγραφείτε στο "
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "You have {} kudos"
+msgstr "Έχετε {} kudos"
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr ""
+"Το «{}» δεν είναι έγκυρο API KEY, ελέγξτε το ξανά ή δημιουργήστε ένα νέο"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr ""
+"Αυτή τη στιγμή δεν μπορούμε να επεξεργαστούμε το αίτημά σας, παρακαλούμε "
+"δοκιμάστε ξανά αργότερα. Εάν αυτό συμβαίνει για μεγάλο χρονικό διάστημα, "
+"παρακαλούμε ενημερώστε μας μέσω Discord"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Problem requesting kudos"
+msgstr "Πρόβλημα κατά το αίτημα kudos"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+"Το Horde βρίσκεται σε λειτουργία συντήρησης, παρακαλούμε δοκιμάστε ξανά "
+"αργότερα. Εάν έχετε δοκιμάσει και η υπηρεσία δεν αποκρίνεται για ώρες, "
+"παρακαλούμε επικοινωνήστε μέσω Discord"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr ""
+"Έχετε κάνει πάρα πολλά αιτήματα, παρακαλούμε περιμένετε να ολοκληρωθούν και "
+"δοκιμάστε ξανά αργότερα"
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr ""
+"Φαίνεται ότι το «{}» έχει προβλήματα, ελέγξτε το ξανά, δημιουργήστε ένα νέο "
+"ή εγγραφείτε στο Discord για να ζητήσετε βοήθεια"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "We hit an error, still: "
+msgstr "Προέκυψε σφάλμα, ακόμα: "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr ""
+"Δεν είναι πλέον έγκυρο, παρακαλώ προσπαθήστε ξανά. Το αίτημά σας διήρκεσε "
+"πολύ"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Contacting the Horde..."
+msgstr "Επικοινωνία με την Ορδή..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Horde Contacted"
+msgstr "Η Ορδή επικοινωνήθηκε"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr ""
+"Κατά την προσπάθεια λήψης της εικόνας, η Ορδή ήταν πολύ αργή, προσπαθήστε "
+"ξανά αργότερα"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "to learn to earn kudos. Detail:"
+msgstr "για να μάθετε πώς να κερδίζετε kudos. Λεπτομέρειες:"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Service failed: "
+msgstr "Η υπηρεσία απέτυχε: "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Downloading generated image..."
+msgstr "Λήψη της παραγόμενης εικόνας..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "You are first in the queue"
+msgstr "Είστε πρώτοι στη σειρά αναμονής"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Queue position: "
+msgstr "Θέση στην ουρά: "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Generating..."
+msgstr "Δημιουργία..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Get a free API Key at "
+msgstr "Αποκτήστε ένα δωρεάν κλειδί API στο "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "."
+msgstr "."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "This model takes more time than your current configuration."
+msgstr ""
+"Αυτό το μοντέλο απαιτεί περισσότερο χρόνο από την τρέχουσα διαμόρφωσή σας."
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "Please try another model. {0} would take more time than you configured."
+msgstr ""
+"Παρακαλώ δοκιμάστε ένα άλλο μοντέλο. Το {0} θα απαιτούσε περισσότερο χρόνο "
+"από αυτόν που έχετε διαμορφώσει."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Please try again later."
+msgstr "Παρακαλώ δοκιμάστε ξανά αργότερα."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "There are no workers available with these settings."
+msgstr "Δεν υπάρχουν διαθέσιμοι εργάτες με αυτές τις ρυθμίσεις."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Probably your image will take one additional minute."
+msgstr "Πιθανώς η εικόνα σας να χρειαστεί ένα επιπλέον λεπτό."
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "Probably your image will take {} additional minutes."
+msgstr "Πιθανώς η εικόνα σας να χρειαστεί {} επιπλέον λεπτά."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Fetching images..."
+msgstr "Λήψη εικόνων..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid " is censored, try changing the prompt wording"
+msgstr " έχει λογοκριθεί, δοκιμάστε να αλλάξετε τη διατύπωση της προτροπής"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Downloading result..."
+msgstr "Λήψη αποτελέσματος..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Downloading image"
+msgstr "Λήψη εικόνας"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr ""
+"Ίσως χρειαστεί να μειώσετε τις ρυθμίσεις σας ή να επιλέξετε άλλο μοντέλο, ή "
+"μπορεί να έχετε λογοκριθεί. Μήνυμα Horde"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid " generated by "
+msgstr " δημιουργήθηκε από "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid " with "
+msgstr " με "
+
+#: plugin/framework/errors.py
+#, python-brace-format
+msgid "{resource_type} not found: {identifier}"
+msgstr "Το {resource_type} δεν βρέθηκε: {identifier}"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+"AI: Μπορώ να επεξεργαστώ ή να μεταφράσω το έγγραφό σας άμεσα με "
+"επαγγελματική μορφοποίηση και χρώμα. Δοκιμάστε με!"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: Μπορώ να σας βοηθήσω με τύπους, ανάλυση δεδομένων και πολύχρωμα "
+"διαγράμματα. Δοκιμάστε με!"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+"AI: Μπορώ να σας βοηθήσω να δημιουργήσετε και να επεξεργαστείτε γυαλιστερά, "
+"πολύχρωμα σχήματα στο Draw και το Impress. Δοκιμάστε με!"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Μπορώ να κάνω έρευνα στο διαδίκτυο για να απαντήσω σε οποιαδήποτε "
+"ερώτηση ή να συνοψίσω μια ιστοσελίδα, χωρίς να βλέπω ή να αλλάζω το έγγραφό "
+"σας. Ας συνομιλήσουμε."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "TLS/SSL Error: {0}"
+msgstr "Σφάλμα TLS/SSL: {0}"
+
+#: plugin/framework/client/errors.py
+msgid "Invalid API Key. Please check your settings."
+msgstr "Μη έγκυρο κλειδί API. Παρακαλούμε ελέγξτε τις ρυθμίσεις σας."
+
+#: plugin/framework/client/errors.py
+msgid "API access Forbidden. Your key may lack permissions for this model."
+msgstr ""
+"Απαγορευμένη πρόσβαση API. Το κλειδί σας ενδέχεται να μην έχει δικαιώματα "
+"για αυτό το μοντέλο."
+
+#: plugin/framework/client/errors.py
+msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr ""
+"Το τελικό σημείο (endpoint) δεν βρέθηκε (404). Ελέγξτε το URL και το όνομα "
+"του μοντέλου σας."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Server error ({0}). The AI provider is having issues."
+msgstr "Σφάλμα διακομιστή ({0}). Ο πάροχος AI αντιμετωπίζει προβλήματα."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0}: {1}"
+msgstr "Σφάλμα HTTP {0}: {1}"
+
+#: plugin/framework/client/errors.py
+msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+msgstr ""
+"Το αίτημα έληξε. Δοκιμάστε να αυξήσετε το «Χρονικό όριο αιτήματος» στις "
+"Ρυθμίσεις."
+
+#: plugin/framework/client/errors.py
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Η σύνδεση απορρίφθηκε. Είναι ενεργός ο τοπικός διακομιστής AI (Ollama/LM "
+"Studio);"
+
+#: plugin/framework/client/errors.py
+msgid "DNS Error. Could not resolve the endpoint URL."
+msgstr ""
+"Σφάλμα DNS. Δεν ήταν δυνατή η ανάλυση της διεύθυνσης URL του τελικού σημείου."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Connection Error: {0}"
+msgstr "Σφάλμα σύνδεσης: {0}"
+
+#: plugin/framework/client/errors.py
+msgid "The AI provider reported an error. Try again."
+msgstr "Ο πάροχος AI ανέφερε ένα σφάλμα. Προσπαθήστε ξανά."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "Σφάλμα HTTP {0} από τον πάροχο AI: {1}"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Σφάλμα: {0}"
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr "Η ροή τερματίστηκε με finish_reason=error"
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Το μοντέλο επαναλαμβάνει το ίδιο τμήμα (άπειρος βρόχος). Προσπαθήστε ξανά ή "
+"χρησιμοποιήστε ένα διαφορετικό μοντέλο."
+
+#: plugin/calc/legacy.py plugin/writer/legacy.py
+msgid "Please enter edit instructions!"
+msgstr "Παρακαλώ εισάγετε οδηγίες επεξεργασίας!"
+
+#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Είσοδος"
+
+#: plugin/calc/legacy.py
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Επεξεργασία επιλογής (Calc)"
+
+#: plugin/calc/legacy.py
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Επέκταση επιλογής (Calc)"
+
+#: plugin/writer/legacy.py plugin/chatbot/selection.py
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Επέκταση επιλογής"
+
+#: plugin/writer/legacy.py plugin/chatbot/selection.py
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Επεξεργασία επιλογής"
+
+#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+msgid "Ready"
+msgstr "Έτοιμο"
+
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr "Ο πράκτορας ζητά έγκριση"
+
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr "Να προχωρήσετε με αυτή την ενέργεια;"
+
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Tool: %s"
+msgstr "Εργαλείο: %s"
+
+#: plugin/chatbot/dialogs.py
+msgid "Edit search query"
+msgstr "Επεξεργασία ερωτήματος αναζήτησης"
+
+#: plugin/chatbot/dialogs.py
+msgid "Search query:"
+msgstr "Ερώτημα αναζήτησης:"
+
+#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/chatbot/dialogs.py
+msgid "Cancel"
+msgstr "Άκυρο"
+
+#: plugin/chatbot/dialogs.py
+msgid "Copy"
+msgstr "Αντιγραφή"
+
+#: plugin/chatbot/dialogs.py
+msgid "Copied!"
+msgstr "Αντιγράφηκε!"
+
+#: plugin/chatbot/dialogs.py
+msgid "Copy URL"
+msgstr "Αντιγραφή URL"
+
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr "Σφάλμα: Το εργαλειοθήκη δεν είναι διαθέσιμο"
+
+#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Ρυθμίσεις"
+
+#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Σφάλμα"
+
+#: plugin/chatbot/legacy_ui.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Αποτυχία ανοίγματος των Ρυθμίσεων: {0}"
+
+#: plugin/chatbot/panel.py
+msgid "Accept"
+msgstr "Αποδοχή"
+
+#: plugin/chatbot/panel.py
+msgid "Change"
+msgstr "Αλλαγή"
+
+#: plugin/chatbot/panel.py
+msgid "Reject"
+msgstr "Απόρριψη"
+
+#: plugin/chatbot/panel.py
+msgid "Waiting for approval…"
+msgstr "Αναμονή για έγκριση…"
+
+#: plugin/chatbot/panel.py
+msgid "Record"
+msgstr "Εγγραφή"
+
+#: plugin/chatbot/panel.py
+msgid "Stop Rec"
+msgstr "Διακοπή εγγραφής"
+
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Αποστολή"
+
+#: plugin/chatbot/panel.py
+msgid "Getting document..."
+msgstr "Λήψη εγγράφου..."
+
+#: plugin/chatbot/panel.py
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[Δεν βρέθηκε συμβατό έγγραφο LibreOffice (Writer, Calc ή Draw) στο ενεργό "
+"παράθυρο.]"
+
+#: plugin/chatbot/panel.py
+#, python-brace-format
+msgid ""
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
+msgstr ""
+"[Εσωτερικό σφάλμα: Ο τύπος εγγράφου άλλαξε από {0} σε {1}! Παρακαλούμε "
+"αναφέρετε το σφάλμα.]"
+
+#: plugin/chatbot/panel.py
+#, python-brace-format
+msgid ""
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr ""
+"[Εσωτερικό σφάλμα: Δεν ήταν δυνατή η αναγνώριση του τύπου εγγράφου για το "
+"{0}. Παρακαλούμε αναφέρετε το!]"
+
+#: plugin/chatbot/panel.py
+#, python-brace-format
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr ""
+"[Το μοντέλο {0} δεν υποστηρίζει εγγενή ήχο. Παρακαλούμε επιλέξτε ένα μοντέλο "
+"STT στις Ρυθμίσεις.]"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Invalid Setting"
+msgstr "Μη έγκυρη ρύθμιση"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Temperature must be <= 1.0"
+msgstr "Η θερμοκρασία πρέπει να είναι <= 1.0"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Αυτό το ερώτημα αναζήτησης '%s' θα αποσταλεί στη μηχανή αναζήτησης."
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Web search — approval required]"
+msgstr "[Αναζήτηση στον ιστό — απαιτείται έγκριση]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Web search]"
+msgstr "[Αναζήτηση στον ιστό]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Additional web search]"
+msgstr "[Πρόσθετη αναζήτηση στον ιστό]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Web research]"
+msgstr "[Έρευνα στον ιστό]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "Research request:"
+msgstr "Αίτημα έρευνας:"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "Context for the research agent:"
+msgstr "Πλαίσιο για τον πράκτορα έρευνας:"
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr "Η έρευνα στον ιστό ολοκληρώθηκε."
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Αποτυχία δημιουργίας αρχείου ρυθμίσεων: {0}"
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Δεν ήταν δυνατό το άνοιγμα ενός επεξεργαστή. Διαδρομή:\n"
+"{0}"
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Δεν βρέθηκε επεξεργαστής κειμένου (εγκαταστήστε το Kate ή το Gedit, ή ορίστε "
+"τη μεταβλητή EDITOR). Διαδρομή: {0}"
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Αδυναμία εκκίνησης του επεξεργαστή: {0}"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr "Μεταγραφή ήχου..."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Σφάλμα μεταγραφής: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Σφάλμα πλαισίου εγγράφου: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Το υποσύστημα του πράκτορα '{0}' δεν βρέθηκε.]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Το υποσύστημα του πράκτορα '{0}' δεν είναι διαθέσιμο. Ελέγξτε τις Ρυθμίσεις "
+"(διαδρομή, εγκατάσταση).]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Βιβλιοθηκάριος: {0}"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Τέλεια! Σας μεταφέρω τώρα στον κύριο βοηθό."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr "Άγνωστο σφάλμα βιβλιοθηκάριου."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Σφάλμα βιβλιοθηκάριου: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "AI (research): {0}"
+msgstr "AI (έρευνα): {0}"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Άγνωστο σφάλμα έρευνας."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Σφάλμα έρευνας: {0}]"
+
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr "Διαθέσιμη ενημέρωση"
+
+#: plugin/chatbot/extension_update_check.py
+#, python-format
+msgid ""
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
+msgstr ""
+"Μια νεότερη έκδοση του WriterAgent (%s) είναι διαθέσιμη. Χρησιμοποιήστε το "
+"Εργαλεία → Διαχείριση επεκτάσεων για να ελέγξετε για ενημερώσεις και να "
+"εγκαταστήσετε την πιο πρόσφατη επέκταση."
+
+#: plugin/chatbot/librarian.py
+msgid "Switching to document mode..."
+msgstr "Μετάβαση σε λειτουργία εγγράφου..."
+
+#: plugin/chatbot/panel_factory.py
+msgid "Size:"
+msgstr "Μέγεθος:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Height:"
+msgstr "Ύψος:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Width:"
+msgstr "Πλάτος:"
+
+#: plugin/tests/framework/test_i18n.py
+msgid "ThisIsAnUntranslatedString999"
+msgstr "ThisIsAnUntranslatedString999"
+
+#: plugin/tests/framework/test_i18n.py
+msgid "Built-in"
+msgstr "Ενσωματωμένο"
+
+#: plugin/tests/framework/test_i18n.py
+msgid "Backend"
+msgstr "Backend"
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr "Διακοπή διακομιστή MCP"
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr "Εκκίνηση διακομιστή MCP"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr "Ο διακομιστής MCP σταμάτησε"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr "Ο διακομιστής MCP ξεκίνησε"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "Αποτυχία εκκίνησης του διακομιστή MCP"
+
+#: plugin/mcp/__init__.py
+msgid "Check ~/writeragent.log"
+msgstr "Ελέγξτε το ~/writeragent.log"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr "Ο διακομιστής MCP δεν εκτελείται"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server running"
+msgstr "Ο διακομιστής MCP εκτελείται"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Διαδρομές: {0}"
+
+#: plugin/mcp/__init__.py
+msgid "Server Status"
+msgstr "Κατάσταση διακομιστή"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "URL: {0}"
+msgstr "URL: {0}"
+
+#: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} επιτυχίες, {2} αποτυχίες."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Αποτυχία εκτέλεσης δοκιμών: {0}"
+
+#: plugin/main.py
+msgid "Extend Selection"
+msgstr "Επέκταση επιλογής"
+
+#: plugin/main.py
+msgid "Edit Selection"
+msgstr "Επεξεργασία επιλογής"
+
+#: plugin/main.py
+msgid "Toggle MCP Server"
+msgstr "Εναλλαγή διακομιστή MCP"
+
+#: plugin/main.py
+msgid "MCP Server Status"
+msgstr "Κατάσταση διακομιστή MCP"
+
+#: plugin/main.py
+msgid "Run format tests"
+msgstr "Εκτέλεση δοκιμών μορφοποίησης"
+
+#: plugin/main.py
+msgid "Run calc tests"
+msgstr "Εκτέλεση δοκιμών Calc"
+
+#: plugin/main.py
+msgid "Run Calc API integration tests"
+msgstr "Εκτέλεση δοκιμών ενσωμάτωσης API του Calc"
+
+#: plugin/main.py
+msgid "Run draw tests"
+msgstr "Εκτέλεση δοκιμών Draw"
+
+#: plugin/main.py
+msgid "Evaluation Dashboard"
+msgstr "Πίνακας ελέγχου αξιολόγησης"
+
+#: plugin/main.py
+msgid "Dispatch Error"
+msgstr "Σφάλμα αποστολής"
+
+#: plugin/xdl_strings.py
+msgid "-1"
+msgstr "-1"
+
+#: plugin/xdl_strings.py
+msgid "7.5"
+msgstr "7.5"
+
+#: plugin/xdl_strings.py
+msgid "AI Horde API Key:"
+msgstr "Κλειδί API AI Horde:"
+
+#: plugin/xdl_strings.py
+msgid "AI Model:"
+msgstr "Μοντέλο AI:"
+
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr "Κλειδί API:"
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr "Πρόσθετες οδηγίες (Ιστορικό):"
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr "Πρόσθετες οδηγίες:"
+
+#: plugin/xdl_strings.py
+msgid "Allow NSFW"
+msgstr "Να επιτρέπεται το NSFW"
+
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr "Ερώτηση / οδηγία:"
+
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr "Αναλογία διαστάσεων:"
+
+#: plugin/xdl_strings.py
+msgid "Audio Model:"
+msgstr "Μοντέλο ήχου:"
+
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr "Αυτόματη Συλλογή"
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr "Βασικό μέγεθος:"
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr "Βάση:"
+
+#: plugin/xdl_strings.py
+msgid "CFG Scale:"
+msgstr "Κλίμακα CFG:"
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr "Κατηγορίες:"
+
+#: plugin/xdl_strings.py
+msgid "Censor NSFW"
+msgstr "Λογοκρισία NSFW"
+
+#: plugin/xdl_strings.py
+msgid "Chat (Testing):"
+msgstr "Συνομιλία (Δοκιμή):"
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr "Εκκαθάριση"
+
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Κλείσιμο"
+
+#: plugin/xdl_strings.py
+msgid "Context Len:"
+msgstr "Μήκος πλαισίου:"
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr "Draw"
+
+#: plugin/xdl_strings.py
+msgid "Edit config file (JSON)…"
+msgstr "Επεξεργασία αρχείου ρυθμίσεων (JSON)…"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr "URL τελικού σημείου (προστίθεται το /v1):"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr "URL τελικού σημείου:"
+
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr "Γενικά"
+
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr "Μοντέλο εικόνας:"
+
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr "Ρυθμίσεις εικόνας"
+
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr "Εισαγωγή πλαισίου"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Μέγιστα διακριτικά:"
+
+#: plugin/xdl_strings.py
+msgid "Max Wait (s):"
+msgstr "Μέγιστος χρόνος αναμονής (s):"
+
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr "Μοντέλα προς δοκιμή:"
+
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr "Πολυτροπικό"
+
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr "Παρακαλώ εισάγετε οδηγίες επεξεργασίας:"
+
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr "Εκτέλεση σημείου αναφοράς"
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr "Αρχική τιμή (Seed):"
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr "Τετράγωνο"
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr "Βήματα:"
+
+#: plugin/xdl_strings.py
+msgid "Stop"
+msgstr "Διακοπή"
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr "Θερμοκρασία:"
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr "Μοντέλο κειμένου/συνομιλίας:"
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr "Χρονικό όριο (s):"
+
+#: plugin/xdl_strings.py
+msgid "Translate Prompt"
+msgstr "Μετάφραση προτροπής"
+
+#: plugin/xdl_strings.py
+msgid "Translate from (e.g. es):"
+msgstr "Μετάφραση από (π.χ. es):"
+
+#: plugin/xdl_strings.py
+msgid "Use AI Horde for Image Generation"
+msgstr "Χρήση του AI Horde για δημιουργία εικόνας"
+
+#: plugin/xdl_strings.py
+msgid "Use Image model"
+msgstr "Χρήση μοντέλου εικόνας"
+
+#: plugin/xdl_strings.py
+msgid "Web Research"
+msgstr "Διαδικτυακή έρευνα"
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "Πίνακας αξιολόγησης WriterAgent"
+
+msgid "Agent backends"
+msgstr "Backend πράκτορα"
+
+msgid "Hermes"
+msgstr "Hermes"
+
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgid "Mistral Vibe (ACP)"
+msgstr "Mistral Vibe (ACP)"
+
+msgid "Path / URL"
+msgstr "Διαδρομή / URL"
+
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"Διαδρομή προς το CLI του backend (π.χ. aider) ή URL διακομιστή ACP (π.χ. "
+"http://localhost:8000 για το Hermes). Κενό = προσπάθεια χρήσης του "
+"προεπιλεγμένου."
+
+msgid "Extra arguments"
+msgstr "Επιπλέον ορίσματα"
+
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr "Προαιρετικά ορίσματα για το επιλεγμένο backend (διαχωρισμένα με κενά)."
+
+msgid "ACP agent name"
+msgstr "Όνομα πράκτορα ACP"
+
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr ""
+"Όνομα πράκτορα στον διακομιστή ACP (π.χ. hermes). Κενό = αυτόματη ανακάλυψη "
+"του πρώτου πράκτορα."
+
+msgid "Calc spreadsheet tools"
+msgstr "Εργαλεία υπολογιστικών φύλλων Calc"
+
+msgid "Max Rows Display"
+msgstr "Μέγιστος αριθμός γραμμών"
+
+msgid "Sidebar"
+msgstr "Πλευρική εργαλειοθήκη"
+
+msgid "Max Tool Rounds"
+msgstr "Μέγιστοι γύροι εργαλείων"
+
+msgid "Document Context Strategy"
+msgstr "Στρατηγική πλαισίου εγγράφου"
+
+msgid "How much document content to include in LLM context"
+msgstr "Πόσο περιεχόμενο εγγράφου να συμπεριληφθεί στο πλαίσιο LLM"
+
+msgid "Auto (by document size)"
+msgstr "Αυτόματα (βάσει μεγέθους εγγράφου)"
+
+msgid "Full document text"
+msgstr "Πλήρες κείμενο εγγράφου"
+
+msgid "Pages around cursor"
+msgstr "Σελίδες γύρω από τον δρομέα"
+
+msgid "Outline + excerpt"
+msgstr "Δομή + απόσπασμα"
+
+msgid "Stats + outline only"
+msgstr "Στατιστικά + μόνο δομή"
+
+msgid "Extend Selection Max Tokens"
+msgstr "Μέγιστα διακριτικά επέκτασης επιλογής"
+
+msgid "Edit Selection Extra Tokens"
+msgstr "Επεξεργασία επιπλέον διακριτικών επιλογής"
+
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Επιπλέον διακριτικά πέρα από το αρχικό μήκος κειμένου. 0 = ίδιο μήκος με το "
+"αρχικό."
+
+msgid "Show Web Search Thinking"
+msgstr "Εμφάνιση σκέψης αναζήτησης ιστού"
+
+msgid "Prompt for Web Research"
+msgstr "Ερώτηση για έρευνα ιστού"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Ζήτηση επιβεβαίωσης πριν από την αποστολή ερωτήματος αναζήτησης ιστού"
+
+msgid "Web Cache Max Size (MB)"
+msgstr "Μέγιστο μέγεθος προσωρινής μνήμης ιστού (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr ""
+"Μέγιστο μέγεθος δίσκου για την προσωρινή μνήμη αναζήτησης ιστού (0 για "
+"απενεργοποίηση)"
+
+msgid "Web Cache Validity (Days)"
+msgstr "Εγκυρότητα προσωρινής μνήμης ιστού (Ημέρες)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Πόσες ημέρες θα θεωρούνται έγκυρες οι εγγραφές της προσωρινής μνήμης."
+
+msgid "Doc"
+msgstr "Έγγραφο"
+
+msgid "Enable AI grammar checker (Writer)"
+msgstr "Ενεργοποίηση ελέγχου γραμματικής AI (Writer)"
+
+msgid ""
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
+msgstr ""
+"Όταν είναι ενεργοποιημένο, το WriterAgent καταχωρεί τον διορθωτή γραμματικής "
+"AI στο Linguistic· το κείμενο που ελέγχεται χρησιμοποιεί το API σας "
+"(Εργαλεία → Επιλογές → AI). Οι υπογραμμίσεις εμφανίζονται λίγο μετά τη "
+"διακοπή της πληκτρολόγησης. Απενεργοποιημένο από προεπιλογή."
+
+msgid "Grammar check wait timeout (ms)"
+msgstr "Χρονικό όριο αναμονής ελέγχου γραμματικής (ms)"
+
+msgid ""
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
+msgstr ""
+"Δεσμευμένο για μελλοντική χρήση. Ο διορθωτής επιστρέφει αμέσως σε περίπτωση "
+"αστοχίας της προσωρινής μνήμης (ασύγχρονα)· τα αποτελέσματα εμφανίζονται σε "
+"επόμενο πέρασμα του Writer μόλις συμπληρωθεί η προσωρινή μνήμη προτάσεων."
+
+msgid "Grammar check model (optional)"
+msgstr "Μοντέλο ελέγχου γραμματικής (προαιρετικό)"
+
+msgid "Leave empty to use the same text model as chat."
+msgstr ""
+"Αφήστε το κενό για να χρησιμοποιήσετε το ίδιο μοντέλο κειμένου με τη "
+"συνομιλία."
+
+msgid "Pause grammar while chat/agent runs"
+msgstr "Παύση γραμματικής κατά την εκτέλεση συνομιλίας/πράκτορα"
+
+msgid ""
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
+msgstr ""
+"Όταν είναι ενεργοποιημένο, ο έλεγχος γραμματικής AI παρακάμπτει τα αιτήματα "
+"παρασκηνίου ενώ εκτελείται η συνομιλία στην πλευρική στήλη ή ο πράκτορας, "
+"για την αποφυγή ταυτόχρονων κλήσεων API."
+
+msgid "Enter key sends sidebar chat message"
+msgstr ""
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+
+msgid "Draw and Impress tools"
+msgstr "Εργαλεία Draw και Impress"
+
+msgid "Core services (config, events, logging)"
+msgstr ""
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Enable MCP Server"
+msgstr "Ενεργοποίηση διακομιστή MCP"
+
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr ""
+"Μόνο τοπικός υπολογιστής (localhost), χωρίς πιστοποίηση. Η πρόσβαση μέσω "
+"stdio είναι πάντα ενεργοποιημένη."
+
+msgid "MCP Port"
+msgstr "Θύρα MCP"
+
+msgid "Writer document tools (including navigation and search)"
+msgstr ""
+"Εργαλεία εγγράφου Writer (συμπεριλαμβανομένης της πλοήγησης και της "
+"αναζήτησης)"

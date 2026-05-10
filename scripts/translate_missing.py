@@ -12,7 +12,7 @@ Leading/trailing whitespace is stripped before the API call and restored on the 
 and writes a JSON report (never modifies ``.po`` files): stdout lists every string including
 ``No Errors`` rows; the file's ``suggestions`` array lists only ``suggest`` / ``error`` rows.
 ``--apply-review LOCALE`` reads ``translation_review_<LOCALE>.json`` (or ``--review-json``)
-and applies remaining ``suggest`` rows to ``plugin/locales/<LOCALE>/LC_MESSAGES/writeragent.po``;
+and applies remaining ``suggest`` rows to ``locales/<LOCALE>/LC_MESSAGES/writeragent.po``;
 by default skips rows whose ``current_msgstr`` no longer matches the PO (use
 ``--force-apply-review`` to apply anyway).
 """
@@ -42,7 +42,7 @@ try:
     import sys
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     
-    from plugin.framework.auth import resolve_auth_for_config, build_auth_headers
+    from plugin.framework.client.auth import resolve_auth_for_config, build_auth_headers
     from plugin.framework.config import get_config, get_config_dict
     from plugin.framework.constants import USER_AGENT, APP_REFERER, APP_TITLE
 except ImportError:
@@ -79,7 +79,7 @@ def _pot_nonheader_count(pot_file: polib.POFile) -> int:
     return sum(1 for e in pot_file if e.msgid != "")
 
 
-def print_status_report(locales_dir: str = "plugin/locales", pot_path: str = "plugin/locales/writeragent.pot"):
+def print_status_report(locales_dir: str = "locales", pot_path: str = "locales/writeragent.pot"):
     """Print an aligned table: vs POT (same basis as find_missing) when writeragent.pot exists, else msgfmt."""
     files = glob_po_files(locales_dir)
     rows = []
@@ -169,7 +169,7 @@ def get_stats(path: str) -> Optional[Tuple[int, int, int, int]]:
         return None
 
 
-def load_pot_file(pot_path: str = "plugin/locales/writeragent.pot") -> polib.POFile:
+def load_pot_file(pot_path: str = "locales/writeragent.pot") -> polib.POFile:
     pot_file = Path(pot_path)
     if not pot_file.exists():
         raise FileNotFoundError(f"POT file not found: {pot_path}")
@@ -829,7 +829,7 @@ def main():
         default=None,
         help=(
             "Apply remaining suggest rows from translation_review_<LOCALE>.json "
-            "to plugin/locales/<LOCALE>/LC_MESSAGES/writeragent.po (override JSON path with --review-json)"
+            "to locales/<LOCALE>/LC_MESSAGES/writeragent.po (override JSON path with --review-json)"
         ),
     )
     parser.add_argument("--batch-size", type=int, default=10, help="Batch size (default: 10)")
@@ -899,7 +899,7 @@ def main():
         if not json_path.is_file():
             log.error("Review JSON not found: %s", json_path.resolve())
             raise SystemExit(1)
-        po_path = Path("plugin/locales") / locale / "LC_MESSAGES" / "writeragent.po"
+        po_path = Path("locales") / locale / "LC_MESSAGES" / "writeragent.po"
         if not po_path.is_file():
             log.error("PO file not found: %s", po_path.resolve())
             raise SystemExit(1)
@@ -935,7 +935,7 @@ def main():
         if not args.skip_initial_status:
             print_status_report()
 
-        po_files = glob_po_files("plugin/locales")
+        po_files = glob_po_files("locales")
         review_work_items: List[Tuple[str, str, List[Dict[str, Any]]]] = []
         for lang, f_path in sorted(po_files):
             if args.lang and args.lang != lang:
@@ -1014,7 +1014,7 @@ def main():
         return
 
     pot_file = load_pot_file()
-    po_files = glob_po_files("plugin/locales")
+    po_files = glob_po_files("locales")
 
     work_items: List[Tuple[str, str, List[Dict[str, str]]]] = []
     for lang, f_path in po_files:

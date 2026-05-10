@@ -26,11 +26,11 @@ from scripts.lib.orca_catalog import (  # noqa: E402
     orca_slim_to_model_capability,
     slim_catalog_payload,
 )
-from plugin.framework.types import ModelCapability  # noqa: E402
+from plugin.framework.constants import ModelCapability  # noqa: E402
 
 DEFAULT_MODELS_PATH = os.path.join(PROJECT_ROOT, "plugin", "framework", "default_models.py")
 # Generated slim catalog (not shipped in the .oxt; used for offline sync fallback + dev reference)
-JSON_OUT = os.path.join(PROJECT_ROOT, "registry", "openrouter_models.json")
+JSON_OUT = os.path.join(PROJECT_ROOT, "extension", "metadata", "openrouter_models.json")
 
 _CAPABILITY_ORDER = (
     "CHAT",
@@ -240,7 +240,7 @@ def main() -> int:
     ap.add_argument(
         "--cache-file",
         default=JSON_OUT,
-        help="Path for --use-cached input (default: registry/openrouter_models.json)",
+        help="Path for --use-cached input (default: extension/metadata/openrouter_models.json)",
     )
     ap.add_argument(
         "--strict",

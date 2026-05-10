@@ -52,7 +52,7 @@ This is already a good base for practical reliability work. The next step is bet
 
 ### 1.3 Existing Network Resilience
 
-Current network behavior in `plugin/modules/http/client.py` already includes:
+Current network behavior in `plugin/framework/client/llm_client.py` already includes:
 
 - persistent connections
 - bounded request timeouts
@@ -177,7 +177,7 @@ Retries are valuable when they are narrow, explicit, and limited.
 
 ### Good retry targets
 
-- network requests in `plugin/modules/http/client.py`
+- network requests in `plugin/framework/client/llm_client.py`
 - network-adjacent MCP operations where transient failure is plausible
 - file I/O around config/history persistence when partial transient failure is realistic
 

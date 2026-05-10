@@ -7,7 +7,7 @@ This note is **a point-in-time comparison** between the upstream **OnlyOfficeAI*
 **Provenance (how this doc was assembled):**
 
 - Earlier **architecture + Word-oriented** takeaways and the `RegisteredFunction` survey lived in a single file that became the base for this merge.
-- A separate **Calc + Impress crosswalk** (`onlyoffice_calc_impressplan.md` in this repo) compared `helpers.js` regions `HELPERS.cell` and `HELPERS.slide` to WriterAgent’s [`plugin/modules/calc/`](plugin/modules/calc/) and [`plugin/modules/draw/`](plugin/modules/draw/). That material is **folded in below** so one file holds the full picture.
+- A separate **Calc + Impress crosswalk** (`onlyoffice_calc_impressplan.md` in this repo) compared `helpers.js` regions `HELPERS.cell` and `HELPERS.slide` to WriterAgent’s [`plugin/calc/`](plugin/calc/) and [`plugin/draw/`](plugin/draw/). That material is **folded in below** so one file holds the full picture.
 - **Snapshot age:** the underlying OnlyOffice review was done roughly **~1 month before** this merge; treat tool lists and `helpers.js` anchors as **indicative**, not contractual.
 
 **Why we care about OnlyOffice at all:** their `RegisteredFunction` blocks are a useful **schema and UX catalog** (enums, examples, validation errors). Portable **document logic** rarely copies cleanly to LibreOffice; WriterAgent should keep **explicit UNO tools** and mine OO for **prompts, parameter shapes, and edge-case messaging**—not for verbatim JS.
@@ -25,20 +25,20 @@ This section is the **forward-looking backlog** implied by the comparison. Items
 | High | **`set_auto_filter` (or equivalent)** — filter criteria / AutoFilter-style API via UNO (`XSheetFilterDescriptor` or dispatch) | OnlyOffice exposes rich `setAutoFilter` operators; WriterAgent had **no surfaced** auto-filter tool in the earlier grep pass. High user value for spreadsheet agents. |
 | High | **`summarizeData`-style thin tool** (optional) | Pattern: export range → LLM narrative → write text to a **named adjacent cell**. Today: `read_cell_range` + chat + manual write, or scripts. A single tool improves agent reliability and placement UX. |
 | Medium | **Deterministic `highlightDuplicates` / anomaly helpers** | OO often uses **LLM** to decide duplicates/outliers; for correctness, prefer **Python/UNO** detection + one pass of `set_style` or conditional formatting; use OO only for **validation messages** and highlight application ideas. |
-| Medium | **Pivot: NL-only layout and pivot charts** | WriterAgent already has DataPilot tools in [`plugin/modules/calc/pivot.py`](plugin/modules/calc/pivot.py). OO’s `insertPivotTable` is still useful for **natural-language → field indices** prompts and error copy. **Pivot charts** and layout without explicit headers are **not** implemented (see [`AGENTS.md`](AGENTS.md) §5 and header of `pivot.py`). |
-| Medium | **Expand `create_chart` type enum** using OO’s long `chartType` list | Reduces model hallucination; must still match what UNO actually supports in [`plugin/modules/calc/charts.py`](plugin/modules/calc/charts.py). |
-| Lower / research | **Conditional-formatting preset parity** (`addDataBars`, `addIconSet`, `addColorScale`, top-10, etc.) | WriterAgent’s [`add_conditional_format`](plugin/modules/calc/conditional.py) is **classic** operator + cell style. Excel-style presets need **LibreOffice UNO** research, not JS porting. Use OO enums as a **checklist** only. |
-| Lower | **`formatTable`-style “format as table”** | Only partial overlap with [`set_style`](plugin/modules/calc/cells.py) and structure tools; add only if product definition matches. |
+| Medium | **Pivot: NL-only layout and pivot charts** | WriterAgent already has DataPilot tools in [`plugin/calc/pivot.py`](plugin/calc/pivot.py). OO’s `insertPivotTable` is still useful for **natural-language → field indices** prompts and error copy. **Pivot charts** and layout without explicit headers are **not** implemented (see [`AGENTS.md`](AGENTS.md) §5 and header of `pivot.py`). |
+| Medium | **Expand `create_chart` type enum** using OO’s long `chartType` list | Reduces model hallucination; must still match what UNO actually supports in [`plugin/calc/charts.py`](plugin/calc/charts.py). |
+| Lower / research | **Conditional-formatting preset parity** (`addDataBars`, `addIconSet`, `addColorScale`, top-10, etc.) | WriterAgent’s [`add_conditional_format`](plugin/calc/conditional.py) is **classic** operator + cell style. Excel-style presets need **LibreOffice UNO** research, not JS porting. Use OO enums as a **checklist** only. |
+| Lower | **`formatTable`-style “format as table”** | Only partial overlap with [`set_style`](plugin/calc/cells.py) and structure tools; add only if product definition matches. |
 | Avoid | **`writeMacro` / arbitrary JS** | Same as Word: **not** a WriterAgent direction—security and portability. |
 
 ### 2.2 Impress / Draw — features
 
 | Priority | Item | Rationale |
 |----------|------|-----------|
-| High | **`duplicate_slide` as a real, safe tool** | [`DrawBridge.duplicate_slide`](plugin/modules/draw/bridge.py) exists but was **not** registered; implementation risk: `new_page.add(shape)` can **move** shapes instead of cloning. Need proper UNO clone/copy before parity with OO `duplicateSlide`. |
-| High | **Slide-embedded ** **`addChartToSlide`** | OO builds charts with in-memory series; WriterAgent [`create_chart`](plugin/modules/calc/charts.py) is **SpreadsheetDocument-only**. Presentations need a dedicated path or a documented workflow. |
-| Medium | **`addTableToSlide`** | Verify whether [`create_shape`](plugin/modules/draw/shapes.py) can target table services; otherwise add a thin wrapper. |
-| Medium | **`changeSlideBackground` / slide fill** | May need a dedicated tool beyond [`set_slide_transition`](plugin/modules/draw/transitions.py) / layout APIs. |
+| High | **`duplicate_slide` as a real, safe tool** | [`DrawBridge.duplicate_slide`](plugin/draw/bridge.py) exists but was **not** registered; implementation risk: `new_page.add(shape)` can **move** shapes instead of cloning. Need proper UNO clone/copy before parity with OO `duplicateSlide`. |
+| High | **Slide-embedded ** **`addChartToSlide`** | OO builds charts with in-memory series; WriterAgent [`create_chart`](plugin/calc/charts.py) is **SpreadsheetDocument-only**. Presentations need a dedicated path or a documented workflow. |
+| Medium | **`addTableToSlide`** | Verify whether [`create_shape`](plugin/draw/shapes.py) can target table services; otherwise add a thin wrapper. |
+| Medium | **`changeSlideBackground` / slide fill** | May need a dedicated tool beyond [`set_slide_transition`](plugin/draw/transitions.py) / layout APIs. |
 | Lower | **`generatePresentationWithTheme`** | No WriterAgent twin; if ever built, mine OO for **decomposition prompts** only. |
 
 **Agent-facing detail:** OO examples often use **1-based** slide indices; WriterAgent schemas use **0-based** indices—keep that explicit in tool descriptions.
@@ -58,14 +58,14 @@ This section is the **forward-looking backlog** implied by the comparison. Items
 ### 2.4 Maintaining this document
 
 - Re-enumerate `RegisteredFunction` names in `onlyofficeai/scripts/helpers/helpers.js` after OnlyOffice upgrades.
-- Re-grep WriterAgent for new tools (`plugin/modules/calc/`, `plugin/modules/draw/`, `plugin/modules/writer/`) and update matrices.
+- Re-grep WriterAgent for new tools (`plugin/calc/`, `plugin/draw/`, `plugin/writer/`) and update matrices.
 - Bump the **snapshot note** in §1 when you refresh.
 
 ---
 
 ## 3. Overview
 
-OnlyOfficeAI is a **JavaScript** plugin: chat, providers, and document actions via `Asc.Editor.callCommand` / `callMethod` and a large tool catalog in `scripts/helpers/helpers.js`. WriterAgent is **Python + UNO** with auto-discovered `ToolBase` classes and [`LlmClient`](plugin/modules/http/client.py).
+OnlyOfficeAI is a **JavaScript** plugin: chat, providers, and document actions via `Asc.Editor.callCommand` / `callMethod` and a large tool catalog in `scripts/helpers/helpers.js`. WriterAgent is **Python + UNO** with auto-discovered `ToolBase` classes and [`LlmClient`](plugin/framework/client/llm_client.py).
 
 ### 3.1 OnlyOfficeAI directory layout (reference)
 
@@ -97,7 +97,7 @@ OnlyOffice runs macros in document context via `Asc.Editor.callCommand` / `callM
 - **Capability bitmasks** (e.g. tools / chat / image flags).
 - **Proxy vs direct** (`isUseProxy`) for CORS/network—relevant for enterprise LibreOffice deployments with odd HTTP paths.
 
-WriterAgent aligns on capabilities via [`ModelCapability`](plugin/framework/types.py) (`IntFlag`) and provider logic in [`plugin/framework/auth.py`](plugin/framework/auth.py) / [`LlmClient`](plugin/modules/http/client.py).
+WriterAgent aligns on capabilities via [`ModelCapability`](plugin/framework/constants.py) (`IntFlag`) and provider logic in [`plugin/framework/client/auth.py`](plugin/framework/client/auth.py) / [`LlmClient`](plugin/framework/client/llm_client.py).
 
 ### 4.3 Tool registration (`RegisteredFunction` → OpenAI-shaped `tools`)
 
@@ -115,7 +115,7 @@ Tools define `name`, `description`, JSON Schema `parameters`, sometimes **`examp
 
 ### 5.1 Forms (OnlyOffice `generateForm`)
 
-OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAgent implements the same pattern in [`plugin/modules/writer/forms.py`](plugin/modules/writer/forms.py):
+OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAgent implements the same pattern in [`plugin/writer/forms.py`](plugin/writer/forms.py):
 
 - `create_form_control`, `create_form` (batch `fields`),
 - `generate_form` (`_process_form_content` → `insert_html_at_cursor` + `CreateFormControl`),
@@ -125,15 +125,15 @@ OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAg
 
 ### 5.2 Model capabilities
 
-[`ModelCapability`](plugin/framework/types.py) uses bitflags for chat / vision / tools / etc., similar in spirit to OO’s capability UI flags.
+[`ModelCapability`](plugin/framework/constants.py) uses bitflags for chat / vision / tools / etc., similar in spirit to OO’s capability UI flags.
 
 ### 5.3 Native provider shims and wire-level streaming
 
-[`LlmClient`](plugin/modules/http/client.py) includes Anthropic and Gemini-specific request/response handling. For **streaming line shapes**, [`plugin/modules/http/stream_normalizer.py`](plugin/modules/http/stream_normalizer.py) `iterate_sse` accepts both `data: …` SSE lines and **raw `{…}` JSON lines** (e.g. some Gemini streams); `_normalize_delta` patches common provider quirks before accumulation.
+[`LlmClient`](plugin/framework/client/llm_client.py) includes Anthropic and Gemini-specific request/response handling. For **streaming line shapes**, [`plugin/framework/client/stream_normalizer.py`](plugin/framework/client/stream_normalizer.py) `iterate_sse` accepts both `data: …` SSE lines and **raw `{…}` JSON lines** (e.g. some Gemini streams); `_normalize_delta` patches common provider quirks before accumulation.
 
 ### 5.4 Images
 
-OnlyOffice Word `addImage`: generate → insert/replace inside grouped actions. WriterAgent: [`generate_image`](../plugin/modules/writer/image_utils.py) + [`plugin/modules/writer/image_tools.py`](../plugin/modules/writer/image_tools.py) (`insert_image`, `replace_image_in_place`, etc.).
+OnlyOffice Word `addImage`: generate → insert/replace inside grouped actions. WriterAgent: [`generate_image`](../plugin/writer/image_utils.py) + [`plugin/writer/image_tools.py`](../plugin/writer/image_tools.py) (`insert_image`, `replace_image_in_place`, etc.).
 
 ---
 
@@ -147,29 +147,29 @@ OnlyOffice uses **`StartAction` / `EndAction`** and **`GroupActions`** so multi-
 
 ## 7. Calc: OnlyOffice `HELPERS.cell` vs WriterAgent
 
-**Sources:** `onlyofficeai/scripts/helpers/helpers.js` — `HELPERS.cell` ~line 4215 (indices drift). WriterAgent: [`plugin/modules/calc/`](plugin/modules/calc/).
+**Sources:** `onlyofficeai/scripts/helpers/helpers.js` — `HELPERS.cell` ~line 4215 (indices drift). WriterAgent: [`plugin/calc/`](plugin/calc/).
 
 ### 7.1 Strong overlap (intent already covered)
 
 | OnlyOffice (`HELPERS.cell`) | What OO does (brief) | WriterAgent |
 |-----------------------------|----------------------|-------------|
-| `addChart` | Chart from range, rich `chartType` enum | [`create_chart`](plugin/modules/calc/charts.py) — smaller `chart_type` enum; list/edit/delete + `get_chart_info` |
-| `setSort` / `setMultiSort` | Range sort | [`sort_range`](plugin/modules/calc/cells.py) |
-| `addConditionalFormatting` / granular rules | Many presets | [`add_conditional_format`](plugin/modules/calc/conditional.py), [`list_conditional_formats`](plugin/modules/calc/conditional.py), [`remove_conditional_formats`](plugin/modules/calc/conditional.py) |
+| `addChart` | Chart from range, rich `chartType` enum | [`create_chart`](plugin/calc/charts.py) — smaller `chart_type` enum; list/edit/delete + `get_chart_info` |
+| `setSort` / `setMultiSort` | Range sort | [`sort_range`](plugin/calc/cells.py) |
+| `addConditionalFormatting` / granular rules | Many presets | [`add_conditional_format`](plugin/calc/conditional.py), [`list_conditional_formats`](plugin/calc/conditional.py), [`remove_conditional_formats`](plugin/calc/conditional.py) |
 | `clearConditionalFormatting` | Clear CF | `remove_conditional_formats` |
-| `explainFormula` | LLM explains formula | [`detect_and_explain_errors`](plugin/modules/calc/formulas.py) + [`error_detector.py`](plugin/modules/calc/error_detector.py) / [`inspector.py`](plugin/modules/calc/inspector.py) |
-| `formatTable` | Table-like formatting | Partial: [`set_style`](plugin/modules/calc/cells.py), merge/sort/delete structure |
-| `changeTextStyle` (cell) | Char/cell styling | [`set_style`](plugin/modules/calc/cells.py) |
-| `addImage` (cell) | Image on sheet | Shared image pipeline; draw page insert via [`plugin/modules/writer/image_tools.py`](../plugin/modules/writer/image_tools.py) (`_insert_image_to_drawpage`); specialized Calc images via [`ToolCalcImageBase`](plugin/modules/calc/base.py) |
+| `explainFormula` | LLM explains formula | [`detect_and_explain_errors`](plugin/calc/formulas.py) + [`error_detector.py`](plugin/calc/error_detector.py) / [`inspector.py`](plugin/calc/inspector.py) |
+| `formatTable` | Table-like formatting | Partial: [`set_style`](plugin/calc/cells.py), merge/sort/delete structure |
+| `changeTextStyle` (cell) | Char/cell styling | [`set_style`](plugin/calc/cells.py) |
+| `addImage` (cell) | Image on sheet | Shared image pipeline; draw page insert via [`plugin/writer/image_tools.py`](../plugin/writer/image_tools.py) (`_insert_image_to_drawpage`); specialized Calc images via [`ToolCalcImageBase`](plugin/calc/base.py) |
 
 ### 7.2 Partial overlap — OO is “AI-first”; WriterAgent is “UNO + optional LLM”
 
 | OnlyOffice | Behavior worth noting | WriterAgent gap / bridge |
 |------------|------------------------|---------------------------|
 | `highlightDuplicates` | Range → **LLM** → highlight | No dedicated tool; prefer **deterministic** duplicate detection + style/CF |
-| `highlightAnomalies` | AI outliers → highlight | Same; or stats via [`execute_python_script`](plugin/modules/calc/python_executor.py) when enabled |
+| `highlightAnomalies` | AI outliers → highlight | Same; or stats via [`execute_python_script`](plugin/calc/python_executor.py) when enabled |
 | `summarizeData` | CSV-ish export → LLM prose → adjacent cell | Composable today; thin tool candidate (§2.1) |
-| `insertPivotTable` | Api + LLM parses NL → field indices | WriterAgent: [`plugin/modules/calc/pivot.py`](plugin/modules/calc/pivot.py) (`DataPilot`); OO useful for **prompts/errors** only |
+| `insertPivotTable` | Api + LLM parses NL → field indices | WriterAgent: [`plugin/calc/pivot.py`](plugin/calc/pivot.py) (`DataPilot`); OO useful for **prompts/errors** only |
 | `setAutoFilter` | Rich Excel-like criteria | **Gap** — major candidate (§2.1) |
 | `fillMissingData` / `fixFormula` | LLM + writes | Partial: `write_formula_range`, `detect_and_explain_errors` |
 
@@ -179,7 +179,7 @@ Separate `RegisteredFunction` names: `addDataBars`, `addIconSet`, `addColorScale
 
 ### 7.4 WriterAgent Calc surface OO does not mirror
 
-[`list_sheets`](plugin/modules/calc/sheets.py), [`switch_sheet`](plugin/modules/calc/sheets.py), [`create_sheet`](plugin/modules/calc/sheets.py), [`get_sheet_summary`](plugin/modules/calc/sheets.py); [`read_cell_range`](plugin/modules/calc/cells.py), [`write_formula_range`](plugin/modules/calc/cells.py), [`merge_cells`](plugin/modules/calc/cells.py), [`delete_structure`](plugin/modules/calc/cells.py); [`list_named_ranges`](plugin/modules/calc/navigation.py), [`search_in_spreadsheet`](plugin/modules/calc/search.py), [`replace_in_spreadsheet`](plugin/modules/calc/search.py); comments in [`plugin/modules/calc/comments.py`](plugin/modules/calc/comments.py); [`delegate_to_specialized_calc_toolset`](plugin/modules/calc/specialized.py).
+[`list_sheets`](plugin/calc/sheets.py), [`switch_sheet`](plugin/calc/sheets.py), [`create_sheet`](plugin/calc/sheets.py), [`get_sheet_summary`](plugin/calc/sheets.py); [`read_cell_range`](plugin/calc/cells.py), [`write_formula_range`](plugin/calc/cells.py), [`merge_cells`](plugin/calc/cells.py), [`delete_structure`](plugin/calc/cells.py); [`list_named_ranges`](plugin/calc/navigation.py), [`search_in_spreadsheet`](plugin/calc/search.py), [`replace_in_spreadsheet`](plugin/calc/search.py); comments in [`plugin/calc/comments.py`](plugin/calc/comments.py); [`delegate_to_specialized_calc_toolset`](plugin/calc/specialized.py).
 
 ### 7.5 Where to mine OnlyOffice Calc code
 
@@ -204,12 +204,12 @@ Separate `RegisteredFunction` names: `addDataBars`, `addIconSet`, `addColorScale
 
 | Area | Tools (files) |
 |------|----------------|
-| Slides | [`add_slide`](plugin/modules/draw/pages.py), [`delete_slide`](plugin/modules/draw/pages.py), [`read_slide_text`](plugin/modules/draw/pages.py), [`get_presentation_info`](plugin/modules/draw/pages.py) |
-| Shapes | [`create_shape`](plugin/modules/draw/shapes.py), [`edit_shape`](plugin/modules/draw/shapes.py), [`delete_shape`](plugin/modules/draw/shapes.py), [`shapes_connect`](plugin/modules/draw/shapes.py), [`shapes_group`](plugin/modules/draw/shapes.py), [`list_pages`](plugin/modules/draw/shapes.py), [`get_draw_summary`](plugin/modules/draw/shapes.py) |
-| Placeholders / notes | [`plugin/modules/draw/placeholders.py`](plugin/modules/draw/placeholders.py), [`plugin/modules/draw/notes.py`](plugin/modules/draw/notes.py) |
-| Masters / transitions | [`plugin/modules/draw/masters.py`](plugin/modules/draw/masters.py), [`plugin/modules/draw/transitions.py`](plugin/modules/draw/transitions.py) |
-| Tree | [`get_draw_tree`](plugin/modules/draw/tree.py) |
-| Delegate | [`delegate_to_specialized_draw_toolset`](plugin/modules/draw/specialized.py) |
+| Slides | [`add_slide`](plugin/draw/pages.py), [`delete_slide`](plugin/draw/pages.py), [`read_slide_text`](plugin/draw/pages.py), [`get_presentation_info`](plugin/draw/pages.py) |
+| Shapes | [`create_shape`](plugin/draw/shapes.py), [`edit_shape`](plugin/draw/shapes.py), [`delete_shape`](plugin/draw/shapes.py), [`shapes_connect`](plugin/draw/shapes.py), [`shapes_group`](plugin/draw/shapes.py), [`list_pages`](plugin/draw/shapes.py), [`get_draw_summary`](plugin/draw/shapes.py) |
+| Placeholders / notes | [`plugin/draw/placeholders.py`](plugin/draw/placeholders.py), [`plugin/draw/notes.py`](plugin/draw/notes.py) |
+| Masters / transitions | [`plugin/draw/masters.py`](plugin/draw/masters.py), [`plugin/draw/transitions.py`](plugin/draw/transitions.py) |
+| Tree | [`get_draw_tree`](plugin/draw/tree.py) |
+| Delegate | [`delegate_to_specialized_draw_toolset`](plugin/draw/specialized.py) |
 
 ### 8.3 Overlap diagram
 
@@ -248,7 +248,7 @@ flowchart LR
 - **`duplicateSlide`:** safe duplicate + tool exposure — §2.2.
 - **`addChartToSlide`:** spreadsheet `create_chart` does not cover embedded presentation charts — §2.2.
 - **`addTableToSlide`:** verify `create_shape` table path — §2.2.
-- **`addTextToPlaceholder`:** [`set_placeholder_text`](plugin/modules/draw/placeholders.py).
+- **`addTextToPlaceholder`:** [`set_placeholder_text`](plugin/draw/placeholders.py).
 - **`addImageByDescription`:** `generate_image` + draw-page insert.
 - **`changeSlideBackground`:** possible dedicated tool — §2.2.
 - **`generatePresentationWithTheme`:** prompt-only borrow if ever implemented.
@@ -277,10 +277,10 @@ Derived from `helpers.js` unique `name` values (re-verify when refreshing). “C
 
 ## 10. Implemented WriterAgent improvements (inspired by OnlyOffice-style thinking)
 
-1. **`ModelCapability`** — [`plugin/framework/types.py`](plugin/framework/types.py).
-2. **Native shims** — Anthropic `/v1/messages`, Gemini `v1beta`, stream quirks; legacy Bearer fallback — [`plugin/modules/http/client.py`](plugin/modules/http/client.py), [`plugin/framework/auth.py`](plugin/framework/auth.py).
-3. **Stream line handling** — `iterate_sse` + delta patches — [`plugin/modules/http/stream_normalizer.py`](plugin/modules/http/stream_normalizer.py).
-4. **Form tools** — [`plugin/modules/writer/forms.py`](plugin/modules/writer/forms.py).
+1. **`ModelCapability`** — [`plugin/framework/constants.py`](plugin/framework/constants.py).
+2. **Native shims** — Anthropic `/v1/messages`, Gemini `v1beta`, stream quirks; legacy Bearer fallback — [`plugin/framework/client/llm_client.py`](plugin/framework/client/llm_client.py), [`plugin/framework/client/auth.py`](plugin/framework/client/auth.py).
+3. **Stream line handling** — `iterate_sse` + delta patches — [`plugin/framework/client/stream_normalizer.py`](plugin/framework/client/stream_normalizer.py).
+4. **Form tools** — [`plugin/writer/forms.py`](plugin/writer/forms.py).
 
 ---
 
@@ -306,5 +306,5 @@ Derived from `helpers.js` unique `name` values (re-verify when refreshing). “C
 
 1. Pull current OnlyOfficeAI and locate `HELPERS.cell` / `HELPERS.slide` / Word blocks in `helpers.js`.
 2. Search `new RegisteredFunction` / `"name":` to regenerate tool name inventories.
-3. Grep WriterAgent `plugin/modules/{calc,draw,writer}/` for new tool classes or renamed files.
+3. Grep WriterAgent `plugin/{calc,draw,writer}/` for new tool classes or renamed files.
 4. Update §**1 History** snapshot sentence and §**2 What’s next** rows when gaps close or new OO tools appear.

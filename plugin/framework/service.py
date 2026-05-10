@@ -17,7 +17,37 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Service infrastructure: base class and registry."""
 
+from __future__ import annotations
+
 from abc import ABC
+from dataclasses import dataclass
+from typing import Any, Generic, List, Protocol, TypeVar
+
+
+# ── FSM State Markers ─────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class BaseState:
+    """Marker base for immutable FSM state. Subclasses add domain fields."""
+
+
+class Effect(Protocol):
+    """Structural marker for side-effect descriptions (interpreted outside FSM)."""
+
+
+StateT = TypeVar("StateT", bound=BaseState)
+
+
+@dataclass(frozen=True)
+class FsmTransition(Generic[StateT]):
+    """Result of a pure transition: successor state and effects to run."""
+
+    state: StateT
+    effects: List[Any]
+
+
+# ── Service Infrastructure ─────────────────────────────────────────
 
 
 class ServiceBase(ABC):

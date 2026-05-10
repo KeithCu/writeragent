@@ -215,7 +215,7 @@ Start friendly and natural. Don't rush through questions. Let the conversation d
 ### **Phase 1: Agent Core**
 
 ```python
-# plugin/modules/chatbot/librarian.py
+# plugin/chatbot/librarian.py
 
 class LibrarianAgent:
     """Agentic onboarding assistant that learns about users through conversation."""
@@ -401,11 +401,11 @@ Want to try it? Select some text and say 'make this bold' - I'll handle the rest
 
 ### **Files to Create/Modify**
 
-1. **`plugin/modules/chatbot/librarian.py`** - Core agent logic
-2. **`plugin/modules/chatbot/knowledge_goals.py`** - Goal system
+1. **`plugin/chatbot/librarian.py`** - Core agent logic
+2. **`plugin/chatbot/knowledge_goals.py`** - Goal system
 3. **`plugin/framework/constants.py`** - Add LIBRARIAN prompts
-4. **`plugin/modules/chatbot/panel_factory.py`** - Integration
-5. **`plugin/modules/chatbot/memory.py`** - Enhanced knowledge storage
+4. **`plugin/chatbot/panel_factory.py`** - Integration
+5. **`plugin/chatbot/memory.py`** - Enhanced knowledge storage
 
 ### **Integration Points**
 

@@ -227,7 +227,7 @@ The schema is defined in `search_schema.json` and validates all engine configura
 The dispatcher routes searches to the appropriate engine based on the `type` field:
 
 ```python
-# plugin/modules/chatbot/search.py
+# plugin/chatbot/search.py
 class SearchEngine:
     def __init__(self, engine_config):
         self.config = engine_config

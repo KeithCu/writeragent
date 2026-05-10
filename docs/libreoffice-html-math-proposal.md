@@ -133,7 +133,7 @@ That subset would already handle a large share of model-generated math and commo
 
 ### 1. Keep the current HTML path for non-math content
 
-The current code in `plugin/modules/writer/format_support.py` should remain the default import mechanism for regular HTML.
+The current code in `plugin/writer/format_support.py` should remain the default import mechanism for regular HTML.
 
 Do not replace it wholesale.
 
@@ -227,7 +227,7 @@ Scope:
 
 This project already has a clear separation between:
 
-- HTML/text import mechanics in `plugin/modules/writer/format_support.py`
+- HTML/text import mechanics in `plugin/writer/format_support.py`
 - higher-level Writer tool behavior elsewhere
 
 That makes math a good candidate for a specialized preprocessor rather than a rewrite of the whole import stack.

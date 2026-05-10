@@ -1,6 +1,6 @@
 # Agent memory and skills (Hermes-style)
 
-This document describes the **file-backed memory** and **procedural skills** code paths copied from a Hermes-style “self-improving” agent setup. The implementation lives in [`plugin/modules/chatbot/memory.py`](../plugin/modules/chatbot/memory.py) and [`plugin/modules/chatbot/skills.py`](../plugin/modules/chatbot/skills.py). Prompt guidance is in [`plugin/framework/constants.py`](../plugin/framework/constants.py).
+This document describes the **file-backed memory** and **procedural skills** code paths copied from a Hermes-style “self-improving” agent setup. The implementation lives in [`plugin/chatbot/memory.py`](../plugin/chatbot/memory.py) and [`plugin/chatbot/skills.py`](../plugin/chatbot/skills.py). Prompt guidance is in [`plugin/framework/constants.py`](../plugin/framework/constants.py).
 
 **Status:** The `memory` and `skills_*` tools are **not registered** in the current extension build (see [Integration status](#integration-status)). The Writer default chat system prompt may still **mention** memory and skills to the model; until the tools are enabled, those calls cannot succeed.
 
@@ -48,7 +48,7 @@ You can go further and keep **memory completely off the main agent’s tool surf
 
 **Tradeoffs:** the main agent cannot voluntarily persist something mid-turn unless you add another channel (button, second pass, or a hidden tool only the reviewer sees). Bad or stale memory must be fixed by **users**, **settings**, or **the reviewer**—not by instructing the main chat model to call `memory replace`. **Skills** are a separate choice: you can keep skills on the tool surface for the main agent, move them to injection + side-channel updates only, or hybrid (inject index, manage via reviewer).
 
-This design reuses the same on-disk layout and [`MemoryStore`](../plugin/modules/chatbot/memory.py) type; you would **omit** registering [`MemoryTool`](../plugin/modules/chatbot/memory.py) for the sidebar chat and strip **`MEMORY_GUIDANCE`** that tells the model to use the memory tool (while optionally keeping a neutral line like “User-specific notes may appear below” if you inject them).
+This design reuses the same on-disk layout and [`MemoryStore`](../plugin/chatbot/memory.py) type; you would **omit** registering [`MemoryTool`](../plugin/chatbot/memory.py) for the sidebar chat and strip **`MEMORY_GUIDANCE`** that tells the model to use the memory tool (while optionally keeping a neutral line like “User-specific notes may appear below” if you inject them).
 
 ---
 
@@ -65,7 +65,7 @@ Together they let the model accumulate stable context (memory) and codify workfl
 
 | Aspect | Hermes (upstream) | WriterAgent (this repo) |
 |--------|--------------------|-------------------------|
-| **Seeing memory without tool calls** | Yes — **injected** into system prompt (frozen snapshot per session build). | **Not yet** — injection in [`document_helpers.py`](../plugin/modules/doc/document_helpers.py) is **commented out**; the model would only see file contents if it calls **`memory` + `read`** (or you inject manually). |
+| **Seeing memory without tool calls** | Yes — **injected** into system prompt (frozen snapshot per session build). | **Not yet** — injection in [`document_helpers.py`](../plugin/doc/document_helpers.py) is **commented out**; the model would only see file contents if it calls **`memory` + `read`** (or you inject manually). |
 | **Memory tool’s main job** | **Write** (and optional **read** for live vs snapshot). | Same **API** (`add` / `replace` / `remove` / `read`), but without injection, **`read` becomes the only way** to load from disk in-chat. |
 | **Background “save memories?” agent** | Yes — periodic **second agent** after responses. | **Not implemented.** |
 
@@ -90,11 +90,11 @@ Another pattern—compatible with the memory ideas above—is to split **who you
 - **Librarian (or “profile”) surface** — For a given send (or while a toggle is on), register **no Writer document tools**—only **memory** / **skills** / chat, or injection-only memory with no doc mutations. Same **sidebar session** and **history** as usual; only the **available tools** (and possibly system text for that path) change. The first messages can be a natural **onboarding chat** (“it didn’t know anything about itself or me, so we talked”) to seed **`USER.md` / `MEMORY.md`**.
 - **Writer surface** — When the user wants to edit the document, the next send uses the **full** Writer tool list (or **nested** Writer delegation as in [`writer-specialized-toolsets.md`](writer-specialized-toolsets.md)).
 
-**Precedent in this codebase:** **Web research** already branches on a checkbox: same panel and session, but `_do_send` takes the **web research sub-agent** path instead of **chat with document tools** (see [`plugin/modules/chatbot/panel.py`](../plugin/modules/chatbot/panel.py) around the web-research check and [`plugin/modules/chatbot/web_research.py`](../plugin/modules/chatbot/web_research.py)). A librarian-style path would be the **same class of idea**—**alternate tool registration per mode**—combined with **nested Writer** on the editing path. No MCP or second session is **required** for that shape.
+**Precedent in this codebase:** **Web research** already branches on a checkbox: same panel and session, but `_do_send` takes the **web research sub-agent** path instead of **chat with document tools** (see [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py) around the web-research check and [`plugin/chatbot/web_research.py`](../plugin/chatbot/web_research.py)). A librarian-style path would be the **same class of idea**—**alternate tool registration per mode**—combined with **nested Writer** on the editing path. No MCP or second session is **required** for that shape.
 
 **Why it is not silly:** smaller tool schemas on onboarding turns reduce confusion and token load; profile facts then **inject** into later writer turns (once wiring exists).
 
-**Extension, not a leap:** With **per-send branching** (web research today), **optional nested Writer** tooling ([`Nested-Writer-Features`](https://github.com/KeithCu/writeragent/commits/Nested-Writer-Features/) on [KeithCu/writeragent](https://github.com/KeithCu/writeragent)), and **memory/skills** modules ([`memory.py`](../plugin/modules/chatbot/memory.py), [`skills.py`](../plugin/modules/chatbot/skills.py)), a **librarian-style toggle** is a **straightforward composition**—another branch in `_do_send` with a reduced tool list and an onboarding-oriented system prompt—not a new platform. Remaining work is **wiring and UX** (checkbox, which tools to omit, injection), not inventing a new architecture. What is merged on `main` vs that branch is a **release** question, not a feasibility one.
+**Extension, not a leap:** With **per-send branching** (web research today), **optional nested Writer** tooling ([`Nested-Writer-Features`](https://github.com/KeithCu/writeragent/commits/Nested-Writer-Features/) on [KeithCu/writeragent](https://github.com/KeithCu/writeragent)), and **memory/skills** modules ([`memory.py`](../plugin/chatbot/memory.py), [`skills.py`](../plugin/chatbot/skills.py)), a **librarian-style toggle** is a **straightforward composition**—another branch in `_do_send` with a reduced tool list and an onboarding-oriented system prompt—not a new platform. Remaining work is **wiring and UX** (checkbox, which tools to omit, injection), not inventing a new architecture. What is merged on `main` vs that branch is a **release** question, not a feasibility one.
 
 ---
 
@@ -121,7 +121,7 @@ Below `DEFAULT_CHAT_SYSTEM_PROMPT` there is a **commented** block describing Her
 
 ---
 
-## Memory ([`memory.py`](../plugin/modules/chatbot/memory.py))
+## Memory ([`memory.py`](../plugin/chatbot/memory.py))
 
 ### Intended product shape (Hermes-style)
 
@@ -164,7 +164,7 @@ The tool class sets `is_mutation = False` in the current code (registry/tier met
 
 ---
 
-## Skills ([`skills.py`](../plugin/modules/chatbot/skills.py))
+## Skills ([`skills.py`](../plugin/chatbot/skills.py))
 
 ### Storage layout
 
@@ -208,8 +208,8 @@ Descriptions in list results are truncated to **1024** characters.
 
 | Piece | State |
 |-------|--------|
-| **Tool registration** | In [`plugin/modules/chatbot/__init__.py`](../plugin/modules/chatbot/__init__.py), `auto_discover` for the memory and skills modules is **commented out**. The tools are not loaded via the chatbot module until that is enabled. |
-| **Document context injection** | In [`plugin/modules/doc/document_helpers.py`](../plugin/modules/doc/document_helpers.py), code that could inject memory text into chat context (e.g. `[AGENT MEMORY]`) is **commented out**. |
+| **Tool registration** | In [`plugin/chatbot/__init__.py`](../plugin/chatbot/__init__.py), `auto_discover` for the memory and skills modules is **commented out**. The tools are not loaded via the chatbot module until that is enabled. |
+| **Document context injection** | In [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py), code that could inject memory text into chat context (e.g. `[AGENT MEMORY]`) is **commented out**. |
 | **Tests** | [`plugin/tests/test_agent_memory_skills.py`](../plugin/tests/test_agent_memory_skills.py) exercises the tools but is marked **`@unittest.skip`**. |
 
 Enabling the feature typically means uncommenting registration (and optionally injection), then re-running tests with skips removed.

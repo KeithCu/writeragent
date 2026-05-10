@@ -1,0 +1,1113 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-10 14:24-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+#, python-brace-format
+msgid ""
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
+"APIs."
+msgstr ""
+"Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
+"kutsuttava 'specialized_workflow_finished', kun olet valmis, jotta voit "
+"palauttaa täyden API-joukon."
+
+#: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
+msgid "Starting..."
+msgstr "Käynnistetään..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Updating model requirements..."
+msgstr "Päivitetään mallivaatimuksia..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Updating Models..."
+msgstr "Päivitetään malleja..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Register at "
+msgstr "Rekisteröidy osoitteessa "
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "You have {} kudos"
+msgstr "Sinulla on {} pistettä"
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "«{}» is not a valid API KEY, double check it or create a new one"
+msgstr "«{}» ei ole kelvollinen API-avain, tarkista se tai luo uusi"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"At this moment we can not process your request, please try again later.  If "
+"this is happening for a long period of time, please let us know via Discord"
+msgstr ""
+"Pyyntöäsi ei voida tällä hetkellä käsitellä, yritä myöhemmin uudelleen. Jos "
+"ongelma jatkuu pitkään, ota meihin yhteyttä Discordissa"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Problem requesting kudos"
+msgstr "Virhe pisteiden pyytämisessä"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"The Horde is in maintenance mode, please try again later, if you have tried "
+"and the service does not respond for hours, please contact via Discord"
+msgstr ""
+"Horde on huoltotilassa, yritä myöhemmin uudelleen. Jos palvelu ei vastaa "
+"tuntikausiin, ota yhteyttä Discordissa"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"You have made too many requests, please wait for them to finish, and try "
+"again later"
+msgstr ""
+"Olet tehnyt liian monta pyyntöä, odota niiden valmistumista ja yritä "
+"myöhemmin uudelleen"
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid ""
+"Seems that «{}» has problems, double check it, create a new one or join "
+"Discord to ask for help"
+msgstr ""
+"Näyttää siltä, että «{}» sisältää virheitä. Tarkista se, luo uusi tai liity "
+"Discordiin kysyäksesi apua"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "We hit an error, still: "
+msgstr "Kohtasimme virheen, silti: "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "No longer valid, please try again.  Your request took too long"
+msgstr "Ei enää voimassa, yritä uudelleen. Pyyntösi kesti liian kauan"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Contacting the Horde..."
+msgstr "Otetaan yhteyttä laumaan..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Horde Contacted"
+msgstr "Laumaan otettu yhteys"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"When trying to ask for the image, the Horde was too slow, try again later"
+msgstr ""
+"Lauma oli liian hidas kuvapyyntöä käsiteltäessä, yritä myöhemmin uudelleen"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "to learn to earn kudos. Detail:"
+msgstr "oppiaksesi ansaitsemaan kunniaa. Yksityiskohdat:"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Service failed: "
+msgstr "Palvelu epäonnistui: "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Downloading generated image..."
+msgstr "Ladataan luotua kuvaa..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "You are first in the queue"
+msgstr "Olet jonon ensimmäisenä"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Queue position: "
+msgstr "Jonon paikka: "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Generating..."
+msgstr "Luodaan..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Get a free API Key at "
+msgstr "Hae ilmainen API-avain osoitteesta "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "."
+msgstr "."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "This model takes more time than your current configuration."
+msgstr "Tämä malli vie enemmän aikaa kuin nykyinen asetuksesi."
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "Please try another model. {0} would take more time than you configured."
+msgstr "Kokeile toista mallia. {0} vie enemmän aikaa kuin olet määrittänyt."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Please try again later."
+msgstr "Yritä myöhemmin uudelleen."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "There are no workers available with these settings."
+msgstr "Näillä asetuksilla ei ole vapaita työntekijöitä."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Probably your image will take one additional minute."
+msgstr "Kuvasi luominen kestää todennäköisesti yhden minuutin lisää."
+
+#: plugin/contrib/aihordeclient/__init__.py
+#, python-brace-format
+msgid "Probably your image will take {} additional minutes."
+msgstr "Kuvasi luominen kestää todennäköisesti {} minuuttia lisää."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Fetching images..."
+msgstr "Haetaan kuvia..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid " is censored, try changing the prompt wording"
+msgstr " on sensuroitu, kokeile muuttaa kehotteen sanamuotoa"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Downloading result..."
+msgstr "Ladataan tulosta..."
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid "Downloading image"
+msgstr "Ladataan kuvaa"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid ""
+"You may need to reduce your settings or choose another model, or you may "
+"have been censored. Horde message"
+msgstr ""
+"Asetuksia on ehkä pienennettävä tai valittava toinen malli, tai sisältö on "
+"saatettu sensuroida. Horde-viesti"
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid " generated by "
+msgstr " luonut "
+
+#: plugin/contrib/aihordeclient/__init__.py
+msgid " with "
+msgstr " käyttäen "
+
+#: plugin/framework/errors.py
+#, python-brace-format
+msgid "{resource_type} not found: {identifier}"
+msgstr "{resource_type} ei löytynyt: {identifier}"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can edit or translate your document instantly with professional "
+"formatting and color. Try me!"
+msgstr ""
+"AI: Voin muokata tai kääntää asiakirjasi välittömästi ammattimaisella "
+"muotoilulla ja väreillä. Kokeile minua!"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+msgstr ""
+"AI: Voin auttaa sinua kaavojen, data-analyysin ja värikkäiden kaavioiden "
+"kanssa. Kokeile minua!"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can help you create and edit polished, colorful shapes in Draw and "
+"Impress. Try me!"
+msgstr ""
+"AI: Voin auttaa sinua luomaan ja muokkaamaan viimeisteltyjä, värikkäitä "
+"muotoja Draw- ja Impress-ohjelmissa. Kokeile minua!"
+
+#: plugin/framework/constants.py
+msgid ""
+"AI: I can do web research to answer any question, or summarize a web page, "
+"without seeing or changing your document. Let's chat."
+msgstr ""
+"AI: Voin tehdä verkkohakuja vastatakseni mihin tahansa kysymykseen tai "
+"tiivistää verkkosivun näkemättä tai muuttamatta asiakirjaasi. Jutellaan."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "TLS/SSL Error: {0}"
+msgstr "TLS/SSL-virhe: {0}"
+
+#: plugin/framework/client/errors.py
+msgid "Invalid API Key. Please check your settings."
+msgstr "Virheellinen API-avain. Tarkista asetuksesi."
+
+#: plugin/framework/client/errors.py
+msgid "API access Forbidden. Your key may lack permissions for this model."
+msgstr ""
+"API-yhteys kielletty. Avaimeltasi saattaa puuttua oikeudet tähän malliin."
+
+#: plugin/framework/client/errors.py
+msgid "Endpoint not found (404). Check your URL and Model name."
+msgstr "Päätepistettä ei löytynyt (404). Tarkista URL-osoite ja mallin nimi."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Server error ({0}). The AI provider is having issues."
+msgstr "Palvelinvirhe ({0}). AI-palveluntarjoajalla on ongelmia."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0}: {1}"
+msgstr "HTTP-virhe {0}: {1}"
+
+#: plugin/framework/client/errors.py
+msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
+msgstr ""
+"Pyyntö aikakatkaistiin. Kokeile kasvattaa 'Request Timeout' -asetusta "
+"asetuksista."
+
+#: plugin/framework/client/errors.py
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
+"käynnissä?"
+
+#: plugin/framework/client/errors.py
+msgid "DNS Error. Could not resolve the endpoint URL."
+msgstr "DNS-virhe. Päätepisteen URL-osoitetta ei voitu selvittää."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Connection Error: {0}"
+msgstr "Yhteysvirhe: {0}"
+
+#: plugin/framework/client/errors.py
+msgid "The AI provider reported an error. Try again."
+msgstr "Tekoälypalveluntarjoaja ilmoitti virheestä. Yritä uudelleen."
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "HTTP Error {0} from AI Provider: {1}"
+msgstr "HTTP-virhe {0} tekoälypalveluntarjoajalta: {1}"
+
+#: plugin/framework/client/errors.py
+#, python-brace-format
+msgid "Error: {0}"
+msgstr "Virhe: {0}"
+
+#: plugin/framework/client/llm_client.py
+msgid "Stream ended with finish_reason=error"
+msgstr "Suoratoisto päättyi syyhyn finish_reason=error"
+
+#: plugin/framework/client/llm_client.py
+msgid ""
+"The model is repeating the same chunk (infinite loop). Try again or use a "
+"different model."
+msgstr ""
+"Malli toistaa samaa osaa (päättymätön silmukka). Yritä uudelleen tai käytä "
+"toista mallia."
+
+#: plugin/calc/legacy.py plugin/writer/legacy.py
+msgid "Please enter edit instructions!"
+msgstr "Syötä muokkausohjeet!"
+
+#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+msgid "Input"
+msgstr "Syöte"
+
+#: plugin/calc/legacy.py
+msgid "WriterAgent: Edit Selection (Calc)"
+msgstr "WriterAgent: Muokkaa valintaa (Calc)"
+
+#: plugin/calc/legacy.py
+msgid "WriterAgent: Extend Selection (Calc)"
+msgstr "WriterAgent: Laajenna valintaa (Calc)"
+
+#: plugin/writer/legacy.py plugin/chatbot/selection.py
+msgid "WriterAgent: Extend Selection"
+msgstr "WriterAgent: Laajenna valintaa"
+
+#: plugin/writer/legacy.py plugin/chatbot/selection.py
+msgid "WriterAgent: Edit Selection"
+msgstr "WriterAgent: Muokkaa valintaa"
+
+#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+msgid "Ready"
+msgstr "Valmis"
+
+#: plugin/chatbot/dialogs.py
+msgid "Agent requests approval"
+msgstr "Agentti pyytää hyväksyntää"
+
+#: plugin/chatbot/dialogs.py
+msgid "Proceed with this action?"
+msgstr "Jatketaanko toimintoa?"
+
+#: plugin/chatbot/dialogs.py plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "Tool: %s"
+msgstr "Työkalu: %s"
+
+#: plugin/chatbot/dialogs.py
+msgid "Edit search query"
+msgstr "Muokkaa hakukyselyä"
+
+#: plugin/chatbot/dialogs.py
+msgid "Search query:"
+msgstr "Hakukysely:"
+
+#: plugin/chatbot/dialogs.py plugin/mcp/__init__.py plugin/xdl_strings.py
+msgid "OK"
+msgstr "OK"
+
+#: plugin/chatbot/dialogs.py
+msgid "Cancel"
+msgstr "Peruuta"
+
+#: plugin/chatbot/dialogs.py
+msgid "Copy"
+msgstr "Kopioi"
+
+#: plugin/chatbot/dialogs.py
+msgid "Copied!"
+msgstr "Kopioitu!"
+
+#: plugin/chatbot/dialogs.py
+msgid "Copy URL"
+msgstr "Kopioi URL-osoite"
+
+#: plugin/chatbot/tool_loop.py
+msgid "Error: Toolkit unavailable"
+msgstr "Virhe: Työkalupakki ei käytettävissä"
+
+#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Asetukset"
+
+#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Virhe"
+
+#: plugin/chatbot/legacy_ui.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Asetusten avaaminen epäonnistui: {0}"
+
+#: plugin/chatbot/panel.py
+msgid "Accept"
+msgstr "Hyväksy"
+
+#: plugin/chatbot/panel.py
+msgid "Change"
+msgstr "Muuta"
+
+#: plugin/chatbot/panel.py
+msgid "Reject"
+msgstr "Hylkää"
+
+#: plugin/chatbot/panel.py
+msgid "Waiting for approval…"
+msgstr "Odotetaan hyväksyntää…"
+
+#: plugin/chatbot/panel.py
+msgid "Record"
+msgstr "Tallenna"
+
+#: plugin/chatbot/panel.py
+msgid "Stop Rec"
+msgstr "Lopeta tallennus"
+
+#: plugin/chatbot/panel.py plugin/xdl_strings.py
+msgid "Send"
+msgstr "Lähetä"
+
+#: plugin/chatbot/panel.py
+msgid "Getting document..."
+msgstr "Haetaan asiakirjaa..."
+
+#: plugin/chatbot/panel.py
+msgid ""
+"[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
+"active window.]"
+msgstr ""
+"[Aktiivisessa ikkunassa ei löytynyt yhteensopivaa LibreOffice-asiakirjaa "
+"(Writer, Calc tai Draw).]"
+
+#: plugin/chatbot/panel.py
+#, python-brace-format
+msgid ""
+"[Internal Error: Document type changed from {0} to {1}! Please file an "
+"error.]"
+msgstr ""
+"[Sisäinen virhe: Asiakirjan tyyppi muuttui muodosta {0} muotoon {1}! Tee "
+"virheilmoitus.]"
+
+#: plugin/chatbot/panel.py
+#, python-brace-format
+msgid ""
+"[Internal Error: Could not identify document type for {0}. Please report "
+"this!]"
+msgstr ""
+"[Sisäinen virhe: Asiakirjan tyyppiä {0} ei voitu tunnistaa. Tee tästä "
+"ilmoitus!]"
+
+#: plugin/chatbot/panel.py
+#, python-brace-format
+msgid ""
+"[Model {0} does not support native audio. Please select an STT Model in "
+"Settings.]"
+msgstr "[Malli {0} ei tue natiivia ääntä. Valitse STT-malli asetuksista.]"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Invalid Setting"
+msgstr "Virheellinen asetus"
+
+#: plugin/chatbot/settings_dialog.py
+msgid "Temperature must be <= 1.0"
+msgstr "Lämpötilan on oltava <= 1.0"
+
+#: plugin/chatbot/web_research_chat.py
+#, python-format
+msgid "This search query '%s' will be sent to the search engine."
+msgstr "Tämä hakukysely '%s' lähetetään hakukoneelle."
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Web search — approval required]"
+msgstr "[Verkkohaku — vaatii hyväksynnän]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Web search]"
+msgstr "[Verkkohaku]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Additional web search]"
+msgstr "[Lisäverkkohaku]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "[Web research]"
+msgstr "[Verkkotutkimus]"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "Research request:"
+msgstr "Tutkimuspyyntö:"
+
+#: plugin/chatbot/web_research_chat.py
+msgid "Context for the research agent:"
+msgstr "Konteksti tutkimusagentille:"
+
+#: plugin/chatbot/web_research.py
+msgid "Web research completed."
+msgstr "Verkkotutkimus valmis."
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not create config file: {0}"
+msgstr "Asetustiedoston luominen epäonnistui: {0}"
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"Could not open an editor. Path:\n"
+"{0}"
+msgstr ""
+"Editorin avaaminen epäonnistui. Polku:\n"
+"{0}"
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid ""
+"No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
+"{0}"
+msgstr ""
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
+"ympäristömuuttuja). Polku:\n"
+"{0}"
+
+#: plugin/chatbot/external_editor.py
+#, python-brace-format
+msgid "Could not start editor: {0}"
+msgstr "Editoria ei voitu käynnistää: {0}"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Transcribing audio..."
+msgstr "Muunnetaan ääntä tekstiksi..."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Transcription error: {0}]"
+msgstr "[Transkriptiovirhe: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Document context error: {0}]"
+msgstr "[Asiakirjan kontekstivirhe: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' not found.]"
+msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr ""
+"[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
+"(polku, asennus).]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "Librarian: {0}"
+msgstr "Kirjastonhoitaja: {0}"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Täydellistä! Vaihdan sinut nyt pääavustajaan."
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown librarian error."
+msgstr "Tuntematon kirjastonhoitajan virhe."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Librarian error: {0}]"
+msgstr "[Kirjastonhoitajan virhe: {0}]"
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "AI (research): {0}"
+msgstr "AI (tutkimus): {0}"
+
+#: plugin/chatbot/send_handlers.py
+msgid "Unknown research error."
+msgstr "Tuntematon tutkimusvirhe."
+
+#: plugin/chatbot/send_handlers.py
+#, python-brace-format
+msgid "[Research error: {0}]"
+msgstr "[Tutkimusvirhe: {0}]"
+
+#: plugin/chatbot/extension_update_check.py
+msgid "Update available"
+msgstr "Päivitys saatavilla"
+
+#: plugin/chatbot/extension_update_check.py
+#, python-format
+msgid ""
+"A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
+"check for updates and install the latest extension."
+msgstr ""
+"Uudempi WriterAgent (%s) on saatavilla. Käytä Työkalut → Laajennusten "
+"hallinta tarkistaaksesi päivitykset ja asentaaksesi uusimman laajennuksen."
+
+#: plugin/chatbot/librarian.py
+msgid "Switching to document mode..."
+msgstr "Vaihdetaan asiakirjatilaan..."
+
+#: plugin/chatbot/panel_factory.py
+msgid "Size:"
+msgstr "Koko:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Height:"
+msgstr "Korkeus:"
+
+#: plugin/chatbot/panel_factory.py
+msgid "Width:"
+msgstr "Leveys:"
+
+#: plugin/tests/framework/test_i18n.py
+msgid "ThisIsAnUntranslatedString999"
+msgstr "ThisIsAnUntranslatedString999"
+
+#: plugin/tests/framework/test_i18n.py
+msgid "Built-in"
+msgstr "Sisäänrakennettu"
+
+#: plugin/tests/framework/test_i18n.py
+msgid "Backend"
+msgstr "Taustajärjestelmä"
+
+#: plugin/mcp/__init__.py
+msgid "Stop MCP Server"
+msgstr "Pysäytä MCP-palvelin"
+
+#: plugin/mcp/__init__.py
+msgid "Start MCP Server"
+msgstr "Käynnistä MCP-palvelin"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server stopped"
+msgstr "MCP-palvelin pysäytetty"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server started"
+msgstr "MCP-palvelin käynnistetty"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP-palvelimen käynnistys epäonnistui"
+
+#: plugin/mcp/__init__.py
+msgid "Check ~/writeragent.log"
+msgstr "Tarkista ~/writeragent.log"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server is not running"
+msgstr "MCP-palvelin ei ole käynnissä"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server running"
+msgstr "MCP-palvelin on käynnissä"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "Routes: {0}"
+msgstr "Reitit: {0}"
+
+#: plugin/mcp/__init__.py
+msgid "Server Status"
+msgstr "Palvelimen tila"
+
+#: plugin/mcp/__init__.py
+#, python-brace-format
+msgid "URL: {0}"
+msgstr "URL: {0}"
+
+#: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} läpäisi, {2} epäonnistui."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testien suorittaminen epäonnistui: {0}"
+
+#: plugin/main.py
+msgid "Extend Selection"
+msgstr "Laajenna valintaa"
+
+#: plugin/main.py
+msgid "Edit Selection"
+msgstr "Muokkaa valintaa"
+
+#: plugin/main.py
+msgid "Toggle MCP Server"
+msgstr "Vaihda MCP-palvelimen tila"
+
+#: plugin/main.py
+msgid "MCP Server Status"
+msgstr "MCP-palvelimen tila"
+
+#: plugin/main.py
+msgid "Run format tests"
+msgstr "Suorita muotoilutestit"
+
+#: plugin/main.py
+msgid "Run calc tests"
+msgstr "Suorita Calc-testit"
+
+#: plugin/main.py
+msgid "Run Calc API integration tests"
+msgstr "Suorita Calc API -integraatiotestit"
+
+#: plugin/main.py
+msgid "Run draw tests"
+msgstr "Suorita Draw-testit"
+
+#: plugin/main.py
+msgid "Evaluation Dashboard"
+msgstr "Arvioinnin koontinäyttö"
+
+#: plugin/main.py
+msgid "Dispatch Error"
+msgstr "Lähetysvirhe"
+
+#: plugin/xdl_strings.py
+msgid "-1"
+msgstr "-1"
+
+#: plugin/xdl_strings.py
+msgid "7.5"
+msgstr "7.5"
+
+#: plugin/xdl_strings.py
+msgid "AI Horde API Key:"
+msgstr "AI Horde -sovellusavain:"
+
+#: plugin/xdl_strings.py
+msgid "AI Model:"
+msgstr "AI-malli:"
+
+#: plugin/xdl_strings.py
+msgid "API Key:"
+msgstr "Sovellusavain:"
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions (History):"
+msgstr "Lisäohjeet (historia):"
+
+#: plugin/xdl_strings.py
+msgid "Additional Instructions:"
+msgstr "Lisäohjeet:"
+
+#: plugin/xdl_strings.py
+msgid "Allow NSFW"
+msgstr "Salli NSFW"
+
+#: plugin/xdl_strings.py
+msgid "Ask / instruct:"
+msgstr "Kysy / ohjeista:"
+
+#: plugin/xdl_strings.py
+msgid "Aspect Ratio:"
+msgstr "Kuvasuhde:"
+
+#: plugin/xdl_strings.py
+msgid "Audio Model:"
+msgstr "Äänimalli:"
+
+#: plugin/xdl_strings.py
+msgid "Auto Gallery"
+msgstr "Autogalleria"
+
+#: plugin/xdl_strings.py
+msgid "Base Size:"
+msgstr "Peruskoko:"
+
+#: plugin/xdl_strings.py
+msgid "Base:"
+msgstr "Perusta:"
+
+#: plugin/xdl_strings.py
+msgid "CFG Scale:"
+msgstr "CFG-asteikko:"
+
+#: plugin/xdl_strings.py
+msgid "Calc"
+msgstr "Calc"
+
+#: plugin/xdl_strings.py
+msgid "Categories:"
+msgstr "Luokat:"
+
+#: plugin/xdl_strings.py
+msgid "Censor NSFW"
+msgstr "Sensuroi NSFW"
+
+#: plugin/xdl_strings.py
+msgid "Chat (Testing):"
+msgstr "Chat (testaus):"
+
+#: plugin/xdl_strings.py
+msgid "Clear"
+msgstr "Tyhjennä"
+
+#: plugin/xdl_strings.py
+msgid "Close"
+msgstr "Sulje"
+
+#: plugin/xdl_strings.py
+msgid "Context Len:"
+msgstr "Kontekstin pituus:"
+
+#: plugin/xdl_strings.py
+msgid "Draw"
+msgstr "Draw"
+
+#: plugin/xdl_strings.py
+msgid "Edit config file (JSON)…"
+msgstr "Muokkaa asetustiedostoa (JSON)…"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL (/v1 added):"
+msgstr "Päätepisteen URL (/v1 lisätty):"
+
+#: plugin/xdl_strings.py
+msgid "Endpoint URL:"
+msgstr "Päätepisteen URL:"
+
+#: plugin/xdl_strings.py
+msgid "General"
+msgstr "Yleiset"
+
+#: plugin/xdl_strings.py
+msgid "Image Model:"
+msgstr "Kuvamalli:"
+
+#: plugin/xdl_strings.py
+msgid "Image Settings"
+msgstr "Kuva-asetukset"
+
+#: plugin/xdl_strings.py
+msgid "Insert Frame"
+msgstr "Lisää kehys"
+
+#: plugin/xdl_strings.py
+msgid "Max Tokens:"
+msgstr "Enimmäismerkit:"
+
+#: plugin/xdl_strings.py
+msgid "Max Wait (s):"
+msgstr "Enimmäisodotusaika (s):"
+
+#: plugin/xdl_strings.py
+msgid "Models to Test:"
+msgstr "Testattavat mallit:"
+
+#: plugin/xdl_strings.py
+msgid "Multimodal"
+msgstr "Multimodaalinen"
+
+#: plugin/xdl_strings.py
+msgid "Please enter edit instructions:"
+msgstr "Kirjoita muokkausohjeet:"
+
+#: plugin/xdl_strings.py
+msgid "Run Benchmark"
+msgstr "Suorita suorituskykytesti"
+
+#: plugin/xdl_strings.py
+msgid "Seed:"
+msgstr "Siemen:"
+
+#: plugin/xdl_strings.py
+msgid "Square"
+msgstr "Neliö"
+
+#: plugin/xdl_strings.py
+msgid "Steps:"
+msgstr "Askeleet:"
+
+#: plugin/xdl_strings.py
+msgid "Stop"
+msgstr "Pysäytä"
+
+#: plugin/xdl_strings.py
+msgid "Temperature:"
+msgstr "Lämpötila:"
+
+#: plugin/xdl_strings.py
+msgid "Text/Chat Model:"
+msgstr "Teksti/chat-malli:"
+
+#: plugin/xdl_strings.py
+msgid "Timeout (s):"
+msgstr "Aikakatkaisu (s):"
+
+#: plugin/xdl_strings.py
+msgid "Translate Prompt"
+msgstr "Käännä kehote"
+
+#: plugin/xdl_strings.py
+msgid "Translate from (e.g. es):"
+msgstr "Käännä kielestä (esim. es):"
+
+#: plugin/xdl_strings.py
+msgid "Use AI Horde for Image Generation"
+msgstr "Käytä AI Horde -palvelua kuvien luomiseen"
+
+#: plugin/xdl_strings.py
+msgid "Use Image model"
+msgstr "Käytä kuvamallia"
+
+#: plugin/xdl_strings.py
+msgid "Web Research"
+msgstr "Verkkohaku"
+
+#: plugin/xdl_strings.py
+msgid "Writer"
+msgstr "Writer"
+
+#: plugin/xdl_strings.py
+msgid "WriterAgent Evaluation Dashboard"
+msgstr "WriterAgent-arviointikojelauta"
+
+msgid "Agent backends"
+msgstr "Agenttien taustajärjestelmät"
+
+msgid "Hermes"
+msgstr "Hermes"
+
+msgid "Claude Code (ACP)"
+msgstr "Claude Code (ACP)"
+
+msgid "Mistral Vibe (ACP)"
+msgstr "Mistral Vibe (ACP)"
+
+msgid "Path / URL"
+msgstr "Polku / URL"
+
+msgid ""
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
+msgstr ""
+"Taustajärjestelmän CLI-polku (esim. aider) tai ACP-palvelimen URL-osoite "
+"(esim. http://localhost:8000 Hermesille). Tyhjä = kokeile oletusta."
+
+msgid "Extra arguments"
+msgstr "Lisäargumentit"
+
+msgid "Optional arguments for the selected backend (space-separated)."
+msgstr ""
+"Valinnaiset argumentit valitulle taustajärjestelmälle (välilyönnein "
+"eroteltuna)."
+
+msgid "ACP agent name"
+msgstr "ACP-agentin nimi"
+
+msgid ""
+"Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
+"agent."
+msgstr ""
+"Agentin nimi ACP-palvelimella (esim. hermes). Tyhjä = tunnista ensimmäinen "
+"agentti automaattisesti."
+
+msgid "Calc spreadsheet tools"
+msgstr "Calc-laskentataulukkotyökalut"
+
+msgid "Max Rows Display"
+msgstr "Rivien enimmäismäärä"
+
+msgid "Sidebar"
+msgstr "Sivupalkki"
+
+msgid "Max Tool Rounds"
+msgstr "Työkalukierrosten enimmäismäärä"
+
+msgid "Document Context Strategy"
+msgstr "Asiakirjan kontekstistrategia"
+
+msgid "How much document content to include in LLM context"
+msgstr "Kuinka paljon asiakirjan sisältöä sisällytetään LLM-kontekstiin"
+
+msgid "Auto (by document size)"
+msgstr "Automaattinen (asiakirjan koon mukaan)"
+
+msgid "Full document text"
+msgstr "Koko asiakirjan teksti"
+
+msgid "Pages around cursor"
+msgstr "Sivut kohdistimen ympärillä"
+
+msgid "Outline + excerpt"
+msgstr "Jäsennys + ote"
+
+msgid "Stats + outline only"
+msgstr "Vain tilastot + jäsennys"
+
+msgid "Extend Selection Max Tokens"
+msgstr "Laajenna valinnan enimmäistunnisteet"
+
+msgid "Edit Selection Extra Tokens"
+msgstr "Muokkaa valinnan lisätunnisteita"
+
+msgid "Extra tokens beyond original text length. 0 = same length as original."
+msgstr ""
+"Lisätunnisteet alkuperäisen tekstin pituuden lisäksi. 0 = sama pituus kuin "
+"alkuperäisellä."
+
+msgid "Show Web Search Thinking"
+msgstr "Näytä verkkohaun päättelyprosessi"
+
+msgid "Prompt for Web Research"
+msgstr "Kysy verkkotutkimuksesta"
+
+msgid "Ask for confirmation before sending a web search query"
+msgstr "Pyydä vahvistus ennen verkkohakukyselyn lähettämistä"
+
+msgid "Web Cache Max Size (MB)"
+msgstr "Verkkovälimuistin enimmäiskoko (MB)"
+
+msgid "Max disk size for web search cache (0 to disable)"
+msgstr "Verkkohaun välimuistin enimmäiskoko levyllä (0 = poista käytöstä)"
+
+msgid "Web Cache Validity (Days)"
+msgstr "Verkkovälimuistin voimassaoloaika (päivinä)"
+
+msgid "How many days cache entries should be considered valid."
+msgstr "Kuinka monta päivää välimuistimerkintöjen katsotaan olevan voimassa."
+
+msgid "Doc"
+msgstr "Asiakirja"
+
+msgid "Enable AI grammar checker (Writer)"
+msgstr "Ota käyttöön tekoälypohjainen kieliopin tarkistus (Writer)"
+
+msgid ""
+"When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
+msgstr ""
+"Kun tämä on päällä, WriterAgent rekisteröi tekoälypohjaisen kieliopin "
+"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi "
+"(Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
+"jälkeen. Oletuksena pois päältä."
+
+msgid "Grammar check wait timeout (ms)"
+msgstr "Kieliopin tarkistuksen viive (ms)"
+
+msgid ""
+"Reserved for possible future use. The proofreader returns immediately on "
+"cache miss (async); results appear on a later Writer pass once the sentence "
+"cache is filled."
+msgstr ""
+"Varattu mahdollista tulevaa käyttöä varten. Tarkistin palauttaa tulokset "
+"välittömästi välimuistivirheen sattuessa (asynkroninen); tulokset näkyvät "
+"Writerin myöhemmässä tarkistusvaiheessa, kun lausevälimuisti on täytetty."
+
+msgid "Grammar check model (optional)"
+msgstr "Kieliopin tarkistusmalli (valinnainen)"
+
+msgid "Leave empty to use the same text model as chat."
+msgstr "Jätä tyhjäksi, jos haluat käyttää samaa tekstimallia kuin chatissa."
+
+msgid "Pause grammar while chat/agent runs"
+msgstr "Keskeytä kieliopin tarkistus chatin/agentin ollessa käynnissä"
+
+msgid ""
+"When on, AI grammar skips background requests while sidebar chat or agent "
+"runs, to avoid concurrent API calls."
+msgstr ""
+"Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
+"samanaikaiset API-kutsut."
+
+msgid "Enter key sends sidebar chat message"
+msgstr ""
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+
+msgid "Draw and Impress tools"
+msgstr "Draw- ja Impress-työkalut"
+
+msgid "Core services (config, events, logging)"
+msgstr ""
+
+msgid "MCP"
+msgstr "MCP"
+
+msgid "Enable MCP Server"
+msgstr "Ota MCP-palvelin käyttöön"
+
+msgid "Localhost only, no auth. Access via stdio is always enabled."
+msgstr ""
+"Vain localhost, ei todennusta. Käyttö stdio-väylän kautta on aina käytössä."
+
+msgid "MCP Port"
+msgstr "MCP-portti"
+
+msgid "Writer document tools (including navigation and search)"
+msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"

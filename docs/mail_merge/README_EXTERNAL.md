@@ -96,7 +96,7 @@ Your `instructions.md` can contain anything you want! Here's what gets added aut
 ## Files to Process  # ← Automatically added
 
 - framework/async_stream.py
-- framework/auth.py
+- framework/client/auth.py
 - framework/config.py
 - framework/constants.py
 - framework/default_models.py

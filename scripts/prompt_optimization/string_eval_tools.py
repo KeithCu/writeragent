@@ -151,7 +151,7 @@ class DrawDocState:
     """Simple in-memory state for Draw shapes and get_draw_tree (no LO).
 
     Supports flowchart tests from eval-ideas.md without screenshots. Maintains
-    a list of shapes; builds semantic tree similar to plugin/modules/draw/tree.py.
+    a list of shapes; builds semantic tree similar to plugin/draw/tree.py.
     """
 
     __slots__ = ("shapes", "_next_index")

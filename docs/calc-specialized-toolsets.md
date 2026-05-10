@@ -25,7 +25,7 @@ WriterAgent organizes Calc tools into specialized domains to keep the main chat 
 
 ### Rich HTML in a single cell
 
-The **`insert_cell_html`** tool ([`plugin/modules/calc/cells.py`](../plugin/modules/calc/cells.py), implementation [`rich_html.py`](../plugin/modules/calc/rich_html.py)) is on the **extended** tier (main Calc tool list when extended tools are available—not a delegated `specialized_domain`). It **replaces the text in one cell** on the **active sheet** with content parsed from an HTML string:
+The **`insert_cell_html`** tool ([`plugin/calc/cells.py`](../plugin/calc/cells.py), implementation [`rich_html.py`](../plugin/calc/rich_html.py)) is on the **extended** tier (main Calc tool list when extended tools are available—not a delegated `specialized_domain`). It **replaces the text in one cell** on the **active sheet** with content parsed from an HTML string:
 
 - **Mechanism**: A **hidden temporary Writer** document loads the fragment with the same **`HTML (StarWriter)`** filter and cursor import path as Writer tools; the body is **selected** with a text cursor (not the view cursor—required for hidden docs), then **`getTransferable` → `select(cell)` → `insertTransferable`** on the Calc controller.
 - **Use when**: The model needs **mixed character formatting in one cell**; plain **`write_formula_range` / `set_string`** cannot express that.
@@ -39,16 +39,16 @@ The **`insert_cell_html`** tool ([`plugin/modules/calc/cells.py`](../plugin/modu
 
 | Domain / area | WriterAgent status | Module & tools | Notes |
 |---------------|--------------------|----------------|-------|
-| **Cells** | ✅ Implemented | `cells.py`: `read_cell_range`, `write_formula_range`, `set_style`, `insert_cell_html` ([`rich_html.py`](../plugin/modules/calc/rich_html.py)), merge/sort/delete helpers | Basic range + style + **HTML → rich text in one cell** ([§ Rich HTML in a single cell](#rich-html-in-a-single-cell)) |
+| **Cells** | ✅ Implemented | `cells.py`: `read_cell_range`, `write_formula_range`, `set_style`, `insert_cell_html` ([`rich_html.py`](../plugin/calc/rich_html.py)), merge/sort/delete helpers | Basic range + style + **HTML → rich text in one cell** ([§ Rich HTML in a single cell](#rich-html-in-a-single-cell)) |
 | **Ranges** | ✅ Implemented | `cells.py`: Get/SetRangeValues, Get/SetRangeFormulas | — |
 | **Sheets** | ✅ Implemented | `sheets.py`: ListSheets, Create/Delete/RenameSheet, GetSheetProperties, SwitchSheet, GetSheetSummary | Basic sheet ops on main list |
 | **Formulas** | ✅ Implemented | `formulas.py`: Get/SetFormula, EvaluateFormula, ListFormulaDependencies | — |
 | **Charts** | ✅ Implemented | `charts.py`: ListCharts, Create/Edit/DeleteChart (shared with Writer) | Medium-fat API (`create_chart`) |
 | **Named Ranges** | ✅ Implemented | `named_ranges.py`: ListNamedRanges, Create/Edit/DeleteNamedRange | — |
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
-| **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../plugin/modules/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](calc-conditional-formatting.md) | Specialized tier |
-| **Sheet filter (AutoFilter-style)** | ✅ Implemented | [`sheet_filter.py`](../plugin/modules/calc/sheet_filter.py): `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter` — [guide](calc-sheet-filter.md) | Specialized tier (`sheet_filter`) |
-| **Analysis (Goal Seek / Solver)** | ✅ Implemented | [`analysis.py`](../plugin/modules/calc/analysis.py): `calc_goal_seek`, `calc_solver` | Specialized tier (`analysis`) |
+| **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../plugin/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](calc-conditional-formatting.md) | Specialized tier |
+| **Sheet filter (AutoFilter-style)** | ✅ Implemented | [`sheet_filter.py`](../plugin/calc/sheet_filter.py): `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter` — [guide](calc-sheet-filter.md) | Specialized tier (`sheet_filter`) |
+| **Analysis (Goal Seek / Solver)** | ✅ Implemented | [`analysis.py`](../plugin/calc/analysis.py): `calc_goal_seek`, `calc_solver` | Specialized tier (`analysis`) |
 | **Pivot Tables** | ✅ Implemented | `pivot.py`: CreatePivotTable, RefreshPivotTable, GetPivotTableData, ListPivotTables | Specialized tier |
 | **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
 | **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |

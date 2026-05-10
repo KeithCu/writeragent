@@ -20,14 +20,12 @@ log = logging.getLogger(__name__)
 
 
 def native_test(func):
-    """Decorator to mark a function as a test in the native test runner."""
-    func._is_test = True
-    try:
-        import pytest
+    """Decorator to mark a function as a test in the native test runner.
 
-        func = pytest.mark.skip(reason="Run by native runner only")(func)
-    except ImportError:
-        pass
+    Note: pytest-based runs will automatically skip/ignore these via a hook
+    in conftest.py to keep the 'skipped' count meaningful.
+    """
+    func._is_test = True
     return func
 
 
@@ -209,7 +207,7 @@ def run_all_tests(ctx: Any) -> str:
     is_calc_fn: Callable[[Any], bool]
     is_draw_fn: Callable[[Any], bool]
     try:
-        from plugin.modules.doc.document_helpers import is_writer, is_calc, is_draw
+        from plugin.doc.document_helpers import is_writer, is_calc, is_draw
 
         is_writer_fn, is_calc_fn, is_draw_fn = is_writer, is_calc, is_draw
     except ImportError:
@@ -236,61 +234,77 @@ def run_all_tests(ctx: Any) -> str:
         log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
 
     import os
-    from plugin.framework.utils import get_plugin_dir
+    from plugin.framework.constants import get_plugin_dir
     import importlib.util
 
-    tests_dir = os.path.join(get_plugin_dir(), "tests", "uno")
+    tests_root = os.path.join(get_plugin_dir(), "tests")
 
-    if os.path.isdir(tests_dir):
-        # Discover and run all test modules in the tests/uno directory
-        # Some "native" test modules are also imported under plain pytest and call
-        # setup_uno_mocks(), which replaces sys.modules entries for `uno`,
-        # `com.sun.star.*`, etc. Since this runner loads multiple test modules into
-        # the same interpreter, snapshot/restore every key that path touches
-        # (see plugin.tests.testing_utils.NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS).
+    if os.path.isdir(tests_root):
+        # Discover and run all test modules recursively in the tests directory.
+        # UNO tests are identified by the _uno.py suffix or being in the legacy uno/ dir.
         from plugin.tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
 
         _MISSING = object()
 
-        for filename in sorted(os.listdir(tests_dir)):
-            if (filename.startswith("test_") or filename.endswith("_tests.py")) and filename.endswith(".py"):
-                module_name = filename[:-3]
-                module_path = os.path.join(tests_dir, filename)
+        # Gather all candidates
+        test_candidates = []
+        for root, dirs, files in os.walk(tests_root):
+            for filename in files:
+                if not filename.endswith(".py"):
+                    continue
+                # Match test_*.py or *_tests.py
+                if not (filename.startswith("test_") or filename.endswith("_tests.py")):
+                    continue
+                
+                # We specifically want tests that are meant for the native runner.
+                # These are now identified by the _uno suffix or being in the legacy uno/ dir.
+                is_uno_test = "_uno.py" in filename or "uno" in root.split(os.sep)
+                if is_uno_test:
+                    test_candidates.append(os.path.join(root, filename))
 
-                restore_snapshot: Dict[str, Any] | None = None
-                try:
-                    restore_snapshot = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
-                    spec = importlib.util.spec_from_file_location(f"plugin.tests.uno.{module_name}", module_path)
-                    if spec is None or spec.loader is None:
-                        continue
-                    test_module = importlib.util.module_from_spec(spec)
-                    sys.modules[f"plugin.tests.uno.{module_name}"] = test_module
-                    spec.loader.exec_module(test_module)
+        for module_path in sorted(test_candidates):
+            filename = os.path.basename(module_path)
+            module_name = filename[:-3]
+            
+            # Construct a unique module name for sys.modules to avoid collisions
+            # during the recursive walk.
+            rel_path = os.path.relpath(module_path, tests_root)
+            sys_module_name = "plugin.tests." + rel_path[:-3].replace(os.sep, ".")
 
-                    doc_to_pass = None
-                    if "writer" in module_name or "format" in module_name:
-                        # Writer core tests mutate the document and assume an empty starting state,
-                        # so we pass None to force it to create its own hidden temporary document.
-                        if "test_writer" not in module_name:
-                            doc_to_pass = writer_doc
-                    elif "calc" in module_name:
-                        doc_to_pass = calc_doc
-                    elif "draw" in module_name or "impress" in module_name:
-                        doc_to_pass = draw_doc
+            restore_snapshot: Dict[str, Any] | None = None
+            try:
+                restore_snapshot = {k: sys.modules.get(k, _MISSING) for k in NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS}
+                spec = importlib.util.spec_from_file_location(sys_module_name, module_path)
+                if spec is None or spec.loader is None:
+                    continue
+                test_module = importlib.util.module_from_spec(spec)
+                sys.modules[sys_module_name] = test_module
+                spec.loader.exec_module(test_module)
 
-                    _run_suite(ctx, suites, f"uno.{module_name}", test_module, doc_to_pass)
-                except ImportError as e:
-                    print(f"Skipping {filename} due to ImportError: {e}")
-                except Exception as e:
-                    print(f"Error loading {filename}: {e}")
-                finally:
-                    # Prevent sys.modules mocking from polluting later native tests.
-                    if restore_snapshot is not None:
-                        for k, v in restore_snapshot.items():
-                            if v is _MISSING:
-                                sys.modules.pop(k, None)
-                            else:
-                                sys.modules[k] = v
+                doc_to_pass = None
+                if "writer" in module_name or "format" in module_name:
+                    # Writer core tests mutate the document and assume an empty starting state,
+                    # so we pass None to force it to create its own hidden temporary document.
+                    if "test_writer" not in module_name or module_name == "test_writer_uno":
+                        doc_to_pass = writer_doc
+                elif "calc" in module_name:
+                    doc_to_pass = calc_doc
+                elif "draw" in module_name or "impress" in module_name:
+                    doc_to_pass = draw_doc
+
+                _run_suite(ctx, suites, sys_module_name.replace("plugin.tests.", ""), test_module, doc_to_pass)
+            except ImportError as e:
+                print(f"Skipping {filename} due to ImportError: {e}")
+            except Exception as e:
+                print(f"Error loading {filename}: {e}")
+            finally:
+                # Prevent sys.modules mocking from polluting later native tests.
+                if restore_snapshot is not None:
+                    for k, v in restore_snapshot.items():
+                        if v is _MISSING:
+                            sys.modules.pop(k, None)
+                        else:
+                            sys.modules[k] = v
 
     for suite in suites:
         total_passed += int(suite.get("passed", 0) or 0)
@@ -311,7 +325,7 @@ def main() -> int:
     can still be imported inside LibreOffice without pulling them in.
     """
     try:
-        import officehelper
+        import officehelper  # type: ignore
     except ImportError:
         print("ERROR: officehelper module is not available; run with LibreOffice's Python.", flush=True)
         return 1

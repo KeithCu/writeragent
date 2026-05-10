@@ -76,7 +76,7 @@ Even if a model is *believed* to support audio, the API might return a "modality
 
 ## Python Version Support and Binary Pruning (March 2026 Update)
 
-To support cross-platform audio recording, WriterAgent vendors compiled binary dependencies (PortAudio, CFFI, etc.) in `contrib/audio/`. These binaries are specific to the Python version and OS architecture.
+To support cross-platform audio recording, WriterAgent vendors compiled binary dependencies (PortAudio, CFFI, etc.) in `plugin/contrib/audio/`. These binaries are specific to the Python version and OS architecture.
 
 ### Supported Python Versions
 As of March 2026, the supported Python version range has been narrowed to **3.11 through 3.14**. 
@@ -85,4 +85,4 @@ As of March 2026, the supported Python version range has been narrowed to **3.11
 - **Experimental Builds Pruned:** Python 3.14 introduced experimental **free-threaded** builds (labeled `314t`). Since the standard LibreOffice Python interpreter is GIL-enabled, these free-threaded binaries were removed from the extension.
 
 ### Disk Space Savings
-By pruning the obsolete and experimental binaries, the size of the `contrib/audio/` directory was reduced from **15MB** to **11MB**, representing a **27% reduction** in the extension's total compressed size. This ensures the extension remains relatively lightweight while still providing robust, plug-and-play audio support for modern LibreOffice environments.
+By pruning the obsolete and experimental binaries, the size of the `plugin/contrib/audio/` directory was reduced from **15MB** to **11MB**, representing a **27% reduction** in the extension's total compressed size. This ensures the extension remains relatively lightweight while still providing robust, plug-and-play audio support for modern LibreOffice environments.

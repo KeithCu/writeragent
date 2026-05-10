@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge translatable strings from plugin/modules/**/module.yaml into writeragent.pot.
+"""Merge translatable strings from plugin/**/module.yaml into writeragent.pot.
 
 Run after xgettext so the POT already contains Python (and generated XDL stub) strings.
 Uses polib; skips msgids already present. Idempotent.
@@ -7,7 +7,7 @@ Uses polib; skips msgids already present. Idempotent.
 Usage:
   python scripts/merge_module_yaml_into_pot.py [path/to/writeragent.pot]
 
-Default path: plugin/locales/writeragent.pot (relative to repo root).
+Default path: locales/writeragent.pot (relative to repo root).
 """
 from __future__ import annotations
 
@@ -22,11 +22,17 @@ def _repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _walk_module_yamls(modules_root: str) -> list[str]:
-    out = []
-    if not os.path.isdir(modules_root):
+# Skip trees that are not application modules (no gettext from vendored code).
+_SKIP_PLUGIN_SUBDIRS = frozenset({"contrib", "tests", "lib", "__pycache__"})
+
+
+def _walk_module_yamls(plugin_root: str) -> list[str]:
+    """Paths to ``module.yaml`` under ``plugin/<pkg>/`` (not ``plugin/modules/`` — that layout is unused)."""
+    out: list[str] = []
+    if not os.path.isdir(plugin_root):
         return out
-    for dirpath, _dirnames, filenames in os.walk(modules_root):
+    for dirpath, dirnames, filenames in os.walk(plugin_root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_PLUGIN_SUBDIRS and not d.startswith(".")]
         if "module.yaml" in filenames:
             out.append(os.path.join(dirpath, "module.yaml"))
     return sorted(out)
@@ -83,9 +89,9 @@ def merge_yaml_into_pot(pot_path: str) -> int:
         return 1
 
     root = _repo_root()
-    modules_root = os.path.join(root, "plugin", "modules")
+    plugin_root = os.path.join(root, "plugin")
     raw: list[str] = []
-    for ypath in _walk_module_yamls(modules_root):
+    for ypath in _walk_module_yamls(plugin_root):
         raw.extend(_collect_strings_from_module_yaml(ypath))
 
     seen: set[str] = set()
@@ -113,7 +119,7 @@ def merge_yaml_into_pot(pot_path: str) -> int:
 
 def main() -> int:
     root = _repo_root()
-    default_pot = os.path.join(root, "plugin", "locales", "writeragent.pot")
+    default_pot = os.path.join(root, "locales", "writeragent.pot")
     pot_path = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else default_pot
     return merge_yaml_into_pot(pot_path)
 
