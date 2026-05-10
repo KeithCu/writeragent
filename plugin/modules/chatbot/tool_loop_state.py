@@ -3,7 +3,7 @@ from enum import Enum, auto
 from typing import Any, Dict, List, Optional, NamedTuple
 
 from plugin.framework.state import BaseState, FsmTransition
-from plugin.framework.types import UIEffectKind
+from plugin.modules.chatbot.state_machine import UIEffectKind
 from plugin.modules.chatbot.memory import format_upsert_memory_chat_line
 
 

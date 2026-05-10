@@ -35,7 +35,7 @@ from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, get_provider_defaults
 from plugin.framework.errors import ConfigError, NetworkError, safe_call
-from plugin.framework.types import ModelCapability
+from plugin.framework.constants import ModelCapability
 from plugin.framework.i18n import _
 from plugin.modules.http.requests import sync_request
 

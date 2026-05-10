@@ -31,7 +31,7 @@ UI_EFFECT_KIND_PATHS = (
     "plugin/modules/chatbot/state_machine.py",
 )
 
-# Expected set for ``UIEffectKind`` in plugin/framework/types.py
+# Expected set for ``UIEffectKind`` in plugin/modules/chatbot/state_machine.py
 EXPECTED_UI_EFFECT_KINDS = frozenset({"append", "status", "debug", "info"})
 
 

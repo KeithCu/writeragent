@@ -17,7 +17,7 @@ from scripts.lib.orca_catalog import (
     slim_catalog_payload,
     slim_record_supports_tool_calling,
 )
-from plugin.framework.types import ModelCapability
+from plugin.framework.constants import ModelCapability
 
 
 def test_aggregate_pricing_averages_numeric_fields() -> None:

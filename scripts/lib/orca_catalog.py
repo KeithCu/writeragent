@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.types import ModelCapability
+from plugin.framework.constants import ModelCapability
 
 DEFAULT_ORCA_MODELS_URL = "https://orca.orb.town/api/preview/v2/models"
 
