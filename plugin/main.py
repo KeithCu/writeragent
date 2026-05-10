@@ -216,7 +216,7 @@ def bootstrap(ctx=None):
         _initialized = True
 
         # 5. Load manifest and initialize modules
-        from plugin.framework.module_loader import ModuleLoader
+        from plugin.framework.module_base import ModuleLoader
 
         _modules.extend(ModuleLoader.load_modules(_services))
 

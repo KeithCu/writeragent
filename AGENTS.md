@@ -60,7 +60,7 @@
 
 | Command | Role |
 |---------|------|
-| `make manifest` | Generates [`plugin/_manifest.py`](plugin/_manifest.py) (gitignored). Used by type-check and tests on clean checkouts. Missing manifest → [`load_manifest()`](plugin/framework/module_loader.py) raises **`RuntimeError`**. |
+| `make manifest` | Generates [`plugin/_manifest.py`](plugin/_manifest.py) (gitignored). Used by type-check and tests on clean checkouts. Missing manifest → [`load_manifest()`](plugin/framework/module_base.py) raises **`RuntimeError`**. |
 | `make check` | **`ty`** only |
 | `make build` | **`ty`** + **`ruff`** + bundle |
 | `make typecheck` | **`ty`** + **mypy** + **pyright** |

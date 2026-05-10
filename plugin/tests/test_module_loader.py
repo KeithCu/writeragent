@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch
-from plugin.framework.module_loader import ModuleLoader
+from plugin.framework.module_base import ModuleLoader
 
 def test_topo_sort():
     modules = [
@@ -32,7 +32,7 @@ def test_topo_sort_with_provides_services():
 
     assert names.index("provider") < names.index("consumer")
 
-@patch("plugin.framework.module_loader.ModuleLoader.load_manifest")
+@patch("plugin.framework.module_base.ModuleLoader.load_manifest")
 def test_load_modules(mock_load_manifest):
     mock_load_manifest.return_value = [
         {"name": "core"},
@@ -56,7 +56,7 @@ def test_load_modules(mock_load_manifest):
 
     mock_module.TestModule = TestModule
 
-    # Actually `os` is imported at the top of the module, so we must patch `plugin.framework.module_loader.os.path.isdir`
+    # Actually `os` is imported at the top of the module, so we must patch `plugin.framework.module_base.os.path.isdir`
     # However we also need to avoid mock trying to patch a missing property.
     import os
     with patch("importlib.import_module", return_value=mock_module), \
