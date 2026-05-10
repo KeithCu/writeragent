@@ -10,7 +10,7 @@ This document provides a comprehensive brain dump of the work performed to integ
   - For the endpoint provider, the image model is taken from config key `image_model`, with fallback to the text/chat model. See [core/config.py](core/config.py) `get_text_model()` and `get_api_config()`.
   - AI Horde: polling and UI non-blocking via `toolkit.processEvents()` in the informer; endpoint provider: single request/response.
   - Merges configuration defaults with tool-provided arguments.
-- **[plugin/modules/writer/image_tools.py](../plugin/modules/writer/image_tools.py)**: Image insertion and selection.
+- **[plugin/writer/image_tools.py](../plugin/writer/image_tools.py)**: Image insertion and selection.
   - **insert_image**: Injects images into Writer/Calc documents.
   - **get_selected_image_base64**: Extracts the currently selected image as base64 for Img2Img.
   - **add_image_to_gallery**: Adds generated images to the LibreOffice Media Gallery (in this file).
@@ -96,5 +96,5 @@ The backend exposes a single `generate_image(prompt, **kwargs)`; when `source_im
 ## Technical References
 - **AI Horde Client**: [core/aihordeclient/](core/aihordeclient/) — low-level API (async submit, queue, poll, download). See [`AGENTS.md`](../AGENTS.md) for a short project overview.
 - **Text vs image model**: [core/config.py](core/config.py) — `get_text_model(ctx)` for chat model; `get_api_config(ctx)` returns `"model"` for LlmClient. Image model is `image_model` (used when `image_provider=endpoint`).
-- **Image extraction**: `get_selected_image_base64(model, ctx=None)` in [plugin/modules/writer/image_tools.py](../plugin/modules/writer/image_tools.py) — bridge for Img2Img. Pass `ctx` from the chat panel or MainJob for Calc.
+- **Image extraction**: `get_selected_image_base64(model, ctx=None)` in [plugin/writer/image_tools.py](../plugin/writer/image_tools.py) — bridge for Img2Img. Pass `ctx` from the chat panel or MainJob for Calc.
 - **Error logging**: `writeragent_debug.log`; UI shows errors if `createDialog` or image generation fails.

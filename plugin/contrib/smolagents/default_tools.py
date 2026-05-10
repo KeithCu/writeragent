@@ -11,7 +11,7 @@ from typing import Any
 from plugin.framework.constants import BROWSER_USER_AGENT, USER_AGENT
 from plugin.framework.config import get_url_hostname, is_pdf_url
 try:
-    from plugin.modules.chatbot.history_db import HAS_SQLITE, sqlite3
+    from plugin.chatbot.history_db import HAS_SQLITE, sqlite3
 except Exception:
     HAS_SQLITE = False
     sqlite3 = None  # type: ignore[assignment]

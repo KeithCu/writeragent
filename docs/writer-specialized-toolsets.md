@@ -164,7 +164,7 @@ While the "Fat API" approach drastically reduces tool count and could potentiall
 
 ### 1.4 Two Implementations for Specialized Workflows
 
-We currently support two alternative implementations for the `delegate_to_specialized_writer_toolset` tool. This allows us to experiment, research, and quantify which approach works best (e.g., perhaps smaller models need the sub-agent approach to avoid confusion, while larger models can handle in-place tool switching seamlessly). You can toggle between them using the `USE_SUB_AGENT` global variable in `plugin/modules/writer/specialized.py`. Both modes use a `final_answer` tool to explicitly return control and exit the mode.
+We currently support two alternative implementations for the `delegate_to_specialized_writer_toolset` tool. This allows us to experiment, research, and quantify which approach works best (e.g., perhaps smaller models need the sub-agent approach to avoid confusion, while larger models can handle in-place tool switching seamlessly). You can toggle between them using the `USE_SUB_AGENT` global variable in `plugin/writer/specialized.py`. Both modes use a `final_answer` tool to explicitly return control and exit the mode.
 
 **Approach A: The Sub-Agent Model (`USE_SUB_AGENT = True`)**
 
@@ -223,14 +223,14 @@ flowchart LR
 
 **Call sites (default listing):**
 
-- Chat: `[plugin/modules/chatbot/tool_loop.py](../../plugin/modules/chatbot/tool_loop.py)` — `get_schemas("openai", doc=model)` (no `exclude_tiers` → default exclusion).
-- MCP: `[plugin/modules/http/mcp_protocol.py](../../plugin/modules/http/mcp_protocol.py)` — `get_schemas("mcp", doc=doc)` (same).
+- Chat: `[plugin/chatbot/tool_loop.py](../../plugin/chatbot/tool_loop.py)` — `get_schemas("openai", doc=model)` (no `exclude_tiers` → default exclusion).
+- MCP: `[plugin/networking/mcp_protocol.py](../../plugin/networking/mcp_protocol.py)` — `get_schemas("mcp", doc=doc)` (same).
 
 **Execution:** `ToolRegistry.execute` is unchanged; any registered name can still be invoked if the caller passes it.
 
 ### 3.2 Gateway: delegate to sub-agent
 
-**File:** `[plugin/modules/writer/specialized.py](../../plugin/modules/writer/specialized.py)`
+**File:** `[plugin/writer/specialized.py](../../plugin/writer/specialized.py)`
 
 - Tool name: `delegate_to_specialized_writer_toolset`.
 - Parameters: `domain` (enum aligned with `_AVAILABLE_DOMAINS`), `task` (natural language).
@@ -250,8 +250,8 @@ Block `WRITER_SPECIALIZED_DELEGATION` is prepended into `DEFAULT_CHAT_SYSTEM_PRO
 
 Some Writer tools intentionally use `**tier = "extended"`** (or `core`) so users do not need delegation for common actions, for example:
 
-- **Track changes:** `[plugin/modules/writer/tracking.py](../../plugin/modules/writer/tracking.py)` — `set_track_changes`, `get_tracked_changes`, `manage_tracked_changes` (nelson-aligned behavior; combined accept/reject in `manage_tracked_changes`).
-- **Style apply:** `[plugin/modules/writer/styles.py](../../plugin/modules/writer/styles.py)` — `apply_style` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended"`.
+- **Track changes:** `[plugin/writer/tracking.py](../../plugin/writer/tracking.py)` — `set_track_changes`, `get_tracked_changes`, `manage_tracked_changes` (nelson-aligned behavior; combined accept/reject in `manage_tracked_changes`).
+- **Style apply:** `[plugin/writer/styles.py](../../plugin/writer/styles.py)` — `apply_style` subclasses `plugin.framework.tool_base.ToolBase` with `tier = "extended"`.
 
 **Style discovery** (`list_styles`, `get_style_info`) remains under `ToolWriterStyleBase` (specialized) so the main list does not duplicate large style catalog traffic; the prompt steers toward delegation or other discovery when needed.
 
@@ -316,7 +316,7 @@ Some Writer tools intentionally use `**tier = "extended"`** (or `core`) so users
 
 ### 5.3 Future work: Sections specialized toolset
 
-Sections (`com.sun.star.text.TextSection`) are a substantial Writer feature that is currently only **read-only** in WriterAgent (`list_sections` and `read_section` under the `structural` domain in [`plugin/modules/writer/structural.py`](../../plugin/modules/writer/structural.py)). A full create/edit/property surface belongs in its own specialized domain. This subsection captures the design context so that work can be picked up later.
+Sections (`com.sun.star.text.TextSection`) are a substantial Writer feature that is currently only **read-only** in WriterAgent (`list_sections` and `read_section` under the `structural` domain in [`plugin/writer/structural.py`](../../plugin/writer/structural.py)). A full create/edit/property surface belongs in its own specialized domain. This subsection captures the design context so that work can be picked up later.
 
 #### What sections are
 
@@ -366,7 +366,7 @@ UI restriction worth surfacing in tool errors: a section **cannot** be hidden wh
 
 - TextSection service: [api.libreoffice.org TextSection](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1text_1_1TextSection.html).
 - User-facing guide: [help.libreoffice.org "Using Sections"](https://help.libreoffice.org/latest/en-US/text/swriter/guide/sections.html).
-- Existing read tools: [`plugin/modules/writer/structural.py`](../../plugin/modules/writer/structural.py).
+- Existing read tools: [`plugin/writer/structural.py`](../../plugin/writer/structural.py).
 
 ### 6.7 Cross-cutting Enhancements
 

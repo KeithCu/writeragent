@@ -35,7 +35,6 @@ from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, ge
 from plugin.framework.errors import ConfigError, NetworkError, safe_call
 from plugin.framework.constants import ModelCapability, get_plugin_dir
 from plugin.framework.i18n import _
-from plugin.modules.http.requests import sync_request
 
 try:
     from plugin._manifest import MODULES
@@ -320,7 +319,7 @@ class WriterAgentConfig:
         # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
         try:
-            from plugin.modules.chatbot.settings_dialog import get_settings_field_specs
+            from plugin.chatbot.settings_dialog import get_settings_field_specs
 
             specs = get_settings_field_specs(None)
             for spec in specs:
@@ -883,6 +882,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             return None
 
     try:
+        from plugin.networking.requests import sync_request
         data = sync_request(url, parse_json=True, headers=req_headers if req_headers else None)
         if data and isinstance(data, dict) and "data" in data:
             models = []

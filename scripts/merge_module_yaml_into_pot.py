@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge translatable strings from plugin/modules/**/module.yaml into writeragent.pot.
+"""Merge translatable strings from plugin/**/module.yaml into writeragent.pot.
 
 Run after xgettext so the POT already contains Python (and generated XDL stub) strings.
 Uses polib; skips msgids already present. Idempotent.

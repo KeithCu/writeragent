@@ -116,7 +116,7 @@ def test_normalize_schema_none_dict():
 
 def test_update_style_schema_emits_no_additional_properties_keyword():
     """xAI/OpenRouter reject nested additionalProperties; UpdateStyle uses exhaustive properties only."""
-    from plugin.modules.writer.styles import UpdateStyle
+    from plugin.writer.styles import UpdateStyle
 
     schema = to_openai_schema(UpdateStyle())
     wire = json.dumps(schema["function"]["parameters"])

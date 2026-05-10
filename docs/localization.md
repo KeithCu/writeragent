@@ -17,9 +17,9 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 
 2. **XDL dialogs**: English strings in `.xdl` files are not read by `xgettext` directly. [`scripts/extract_xdl_strings.py`](../scripts/extract_xdl_strings.py) generates a temporary `plugin/xdl_strings.py` containing `_()` calls so those strings are picked up; that stub is removed after extraction.
 
-3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/modules/**/module.yaml` (titles, labels, options) into the same POT, deduplicated by `msgid`. Requires `polib` and PyYAML.
+3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, options) into the same POT, deduplicated by `msgid`. Requires `polib` and PyYAML.
 
-4. **Dialogs at runtime**: [`translate_dialog` in `plugin/modules/chatbot/dialogs.py`](../plugin/modules/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()` in [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py): empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`plugin/tests/test_i18n.py`](../plugin/tests/test_i18n.py).
+4. **Dialogs at runtime**: [`translate_dialog` in `plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()` in [`legacy_ui.py`](../plugin/chatbot/legacy_ui.py): empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`plugin/tests/test_i18n.py`](../plugin/tests/test_i18n.py).
 
 ## Build and maintenance commands
 

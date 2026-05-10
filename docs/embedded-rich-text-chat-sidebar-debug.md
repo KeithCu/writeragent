@@ -10,8 +10,8 @@ The sidebar response area is replaced with an *embedded* (hidden) Writer documen
 
 Implementation entry points:
 
-- `plugin/modules/chatbot/rich_text.py` → `create_embedded_writer_doc(...)` + `append_rich_text(...)`
-- `plugin/modules/chatbot/panel_wiring.py` → `_wireControls(...)` hides the plain response control only if the embedded doc succeeds.
+- `plugin/chatbot/rich_text.py` → `create_embedded_writer_doc(...)` + `append_rich_text(...)`
+- `plugin/chatbot/panel_wiring.py` → `_wireControls(...)` hides the plain response control only if the embedded doc succeeds.
 
 ## What failed (core error)
 
@@ -123,6 +123,6 @@ These are the most promising directions given the evidence:
 
 ## Files touched during this investigation
 
-- `plugin/modules/chatbot/rich_text.py`
-- `plugin/modules/chatbot/panel_wiring.py`
+- `plugin/chatbot/rich_text.py`
+- `plugin/chatbot/panel_wiring.py`
 

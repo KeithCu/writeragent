@@ -16,10 +16,10 @@ class MockBase:
 sys.modules["unohelper"].Base = MockBase
 
 from plugin.framework.errors import WriterError
-from plugin.modules.calc.manipulator import CellManipulator
-from plugin.modules.calc import CalcError
-from plugin.modules.draw.shapes import DrawShapes, DrawError
-from plugin.modules.writer.ops import (
+from plugin.calc.manipulator import CellManipulator
+from plugin.calc import CalcError
+from plugin.draw.shapes import DrawShapes, DrawError
+from plugin.writer.ops import (
     find_paragraph_for_range,
     get_selection_range,
     insert_html_at_cursor,
@@ -337,7 +337,7 @@ class TestWriterModuleErrors:
             get_text_cursor_at_range(MagicMock(), 0, None)
         assert exc_info.value.code == "WRITER_INVALID_OFFSETS"
 
-    @patch("plugin.modules.doc.document_helpers.get_document_length", return_value=100)
+    @patch("plugin.doc.document_helpers.get_document_length", return_value=100)
     def test_get_text_cursor_at_range_null_text_obj(self, mock_doc_len):
         mock_model = MagicMock()
         mock_model.getText.return_value = None

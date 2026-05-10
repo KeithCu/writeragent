@@ -83,7 +83,7 @@ def column_to_index(col_str: str) -> int:
 
 ### Phase 3: Concolic State Exploration with CrossHair
 With contracts in place, we unleash CrossHair. 
-`crosshair check plugin/modules/calc/address_utils.py`
+`crosshair check plugin/calc/address_utils.py`
 
 CrossHair's Z3 engine will not just throw random fuzzing data at the function; it will analytically dissect the bytecode. It will realize that `ord(char)` implies integer boundaries, and it will intentionally synthesize string inputs designed to trigger integer overflows, index out-of-bounds, or violate the `deal.ensure` inverse mapping contract. 
 
@@ -102,7 +102,7 @@ The refactor **separates concerns** in the same “hexagonal” spirit as the re
 
 **Why this matters for formal verification:** We treat the UNO bridge as axiomatic (opening of this document); we want proofs about **our** Python. `deal` contracts and CrossHair apply to **pure** functions. Code that mixes UI updates, I/O, and state updates in one procedure is a poor verification target—see *Verification Anti-Patterns* (do not verify tangled orchestration; verify the extracted machine instead).
 
-**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`plugin/tests/test_tool_loop_state.py`, `plugin/tests/test_state_machine.py`, `plugin/tests/test_send_state.py`, `plugin/modules/chatbot/tests/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
+**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`plugin/tests/test_tool_loop_state.py`, `plugin/tests/test_state_machine.py`, `plugin/tests/test_send_state.py`, `plugin/chatbot/tests/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
 
 This was a **pragmatic** foundation: Phase 5 records design tradeoffs and what we avoided over-engineering. Attaching `deal` and running CrossHair on every transition is **Phase 6**, not something we claim is already complete.
 
@@ -123,30 +123,30 @@ The following summarizes the implemented modules and the simplified patterns we 
 
 ### Implemented State Machines
 
-1. **Tool Loop State Machine** (`plugin/modules/chatbot/tool_loop_state.py`)
+1. **Tool Loop State Machine** (`plugin/chatbot/tool_loop_state.py`)
    - Pure transition function with comprehensive event handling
    - Simple string effects mixed with structured effect types
    - Full test coverage in `plugin/tests/test_tool_loop_state.py`
 
-2. **Send Handler State Machine** (`plugin/modules/chatbot/state_machine.py`)
+2. **Send Handler State Machine** (`plugin/chatbot/state_machine.py`)
    - Handles audio, image, agent, and web workflows
    - Uses union types for events and effects (cleaner than inheritance hierarchies)
    - Comprehensive test coverage in `plugin/tests/test_state_machine.py`
 
-3. **Send Button State Machine** (`plugin/modules/chatbot/send_state.py`)
+3. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
    - Manages UI button state transitions
    - Simple enum-based events and union effects
    - Test coverage in `plugin/tests/test_send_state.py`
 
-4. **MCP State Machine** (`plugin/modules/http/mcp_state.py`)
+4. **MCP State Machine** (`plugin/networking/mcp_state.py`)
    - HTTP protocol state management
    - Document resolution and tool execution workflows
    - Uses dataclasses for structured effects
 
-5. **Audio Recorder State Machine** (`plugin/modules/chatbot/audio_recorder_state.py`)
+5. **Audio Recorder State Machine** (`plugin/chatbot/audio_recorder_state.py`)
    - Audio recording lifecycle management
    - Minimal state and effect types
-   - Test coverage in `plugin/modules/chatbot/tests/test_audio_recorder_state.py`
+   - Test coverage in `plugin/chatbot/tests/test_audio_recorder_state.py`
 
 ### What We Avoided (Over-Engineering Traps)
 
@@ -203,9 +203,9 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
 ### Step 2: Run CrossHair Verification
 ```bash
-crosshair check plugin/modules/chatbot/tool_loop_state.py --contracts
-crosshair check plugin/modules/chatbot/state_machine.py --contracts
-crosshair check plugin/modules/chatbot/send_state.py --contracts
+crosshair check plugin/chatbot/tool_loop_state.py --contracts
+crosshair check plugin/chatbot/state_machine.py --contracts
+crosshair check plugin/chatbot/send_state.py --contracts
 ```
 
 ### Step 3: Add Verification to CI
@@ -219,8 +219,8 @@ Maintain a `verification_status.json` file tracking which components have been v
 With state machines verified, expand to utility modules:
 
 1. **`plugin/framework/config.py`** - Settings and URL utilities
-2. **`plugin/modules/writer/format_support.py`** - Text normalization
-3. **`plugin/modules/calc/address_utils.py`** - Calc address math
+2. **`plugin/writer/format_support.py`** - Text normalization
+3. **`plugin/calc/address_utils.py`** - Calc address math
 4. **`plugin/framework/async_stream.py`** - Streaming protocol
 
 Add contracts and run CrossHair verification on each module.
@@ -255,7 +255,7 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
          # ... implementation ...
      ```
 
-2. **`plugin/modules/writer/format_support.py`**
+2. **`plugin/writer/format_support.py`**
    - Text normalization functions
    - Used across all document types
    - Verify format preservation invariants
@@ -406,7 +406,7 @@ jobs:
       matrix:
         module: [
           "plugin/framework/config.py",
-          "plugin/modules/writer/format_support.py"
+          "plugin/writer/format_support.py"
         ]
     
     steps:

@@ -6,7 +6,7 @@ This document tracks technical workarounds and "hacks" implemented to handle the
 **Problem**: LLMs are inconsistent with CSV delimiters. Since Calc formula syntax favors semicolons (`;`), models often use them for CSV data even when asked for commas (`,`). This leads to data being imported into a single column.
 
 ### [Workaround] Auto-Detection
-Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now handles it automatically in `plugin/modules/calc/manipulator.py` when CSV data is provided.
+Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now handles it automatically in `plugin/calc/manipulator.py` when CSV data is provided.
 - **Implementation**: The tool peeks at the first few lines. If semicolons are significantly more prevalent than commas, it switches the CSV reader to `;`. Otherwise, it defaults to `,`.
 - **Reasoning**: Reduces the cognitive load on the LLM and makes the tool "just work" regardless of the model's preferred separator.
 
@@ -45,7 +45,7 @@ In `core/calc_tools.py`, the `execute_calc_tool` dispatcher often checks if `ran
 **Problem**: LLMs (especially when streaming or acting as a sub-agent) are inconsistent with line endings, often mixing `\n`, `\r\n`, and occasionally `\n\r` or legacy `\r`. This breaks structural operations like paragraph splitting (`split("\n\n")`) and can cause search/replace failures if the AI's response uses a different sequence than the document's internal representation.
 
 ### [Workaround] Centralized Normalization
-The `normalize_linebreaks` utility in `plugin/modules/doc/document_helpers.py` ensures all incoming and outgoing text uses a consistent `\n` (LF) sequence.
+The `normalize_linebreaks` utility in `plugin/doc/document_helpers.py` ensures all incoming and outgoing text uses a consistent `\n` (LF) sequence.
 - **Implementation**: It performs a chain of replacements: `text.replace("\r\n", "\n").replace("\n\r", "\n").replace("\r", "\n")`.
 - **Reasoning**: This prevents "invisible character" mismatches. Since LibreOffice internally represents hard line breaks as `\n` in UNO strings, this ensures that the text we process, the text the AI sees, and the text we write back into the document are byte-compatible for string operations.
 

@@ -12,7 +12,7 @@ From the repository root, use **`make extract-strings`**. Order matters:
 
 1. **`scripts/extract_xdl_strings.py`** — writes a temporary `plugin/xdl_strings.py` with `_()` lines extracted from XDL dialogs so `xgettext` can pick them up.
 2. **`xgettext`** — scans all `plugin/**/*.py` (including that stub) and writes `plugin/locales/writeragent.pot`.
-3. **`scripts/merge_module_yaml_into_pot.py`** — merges translatable strings from `plugin/modules/**/module.yaml` (module titles, config labels, helpers, option labels) into the same POT using **polib**, deduplicated by `msgid`. Requires `polib` and `PyYAML` (see `pyproject.toml`). Idempotent: re-running does not duplicate entries.
+3. **`scripts/merge_module_yaml_into_pot.py`** — merges translatable strings from `plugin/**/module.yaml` (module titles, config labels, helpers, option labels) into the same POT using **polib**, deduplicated by `msgid`. Requires `polib` and `PyYAML` (see `pyproject.toml`). Idempotent: re-running does not duplicate entries.
 4. **Removes** the temporary `plugin/xdl_strings.py`.
 
 Do not run only `xgettext` on `*.py` if you need XDL and YAML strings; use `make extract-strings`.

@@ -30,8 +30,8 @@ def test_load_dialog():
     mock_dialogs.load_module_dialog.return_value = "dialog_instance"
 
     # Temporarily mock the module
-    original = sys.modules.get('plugin.modules.chatbot.dialogs')
-    sys.modules['plugin.modules.chatbot.dialogs'] = mock_dialogs
+    original = sys.modules.get('plugin.chatbot.dialogs')
+    sys.modules['plugin.chatbot.dialogs'] = mock_dialogs
 
     try:
         result = mod.load_dialog("my_dialog")
@@ -39,9 +39,9 @@ def test_load_dialog():
         assert result == "dialog_instance"
     finally:
         if original:
-            sys.modules['plugin.modules.chatbot.dialogs'] = original
+            sys.modules['plugin.chatbot.dialogs'] = original
         else:
-            del sys.modules['plugin.modules.chatbot.dialogs']
+            del sys.modules['plugin.chatbot.dialogs']
 
 def test_load_framework_dialog():
     mod = MyModule()
@@ -51,8 +51,8 @@ def test_load_framework_dialog():
     mock_dialogs.load_framework_dialog.return_value = "fw_dialog_instance"
 
     # Temporarily mock the module
-    original = sys.modules.get('plugin.modules.chatbot.dialogs')
-    sys.modules['plugin.modules.chatbot.dialogs'] = mock_dialogs
+    original = sys.modules.get('plugin.chatbot.dialogs')
+    sys.modules['plugin.chatbot.dialogs'] = mock_dialogs
 
     try:
         result = mod.load_framework_dialog("fw_dialog")
@@ -60,6 +60,6 @@ def test_load_framework_dialog():
         assert result == "fw_dialog_instance"
     finally:
         if original:
-            sys.modules['plugin.modules.chatbot.dialogs'] = original
+            sys.modules['plugin.chatbot.dialogs'] = original
         else:
-            del sys.modules['plugin.modules.chatbot.dialogs']
+            del sys.modules['plugin.chatbot.dialogs']

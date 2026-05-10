@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate _manifest.py and XCS/XCU from module.yaml files.
 
-Reads each module.yaml under plugin/modules/, validates it, and produces:
+Reads each module.yaml under plugin/, validates it, and produces:
   - build/generated/_manifest.py     — Python dict for runtime
   - build/generated/registry/*.xcs   — LO config schemas
   - build/generated/registry/*.xcu   — LO config defaults
@@ -191,9 +191,9 @@ def main():
         help="Only process these modules (default: all)")
     args = parser.parse_args()
 
-    modules_dir = os.path.join(PROJECT_ROOT, "plugin", "modules")
+    modules_dir = os.path.join(PROJECT_ROOT, "plugin")
     if not os.path.isdir(modules_dir):
-        print("ERROR: plugin/modules/ not found at %s" % modules_dir,
+        print("ERROR: plugin/ not found at %s" % modules_dir,
               file=sys.stderr)
         return 1
 
@@ -206,11 +206,8 @@ def main():
         framework_manifest.setdefault("name", "main")
         print("  Loaded framework config: plugin/plugin.yaml")
 
-    print("Scanning modules in %s and framework..." % modules_dir)
+    print("Scanning modules in %s..." % modules_dir)
     manifests = find_modules(modules_dir, args.modules)
-    framework_dir = os.path.join(PROJECT_ROOT, "plugin", "framework")
-    if os.path.isdir(framework_dir):
-        manifests.extend(find_modules(framework_dir, args.modules))
     
     if not manifests:
         print("  No modules found!")

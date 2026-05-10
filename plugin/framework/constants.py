@@ -317,7 +317,7 @@ del _
 def get_greeting_for_document(model):
     """Return a greeting relevant to the document type."""
     from plugin.framework.i18n import _
-    from plugin.modules.doc.document_helpers import is_calc, is_draw
+    from plugin.doc.document_helpers import is_calc, is_draw
 
     if is_calc(model):
         return _(DEFAULT_CALC_GREETING)
@@ -331,10 +331,10 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
-    from plugin.modules.doc.document_helpers import is_calc, is_draw
+    from plugin.doc.document_helpers import is_calc, is_draw
 
     if is_calc(model):
-        from plugin.modules.calc.base import ToolCalcSpecialBase
+        from plugin.calc.base import ToolCalcSpecialBase
 
         domains = []
         for cls in ToolCalcSpecialBase.__subclasses__():
@@ -348,7 +348,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
             DEFAULT_CALC_CHAT_SYSTEM_PROMPT = base
     elif is_draw(model):
-        from plugin.modules.draw.base import ToolDrawSpecialBase
+        from plugin.draw.base import ToolDrawSpecialBase
 
         domains = []
         for cls in ToolDrawSpecialBase.__subclasses__():
@@ -363,7 +363,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
             DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = base
     else:
         # Generate domain list dynamically
-        from plugin.modules.writer.specialized_base import ToolWriterSpecialBase
+        from plugin.writer.specialized_base import ToolWriterSpecialBase
 
         domains = []
         for cls in ToolWriterSpecialBase.__subclasses__():
@@ -381,7 +381,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
 
     if ctx:
         try:
-            from plugin.modules.chatbot.memory import MemoryStore
+            from plugin.chatbot.memory import MemoryStore
 
             store = MemoryStore(ctx)
             user_mem = store.read("user")

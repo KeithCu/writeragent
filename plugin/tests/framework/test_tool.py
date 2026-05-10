@@ -349,7 +349,7 @@ class TestExcludeSpecializedTiers:
 
 class TestLibrarianToolVisibility:
     def test_librarian_tools_are_hidden_by_default_in_main_chat_schema(self):
-        from plugin.modules.chatbot.librarian import (
+        from plugin.chatbot.librarian import (
             LibrarianOnboardingTool,
             SwitchToDocumentModeTool,
         )

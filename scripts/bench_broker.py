@@ -30,10 +30,10 @@ def collect_tools():
     tools = []
     # Scan tool packages
     packages = [
-        "plugin.modules.writer",
-        "plugin.modules.common.tools",
-        "plugin.modules.calc.tools",
-        "plugin.modules.draw.tools",
+        "plugin.writer",
+        "plugin.common.tools",
+        "plugin.calc.tools",
+        "plugin.draw.tools",
     ]
     for pkg_name in packages:
         try:

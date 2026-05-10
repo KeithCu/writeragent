@@ -13,7 +13,7 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 | `list_conditional_formats` | List rules on a range (or the used area if `range_name` is omitted). |
 | `remove_conditional_formats` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
 
-Implementation: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/modules/calc/base.py`](../plugin/modules/calc/base.py).
+Implementation: [`plugin/calc/conditional.py`](../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../plugin/calc/base.py).
 ---
 
 ## 2. LibreOffice UNO — two different models (critical)
@@ -56,17 +56,17 @@ These are still passed as the **`Operator`** property in `addNew` — the value 
 
 [`XSheetCondition`](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1sheet_1_1XSheetCondition.html) `getOperator()` predates extended codes. For reliable round-tripping of **10** and **11**, use [`XSheetCondition2`](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1sheet_1_1XSheetCondition2.html) **`getConditionOperator()`** / **`setConditionOperator(long)`**.
 
-WriterAgent follows the same pattern as [`plugin/modules/calc/pivot.py`](../plugin/modules/calc/pivot.py): **`queryInterface(uno.getTypeByName("com.sun.star.sheet.XSheetCondition2"))`** — imported IDL classes are **not** passed directly to `queryInterface` in PyUNO.
+WriterAgent follows the same pattern as [`plugin/calc/pivot.py`](../plugin/calc/pivot.py): **`queryInterface(uno.getTypeByName("com.sun.star.sheet.XSheetCondition2"))`** — imported IDL classes are **not** passed directly to `queryInterface` in PyUNO.
 
 Listing output includes:
 
-- **`operator`**: stable string (e.g. `DUPLICATE`) via [`condition_operator_code_to_name()`](../plugin/modules/calc/conditional.py) in the same module as the tools.
+- **`operator`**: stable string (e.g. `DUPLICATE`) via [`condition_operator_code_to_name()`](../plugin/calc/conditional.py) in the same module as the tools.
 - **`operator_code`**: present when `XSheetCondition2` succeeds (integer, e.g. `10`).
 ---
 
 ## 4. What we implemented in code (this iteration)
 
-File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.py).
+File: [`plugin/calc/conditional.py`](../plugin/calc/conditional.py).
 
 1. **`DUPLICATE` / `NOT_DUPLICATE`** on `add_conditional_format`  
    - Operator values use **`ConditionOperator2`** when importable, with fallback to **10** / **11**.  
@@ -112,9 +112,9 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 
 ## 6. Debugging tips
 
-- **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../plugin/modules/calc/conditional.py) and [`pivot.py`](../plugin/modules/calc/pivot.py).  
+- **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../plugin/calc/conditional.py) and [`pivot.py`](../plugin/calc/pivot.py).  
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
-- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against [`condition_operator_code_to_name()`](../plugin/modules/calc/conditional.py) in [`conditional.py`](../plugin/modules/calc/conditional.py).  
+- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against [`condition_operator_code_to_name()`](../plugin/calc/conditional.py) in [`conditional.py`](../plugin/calc/conditional.py).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).
 ---
 
@@ -122,10 +122,10 @@ File: [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.
 
 | File | Purpose |
 |------|---------|
-| [`plugin/modules/calc/conditional.py`](../plugin/modules/calc/conditional.py) | Tools + UNO helpers + `condition_operator_code_to_name()` |
-| [`plugin/modules/calc/base.py`](../plugin/modules/calc/base.py) | `ToolCalcConditionalBase`, `specialized_domain` |
-| [`plugin/modules/calc/bridge.py`](../plugin/modules/calc/bridge.py) | Range resolution |
-| [`plugin/modules/calc/specialized.py`](../plugin/modules/calc/specialized.py) | `delegate_to_specialized_calc_toolset` |
+| [`plugin/calc/conditional.py`](../plugin/calc/conditional.py) | Tools + UNO helpers + `condition_operator_code_to_name()` |
+| [`plugin/calc/base.py`](../plugin/calc/base.py) | `ToolCalcConditionalBase`, `specialized_domain` |
+| [`plugin/calc/bridge.py`](../plugin/calc/bridge.py) | Range resolution |
+| [`plugin/calc/specialized.py`](../plugin/calc/specialized.py) | `delegate_to_specialized_calc_toolset` |
 | [`docs/calc-specialized-toolsets.md`](calc-specialized-toolsets.md) | Delegation overview |
 | [`docs/calc-sheet-filter.md`](calc-sheet-filter.md) | **Separate feature:** standard sheet filter / AutoFilter (`sheet_filter` domain) |
 ---

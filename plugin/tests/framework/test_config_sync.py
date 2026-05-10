@@ -273,7 +273,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     def test_second_call_does_not_http(self):
         from plugin.framework import config as cfg
 
-        with patch("plugin.framework.config.sync_request") as mock_sync:
+        with patch("plugin.networking.requests.sync_request") as mock_sync:
             mock_sync.return_value = {"data": [{"id": "alpha"}]}
             r1 = cfg.fetch_available_models("http://127.0.0.1:58901")
             r2 = cfg.fetch_available_models("http://127.0.0.1:58901")
@@ -284,7 +284,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     def test_normalized_url_shares_cache_entry(self):
         from plugin.framework import config as cfg
 
-        with patch("plugin.framework.config.sync_request") as mock_sync:
+        with patch("plugin.networking.requests.sync_request") as mock_sync:
             mock_sync.return_value = {"data": [{"id": "beta"}]}
             cfg.fetch_available_models("http://127.0.0.1:58902/")
             cfg.fetch_available_models("http://127.0.0.1:58902")
@@ -314,7 +314,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                     if "58903" in k:
                         del cfg._model_fetch_cache[k]
 
-                with patch("plugin.framework.config.sync_request") as mock_sync:
+                with patch("plugin.networking.requests.sync_request") as mock_sync:
                     mock_sync.return_value = {"data": [{"id": "m1"}]}
                     r = cfg.fetch_available_models(endpoint, ctx)
                     self.assertEqual(r, ["m1"])
@@ -366,7 +366,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                     if "58904" in k:
                         del cfg._model_fetch_cache[k]
 
-                with patch("plugin.framework.config.sync_request") as mock_sync:
+                with patch("plugin.networking.requests.sync_request") as mock_sync:
                     mock_sync.return_value = {"data": [{"id": "m1"}]}
                     r = cfg.fetch_available_models(
                         endpoint, ctx, api_key_override="from-override"
@@ -404,7 +404,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                     if "58905" in k:
                         del cfg._model_fetch_cache[k]
 
-                with patch("plugin.framework.config.sync_request") as mock_sync:
+                with patch("plugin.networking.requests.sync_request") as mock_sync:
                     mock_sync.return_value = {"data": [{"id": "x"}]}
                     cfg.fetch_available_models(endpoint, ctx)
                     cfg.fetch_available_models(endpoint, ctx, api_key_override="key-b")

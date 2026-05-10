@@ -40,7 +40,7 @@ Near the top of `_start_tool_calling_async` in `plugin/chat_panel.py` (around li
 
     # Read config once for web research thinking display
     try:
-        from plugin.modules.core.config import get_config, as_bool
+        from plugin.core.config import get_config, as_bool
         show_search_thinking = as_bool(get_config(self.ctx, "show_search_thinking", False))
     except Exception:
         show_search_thinking = False

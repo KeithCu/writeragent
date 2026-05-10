@@ -15,7 +15,7 @@ The goal is to add **editable math support** to WriterAgent's HTML import path f
 | **Phase 2** (TeX fallback) | **Done** (core) | Delimiters `$…$`, `$$…$$`, `\(...\)`, `\[...\]`; `latex2mathml` → same LO MathML path; mixed scan + precedence in `html_math_segment.py`; `convert_latex_to_starmath` in `math_mml_convert.py`; prompts in `constants.py` / `apply_document_content` schema. Optional: KaTeX `<annotation encoding="application/x-tex">` retry on MathML failure (not implemented). |
 | **Phase 3** (robustness) | **Not started** | See [Phase 3](#phase-3-robustness-and-quality). |
 
-**Shipped modules (WriterAgent):** `html_math_segment.py` (MathML + TeX segmentation), `math_mml_convert.py` (MathML + LaTeX→MathML→StarMath), `math_formula_insert.py`, orchestration in `format_support.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns); vendored **`latex2mathml`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `plugin/tests/` and `plugin/tests/uno/`; agent context in `AGENTS.md`; model hints in `plugin/framework/constants.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/modules/writer/content.py` (`ApplyDocumentContent`).
+**Shipped modules (WriterAgent):** `html_math_segment.py` (MathML + TeX segmentation), `math_mml_convert.py` (MathML + LaTeX→MathML→StarMath), `math_formula_insert.py`, orchestration in `format_support.py` (`html_fragment_contains_mixed_math`, `content_has_markup` TeX patterns); vendored **`latex2mathml`** via `requirements-vendor.txt` (see `pyproject.toml` dev group for typecheck); tests under `plugin/tests/` and `plugin/tests/uno/`; agent context in `AGENTS.md`; model hints in `plugin/framework/constants.py` (`WRITER_APPLY_DOCUMENT_HTML_RULES`) and `plugin/writer/content.py` (`ApplyDocumentContent`).
 
 **Next priorities (pick from):** Phase 3 quality; Phase 1 backlog (test matrix, optional `warnings` in tool return); optional `"".join` for `apply_document_content` list `content`; policy for true multi-line / `mtable` vs global `newline` stripping; trim DEBUG logging; upstream LO Writer OLE + `newline` rendering; optional KaTeX annotation fallback.
 
@@ -183,11 +183,11 @@ Support the most structured and realistic first wave of HTML math inputs.
 
 | Area | Module |
 |------|--------|
-| Segmentation (MathML + TeX order) | [`plugin/modules/writer/html_math_segment.py`](../plugin/modules/writer/html_math_segment.py) |
-| MathML → StarMath; LaTeX → MathML (`latex2mathml`) → StarMath; `newline` mitigation | [`plugin/modules/writer/math_mml_convert.py`](../plugin/modules/writer/math_mml_convert.py) |
-| OLE insert | [`plugin/modules/writer/math_formula_insert.py`](../plugin/modules/writer/math_formula_insert.py) |
-| HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/modules/writer/format_support.py`](../plugin/modules/writer/format_support.py) |
-| Chat / tool text for `apply_document_content` | [`plugin/framework/constants.py`](../plugin/framework/constants.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`), [`plugin/modules/writer/content.py`](../plugin/modules/writer/content.py) (`ApplyDocumentContent`) |
+| Segmentation (MathML + TeX order) | [`plugin/writer/html_math_segment.py`](../plugin/writer/html_math_segment.py) |
+| MathML → StarMath; LaTeX → MathML (`latex2mathml`) → StarMath; `newline` mitigation | [`plugin/writer/math_mml_convert.py`](../plugin/writer/math_mml_convert.py) |
+| OLE insert | [`plugin/writer/math_formula_insert.py`](../plugin/writer/math_formula_insert.py) |
+| HTML + math orchestration, `content_has_markup` (`<math`, `$$`, `\(`, `\[`) | [`plugin/writer/format_support.py`](../plugin/writer/format_support.py) |
+| Chat / tool text for `apply_document_content` | [`plugin/framework/constants.py`](../plugin/framework/constants.py) (`WRITER_APPLY_DOCUMENT_HTML_RULES`), [`plugin/writer/content.py`](../plugin/writer/content.py) (`ApplyDocumentContent`) |
 | Unit tests | `plugin/tests/test_html_math_segment.py`, `plugin/tests/test_math_mml_convert.py` |
 | UNO tests | `plugin/tests/uno/test_writer_mathml_import.py` (MathML + TeX cases) |
 | Agent orientation | [`AGENTS.md`](../AGENTS.md) |
@@ -527,8 +527,8 @@ Work **after** Phase 2 (core) should assume:
 ## Related documents
 
 - Research and architecture proposal: `docs/libreoffice-html-math-proposal.md`
-- Writer HTML import + math orchestration: `plugin/modules/writer/format_support.py`
-- MathML + TeX segmentation: `plugin/modules/writer/html_math_segment.py`
-- MathML → StarMath + Writer newline mitigation; LaTeX (`latex2mathml`) → MathML → StarMath: `plugin/modules/writer/math_mml_convert.py`
-- Formula OLE insert: `plugin/modules/writer/math_formula_insert.py`
+- Writer HTML import + math orchestration: `plugin/writer/format_support.py`
+- MathML + TeX segmentation: `plugin/writer/html_math_segment.py`
+- MathML → StarMath + Writer newline mitigation; LaTeX (`latex2mathml`) → MathML → StarMath: `plugin/writer/math_mml_convert.py`
+- Formula OLE insert: `plugin/writer/math_formula_insert.py`
 - Vendored `latex2mathml`: `requirements-vendor.txt` (and dev mirror in `pyproject.toml` for typecheck)

@@ -207,7 +207,7 @@ def run_all_tests(ctx: Any) -> str:
     is_calc_fn: Callable[[Any], bool]
     is_draw_fn: Callable[[Any], bool]
     try:
-        from plugin.modules.doc.document_helpers import is_writer, is_calc, is_draw
+        from plugin.doc.document_helpers import is_writer, is_calc, is_draw
 
         is_writer_fn, is_calc_fn, is_draw_fn = is_writer, is_calc, is_draw
     except ImportError:

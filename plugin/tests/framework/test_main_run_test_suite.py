@@ -47,11 +47,12 @@ def _patch_unohelper_implementation_helper() -> None:
 _ensure_main_import_stubs()
 _patch_unohelper_implementation_helper()
 
-import plugin.main as main_mod
-
-
 def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
     """``run_module_suite`` must run on the UI thread so UNO tools pass ``execute_safe``."""
+    import importlib
+    import plugin.main as main_mod
+    importlib.reload(main_mod)
+    
     threads_seen: list[threading.Thread] = []
 
     def fake_run_module_suite(ctx, module, name, doc_model=None):
@@ -60,9 +61,10 @@ def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
 
     fake_ctx = MagicMock()
     with (
+        patch("plugin.main._tests_bundled", return_value=True),
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch.object(main_mod, "get_active_document", return_value=None),
-        patch("plugin.modules.chatbot.dialogs.msgbox"),
+        patch("plugin.chatbot.dialogs.msgbox"),
         patch("plugin.testing_runner.run_module_suite", side_effect=fake_run_module_suite),
     ):
         main_mod._run_test_suite(MagicMock(), lambda _m: True, "writer.format_tests")

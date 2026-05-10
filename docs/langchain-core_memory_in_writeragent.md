@@ -67,7 +67,7 @@ isProject: false
 
 ### 3. Wire memory into the chat sidebar and menu
 
-- **File**: `[plugin/modules/chatbot/panel_factory.py](plugin/modules/chatbot/panel_factory.py)` and the menu-chat path in `main.py`.
+- **File**: `[plugin/chatbot/panel_factory.py](plugin/chatbot/panel_factory.py)` and the menu-chat path in `main.py`.
 - **Action**:
   - Where you currently assemble a manual message list and call `LlmClient`, instead:
     - Build or reuse a `RunnableWithMessageHistory` instance per panel.

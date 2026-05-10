@@ -344,7 +344,7 @@ class TestingFactory:
             return ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=services, caller="test")
         
         # Native env
-        from plugin.modules.doc.document_helpers import DocumentService
+        from plugin.doc.document_helpers import DocumentService
         from plugin.framework.event_bus import EventBus
         services = ServiceRegistry()
         services.register("document", DocumentService())

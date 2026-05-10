@@ -40,7 +40,7 @@ def test_load_modules(mock_load_manifest):
     ]
 
     import types
-    mock_module = types.ModuleType("plugin.modules.test_module")
+    mock_module = types.ModuleType("plugin.test_module")
 
     class ModuleBase:
         pass

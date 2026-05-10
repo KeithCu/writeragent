@@ -40,7 +40,7 @@ ALWAYS_INCLUDE_EXTENSION = [
 ALWAYS_INCLUDE_PLUGIN = [
     "plugin/__init__.py",
     "plugin/main.py",
-    "plugin/modules/chatbot/panel_factory.py",
+    "plugin/chatbot/panel_factory.py",
     "plugin/version.py",
     "plugin/prompt_function.py",
     "plugin/_manifest.py",
@@ -163,7 +163,7 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False):
     include.extend(ALWAYS_INCLUDE_ROOT)
 
     for mod in modules:
-        mod_dir = "plugin/modules/%s/" % mod
+        mod_dir = "plugin/%s/" % mod
         mod_path = os.path.join(base_dir, mod_dir)
         if os.path.isdir(mod_path):
             include.append(mod_dir)
@@ -178,7 +178,7 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False):
         # Exclude voice recording: audio_recorder.py and entire contrib/audio/
         files = [
             f for f in files
-            if f != "plugin/modules/chatbot/audio_recorder.py"
+            if f != "plugin/chatbot/audio_recorder.py"
             and not f.startswith("contrib/audio/")
         ]
         print("  No-recording build: excluded audio_recorder.py and contrib/audio/")
@@ -296,7 +296,7 @@ def main():
         help="Only re-zip build/bundle/ (skip assembly)")
     parser.add_argument(
         "--no-recording", action="store_true",
-        help="Exclude voice recording: do not bundle contrib/audio/ or plugin/modules/chatbot/audio_recorder.py")
+        help="Exclude voice recording: do not bundle contrib/audio/ or plugin/chatbot/audio_recorder.py")
     parser.add_argument(
         "--no-tests", action="store_true",
         help="Exclude plugin/tests/ and testing_runner.py (for release builds)")

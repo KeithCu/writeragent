@@ -19,19 +19,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 
 SEND_HANDLER_AUDIT_PATHS = (
-    "plugin/modules/chatbot/state_machine.py",
-    "plugin/modules/chatbot/send_handlers.py",
+    "plugin/chatbot/state_machine.py",
+    "plugin/chatbot/send_handlers.py",
     "plugin/tests/test_state_machine.py",
 )
 
 TOOL_REGISTRY_PATH = "plugin/framework/tool_registry.py"
 
 UI_EFFECT_KIND_PATHS = (
-    "plugin/modules/chatbot/tool_loop_state.py",
-    "plugin/modules/chatbot/state_machine.py",
+    "plugin/chatbot/tool_loop_state.py",
+    "plugin/chatbot/state_machine.py",
 )
 
-# Expected set for ``UIEffectKind`` in plugin/modules/chatbot/state_machine.py
+# Expected set for ``UIEffectKind`` in plugin/chatbot/state_machine.py
 EXPECTED_UI_EFFECT_KINDS = frozenset({"append", "status", "debug", "info"})
 
 
