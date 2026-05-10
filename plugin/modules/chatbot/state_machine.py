@@ -5,7 +5,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import List, Any, Optional, NamedTuple, Literal
 from plugin.modules.http.errors import format_error_for_display
-from plugin.framework.state import BaseState, FsmTransition
+from plugin.framework.service import BaseState, FsmTransition
 
 # Send-handler FSM status and kind
 SendHandlerKind = Literal["audio", "image", "agent", "web"]

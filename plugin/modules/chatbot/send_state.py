@@ -4,7 +4,7 @@ from typing import List, NamedTuple, Union
 
 from enum import Enum, auto
 
-from plugin.framework.state import BaseState, FsmTransition
+from plugin.framework.service import BaseState, FsmTransition
 
 # Imperative effects for the send panel interpreter (distinct from
 # audio_recorder_state.StartRecordingEffect / StopRecordingEffect types).

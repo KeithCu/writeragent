@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from plugin.framework.state import BaseState, FsmTransition
+from plugin.framework.service import BaseState, FsmTransition
 
 try:
     import deal  # type: ignore

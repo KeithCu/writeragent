@@ -89,7 +89,7 @@ Fallback parsing when the API returns text without `tool_calls`: `get_parser_for
 ## Cross-cutting invariants
 
 - **`self.ctx`** for extension lookups (`PackageInformationProvider`, dialogs)—not `uno.getComponentContext()` when the component context differs.
-- **FSM** ([`plugin/framework/state.py`](plugin/framework/state.py)): pure `next_state` only—no UNO/I/O inside transitions; effects live in panel/MCP.
+- **FSM** ([`plugin/framework/service.py`](plugin/framework/service.py)): pure `next_state` only—no UNO/I/O inside transitions; effects live in panel/MCP.
 - **Streaming:** worker → `queue.Queue`; first tuple element must be [`StreamQueueKind`](plugin/framework/async_stream.py) (**enum members**, not bare strings). Drain on main thread with **`toolkit.processEventsToIdle()`** via **`run_async_worker_with_drain`** / **`get_toolkit(ctx)`**. No UNO **`XTimerListener`** for sidebar streaming.
 - **Smol HTTP:** [`WriterAgentSmolModel`](plugin/modules/chatbot/smol_agent.py) is the **only** path that should call `LlmClient.request_with_tools` for vendored smolagents—do not add a parallel HTTP stack; use [`smol_agent.py`](plugin/modules/chatbot/smol_agent.py) (includes adapter, model, and factory).
 - **Document context (chat):** each send replaces the `[DOCUMENT CONTENT]` system message. **Calc** `get_calc_context_for_chat` requires **`ctx`** from panel/MainJob—never `uno.getComponentContext()` on that path.

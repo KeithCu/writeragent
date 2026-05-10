@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from plugin.framework.state import (
+from plugin.framework.service import (
     BaseState,
     FsmTransition,
 )

@@ -120,12 +120,12 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 
 **Goal**: Reduce technical debt and improve code discoverability by merging small, highly related framework modules.
 
-- [ ] **Service Infrastructure**: Merge `service_base.py` and `service_registry.py` into **`services.py`**.
-- [ ] **Module Infrastructure**: Merge `module_base.py` and `module_loader.py` into **`modules.py`**.
-- [ ] **Tool Infrastructure**: Merge `tool_base.py`, `tool_registry.py`, and `tool_context.py` into **`tools.py`**.
-- [ ] **Image Handling**: Merge `plugin/modules/writer/image_tools.py` and `plugin/modules/writer/image_utils.py` into **`images.py`**.
-- [ ] **Specialized Agent Helpers**: Merge `specialized_shapes_context.py` into **`specialized_base.py`**.
-- [ ] **State & Types**: Merge `state.py` and `types.py` into **`types.py`** (or `common.py`).
+- [x] **Service Infrastructure**: Merge `service_base.py` and `service_registry.py` into **`service.py`**.
+- [x] **Module Infrastructure**: Merge `module_base.py` and `module_loader.py` into **`module_base.py`**.
+- [x] **Tool Infrastructure**: Merge `tool_base.py`, `tool_registry.py`, and `tool_context.py` into **`tool.py`**.
+- [x] **Image Handling**: Merge `plugin/modules/writer/image_tools.py` and `plugin/modules/writer/image_utils.py`.
+- [x] **Specialized Agent Helpers**: Merge `specialized_shapes_context.py` into `plugin/modules/doc/specialized_base.py`.
+- [x] **State & Types**: Merge `state.py` and `types.py` into appropriate framework files (`constants.py`, `service.py`, `errors.py`).
 
 ---
 

@@ -158,7 +158,7 @@ Roughly **40+** files were edited; groupings below match the original tracking n
 
 **Framework**
 
-- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/modules/writer/image_utils.py), [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service_registry.py`](../plugin/framework/service_registry.py), [`settings_dialog.py`](../plugin/modules/chatbot/settings_dialog.py), [`smol_model.py`](../plugin/framework/smol_model.py), [`state.py`](../plugin/framework/state.py), [`tool_registry.py`](../plugin/framework/tool_registry.py)
+- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/modules/writer/image_utils.py), [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service.py`](../plugin/framework/service.py), [`settings_dialog.py`](../plugin/modules/chatbot/settings_dialog.py), [`smol_agent.py`](../plugin/modules/chatbot/smol_agent.py), [`tool.py`](../plugin/framework/tool.py)
 
 **Entry / backends**
 

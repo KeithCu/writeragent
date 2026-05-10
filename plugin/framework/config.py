@@ -29,6 +29,7 @@ import time
 from typing import Any, Callable, Dict, cast
 
 from plugin.framework.service import ServiceBase
+from plugin.framework.event_bus import global_event_bus
 from plugin.framework.uno_context import get_ctx
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, get_provider_defaults
 from plugin.framework.errors import ConfigError, NetworkError, safe_call

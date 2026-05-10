@@ -2,7 +2,7 @@ import dataclasses
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
 
-from plugin.framework.state import BaseState, FsmTransition
+from plugin.framework.service import BaseState, FsmTransition
 
 
 # --- States ---

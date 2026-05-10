@@ -12,13 +12,17 @@ Fallback: if AsyncCallback is unavailable (unit-test, headless without
 a toolkit), the function is called directly with a warning.
 """
 
+from __future__ import annotations
+
 import logging
 import queue
 import threading
 import uuid
-from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Callable, cast
+from typing import Any, Callable, cast, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 

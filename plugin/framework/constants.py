@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from enum import IntFlag
-from typing import Any
 
 import os
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional, cast
 
-from plugin.framework.state import BaseState, FsmTransition
+from plugin.framework.service import BaseState, FsmTransition
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.modules.chatbot.send_state import SendButtonState, SendEvent, next_state as send_next_state
 from plugin.modules.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState, next_state as tool_loop_next_state
