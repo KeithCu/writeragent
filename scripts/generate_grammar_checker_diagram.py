@@ -395,7 +395,8 @@ class GrammarCheckerFlowchart:
         lines.append("   - `WriterAgentAiGrammarProofreader` class")
         lines.append("   - `doProofreading()` - Main entry point from LibreOffice")
         lines.append("")
-        lines.append("2. **`grammar_work_queue.py`** - Sequential worker + LLM path")
+        lines.append("2. **`grammar_work_queue.py`** - Queue layer (work items, dedup, enqueue supersede/stale helpers, sequential worker + LLM)")
+        lines.append("   - `GrammarWorkItem`, `deduplicate_grammar_batch()`, pure stale/supersede helpers")
         lines.append("   - `GrammarWorkQueue` - Daemon thread + batch drain + dedup")
         lines.append("   - `run_llm_and_cache()` - LLM execution and cache writes")
         lines.append("")
@@ -408,8 +409,6 @@ class GrammarCheckerFlowchart:
         lines.append("5. **`grammar_proofread_text.py`** - BreakIterator split + offsets")
         lines.append("   - `split_into_sentences()`, `normalize_errors_for_text()`")
         lines.append("   - Sentence scheduling helpers; `parse_grammar_json` re-exported from locale")
-        lines.append("")
-        lines.append("6. **`grammar_proofread_work_item.py`** - `GrammarWorkItem`, `deduplicate_grammar_batch()`")
         lines.append("")
         
         # Flow Details

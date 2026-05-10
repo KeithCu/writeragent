@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Background grammar queue: sequential LLM worker, enqueue supersede, cache fill."""
+"""Grammar work queue: work items, batch dedup, pure enqueue/stale helpers, sequential LLM worker."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ import logging
 import queue
 import threading
 import time
-from dataclasses import asdict
-from typing import Any
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, Mapping
 
 from .grammar_proofread_cache import cache_get_sentence, cache_put_sentence, ignored_rules_snapshot
 from .grammar_proofread_locale import (
@@ -23,16 +23,89 @@ from .grammar_proofread_locale import (
     parse_grammar_json,
 )
 from .grammar_proofread_text import normalize_errors_for_text, split_into_sentences
-from .grammar_proofread_work_item import GrammarWorkItem, deduplicate_grammar_batch
-from .grammar_queue_state import (
-    inflight_superseded as queue_inflight_superseded,
-    is_stale as queue_is_stale,
-    record_enqueue_latest,
-    tail_enqueue_operation,
-)
 
 log = logging.getLogger("writeragent.grammar")
 log.setLevel(logging.DEBUG)
+
+
+@dataclass(frozen=True)
+class GrammarWorkItem:
+    """One queued grammar job (defined here so dedup tests avoid UNO imports)."""
+
+    ctx: Any
+    full_text: str
+    n_start: int
+    n_end: int
+    grammar_bcp47: str
+    partial_sentence: bool
+    doc_id: str
+    inflight_key: str
+    enqueue_seq: int
+    # Main-thread sentence text from doProofreading; when set, worker skips split_into_sentences
+    # on the slice so substring BreakIterator cannot disagree with cache keys (see _run_llm_and_cache).
+    proofread_sentence_text: str = ""
+
+
+def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:
+    """Return one queue item per ``inflight_key``, keeping the highest ``enqueue_seq``."""
+    # --- Cross-sentence prefix bug (fixed): older code had a *second* pass that grouped
+    # by (doc_id, locale) and dropped slice A if slice B was a string-prefix extension
+    # of A (newest enqueue_seq wins). That wrongly dropped sentence 1 when sentence 2's
+    # text started with sentence 1's text (e.g. "No." vs "No problem today.") — different
+    # inflight_key values, unrelated timelines. One sentence while typing = one key.
+    #
+    # Do not add cross-key slice-text prefix logic here; tail-replace + this loop suffice.
+    #
+    # Alternatives if you redesign: (1) prefix-newest-wins restricted to *same*
+    # inflight_key only — usually redundant after this map; (2) span-aware dedup using
+    # overlapping [n_start,n_end); (3) keep distinct-key slices independent (current).
+    # Regression: test_two_sentences_string_prefix_collision_both_survive.
+    best_by_key: dict[str, GrammarWorkItem] = {}
+    for item in batch:
+        prev = best_by_key.get(item.inflight_key)
+        # Same physical sentence / typing line: inflight_key matches → keep newer snapshot only.
+        if prev is None or item.enqueue_seq > prev.enqueue_seq:
+            best_by_key[item.inflight_key] = item
+        elif prev is not None and item.enqueue_seq < prev.enqueue_seq:
+            log.info("[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)", item.enqueue_seq, item.inflight_key, prev.enqueue_seq)
+    return list(best_by_key.values())
+
+
+TailEnqueueOp = Literal["replace_tail", "append", "skip_tail"]
+
+
+def record_enqueue_latest(prev: dict[str, int], item: GrammarWorkItem) -> tuple[dict[str, int], bool, int | None]:
+    """Return updated ``latest_seq``, whether incoming seq was out-of-order, and prior seq for logging."""
+    key = item.inflight_key
+    prev_seq = prev.get(key)
+    out_of_order = prev_seq is not None and item.enqueue_seq < prev_seq
+    new_d = dict(prev)
+    new_d[key] = item.enqueue_seq
+    return new_d, out_of_order, prev_seq if out_of_order else None
+
+
+def is_stale(latest_seq: Mapping[str, int], item: GrammarWorkItem) -> bool:
+    """True if a newer enqueue has been recorded for this ``inflight_key``."""
+    latest = latest_seq.get(item.inflight_key)
+    return latest is not None and item.enqueue_seq < latest
+
+
+def inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueue_seq: int) -> bool:
+    """True if ``enqueue_seq`` is older than the latest known generation for ``inflight_key``."""
+    latest = latest_seq.get(inflight_key)
+    return latest is not None and enqueue_seq < latest
+
+
+def tail_enqueue_operation(tail: GrammarWorkItem | None, incoming: GrammarWorkItem) -> TailEnqueueOp:
+    """O(1) tail decision: replace newest same-key, append different key, or skip stale same-key."""
+    if tail is None:
+        return "append"
+    if tail.inflight_key != incoming.inflight_key:
+        return "append"
+    if incoming.enqueue_seq > tail.enqueue_seq:
+        return "replace_tail"
+    return "skip_tail"
+
 
 _ENQUEUE_SEQ_LOCK = threading.Lock()
 _ENQUEUE_SEQ = 0
@@ -236,12 +309,12 @@ class GrammarWorkQueue:
 
     def _is_stale(self, item: GrammarWorkItem) -> bool:
         with self._seq_lock:
-            return queue_is_stale(self._latest_seq, item)
+            return is_stale(self._latest_seq, item)
 
     def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
         """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
         with self._seq_lock:
-            return queue_inflight_superseded(self._latest_seq, inflight_key, enqueue_seq)
+            return inflight_superseded(self._latest_seq, inflight_key, enqueue_seq)
 
     def enqueue(self, item: GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call."""

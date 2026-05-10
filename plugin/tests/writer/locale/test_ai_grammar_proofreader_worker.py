@@ -34,7 +34,7 @@ setattr(
 )
 
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
-from plugin.writer.locale.grammar_proofread_work_item import GrammarWorkItem
+from plugin.writer.locale.grammar_work_queue import GrammarWorkItem
 
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:

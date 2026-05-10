@@ -72,8 +72,8 @@ from .grammar_proofread_text import (
     filter_sentence_spans_for_thresholds,
     grammar_inflight_key,
 )
-from .grammar_proofread_work_item import GrammarWorkItem
 from .grammar_work_queue import (
+    GrammarWorkItem,
     GrammarWorkQueue as _GrammarWorkQueue,  # noqa: F401 — test hook ``proofreader._GrammarWorkQueue``
     emit_grammar_status,
     grammar_obs,

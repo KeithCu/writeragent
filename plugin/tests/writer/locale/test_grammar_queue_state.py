@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from plugin.writer.locale.grammar_proofread_work_item import GrammarWorkItem
-from plugin.writer.locale.grammar_queue_state import (
+from plugin.writer.locale.grammar_work_queue import (
+    GrammarWorkItem,
     inflight_superseded,
     is_stale,
     record_enqueue_latest,
