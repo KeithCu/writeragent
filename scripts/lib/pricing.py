@@ -14,10 +14,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""OpenRouter pricing fetch/cache and cost helpers (eval/benchmark tooling; not main chat path)."""
+
 import json
 import logging
 import os
 import time
+
 from plugin.modules.http.requests import sync_request
 from plugin.framework.config import user_config_dir
 

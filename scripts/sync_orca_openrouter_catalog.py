@@ -17,7 +17,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from plugin.framework.orca_catalog import (  # noqa: E402
+from scripts.lib.orca_catalog import (  # noqa: E402
     DEFAULT_ORCA_MODELS_URL,
     capability_mismatch_warning,
     context_length_mismatch_warning,

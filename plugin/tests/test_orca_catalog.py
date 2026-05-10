@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from plugin.framework.orca_catalog import (
+from scripts.lib.orca_catalog import (
     aggregate_pricing,
     aggregate_providers,
     capability_mismatch_warning,
