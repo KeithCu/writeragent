@@ -35,7 +35,7 @@
 | Errors / `safe_json_loads` | [`plugin/framework/errors.py`](plugin/framework/errors.py) |
 | Weekly extension update check | [`plugin/chatbot/extension_update_check.py`](plugin/chatbot/extension_update_check.py) |
 
-**Layout:** `plugin/` → `framework/` (config, service, state, logging), `modules/` (ai, chatbot—including shared UNO dialogs/listeners/settings UI, writer, calc, draw, http), [`WriterAgentDialogs/`](WriterAgentDialogs/) (XDL), [`registry/`](registry/), [`scripts/`](scripts/), [`Makefile`](Makefile), [`pyproject.toml`](pyproject.toml).
+**Layout:** `plugin/` → `framework/` (config, service, state, logging), `modules/` (ai, chatbot—including shared UNO dialogs/listeners/settings UI, writer, calc, draw, http), [`extension/`](extension/) (OXT resources, [`WriterAgentDialogs/`](extension/WriterAgentDialogs/), [`idl/`](extension/idl/), [`metadata/`](extension/metadata/)), [`scripts/`](scripts/), [`Makefile`](Makefile), [`pyproject.toml`](pyproject.toml).
 
 ---
 
@@ -65,7 +65,7 @@
 | `make build` | **`ty`** + **`ruff`** + bundle |
 | `make typecheck` | **`ty`** + **mypy** + **pyright** |
 | `make test` | Full typecheck + **bandit** (see `[tool.bandit]` in [`pyproject.toml`](pyproject.toml)) + pytest + LO tests (skip if no `soffice`) |
-| `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`registry/openrouter_models.json`](registry/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |
+| `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`extension/metadata/openrouter_models.json`](extension/metadata/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |
 | `make fix-uno` | Link system UNO into `.venv` so `import uno` resolves for checkers |
 
 **Ruff:** `[tool.ruff]` line length **320** (Ruff’s maximum; fits dense one-line calls without wrapping); `[tool.ruff.format]` **`skip-magic-trailing-comma` true**—see [`pyproject.toml`](pyproject.toml). **`make build`** runs **`ruff check`**; not part of **`make test`**.

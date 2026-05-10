@@ -185,8 +185,8 @@ auto-translate:
 refresh-pot:
 	@echo "Regenerating translation templates (.pot) without updating .po..."; \
 	$(PYTHON) scripts/extract_xdl_strings.py; \
-	xgettext --add-location=file -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py"); \
-	$(PYTHON) scripts/merge_module_yaml_into_pot.py plugin/locales/writeragent.pot; \
+	xgettext --add-location=file -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py"); \
+	$(PYTHON) scripts/merge_module_yaml_into_pot.py locales/writeragent.pot; \
 	rm -f plugin/xdl_strings.py
 
 preview-translations: refresh-pot
@@ -331,21 +331,21 @@ nuke-cache-force:
 # ── Translation ──────────────────────────────────────────────────────────────
 extract-strings:
 	$(PYTHON) scripts/extract_xdl_strings.py
-	xgettext --add-location=file -d writeragent -o plugin/locales/writeragent.pot $$(find plugin -name "*.py")
-	$(PYTHON) scripts/merge_module_yaml_into_pot.py plugin/locales/writeragent.pot
+	xgettext --add-location=file -d writeragent -o locales/writeragent.pot $$(find plugin -name "*.py")
+	$(PYTHON) scripts/merge_module_yaml_into_pot.py locales/writeragent.pot
 	rm -f plugin/xdl_strings.py
 	$(MAKE) merge-translations
 
 # Merge each locale .po with writeragent.pot, then strip obsolete entries (#~) so removed
 # source strings do not accumulate. (msgattrib --no-obsolete: portable where msgmerge lacks --no-obsolete.)
 merge-translations:
-	find plugin/locales -name writeragent.po -exec sh -c 'f="$$1"; msgmerge --add-location=file --update --backup=none "$$f" plugin/locales/writeragent.pot && msgattrib --no-obsolete -o "$$f.tmp" "$$f" && mv -f "$$f.tmp" "$$f"' _ {} \;
+	find locales -name writeragent.po -exec sh -c 'f="$$1"; msgmerge --add-location=file --update --backup=none "$$f" locales/writeragent.pot && msgattrib --no-obsolete -o "$$f.tmp" "$$f" && mv -f "$$f.tmp" "$$f"' _ {} \;
 
 
 add-language:
-	mkdir -p plugin/locales/$(LANG)/LC_MESSAGES
-	cp plugin/locales/writeragent.pot plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
-	msgfmt -o plugin/locales/$(LANG)/LC_MESSAGES/writeragent.mo plugin/locales/$(LANG)/LC_MESSAGES/writeragent.po
+	mkdir -p locales/$(LANG)/LC_MESSAGES
+	cp locales/writeragent.pot locales/$(LANG)/LC_MESSAGES/writeragent.po
+	msgfmt -o locales/$(LANG)/LC_MESSAGES/writeragent.mo locales/$(LANG)/LC_MESSAGES/writeragent.po
 
 reset-lang: refresh-pot
 	@if [ -z "$(LANG)" ]; then echo "Usage: make reset-lang LANG=pt"; exit 1; fi
@@ -356,7 +356,7 @@ translate-missing:
 	$(PYTHON) scripts/translate_missing.py --execute
 
 compile-translations:
-	find plugin/locales -name "*.po" -exec sh -c 'msgfmt -o "$$(dirname $$1)/$$(basename $$1 .po).mo" "$$1"' _ {} \;
+	find locales -name "*.po" -exec sh -c 'msgfmt -o "$$(dirname $$1)/$$(basename $$1 .po).mo" "$$1"' _ {} \;
 
 
 # ── Shortcuts ───────────────────────────────────────────────────────────────
