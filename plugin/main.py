@@ -181,7 +181,7 @@ def bootstrap(ctx=None):
         # 3. Core Services (Framework)
         from plugin.framework.config import ConfigService
         from plugin.framework.document import DocumentService
-        from plugin.framework.format import FormatService
+        from plugin.modules.writer.format import FormatService
         from plugin.framework.event_bus import get_event_bus
 
         _services.register("config", ConfigService())

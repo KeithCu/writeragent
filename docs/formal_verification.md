@@ -219,7 +219,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 With state machines verified, expand to utility modules:
 
 1. **`plugin/framework/utils.py`** - URL and path utilities
-2. **`plugin/framework/format.py`** - Text normalization
+2. **`plugin/modules/writer/format.py`** - Text normalization
 3. **`plugin/modules/calc/address_utils.py`** - Calc address math
 4. **`plugin/modules/http/streaming_deltas.py`** - Streaming protocol
 
@@ -255,7 +255,7 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
          # ... implementation ...
      ```
 
-2. **`plugin/framework/format.py`**
+2. **`plugin/modules/writer/format.py`**
    - Text normalization functions
    - Used across all document types
    - Verify format preservation invariants
@@ -406,7 +406,7 @@ jobs:
       matrix:
         module: [
           "plugin/framework/utils.py",
-          "plugin/framework/format.py"
+          "plugin/modules/writer/format.py"
         ]
     
     steps:
