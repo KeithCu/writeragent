@@ -4,6 +4,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.i18n import _
+
+
+def pytest_collection_modifyitems(config, items):
+    """Filter out tests marked for the native runner so they don't clutter the skipped count."""
+    # This ensures that 'skipped' in pytest output only refers to actually disabled tests.
+    def is_native(item):
+        # 1. Check for the @native_test decorator attribute on the function
+        func = getattr(item, "obj", None)
+        if func and getattr(func, "_is_test", False):
+            return True
+            
+        # 2. Check for pytest.mark.skip(reason="...native runner...") 
+        # This catches both module-level and function-level markers
+        for marker in item.iter_markers(name="skip"):
+            reason = str(marker.kwargs.get("reason", ""))
+            if "native runner" in reason or "Run by native runner" in reason:
+                return True
+        return False
+
+    items[:] = [item for item in items if not is_native(item)]
+
+
 # Create a mock for uno to prevent ModuleNotFoundError in headless tests
 sys.modules["uno"] = MagicMock()
 

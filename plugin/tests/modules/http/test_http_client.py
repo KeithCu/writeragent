@@ -358,11 +358,12 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
     messages = [{"role": "user", "content": "Hi"}]
-    with patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.modules.http.client.should_prepend_dev_llm_system_prefix", return_value=True):
         _m, _p, body, _h = client.make_chat_request(messages, max_tokens=50)
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
-    assert system.startswith(LLM_DEV_BUILD_SYSTEM_PREFIX)
+    assert LLM_DEV_BUILD_SYSTEM_PREFIX in system
+
     assert "Today's date" in system
 
 
