@@ -215,6 +215,12 @@ def _emit_grammar_status(phase: str, text: str, *, result: str = "", elapsed_ms:
 
 
 from .grammar_proofread_engine import GrammarWorkItem as _GrammarWorkItem, NormalizedProofError, deduplicate_grammar_batch as _deduplicate_grammar_batch
+from .grammar_queue_state import (
+    inflight_superseded as _grammar_queue_inflight_superseded,
+    is_stale as _grammar_queue_is_stale,
+    record_enqueue_latest,
+    tail_enqueue_operation,
+)
 
 
 class _GrammarWorkQueue:
@@ -251,21 +257,20 @@ class _GrammarWorkQueue:
             return self._latest_seq.get(inflight_key)
 
     def _is_stale(self, item: _GrammarWorkItem) -> bool:
-        latest = self._latest_seq_for(item.inflight_key)
-        return latest is not None and item.enqueue_seq < latest
+        with self._seq_lock:
+            return _grammar_queue_is_stale(self._latest_seq, item)
 
     def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
         """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
-        latest = self._latest_seq_for(inflight_key)
-        return latest is not None and enqueue_seq < latest
+        with self._seq_lock:
+            return _grammar_queue_inflight_superseded(self._latest_seq, inflight_key, enqueue_seq)
 
     def enqueue(self, item: _GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call."""
         with self._seq_lock:
-            prev_seq = self._latest_seq.get(item.inflight_key)
-            if prev_seq is not None and item.enqueue_seq < prev_seq:
-                log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, prev_seq)
-            self._latest_seq[item.inflight_key] = item.enqueue_seq
+            self._latest_seq, out_of_order, superseded_prev_seq = record_enqueue_latest(self._latest_seq, item)
+            if out_of_order:
+                log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, superseded_prev_seq)
         log.info("[grammar] queue enqueue doc_id=%s locale=%s seq=%s key=%s len=%s preview=%r", item.doc_id, item.grammar_bcp47, item.enqueue_seq, item.inflight_key, len(item.full_text[item.n_start : item.n_end]), self._slice_preview(item))
         _grammar_obs("queue_enqueue", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key, n_start=item.n_start, n_end=item.n_end, slice_len=len(item.full_text[item.n_start : item.n_end]), partial_sentence=item.partial_sentence, preview=_slice_preview_debug(item.full_text[item.n_start : item.n_end]))  # fmt: skip
 
@@ -273,17 +278,19 @@ class _GrammarWorkQueue:
         # In a typing burst, the most recent item is almost always the one
         # we want to supersede.
         with self._q.mutex:
-            if self._q.queue and self._q.queue[-1].inflight_key == item.inflight_key:
-                if item.enqueue_seq > self._q.queue[-1].enqueue_seq:
-                    log.info("[grammar] queue replace-at-tail key=%s: seq=%s replacing older seq=%s", item.inflight_key, item.enqueue_seq, self._q.queue[-1].enqueue_seq)
-                    _grammar_obs("queue_replace_tail", inflight_key=item.inflight_key, new_seq=item.enqueue_seq, old_seq=self._q.queue[-1].enqueue_seq)
-                    self._q.queue[-1] = item
-                else:
-                    log.info("[grammar] queue skip-stale-tail key=%s: incoming seq=%s <= existing seq=%s", item.inflight_key, item.enqueue_seq, self._q.queue[-1].enqueue_seq)
-            else:
+            tail = self._q.queue[-1] if self._q.queue else None
+            op = tail_enqueue_operation(tail, item)
+            if op == "replace_tail":
+                assert tail is not None
+                log.info("[grammar] queue replace-at-tail key=%s: seq=%s replacing older seq=%s", item.inflight_key, item.enqueue_seq, tail.enqueue_seq)
+                _grammar_obs("queue_replace_tail", inflight_key=item.inflight_key, new_seq=item.enqueue_seq, old_seq=tail.enqueue_seq)
+                self._q.queue[-1] = item
+            elif op == "append":
                 self._q.queue.append(item)
                 self._q.unfinished_tasks += 1
                 self._q.not_empty.notify()
+            else:
+                log.info("[grammar] queue skip-stale-tail key=%s: incoming seq=%s <= existing seq=%s", item.inflight_key, item.enqueue_seq, tail.enqueue_seq if tail else None)
 
         self._ensure_worker()
 
