@@ -52,7 +52,7 @@ Attempting to verify 23 KLOC simultaneously is intractable. We must apply a tier
 
 ### Phase 1: Triage and "Hexagonal" Segregation
 The codebase must be categorized by its distance from the UNO boundary.
-1.  **Tier 0 (The Core - Immediate ROI):** Files with zero UNO dependencies. These are pure data-transformation pipelines (`config.py` URL helpers, `address_utils.py`, `pricing.py`, `streaming_deltas.py`).
+1.  **Tier 0 (The Core - Immediate ROI):** Files with zero UNO dependencies. These are pure data-transformation pipelines (`config.py` URL helpers, `address_utils.py`, `pricing.py`, `async_stream.py` delta accumulation).
 2.  **Tier 1 (The Adapters):** Code that parses complex UNO structures into pure Python data models (e.g., extracting an AST from LibreOffice).
 3.  **Tier 2 (The Orchestrators):** State machines and side-effect-heavy UI controllers (`panel_factory.py`).
 
@@ -90,7 +90,7 @@ CrossHair's Z3 engine will not just throw random fuzzing data at the function; i
 When CrossHair finds a counterexample, it provides the exact symbolic input required to break our algorithm. We patch the code, and the state space is secured.
 
 ### Phase 4: SMT-Driven Protocol Verification
-Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (`plugin/modules/http/streaming_deltas.py`). 
+Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (in `plugin/framework/async_stream.py`). 
 
 By defining contracts that assert *"No matter how a JSON delta stream is arbitrarily chunked or fragmented over the network, the final assembled output string will exactly match the output of a synchronous, unfragmented payload,"* we can use CrossHair to mathematically prove our streaming parser's resilience against arbitrary network fragmentation.
 
@@ -221,7 +221,7 @@ With state machines verified, expand to utility modules:
 1. **`plugin/framework/config.py`** - Settings and URL utilities
 2. **`plugin/modules/writer/format_support.py`** - Text normalization
 3. **`plugin/modules/calc/address_utils.py`** - Calc address math
-4. **`plugin/framework/streaming_deltas.py`** - Streaming protocol
+4. **`plugin/framework/async_stream.py`** - Streaming protocol
 
 Add contracts and run CrossHair verification on each module.
 

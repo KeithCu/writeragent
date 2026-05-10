@@ -22,7 +22,7 @@ if _root not in sys.path:
 
 MODEL = "x-ai/grok-4.1-fast"
 
-from plugin.framework.streaming_deltas import accumulate_delta
+from plugin.framework.async_stream import accumulate_delta
 from plugin.main import get_tools
 try:
     WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")

@@ -13,7 +13,7 @@ References: OpenAI [Streaming](https://platform.openai.com/docs/api-reference/st
 3. [Reasoning / thinking in the stream](#3-reasoning--thinking-in-the-stream)
 4. [Summary table](#4-summary-table)
 5. [Testing with OpenRouter](#5-testing-with-openrouter)
-6. [Implementation: `streaming_deltas.py`](#6-implementation-streaming_deltaspy)
+6. [Implementation: Streaming deltas](#6-implementation-streaming-deltas)
 7. [Error Handling and UI Threading](#7-error-handling-and-ui-threading)
 8. [Parallel Tool Calling](#8-parallel-tool-calling)
 
@@ -203,11 +203,11 @@ Once you’ve run these tests, you can document the **actual** chunk shapes and 
 
 ---
 
-## 6. Implementation: `streaming_deltas.py`
+## 6. Implementation: Streaming deltas
 
 We chose the **lightweight, dependency-free** approach:
 
-- We copied **[`accumulate_delta`](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/_deltas.py)** from the OpenAI Python SDK into **`core/streaming_deltas.py`**.
+- We copied **[`accumulate_delta`](https://github.com/openai/openai-python/blob/main/src/openai/lib/streaming/_deltas.py)** from the OpenAI Python SDK into **`plugin/framework/async_stream.py`**.
 - This function handles the complex logic of merging partial tool call arguments (which can be split across many chunks) and concatenating content strings.
 - logic: `accumulate_delta(snapshot, delta)` -> updates snapshot in place.
 

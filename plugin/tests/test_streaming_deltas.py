@@ -1,5 +1,5 @@
 import pytest
-from plugin.framework.streaming_deltas import accumulate_delta
+from plugin.framework.async_stream import accumulate_delta
 
 def test_accumulate_delta_simple():
     acc = {"a": "hello"}

@@ -89,7 +89,7 @@ def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | No
 
 
 # accumulate_delta is required for tool-calling: it merges streaming deltas into message_snapshot so full tool_calls (with function.arguments) are available.
-from plugin.framework.streaming_deltas import accumulate_delta
+from plugin.framework.async_stream import accumulate_delta
 from plugin.framework.constants import APP_REFERER, APP_TITLE, LLM_DEV_BUILD_SYSTEM_PREFIX, should_prepend_dev_llm_system_prefix
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
