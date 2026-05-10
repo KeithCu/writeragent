@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Locales must match ``GRAMMAR_REGISTRY_LOCALE_TAGS`` in ``grammar_locale_registry`` (Lightproof-style). -->
+<!-- Locales must match ``GRAMMAR_REGISTRY_LOCALE_TAGS`` in ``grammar_proofread_locale.py`` (Lightproof-style). -->
 <oor:component-data oor:name="Linguistic"
         oor:package="org.openoffice.Office" xmlns:oor="http://openoffice.org/2001/registry"
         xmlns:xs="http://www.w3.org/2001/XMLSchema">

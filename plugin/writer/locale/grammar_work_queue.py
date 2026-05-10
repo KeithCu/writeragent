@@ -97,7 +97,7 @@ def run_llm_and_cache(
         from plugin.framework.queue_executor import is_agent_active, llm_request_lane
         from plugin.framework.client.llm_client import LlmClient
 
-        from .grammar_locale_registry import grammar_english_name_for_bcp47
+        from .grammar_proofread_locale import grammar_english_name_for_bcp47
 
         gq = grammar_queue or _grammar_queue_singleton
 

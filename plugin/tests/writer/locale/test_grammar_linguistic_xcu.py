@@ -10,7 +10,7 @@ import os
 import ast
 import xml.etree.ElementTree as ET
 
-from plugin.writer.locale.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS
+from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _OOR = "http://openoffice.org/2001/registry"
 _IMPLEMENTATION = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
@@ -43,7 +43,7 @@ def _child_node(parent: ET.Element, name: str) -> ET.Element:
     raise AssertionError(f"missing <node oor:name={name!r}>")
 
 
-def test_linguistic_writer_agent_grammar_xcu_locales_match_engine() -> None:
+def test_linguistic_writer_agent_grammar_xcu_locales_match_registry() -> None:
     path = os.path.join(
         _repo_root(),
         "extension",

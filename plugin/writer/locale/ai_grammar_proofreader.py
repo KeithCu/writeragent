@@ -60,8 +60,11 @@ from .grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore
 from .grammar_proofread_locale import (
     GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,  # noqa: F401 — module API for tests (`proofreader.GRAMMAR_*`)
     GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,  # noqa: F401
+    GRAMMAR_REGISTRY_LOCALE_TAGS,
+    bcp47_to_uno_lang_country,
     count_nonspace_chars,
     looks_complete_sentence,
+    normalize_uno_locale_to_bcp47,
 )
 from .grammar_proofread_text import (
     NormalizedProofError,
@@ -129,8 +132,6 @@ def _locale_tuple() -> tuple[Any, ...]:
     not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
     when opening Tools → Options → Language Settings (Writing aids).
     """
-    from .grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS, bcp47_to_uno_lang_country
-
     if uno_mod is None:
         return ()
     out: list[Any] = []
@@ -274,8 +275,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     # --- XSupportedLocales ---
     def hasLocale(self, aLocale: Any) -> bool:
         try:
-            from .grammar_locale_registry import normalize_uno_locale_to_bcp47
-
             if aLocale is None or not self._locales:
                 return False
             return normalize_uno_locale_to_bcp47(aLocale) is not None
@@ -302,8 +301,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             from plugin.framework.config import get_config_bool
             from plugin.framework.logging import init_logging
-            from .grammar_locale_registry import normalize_uno_locale_to_bcp47
-
             try:
                 init_logging(self.ctx)
             except Exception as e:
