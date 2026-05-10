@@ -234,7 +234,7 @@ def test_web_research_tool():
             )
 
 
-    with patch("plugin.framework.smol_agent.WriterAgentSmolModel.generate", new=mock_generate):
+    with patch("plugin.modules.chatbot.smol_agent.WriterAgentSmolModel.generate", new=mock_generate):
         # We also need to mock requests.get/post that the default tools use under the hood
         # We can just mock the output of the VisitWebpageTool entirely to avoid making HTTP requests.
 
@@ -286,7 +286,7 @@ def test_web_research_tool_stop():
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
     ctx.stop_checker = lambda: True  # Stop immediately
 
-    with patch("plugin.framework.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
+    with patch("plugin.modules.chatbot.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
                 from plugin.modules.writer.specialized import DelegateToSpecializedWriter

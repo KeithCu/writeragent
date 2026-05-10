@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.framework.smol_agent import WriterAgentSmolModel
+from plugin.modules.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.contrib.smolagents.models import ChatMessage, MessageRole
 from plugin.contrib.smolagents.tools import Tool
 

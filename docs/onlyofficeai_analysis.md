@@ -97,7 +97,7 @@ OnlyOffice runs macros in document context via `Asc.Editor.callCommand` / `callM
 - **Capability bitmasks** (e.g. tools / chat / image flags).
 - **Proxy vs direct** (`isUseProxy`) for CORS/network—relevant for enterprise LibreOffice deployments with odd HTTP paths.
 
-WriterAgent aligns on capabilities via [`ModelCapability`](plugin/framework/types.py) (`IntFlag`) and provider logic in [`plugin/framework/auth.py`](plugin/framework/auth.py) / [`LlmClient`](plugin/modules/http/client.py).
+WriterAgent aligns on capabilities via [`ModelCapability`](plugin/framework/constants.py) (`IntFlag`) and provider logic in [`plugin/framework/auth.py`](plugin/framework/auth.py) / [`LlmClient`](plugin/modules/http/client.py).
 
 ### 4.3 Tool registration (`RegisteredFunction` → OpenAI-shaped `tools`)
 
@@ -125,7 +125,7 @@ OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAg
 
 ### 5.2 Model capabilities
 
-[`ModelCapability`](plugin/framework/types.py) uses bitflags for chat / vision / tools / etc., similar in spirit to OO’s capability UI flags.
+[`ModelCapability`](plugin/framework/constants.py) uses bitflags for chat / vision / tools / etc., similar in spirit to OO’s capability UI flags.
 
 ### 5.3 Native provider shims and wire-level streaming
 
@@ -277,7 +277,7 @@ Derived from `helpers.js` unique `name` values (re-verify when refreshing). “C
 
 ## 10. Implemented WriterAgent improvements (inspired by OnlyOffice-style thinking)
 
-1. **`ModelCapability`** — [`plugin/framework/types.py`](plugin/framework/types.py).
+1. **`ModelCapability`** — [`plugin/framework/constants.py`](plugin/framework/constants.py).
 2. **Native shims** — Anthropic `/v1/messages`, Gemini `v1beta`, stream quirks; legacy Bearer fallback — [`plugin/modules/http/client.py`](plugin/modules/http/client.py), [`plugin/framework/auth.py`](plugin/framework/auth.py).
 3. **Stream line handling** — `iterate_sse` + delta patches — [`plugin/modules/http/stream_normalizer.py`](plugin/modules/http/stream_normalizer.py).
 4. **Form tools** — [`plugin/modules/writer/forms.py`](plugin/modules/writer/forms.py).

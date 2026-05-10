@@ -89,7 +89,7 @@ flowchart TB
 | Concern | Location |
 |---------|-----------|
 | Smol wire policy **send generated schemas** | [`plugin/framework/smol_model.py`](../plugin/framework/smol_model.py) — `WriterAgentSmolModel.generate` |
-| Smol agent construction | [`plugin/framework/smol_agent_factory.py`](../plugin/framework/smol_agent_factory.py) — `build_toolcalling_agent` |
+| Smol agent construction | [`plugin/modules/chatbot/smol_agent.py`](../plugin/modules/chatbot/smol_agent.py) — `build_toolcalling_agent` |
 | `ToolBase` → smol `inputs` | [`plugin/framework/smol_tool_adapter.py`](../plugin/framework/smol_tool_adapter.py) |
 | Librarian | [`plugin/modules/chatbot/librarian.py`](../plugin/modules/chatbot/librarian.py) |
 | Specialized delegation | [`plugin/modules/doc/specialized_base.py`](../plugin/modules/doc/specialized_base.py) |

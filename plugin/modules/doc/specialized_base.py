@@ -23,7 +23,7 @@ from plugin.framework.tool import ToolBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
 from plugin.framework.i18n import _
 from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
-from plugin.framework.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
+from plugin.modules.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
 from plugin.modules.doc.specialized_shapes_context import format_shapes_canvas_context
 
 log = logging.getLogger("writeragent.specialized")

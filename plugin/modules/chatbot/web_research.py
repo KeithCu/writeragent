@@ -89,7 +89,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         try:
             from plugin.framework.config import get_api_config, get_config_int, user_config_dir
             from plugin.modules.http.client import LlmClient
-            from plugin.framework.smol_agent import WriterAgentSmolModel, SmolAgentExecutor
+            from plugin.modules.chatbot.smol_agent import WriterAgentSmolModel, SmolAgentExecutor
             from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
         except (ImportError, ValueError, TypeError) as e:
             return format_error_payload(ToolExecutionError(f"Failed to load required dependencies: {e}"))
