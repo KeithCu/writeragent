@@ -13,7 +13,7 @@ from plugin.modules.draw.math_insert import InsertMathDraw
 
 
 def _smol_inputs_from_tool_parameters(writer_tool: object) -> dict:
-    """Mirror plugin.framework.specialized_base.WrappedSmolTool.__init__."""
+    """Mirror plugin.modules.doc.specialized_base.WrappedSmolTool.__init__."""
     inputs: dict = {}
     params = getattr(writer_tool, "parameters", {}) or {}
     props = params.get("properties", {})

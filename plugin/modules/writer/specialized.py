@@ -18,7 +18,7 @@
 
 import logging
 
-from plugin.framework.specialized_base import DelegateToSpecializedBase
+from plugin.modules.doc.specialized_base import DelegateToSpecializedBase
 from plugin.modules.writer.base import ToolWriterSpecialBase
 
 log = logging.getLogger("writeragent.writer")

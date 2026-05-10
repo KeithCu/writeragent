@@ -9,7 +9,7 @@ from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
 
-from plugin.framework.specialized_shapes_context import format_shapes_canvas_context
+from plugin.modules.doc.specialized_shapes_context import format_shapes_canvas_context
 
 
 def test_format_shapes_canvas_context_writer_standard_page():
