@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, cast
+from typing import Any, Iterable, Mapping, Sequence, cast
 
 import json_repair
 
 from plugin.framework.json_utils import safe_json_loads
 
-from .grammar_proofread_cache import fingerprint_for_text
+from .grammar_proofread_cache import fingerprint_for_text, looks_complete_sentence
 
 _grammar_diag = logging.getLogger("writeragent.grammar")
 
@@ -154,6 +154,71 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
         pos = ws_end
 
     return sentences or [(0, text)]
+
+
+# ---------------------------------------------------------------------------
+# Proofreading sentence selection (same module as ``split_into_sentences``). Not in
+# ``grammar_proofread_cache``: scheduling calls ``split_into_sentences`` above; this file
+# already imports cache — putting these helpers in cache would circular-import.
+# ---------------------------------------------------------------------------
+
+GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
+
+_NONSPACE_SCHEDULE_RE = re.compile(r"\S", re.UNICODE)
+
+
+def count_nonspace_chars(text: str) -> int:
+    return len(_NONSPACE_SCHEDULE_RE.findall(text or ""))
+
+
+def grammar_inflight_key(a_document_identifier: str, loc_key: str, sentence_start: int) -> str:
+    """Queue supersede key: stable while editing inside one sentence; distinct per sentence in a paragraph."""
+    return f"{a_document_identifier}|{loc_key}|{sentence_start}"
+
+
+def span_overlaps_range(s_start: int, s_end: int, lo: int, hi: int) -> bool:
+    """Half-open ``[s_start, s_end)`` overlaps ``[lo, hi)`` (empty range yields False)."""
+    return lo < hi and s_start < hi and s_end > lo
+
+
+def candidate_sentence_spans_for_proofreading(
+    ctx: Any,
+    loc_key: str,
+    a_text: str,
+    n_start_lo: int,
+    n_suggested_behind_end: int,
+) -> list[tuple[int, int, str]]:
+    """Return ``(abs_start, abs_end, sentence_text)`` for sentences Writer should check this call.
+
+    - ``n_start_lo == 0``: paragraph-scale pass — all sentences in ``a_text``.
+    - Else: incremental — sentences overlapping LibreOffice's active range.
+    """
+    all_sents = split_into_sentences(ctx, loc_key, a_text)
+    if not all_sents:
+        return []
+    nlen = len(a_text)
+    spans: list[tuple[int, int, str]] = []
+    for off, txt in all_sents:
+        end = off + len(txt)
+        spans.append((off, end, txt))
+    if n_start_lo == 0:
+        return spans
+    lo = max(0, min(n_start_lo, nlen))
+    hi = max(lo, min(n_suggested_behind_end, nlen))
+    return [(s, e, t) for s, e, t in spans if span_overlaps_range(s, e, lo, hi)]
+
+
+def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+    """Drop incomplete sentences shorter than ``GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS`` (conservative churn avoidance)."""
+    out: list[tuple[int, int, str]] = []
+    for s, e, txt in spans:
+        nonspace_len = count_nonspace_chars(txt)
+        complete_sentence = looks_complete_sentence(txt)
+        partial_allowed = nonspace_len >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
+        if not complete_sentence and not partial_allowed:
+            continue
+        out.append((s, e, txt))
+    return out
 
 
 # ---------------------------------------------------------------------------

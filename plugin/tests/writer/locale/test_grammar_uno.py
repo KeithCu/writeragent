@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.config import get_config_bool, set_config
-from plugin.writer.locale import grammar_proofread_engine as eng
+from plugin.writer.locale import grammar_proofread_cache as gc
+from plugin.writer.locale import grammar_proofread_text as gt
 from plugin.testing_runner import native_test, setup, teardown
 
 _test_ctx: Any = None
@@ -32,9 +33,9 @@ def teardown_grammar_proof_tests(ctx: Any) -> None:
     global _test_ctx, _saved_enabled
     if _saved_enabled is not None:
         set_config(ctx, "doc.grammar_proofreader_enabled", _saved_enabled)
-    eng.cache_clear()
-    eng.clear_sentence_cache()
-    eng.ignore_rules_clear()
+    gc.cache_clear()
+    gc.clear_sentence_cache()
+    gc.ignore_rules_clear()
     _test_ctx = None
 
 
@@ -52,13 +53,13 @@ def test_do_proofreading_returns_cached_errors() -> None:
     n_end = len(text)
     from dataclasses import asdict
 
-    norms = eng.normalize_errors_for_text(
+    norms = gt.normalize_errors_for_text(
         text,
         0,
         len(text),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
     )
-    eng.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
+    gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
 
     res = pr.doProofreading("doc-42", text, loc, n_start, n_end, ())
     assert res is not None
@@ -83,7 +84,7 @@ def test_ignore_rule_filters_cached_error() -> None:
     n_end = len(text)
     from dataclasses import asdict
 
-    norms = eng.normalize_errors_for_text(
+    norms = gt.normalize_errors_for_text(
         text,
         0,
         len(text),
@@ -91,7 +92,7 @@ def test_ignore_rule_filters_cached_error() -> None:
     )
     assert len(norms) == 1
     rid = norms[0].rule_identifier
-    eng.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
+    gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
     res1 = pr.doProofreading("doc-99", text, loc, n_start, n_end, ())
     assert len(tuple(res1.aErrors)) == 1
     pr.ignoreRule(rid, loc)
@@ -114,13 +115,13 @@ def test_incomplete_short_sentence_skips_before_cache_lookup() -> None:
     n_end = len(text)
     from dataclasses import asdict
 
-    norms = eng.normalize_errors_for_text(
+    norms = gt.normalize_errors_for_text(
         text,
         0,
         len(text),
         [{"wrong": "short", "correct": "brief", "type": "style", "reason": "test"}],
     )
-    eng.cache_put_sentence("en-US", text[n_start:n_end], [asdict(n) for n in norms])
+    gc.cache_put_sentence("en-US", text[n_start:n_end], [asdict(n) for n in norms])
 
     res = pr.doProofreading("doc-123", text, loc, n_start, n_end, ())
     assert len(tuple(res.aErrors)) == 0
@@ -141,13 +142,13 @@ def test_incomplete_long_sentence_uses_cache_when_allowed() -> None:
     slice_txt = text[n_start:n_end]
     from dataclasses import asdict
 
-    norms = eng.normalize_errors_for_text(
+    norms = gt.normalize_errors_for_text(
         slice_txt,
         0,
         len(slice_txt),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
     )
-    eng.cache_put_sentence("en-US", slice_txt, [asdict(n) for n in norms])
+    gc.cache_put_sentence("en-US", slice_txt, [asdict(n) for n in norms])
 
     res = pr.doProofreading("doc-124", text, loc, n_start, n_end, ())
     errs = tuple(res.aErrors)
@@ -167,17 +168,17 @@ def test_paragraph_two_cached_sentences_return_both_errors() -> None:
     pr = WriterAgentAiGrammarProofreader(_test_ctx)
     loc = uno.createUnoStruct("com.sun.star.lang.Locale", "en", "US", "")
     text = "Alpha done. Beta gone."
-    sents = eng.split_into_sentences(_test_ctx, "en-US", text)
+    sents = gt.split_into_sentences(_test_ctx, "en-US", text)
     assert len(sents) >= 2
     for off, st in sents[:2]:
         wrong = "done" if "Alpha" in st else "gone"
-        norms = eng.normalize_errors_for_text(
+        norms = gt.normalize_errors_for_text(
             st,
             0,
             len(st),
             [{"wrong": wrong, "correct": "x", "type": "style", "reason": "t"}],
         )
-        eng.cache_put_sentence("en-US", st, [asdict(n) for n in norms])
+        gc.cache_put_sentence("en-US", st, [asdict(n) for n in norms])
     res = pr.doProofreading("doc-pair", text, loc, 0, len(text), ())
     errs = tuple(res.aErrors)
     assert len(errs) == 2
@@ -196,16 +197,16 @@ def test_incremental_nonzero_start_returns_only_overlapping_sentence() -> None:
     pr = WriterAgentAiGrammarProofreader(_test_ctx)
     loc = uno.createUnoStruct("com.sun.star.lang.Locale", "en", "US", "")
     text = "First. Second. Third. Fourth."
-    sents = eng.split_into_sentences(_test_ctx, "en-US", text)
+    sents = gt.split_into_sentences(_test_ctx, "en-US", text)
     assert len(sents) >= 3
     t_off, t_txt = sents[2]
-    norms = eng.normalize_errors_for_text(
+    norms = gt.normalize_errors_for_text(
         t_txt,
         0,
         len(t_txt),
         [{"wrong": "Third", "correct": "third", "type": "spelling", "reason": "t"}],
     )
-    eng.cache_put_sentence("en-US", t_txt, [asdict(n) for n in norms])
+    gc.cache_put_sentence("en-US", t_txt, [asdict(n) for n in norms])
     res = pr.doProofreading("doc-inc", text, loc, t_off, t_off + len(t_txt), ())
     errs = tuple(res.aErrors)
     assert len(errs) == 1

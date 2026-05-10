@@ -1,13 +1,7 @@
 import uno
 from plugin.testing_runner import native_test
-from plugin.writer.locale.grammar_proofread_engine import (
-    cache_get_sentence,
-    cache_put_sentence,
-    clear_sentence_cache,
-    make_sentence_key,
-    split_into_sentences,
-    normalize_errors_for_text,
-)
+from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, cache_put_sentence, clear_sentence_cache, make_sentence_key
+from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text, split_into_sentences
 
 @native_test
 def test_split_basic_two_sentences(uno_context=None):

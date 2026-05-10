@@ -12,7 +12,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from plugin.framework.constants import get_locales_dir
-from plugin.writer.locale import grammar_proofread_engine as eng
 from plugin.writer.locale.grammar_locale_registry import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
@@ -90,7 +89,9 @@ def test_grammar_tag_count() -> None:
 
 
 def test_parity_grammar_engine_and_xcu() -> None:
-    assert eng.GRAMMAR_REGISTRY_LOCALE_TAGS == GRAMMAR_REGISTRY_LOCALE_TAGS
+    from plugin.writer.locale.grammar_proofread_engine import GRAMMAR_REGISTRY_LOCALE_TAGS as engine_shim_tags
+
+    assert engine_shim_tags == GRAMMAR_REGISTRY_LOCALE_TAGS
 
 
 def test_normalize_german_regional() -> None:

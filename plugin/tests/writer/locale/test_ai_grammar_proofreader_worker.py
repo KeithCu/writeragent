@@ -34,7 +34,7 @@ setattr(
 )
 
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
-from plugin.writer.locale.grammar_proofread_engine import GrammarWorkItem
+from plugin.writer.locale.grammar_proofread_work_item import GrammarWorkItem
 
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
@@ -167,10 +167,10 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
-        patch("plugin.writer.locale.grammar_proofread_engine.split_into_sentences", side_effect=_split_must_not_run),
-        patch("plugin.writer.locale.grammar_proofread_engine.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_engine.cache_put_sentence"),
+        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
+        patch("plugin.writer.locale.grammar_proofread_text.parse_grammar_json", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock(return_value=None)
         lane_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -204,9 +204,9 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
-        patch("plugin.writer.locale.grammar_proofread_engine.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_engine.cache_put_sentence"),
+        patch("plugin.writer.locale.grammar_proofread_text.parse_grammar_json", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock(return_value=None)
         lane_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -339,25 +339,29 @@ def test_enqueue_skip_stale_duplicate() -> None:
 
 
 def test_candidate_sentence_spans_paragraph_includes_all() -> None:
-    from unittest.mock import MagicMock
+    from unittest.mock import patch
 
     from plugin.writer.locale.ai_grammar_proofreader import candidate_sentence_spans_for_proofreading
 
-    eng = MagicMock()
-    eng.split_into_sentences.return_value = [(0, "A."), (4, "B.")]
-    spans = candidate_sentence_spans_for_proofreading(None, eng, "en-US", "A. B.", 0, len("A. B."))
+    with patch(
+        "plugin.writer.locale.grammar_proofread_text.split_into_sentences",
+        return_value=[(0, "A."), (4, "B.")],
+    ):
+        spans = candidate_sentence_spans_for_proofreading(None, "en-US", "A. B.", 0, len("A. B."))
     assert len(spans) == 2
     assert spans[1][2] == "B."
 
 
 def test_candidate_sentence_spans_incremental_second_sentence_only() -> None:
-    from unittest.mock import MagicMock
+    from unittest.mock import patch
 
     from plugin.writer.locale.ai_grammar_proofreader import candidate_sentence_spans_for_proofreading
 
-    eng = MagicMock()
-    eng.split_into_sentences.return_value = [(0, "A."), (4, "B.")]
-    spans = candidate_sentence_spans_for_proofreading(None, eng, "en-US", "A. B.", 4, 8)
+    with patch(
+        "plugin.writer.locale.grammar_proofread_text.split_into_sentences",
+        return_value=[(0, "A."), (4, "B.")],
+    ):
+        spans = candidate_sentence_spans_for_proofreading(None, "en-US", "A. B.", 4, 8)
     assert len(spans) == 1
     assert spans[0][2] == "B."
 
@@ -384,12 +388,12 @@ def test_worker_one_llm_call_per_sentence_when_slice_splits() -> None:
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
-        patch("plugin.writer.locale.grammar_proofread_engine.split_into_sentences") as split_mock,
-        patch("plugin.writer.locale.grammar_proofread_engine.cache_get_sentence", return_value=None),
-        patch("plugin.writer.locale.grammar_proofread_engine.cache_put_sentence"),
-        patch("plugin.writer.locale.grammar_proofread_engine.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_engine.ignored_rules_snapshot", return_value=frozenset()),
+        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as split_mock,
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
+        patch("plugin.writer.locale.grammar_proofread_text.parse_grammar_json", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=frozenset()),
     ):
         lane_ctx.return_value.__enter__ = MagicMock(return_value=None)
         lane_ctx.return_value.__exit__ = MagicMock(return_value=False)
@@ -407,4 +411,4 @@ def test_worker_one_llm_call_per_sentence_when_slice_splits() -> None:
         )
     assert client.chat_completion_sync.call_count == 2
     bodies = [call[0][0][1]["content"] for call in client.chat_completion_sync.call_args_list]
-    assert bodies == ["A.", "B."]
+    assert bodies == ["A. ", "B."]

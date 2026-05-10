@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.writer.locale.grammar_proofread_engine import (
+from plugin.writer.locale.grammar_proofread_work_item import (
     GrammarWorkItem,
     deduplicate_grammar_batch,
 )
@@ -194,7 +194,7 @@ def test_two_sentences_string_prefix_collision_both_survive() -> None:
     Historical bug: grouping by (doc, locale) and dropping prefix-related slices removed
     the first sentence when the second sentence's text extended the first (e.g. ``No.``
     vs ``No problem today.``). Fix: dedup by ``inflight_key`` only (see comments above
-    ``deduplicate_grammar_batch`` in ``grammar_proofread_engine.py``).
+    ``deduplicate_grammar_batch`` in ``grammar_proofread_work_item.py``).
     """
     items = [
         GrammarWorkItem(

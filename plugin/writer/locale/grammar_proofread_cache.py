@@ -2,7 +2,12 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sentence-level LRU cache and fingerprinting for grammar proofreading."""
+"""Sentence-level LRU cache and fingerprinting for grammar proofreading.
+
+Sentence *scheduling* (mapping LibreOffice ``doProofreading`` ranges to sentence spans)
+lives in ``grammar_proofread_text`` next to ``split_into_sentences``: importing the
+splitter here would circular-import (this module is already imported by ``grammar_proofread_text``).
+"""
 
 from __future__ import annotations
 

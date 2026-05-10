@@ -24,7 +24,7 @@ from . import styles, tracking, page, search, structural, outline, navigation, t
 from .specialized import bookmarks
 from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded  # noqa: F401
 from .locale import linguistic_index
-from .locale import ai_grammar_proofreader, grammar_locale_registry, grammar_proofread_engine  # noqa: F401
+from .locale import ai_grammar_proofreader, grammar_locale_registry, grammar_work_queue  # noqa: F401
 
 
 class WriterModule(ModuleBase):

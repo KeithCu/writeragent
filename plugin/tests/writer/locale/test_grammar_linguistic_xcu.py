@@ -10,7 +10,7 @@ import os
 import ast
 import xml.etree.ElementTree as ET
 
-from plugin.writer.locale import grammar_proofread_engine as eng
+from plugin.writer.locale.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS
 
 _OOR = "http://openoffice.org/2001/registry"
 _IMPLEMENTATION = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
@@ -72,7 +72,7 @@ def test_linguistic_writer_agent_grammar_xcu_locales_match_engine() -> None:
             break
     assert val_el is not None and val_el.text is not None
     tags = tuple(val_el.text.split())
-    assert tags == eng.GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert tags == GRAMMAR_REGISTRY_LOCALE_TAGS
 
 
 def test_linguistic_writer_agent_grammar_xcu_is_minimal() -> None:
