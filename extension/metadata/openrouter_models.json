@@ -1,6 +1,1168 @@
 {
-  "updated_at": "2026-04-12T04:30:48.048Z",
+  "updated_at": "2026-05-10T19:30:53.648Z",
   "models": [
+    {
+      "id": "inclusionai/ring-2.6-1t:free",
+      "name": "Ring-2.6-1T (free)",
+      "author_name": "inclusionAI",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "inclusionai/ring-2.6-1t-20260508",
+      "created_at": "2026-05-08T13:37:20.749Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "google/gemini-3.1-flash-lite",
+      "name": "Gemini 3.1 Flash Lite",
+      "author_name": "Google",
+      "input_modalities": [
+        "audio",
+        "file",
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "google/gemini-3.1-flash-lite-20260507",
+      "created_at": "2026-05-07T15:47:08.228Z",
+      "context_length": 1048576,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": 5e-08,
+        "audio_input": 5e-07,
+        "image_input": 2.5e-07,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": 1.5e-06,
+        "text_cache_read": 2.5e-08,
+        "text_cache_write": 8.3333e-08,
+        "text_input": 2.5e-07,
+        "text_output": 1.5e-06
+      }
+    },
+    {
+      "id": "baidu/cobuddy:free",
+      "name": "CoBuddy (free)",
+      "author_name": "Baidu Qianfan",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "baidu/cobuddy-20260430",
+      "created_at": "2026-05-06T02:44:40.376Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "stop",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "openai/gpt-chat-latest",
+      "name": "GPT Chat Latest",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "openai/gpt-chat-latest-20260505",
+      "created_at": "2026-05-05T16:56:52.607Z",
+      "context_length": 400000,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "top_logprobs"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5e-07,
+        "text_cache_write": null,
+        "text_input": 5e-06,
+        "text_output": 3e-05
+      }
+    },
+    {
+      "id": "x-ai/grok-4.3",
+      "name": "Grok 4.3",
+      "author_name": "xAI",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "x-ai/grok-4.3-20260430",
+      "created_at": "2026-04-30T23:30:21.141Z",
+      "context_length": 1000000,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2e-07,
+        "text_cache_write": null,
+        "text_input": 1.25e-06,
+        "text_output": 2.5e-06
+      }
+    },
+    {
+      "id": "ibm-granite/granite-4.1-8b",
+      "name": "Granite 4.1 8B",
+      "author_name": "IBM",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "ibm-granite/granite-4.1-8b-20260429",
+      "created_at": "2026-04-30T19:24:31.868Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5e-08,
+        "text_cache_write": null,
+        "text_input": 5e-08,
+        "text_output": 1e-07
+      }
+    },
+    {
+      "id": "mistralai/mistral-medium-3-5",
+      "name": "Mistral Medium 3.5",
+      "author_name": "Mistral",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "mistralai/mistral-medium-3.5-20260430",
+      "created_at": "2026-04-30T17:33:59.822Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": null,
+        "text_cache_write": null,
+        "text_input": 1.5e-06,
+        "text_output": 7.5e-06
+      }
+    },
+    {
+      "id": "openrouter/owl-alpha",
+      "name": "Owl Alpha",
+      "author_name": "openrouter",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "openrouter/owl-alpha",
+      "created_at": "2026-04-28T17:49:49.056Z",
+      "context_length": 1048756,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logit_bias",
+        "max_tokens",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "name": "Nemotron 3 Nano Omni (free)",
+      "author_name": "NVIDIA",
+      "input_modalities": [
+        "audio",
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning-20260428",
+      "created_at": "2026-04-28T16:18:15.164Z",
+      "context_length": 256000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "poolside/laguna-xs.2:free",
+      "name": "Laguna XS.2 (free)",
+      "author_name": "Poolside",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "poolside/laguna-xs.2-20260421",
+      "created_at": "2026-04-28T15:20:04.226Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "poolside/laguna-m.1:free",
+      "name": "Laguna M.1 (free)",
+      "author_name": "Poolside",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "poolside/laguna-m.1-20260312",
+      "created_at": "2026-04-28T15:01:44.070Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "qwen/qwen3.5-plus-20260420",
+      "name": "Qwen3.5 Plus 2026-04-20",
+      "author_name": "Qwen",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "qwen/qwen3.5-plus-20260420",
+      "created_at": "2026-04-27T03:42:48.608Z",
+      "context_length": 1000000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": null,
+        "text_cache_write": null,
+        "text_input": 4e-07,
+        "text_output": 2.4e-06
+      }
+    },
+    {
+      "id": "qwen/qwen3.6-flash",
+      "name": "Qwen3.6 Flash",
+      "author_name": "Qwen",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "qwen/qwen3.6-flash",
+      "created_at": "2026-04-27T03:42:42.075Z",
+      "context_length": 1000000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": null,
+        "text_cache_write": 3.125e-07,
+        "text_input": 2.5e-07,
+        "text_output": 1.5e-06
+      }
+    },
+    {
+      "id": "qwen/qwen3.6-35b-a3b",
+      "name": "Qwen3.6 35B A3B",
+      "author_name": "Qwen",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "qwen/qwen3.6-35b-a3b-20260415",
+      "created_at": "2026-04-27T03:24:15.340Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.056e-07,
+        "text_cache_write": null,
+        "text_input": 1.604e-07,
+        "text_output": 1.055083e-06
+      }
+    },
+    {
+      "id": "qwen/qwen3.6-max-preview",
+      "name": "Qwen3.6 Max Preview",
+      "author_name": "Qwen",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "qwen/qwen3.6-max-preview-20260420",
+      "created_at": "2026-04-27T03:24:02.092Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": null,
+        "text_cache_write": 1.3e-06,
+        "text_input": 1.04e-06,
+        "text_output": 6.24e-06
+      }
+    },
+    {
+      "id": "qwen/qwen3.6-27b",
+      "name": "Qwen3.6 27B",
+      "author_name": "Qwen",
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "qwen/qwen3.6-27b-20260422",
+      "created_at": "2026-04-27T01:57:44.058Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.5e-07,
+        "text_cache_write": null,
+        "text_input": 4.486e-07,
+        "text_output": 2.89e-06
+      }
+    },
+    {
+      "id": "openai/gpt-5.5-pro",
+      "name": "GPT-5.5 Pro",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.5-pro-20260423",
+      "created_at": "2026-04-24T17:31:36.719Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": null,
+        "text_cache_write": null,
+        "text_input": 3e-05,
+        "text_output": 0.00018
+      }
+    },
+    {
+      "id": "openai/gpt-5.5",
+      "name": "GPT-5.5",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.5-20260423",
+      "created_at": "2026-04-24T17:31:33.253Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5e-07,
+        "text_cache_write": null,
+        "text_input": 5e-06,
+        "text_output": 3e-05
+      }
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "author_name": "DeepSeek",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "deepseek/deepseek-v4-pro-20260423",
+      "created_at": "2026-04-24T03:17:59.654Z",
+      "context_length": 1048576,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.29958e-07,
+        "text_cache_write": null,
+        "text_input": 1.583e-06,
+        "text_output": 3.227778e-06
+      }
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "author_name": "DeepSeek",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "deepseek/deepseek-v4-flash-20260423",
+      "created_at": "2026-04-24T03:17:46.710Z",
+      "context_length": 1048576,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 3.04e-08,
+        "text_cache_write": null,
+        "text_input": 1.4375e-07,
+        "text_output": 2.8875e-07
+      }
+    },
+    {
+      "id": "inclusionai/ling-2.6-1t",
+      "name": "Ling-2.6-1T",
+      "author_name": "inclusionAI",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "inclusionai/ling-2.6-1t-20260423",
+      "created_at": "2026-04-23T12:43:58.266Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 6e-08,
+        "text_cache_write": null,
+        "text_input": 3e-07,
+        "text_output": 2.5e-06
+      }
+    },
+    {
+      "id": "tencent/hy3-preview",
+      "name": "Hy3 preview",
+      "author_name": "Tencent",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "tencent/hy3-preview-20260421",
+      "created_at": "2026-04-22T17:15:50.112Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.9e-08,
+        "text_cache_write": null,
+        "text_input": 6.6e-08,
+        "text_output": 2.6e-07
+      }
+    },
+    {
+      "id": "xiaomi/mimo-v2.5-pro",
+      "name": "MiMo-V2.5-Pro",
+      "author_name": "Xiaomi",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "xiaomi/mimo-v2.5-pro-20260422",
+      "created_at": "2026-04-22T16:11:13.016Z",
+      "context_length": 1048576,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2e-07,
+        "text_cache_write": null,
+        "text_input": 1e-06,
+        "text_output": 3e-06
+      }
+    },
+    {
+      "id": "xiaomi/mimo-v2.5",
+      "name": "MiMo-V2.5",
+      "author_name": "Xiaomi",
+      "input_modalities": [
+        "audio",
+        "image",
+        "text",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "xiaomi/mimo-v2.5-20260422",
+      "created_at": "2026-04-22T16:11:09.307Z",
+      "context_length": 1048576,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 8e-08,
+        "text_cache_write": null,
+        "text_input": 4e-07,
+        "text_output": 2e-06
+      }
+    },
+    {
+      "id": "inclusionai/ling-2.6-flash",
+      "name": "Ling-2.6-flash",
+      "author_name": "inclusionAI",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "inclusionai/ling-2.6-flash-20260421",
+      "created_at": "2026-04-21T18:24:46.183Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.6e-08,
+        "text_cache_write": null,
+        "text_input": 8e-08,
+        "text_output": 2.4e-07
+      }
+    },
+    {
+      "id": "moonshotai/kimi-k2.6",
+      "name": "Kimi K2.6",
+      "author_name": "MoonshotAI",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "moonshotai/kimi-k2.6-20260420",
+      "created_at": "2026-04-20T15:36:42.832Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "parallel_tool_calls",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.03929e-07,
+        "text_cache_write": null,
+        "text_input": 9.25882e-07,
+        "text_output": 4.015e-06
+      }
+    },
+    {
+      "id": "anthropic/claude-opus-4.7",
+      "name": "Claude Opus 4.7",
+      "author_name": "Anthropic",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "anthropic/claude-4.7-opus-20260416",
+      "created_at": "2026-04-16T14:51:40.905Z",
+      "context_length": 1000000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5e-07,
+        "text_cache_write": 6.25e-06,
+        "text_input": 5e-06,
+        "text_output": 2.5e-05
+      }
+    },
     {
       "id": "anthropic/claude-opus-4.6-fast",
       "name": "Claude Opus 4.6 (Fast)",
@@ -67,8 +1229,10 @@
         "logprobs",
         "max_tokens",
         "min_p",
+        "parallel_tool_calls",
         "presence_penalty",
         "reasoning",
+        "reasoning_effort",
         "repetition_penalty",
         "response_format",
         "seed",
@@ -90,10 +1254,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.83333e-07,
+        "text_cache_read": 2.78583e-07,
         "text_cache_write": null,
-        "text_input": 1.391923e-06,
-        "text_output": 4.388462e-06
+        "text_input": 1.344667e-06,
+        "text_output": 4.281333e-06
       }
     },
     {
@@ -117,7 +1281,9 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
+        "logprobs",
         "max_tokens",
+        "min_p",
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
@@ -129,6 +1295,7 @@
         "tool_choice",
         "tools",
         "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -140,10 +1307,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 8e-08,
+        "text_cache_read": 1e-07,
         "text_cache_write": null,
-        "text_input": 1.3125e-07,
-        "text_output": 4.25e-07
+        "text_input": 1.2225e-07,
+        "text_output": 4.17e-07
       }
     },
     {
@@ -199,7 +1366,9 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
+        "logprobs",
         "max_tokens",
+        "min_p",
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
@@ -211,6 +1380,7 @@
         "tool_choice",
         "tools",
         "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -222,10 +1392,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": null,
+        "text_cache_read": 8.25e-08,
         "text_cache_write": null,
-        "text_input": 1.4e-07,
-        "text_output": 4e-07
+        "text_input": 1.525e-07,
+        "text_output": 4.26667e-07
       }
     },
     {
@@ -300,7 +1470,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": null,
-        "text_cache_write": null,
+        "text_cache_write": 4.0625e-07,
         "text_input": 3.25e-07,
         "text_output": 1.95e-06
       }
@@ -389,10 +1559,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 6.75e-08,
+        "text_cache_read": 6.5e-08,
         "text_cache_write": null,
         "text_input": 2.60833e-07,
-        "text_output": 9.58333e-07
+        "text_output": 9.25e-07
       }
     },
     {
@@ -437,8 +1607,8 @@
         "reasoning_output": null,
         "text_cache_read": 2e-07,
         "text_cache_write": null,
-        "text_input": 2e-06,
-        "text_output": 6e-06
+        "text_input": 1.25e-06,
+        "text_output": 2.5e-06
       }
     },
     {
@@ -638,13 +1808,24 @@
       "created_at": "2026-03-18T12:24:57.176Z",
       "context_length": 204800,
       "supported_parameters": [
+        "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
+        "logprobs",
         "max_tokens",
+        "min_p",
+        "presence_penalty",
         "reasoning",
+        "repetition_penalty",
         "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
+        "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -656,10 +1837,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 6e-08,
+        "text_cache_read": 5.975e-08,
         "text_cache_write": null,
-        "text_input": 4.5e-07,
-        "text_output": 1.8e-06
+        "text_input": 3.99833e-07,
+        "text_output": 1.6e-06
       }
     },
     {
@@ -892,6 +2073,8 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
+        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -904,6 +2087,7 @@
         "tool_choice",
         "tools",
         "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -915,10 +2099,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1e-07,
+        "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 2e-07,
-        "text_output": 7e-07
+        "text_input": 1.63333e-07,
+        "text_output": 6.16667e-07
       }
     },
     {
@@ -994,6 +2178,7 @@
         "reasoning",
         "repetition_penalty",
         "response_format",
+        "seed",
         "stop",
         "structured_outputs",
         "temperature",
@@ -1014,7 +2199,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 7.5e-08,
+        "text_input": 8e-08,
         "text_output": 1.5e-07
       }
     },
@@ -1219,7 +2404,7 @@
         "top_p"
       ],
       "chat_completions": true,
-      "native_web_search": false,
+      "native_web_search": true,
       "pricing": {
         "audio_cache_write": 5e-08,
         "audio_input": 5e-07,
@@ -1325,10 +2510,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.90625e-07,
+        "text_cache_read": 1.20313e-07,
         "text_cache_write": null,
-        "text_input": 2.46667e-07,
-        "text_output": 1.491667e-06
+        "text_input": 2.05e-07,
+        "text_output": 1.29375e-06
       }
     },
     {
@@ -1380,8 +2565,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.7e-07,
         "text_cache_write": null,
-        "text_input": 2.6625e-07,
-        "text_output": 2.13e-06
+        "text_input": 2.65e-07,
+        "text_output": 2.224e-06
       }
     },
     {
@@ -1431,10 +2616,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3e-07,
+        "text_cache_read": 2.225e-07,
         "text_cache_write": null,
-        "text_input": 3.2e-07,
-        "text_output": 2.56e-06
+        "text_input": 3.5e-07,
+        "text_output": 2.916e-06
       }
     },
     {
@@ -1477,7 +2662,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": null,
-        "text_cache_write": null,
+        "text_cache_write": 8.125e-08,
         "text_input": 6.5e-08,
         "text_output": 2.6e-07
       }
@@ -1605,7 +2790,7 @@
         "top_p"
       ],
       "chat_completions": true,
-      "native_web_search": false,
+      "native_web_search": true,
       "pricing": {
         "audio_cache_write": 2e-07,
         "audio_input": 2e-06,
@@ -1705,7 +2890,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": null,
-        "text_cache_write": null,
+        "text_cache_write": 3.25e-07,
         "text_input": 2.6e-07,
         "text_output": 1.56e-06
       }
@@ -1731,6 +2916,7 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
+        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -1744,6 +2930,7 @@
         "tool_choice",
         "tools",
         "top_k",
+        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -1755,10 +2942,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.5e-07,
+        "text_cache_read": 3.3625e-07,
         "text_cache_write": null,
-        "text_input": 5.56667e-07,
-        "text_output": 3.373333e-06
+        "text_input": 5.42333e-07,
+        "text_output": 3.44e-06
       }
     },
     {
@@ -1808,10 +2995,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4.1727e-08,
+        "text_cache_read": 6.1692e-08,
         "text_cache_write": null,
-        "text_input": 2.97824e-07,
-        "text_output": 1.224118e-06
+        "text_input": 2.78611e-07,
+        "text_output": 1.213333e-06
       }
     },
     {
@@ -1888,10 +3075,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.02273e-07,
+        "text_cache_read": 2.21154e-07,
         "text_cache_write": null,
-        "text_input": 9.77647e-07,
-        "text_output": 2.982941e-06
+        "text_input": 9.14706e-07,
+        "text_output": 2.871765e-06
       }
     },
     {
@@ -2024,10 +3211,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.2e-07,
+        "text_cache_read": 1.06667e-07,
         "text_cache_write": null,
-        "text_input": 2.16667e-07,
-        "text_output": 1.066667e-06
+        "text_input": 2.22e-07,
+        "text_output": 1.13e-06
       }
     },
     {
@@ -2048,6 +3235,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -2071,15 +3259,15 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2e-08,
+        "text_cache_read": 2.3333e-08,
         "text_cache_write": null,
         "text_input": 1e-07,
         "text_output": 3e-07
       }
     },
     {
-      "id": "arcee-ai/trinity-large-preview:free",
-      "name": "Trinity Large Preview (free)",
+      "id": "arcee-ai/trinity-large-preview",
+      "name": "Trinity Large Preview",
       "author_name": "Arcee AI",
       "input_modalities": [
         "text"
@@ -2088,7 +3276,7 @@
         "text"
       ],
       "reasoning": false,
-      "variant": "free",
+      "variant": "standard",
       "version_id": "arcee-ai/trinity-large-preview",
       "created_at": "2026-01-27T22:24:30.000Z",
       "context_length": 131000,
@@ -2103,7 +3291,18 @@
       ],
       "chat_completions": true,
       "native_web_search": false,
-      "pricing": null
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": null,
+        "text_cache_write": null,
+        "text_input": 1.5e-07,
+        "text_output": 4.5e-07
+      }
     },
     {
       "id": "moonshotai/kimi-k2.5",
@@ -2128,7 +3327,6 @@
         "logprobs",
         "max_tokens",
         "min_p",
-        "parallel_tool_calls",
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
@@ -2152,10 +3350,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.3635e-07,
+        "text_cache_read": 1.34091e-07,
         "text_cache_write": null,
-        "text_input": 5.1836e-07,
-        "text_output": 2.656e-06
+        "text_input": 5.43571e-07,
+        "text_output": 2.764286e-06
       }
     },
     {
@@ -2312,6 +3510,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -2382,52 +3581,6 @@
         "text_cache_write": null,
         "text_input": 1.75e-06,
         "text_output": 1.4e-05
-      }
-    },
-    {
-      "id": "allenai/olmo-3.1-32b-instruct",
-      "name": "Olmo 3.1 32B Instruct",
-      "author_name": "AllenAI",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "allenai/olmo-3.1-32b-instruct-20251215",
-      "created_at": "2026-01-06T19:42:34.000Z",
-      "context_length": 65536,
-      "supported_parameters": [
-        "frequency_penalty",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 2e-07,
-        "text_output": 6e-07
       }
     },
     {
@@ -2539,7 +3692,6 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
-        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -2553,7 +3705,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -2565,10 +3716,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.15e-08,
+        "text_cache_read": 3e-08,
         "text_cache_write": null,
-        "text_input": 3.05714e-07,
-        "text_output": 1.378571e-06
+        "text_input": 2.975e-07,
+        "text_output": 1.4375e-06
       }
     },
     {
@@ -2616,10 +3767,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.8425e-07,
+        "text_cache_read": 3.73625e-07,
         "text_cache_write": null,
-        "text_input": 6.5e-07,
-        "text_output": 2.13e-06
+        "text_input": 7.21e-07,
+        "text_output": 2.298e-06
       }
     },
     {
@@ -2655,7 +3806,7 @@
         "top_p"
       ],
       "chat_completions": true,
-      "native_web_search": false,
+      "native_web_search": true,
       "pricing": {
         "audio_cache_write": 1e-07,
         "audio_input": 1e-06,
@@ -2667,40 +3818,6 @@
         "text_cache_write": 8.3333e-08,
         "text_input": 5e-07,
         "text_output": 3e-06
-      }
-    },
-    {
-      "id": "mistralai/mistral-small-creative",
-      "name": "Mistral Small Creative",
-      "author_name": "Mistral",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "mistralai/mistral-small-creative-20251216",
-      "created_at": "2025-12-16T18:10:53.032Z",
-      "context_length": 32768,
-      "supported_parameters": [
-        "tool_choice",
-        "tools"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 1e-08,
-        "text_cache_write": null,
-        "text_input": 1e-07,
-        "text_output": 3e-07
       }
     },
     {
@@ -2721,16 +3838,13 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
-        "logit_bias",
         "max_tokens",
-        "min_p",
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
         "response_format",
         "seed",
         "stop",
-        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -2746,10 +3860,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4.375e-08,
+        "text_cache_read": 1.5e-08,
         "text_cache_write": null,
-        "text_input": 9.75e-08,
-        "text_output": 2.975e-07
+        "text_input": 1e-07,
+        "text_output": 3e-07
       }
     },
     {
@@ -2799,6 +3913,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -3057,14 +4172,11 @@
         "frequency_penalty",
         "include_reasoning",
         "max_tokens",
-        "min_p",
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
-        "response_format",
         "seed",
         "stop",
-        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -3103,6 +4215,7 @@
       "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
+        "max_tokens",
         "response_format",
         "structured_outputs",
         "temperature",
@@ -3395,8 +4508,8 @@
         "reasoning_output": null,
         "text_cache_read": 1e-08,
         "text_cache_write": null,
-        "text_input": 2.25e-07,
-        "text_output": 2.25e-07
+        "text_input": 1.25e-07,
+        "text_output": 1.25e-07
       }
     },
     {
@@ -3460,6 +4573,7 @@
       "context_length": 131072,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
@@ -3504,7 +4618,6 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
-        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -3518,7 +4631,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -3530,10 +4642,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.735e-07,
-        "text_cache_write": null,
-        "text_input": 3.59083e-07,
-        "text_output": 8.06667e-07
+        "text_cache_read": 1.31088e-07,
+        "text_cache_write": 7.125e-07,
+        "text_input": 3.56667e-07,
+        "text_output": 8.10889e-07
       }
     },
     {
@@ -3709,7 +4821,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.275e-07,
+        "text_cache_read": 1.28333e-07,
         "text_cache_write": null,
         "text_input": 1.25e-06,
         "text_output": 1e-05
@@ -4136,57 +5248,6 @@
       }
     },
     {
-      "id": "openai/gpt-5-image-mini",
-      "name": "GPT-5 Image Mini",
-      "author_name": "OpenAI",
-      "input_modalities": [
-        "file",
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "image",
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "openai/gpt-5-image-mini",
-      "created_at": "2025-10-16T14:23:03.143Z",
-      "context_length": 400000,
-      "supported_parameters": [
-        "frequency_penalty",
-        "include_reasoning",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": true,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": 8e-06,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 2.5e-07,
-        "text_cache_write": null,
-        "text_input": 2.5e-06,
-        "text_output": 2e-06
-      }
-    },
-    {
       "id": "anthropic/claude-haiku-4.5",
       "name": "Claude Haiku 4.5",
       "author_name": "Anthropic",
@@ -4316,61 +5377,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 8e-08,
+        "text_cache_read": 1e-07,
         "text_cache_write": null,
         "text_input": 1.3175e-07,
         "text_output": 5.5125e-07
-      }
-    },
-    {
-      "id": "openai/gpt-5-image",
-      "name": "GPT-5 Image",
-      "author_name": "OpenAI",
-      "input_modalities": [
-        "file",
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "image",
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "openai/gpt-5-image",
-      "created_at": "2025-10-14T13:19:46.029Z",
-      "context_length": 400000,
-      "supported_parameters": [
-        "frequency_penalty",
-        "include_reasoning",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": true,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": 4e-05,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 1.25e-06,
-        "text_cache_write": null,
-        "text_input": 1e-05,
-        "text_output": 1e-05
       }
     },
     {
@@ -4491,6 +5501,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -4701,10 +5712,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.85e-07,
+        "text_cache_read": 1.42e-07,
         "text_cache_write": null,
-        "text_input": 5.01667e-07,
-        "text_output": 1.996667e-06
+        "text_input": 5.7e-07,
+        "text_output": 2.165e-06
       }
     },
     {
@@ -4863,7 +5874,7 @@
       "variant": "standard",
       "version_id": "qwen/qwen3-vl-235b-a22b-thinking",
       "created_at": "2025-09-23T23:04:50.000Z",
-      "context_length": 262144,
+      "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
@@ -4874,7 +5885,6 @@
         "response_format",
         "seed",
         "stop",
-        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -4892,8 +5902,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 5.63333e-07,
-        "text_output": 3.35e-06
+        "text_input": 6.2e-07,
+        "text_output": 3.275e-06
       }
     },
     {
@@ -4938,10 +5948,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.05e-07,
+        "text_cache_read": 1.7e-07,
         "text_cache_write": null,
-        "text_input": 2.6e-07,
-        "text_output": 1.402857e-06
+        "text_input": 2.53333e-07,
+        "text_output": 1.386667e-06
       }
     },
     {
@@ -4979,7 +5989,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": 1.56e-07,
-        "text_cache_write": null,
+        "text_cache_write": 9.75e-07,
         "text_input": 7.8e-07,
         "text_output": 3.9e-06
       }
@@ -5020,7 +6030,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": 1.3e-07,
-        "text_cache_write": null,
+        "text_cache_write": 8.125e-07,
         "text_input": 6.5e-07,
         "text_output": 3.25e-06
       }
@@ -5111,8 +6121,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.31667e-07,
         "text_cache_write": null,
-        "text_input": 2.625e-07,
-        "text_output": 9.35e-07
+        "text_input": 2.775e-07,
+        "text_output": 9.75e-07
       }
     },
     {
@@ -5245,7 +6255,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": 3.9e-08,
-        "text_cache_write": null,
+        "text_cache_write": 2.4375e-07,
         "text_input": 1.95e-07,
         "text_output": 9.75e-07
       }
@@ -5295,8 +6305,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.5e-07,
         "text_cache_write": null,
-        "text_input": 1.36875e-07,
-        "text_output": 1.245e-06
+        "text_input": 1.395e-07,
+        "text_output": 1.236e-06
       }
     },
     {
@@ -5340,7 +6350,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.5e-07,
+        "text_cache_read": 1.1e-07,
         "text_cache_write": null,
         "text_input": 1.22917e-07,
         "text_output": 1.196667e-06
@@ -5379,53 +6389,6 @@
       "pricing": null
     },
     {
-      "id": "meituan/longcat-flash-chat",
-      "name": "LongCat Flash Chat",
-      "author_name": "Meituan",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "meituan/longcat-flash-chat",
-      "created_at": "2025-09-09T14:20:58.009Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 2e-07,
-        "text_cache_write": null,
-        "text_input": 2e-07,
-        "text_output": 8e-07
-      }
-    },
-    {
       "id": "qwen/qwen-plus-2025-07-28",
       "name": "Qwen Plus 0728",
       "author_name": "Qwen",
@@ -5461,7 +6424,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": null,
-        "text_cache_write": null,
+        "text_cache_write": 3.25e-07,
         "text_input": 2.6e-07,
         "text_output": 7.8e-07
       }
@@ -5504,7 +6467,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": null,
-        "text_cache_write": null,
+        "text_cache_write": 3.25e-07,
         "text_input": 2.6e-07,
         "text_output": 7.8e-07
       }
@@ -5558,6 +6521,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -5605,8 +6569,8 @@
       "supported_parameters": [
         "frequency_penalty",
         "logit_bias",
-        "logprobs",
         "max_tokens",
+        "min_p",
         "presence_penalty",
         "repetition_penalty",
         "response_format",
@@ -5617,7 +6581,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -5629,7 +6592,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4e-07,
+        "text_cache_read": 5.5e-07,
         "text_cache_write": null,
         "text_input": 6.5e-07,
         "text_output": 2.5e-06
@@ -5681,7 +6644,7 @@
         "text_cache_read": 8e-08,
         "text_cache_write": null,
         "text_input": 1e-07,
-        "text_output": 6.4e-07
+        "text_output": 7.53333e-07
       }
     },
     {
@@ -5774,10 +6737,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.26667e-07,
+        "text_cache_read": 2.45e-07,
         "text_cache_write": null,
-        "text_input": 4.02727e-07,
-        "text_output": 1.247273e-06
+        "text_input": 4.16e-07,
+        "text_output": 1.272e-06
       }
     },
     {
@@ -6126,7 +7089,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.75e-08,
+        "text_cache_read": 2.8333e-08,
         "text_cache_write": null,
         "text_input": 2.5e-07,
         "text_output": 2e-06
@@ -6169,7 +7132,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 7.5e-09,
+        "text_cache_read": 8.333e-09,
         "text_cache_write": null,
         "text_input": 5e-08,
         "text_output": 4e-07
@@ -6199,7 +7162,6 @@
         "min_p",
         "presence_penalty",
         "reasoning",
-        "reasoning_effort",
         "repetition_penalty",
         "response_format",
         "seed",
@@ -6221,10 +7183,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.27583e-07,
+        "text_cache_read": 1.365e-07,
         "text_cache_write": null,
-        "text_input": 1.25917e-07,
-        "text_output": 5.22278e-07
+        "text_input": 1.28053e-07,
+        "text_output": 5.35263e-07
       }
     },
     {
@@ -6280,7 +7242,6 @@
         "min_p",
         "presence_penalty",
         "reasoning",
-        "reasoning_effort",
         "repetition_penalty",
         "response_format",
         "seed",
@@ -6302,10 +7263,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4.0833e-08,
+        "text_cache_read": 3.5625e-08,
         "text_cache_write": null,
-        "text_input": 5.8182e-08,
-        "text_output": 2.29091e-07
+        "text_input": 5.875e-08,
+        "text_output": 2.225e-07
       }
     },
     {
@@ -6466,8 +7427,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.365e-07,
-        "text_output": 5.825e-07
+        "text_input": 1.45625e-07,
+        "text_output": 6.53125e-07
       }
     },
     {
@@ -6513,8 +7474,8 @@
         "reasoning_output": null,
         "text_cache_read": 9e-08,
         "text_cache_write": null,
-        "text_input": 1.04e-07,
-        "text_output": 3.44e-07
+        "text_input": 1.18333e-07,
+        "text_output": 4.01667e-07
       }
     },
     {
@@ -6542,7 +7503,6 @@
         "response_format",
         "seed",
         "stop",
-        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -6614,10 +7574,8 @@
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
-        "response_format",
         "seed",
         "stop",
-        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -6635,8 +7593,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.75e-08,
         "text_cache_write": null,
-        "text_input": 1.675e-07,
-        "text_output": 1.0025e-06
+        "text_input": 1.56667e-07,
+        "text_output": 9.36667e-07
       }
     },
     {
@@ -6796,10 +7754,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.155e-07,
+        "text_cache_read": 3.35e-07,
         "text_cache_write": null,
-        "text_input": 6.495e-07,
-        "text_output": 2.0375e-06
+        "text_input": 7.40625e-07,
+        "text_output": 2.221875e-06
       }
     },
     {
@@ -6866,14 +7824,11 @@
       "context_length": 262144,
       "supported_parameters": [
         "frequency_penalty",
-        "include_reasoning",
         "logit_bias",
         "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
-        "reasoning",
-        "reasoning_effort",
         "repetition_penalty",
         "response_format",
         "seed",
@@ -6895,10 +7850,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.525e-07,
+        "text_cache_read": 2.375e-07,
         "text_cache_write": null,
-        "text_input": 1.91577e-07,
-        "text_output": 6.72154e-07
+        "text_input": 1.89208e-07,
+        "text_output": 6.615e-07
       }
     },
     {
@@ -7077,92 +8032,6 @@
       }
     },
     {
-      "id": "tngtech/deepseek-r1t2-chimera",
-      "name": "DeepSeek R1T2 Chimera",
-      "author_name": "TNG",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "tngtech/deepseek-r1t2-chimera",
-      "created_at": "2025-07-08T15:03:05.127Z",
-      "context_length": 163840,
-      "supported_parameters": [
-        "frequency_penalty",
-        "include_reasoning",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 1.5e-07,
-        "text_cache_write": null,
-        "text_input": 3e-07,
-        "text_output": 1.1e-06
-      }
-    },
-    {
-      "id": "inception/mercury",
-      "name": "Mercury",
-      "author_name": "Inception",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "inception/mercury",
-      "created_at": "2025-06-26T21:23:46.000Z",
-      "context_length": 128000,
-      "supported_parameters": [
-        "max_tokens",
-        "response_format",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 2.5e-08,
-        "text_cache_write": null,
-        "text_input": 2.5e-07,
-        "text_output": 7.5e-07
-      }
-    },
-    {
       "id": "mistralai/mistral-small-3.2-24b-instruct",
       "name": "Mistral Small 3.2 24B",
       "author_name": "Mistral",
@@ -7204,7 +8073,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1e-08,
+        "text_cache_read": 3e-08,
         "text_cache_write": null,
         "text_input": 8.9688e-08,
         "text_output": 3.375e-07
@@ -7570,10 +8439,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.1875e-07,
+        "text_cache_read": 3.5e-07,
         "text_cache_write": null,
-        "text_input": 1.5875e-06,
-        "text_output": 3.89125e-06
+        "text_input": 1.05e-06,
+        "text_output": 3.196e-06
       }
     },
     {
@@ -7798,45 +8667,6 @@
       }
     },
     {
-      "id": "inception/mercury-coder",
-      "name": "Mercury Coder",
-      "author_name": "Inception",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "inception/mercury-coder-small-beta",
-      "created_at": "2025-04-30T17:24:40.000Z",
-      "context_length": 128000,
-      "supported_parameters": [
-        "max_tokens",
-        "response_format",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 2.5e-08,
-        "text_cache_write": null,
-        "text_input": 2.5e-07,
-        "text_output": 7.5e-07
-      }
-    },
-    {
       "id": "qwen/qwen3-30b-a3b",
       "name": "Qwen3 30B A3B",
       "author_name": "Qwen",
@@ -7854,6 +8684,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "logprobs",
         "max_tokens",
         "min_p",
@@ -7880,10 +8711,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.5e-07,
+        "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.18e-07,
-        "text_output": 4.8e-07
+        "text_input": 1.125e-07,
+        "text_output": 4.925e-07
       }
     },
     {
@@ -7953,6 +8784,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
+        "logit_bias",
         "logprobs",
         "max_tokens",
         "min_p",
@@ -8028,10 +8860,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 9.5e-08,
+        "text_cache_read": 1.225e-07,
         "text_cache_write": null,
-        "text_input": 1.2425e-07,
-        "text_output": 5.0575e-07
+        "text_input": 1.30571e-07,
+        "text_output": 5.43714e-07
       }
     },
     {
@@ -8325,7 +9157,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.75e-08,
+        "text_cache_read": 2.8333e-08,
         "text_cache_write": null,
         "text_input": 1e-07,
         "text_output": 4e-07
@@ -8420,54 +9252,6 @@
       }
     },
     {
-      "id": "meta-llama/llama-4-maverick",
-      "name": "Llama 4 Maverick",
-      "author_name": "Meta",
-      "input_modalities": [
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "meta-llama/llama-4-maverick-17b-128e-instruct",
-      "created_at": "2025-04-05T19:37:02.129Z",
-      "context_length": 1048576,
-      "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 3.5e-07,
-        "text_output": 1.091667e-06
-      }
-    },
-    {
       "id": "meta-llama/llama-4-scout",
       "name": "Llama 4 Scout",
       "author_name": "Meta",
@@ -8485,6 +9269,7 @@
       "context_length": 1310720,
       "supported_parameters": [
         "frequency_penalty",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -8532,11 +9317,9 @@
       "supported_parameters": [
         "frequency_penalty",
         "logit_bias",
-        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
-        "reasoning",
         "repetition_penalty",
         "response_format",
         "seed",
@@ -8546,7 +9329,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -8558,31 +9340,39 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.625e-07,
+        "text_cache_read": 1.42e-07,
         "text_cache_write": null,
-        "text_input": 6.30667e-07,
-        "text_output": 1.371111e-06
+        "text_input": 2.41e-07,
+        "text_output": 9.51667e-07
       }
     },
     {
-      "id": "qwen/qwq-32b",
-      "name": "QwQ 32B",
-      "author_name": "Qwen",
+      "id": "google/gemma-3-12b-it",
+      "name": "Gemma 3 12B",
+      "author_name": "Google",
       "input_modalities": [
+        "image",
         "text"
       ],
       "output_modalities": [
         "text"
       ],
-      "reasoning": true,
+      "reasoning": false,
       "variant": "standard",
-      "version_id": "qwen/qwq-32b",
-      "created_at": "2025-03-05T21:06:54.875Z",
+      "version_id": "google/gemma-3-12b-it",
+      "created_at": "2025-03-13T21:50:25.140Z",
       "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
-        "include_reasoning",
-        "reasoning",
+        "logit_bias",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -8600,8 +9390,56 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.5e-07,
-        "text_output": 5.8e-07
+        "text_input": 2.03333e-07,
+        "text_output": 4.26667e-07
+      }
+    },
+    {
+      "id": "google/gemma-3-27b-it",
+      "name": "Gemma 3 27B",
+      "author_name": "Google",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "google/gemma-3-27b-it",
+      "created_at": "2025-03-12T05:12:39.645Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logit_bias",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 4e-08,
+        "text_cache_write": null,
+        "text_input": 9.78e-08,
+        "text_output": 3.02e-07
       }
     },
     {
@@ -8716,7 +9554,6 @@
         "temperature",
         "tool_choice",
         "tools",
-        "top_k",
         "top_p"
       ],
       "chat_completions": true,
@@ -8979,7 +9816,7 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": 5.2e-08,
-        "text_cache_write": null,
+        "text_cache_write": 3.25e-07,
         "text_input": 2.6e-07,
         "text_output": 7.8e-07
       }
@@ -9128,6 +9965,7 @@
       "context_length": 163840,
       "supported_parameters": [
         "frequency_penalty",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -9135,6 +9973,7 @@
         "response_format",
         "seed",
         "stop",
+        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -9246,7 +10085,6 @@
       "supported_parameters": [
         "frequency_penalty",
         "logit_bias",
-        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -9259,7 +10097,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -9271,10 +10108,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4.8e-07,
+        "text_cache_read": 4.73333e-07,
         "text_cache_write": null,
-        "text_input": 4.05588e-07,
-        "text_output": 7.45294e-07
+        "text_input": 4.26333e-07,
+        "text_output": 7.44667e-07
       }
     },
     {
@@ -9705,51 +10542,6 @@
       }
     },
     {
-      "id": "nvidia/llama-3.1-nemotron-70b-instruct",
-      "name": "Llama 3.1 Nemotron 70B Instruct",
-      "author_name": "NVIDIA",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "nvidia/llama-3.1-nemotron-70b-instruct",
-      "created_at": "2024-10-15T00:00:00.000Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "frequency_penalty",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1.2e-06,
-        "text_output": 1.2e-06
-      }
-    },
-    {
       "id": "thedrummer/rocinante-12b",
       "name": "Rocinante 12B",
       "author_name": "TheDrummer",
@@ -9815,6 +10607,7 @@
       "context_length": 32768,
       "supported_parameters": [
         "frequency_penalty",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -9822,6 +10615,7 @@
         "response_format",
         "seed",
         "stop",
+        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -9839,8 +10633,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 2.5e-07,
-        "text_output": 3.95e-07
+        "text_input": 3.7e-07,
+        "text_output": 4e-07
       }
     },
     {
@@ -9948,6 +10742,7 @@
       "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -9955,6 +10750,7 @@
         "response_format",
         "seed",
         "stop",
+        "structured_outputs",
         "temperature",
         "tool_choice",
         "tools",
@@ -10043,6 +10839,7 @@
       "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
+        "logit_bias",
         "logprobs",
         "max_tokens",
         "min_p",
@@ -10068,10 +10865,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 7.5e-08,
+        "text_cache_read": 1.1125e-07,
         "text_cache_write": null,
-        "text_input": 6.5556e-08,
-        "text_output": 1.13333e-07
+        "text_input": 8.5e-08,
+        "text_output": 1.1875e-07
       }
     },
     {
@@ -10091,51 +10888,7 @@
       "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 4e-07,
-        "text_output": 4e-07
-      }
-    },
-    {
-      "id": "mistralai/mistral-nemo",
-      "name": "Mistral Nemo",
-      "author_name": "Mistral",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "mistralai/mistral-nemo",
-      "created_at": "2024-07-19T00:00:00.000Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "frequency_penalty",
+        "logit_bias",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -10159,10 +10912,59 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
+        "text_cache_read": 8e-07,
+        "text_cache_write": null,
+        "text_input": 5.8e-07,
+        "text_output": 5.8e-07
+      }
+    },
+    {
+      "id": "mistralai/mistral-nemo",
+      "name": "Mistral Nemo",
+      "author_name": "Mistral",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "mistralai/mistral-nemo",
+      "created_at": "2024-07-19T00:00:00.000Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
         "text_cache_read": 1.5e-08,
         "text_cache_write": null,
-        "text_input": 7e-08,
-        "text_output": 1.2e-07
+        "text_input": 5.75e-08,
+        "text_output": 9.75e-08
       }
     },
     {
@@ -10405,101 +11207,6 @@
         "text_cache_write": null,
         "text_input": 2.5e-06,
         "text_output": 1e-05
-      }
-    },
-    {
-      "id": "openai/gpt-4o:extended",
-      "name": "GPT-4o (extended)",
-      "author_name": "OpenAI",
-      "input_modalities": [
-        "file",
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "extended",
-      "version_id": "openai/gpt-4o",
-      "created_at": "2024-05-13T00:00:00.000Z",
-      "context_length": 128000,
-      "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p",
-        "web_search_options"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 6e-06,
-        "text_output": 1.8e-05
-      }
-    },
-    {
-      "id": "meta-llama/llama-3-8b-instruct",
-      "name": "Llama 3 8B Instruct",
-      "author_name": "Meta",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "meta-llama/llama-3-8b-instruct",
-      "created_at": "2024-04-18T00:00:00.000Z",
-      "context_length": 8192,
-      "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 1.125e-07,
-        "text_output": 2.525e-07
       }
     },
     {
@@ -10765,52 +11472,6 @@
         "text_cache_write": null,
         "text_input": 1e-05,
         "text_output": 3e-05
-      }
-    },
-    {
-      "id": "mistralai/mixtral-8x7b-instruct",
-      "name": "Mixtral 8x7B Instruct",
-      "author_name": "Mistral",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "mistralai/mixtral-8x7b-instruct",
-      "created_at": "2023-12-10T00:00:00.000Z",
-      "context_length": 32768,
-      "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "repetition_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 5.7e-07,
-        "text_output": 5.7e-07
       }
     },
     {
