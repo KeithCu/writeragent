@@ -70,7 +70,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 
 ### `getattr` / UNO context chains
 
-- Nested patterns like **`getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())`** triggered **`reportAttributeAccessIssue`** / optional access on **`Any`**. **Fix**: small helper or sequential **`getattr`** + **`callable`** checks, **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** (**`uno_context`**, **`dialogs._load_xdl`**, **`image_tools`**, **`queue_executor`**, **`main`** icon loading).
+- Nested patterns like **`getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())`** triggered **`reportAttributeAccessIssue`** / optional access on **`Any`**. **Fix**: small helper or sequential **`getattr`** + **`callable`** checks, **`assert smgr is not None`**, then **`cast(Any, smgr).createInstanceWithContext(...)`** (**`uno_context`**, **`dialogs._load_xdl`**, [**`image_tools`**](../plugin/modules/writer/image_tools.py), **`queue_executor`**, **`main`** icon loading).
 
 ### Import / branch typing quirks
 
@@ -158,7 +158,7 @@ Roughly **40+** files were edited; groupings below match the original tracking n
 
 **Framework**
 
-- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/framework/image_utils.py), [`legacy_ui.py`](../plugin/framework/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service_registry.py`](../plugin/framework/service_registry.py), [`settings_dialog.py`](../plugin/framework/settings_dialog.py), [`smol_model.py`](../plugin/framework/smol_model.py), [`state.py`](../plugin/framework/state.py), [`tool_registry.py`](../plugin/framework/tool_registry.py)
+- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/modules/writer/image_utils.py), [`legacy_ui.py`](../plugin/framework/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service_registry.py`](../plugin/framework/service_registry.py), [`settings_dialog.py`](../plugin/framework/settings_dialog.py), [`smol_model.py`](../plugin/framework/smol_model.py), [`state.py`](../plugin/framework/state.py), [`tool_registry.py`](../plugin/framework/tool_registry.py)
 
 **Entry / backends**
 

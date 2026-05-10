@@ -148,7 +148,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 - Logs: same directory as `writeragent.json` (else `~/writeragent_debug.log`). **`redact_sensitive_payload_for_log`** on HTTP debug ([`plugin/framework/logging.py`](plugin/framework/logging.py)).
 - **MCP:** HTTP threads → main-thread [`drain_mcp_queue`](plugin/modules/http/mcp_protocol.py); **`X-Document-URL`** for targeting—[`document.py`](plugin/framework/document.py). Start/stop from [`plugin/main.py`](plugin/main.py) bootstrap / [`HttpModule`](plugin/modules/http/__init__.py)—localhost, no auth.
-- **Images:** endpoint uses **`get_image_model`** (not chat model); [`plugin/framework/image_utils.py`](plugin/framework/image_utils.py); [docs/image-generation.md](docs/image-generation.md).
+- **Images:** endpoint uses **`get_image_model`** (not chat model); [`plugin/modules/writer/image_utils.py`](plugin/modules/writer/image_utils.py), [`plugin/modules/writer/image_tools.py`](plugin/modules/writer/image_tools.py); [docs/image-generation.md](docs/image-generation.md).
 - **Outline / navigation helpers:** ignore stale **DocumentCache** mentions in comments—cache class is not active.
 - **Settings ↔ XDL:** `MainJob._get_settings_field_specs()` in [`plugin/main.py`](plugin/main.py) must match control names.
 - **`WriterAgentDialogs`** folder name matches `dialog.xlb` library name.

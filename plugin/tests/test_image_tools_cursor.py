@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 def _install_uno_mocks():
     """
-    image_tools.py imports several LibreOffice UNO types at module import time.
+    plugin/modules/writer/image_tools.py imports several LibreOffice UNO types at module import time.
     The unit tests in this repo sometimes run without LibreOffice present, so we
     stub the minimal module structure needed for imports.
     """
@@ -54,7 +54,7 @@ def _install_uno_mocks():
 
 _install_uno_mocks()
 
-from plugin.framework import image_tools  # noqa: E402
+from plugin.modules.writer import image_tools  # noqa: E402
 
 
 class TestWriterImageCursorConversion(unittest.TestCase):

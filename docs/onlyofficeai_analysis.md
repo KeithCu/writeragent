@@ -133,7 +133,7 @@ OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAg
 
 ### 5.4 Images
 
-OnlyOffice Word `addImage`: generate → insert/replace inside grouped actions. WriterAgent: [`generate_image`](plugin/framework/image_utils.py) + [`plugin/framework/image_tools.py`](plugin/framework/image_tools.py) (`insert_image`, `replace_image_in_place`, etc.).
+OnlyOffice Word `addImage`: generate → insert/replace inside grouped actions. WriterAgent: [`generate_image`](../plugin/modules/writer/image_utils.py) + [`plugin/modules/writer/image_tools.py`](../plugin/modules/writer/image_tools.py) (`insert_image`, `replace_image_in_place`, etc.).
 
 ---
 
@@ -160,7 +160,7 @@ OnlyOffice uses **`StartAction` / `EndAction`** and **`GroupActions`** so multi-
 | `explainFormula` | LLM explains formula | [`detect_and_explain_errors`](plugin/modules/calc/formulas.py) + [`error_detector.py`](plugin/modules/calc/error_detector.py) / [`inspector.py`](plugin/modules/calc/inspector.py) |
 | `formatTable` | Table-like formatting | Partial: [`set_style`](plugin/modules/calc/cells.py), merge/sort/delete structure |
 | `changeTextStyle` (cell) | Char/cell styling | [`set_style`](plugin/modules/calc/cells.py) |
-| `addImage` (cell) | Image on sheet | Shared image pipeline; draw page insert via [`image_tools.py`](plugin/framework/image_tools.py) (`_insert_image_to_drawpage`); specialized Calc images via [`ToolCalcImageBase`](plugin/modules/calc/base.py) |
+| `addImage` (cell) | Image on sheet | Shared image pipeline; draw page insert via [`plugin/modules/writer/image_tools.py`](../plugin/modules/writer/image_tools.py) (`_insert_image_to_drawpage`); specialized Calc images via [`ToolCalcImageBase`](plugin/modules/calc/base.py) |
 
 ### 7.2 Partial overlap — OO is “AI-first”; WriterAgent is “UNO + optional LLM”
 

@@ -92,7 +92,7 @@ flowchart TB
 | Smol agent construction | [`plugin/framework/smol_agent_factory.py`](../plugin/framework/smol_agent_factory.py) — `build_toolcalling_agent` |
 | `ToolBase` → smol `inputs` | [`plugin/framework/smol_tool_adapter.py`](../plugin/framework/smol_tool_adapter.py) |
 | Librarian | [`plugin/modules/chatbot/librarian.py`](../plugin/modules/chatbot/librarian.py) |
-| Specialized delegation | [`plugin/framework/specialized_base.py`](../plugin/framework/specialized_base.py) |
+| Specialized delegation | [`plugin/modules/doc/specialized_base.py`](../plugin/modules/doc/specialized_base.py) |
 | Main chat loop | [`plugin/modules/chatbot/tool_loop.py`](../plugin/modules/chatbot/tool_loop.py), [`tool_loop_state.py`](../plugin/modules/chatbot/tool_loop_state.py) |
 | HTTP client | [`plugin/modules/http/client.py`](../plugin/modules/http/client.py) |
 | Orientation | [`AGENTS.md`](../AGENTS.md) §4, §8 |
