@@ -21,8 +21,8 @@ import logging
 import uno
 
 from plugin.framework.tool import ToolBase
-from .specialized_base import ToolWriterCommentBase
-from .ops import find_paragraph_for_range
+from ..specialized_base import ToolWriterCommentBase
+from ..ops import find_paragraph_for_range
 
 log = logging.getLogger("writeragent.writer")
 

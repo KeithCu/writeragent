@@ -9,8 +9,8 @@
 
 """Embedded OLE objects in Writer — specialized embedded domain."""
 
-from .specialized_base import ToolWriterEmbeddedBase
-from .target_resolver import resolve_target_cursor
+from ..specialized_base import ToolWriterEmbeddedBase
+from ..target_resolver import resolve_target_cursor
 
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):

@@ -9,8 +9,8 @@
 
 """Writer text fields — specialized fields domain."""
 
-from .specialized_base import ToolWriterFieldBase
-from .target_resolver import resolve_target_cursor
+from ..specialized_base import ToolWriterFieldBase
+from ..target_resolver import resolve_target_cursor
 
 
 class FieldsUpdateAll(ToolWriterFieldBase):

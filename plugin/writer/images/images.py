@@ -29,14 +29,14 @@ import hashlib
 import os
 import tempfile
 
-from .specialized_base import ToolWriterImageBase
+from ..specialized_base import ToolWriterImageBase
 import typing
 import urllib.request
 import ssl
 from plugin.framework.queue_executor import execute_on_main_thread
-from .images.image_utils import ImageService
+from .image_utils import ImageService
 from plugin.framework.config import get_image_model, get_config_int, get_config_bool, get_config_str, update_lru_history
-from .images.image_tools import insert_image, replace_image_in_place, get_selected_image_base64, get_selected_image_dimensions_px
+from .image_tools import insert_image, replace_image_in_place, get_selected_image_base64, get_selected_image_dimensions_px
 
 log = logging.getLogger("writeragent.writer")
 

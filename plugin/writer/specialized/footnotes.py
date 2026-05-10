@@ -17,7 +17,7 @@
 
 from typing import Any
 
-from .specialized_base import ToolWriterFootnoteBase
+from ..specialized_base import ToolWriterFootnoteBase
 from plugin.framework.errors import ToolExecutionError
 
 

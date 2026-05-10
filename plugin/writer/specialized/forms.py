@@ -23,7 +23,7 @@ import re
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from .specialized_base import ToolWriterFormBase
+from ..specialized_base import ToolWriterFormBase
 from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 
@@ -362,7 +362,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             shape.setString(plain)
             return
 
-        from .ops import insert_html_at_cursor
+        from ..ops import insert_html_at_cursor
 
         vc = doc.getCurrentController().getViewCursor()
         cursor = doc.getText().createTextCursorByRange(vc)

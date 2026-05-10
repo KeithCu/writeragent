@@ -20,7 +20,7 @@ import logging
 import uuid
 
 from plugin.framework.service import ServiceBase
-from .specialized_base import ToolWriterBookmarkBase
+from ..specialized_base import ToolWriterBookmarkBase
 
 log = logging.getLogger("writeragent.writer.nav.bookmarks")
 

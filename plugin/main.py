@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 officehelper: ModuleType | None = None
 try:
-    import officehelper as _officehelper_module
+    import officehelper as _officehelper_module  # type: ignore
 
     officehelper = _officehelper_module
 except ImportError:

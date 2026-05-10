@@ -9,8 +9,8 @@
 
 """Writer document indexes (TOC, bibliography) — specialized indexes domain."""
 
-from .specialized_base import ToolWriterIndexBase
-from .target_resolver import resolve_target_cursor
+from ..specialized_base import ToolWriterIndexBase
+from ..target_resolver import resolve_target_cursor
 
 
 class IndexesUpdateAll(ToolWriterIndexBase):
