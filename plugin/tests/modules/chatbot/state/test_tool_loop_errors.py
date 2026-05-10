@@ -57,15 +57,25 @@ class MockDummyToolCallingClass(ToolCallingMixin):
 @pytest.fixture
 def mock_get_tools():
     import sys
+    # Save original modules
+    original_main = sys.modules.get('plugin.main')
+    
     # Add a mock plugin.main module so we can patch plugin.main.get_tools
     class MockMain:
         pass
     sys.modules['plugin.main'] = MockMain()
 
-    with patch("plugin.main.get_tools", create=True) as mock_gt:
-        registry = MagicMock()
-        mock_gt.return_value = registry
-        yield registry
+    try:
+        with patch("plugin.main.get_tools", create=True) as mock_gt:
+            registry = MagicMock()
+            mock_gt.return_value = registry
+            yield registry
+    finally:
+        # Restore original module
+        if original_main:
+            sys.modules['plugin.main'] = original_main
+        else:
+            del sys.modules['plugin.main']
 
 @pytest.fixture
 def test_instance():

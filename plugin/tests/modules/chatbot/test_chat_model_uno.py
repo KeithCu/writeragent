@@ -31,14 +31,11 @@ sys.modules['com.sun.star.awt'].XTextComponent = XTextComponent
 sys.modules['com.sun.star.ui.UIElementType'].TOOLPANEL = 1
 
 # Mock core modules that chat_panel depends on
-sys.modules['core'] = MagicMock()
-sys.modules['core.logging'] = MagicMock()
-sys.modules['core.async_stream'] = MagicMock()
-sys.modules['core.config'] = MagicMock()
-sys.modules['core.api'] = MagicMock()
-sys.modules['core.document'] = MagicMock()
-sys.modules['core.document_tools'] = MagicMock()
-sys.modules['core.constants'] = MagicMock()
+# Use real modules where possible to avoid import issues
+if 'plugin.main' not in sys.modules:
+    sys.modules['plugin.main'] = MagicMock()
+if 'plugin.framework.config' not in sys.modules:
+    sys.modules['plugin.framework.config'] = MagicMock()
 
 # Add project root to path
 sys.path.insert(0, get_plugin_dir())
@@ -60,11 +57,14 @@ class TestChatModelLogic(unittest.TestCase):
         self.session = MagicMock()
         self.session.messages = [{"role": "system", "content": "test"}]
 
-        self.listener = SendButtonListener(
-            self.ctx, self.frame, self.send_control, self.stop_control,
-            self.query_control, self.response_control, self.image_model_selector,
-            self.model_selector, self.status_control, self.session
-        )
+        # Use a more targeted patch that cleans up
+        with patch('plugin.main.get_tools', create=True) as mock_get_tools:
+            mock_get_tools.return_value = MagicMock()
+            self.listener = SendButtonListener(
+                self.ctx, self.frame, self.send_control, self.stop_control,
+                self.query_control, self.response_control, self.image_model_selector,
+                self.model_selector, self.status_control, self.session
+            )
 
 
     @patch('plugin.framework.config.get_config')
@@ -80,11 +80,11 @@ class TestChatModelLogic(unittest.TestCase):
         
         doc_mock = MagicMock(spec=["getText", "supportsService"])
         doc_mock.supportsService.return_value = False
-        with patch.object(self.listener, '_get_document_model', return_value=doc_mock),              patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})):
+        with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
+             patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})), \
+             patch('plugin.main.get_tools', create=True):
 
-            with patch('sys.modules', dict(sys.modules)):
-                sys.modules['plugin.main'] = MagicMock()
-                self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
+            self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
 
             mock_set_config.assert_any_call(self.ctx, "text_model", "new-model-xyz")
             mock_update_lru.assert_any_call(self.ctx, "new-model-xyz", "model_lru", "http://x")
@@ -103,11 +103,11 @@ class TestChatModelLogic(unittest.TestCase):
 
         doc_mock = MagicMock(spec=["getText", "supportsService"])
         doc_mock.supportsService.return_value = False
-        with patch.object(self.listener, '_get_document_model', return_value=doc_mock),              patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})):
+        with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
+             patch('plugin.framework.config.get_api_config', MagicMock(return_value={"model": "test", "endpoint": "http://x"})), \
+             patch('plugin.main.get_tools', create=True):
 
-            with patch('sys.modules', dict(sys.modules)):
-                sys.modules['plugin.main'] = MagicMock()
-                self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
+            self.listener._do_send_chat_with_tools("Hello AI", doc_mock, "writer")
 
             mock_set_config.assert_any_call(self.ctx, "image_model", "new-image-model-xyz")
             mock_update_lru.assert_any_call(self.ctx, "new-image-model-xyz", "image_model_lru", "http://x")
@@ -120,7 +120,10 @@ class TestChatModelLogic(unittest.TestCase):
         doc_mock = MagicMock()
 
         # We need to correctly patch the checks used in _do_send to identify the document
-        with patch.object(self.listener, '_get_document_model', return_value=doc_mock),              patch('plugin.modules.doc.document_helpers.is_calc', return_value=True),              patch('plugin.modules.doc.document_helpers.is_writer', return_value=False),              patch('plugin.modules.doc.document_helpers.is_draw', return_value=False):
+        from plugin.modules.doc.document_helpers import DocumentType
+        with patch.object(self.listener, '_get_document_model', return_value=doc_mock), \
+             patch('plugin.modules.doc.document_helpers.get_document_type', return_value=DocumentType.CALC), \
+             patch('plugin.main.get_tools', create=True):
 
             # Since _do_send manipulates response_control internally, we don't assert its text, just the side effect terminal state.
             self.listener._do_send()
