@@ -29,7 +29,7 @@ import hashlib
 import os
 import tempfile
 
-from plugin.modules.writer.base import ToolWriterImageBase
+from plugin.modules.writer.specialized_base import ToolWriterImageBase
 import typing
 import urllib.request
 import ssl

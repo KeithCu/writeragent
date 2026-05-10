@@ -127,7 +127,7 @@ class MockServices:
         from plugin.modules.doc.document_helpers import DocumentService
         from plugin.framework.event_bus import EventBus
         from plugin.modules.writer.proximity import ProximityService
-        from plugin.modules.writer.bookmarks import BookmarkService
+        from plugin.modules.writer.specialized.bookmarks import BookmarkService
         from plugin.modules.writer.tree import TreeService
 
         self.events = EventBus()

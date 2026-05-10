@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from plugin.modules.writer.format_support import (
+from plugin.modules.writer.format import (
     document_to_content,
     insert_content_at_position as _insert_content_at_position,
     content_has_markup as _content_has_markup,

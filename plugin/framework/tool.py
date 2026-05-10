@@ -326,7 +326,7 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     """True if *t* is a Writer/Calc/Draw specialized tool for *active_domain*."""
     if getattr(t, "specialized_domain", None) != active_domain:
         return False
-    from plugin.modules.writer.base import ToolWriterSpecialBase
+    from plugin.modules.writer.specialized_base import ToolWriterSpecialBase
     from plugin.modules.calc.base import ToolCalcSpecialBase
     from plugin.modules.draw.base import ToolDrawSpecialBase
 

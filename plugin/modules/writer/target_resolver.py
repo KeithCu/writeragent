@@ -1,7 +1,7 @@
 import re as re_mod
 import logging
 from plugin.modules.writer.content import _normalize_search_string_for_find, _find_range_by_offset
-from plugin.modules.writer.format_support import content_has_markup, html_to_plain_text
+from plugin.modules.writer.format import content_has_markup, html_to_plain_text
 
 log = logging.getLogger("writeragent.writer")
 

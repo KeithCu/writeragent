@@ -22,7 +22,7 @@ nelson-mcp/plugin/modules/writer/tools/frames.py
 
 import logging
 
-from plugin.modules.writer.base import ToolWriterTextFramesBase
+from plugin.modules.writer.specialized_base import ToolWriterTextFramesBase
 
 log = logging.getLogger("writeragent.writer")
 

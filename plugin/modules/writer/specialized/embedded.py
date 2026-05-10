@@ -9,7 +9,7 @@
 
 """Embedded OLE objects in Writer — specialized embedded domain."""
 
-from plugin.modules.writer.base import ToolWriterEmbeddedBase
+from plugin.modules.writer.specialized_base import ToolWriterEmbeddedBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 

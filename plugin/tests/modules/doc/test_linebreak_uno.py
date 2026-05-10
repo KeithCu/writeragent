@@ -4,7 +4,7 @@ import os
 # Add core to path
 sys.path.insert(0, os.getcwd())
 
-from plugin.modules.writer.format_support import _ensure_html_linebreaks, _strip_html_boilerplate
+from plugin.modules.writer.format import _ensure_html_linebreaks, _strip_html_boilerplate
 
 def test_conversion():
     # 1. Plain text with single newlines

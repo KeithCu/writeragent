@@ -17,7 +17,7 @@ except ImportError:
     # We don't strictly need class stubs here if we just mock the module objects,
     # but let's make sure it doesn't fail on imports.
 
-from plugin.modules.writer.bookmark_tools import (
+from plugin.modules.writer.specialized.bookmarks import (
     CreateBookmark,
     DeleteBookmark,
     RenameBookmark,

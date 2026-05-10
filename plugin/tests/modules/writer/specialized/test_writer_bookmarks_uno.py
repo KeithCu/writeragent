@@ -13,7 +13,7 @@ try:
     from plugin.framework.uno_context import get_desktop
     from plugin.modules.doc.document_helpers import DocumentService
     from plugin.framework.event_bus import EventBus
-    from plugin.modules.writer.bookmarks import BookmarkService
+    from plugin.modules.writer.specialized.bookmarks import BookmarkService
 except ImportError:
     setup, teardown, native_test = (lambda f: f), (lambda f: f), (lambda f: f)
 

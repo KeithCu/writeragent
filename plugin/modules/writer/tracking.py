@@ -29,7 +29,7 @@ import logging
 from typing import Any
 
 from plugin.modules.calc.base import ToolCalcSpecialTracking
-from plugin.modules.writer.base import WriterAgentSpecialTracking
+from plugin.modules.writer.specialized_base import WriterAgentSpecialTracking
 
 log = logging.getLogger("writeragent.writer")
 

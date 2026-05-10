@@ -9,7 +9,7 @@
 
 """Writer document indexes (TOC, bibliography) — specialized indexes domain."""
 
-from plugin.modules.writer.base import ToolWriterIndexBase
+from plugin.modules.writer.specialized_base import ToolWriterIndexBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 

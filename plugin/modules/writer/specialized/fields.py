@@ -9,7 +9,7 @@
 
 """Writer text fields — specialized fields domain."""
 
-from plugin.modules.writer.base import ToolWriterFieldBase
+from plugin.modules.writer.specialized_base import ToolWriterFieldBase
 from plugin.modules.writer.target_resolver import resolve_target_cursor
 
 

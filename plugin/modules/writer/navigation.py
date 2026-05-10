@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Navigation tools: navigate_heading, get_surroundings."""
 
-from plugin.modules.writer.base import ToolWriterStructuralBase
+from plugin.modules.writer.specialized_base import ToolWriterStructuralBase
 
 
 class NavigateHeading(ToolWriterStructuralBase):

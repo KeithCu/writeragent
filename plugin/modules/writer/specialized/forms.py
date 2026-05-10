@@ -23,7 +23,7 @@ import re
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from plugin.modules.writer.base import ToolWriterFormBase
+from plugin.modules.writer.specialized_base import ToolWriterFormBase
 from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 

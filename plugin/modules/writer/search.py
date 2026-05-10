@@ -19,7 +19,7 @@
 import logging
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.modules.writer import format_support
+from plugin.modules.writer import format as format_support
 import re as re_mod
 
 

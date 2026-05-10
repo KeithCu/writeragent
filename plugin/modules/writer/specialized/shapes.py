@@ -17,7 +17,7 @@
 """Writer shape drawing tools, bridging Draw's implementations."""
 
 import logging
-from plugin.modules.writer.base import ToolWriterShapeBase
+from plugin.modules.writer.specialized_base import ToolWriterShapeBase
 from plugin.modules.draw.shapes import CreateShape as DrawCreateShape
 from plugin.modules.draw.shapes import EditShape as DrawEditShape
 from plugin.modules.draw.shapes import DeleteShape as DrawDeleteShape

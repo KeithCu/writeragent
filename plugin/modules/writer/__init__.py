@@ -18,11 +18,9 @@
 
 from plugin.framework.module_base import ModuleBase
 
-from . import bookmarks, tree, proximity
+from . import tree, proximity, styles, tracking, page, search, structural, outline, navigation, target_resolver
+from .specialized import bookmarks, forms, charts, comments, shapes, indexes, textframes, fields, embedded
 from .locale import ai_grammar_proofreader, grammar_locale_registry, grammar_proofread_engine, linguistic_index
-from .math import html_math_segment, math_formula_insert, math_mml_convert
-from .images import images, image_tools, image_utils
-from . import base, specialized_core, styles, tracking
 
 
 class WriterModule(ModuleBase):

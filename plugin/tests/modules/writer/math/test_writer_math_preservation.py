@@ -14,7 +14,7 @@ sys.modules['com'] = MagicMock()
 sys.modules['com.sun.star'] = MagicMock()
 sys.modules['com.sun.star.text'] = MagicMock()
 
-from plugin.modules.writer.format_support import (
+from plugin.modules.writer.format import (
     _insert_mixed_html_and_math_at_cursor,
     _insert_mixed_or_plain_html
 )
@@ -30,8 +30,8 @@ class TestWriterMathPreservation(unittest.TestCase):
         # r"\nabla" has 1 backslash, r"\n" has 1 backslash.
         test_content = r"<p>Equation: \[\nabla \cdot \mathbf{E}\]</p> and a newline: \nHello."
         
-        with patch('plugin.modules.writer.format_support._insert_starwriter_html_at_cursor') as mock_insert_html:
-            with patch('plugin.modules.writer.format_support.convert_latex_to_starmath') as mock_convert_tex:
+        with patch('plugin.modules.writer.format._insert_starwriter_html_at_cursor') as mock_insert_html:
+            with patch('plugin.modules.writer.format.convert_latex_to_starmath') as mock_convert_tex:
                 mock_convert_tex.return_value = MagicMock(ok=True, starmath="mocked")
                 
                 _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, test_content)
@@ -54,7 +54,7 @@ class TestWriterMathPreservation(unittest.TestCase):
         
         test_content = "Line 1\\nLine 2"
         
-        with patch('plugin.modules.writer.format_support._insert_starwriter_html_at_cursor') as mock_insert_html:
+        with patch('plugin.modules.writer.format._insert_starwriter_html_at_cursor') as mock_insert_html:
             _insert_mixed_or_plain_html(model, ctx, cursor, test_content)
             
             inserted_html = mock_insert_html.call_args[0][2]
@@ -73,7 +73,7 @@ class TestWriterMathPreservation(unittest.TestCase):
         # Plain text content (no markup)
         content = "Line 1\\nLine 2"
         
-        with patch('plugin.modules.writer.format_support.replace_full_document') as mock_replace:
+        with patch('plugin.modules.writer.format.replace_full_document') as mock_replace:
             tool.execute(ctx, content=content, target="full_document")
             
             passed_content = mock_replace.call_args[0][2]

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.uno_context import get_desktop
-from plugin.modules.writer import format_support
+from plugin.modules.writer import format as format_support
 from plugin.modules.writer.math.math_formula_insert import MATH_CLSID
 from plugin.modules.writer.math.math_mml_convert import convert_mathml_to_starmath
 from plugin.testing_runner import native_test, setup, teardown

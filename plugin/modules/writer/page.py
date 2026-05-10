@@ -19,7 +19,7 @@
 Page styles, margins, headers/footers, columns, and page breaks.
 """
 
-from plugin.modules.writer.base import ToolWriterPageBase
+from plugin.modules.writer.specialized_base import ToolWriterPageBase
 
 # ------------------------------------------------------------------
 # GetPageStyleProperties

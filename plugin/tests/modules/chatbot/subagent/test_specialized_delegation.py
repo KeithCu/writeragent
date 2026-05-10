@@ -5,8 +5,8 @@ from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
 from plugin.framework.tool import ToolRegistry, _is_specialized_domain_tool
-from plugin.modules.writer.base import ToolWriterSpecialBase, SpecializedWorkflowFinished
-from plugin.modules.writer.specialized_core import DelegateToSpecializedWriter
+from plugin.modules.writer.specialized_base import ToolWriterSpecialBase, SpecializedWorkflowFinished
+from plugin.modules.writer.specialized_base import DelegateToSpecializedWriter
 from plugin.modules.calc.specialized import DelegateToSpecializedCalc
 from plugin.modules.draw.specialized import DelegateToSpecializedDraw
 from plugin.modules.calc.base import ToolCalcSpecialBase

@@ -363,7 +363,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
             DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = base
     else:
         # Generate domain list dynamically
-        from plugin.modules.writer.base import ToolWriterSpecialBase
+        from plugin.modules.writer.specialized_base import ToolWriterSpecialBase
 
         domains = []
         for cls in ToolWriterSpecialBase.__subclasses__():

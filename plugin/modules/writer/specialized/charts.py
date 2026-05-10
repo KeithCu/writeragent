@@ -21,7 +21,7 @@ tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only mo
 """
 
 import logging
-from plugin.modules.writer.base import ToolWriterChartBase
+from plugin.modules.writer.specialized_base import ToolWriterChartBase
 from plugin.modules.calc.charts import ListCharts as CalcListCharts
 from plugin.modules.calc.charts import GetChartInfo as CalcGetChartInfo
 from plugin.modules.calc.charts import CreateChart as CalcCreateChart

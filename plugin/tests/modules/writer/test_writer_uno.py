@@ -80,7 +80,7 @@ def test_proximity_service():
     except ImportError:
         pass
     from plugin.modules.writer.proximity import ProximityService
-    from plugin.modules.writer.bookmarks import BookmarkService
+    from plugin.modules.writer.specialized.bookmarks import BookmarkService
     from plugin.modules.writer.tree import TreeService
     from plugin.framework.event_bus import EventBus
     from plugin.modules.writer.ops import find_paragraph_for_range as ops_find_paragraph_for_range
@@ -114,7 +114,7 @@ def test_proximity_service():
 
 @native_test
 def test_content_has_markup():
-    from plugin.modules.writer.format_support import content_has_markup
+    from plugin.modules.writer.format import content_has_markup
     assert content_has_markup("**bold**"), "content_has_markup failed to detect **bold**"
     assert not content_has_markup("plain text"), "content_has_markup falsely detected plain text"
 
@@ -292,7 +292,7 @@ def test_writer_structural_and_tree_service():
         pass
 
     from plugin.modules.writer.tree import TreeService
-    from plugin.modules.writer.bookmarks import BookmarkService
+    from plugin.modules.writer.specialized.bookmarks import BookmarkService
     from plugin.framework.event_bus import EventBus
     from plugin.modules.doc.document_helpers import DocumentService
     events = EventBus()

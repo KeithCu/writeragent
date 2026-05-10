@@ -14,14 +14,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Base classes for specialized Writer toolsets."""
+"""Specialized Writer toolset infrastructure and delegation."""
 
+import logging
 from typing import ClassVar
 
 from plugin.framework.tool import ToolBase
 from plugin.modules.calc.base import ToolCalcSpecialBase
 from plugin.modules.draw.base import ToolDrawFormBase
 from plugin.framework.constants import USE_SUB_AGENT
+from plugin.modules.doc.specialized_base import DelegateToSpecializedBase
+
+log = logging.getLogger("writeragent.writer")
 
 
 class ToolWriterSpecialBase(ToolBase):
@@ -39,6 +43,30 @@ class ToolWriterSpecialBase(ToolBase):
     # The domain name this tool belongs to (e.g., "tables").
     # Subclasses MUST override this.
     specialized_domain: ClassVar[str | None] = None
+
+
+class DelegateToSpecializedWriter(DelegateToSpecializedBase):
+    """Gateway tool to delegate tasks to specialized Writer toolsets.
+
+    This spins up a sub-agent with a limited set of tools (e.g., only Table tools)
+    to focus on the user's specific request, preventing context pollution.
+    """
+
+    name = "delegate_to_specialized_writer_toolset"
+    description = (
+        "Delegates a specialized task to a sub-agent with a focused toolset. "
+        "Use this for specialized complex Writer operations like manipulating "
+        "charts, fields, styles (list, edit, create), page (margins, headers/footers, columns, page breaks), "
+        "textframes (list_text_frames, get_text_frame_info, set_text_frame_properties), "
+        "embedded objects, shapes, indexes, "
+        "bookmarks, track changes (tracking), footnotes/endnotes (domain=footnotes), "
+        "form templates and controls (domain=forms), "
+        "or in-document image work (domain=images: generate, list, insert, replace images, etc.)."
+    )
+
+    uno_services = ["com.sun.star.text.TextDocument"]
+    _special_base_class = ToolWriterSpecialBase
+    _agent_label = "Writer"
 
 
 # --- Domain-Specific Base Classes ---
@@ -133,38 +161,6 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "web_research"
-
-
-# class SpecializedWorkflowFinished(ToolBase):
-#     """Tool called by the sub-agent to indicate it has completed its task."""
-#
-#     name = "specialized_workflow_finished"
-#     description = "Call this tool when you have successfully completed the specialized task."
-#     parameters = {
-#         "type": "object",
-#         "properties": {
-#             "summary": {
-#                 "type": "string",
-#                 "description": "A brief summary of what you accomplished.",
-#             },
-#         },
-#         "required": ["summary"],
-#     }
-#     tier = "specialized_control"
-#
-#     def execute(self, ctx, **kwargs):
-#         # Allow the main LLM loop to exit specialized mode
-#         from plugin.framework.constants import USE_SUB_AGENT
-#         if not USE_SUB_AGENT:
-#             if getattr(ctx, "set_active_domain_callback", None):
-#                 ctx.set_active_domain_callback(None)
-#
-#         return {
-#             "status": "ok",
-#             "finished": True,
-#             "summary": kwargs.get("summary"),
-#             "message": "Specialized workflow finished. Normal toolset restored."
-#         }
 
 
 class SpecializedWorkflowFinished(ToolBase):
