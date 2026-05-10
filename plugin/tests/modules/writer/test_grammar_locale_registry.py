@@ -23,7 +23,7 @@ from plugin.modules.writer.grammar_locale_registry import (
 _GETTEXT_LOCALE_DIRS: frozenset[str] = frozenset(
     n
     for n in os.listdir(
-        os.path.join(os.path.dirname(__file__), "..", "locales")
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "locales")
     )
     if re.match(r"^[a-z]{2,3}(_[A-Z]{2})?$", n)
 )

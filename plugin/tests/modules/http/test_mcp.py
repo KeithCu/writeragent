@@ -20,6 +20,13 @@ def get_free_port():
 @pytest.fixture(scope="module")
 def mcp_server():
     """Start the HTTP server using HttpModule with mocked services."""
+    # Reset HttpModule singletons to ensure a clean state for this test module
+    import plugin.modules.http as http_mod
+    with http_mod._http_peer_lock:
+        http_mod._primary_http_module = None
+        http_mod._shared_registry = None
+        http_mod._shared_http_server = None
+
     # Mock services
     services = MagicMock()
 
