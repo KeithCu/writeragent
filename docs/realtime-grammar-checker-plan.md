@@ -314,3 +314,41 @@ We are doing this because if we kept sending arbitrary 500-character windows the
 - Cached sentence errors still return immediately without worker scheduling.
 - Partial/incomplete sentence behavior remains conservative and does not churn the cache while typing.
 - The `doProofreading` hot path is short and obvious: split → map active range to focus sentence(s) → per-sentence cache lookup (immediate return on hit) → enqueue only misses → set result positions to the exact chosen sentence end. We are targeting this simplicity because if the hot path remained entangled with 500-character caps, Lightproof finalize, and blanket skips then future maintainers would have to re-learn the same legacy complexity we are removing.
+
+---
+
+## 8. Noticed potential bugs in the WIP branch (`WIP-pure-sentence-caching`)
+
+During review of the `WIP-pure-sentence-caching` branch, several potential issues and architectural risks were identified that should be addressed before merging or as part of the next iteration:
+
+### 1. Inconsistent Sentence Splitting (Synchronization Risk)
+The UI thread and the worker thread both call `split_into_sentences`. 
+- **The Issue**: If the `ctx` object in the worker provides slightly different locale handling or if the `BreakIterator` state differs from the UI thread, they may disagree on where a sentence ends (e.g., UI thread sees end at index 50, worker sees index 55).
+- **Impact**: The worker will cache the result for the 55-char fingerprint, while the UI thread will continue to miss the cache because it is looking for the 50-char fingerprint. This leads to redundant LLM calls and squiggles that never appear.
+- **Recommendation**: Ensure the worker uses a consistent `ctx` or, ideally, pass the pre-split text fragments directly in the `GrammarWorkItem` to avoid re-splitting.
+
+### 2. Conservative Abbreviation Heuristic
+The current heuristic for merging sentences after abbreviations is limited to words of 3 characters or less:
+`if 0 < len(word) <= 3 and word[0].isupper():`
+- **The Issue**: Many common abbreviations exceed this limit (e.g., `approx.`, `assoc.`, `dept.`, `prof.`, `univ.`, `ext.`). 
+- **Impact**: The splitter will break sentences prematurely at these abbreviations, leading to fragmented, low-context LLM requests and incorrect grammar analysis.
+- **Recommendation**: Increase the character limit or implement a more comprehensive "common abbreviation" lookup list.
+
+### 3. Trailing Whitespace Gaps
+The `split_into_sentences` implementation (both the Thai/Lao/Khmer regex and the `BreakIterator` path) explicitly skips trailing whitespace between sentences.
+- **The Issue**: By stripping whitespace from the work unit before sending it to the LLM, the checker loses visibility into inter-sentence formatting issues.
+- **Impact**: Issues like double spaces, missing spaces, or incorrect whitespace formatting between sentences will never be identified or corrected by the AI.
+- **Recommendation**: Include trailing whitespace in the sentence slice sent for analysis, while continuing to use a normalized (stripped) version for the cache key to maintain hit stability.
+
+### 4. Serial LLM Processing in Worker
+The worker processes the deduplicated batch serially, one sentence at a time.
+- **The Issue**: On paragraph handoff (e.g., when opening a document or pasting text), many sentences are enqueued at once.
+- **Impact**: If a paragraph has 10 sentences and each LLM call takes 2 seconds, the user will wait 20 seconds for the last squiggle to appear. Since the architecture already includes `llm_request_lane` for concurrency management, this is a missed opportunity for performance.
+- **Recommendation**: Utilize a thread pool within the worker batch to process multiple uncached sentences in parallel (respecting the `llm_request_lane` limits).
+
+### 5. Architectural Desync (Merge Conflict Risk)
+The WIP branch was branched from a state prior to the major `plugin/framework` refactoring.
+- **The Issue**: It moves several files (like `dialogs.py`, `document.py`, `legacy_ui.py`) *back into* the `framework` directory that were recently moved *out* of it on the `main` branch.
+- **Impact**: A direct merge will be highly problematic and will revert the "lean framework" progress. 
+- **Recommendation**: Rebase the WIP branch onto `main` and resolve the directory structure conflicts before attempting to land the sentence-caching changes.
+
