@@ -147,7 +147,7 @@ class GrammarCheckerFlowchart:
             FlowNode(
                 id="debounce",
                 label="1s Debounce",
-                description="GRAMMAR_WORKER_PAUSE_TIMEOUT_S - wait for typing to pause",
+                description="GRAMMAR_WORKER_PAUSE_TIMEOUT_S (grammar_proofread_locale.py) - wait for typing to pause",
                 color=FlowColor.DELAY_CACHE,
                 shape="diamond"
             ),
@@ -341,7 +341,7 @@ class GrammarCheckerFlowchart:
         lines.append("")
         lines.append("_GrammarWorkQueue (daemon thread)")
         lines.append("    ↓")
-        lines.append("Wait 1s debounce (GRAMMAR_WORKER_PAUSE_TIMEOUT_S)")
+        lines.append("Wait 1s debounce (GRAMMAR_WORKER_PAUSE_TIMEOUT_S in grammar_proofread_locale.py)")
         lines.append("    ↓")
         lines.append("Batch drain + deduplicate (keep newest per doc_id|locale)")
         lines.append("    ↓")
@@ -399,21 +399,24 @@ class GrammarCheckerFlowchart:
         lines.append("   - `GrammarWorkQueue` - Daemon thread + batch drain + dedup")
         lines.append("   - `run_llm_and_cache()` - LLM execution and cache writes")
         lines.append("")
-        lines.append("3. **`grammar_proofread_cache.py`** - Sentence LRU cache")
+        lines.append("3. **`grammar_proofread_locale.py`** - Policy tables and worker knobs")
+        lines.append("   - Unicode terminals, abbrev/Thai chunking, `parse_grammar_json`, caps/prompt/pause")
+        lines.append("")
+        lines.append("4. **`grammar_proofread_cache.py`** - Sentence LRU cache")
         lines.append("   - `cache_put_sentence()` / `cache_get_sentence()`")
         lines.append("")
-        lines.append("4. **`grammar_proofread_text.py`** - Splitting + JSON + offsets")
-        lines.append("   - `split_into_sentences()`, `parse_grammar_json()`, `normalize_errors_for_text()`")
-        lines.append("   - Sentence scheduling helpers next to splitting")
+        lines.append("5. **`grammar_proofread_text.py`** - BreakIterator split + offsets")
+        lines.append("   - `split_into_sentences()`, `normalize_errors_for_text()`")
+        lines.append("   - Sentence scheduling helpers; `parse_grammar_json` re-exported from locale")
         lines.append("")
-        lines.append("5. **`grammar_proofread_work_item.py`** - `GrammarWorkItem`, `deduplicate_grammar_batch()`")
+        lines.append("6. **`grammar_proofread_work_item.py`** - `GrammarWorkItem`, `deduplicate_grammar_batch()`")
         lines.append("")
         
         # Flow Details
         lines.append("## Detailed Flow Notes")
         lines.append("")
         lines.append("### Debounce Mechanism")
-        lines.append("- Worker waits **1 second** (GRAMMAR_WORKER_PAUSE_TIMEOUT_S) after last enqueue")
+        lines.append("- Worker waits **1 second** (`GRAMMAR_WORKER_PAUSE_TIMEOUT_S` in `grammar_proofread_locale.py`) after last enqueue")
         lines.append("- Prevents LLM calls while user is actively typing")
         lines.append("- Reduces backend stampedes and unnecessary calls")
         lines.append("")

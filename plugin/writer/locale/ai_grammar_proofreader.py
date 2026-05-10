@@ -10,7 +10,7 @@ import importlib
 import logging
 import os
 import sys
-import time
+import time  # noqa: F401 — tests patch ``ai_grammar_proofreader.time.sleep``
 
 # LO loads this file as a standalone UNO component; set up path like panel_factory.py
 # so ``import plugin...`` works (file is plugin/writer/locale/ai_grammar_proofreader.py).
@@ -56,24 +56,27 @@ except ImportError:
 # INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
-from .grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear, ignored_rules_snapshot, looks_complete_sentence
+from .grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear, ignored_rules_snapshot
+from .grammar_proofread_locale import (
+    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,  # noqa: F401 — module API for tests (`proofreader.GRAMMAR_*`)
+    GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,  # noqa: F401
+    count_nonspace_chars,
+    looks_complete_sentence,
+)
 from .grammar_proofread_text import (
-    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
     NormalizedProofError,
     candidate_sentence_spans_for_proofreading,
-    count_nonspace_chars,
     filter_sentence_spans_for_thresholds,
     grammar_inflight_key,
 )
 from .grammar_proofread_work_item import GrammarWorkItem
 from .grammar_work_queue import (
-    GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
-    GrammarWorkQueue as _GrammarWorkQueue,
+    GrammarWorkQueue as _GrammarWorkQueue,  # noqa: F401 — test hook ``proofreader._GrammarWorkQueue``
     emit_grammar_status,
     grammar_obs,
     grammar_queue,
     next_enqueue_seq,
-    run_llm_and_cache as _run_llm_and_cache,
+    run_llm_and_cache as _run_llm_and_cache,  # noqa: F401 — test hook ``proofreader._run_llm_and_cache``
     slice_preview_debug,
 )
 

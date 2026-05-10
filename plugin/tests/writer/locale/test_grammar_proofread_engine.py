@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from plugin.writer.locale import grammar_proofread_cache as gc
+from plugin.writer.locale import grammar_proofread_locale as gl
 from plugin.writer.locale import grammar_proofread_text as gt
 from plugin.writer.locale.grammar_proofread_cache import _normalize_for_sentence_cache
 
@@ -306,11 +307,11 @@ def test_anchor_wrong_in_window() -> None:
 
 def test_looks_complete_sentence_matches_proofreader_gating() -> None:
     """Same predicate as ``ai_grammar_proofreader`` — includes STerm chars beyond ASCII."""
-    assert gc.looks_complete_sentence("Hello world.") is True
-    assert gc.looks_complete_sentence("incomplete clause") is False
+    assert gl.looks_complete_sentence("Hello world.") is True
+    assert gl.looks_complete_sentence("incomplete clause") is False
     # Armenian full stop U+0589 — was missing from the old narrow cache-only set
-    assert gc.looks_complete_sentence("Բարև։") is True
-    assert "։" in gc.GRAMMAR_SENTENCE_TERMINATORS
+    assert gl.looks_complete_sentence("Բարև։") is True
+    assert "։" in gl.GRAMMAR_SENTENCE_TERMINATORS
     # Trailing closer before terminal (same logic as proofreader + cache eviction)
-    assert gc.looks_complete_sentence('She said "hello."') is True
-    assert gc.last_meaningful_char('She said "hello."') == "."
+    assert gl.looks_complete_sentence('She said "hello."') is True
+    assert gl.last_meaningful_char('She said "hello."') == "."

@@ -2,20 +2,27 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Text pipeline for native grammar: BreakIterator, sentence splits, LLM JSON parse, offset mapping."""
+"""Text pipeline for native grammar: BreakIterator, sentence splits, offset mapping."""
 
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence, cast
+from typing import Any, Iterable, Sequence
 
-import json_repair
-
-from plugin.framework.json_utils import safe_json_loads
-
-from .grammar_proofread_cache import fingerprint_for_text, looks_complete_sentence
+from .grammar_proofread_locale import (
+    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
+    GRAMMAR_SENTENCE_SPLIT_RE,
+    GRAMMAR_WHITESPACE_RUN_RE,
+    count_nonspace_chars,
+    fingerprint_for_text,
+    is_whitespace_sentence_locale,
+    looks_complete_sentence,
+    parse_grammar_json,  # noqa: F401 — re-export for `grammar_proofread_text.parse_grammar_json`
+    split_sentence_chunks_by_separator_regex,
+    word_before_period_is_abbrev,
+)
 
 _grammar_diag = logging.getLogger("writeragent.grammar")
 
@@ -48,36 +55,6 @@ def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, A
 # Sentence splitting (BreakIterator + abbrev heuristic; Thai/Lao/Khmer whitespace)
 # ---------------------------------------------------------------------------
 
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…؟。！？।])\s+")
-
-_ABBREV_DOT_WORDS = frozenset(
-    {
-        "approx",
-        "assoc",
-        "dept",
-        "prof",
-        "univ",
-        "ext",
-        "fig",
-        "vol",
-        "misc",
-        "vs",
-        "etc",
-        "mr",
-        "mrs",
-        "dr",
-        "ms",
-    }
-)
-
-
-def _word_before_period_is_abbrev(word: str) -> bool:
-    if not word:
-        return False
-    if word.lower() in _ABBREV_DOT_WORDS:
-        return True
-    return 0 < len(word) <= 3 and word[0].isupper()
-
 
 def extend_through_trailing_whitespace(text: str, end_pos: int) -> int:
     """Return index after ``end_pos`` including any following whitespace on the same line."""
@@ -92,36 +69,13 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
     if not text or not text.strip():
         return []
 
-    if locale_key.startswith(("th", "lo", "km")):
-        _SPACE_RE = re.compile(r"\s+")
-        result: list[tuple[int, str]] = []
-        last = 0
-        for m in _SPACE_RE.finditer(text):
-            seg = text[last : m.start()]
-            ws = text[m.start() : m.end()]
-            if seg:
-                result.append((last, seg + ws))
-            last = m.end()
-        tail = text[last:]
-        if tail:
-            result.append((last, tail))
-        return result or [(0, text)]
+    if is_whitespace_sentence_locale(locale_key):
+        return split_sentence_chunks_by_separator_regex(text, GRAMMAR_WHITESPACE_RUN_RE)
 
     bi, locale = get_break_iterator_and_locale(ctx, locale_key)
 
     if not bi or not locale:
-        result = []
-        last = 0
-        for m in _SENTENCE_SPLIT_RE.finditer(text):
-            seg = text[last : m.start()]
-            ws = text[m.start() : m.end()]
-            if seg:
-                result.append((last, seg + ws))
-            last = m.end()
-        tail = text[last:]
-        if tail:
-            result.append((last, tail))
-        return result or [(0, text)]
+        return split_sentence_chunks_by_separator_regex(text, GRAMMAR_SENTENCE_SPLIT_RE)
 
     pos = 0
     sentences = []
@@ -141,7 +95,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                 while j >= pos and not text[j].isspace() and text[j] not in ".!?":
                     j -= 1
                 word = text[j + 1 : i]
-                if _word_before_period_is_abbrev(word):
+                if word_before_period_is_abbrev(word):
                     next_end = bi.endOfSentence(text, end_pos, locale)
                     if next_end > end_pos:
                         end_pos = next_end
@@ -157,18 +111,8 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
 
 
 # ---------------------------------------------------------------------------
-# Proofreading sentence selection (same module as ``split_into_sentences``). Not in
-# ``grammar_proofread_cache``: scheduling calls ``split_into_sentences`` above; this file
-# already imports cache — putting these helpers in cache would circular-import.
+# Proofreading sentence selection
 # ---------------------------------------------------------------------------
-
-GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
-
-_NONSPACE_SCHEDULE_RE = re.compile(r"\S", re.UNICODE)
-
-
-def count_nonspace_chars(text: str) -> int:
-    return len(_NONSPACE_SCHEDULE_RE.findall(text or ""))
 
 
 def grammar_inflight_key(a_document_identifier: str, loc_key: str, sentence_start: int) -> str:
@@ -218,48 +162,6 @@ def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) 
         if not complete_sentence and not partial_allowed:
             continue
         out.append((s, e, txt))
-    return out
-
-
-# ---------------------------------------------------------------------------
-# LLM JSON → error dicts
-# ---------------------------------------------------------------------------
-
-_GRAMMAR_JSON_RE = re.compile(r"\{[\s\S]*\}\s*$")
-
-
-def parse_grammar_json(content: str) -> list[dict[str, Any]]:
-    """Parse assistant message into a list of error dicts (wrong, correct, type, reason)."""
-    if not content or not content.strip():
-        return []
-    text = content.strip()
-    m = _GRAMMAR_JSON_RE.search(text)
-    if m:
-        text = m.group(0)
-    data: Any = safe_json_loads(text)
-    if not isinstance(data, Mapping):
-        try:
-            _grammar_diag.info("[grammar] parse_grammar_json: attempting json_repair")
-            data = json_repair.repair_json(text, return_objects=True)
-        except Exception as e:
-            _grammar_diag.warning("[grammar] parse_grammar_json: json_repair failed: %s", e)
-            return []
-    if not isinstance(data, Mapping):
-        return []
-    root = cast("Mapping[str, Any]", data)
-    raw = root.get("errors")
-    if not isinstance(raw, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for item in raw:
-        if not isinstance(item, Mapping):
-            continue
-        row = cast("Mapping[str, Any]", item)
-        wrong = row.get("wrong")
-        correct = row.get("correct")
-        if wrong is None or correct is None:
-            continue
-        out.append({"wrong": str(wrong), "correct": str(correct), "type": str(row.get("type", "grammar")), "reason": str(row.get("reason", ""))})
     return out
 
 

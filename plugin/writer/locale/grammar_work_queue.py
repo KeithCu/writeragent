@@ -13,13 +13,16 @@ import time
 from dataclasses import asdict
 from typing import Any
 
-from .grammar_proofread_cache import (
-    cache_get_sentence,
-    cache_put_sentence,
-    ignored_rules_snapshot,
+from .grammar_proofread_cache import cache_get_sentence, cache_put_sentence, ignored_rules_snapshot
+from .grammar_proofread_locale import (
+    GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS,
+    GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
+    GRAMMAR_SYSTEM_PROMPT_TEMPLATE,
+    GRAMMAR_WORKER_PAUSE_TIMEOUT_S,
     looks_complete_sentence,
+    parse_grammar_json,
 )
-from .grammar_proofread_text import normalize_errors_for_text, parse_grammar_json, split_into_sentences
+from .grammar_proofread_text import normalize_errors_for_text, split_into_sentences
 from .grammar_proofread_work_item import GrammarWorkItem, deduplicate_grammar_batch
 from .grammar_queue_state import (
     inflight_superseded as queue_inflight_superseded,
@@ -30,23 +33,6 @@ from .grammar_queue_state import (
 
 log = logging.getLogger("writeragent.grammar")
 log.setLevel(logging.DEBUG)
-
-# Fixed caps (not user-configurable): JSON response budget and pathological slice ceiling.
-GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
-GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 512
-
-GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
-    "You are a strict grammar and style checker. Reply with a single JSON object only, "
-    'no markdown, shaped exactly as: {{"errors": [{{"wrong": "exact substring from the text", '
-    '"correct": "replacement", "type": "grammar|style|spelling", "reason": "brief reason"}}]}}. '
-    "Use an empty errors array if there are no issues. "
-    "Provide errors in the order they appear in the text. "
-    "The text to check is in {lang_name} (BCP-47: {bcp47}). Apply grammar, spelling, "
-    "and style rules appropriate to that language; use the same language as the text in "
-    '"reason" and any comments when you give them.'
-)
-
-GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 _ENQUEUE_SEQ_LOCK = threading.Lock()
 _ENQUEUE_SEQ = 0
