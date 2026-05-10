@@ -300,3 +300,15 @@ def test_anchor_wrong_in_window() -> None:
     assert eng.anchor_wrong_in_window("bob x bob", "bob", 1) == 6
     assert eng.anchor_wrong_in_window("", "x", 0) is None
     assert eng.anchor_wrong_in_window("aa aa", "aa", 4) is None  # global match before search_pos — reject
+
+
+def test_looks_complete_sentence_matches_proofreader_gating() -> None:
+    """Same predicate as ``ai_grammar_proofreader`` — includes STerm chars beyond ASCII."""
+    assert eng.looks_complete_sentence("Hello world.") is True
+    assert eng.looks_complete_sentence("incomplete clause") is False
+    # Armenian full stop U+0589 — was missing from the old narrow cache-only set
+    assert eng.looks_complete_sentence("Բարև։") is True
+    assert "։" in eng.GRAMMAR_SENTENCE_TERMINATORS
+    # Trailing closer before terminal (same logic as proofreader + cache eviction)
+    assert eng.looks_complete_sentence('She said "hello."') is True
+    assert eng.last_meaningful_char('She said "hello."') == "."

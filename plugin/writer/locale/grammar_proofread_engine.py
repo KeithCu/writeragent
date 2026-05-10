@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from .grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS as _GRAMMAR_REGISTRY_LOCALE_TAGS
 from .grammar_proofread_cache import (
+    GRAMMAR_SENTENCE_TERMINATORS,
+    GRAMMAR_TRAILING_CLOSERS,
     MAX_CACHE_SIZE,
     MAX_RECENT_INCOMPLETE_SCAN,
     _normalize_for_sentence_cache,
@@ -19,6 +21,8 @@ from .grammar_proofread_cache import (
     ignore_rule_add,
     ignore_rules_clear,
     ignored_rules_snapshot,
+    last_meaningful_char,
+    looks_complete_sentence,
     make_sentence_key,
     sentence_cache_key_prefix,
     sentence_identity_fp,

@@ -20,11 +20,77 @@ MAX_CACHE_SIZE = 2048
 # effectiveness (catches typical typing chains) and CPU (few memory touches).
 MAX_RECENT_INCOMPLETE_SCAN = 10
 
-# Sentence completeness helpers (mirrored from ai_grammar_proofreader.py
-# to avoid import cycles). Used for deciding whether to evict incomplete
-# prefix predecessors during cache_put_sentence.
-_SENTENCE_TERMINATORS = frozenset((".", "!", "?", "…", "؟", "。", "！", "？", "।"))
-_TRAILING_CLOSERS = frozenset(('"', "'", ")", "]", "}", ">", "»", "“", "‘", "」", "』", "）", "］", "〉", "》", "】", "〕", "〗", "〛"))
+# Sentence-ending punctuation by script — single source for native grammar (proofreader
+# gating, worker partial prompts, and cache LRU incomplete-prefix eviction).
+# Matches Unicode 15.1 Sentence_Terminal (STerm); PropList.txt in Unicode UCD releases.
+# fmt: off
+GRAMMAR_SENTENCE_TERMINATORS: frozenset[str] = frozenset((
+    "!", ".", "?",              # ASCII
+    "…",                        # Horizontal ellipsis
+    "։",                        # Armenian full stop
+    "؟", "۔",                   # Arabic question mark / full stop
+    "܀", "܁", "܂",              # Syriac
+    "߹",                        # NKo exclamation mark
+    "।", "॥",                   # Devanagari danda / double danda
+    "၊", "။",                   # Myanmar
+    "።", "፧", "፨",              # Ethiopic
+    "᙮",                        # Canadian syllabics full stop
+    "᠃", "᠉",                   # Mongolian full stop / Manchu full stop
+    "᥄", "᥅",                   # Limbu
+    "᪨", "᪩", "᪪", "᪫",        # Tai Tham
+    "᭚", "᭛", "᭞", "᭟", "᭽", "᭾",  # Balinese
+    "᰻",                        # Lepcha
+    "᱾", "᱿",                   # Ol Chiki
+    "‼", "‽", "⁇", "⁈", "⁉",   # Double/combined punctuation
+    "⳹", "⳺", "⳻", "⳾",         # Coptic
+    "⸮", "⸼",                   # Reversed question mark / stenographic full stop
+    "。",                        # Ideographic full stop
+    "꓿",                        # Lisu
+    "꘎", "꘏",                   # Vai
+    "꛳", "꛷",                   # Bamum
+    "︑", "︒", "︕", "︖", "︙",  # Presentation forms (vertical)
+    "﹒", "﹖", "﹗",             # Small forms
+    "！", "．", "？",             # Fullwidth
+    "｡",                        # Halfwidth ideographic full stop
+    "𑅃",                        # Chakma question mark
+    "𖫵",                        # Bassa Vah full stop
+    "𖺘", "𖺚",                  # Medefaidrin
+    "𛲟",                        # Duployan
+    "𝪈",                        # Signwriting full stop
+    "𞥞", "𞥟",                  # Adlam
+))
+
+# Characters skipped when scanning backward for the sentence end: brackets, closing quotes,
+# and similar trail the period.
+# Mostly Unicode closing punctuation (Pe/Pf); `"` `'` `>` added for prose that omits curly quotes.
+# Regenerate Pe/Pf subset after a Unicode update:
+#   import sys, unicodedata
+#   chars = sorted(chr(cp) for cp in range(sys.maxunicode + 1)
+#                  if unicodedata.category(chr(cp)) in ('Pe', 'Pf'))
+#   print(frozenset(chars) | frozenset('"\'>'))
+
+GRAMMAR_TRAILING_CLOSERS: frozenset[str] = frozenset((
+    # ASCII Pe
+    ")", "]", "}",
+    # Pf: closing quotes (», ›, curly " ', and scholarly brackets)
+    "»", "’", "”", "›", "⸃", "⸅", "⸊", "⸍", "⸝", "⸡",
+    # CJK / fullwidth / halfwidth Pe
+    "〉", "》", "」", "』", "】", "〕", "〗", "〙", "〛", "〞", "〟",
+    "﴾", "︘", "︶", "︸", "︺", "︼", "︾", "﹀", "﹂", "﹄", "﹈",
+    "﹚", "﹜", "﹞", "）", "］", "｝", "｠", "｣",
+    # Latin / misc Pe (Tibetan, Ogham, sub/superscript, math, ornamental)
+    "༻", "༽", "᚜",
+    "⁆", "⁾", "₎", "⌉", "⌋",
+    "❩", "❫", "❭", "❯", "❱", "❳", "❵",
+    "⟆", "⟧", "⟩", "⟫", "⟭", "⟯",
+    "⦄", "⦆", "⦈", "⦊", "⦌", "⦎", "⦐", "⦒", "⦔", "⦖", "⦘",
+    "⧙", "⧛", "⧽",
+    "⸣", "⸥", "⸧", "⸩",
+    "⹖", "⹘", "⹚", "⹜",
+    # ASCII informal closers (not Pe/Pf in Unicode but common in prose)
+    '"', "'", ">",
+))
+# fmt: on
 
 _SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, str, bool, list[dict[str, Any]]]] = collections.OrderedDict()
 
@@ -62,6 +128,10 @@ def _normalize_for_sentence_cache(text: str) -> str:
     - Ignore any additional trailing punctuation after the first terminator.
     - This makes "Hello." and "Hello..." share a cache entry, and
       "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
+
+    The regex below matches a **subset** of ``GRAMMAR_SENTENCE_TERMINATORS`` (common
+    scripts only). ``looks_complete_sentence`` uses the full STerm set for eviction
+    vs incomplete-prefix compaction — keys may still normalize via this narrower pattern.
     """
     s = text.rstrip()
     if not s:
@@ -91,20 +161,25 @@ def should_evict_incomplete_prefix_predecessor(*, other_complete: bool, other_ca
     return new_canon.startswith(other_canon)
 
 
-def _last_meaningful_char(text: str) -> str:
+def last_meaningful_char(text: str) -> str:
     """Return the last non-closer character (skipping quotes, brackets, etc.)."""
     if not text:
         return ""
     for ch in reversed(text.rstrip()):
-        if ch in _TRAILING_CLOSERS:
+        if ch in GRAMMAR_TRAILING_CLOSERS:
             continue
         return ch
     return ""
 
 
+def looks_complete_sentence(text: str) -> bool:
+    """True if ``text`` ends (after skipping trailing closers) with a sentence terminal."""
+    return last_meaningful_char(text) in GRAMMAR_SENTENCE_TERMINATORS
+
+
 def _is_complete_sentence(canon: str) -> bool:
-    """True if the canonical normalized text ends with a sentence terminator."""
-    return _last_meaningful_char(canon) in _SENTENCE_TERMINATORS
+    """True if the canonical normalized text ends with a sentence terminator (cache eviction)."""
+    return looks_complete_sentence(canon)
 
 
 def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
