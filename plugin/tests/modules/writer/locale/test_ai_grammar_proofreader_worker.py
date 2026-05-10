@@ -33,8 +33,8 @@ setattr(
     ),
 )
 
-from plugin.modules.writer import ai_grammar_proofreader as proofreader
-from plugin.modules.writer.grammar_proofread_engine import GrammarWorkItem
+from plugin.modules.writer.locale import ai_grammar_proofreader as proofreader
+from plugin.modules.writer.locale.grammar_proofread_engine import GrammarWorkItem
 
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
@@ -55,7 +55,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
             side_effect=_get_config_bool,
         ),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
-        patch("plugin.modules.writer.ai_grammar_proofreader.time.sleep"),
+        patch("plugin.modules.writer.locale.ai_grammar_proofreader.time.sleep"),
         patch("plugin.modules.http.client.LlmClient") as client_cls,
     ):
         proofreader._run_llm_and_cache(
@@ -73,7 +73,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
 
 def test_finalize_proofreading_uses_full_batch_end_not_suggested_prefix() -> None:
     """Lightproof-style batch: result positions extend to batch end, not LO’s growing n_suggested."""
-    from plugin.modules.writer.ai_grammar_proofreader import _finalize_proofreading_sentence_positions
+    from plugin.modules.writer.locale.ai_grammar_proofreader import _finalize_proofreading_sentence_positions
 
     class Res:
         nStartOfNextSentencePosition = 0
@@ -120,10 +120,10 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.modules.http.client.LlmClient") as client_cls,
-        patch("plugin.modules.writer.ai_grammar_proofreader.time.sleep"),
-        patch("plugin.modules.writer.grammar_proofread_engine.parse_grammar_json", return_value=[]),
-        patch("plugin.modules.writer.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
-        patch("plugin.modules.writer.grammar_proofread_engine.cache_put_sentence"),
+        patch("plugin.modules.writer.locale.ai_grammar_proofreader.time.sleep"),
+        patch("plugin.modules.writer.locale.grammar_proofread_engine.parse_grammar_json", return_value=[]),
+        patch("plugin.modules.writer.locale.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
+        patch("plugin.modules.writer.locale.grammar_proofread_engine.cache_put_sentence"),
     ):
         lane_ctx.return_value.__enter__ = MagicMock(return_value=None)
         lane_ctx.return_value.__exit__ = MagicMock(return_value=False)

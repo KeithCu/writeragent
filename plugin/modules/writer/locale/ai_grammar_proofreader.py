@@ -14,9 +14,9 @@ import re
 import sys
 
 # LO loads this file as a standalone UNO component; set up path like panel_factory.py
-# so ``import plugin...`` works (file is plugin/modules/writer/ai_grammar_proofreader.py).
+# so ``import plugin...`` works (file is plugin/modules/writer/locale/ai_grammar_proofreader.py).
 _this_file = os.path.abspath(__file__)
-for _i in range(4):
+for _i in range(5):
     _this_file = os.path.dirname(_this_file)
 _ext_root = _this_file
 if _ext_root not in sys.path:
@@ -178,7 +178,7 @@ def _emit_grammar_status(phase: str, text: str, *, result: str = "", elapsed_ms:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
 
 
-from plugin.modules.writer.grammar_proofread_engine import GrammarWorkItem as _GrammarWorkItem, NormalizedProofError, deduplicate_grammar_batch as _deduplicate_grammar_batch
+from plugin.modules.writer.locale.grammar_proofread_engine import GrammarWorkItem as _GrammarWorkItem, NormalizedProofError, deduplicate_grammar_batch as _deduplicate_grammar_batch
 
 
 class _GrammarWorkQueue:
@@ -286,7 +286,7 @@ _grammar_queue = _GrammarWorkQueue()
 
 
 def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...]) -> tuple[Any, ...]:
-    from plugin.modules.writer import grammar_proofread_engine as engine
+    from plugin.modules.writer.locale import grammar_proofread_engine as engine
 
     ignored_now = engine.ignored_rules_snapshot()
     norms = [
@@ -317,7 +317,7 @@ def _locale_tuple() -> tuple[Any, ...]:
     not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
     when opening Tools → Options → Language Settings (Writing aids).
     """
-    from plugin.modules.writer.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS, bcp47_to_uno_lang_country
+    from plugin.modules.writer.locale.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS, bcp47_to_uno_lang_country
 
     if uno_mod is None:
         return ()
@@ -468,8 +468,8 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
     try:
         from plugin.framework.config import get_api_config, get_config_bool, get_config_str, get_text_model
         from plugin.framework.queue_executor import is_agent_active, llm_request_lane
-        from plugin.modules.writer import grammar_proofread_engine as engine
-        from plugin.modules.writer.grammar_locale_registry import grammar_english_name_for_bcp47
+        from plugin.modules.writer.locale import grammar_proofread_engine as engine
+        from plugin.modules.writer.locale.grammar_locale_registry import grammar_english_name_for_bcp47
 
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
@@ -587,7 +587,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     # --- XSupportedLocales ---
     def hasLocale(self, aLocale: Any) -> bool:
         try:
-            from plugin.modules.writer.grammar_locale_registry import normalize_uno_locale_to_bcp47
+            from plugin.modules.writer.locale.grammar_locale_registry import normalize_uno_locale_to_bcp47
 
             if aLocale is None or not self._locales:
                 return False
@@ -615,8 +615,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             from plugin.framework.config import get_config_bool
             from plugin.framework.logging import init_logging
-            from plugin.modules.writer import grammar_proofread_engine as engine
-            from plugin.modules.writer.grammar_locale_registry import normalize_uno_locale_to_bcp47
+            from plugin.modules.writer.locale import grammar_proofread_engine as engine
+            from plugin.modules.writer.locale.grammar_locale_registry import normalize_uno_locale_to_bcp47
 
             try:
                 init_logging(self.ctx)
@@ -737,7 +737,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
-            from plugin.modules.writer import grammar_proofread_engine as engine
+            from plugin.modules.writer.locale import grammar_proofread_engine as engine
 
             del aLocale  # locale-specific ignore not distinguished in cache yet
             engine.ignore_rule_add(str(aRuleIdentifier))
@@ -746,7 +746,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def resetIgnoreRules(self) -> None:
         try:
-            from plugin.modules.writer import grammar_proofread_engine as engine
+            from plugin.modules.writer.locale import grammar_proofread_engine as engine
 
             engine.ignore_rules_clear()
         except Exception as e:

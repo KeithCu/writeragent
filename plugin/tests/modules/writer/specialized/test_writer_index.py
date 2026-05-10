@@ -23,7 +23,7 @@ for sub in ["text", "beans", "container", "lang"]:
     setattr(css, sub, mod)
     sys.modules[f"com.sun.star.{sub}"] = mod
 
-from plugin.modules.writer.index import _DocIndex, IndexService
+from plugin.modules.writer.specialized.index import _DocIndex, IndexService
 
 def test_doc_index_query_near_basic():
     idx = _DocIndex()
@@ -89,7 +89,7 @@ def test_index_service_search_boolean_near_integration(mock_services):
     mock_stemmer = MagicMock()
     mock_stemmer.stemWord.side_effect = lambda x: x
 
-    with patch('plugin.modules.writer.index.IndexService._get_stemmer', return_value=mock_stemmer):
+    with patch('plugin.modules.writer.specialized.index.IndexService._get_stemmer', return_value=mock_stemmer):
 
         svc = IndexService(mock_services)
 
@@ -133,7 +133,7 @@ def test_index_service_search_boolean_near_too_far(mock_services):
     mock_stemmer = MagicMock()
     mock_stemmer.stemWord.side_effect = lambda x: x
 
-    with patch('plugin.modules.writer.index.IndexService._get_stemmer', return_value=mock_stemmer):
+    with patch('plugin.modules.writer.specialized.index.IndexService._get_stemmer', return_value=mock_stemmer):
         svc = IndexService(mock_services)
         doc = MagicMock()
         mock_services.document.doc_key.return_value = "test_doc_far"

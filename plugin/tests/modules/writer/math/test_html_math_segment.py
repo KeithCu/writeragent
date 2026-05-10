@@ -6,7 +6,7 @@
 
 import unittest
 
-from plugin.modules.writer.html_math_segment import (
+from plugin.modules.writer.math.html_math_segment import (
     html_fragment_contains_mathml,
     html_fragment_contains_mixed_math,
     html_fragment_contains_tex_math,

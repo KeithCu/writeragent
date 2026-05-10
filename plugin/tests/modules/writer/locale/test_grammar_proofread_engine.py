@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.modules.writer import grammar_proofread_engine as eng
+from plugin.modules.writer.locale import grammar_proofread_engine as eng
 
 
 def test_parse_grammar_json_empty() -> None:

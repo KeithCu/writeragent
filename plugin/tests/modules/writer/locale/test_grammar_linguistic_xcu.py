@@ -10,7 +10,7 @@ import os
 import ast
 import xml.etree.ElementTree as ET
 
-from plugin.modules.writer import grammar_proofread_engine as eng
+from plugin.modules.writer.locale import grammar_proofread_engine as eng
 
 _OOR = "http://openoffice.org/2001/registry"
 _IMPLEMENTATION = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
@@ -105,6 +105,7 @@ def test_ai_grammar_uno_component_has_lightweight_top_level_imports() -> None:
         "plugin",
         "modules",
         "writer",
+        "locale",
         "ai_grammar_proofreader.py",
     )
     with open(path, encoding="utf-8") as f:
@@ -124,7 +125,8 @@ def test_ai_grammar_uno_component_has_lightweight_top_level_imports() -> None:
 def test_ai_grammar_components_accept_linguistic_constructor_args() -> None:
     """LO calls proofreaders through createInstanceWithArgumentsAndContext."""
     filename = "ai_grammar_proofreader.py"
-    path = os.path.join(_repo_root(), "plugin", "modules", "writer", filename)
+    path = os.path.join(_repo_root(), "plugin", "modules", "writer", "locale", filename)
+
     with open(path, encoding="utf-8") as f:
         module = ast.parse(f.read(), filename=path)
 

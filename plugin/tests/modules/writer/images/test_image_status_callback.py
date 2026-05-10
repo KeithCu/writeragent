@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 # Add current directory to path
 sys.path.insert(0, get_plugin_dir())
 
-from plugin.modules.writer.image_utils import ImageService, AIHordeImageProvider, EndpointImageProvider
+from plugin.modules.writer.images.image_utils import ImageService, AIHordeImageProvider, EndpointImageProvider
 
 class TestImageStatusCallback(unittest.TestCase):
     def test_endpoint_provider_with_none_config(self):

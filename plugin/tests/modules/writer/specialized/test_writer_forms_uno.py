@@ -110,7 +110,7 @@ def test_create_form_fat_api():
 @native_test
 def test_generate_form_processing_logic():
     # We test the parser and processor directly to avoid flaky LLM calls in CI
-    from plugin.modules.writer.forms import GenerateForm
+    from plugin.modules.writer.specialized.forms import GenerateForm
     tool = GenerateForm()
     
     class MockCtx:
@@ -139,7 +139,7 @@ def test_generate_form_processing_logic():
 
 @native_test
 def test_parse_field_tag():
-    from plugin.modules.writer.forms import GenerateForm
+    from plugin.modules.writer.specialized.forms import GenerateForm
     tool = GenerateForm()
     
     tag = "{FIELD:type='combobox',name='my_list',items='A,B,C',label='Pick one'}"

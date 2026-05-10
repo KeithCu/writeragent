@@ -17,7 +17,7 @@ from typing import Any, Iterable, Mapping, cast
 import json_repair
 
 from plugin.framework.json_utils import safe_json_loads
-from plugin.modules.writer.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS as _GRAMMAR_REGISTRY_LOCALE_TAGS
+from plugin.modules.writer.locale.grammar_locale_registry import GRAMMAR_REGISTRY_LOCALE_TAGS as _GRAMMAR_REGISTRY_LOCALE_TAGS
 
 log = logging.getLogger(__name__)
 _grammar_diag = logging.getLogger("writeragent.grammar")

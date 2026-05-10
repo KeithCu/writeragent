@@ -5,7 +5,7 @@ from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
 import pytest
-from plugin.modules.writer.indexes import IndexesList, IndexesCreate, IndexesAddMark
+from plugin.modules.writer.specialized.indexes import IndexesList, IndexesCreate, IndexesAddMark
 
 def test_indexes_list():
     tool = IndexesList()

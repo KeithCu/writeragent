@@ -15,16 +15,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Calc package anchor for form tools.
 
-Implementation and registration live in ``plugin.modules.writer.forms`` (``ToolWriterFormBase``
+Implementation and registration live in ``plugin.modules.writer.specialized.forms`` (``ToolWriterFormBase``
 subclasses ``ToolWriterSpecialBase`` and ``ToolCalcSpecialBase``; union ``uno_services`` on concrete tools). Re-export
 with Writer-prefixed aliases for clarity (cf. ``DrawCreateShape`` in writer/shapes).
 """
 
-from plugin.modules.writer.forms import CreateForm as WriterCreateForm
-from plugin.modules.writer.forms import CreateFormControl as WriterCreateFormControl
-from plugin.modules.writer.forms import DeleteFormControl as WriterDeleteFormControl
-from plugin.modules.writer.forms import EditFormControl as WriterEditFormControl
-from plugin.modules.writer.forms import GenerateForm as WriterGenerateForm
-from plugin.modules.writer.forms import ListFormControls as WriterListFormControls
+from plugin.modules.writer.specialized.forms import CreateForm as WriterCreateForm
+from plugin.modules.writer.specialized.forms import CreateFormControl as WriterCreateFormControl
+from plugin.modules.writer.specialized.forms import DeleteFormControl as WriterDeleteFormControl
+from plugin.modules.writer.specialized.forms import EditFormControl as WriterEditFormControl
+from plugin.modules.writer.specialized.forms import GenerateForm as WriterGenerateForm
+from plugin.modules.writer.specialized.forms import ListFormControls as WriterListFormControls
 
 __all__ = ["WriterCreateForm", "WriterCreateFormControl", "WriterDeleteFormControl", "WriterEditFormControl", "WriterGenerateForm", "WriterListFormControls"]

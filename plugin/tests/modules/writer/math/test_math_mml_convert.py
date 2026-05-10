@@ -6,7 +6,7 @@
 import unittest
 from unittest.mock import patch
 
-from plugin.modules.writer.math_mml_convert import (
+from plugin.modules.writer.math.math_mml_convert import (
     MathConversionResult,
     collapse_starmath_newline_tokens_for_writer_embed,
     convert_latex_to_starmath,
@@ -19,7 +19,7 @@ class _QuietExc(Exception):
 
 
 def test_exception_message_non_empty_for_empty_str_uno_style() -> None:
-    from plugin.modules.writer import math_mml_convert as mmc
+    from plugin.modules.writer.math import math_mml_convert as mmc
 
     assert mmc._exception_message(_QuietExc()) == "_QuietExc"
     assert "ValueError" in mmc._exception_message(ValueError("bad"))
@@ -53,7 +53,7 @@ class TestConvertLatexToStarmath(unittest.TestCase):
     def test_delegates_to_mathml_path(self):
         fake_ctx = object()
         with patch(
-            "plugin.modules.writer.math_mml_convert.convert_mathml_to_starmath"
+            "plugin.modules.writer.math.math_mml_convert.convert_mathml_to_starmath"
         ) as mock_mml:
             mock_mml.return_value = MathConversionResult(True, "a + b", None)
             res = convert_latex_to_starmath(fake_ctx, "a+b", display_block=False)

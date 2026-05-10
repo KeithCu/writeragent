@@ -668,7 +668,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         except Exception as e:
             log.exception("MainBootstrapJob.execute failed to bootstrap: %s", e)
         try:
-            from plugin.modules.writer.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+            from plugin.modules.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
             ensure_writeragent_proofreader_configured(self.ctx)
         except Exception as e:

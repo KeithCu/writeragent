@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.modules.writer.grammar_proofread_engine import (
+from plugin.modules.writer.locale.grammar_proofread_engine import (
     GrammarWorkItem,
     deduplicate_grammar_batch,
 )

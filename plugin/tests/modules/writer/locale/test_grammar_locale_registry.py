@@ -11,8 +11,8 @@ import re
 from types import SimpleNamespace
 from typing import Any
 
-from plugin.modules.writer import grammar_proofread_engine as eng
-from plugin.modules.writer.grammar_locale_registry import (
+from plugin.modules.writer.locale import grammar_proofread_engine as eng
+from plugin.modules.writer.locale.grammar_locale_registry import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
     grammar_english_name_for_bcp47,

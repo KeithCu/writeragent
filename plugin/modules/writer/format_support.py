@@ -84,9 +84,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, cast
 import html as html_mod
-from plugin.modules.writer.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
-from plugin.modules.writer.math_formula_insert import insert_writer_math_formula
-from plugin.modules.writer.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
+from plugin.modules.writer.math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
+from plugin.modules.writer.math.math_formula_insert import insert_writer_math_formula
+from plugin.modules.writer.math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
 from plugin.modules.writer.ops import get_selection_range
 from plugin.modules.writer.ops import get_text_cursor_at_range
 

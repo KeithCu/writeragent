@@ -116,7 +116,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
     specialized_domain = "math"
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
-        from plugin.modules.writer.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
+        from plugin.modules.writer.math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
         from plugin.modules.draw.bridge import DrawBridge
         from com.sun.star.awt import Size, Point
 

@@ -256,7 +256,7 @@ def test_web_research_tool():
                 mock_get_resp.text = "<html><body><h1>Python 3.12.3 is available!</h1></body></html>"
                 mock_get.return_value = mock_get_resp
 
-                from plugin.modules.writer.specialized import DelegateToSpecializedWriter
+                from plugin.modules.writer.specialized_core import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
                 with patch("plugin.framework.config.get_config", return_value="false"):
                     def _cfg_int(ctx, key):
@@ -289,7 +289,7 @@ def test_web_research_tool_stop():
     with patch("plugin.modules.chatbot.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
-                from plugin.modules.writer.specialized import DelegateToSpecializedWriter
+                from plugin.modules.writer.specialized_core import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
                 with patch("plugin.framework.config.get_config", return_value="false"):
                     def _cfg_int_stop(ctx, key):

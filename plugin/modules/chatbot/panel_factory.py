@@ -122,7 +122,7 @@ def _initialize_extension_paths(ctx):
         init_logging(ctx)
         log.info("Initialized extension paths for session: %s" % ext_path)
         try:
-            from plugin.modules.writer.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+            from plugin.modules.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
 
             ensure_writeragent_proofreader_configured(ctx)
         except Exception as e:

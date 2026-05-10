@@ -12,7 +12,7 @@ except ImportError:
     sys.modules["com"] = com_mock
     sys.modules["com.sun.star.text"] = MagicMock()
 
-from plugin.modules.writer.fields import FieldsInsert, FieldsList, FieldsDelete
+from plugin.modules.writer.specialized.fields import FieldsInsert, FieldsList, FieldsDelete
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.config import get_config_bool, set_config
-from plugin.modules.writer import grammar_proofread_engine as eng
+from plugin.modules.writer.locale import grammar_proofread_engine as eng
 from plugin.testing_runner import native_test, setup, teardown
 
 _test_ctx: Any = None
@@ -42,7 +42,7 @@ def teardown_grammar_proof_tests(ctx: Any) -> None:
 def test_do_proofreading_returns_cached_errors() -> None:
     import uno
 
-    from plugin.modules.writer.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+    from plugin.modules.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
 
     assert _test_ctx is not None
     pr = WriterAgentAiGrammarProofreader(_test_ctx)
@@ -73,7 +73,7 @@ def test_do_proofreading_returns_cached_errors() -> None:
 def test_ignore_rule_filters_cached_error() -> None:
     import uno
 
-    from plugin.modules.writer.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+    from plugin.modules.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
 
     assert _test_ctx is not None
     pr = WriterAgentAiGrammarProofreader(_test_ctx)
@@ -104,7 +104,7 @@ def test_ignore_rule_filters_cached_error() -> None:
 def test_incomplete_short_sentence_skips_before_cache_lookup() -> None:
     import uno
 
-    from plugin.modules.writer.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+    from plugin.modules.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
 
     assert _test_ctx is not None
     pr = WriterAgentAiGrammarProofreader(_test_ctx)
@@ -130,7 +130,7 @@ def test_incomplete_short_sentence_skips_before_cache_lookup() -> None:
 def test_incomplete_long_sentence_uses_cache_when_allowed() -> None:
     import uno
 
-    from plugin.modules.writer.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+    from plugin.modules.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
 
     assert _test_ctx is not None
     pr = WriterAgentAiGrammarProofreader(_test_ctx)

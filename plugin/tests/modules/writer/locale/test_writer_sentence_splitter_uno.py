@@ -1,6 +1,6 @@
 import uno
 from plugin.testing_runner import native_test
-from plugin.modules.writer.grammar_proofread_engine import (
+from plugin.modules.writer.locale.grammar_proofread_engine import (
     cache_get_sentence,
     cache_put_sentence,
     clear_sentence_cache,

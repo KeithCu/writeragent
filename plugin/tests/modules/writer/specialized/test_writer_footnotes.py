@@ -21,7 +21,7 @@ setattr(sys.modules["com"], "sun", types.ModuleType("com.sun"))
 setattr(sys.modules["com"].sun, "star", star)
 
 # Now we can safely import our module
-from plugin.modules.writer.footnotes import (
+from plugin.modules.writer.specialized.footnotes import (
     FootnotesInsert, FootnotesList, FootnotesEdit, FootnotesDelete,
     FootnotesSettingsGet, FootnotesSettingsUpdate
 )

@@ -35,7 +35,7 @@ def teardown_form_cursor_tests(ctx):
 @native_test
 def test_insert_text_with_view_cursor():
     """Verify that _insert_text correctly handles the ViewCursor by converting it."""
-    from plugin.modules.writer.forms import GenerateForm
+    from plugin.modules.writer.specialized.forms import GenerateForm
     tool = GenerateForm()
     
     class MockCtx:

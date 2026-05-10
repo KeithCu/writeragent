@@ -18,8 +18,9 @@
 
 from plugin.framework.module_base import ModuleBase
 
-from . import bookmarks, tree, proximity, index
-from . import base as base, specialized as specialized, styles as styles, shapes as shapes, charts as charts, bookmark_tools as bookmark_tools, indexes as indexes, fields as fields, footnotes as footnotes, embedded as embedded, tracking as tracking, forms as forms
+from . import bookmarks, tree, proximity
+from .specialized import index, forms
+from . import base, specialized_core, styles, tracking
 
 
 class WriterModule(ModuleBase):
@@ -36,3 +37,8 @@ class WriterModule(ModuleBase):
 
         # Register tools automatically for the entire package
         services.tools.auto_discover_package(__name__)
+        # Register tools in subpackages
+        services.tools.auto_discover_package(f"{__name__}.locale")
+        services.tools.auto_discover_package(f"{__name__}.math")
+        services.tools.auto_discover_package(f"{__name__}.images")
+        services.tools.auto_discover_package(f"{__name__}.specialized")

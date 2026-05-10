@@ -54,7 +54,7 @@ def _install_uno_mocks():
 
 _install_uno_mocks()
 
-from plugin.modules.writer import image_tools  # noqa: E402
+from plugin.modules.writer.images import image_tools  # noqa: E402
 
 
 class TestWriterImageCursorConversion(unittest.TestCase):

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 # Add parent directory to path to import core
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
-from plugin.modules.writer.image_utils import EndpointImageProvider
+from plugin.modules.writer.images.image_utils import EndpointImageProvider
 from plugin.modules.http.client import LlmClient
 from plugin.tests.testing_utils import MockContext, create_mock_client, create_mock_http_response
 
@@ -17,11 +17,11 @@ class TestEndpointImageProvider(unittest.TestCase):
     def setUp(self):
         self.mock_ctx = MockContext()
         self.api_config = {"model": "test-model"}
-        with patch('plugin.modules.writer.image_utils.LlmClient') as mock_client_cls:
+        with patch('plugin.modules.writer.images.image_utils.LlmClient') as mock_client_cls:
             self.provider = EndpointImageProvider(self.api_config, self.mock_ctx)
             self.mock_client = self.provider.client
 
-    @patch('plugin.modules.writer.image_utils.sync_request')
+    @patch('plugin.modules.writer.images.image_utils.sync_request')
     def test_generate_openrouter_url(self, mock_sync):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
@@ -81,7 +81,7 @@ class TestEndpointImageProvider(unittest.TestCase):
             self.assertEqual(f.read(), b"standard-b64-data")
         os.unlink(paths[0])
 
-    @patch('plugin.modules.writer.image_utils.sync_request')
+    @patch('plugin.modules.writer.images.image_utils.sync_request')
     def test_fallback_logic_url(self, mock_sync):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         self.mock_client.make_chat_request.return_value = ("POST", "/chat", "{}", {})
@@ -159,7 +159,7 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.assertEqual(paths, [])
         self.assertEqual(err, "")
 
-    @patch('plugin.modules.writer.image_utils.sync_request')
+    @patch('plugin.modules.writer.images.image_utils.sync_request')
     def test_generate_multi_image(self, mock_sync):
         """If provider returns multiple images, ensure paths preserves ordering and all paths are created/cleaned."""
         self.mock_client.config.get.return_value = False # Not OpenRouter
@@ -210,7 +210,7 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.assertEqual(paths, [])
         self.assertEqual(err, "")
 
-    @patch('plugin.modules.writer.image_utils.LlmClient')
+    @patch('plugin.modules.writer.images.image_utils.LlmClient')
     def test_edit_image_openrouter_sends_multimodal_message(self, mock_client_cls):
         """When OpenRouter and source_image are set, make_chat_request receives message content with text + image_url."""
         mock_client = create_mock_client()
@@ -233,7 +233,7 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.assertEqual(content[1]["type"], "image_url")
         self.assertEqual(content[1]["image_url"]["url"], "data:image/png;base64," + b64)
 
-    @patch('plugin.modules.writer.image_utils.LlmClient')
+    @patch('plugin.modules.writer.images.image_utils.LlmClient')
     def test_edit_image_standard_endpoint_passes_source_image(self, mock_client_cls):
         """When not OpenRouter and source_image is set, make_image_request is called with source_image (img2img)."""
         mock_client = create_mock_client()
