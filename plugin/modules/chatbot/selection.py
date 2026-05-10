@@ -11,7 +11,7 @@ log = logging.getLogger("writeragent.chatbot.selection")
 def action_extend_selection(services):
     """Get document selection -> stream AI completion -> append to text."""
     from plugin.framework.uno_context import get_ctx
-    from plugin.framework.dialogs import msgbox
+    from .dialogs import msgbox
 
     ctx = get_ctx()
     doc_svc = services.document
@@ -31,7 +31,7 @@ def action_extend_selection(services):
 
 def _extend_writer(services, ctx, doc):
     """Extend selection in a Writer document."""
-    from plugin.framework.dialogs import msgbox
+    from .dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
     from plugin.framework.document import WriterCompoundUndo, get_string_without_tracked_deletions
@@ -98,7 +98,7 @@ def _extend_writer(services, ctx, doc):
 
 def _extend_calc(services, ctx, doc):
     """Extend selection in a Calc document."""
-    from plugin.framework.dialogs import msgbox
+    from .dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
     from plugin.modules.http.client import LlmClient
@@ -184,7 +184,7 @@ def _extend_calc(services, ctx, doc):
 def action_edit_selection(services):
     """Get selection -> input instructions -> stream AI -> replace text."""
     from plugin.framework.uno_context import get_ctx
-    from plugin.framework.dialogs import msgbox
+    from .dialogs import msgbox
 
     ctx = get_ctx()
     doc_svc = services.document
@@ -207,7 +207,7 @@ def _show_edit_input():
     Uses the shared EditInputDialog.xdl (legacy_ui.input_box) so menu and shortcut share the same UI.
     """
     from plugin.framework.uno_context import get_ctx
-    from plugin.framework.legacy_ui import input_box
+    from .legacy_ui import input_box
 
     ctx = get_ctx()
     user_input, extra_instructions = input_box(ctx, "Please enter edit instructions!", "Input", "")
@@ -216,7 +216,7 @@ def _show_edit_input():
 
 def _edit_writer(services, ctx, doc):
     """Edit selection in a Writer document."""
-    from plugin.framework.dialogs import msgbox
+    from .dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
     from plugin.framework.document import build_writer_rewrite_prompt, get_string_without_tracked_deletions, WriterStreamedRewriteSession
@@ -295,7 +295,7 @@ def _edit_writer(services, ctx, doc):
 
 def _edit_calc(services, ctx, doc):
     """Edit selection in a Calc document."""
-    from plugin.framework.dialogs import msgbox
+    from .dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
     from plugin.modules.http.client import LlmClient

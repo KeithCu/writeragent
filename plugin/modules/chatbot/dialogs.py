@@ -21,7 +21,7 @@ Provides helpers for message boxes, clipboard operations, rich dialogs
 
 Usage from modules::
 
-    from plugin.framework.dialogs import msgbox, msgbox_with_copy, copy_to_clipboard
+    from plugin.modules.chatbot.dialogs import msgbox, msgbox_with_copy, copy_to_clipboard
     from plugin.framework.uno_context import get_ctx
 
     msgbox(get_ctx(), "Title", "Hello world")
@@ -29,7 +29,7 @@ Usage from modules::
 
 XDL dialog loading (used by ModuleBase helpers)::
 
-    from plugin.framework.dialogs import load_module_dialog, load_framework_dialog
+    from plugin.modules.chatbot.dialogs import load_module_dialog, load_framework_dialog
 
     dlg = load_framework_dialog("info_action")
     dlg.getControl("MessageText").getModel().Label = "Hello"
@@ -40,7 +40,7 @@ XDL dialog loading (used by ModuleBase helpers)::
 import logging
 from typing import Any, cast
 import unohelper
-from plugin.framework.listeners import BaseActionListener
+from .listeners import BaseActionListener
 from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url

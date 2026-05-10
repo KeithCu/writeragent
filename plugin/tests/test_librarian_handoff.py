@@ -93,8 +93,8 @@ def test_do_send_enters_librarian_when_user_memory_missing():
     listener = _make_listener(in_librarian_mode=False)
 
     with patch("plugin.modules.chatbot.panel.update_activity_state"), patch(
-        "plugin.framework.dialogs.get_control_text", return_value="Hello"
-    ), patch("plugin.framework.dialogs.set_control_text"), patch(
+        "plugin.modules.chatbot.dialogs.get_control_text", return_value="Hello"
+    ), patch("plugin.modules.chatbot.dialogs.set_control_text"), patch(
         "plugin.framework.config.get_config", return_value=None
     ), patch(
         "plugin.modules.agent_backend.registry.normalize_backend_id", return_value="builtin"
@@ -111,8 +111,8 @@ def test_do_send_stays_in_librarian_mode_without_rechecking_memory():
     listener = _make_listener(in_librarian_mode=True)
 
     with patch("plugin.modules.chatbot.panel.update_activity_state"), patch(
-        "plugin.framework.dialogs.get_control_text", return_value="Hello again"
-    ), patch("plugin.framework.dialogs.set_control_text"), patch(
+        "plugin.modules.chatbot.dialogs.get_control_text", return_value="Hello again"
+    ), patch("plugin.modules.chatbot.dialogs.set_control_text"), patch(
         "plugin.framework.config.get_config", return_value=None
     ), patch(
         "plugin.modules.agent_backend.registry.normalize_backend_id", return_value="builtin"
@@ -129,8 +129,8 @@ def test_do_send_uses_document_chat_after_librarian_flag_clears():
     listener = _make_listener(in_librarian_mode=False)
 
     with patch("plugin.modules.chatbot.panel.update_activity_state"), patch(
-        "plugin.framework.dialogs.get_control_text", return_value="Work on the document"
-    ), patch("plugin.framework.dialogs.set_control_text"), patch(
+        "plugin.modules.chatbot.dialogs.get_control_text", return_value="Work on the document"
+    ), patch("plugin.modules.chatbot.dialogs.set_control_text"), patch(
         "plugin.framework.config.get_config", return_value=None
     ), patch(
         "plugin.modules.agent_backend.registry.normalize_backend_id", return_value="builtin"

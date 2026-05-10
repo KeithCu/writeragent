@@ -58,7 +58,7 @@ except ImportError:
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.modules.chatbot.panel import ChatSession, SendButtonListener, StopButtonListener, ClearButtonListener
-from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, set_control_text, set_control_enabled, set_control_visible
+from plugin.modules.chatbot.dialogs import get_optional as get_optional_control, get_checkbox_state, set_checkbox_state, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.uno_context import get_extension_url, get_extension_path
 from plugin.modules.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 
@@ -72,7 +72,7 @@ try:
 except ImportError:
     TOOLPANEL = 3  # Fallback
 
-from plugin.framework.listeners import BaseItemListener
+from plugin.modules.chatbot.listeners import BaseItemListener
 
 log = logging.getLogger(__name__)
 
@@ -527,7 +527,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 aspect_ratio_selector.addItemListener(AspectListener())
 
-        # We now use the global set_control_enabled and set_control_visible from plugin.framework.dialogs
+        # We now use the global set_control_enabled and set_control_visible from plugin.modules.chatbot.dialogs
 
         def toggle_image_ui(is_image_mode):
             set_control_visible(model_label, not is_image_mode)

@@ -21,7 +21,7 @@ from plugin.framework.config import get_config_int, get_config_str, get_api_conf
 from plugin.modules.http.errors import format_error_message
 from plugin.modules.http.client import LlmClient
 from plugin.framework.async_stream import run_stream_completion_async
-from plugin.framework.dialogs import msgbox
+from plugin.modules.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 
 

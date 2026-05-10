@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Callable
 
-from plugin.framework.dialogs import get_optional as get_optional_control, get_checkbox_state, get_control_text, set_control_text
+from plugin.modules.chatbot.dialogs import get_optional as get_optional_control, get_checkbox_state, get_control_text, set_control_text
 from plugin.modules.chatbot.panel_resize import _PanelResizeListener
 
 log = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     def get_optional(name):
         return get_optional_control(root_window, name)
 
-    from plugin.framework.dialogs import translate_dialog
+    from plugin.modules.chatbot.dialogs import translate_dialog
 
     translate_dialog(root_window)
 

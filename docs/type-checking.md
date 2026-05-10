@@ -115,7 +115,7 @@ Some imports stay as `# type: ignore[unresolved-import]` where the checker still
 
 `types-unopy` expects **the same parameter names as the `.pyi` stubs**. Implementations of `XActionListener`, `XEventListener`, etc. must use names like **`rEvent`** and **`Source`**, not arbitrary `ev` / `e`, or `ty` raises **`invalid-method-override`**.
 
-Examples: [`plugin/framework/dialogs.py`](../plugin/framework/dialogs.py) (`TabListener`: `actionPerformed(self, rEvent)`, `disposing(self, Source)`), [`plugin/modules/chatbot/panel_resize.py`](../plugin/modules/chatbot/panel_resize.py) (`on_window_resized(self, rEvent)` and use of `rEvent.Source`).
+Examples: [`plugin/modules/chatbot/dialogs.py`](../plugin/modules/chatbot/dialogs.py) (`TabListener`: `actionPerformed(self, rEvent)`, `disposing(self, Source)`), [`plugin/modules/chatbot/panel_resize.py`](../plugin/modules/chatbot/panel_resize.py) (`on_window_resized(self, rEvent)` and use of `rEvent.Source`).
 
 ### 4. `queryInterface` and dynamic objects
 
@@ -158,7 +158,7 @@ Roughly **40+** files were edited; groupings below match the original tracking n
 
 **Framework**
 
-- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/modules/writer/image_utils.py), [`legacy_ui.py`](../plugin/framework/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service_registry.py`](../plugin/framework/service_registry.py), [`settings_dialog.py`](../plugin/framework/settings_dialog.py), [`smol_model.py`](../plugin/framework/smol_model.py), [`state.py`](../plugin/framework/state.py), [`tool_registry.py`](../plugin/framework/tool_registry.py)
+- [`plugin/framework/errors.py`](../plugin/framework/errors.py), [`image_utils.py`](../plugin/modules/writer/image_utils.py), [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py), [`logging.py`](../plugin/framework/logging.py), [`service_registry.py`](../plugin/framework/service_registry.py), [`settings_dialog.py`](../plugin/modules/chatbot/settings_dialog.py), [`smol_model.py`](../plugin/framework/smol_model.py), [`state.py`](../plugin/framework/state.py), [`tool_registry.py`](../plugin/framework/tool_registry.py)
 
 **Entry / backends**
 

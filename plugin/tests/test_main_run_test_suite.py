@@ -62,7 +62,7 @@ def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
     with (
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch.object(main_mod, "get_active_document", return_value=None),
-        patch("plugin.framework.dialogs.msgbox"),
+        patch("plugin.modules.chatbot.dialogs.msgbox"),
         patch("plugin.testing_runner.run_module_suite", side_effect=fake_run_module_suite),
     ):
         main_mod._run_test_suite(MagicMock(), lambda _m: True, "writer.format_tests")

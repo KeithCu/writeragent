@@ -1,7 +1,7 @@
 import logging
 
 from typing import cast, Any
-from plugin.framework.listeners import BaseWindowListener
+from plugin.modules.chatbot.listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
 

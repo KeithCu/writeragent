@@ -44,7 +44,7 @@ sys.modules['core.constants'] = MagicMock()
 sys.path.insert(0, get_plugin_dir())
 
 from plugin.modules.chatbot.panel_factory import SendButtonListener
-from plugin.framework.dialogs import set_control_text, get_control_text
+from plugin.modules.chatbot.dialogs import set_control_text, get_control_text
 
 class TestChatModelLogic(unittest.TestCase):
     def setUp(self):

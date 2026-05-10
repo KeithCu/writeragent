@@ -563,7 +563,7 @@ class MCPProtocolHandler:
         from plugin.main import get_services
 
         if command == "settings":
-            from plugin.framework.legacy_ui import settings_box
+            from plugin.modules.chatbot.legacy_ui import settings_box
 
             registry = get_services()
             if registry is None:

@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 from plugin.framework.config import _config_path
-from plugin.framework.dialogs import msgbox
+from plugin.modules.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
 
 

@@ -29,13 +29,13 @@
 | Tools registry | [`plugin/framework/tool.py`](plugin/framework/tool.py) |
 | UNO document helpers | [`plugin/framework/document.py`](plugin/framework/document.py) |
 | Config / keys / LRU | [`plugin/framework/config.py`](plugin/framework/config.py) |
-| Dialogs / XDL helpers | [`plugin/framework/dialogs.py`](plugin/framework/dialogs.py) |
+| Dialogs / XDL helpers | [`plugin/modules/chatbot/dialogs.py`](plugin/modules/chatbot/dialogs.py) |
 | Async UI drain | [`plugin/framework/async_stream.py`](plugin/framework/async_stream.py), [`plugin/framework/uno_context.py`](plugin/framework/uno_context.py) (`get_toolkit`) |
 | Writer HTML / apply content | [`plugin/modules/writer/format_support.py`](plugin/modules/writer/format_support.py) |
 | Errors / `safe_json_loads` | [`plugin/framework/errors.py`](plugin/framework/errors.py) |
 | Weekly extension update check | [`plugin/modules/chatbot/extension_update_check.py`](plugin/modules/chatbot/extension_update_check.py) |
 
-**Layout:** `plugin/` → `framework/` (config, service, state, dialogs, logging), `modules/` (ai, chatbot, writer, calc, draw, http), [`WriterAgentDialogs/`](WriterAgentDialogs/) (XDL), [`registry/`](registry/), [`scripts/`](scripts/), [`Makefile`](Makefile), [`pyproject.toml`](pyproject.toml).
+**Layout:** `plugin/` → `framework/` (config, service, state, logging), `modules/` (ai, chatbot—including shared UNO dialogs/listeners/settings UI, writer, calc, draw, http), [`WriterAgentDialogs/`](WriterAgentDialogs/) (XDL), [`registry/`](registry/), [`scripts/`](scripts/), [`Makefile`](Makefile), [`pyproject.toml`](pyproject.toml).
 
 ---
 
@@ -97,7 +97,7 @@ Fallback parsing when the API returns text without `tool_calls`: `get_parser_for
 - **Threading:** [`run_in_background`](plugin/framework/worker_pool.py) instead of raw `threading.Thread`; long external processes → [`AsyncProcess`](plugin/framework/process_manager.py).
 - **Errors:** `WriterAgentException` / **`format_error_payload`** ([`plugin/framework/errors.py`](plugin/framework/errors.py)); tools via `_tool_error`. Do not assume **`DocumentCache`**—it is not active.
 
-UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`document.py`](plugin/framework/document.py), [`dialogs.py`](plugin/framework/dialogs.py)—no monolithic `uno_helpers.py`.
+UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`document.py`](plugin/framework/document.py), [`dialogs.py`](plugin/modules/chatbot/dialogs.py)—no monolithic `uno_helpers.py`.
 
 ---
 
@@ -110,7 +110,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - **Menu chat:** no tool-calling; same doc-detection idea as sidebar.
 - **Stop** on main chat path: assistant may get `"No response."` for strict role alternation (e.g. Mistral); UI still shows stopped.
 - **Reasoning:** [`plugin/main.py`](plugin/main.py) sends `reasoning: { effort: 'minimal' }`; UI shows `[Thinking] …` before the answer.
-- **Web research / toggles:** in [`panel_factory.py`](plugin/modules/chatbot/panel_factory.py), **never** `for _ in …` in path loops (**`_` shadows gettext**). Item listeners for research/direct image: **override `on_item_state_changed` on the class**, not nested in `__init__`, or toggles never fire ([`BaseItemListener`](plugin/framework/listeners.py)).
+- **Web research / toggles:** in [`panel_factory.py`](plugin/modules/chatbot/panel_factory.py), **never** `for _ in …` in path loops (**`_` shadows gettext**). Item listeners for research/direct image: **override `on_item_state_changed` on the class**, not nested in `__init__`, or toggles never fire ([`BaseItemListener`](plugin/modules/chatbot/listeners.py)).
 - **Librarian mode:** starts when `USER.md` is empty; [`SendButtonListener`](plugin/modules/chatbot/panel.py) keeps `_in_librarian_mode` until [`send_handlers.py`](plugin/modules/chatbot/send_handlers.py) sees `switch_mode` / `switch_to_document_mode`. **`USER.md`** is storage only—not the handoff signal alone.
 - **`upsert_memory` visibility:** main chat via [`tool_loop_state.py`](plugin/modules/chatbot/tool_loop_state.py); librarian uses [`librarian.py`](plugin/modules/chatbot/librarian.py) + `chat_append_callback` so updates show even when search-thinking is off.
 
@@ -119,9 +119,9 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - **`DialogProvider`**: package **`base_url` + XDL path** only—never `vnd.sun.star.script:…?location=application` with sidebar components (**deadlock**).
 - Load: `DialogProvider.createDialog(base_url + "/WriterAgentDialogs/…")`; `base_url` from **`PackageInformationProvider` + `self.ctx`**.
 - Multi-page: **`dlg:page`** on controls + `dlg.getModel().Step`; **not** `tabpagecontainer` / `tabpage` (silent failure).
-- **AppFont** for geometry; explicit layout—no flex. **TabListener** must subclass **`unohelper.Base`** + **`XActionListener`**—see pattern in [`plugin/framework/dialogs.py`](plugin/framework/dialogs.py).
+- **AppFont** for geometry; explicit layout—no flex. **TabListener** must subclass **`unohelper.Base`** + **`XActionListener`**—see pattern in [`plugin/modules/chatbot/dialogs.py`](plugin/modules/chatbot/dialogs.py).
 - **ListBox/ComboBox:** set **`StringItemList`**, not only `.Text`.
-- **`translate_dialog`:** [`dialogs.py`](plugin/framework/dialogs.py). Chat sidebar does **not** re-translate on every `config:changed`—only at wiring/load.
+- **`translate_dialog`:** [`dialogs.py`](plugin/modules/chatbot/dialogs.py). Chat sidebar does **not** re-translate on every `config:changed`—only at wiring/load.
 - **`legacy_ui`:** do not pass saved config through gettext (empty string → PO garbage). **`_(msg)`** requires `str` ([`plugin/framework/i18n.py`](plugin/framework/i18n.py)).
 - **`legacy_ui.input_box`:** if `execute()` is false (ESC/close), **do not** `dispose()` the dialog again—**double dispose can segfault** LibreOffice.
 
@@ -140,7 +140,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - Paths: Linux `~/.config/libreoffice/{4,24}/user/writeragent.json`; macOS `~/Library/Application Support/LibreOffice/4/user/`; Windows `%APPDATA%\LibreOffice\4\user\`.
 - **`set_config`:** skips write and `config:changed` when unchanged. Unknown keys via `get_config` / `get_config_int` → **`CONFIG_KEY_NOT_FOUND`** with `details["key"]`.
 - **OpenRouter merge:** optional `openrouter_chat_extra` — [`plugin/framework/openrouter_chat_extra.py`](plugin/framework/openrouter_chat_extra.py); blocked keys include `messages`, `tools`, `tool_choice`, `stream`.
-- **Settings UI:** **`core`** must stay skipped in auto-generated tabs ([`manifest_registry.py`](scripts/manifest_registry.py) + [`legacy_ui.py`](plugin/framework/legacy_ui.py) agree) or Settings crashes (`btn_tab_core`).
+- **Settings UI:** **`core`** must stay skipped in auto-generated tabs ([`manifest_registry.py`](scripts/manifest_registry.py) + [`legacy_ui.py`](plugin/modules/chatbot/legacy_ui.py) agree) or Settings crashes (`btn_tab_core`).
 - Defaults and provider tables: [`plugin/framework/default_models.py`](plugin/framework/default_models.py). **`chat_max_tool_rounds`:** empty string → fallback 25 with debug log.
 - **Chat-related keys:** `chat_context_length`, `chat_max_tokens`, `additional_instructions` (see [`plugin/framework/config.py`](plugin/framework/config.py), [`plugin/framework/constants.py`](plugin/framework/constants.py)).
 

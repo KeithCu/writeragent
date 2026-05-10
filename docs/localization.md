@@ -19,7 +19,7 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 
 3. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/modules/**/module.yaml` (titles, labels, options) into the same POT, deduplicated by `msgid`. Requires `polib` and PyYAML.
 
-4. **Dialogs at runtime**: [`translate_dialog` in `plugin/framework/dialogs.py`](../plugin/framework/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()` in [`legacy_ui.py`](../plugin/framework/legacy_ui.py): empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`plugin/tests/test_i18n.py`](../plugin/tests/test_i18n.py).
+4. **Dialogs at runtime**: [`translate_dialog` in `plugin/modules/chatbot/dialogs.py`](../plugin/modules/chatbot/dialogs.py) walks controls and applies translated text. **Do not** pass raw saved config values through `_()` in [`legacy_ui.py`](../plugin/modules/chatbot/legacy_ui.py): empty strings can pick up gettext header garbage. Config validation strips bogus gettext headers; see [`plugin/tests/test_i18n.py`](../plugin/tests/test_i18n.py).
 
 ## Build and maintenance commands
 

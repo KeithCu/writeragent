@@ -239,7 +239,7 @@ class HttpModule(ModuleBase):
         return None
 
     def _action_toggle_server(self):
-        from plugin.framework.dialogs import msgbox
+        from plugin.modules.chatbot.dialogs import msgbox
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
 
@@ -260,7 +260,7 @@ class HttpModule(ModuleBase):
                 msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check ~/writeragent.log"))
 
     def _action_server_status(self):
-        from plugin.framework.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
+        from plugin.modules.chatbot.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
 

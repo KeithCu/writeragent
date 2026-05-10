@@ -242,7 +242,7 @@ def bootstrap(ctx=None):
 
 def _register_core_handlers():
     """Register core application handlers during bootstrap."""
-    from plugin.framework.legacy_ui import settings_box, show_eval_dashboard
+    from plugin.modules.chatbot.legacy_ui import settings_box, show_eval_dashboard
     from plugin.framework.document import is_writer, is_calc, is_draw
     import importlib
 
@@ -292,7 +292,7 @@ def _tests_bundled() -> bool:
 def _show_tests_unavailable(test_name: str) -> None:
     """Show a message when test suites are not bundled (release builds)."""
     try:
-        from plugin.framework.dialogs import msgbox
+        from plugin.modules.chatbot.dialogs import msgbox
         from plugin.framework.uno_context import get_ctx
 
         msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
@@ -316,7 +316,7 @@ def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
     except Exception as e:
         log.error(f"{error_msg}: {e}", exc_info=True)
         # Show user-friendly error message
-        from plugin.framework.dialogs import msgbox
+        from plugin.modules.chatbot.dialogs import msgbox
         from plugin.framework.i18n import _
 
         msgbox(ctx_getter(), _("Error"), _(f"{error_msg}: {str(e)}"))
@@ -329,7 +329,7 @@ def _run_test_suite(test_func, doc_checker, test_name):
     worker threads (see ``ToolBase.execute_safe``).
     """
     from plugin.framework.uno_context import get_ctx
-    from plugin.framework.dialogs import msgbox
+    from plugin.modules.chatbot.dialogs import msgbox
 
     ctx = get_ctx()
     try:
@@ -718,19 +718,19 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
     def _handle_writer_actions(self, args, model):
         if args == "ExtendSelection":
             from plugin.modules.writer.legacy import do_extend_selection
-            from plugin.framework.legacy_ui import input_box
+            from plugin.modules.chatbot.legacy_ui import input_box
 
             do_extend_selection(self.ctx, model, input_box)
         elif args == "EditSelection":
             from plugin.modules.writer.legacy import do_edit_selection
-            from plugin.framework.legacy_ui import input_box
+            from plugin.modules.chatbot.legacy_ui import input_box
 
             do_edit_selection(self.ctx, model, input_box)
 
     def _handle_calc_actions(self, args, model):
         if args in ("ExtendSelection", "EditSelection"):
             from plugin.modules.calc.legacy import do_calc_extend_edit
-            from plugin.framework.legacy_ui import input_box
+            from plugin.modules.chatbot.legacy_ui import input_box
 
             do_calc_extend_edit(self.ctx, model, input_box, args == "EditSelection")
 
@@ -802,7 +802,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     def dispatch(self, URL, Arguments):
         url = URL
         command = url.Path
-        from plugin.framework.dialogs import msgbox
+        from plugin.modules.chatbot.dialogs import msgbox
         from plugin.framework.logging import init_logging, log_exception
 
         try:

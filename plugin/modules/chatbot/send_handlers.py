@@ -172,7 +172,7 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-        from plugin.framework.dialogs import get_control_text
+        from plugin.modules.chatbot.dialogs import get_control_text
 
         q: queue.Queue[Any] = queue.Queue()
 
@@ -357,7 +357,7 @@ class SendHandlersMixin:
 
         def on_approval_required(item):
             # item = ("approval_required", description, tool_name, args, request_id)
-            from plugin.framework.dialogs import show_approval_dialog
+            from plugin.modules.chatbot.dialogs import show_approval_dialog
             from plugin.framework.config import get_config, as_bool
 
             description = item[1] if len(item) > 1 else ""
@@ -442,7 +442,7 @@ class SendHandlersMixin:
             log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
             show_thinking = False
 
-        from plugin.framework.dialogs import get_control_text
+        from plugin.modules.chatbot.dialogs import get_control_text
 
         history_text = ""
         if self.response_control and self.response_control.getModel():

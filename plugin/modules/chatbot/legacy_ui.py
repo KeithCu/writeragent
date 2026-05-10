@@ -19,9 +19,9 @@ import threading
 import traceback
 from plugin.framework.errors import format_error_payload, UnoObjectError
 from plugin.framework.uno_context import get_desktop, get_active_document, get_extension_url
-from plugin.framework.listeners import BaseActionListener, BaseListener
+from .listeners import BaseActionListener, BaseListener
 from com.sun.star.awt import XItemListener, XTextListener
-from plugin.framework.dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog
+from .dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog
 from plugin.framework.i18n import _
 from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history, get_config_str
 from plugin.framework.logging import init_logging, agent_log
@@ -109,7 +109,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 
 def settings_box(ctx, title="Settings", x=None, y=None):
 
-    from plugin.framework.settings_dialog import get_settings_field_specs, apply_settings_result
+    from .settings_dialog import get_settings_field_specs, apply_settings_result
     from plugin.framework.config import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool, endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.framework.worker_pool import run_in_background
@@ -487,7 +487,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
             apply_settings_result(ctx, result)
         return result
     except Exception as e:
-        from plugin.framework.dialogs import msgbox
+        from .dialogs import msgbox
         import traceback
 
         msgbox(ctx, _("Error"), _("Failed to open Settings: {0}").format(e) + "\n\n" + traceback.format_exc())
@@ -509,7 +509,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 
 
 def show_eval_dashboard(ctx):
-    from plugin.framework.listeners import BaseActionListener
+    from .listeners import BaseActionListener
     from plugin.tests.eval_runner import run_benchmark_suite
 
     smgr = ctx.getServiceManager()

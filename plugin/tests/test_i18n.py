@@ -75,7 +75,7 @@ class TestI18n(unittest.TestCase):
                 return "GERMAN_HERMES"
             return msg
 
-        with patch("plugin.framework.settings_dialog.get_settings_field_specs", fake_specs):
+        with patch("plugin.modules.chatbot.settings_dialog.get_settings_field_specs", fake_specs):
             with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg._extra_config["agent_backend.backend_id"], "hermes")
@@ -99,7 +99,7 @@ class TestI18n(unittest.TestCase):
                 return "SQ_LABEL"
             return msg
 
-        with patch("plugin.framework.settings_dialog.get_settings_field_specs", fake_specs):
+        with patch("plugin.modules.chatbot.settings_dialog.get_settings_field_specs", fake_specs):
             with patch("plugin.framework.config._", side_effect=_fake):
                 cfg.validate()
         self.assertEqual(cfg.image_default_aspect, "Square")
@@ -117,7 +117,7 @@ class TestI18n(unittest.TestCase):
         cfg = WriterAgentConfig.from_dict(
             {"endpoint": "http://127.0.0.1:11434", "image_default_aspect": "Square"}
         )
-        with patch("plugin.framework.settings_dialog.get_settings_field_specs", fake_specs):
+        with patch("plugin.modules.chatbot.settings_dialog.get_settings_field_specs", fake_specs):
             cfg.validate()
         self.assertEqual(cfg.image_default_aspect, "Square")
 
@@ -225,7 +225,7 @@ class TestI18n(unittest.TestCase):
     def test_legacy_ui_imports(self):
         """Import legacy_ui with full UNO; otherwise expect ImportError (headless pytest)."""
         try:
-            from plugin.framework import legacy_ui
+            from plugin.modules.chatbot import legacy_ui
             self.assertIsNotNone(legacy_ui)
         except ImportError as e:
             err = str(e)

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 import uno
-from plugin.framework.dialogs import get_checkbox_state
+from plugin.modules.chatbot.dialogs import get_checkbox_state
 from plugin.modules.chatbot.send_handlers import SendHandlersMixin
 from plugin.modules.chatbot.tool_loop import ToolCallingMixin
 
@@ -174,7 +174,7 @@ class ChatSession:
 # QueryTextListener - dynamic button toggling
 # ---------------------------------------------------------------------------
 
-from plugin.framework.listeners import BaseActionListener, BaseKeyListener, BaseTextListener
+from plugin.modules.chatbot.listeners import BaseActionListener, BaseKeyListener, BaseTextListener
 from plugin.modules.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.modules.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, StartRecordingEffect, StartSendEffect, StopRecordingEffect, StopSendEffect, UpdateUIEffect
 from plugin.modules.chatbot.sidebar_state import LogSidebarEffect, SidebarCompositeState, SidebarEvent, SidebarEventKind, sidebar_next_state
@@ -443,7 +443,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _open_web_search_change_dialog(self):
         """Open edit dialog for the pending web_search query; OK continues with optional override."""
-        from plugin.framework.dialogs import show_web_search_query_edit_dialog
+        from plugin.modules.chatbot.dialogs import show_web_search_query_edit_dialog
         from plugin.modules.chatbot.web_research_chat import web_search_engine_step_chat_text
 
         initial = getattr(self, "_approval_query_for_engine", None) or ""
@@ -551,7 +551,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """Append text to the response area."""
         try:
             if self.response_control and self.response_control.getModel():
-                from plugin.framework.dialogs import get_control_text, set_control_text
+                from plugin.modules.chatbot.dialogs import get_control_text, set_control_text
 
                 current = get_control_text(self.response_control) or ""
                 set_control_text(self.response_control, current + text)
@@ -821,7 +821,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Get user query and clear field (before loading tools, so direct-image path can return early)
         query_text = ""
         if self.query_control and self.query_control.getModel():
-            from plugin.framework.dialogs import get_control_text
+            from plugin.modules.chatbot.dialogs import get_control_text
 
             query_text = (get_control_text(self.query_control) or "").strip()
 
@@ -831,7 +831,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         if self.query_control and self.query_control.getModel():
-            from plugin.framework.dialogs import set_control_text
+            from plugin.modules.chatbot.dialogs import set_control_text
 
             set_control_text(self.query_control, "")
 
@@ -1028,7 +1028,7 @@ class ClearButtonListener(BaseActionListener):
             return
         self.session.clear()
         if self.response_control and self.response_control.getModel():
-            from plugin.framework.dialogs import set_control_text
+            from plugin.modules.chatbot.dialogs import set_control_text
 
             text = self.greeting + "\n" if self.greeting else ""
             set_control_text(self.response_control, text)

@@ -167,7 +167,7 @@ def apply_settings_result(ctx, result):
                 try:
                     f_val = float(val)
                     if f_val > 1.0:
-                        from plugin.framework.dialogs import msgbox
+                        from .dialogs import msgbox
 
                         msgbox(ctx, _("Invalid Setting"), _("Temperature must be <= 1.0"))
                         continue

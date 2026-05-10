@@ -55,24 +55,24 @@ def mock_uno_modules():
         'com.sun.star.lang': mock_lang_module
     }):
         # We must reload the listeners module so it picks up the mocks
-        if 'plugin.framework.listeners' in sys.modules:
-            del sys.modules['plugin.framework.listeners']
+        if 'plugin.modules.chatbot.listeners' in sys.modules:
+            del sys.modules['plugin.modules.chatbot.listeners']
 
         yield
 
         # Also clean up the mocked version of listeners module to prevent polluting other tests
-        if 'plugin.framework.listeners' in sys.modules:
-            del sys.modules['plugin.framework.listeners']
+        if 'plugin.modules.chatbot.listeners' in sys.modules:
+            del sys.modules['plugin.modules.chatbot.listeners']
 
 def test_base_listener_disposing():
-    from plugin.framework.listeners import BaseListener
+    from plugin.modules.chatbot.listeners import BaseListener
     listener = BaseListener()
     # disposing should not raise any exceptions
     listener.disposing(MagicMock())
 
-@patch("plugin.framework.listeners.log")
+@patch("plugin.modules.chatbot.listeners.log")
 def test_base_action_listener_success(mock_log):
-    from plugin.framework.listeners import BaseActionListener
+    from plugin.modules.chatbot.listeners import BaseActionListener
     class TestActionListener(BaseActionListener):
         def on_action_performed(self, ev):
             self.success = True
@@ -82,9 +82,9 @@ def test_base_action_listener_success(mock_log):
     assert listener.success
     mock_log.error.assert_not_called()
 
-@patch("plugin.framework.listeners.log")
+@patch("plugin.modules.chatbot.listeners.log")
 def test_base_action_listener_exceptions(mock_log):
-    from plugin.framework.listeners import BaseActionListener
+    from plugin.modules.chatbot.listeners import BaseActionListener
     class TypeErrListener(BaseActionListener):
         def on_action_performed(self, ev):
             raise TypeError("Test type error")
@@ -116,9 +116,9 @@ def test_base_action_listener_exceptions(mock_log):
     assert isinstance(args[1], Exception)
     assert kwargs.get("exc_info") is True
 
-@patch("plugin.framework.listeners.log")
+@patch("plugin.modules.chatbot.listeners.log")
 def test_base_item_listener_exceptions(mock_log):
-    from plugin.framework.listeners import BaseItemListener
+    from plugin.modules.chatbot.listeners import BaseItemListener
     class TestItemListener(BaseItemListener):
         def on_item_state_changed(self, ev):
             raise Exception("Test item generic error")
@@ -131,9 +131,9 @@ def test_base_item_listener_exceptions(mock_log):
     assert isinstance(args[1], Exception)
     assert kwargs.get("exc_info") is True
 
-@patch("plugin.framework.listeners.log")
+@patch("plugin.modules.chatbot.listeners.log")
 def test_base_text_listener_exceptions(mock_log):
-    from plugin.framework.listeners import BaseTextListener
+    from plugin.modules.chatbot.listeners import BaseTextListener
     class TestTextListener(BaseTextListener):
         def on_text_changed(self, ev):
             raise Exception("Test text generic error")
@@ -146,9 +146,9 @@ def test_base_text_listener_exceptions(mock_log):
     assert isinstance(args[1], Exception)
     assert kwargs.get("exc_info") is True
 
-@patch("plugin.framework.listeners.log")
+@patch("plugin.modules.chatbot.listeners.log")
 def test_base_window_listener_exceptions(mock_log):
-    from plugin.framework.listeners import BaseWindowListener
+    from plugin.modules.chatbot.listeners import BaseWindowListener
     class TestWindowListener(BaseWindowListener):
         def on_window_resized(self, ev):
             raise Exception("Test window resized error")

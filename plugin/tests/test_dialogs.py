@@ -25,11 +25,11 @@ setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
 setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
 
 
-# Important: We need to mock `_` inside `plugin.framework.dialogs` directly,
+# Important: We need to mock `_` inside `plugin.modules.chatbot.dialogs` directly,
 # since it uses `from plugin.framework.i18n import _` inside some functions.
-# A simpler way is to mock `plugin.framework.i18n._` and `plugin.framework.dialogs._`.
+# A simpler way is to mock `plugin.framework.i18n._` and `plugin.modules.chatbot.dialogs._`.
 
-from plugin.framework.dialogs import (
+from plugin.modules.chatbot.dialogs import (
     _uno_impl_to_control_type,
     _xcc,
     add_dialog_button,
@@ -82,8 +82,8 @@ def test_xcc():
     # Should handle None
     assert _xcc(None) is None
 
-@patch("plugin.framework.dialogs._")
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 
 def test_add_dialog_button(mock_i18n_translate, mock_translate):
     mock_translate.side_effect = lambda x: f"T_{x}"
@@ -107,8 +107,8 @@ def test_add_dialog_button(mock_i18n_translate, mock_translate):
     assert btn.PushButtonType == 1
     mock_dlg_model.insertByName.assert_called_once_with("TestBtn", mock_btn)
 
-@patch("plugin.framework.dialogs._")
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 
 def test_add_dialog_label(mock_i18n_translate, mock_translate):
     mock_translate.side_effect = lambda x: f"T_{x}"
@@ -150,8 +150,8 @@ def test_add_dialog_edit():
     assert edit.ReadOnly is True
     mock_dlg_model.insertByName.assert_called_once_with("TestEdit", mock_edit)
 
-@patch("plugin.framework.dialogs._")
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 
 def test_add_dialog_hyperlink(mock_i18n_translate, mock_translate):
     mock_translate.side_effect = lambda x: f"T_{x}"
@@ -175,7 +175,7 @@ def test_add_dialog_hyperlink(mock_i18n_translate, mock_translate):
     assert link.TextColor == 0x0563C1
     mock_dlg_model.insertByName.assert_called_once_with("TestLink", mock_link)
 
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 
 def test_translate_dialog_xcc(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
@@ -211,7 +211,7 @@ def test_translate_dialog_xcc(mock_i18n_translate):
     assert mock_xcc.getControls.call_count == 2
     mock_child.getImplementationName.assert_called_once()
 
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 
 def test_translate_dialog_element_names(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}"
@@ -239,7 +239,7 @@ def test_translate_dialog_element_names(mock_i18n_translate):
     mock_dlg.getControl.assert_called_once_with("Btn2")
     assert mock_child_model.Label == "T_Another Label"
 
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 
 def test_translate_dialog_listbox(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}" if x else x
@@ -267,7 +267,7 @@ def test_translate_dialog_listbox(mock_i18n_translate):
     mock_child.setStringItemList.assert_called_once_with(("T_Item1", "", "T_Item2"))
 
 
-@patch("plugin.framework.dialogs._")
+@patch("plugin.modules.chatbot.dialogs._")
 def test_translate_dialog_combobox_stringitemlist_on_model(mock_i18n_translate):
     """ComboBox controls often only expose StringItemList on the model, not getStringItemList."""
     mock_i18n_translate.side_effect = lambda x: f"T_{x}" if x else x

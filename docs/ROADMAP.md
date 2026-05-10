@@ -112,7 +112,7 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 
 - [ ] Optionally derive active chat model from `model_lru@<endpoint>[0]` with `get_active_text_model` / `set_active_text_model`, legacy fallbacks, and one-shot migration from `text_model` / `model`.
 - [ ] Migrate readers (`get_text_model`, `get_api_config`) and writers (`set_config(..., "text_model")`) off the duplicate global key; special-case `AI_SIMPLE_FIELDS` / MCP if needed.
-- [ ] Belt-and-suspenders: in [`plugin/framework/legacy_ui.py`](plugin/framework/legacy_ui.py) `_apply_dropdowns`, pass `text_ctrl.getText()` instead of `""` when repopulating text/image/STT combos after endpoint refresh.
+- [ ] Belt-and-suspenders: in [`plugin/modules/chatbot/legacy_ui.py`](plugin/modules/chatbot/legacy_ui.py) `_apply_dropdowns`, pass `text_ctrl.getText()` instead of `""` when repopulating text/image/STT combos after endpoint refresh.
 
 ---
 
