@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.mcp.client import LlmClient, strip_leaked_chat_template_control_tokens
+from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_template_control_tokens
 from plugin.tests.testing_utils import MockContext
 
 
@@ -65,7 +65,7 @@ def test_persistent_connections(client):
     with (
         patch("http.client.HTTPSConnection") as mock_https,
         patch("http.client.HTTPConnection") as mock_http,
-        patch("plugin.mcp.client.get_unverified_ssl_context") as mock_ssl,
+        patch("plugin.framework.client.llm_client.get_unverified_ssl_context") as mock_ssl,
     ):
         conn1 = client._get_connection()
         conn2 = client._get_connection()
@@ -251,7 +251,7 @@ def test_stream_request_with_tools_tls_retry():
     ]
 
     with patch("http.client.HTTPSConnection") as mock_https, \
-         patch("plugin.mcp.client.get_unverified_ssl_context") as mock_unverified_ssl:
+         patch("plugin.framework.client.llm_client.get_unverified_ssl_context") as mock_unverified_ssl:
         mock_unverified_ssl.return_value = "unverified_context"
 
         # We need two connection objects: one for the first try, one for the retry
@@ -358,7 +358,7 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
     messages = [{"role": "user", "content": "Hi"}]
-    with patch("plugin.mcp.client.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.framework.client.llm_client.should_prepend_dev_llm_system_prefix", return_value=True):
         _m, _p, body, _h = client.make_chat_request(messages, max_tokens=50)
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
@@ -398,7 +398,7 @@ def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
     messages = [{"role": "system", "content": "Core instructions."}]
-    with patch("plugin.mcp.client.should_prepend_dev_llm_system_prefix", return_value=True):
+    with patch("plugin.framework.client.llm_client.should_prepend_dev_llm_system_prefix", return_value=True):
         client.make_chat_request(messages, max_tokens=50)
         client.make_chat_request(messages, max_tokens=50)
     sys_content = messages[0]["content"]
@@ -455,7 +455,7 @@ def test_request_with_tools_strips_leaked_control_tokens_in_sync_response(client
     }
     with (
         patch.object(client, "_get_connection") as mock_get,
-        patch("plugin.mcp.client.get_unverified_ssl_context"),
+        patch("plugin.framework.client.llm_client.get_unverified_ssl_context"),
     ):
         mock_conn = MagicMock()
         mock_get.return_value = mock_conn

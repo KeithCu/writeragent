@@ -65,7 +65,7 @@ This section is the **forward-looking backlog** implied by the comparison. Items
 
 ## 3. Overview
 
-OnlyOfficeAI is a **JavaScript** plugin: chat, providers, and document actions via `Asc.Editor.callCommand` / `callMethod` and a large tool catalog in `scripts/helpers/helpers.js`. WriterAgent is **Python + UNO** with auto-discovered `ToolBase` classes and [`LlmClient`](plugin/mcp/client.py).
+OnlyOfficeAI is a **JavaScript** plugin: chat, providers, and document actions via `Asc.Editor.callCommand` / `callMethod` and a large tool catalog in `scripts/helpers/helpers.js`. WriterAgent is **Python + UNO** with auto-discovered `ToolBase` classes and [`LlmClient`](plugin/framework/client/llm_client.py).
 
 ### 3.1 OnlyOfficeAI directory layout (reference)
 
@@ -97,7 +97,7 @@ OnlyOffice runs macros in document context via `Asc.Editor.callCommand` / `callM
 - **Capability bitmasks** (e.g. tools / chat / image flags).
 - **Proxy vs direct** (`isUseProxy`) for CORS/network—relevant for enterprise LibreOffice deployments with odd HTTP paths.
 
-WriterAgent aligns on capabilities via [`ModelCapability`](plugin/framework/constants.py) (`IntFlag`) and provider logic in [`plugin/framework/auth.py`](plugin/framework/auth.py) / [`LlmClient`](plugin/mcp/client.py).
+WriterAgent aligns on capabilities via [`ModelCapability`](plugin/framework/constants.py) (`IntFlag`) and provider logic in [`plugin/framework/auth.py`](plugin/framework/auth.py) / [`LlmClient`](plugin/framework/client/llm_client.py).
 
 ### 4.3 Tool registration (`RegisteredFunction` → OpenAI-shaped `tools`)
 
@@ -129,7 +129,7 @@ OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAg
 
 ### 5.3 Native provider shims and wire-level streaming
 
-[`LlmClient`](plugin/mcp/client.py) includes Anthropic and Gemini-specific request/response handling. For **streaming line shapes**, [`plugin/mcp/stream_normalizer.py`](plugin/mcp/stream_normalizer.py) `iterate_sse` accepts both `data: …` SSE lines and **raw `{…}` JSON lines** (e.g. some Gemini streams); `_normalize_delta` patches common provider quirks before accumulation.
+[`LlmClient`](plugin/framework/client/llm_client.py) includes Anthropic and Gemini-specific request/response handling. For **streaming line shapes**, [`plugin/framework/client/stream_normalizer.py`](plugin/framework/client/stream_normalizer.py) `iterate_sse` accepts both `data: …` SSE lines and **raw `{…}` JSON lines** (e.g. some Gemini streams); `_normalize_delta` patches common provider quirks before accumulation.
 
 ### 5.4 Images
 
@@ -278,8 +278,8 @@ Derived from `helpers.js` unique `name` values (re-verify when refreshing). “C
 ## 10. Implemented WriterAgent improvements (inspired by OnlyOffice-style thinking)
 
 1. **`ModelCapability`** — [`plugin/framework/constants.py`](plugin/framework/constants.py).
-2. **Native shims** — Anthropic `/v1/messages`, Gemini `v1beta`, stream quirks; legacy Bearer fallback — [`plugin/mcp/client.py`](plugin/mcp/client.py), [`plugin/framework/auth.py`](plugin/framework/auth.py).
-3. **Stream line handling** — `iterate_sse` + delta patches — [`plugin/mcp/stream_normalizer.py`](plugin/mcp/stream_normalizer.py).
+2. **Native shims** — Anthropic `/v1/messages`, Gemini `v1beta`, stream quirks; legacy Bearer fallback — [`plugin/framework/client/llm_client.py`](plugin/framework/client/llm_client.py), [`plugin/framework/auth.py`](plugin/framework/auth.py).
+3. **Stream line handling** — `iterate_sse` + delta patches — [`plugin/framework/client/stream_normalizer.py`](plugin/framework/client/stream_normalizer.py).
 4. **Form tools** — [`plugin/writer/forms.py`](plugin/writer/forms.py).
 
 ---

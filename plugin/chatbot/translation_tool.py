@@ -25,7 +25,7 @@
 # https://github.com/ikks/aihorde-client/blob/main/LICENSE
 
 import json
-from plugin.mcp.requests import sync_request
+from plugin.framework.client.requests import sync_request
 
 API_TRANSLATE_GRADIO = "https://igortamara-opus-translate.hf.space/call/translate"
 
@@ -408,7 +408,7 @@ def _sse_iter(url, data=None, headers=None, timeout=30):
 
     req = urllib.request.Request(url, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as stream:
-        from plugin.mcp.client import iterate_sse
+        from plugin.framework.client.llm_client import iterate_sse
 
         for payload in iterate_sse(stream):
             if payload == "[DONE]":

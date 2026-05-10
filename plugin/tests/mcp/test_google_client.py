@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock, patch
 import pytest
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 from plugin.tests.testing_utils import MockContext
 
 @pytest.fixture

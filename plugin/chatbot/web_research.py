@@ -88,7 +88,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
 
         try:
             from plugin.framework.config import get_api_config, get_config_int, user_config_dir
-            from plugin.mcp.client import LlmClient
+            from plugin.framework.client.llm_client import LlmClient
             from plugin.chatbot.smol_agent import WriterAgentSmolModel, SmolAgentExecutor
             from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
         except (ImportError, ValueError, TypeError) as e:

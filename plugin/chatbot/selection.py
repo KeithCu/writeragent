@@ -35,7 +35,7 @@ def _extend_writer(services, ctx, doc):
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
     from plugin.doc.document_helpers import WriterCompoundUndo, get_string_without_tracked_deletions
-    from plugin.mcp.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
 
     try:
         selection = doc.CurrentController.getSelection()
@@ -101,7 +101,7 @@ def _extend_calc(services, ctx, doc):
     from .dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
-    from plugin.mcp.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
 
     try:
         sheet = doc.CurrentController.ActiveSheet
@@ -220,7 +220,7 @@ def _edit_writer(services, ctx, doc):
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
     from plugin.doc.document_helpers import build_writer_rewrite_prompt, get_string_without_tracked_deletions, WriterStreamedRewriteSession
-    from plugin.mcp.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
 
     try:
         selection = doc.CurrentController.getSelection()
@@ -298,7 +298,7 @@ def _edit_calc(services, ctx, doc):
     from .dialogs import msgbox
     from plugin.framework.async_stream import run_stream_async
     from plugin.framework.config import get_api_config
-    from plugin.mcp.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
 
     try:
         sheet = doc.CurrentController.ActiveSheet

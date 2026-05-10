@@ -5,8 +5,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from plugin.framework.constants import APP_REFERER, APP_TITLE, USER_AGENT
 from plugin.framework.errors import NetworkError
-from plugin.mcp.ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context, _is_local_host, _is_certificate_verify_error
-from plugin.mcp.errors import _format_http_error_response, format_error_message
+from .ssl_helpers import get_verified_ssl_context, get_unverified_ssl_context, _is_local_host, _is_certificate_verify_error
+from .errors import _format_http_error_response, format_error_message
 
 log = logging.getLogger(__name__)
 

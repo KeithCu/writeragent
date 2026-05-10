@@ -75,7 +75,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.chatbot.tool_loop.set_config', create=True)
     @patch('plugin.chatbot.tool_loop.get_config', create=True)
     @patch('plugin.chatbot.tool_loop.get_current_endpoint')
-    @patch('plugin.mcp.client.LlmClient')
+    @patch('plugin.framework.client.llm_client.LlmClient')
     def test_do_send_updates_model(self, *args):
         mock_get_config = args[2]
         mock_get_current_endpoint = args[1]
@@ -98,7 +98,7 @@ class TestChatModelLogic(unittest.TestCase):
     @patch('plugin.chatbot.tool_loop.set_config', create=True)
     @patch('plugin.chatbot.tool_loop.get_config', create=True)
     @patch('plugin.chatbot.tool_loop.get_current_endpoint')
-    @patch('plugin.mcp.client.LlmClient')
+    @patch('plugin.framework.client.llm_client.LlmClient')
     def test_image_model_updates(self, *args):
         mock_get_config = args[2]
         mock_get_current_endpoint = args[1]

@@ -526,7 +526,7 @@ def _run_llm_and_cache(ctx: Any, full_text: str, n_start: int, n_end: int, enque
         log.info("[grammar] LLM request llm_text_len=%s (uncached %s/%s sent) max_tokens=%s model=%s", len(llm_text), len(uncached), len(sentences) if sentences else 1, max_tok, model or "(default text model)")
         request_start = time.monotonic()
         _emit_grammar_status("request", llm_text, result="LLM request")
-        from plugin.mcp.client import LlmClient
+        from plugin.framework.client.llm_client import LlmClient
 
         client = LlmClient(get_api_config(ctx), ctx)
         with llm_request_lane():

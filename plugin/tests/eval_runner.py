@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import time
 import traceback
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import get_api_config
 from plugin.framework.logging import log
 from plugin.doc.document_helpers import get_document_context_for_chat

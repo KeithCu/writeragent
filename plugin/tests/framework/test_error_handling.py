@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 from plugin.framework.errors import WriterAgentException, format_error_payload, safe_json_loads
 from plugin.framework.tool import ToolBase
-from plugin.mcp.errors import format_error_for_display
+from plugin.framework.client.errors import format_error_for_display
 
 class DummyTool(ToolBase):
     name = "dummy_tool"

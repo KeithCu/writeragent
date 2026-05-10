@@ -3,8 +3,8 @@ import json
 import socket
 from unittest.mock import patch, MagicMock, mock_open
 import ssl
-from plugin.mcp.client import LlmClient
-from plugin.mcp.errors import (
+from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.errors import (
     is_audio_unsupported_error,
     format_error_message,
     _format_http_error_response
@@ -45,7 +45,7 @@ def test_format_error_message():
     err = socket.timeout("timed out")
     assert "Timed Out" in format_error_message(err) or "timed out" in format_error_message(err).lower()
 
-@patch("plugin.mcp.client.sync_request")
+@patch("plugin.framework.client.llm_client.sync_request")
 def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
     """
     Test that transcribe_audio uses the multipart/form-data fallback via sync_request
@@ -86,7 +86,7 @@ def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
         assert b'name="file"; filename="dummy.wav"' in body
         assert b'name="model"' in body
 
-@patch("plugin.mcp.client.LlmClient.chat_completion_sync")
+@patch("plugin.framework.client.llm_client.LlmClient.chat_completion_sync")
 def test_transcribe_audio_uses_native_audio(mock_sync_chat):
     """
     Test that transcribe_audio calls the native chat pipeline when the STT model

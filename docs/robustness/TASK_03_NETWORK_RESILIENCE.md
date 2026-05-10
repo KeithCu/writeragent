@@ -4,7 +4,7 @@
 Implement robust network error handling with retry logic for transient failures.
 
 ## Scope
-- `plugin/mcp/client.py` - LLM client
+- `plugin/framework/client/llm_client.py` - LLM client
 - `plugin/mcp/mcp_protocol.py` - MCP server protocol
 - Create reusable retry decorator
 
@@ -107,7 +107,7 @@ def retry_with_backoff(
 ```
 
 ### 2. Update LLM Client
-In `plugin/mcp/client.py`:
+In `plugin/framework/client/llm_client.py`:
 
 ```python
 from plugin.framework.retry_decorator import retry_with_backoff

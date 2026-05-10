@@ -27,7 +27,7 @@ from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.errors import ToolExecutionError
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

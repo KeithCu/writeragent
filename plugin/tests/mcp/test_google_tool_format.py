@@ -1,6 +1,6 @@
 import json
 from unittest.mock import MagicMock
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 from plugin.tests.testing_utils import MockContext
 
 def test_google_tool_format():

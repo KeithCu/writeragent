@@ -882,7 +882,7 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
             return None
 
     try:
-        from plugin.mcp.requests import sync_request
+        from plugin.framework.client.requests import sync_request
         data = sync_request(url, parse_json=True, headers=req_headers if req_headers else None)
         if data and isinstance(data, dict) and "data" in data:
             models = []

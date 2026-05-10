@@ -38,7 +38,7 @@ from plugin.chatbot.history_db import get_chat_history
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from plugin.mcp.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
 
 _AudioRecorderCls: type[Any] | None
 try:

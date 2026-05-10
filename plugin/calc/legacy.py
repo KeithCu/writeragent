@@ -18,8 +18,8 @@
 """Legacy operations for Calc (Extend/Edit Selection)."""
 
 from plugin.framework.config import get_config_int, get_config_str, get_api_config, validate_api_config
-from plugin.mcp.errors import format_error_message
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.errors import format_error_message
+from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _

@@ -97,10 +97,10 @@ from plugin.framework.auth import resolve_auth_for_config, build_auth_headers, A
 from plugin.framework.errors import NetworkError
 from plugin.framework.config import get_url_hostname, get_url_path_and_query
 
-from plugin.mcp.errors import format_error_message, _format_http_error_response
-from plugin.mcp.ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
-from plugin.mcp.stream_normalizer import iterate_sse, _extract_thinking_from_delta, _normalize_message_content, _normalize_delta
-from plugin.mcp.requests import sync_request
+from .errors import format_error_message, _format_http_error_response
+from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
+from .stream_normalizer import iterate_sse, _extract_thinking_from_delta, _normalize_message_content, _normalize_delta
+from .requests import sync_request
 
 log = logging.getLogger(__name__)
 

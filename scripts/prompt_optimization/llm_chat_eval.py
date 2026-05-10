@@ -19,7 +19,7 @@ from typing import Any, Literal
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.tool import to_openai_schema
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
 
 _SCRIPTS_PO = Path(__file__).resolve().parent

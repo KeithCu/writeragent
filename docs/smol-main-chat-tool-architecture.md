@@ -80,7 +80,7 @@ flowchart TB
 - **Main chat:** registry schemas → wire `tools` → `tool_calls` → `ToolRegistry.execute` → history.
 - **Smol:** `ToolBase` → `SmolToolAdapter` → `ToolCallingAgent` → **`WriterAgentSmolModel`** → `request_with_tools(..., tools=completion_kwargs.get("tools"))` → `ChatMessage.from_dict` → smol steps.
 
-**Shared:** [`LlmClient`](../plugin/mcp/client.py) only—no duplicate strip/shim/parser logic in smol-specific files.
+**Shared:** [`LlmClient`](../plugin/framework/client/llm_client.py) only—no duplicate strip/shim/parser logic in smol-specific files.
 
 ---
 
@@ -94,7 +94,7 @@ flowchart TB
 | Librarian | [`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py) |
 | Specialized delegation | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
 | Main chat loop | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py), [`tool_loop_state.py`](../plugin/chatbot/tool_loop_state.py) |
-| HTTP client | [`plugin/mcp/client.py`](../plugin/mcp/client.py) |
+| HTTP client | [`plugin/framework/client/llm_client.py`](../plugin/framework/client/llm_client.py) |
 | Orientation | [`AGENTS.md`](../AGENTS.md) §4, §8 |
 
 Tests: [`test_smol_model.py`](../plugin/tests/test_smol_model.py), [`test_smol_tool_adapter.py`](../plugin/tests/test_smol_tool_adapter.py), [`test_librarian_smol.py`](../plugin/tests/test_librarian_smol.py), [`test_specialized_delegation.py`](../plugin/tests/test_specialized_delegation.py).

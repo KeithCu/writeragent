@@ -72,7 +72,7 @@ def run_extension_update_check(ctx: Any) -> None:
     from plugin.framework.config import set_config
     from plugin.chatbot.dialogs import msgbox
     from plugin.framework.queue_executor import QueueExecutor
-    from plugin.mcp.requests import sync_request
+    from plugin.framework.client.requests import sync_request
     from plugin.version import EXTENSION_VERSION
 
     attempted = False

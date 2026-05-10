@@ -112,7 +112,7 @@ def run_streaming_with_tools(prompt: str):
             thinking_started = True
         print(t, end="", flush=True)
 
-    from plugin.mcp.client import LlmClient
+    from plugin.framework.client.llm_client import LlmClient
     config = {
         "endpoint": endpoint.replace("/v1", ""), # LlmClient._api_path() adds /v1 or /api
         "api_key": api_key,

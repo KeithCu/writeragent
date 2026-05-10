@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.async_stream import StreamQueueKind
-from plugin.mcp.client import LlmClient
+from plugin.framework.client.llm_client import LlmClient
 
 def _make_sse_lines(*chunks, done=True):
     """Build SSE byte lines from chunk dicts. Used to mock response stream."""
@@ -38,7 +38,7 @@ class TestStreamingFuzz(unittest.TestCase):
             "request_timeout": 60,
         }
 
-    @patch("plugin.mcp.client.init_logging")
+    @patch("plugin.framework.client.llm_client.init_logging")
     def test_malformed_json_sse_payload(self, mock_init_logging):
         """Ensure that garbled JSON lines in the SSE stream are gracefully skipped."""
         lines = [
@@ -59,7 +59,7 @@ class TestStreamingFuzz(unittest.TestCase):
         # The garbled chunk should be skipped, and the rest parsed.
         self.assertEqual(content_parts, ["hello ", "world"])
 
-    @patch("plugin.mcp.client.init_logging")
+    @patch("plugin.framework.client.llm_client.init_logging")
     def test_truncated_tool_call_arguments(self, mock_init_logging):
         """Ensure that truncated tool call arguments (due to AI stop mid-stream) are returned as a truncated JSON string."""
         chunks = [
@@ -120,7 +120,7 @@ class TestStreamingFuzz(unittest.TestCase):
         # Proves it recovers gracefully to an empty dict
         self.assertEqual(func_args, {})
 
-    @patch("plugin.mcp.client.init_logging")
+    @patch("plugin.framework.client.llm_client.init_logging")
     def test_unexpected_schema_structures(self, mock_init_logging):
         """Ensure feeding structurally invalid delta dictionaries raises a clean Exception that doesn't cause a fatal error but gets caught."""
         chunks = [
@@ -161,7 +161,7 @@ class TestStreamingFuzz(unittest.TestCase):
         # The error is formatted by format_error_message, verify it caught the TypeError from accumulate_delta
         self.assertTrue("Unexpected, list delta entry `index` value is not an integer" in str(ctx.exception))
 
-    @patch("plugin.mcp.client.init_logging")
+    @patch("plugin.framework.client.llm_client.init_logging")
     def test_ui_thread_graceful_recovery(self, mock_init_logging):
         """Simulate an error in the worker thread to ensure run_stream_drain_loop correctly drains it without breaking processEventsToIdle() loop."""
         from plugin.framework.async_stream import run_stream_drain_loop

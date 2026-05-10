@@ -21,9 +21,9 @@ import logging
 import tempfile
 import re
 import base64
-from plugin.mcp.client import LlmClient
-from plugin.mcp.requests import sync_request
-from plugin.mcp.errors import _format_http_error_response
+from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.requests import sync_request
+from plugin.framework.client.errors import _format_http_error_response
 from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.contrib.aihordeclient import AiHordeClient
 from plugin.framework.config import get_config_bool, get_config_int, get_config_float, get_config_str

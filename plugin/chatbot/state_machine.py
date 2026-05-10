@@ -4,7 +4,7 @@ import time
 import dataclasses
 from dataclasses import dataclass
 from typing import List, Any, Optional, NamedTuple, Literal
-from plugin.mcp.errors import format_error_for_display
+from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.service import BaseState, FsmTransition
 
 # Send-handler FSM status and kind

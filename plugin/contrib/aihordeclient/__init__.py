@@ -31,8 +31,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 from plugin.chatbot.translation_tool import opustm_hf_translate, OPUSTM_SOURCE_LANGUAGES  # noqa F401
 
-from plugin.mcp.requests import sync_request
-from plugin.mcp.errors import format_error_message
+from plugin.framework.client.requests import sync_request
+from plugin.framework.client.errors import format_error_message
 from plugin.framework.logging import log_exception
 from plugin.framework.constants import USER_AGENT
 

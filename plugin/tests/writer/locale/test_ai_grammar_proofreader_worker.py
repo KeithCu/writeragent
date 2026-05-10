@@ -56,7 +56,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         ),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
-        patch("plugin.mcp.client.LlmClient") as client_cls,
+        patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
     ):
         proofreader._run_llm_and_cache(
             ctx=None,
@@ -119,7 +119,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
         patch("plugin.framework.config.get_api_config", return_value={}),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
-        patch("plugin.mcp.client.LlmClient") as client_cls,
+        patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
         patch("plugin.writer.locale.grammar_proofread_engine.parse_grammar_json", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_engine.normalize_errors_for_text", return_value=[]),
