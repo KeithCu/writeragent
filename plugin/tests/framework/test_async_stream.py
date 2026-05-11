@@ -1,3 +1,5 @@
+import queue
+from unittest.mock import MagicMock
 import pytest
 import queue
 import time
@@ -637,3 +639,40 @@ def test_accumulate_delta_errors():
     # Non-dict delta entry
     with pytest.raises(TypeError):
         accumulate_delta(acc, {"items": ["bad"]})
+
+
+class TestAsyncStreamErrorHandling():
+
+    def test_stream_drain_loop_success(self):
+        q = queue.Queue()
+        toolkit = MagicMock()
+        job_done = [False]
+        on_chunk = MagicMock()
+        on_error = MagicMock()
+        on_stream_done = MagicMock()
+        on_stopped = MagicMock()
+        q.put((StreamQueueKind.CHUNK, 'hello '))
+        q.put((StreamQueueKind.THINKING, 'thinking...'))
+        q.put((StreamQueueKind.STREAM_DONE, 'final'))
+        run_stream_drain_loop(q, toolkit, job_done, on_chunk, on_stream_done, on_stopped, on_error)
+        assert (job_done[0] is True)
+        on_chunk.assert_any_call('hello ', False)
+        on_chunk.assert_any_call('thinking...', True)
+        on_stream_done.assert_called_once_with((StreamQueueKind.STREAM_DONE, 'final'))
+        on_error.assert_not_called()
+
+    def test_stream_drain_loop_processing_error(self):
+        q = queue.Queue()
+        toolkit = MagicMock()
+        job_done = [False]
+        on_error = MagicMock()
+
+        def faulty_on_chunk(data, is_thinking):
+            raise ValueError('Processing failed')
+        q.put((StreamQueueKind.CHUNK, 'bad data'))
+        run_stream_drain_loop(q, toolkit, job_done, faulty_on_chunk, MagicMock(), MagicMock(), on_error)
+        assert (job_done[0] is True)
+        assert (on_error.call_count == 1)
+        error_payload = on_error.call_args[0][0]
+        assert (error_payload['status'] == 'error')
+        assert ('Processing failed' in error_payload['message'])
