@@ -197,7 +197,7 @@ def grammar_english_name_for_bcp47(bcp47: str) -> str:
 
 GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
 GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 2048
-GRAMMAR_BATCH_MAX_SENTENCES = 4
+GRAMMAR_BATCH_MAX_SENTENCES = 8
 
 GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
     "You are a strict grammar and style checker. Reply with a single JSON object only, "

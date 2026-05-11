@@ -225,7 +225,6 @@ class JSONPersistence(GrammarPersistence):
 
 
 _persistence_instance: GrammarPersistence | None = None
-_persistence_lock = os.fork() if hasattr(os, "fork") else None # Actually I should use a threading lock
 import threading
 _persistence_init_lock = threading.Lock()
 

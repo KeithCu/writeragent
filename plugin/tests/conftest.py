@@ -139,3 +139,34 @@ setattr(awt, "XWindowListener", MockXWindowListener)
 task = _create_mock_module("com.sun.star.task")
 setattr(task, "XJobExecutor", MockBase)
 setattr(task, "XJob", MockBase)
+
+
+@pytest.fixture(autouse=True)
+def _setup_grammar_persistence_test_env():
+    """Isolate grammar persistence for every test to avoid leaking files into mock paths."""
+    from plugin.writer.locale import grammar_persistence
+    import shutil
+    import tempfile
+
+    # Reset singleton to ensure fresh initialization per test
+    old_instance = grammar_persistence._persistence_instance
+    grammar_persistence._persistence_instance = None
+
+    tmp_dir = tempfile.mkdtemp()
+    with patch("plugin.framework.config.user_config_dir", return_value=tmp_dir):
+        yield
+
+    # Clean up
+    grammar_persistence._persistence_instance = None
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    grammar_persistence._persistence_instance = old_instance
+
+
+def pytest_sessionstart(session):
+    """Clean up any 'MagicMock' directories created by accidental mock stringification in previous runs."""
+    import os
+    import shutil
+    root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    magic_mock_dir = os.path.join(root, "MagicMock")
+    if os.path.isdir(magic_mock_dir):
+        shutil.rmtree(magic_mock_dir, ignore_errors=True)

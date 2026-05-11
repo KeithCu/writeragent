@@ -15,6 +15,7 @@ from typing import Any, Literal, Mapping
 
 from .grammar_proofread_cache import cache_get_sentence, cache_put_sentence, ignored_rules_snapshot
 from .grammar_proofread_locale import (
+    GRAMMAR_BATCH_MAX_SENTENCES,
     GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE,
     GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS,
     GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
@@ -254,7 +255,7 @@ def run_llm_and_cache_batch(
 
         # Batch or Single?
         batch_size = safe_get_config_int(ctx, "doc.grammar_proofreader_batch_sentences", 1)
-        batch_size = max(1, min(8, batch_size))
+        batch_size = max(1, min(GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
 
         if len(valid_items) > 1 and batch_size > 1:
             # Batch mode - chunked to avoid hitting LLM output token limits
@@ -272,9 +273,9 @@ def run_llm_and_cache_batch(
                 request_start = time.monotonic()
                 emit_grammar_status("request", f"Batch of {len(chunk)}", result="LLM batch request")
                 with llm_request_lane():
-                    # We use max_tok * 4 as a ceiling for the whole batch response
+                    # We use max_tok * GRAMMAR_BATCH_MAX_SENTENCES as a ceiling for the whole batch response
                     # to accommodate models that use heavy reasoning tokens.
-                    content = client.chat_completion_sync(messages, max_tokens=max_tok * 4, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
+                    content = client.chat_completion_sync(messages, max_tokens=max_tok * GRAMMAR_BATCH_MAX_SENTENCES, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
                 elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
                 batch_results = parse_grammar_batch_json(content or "")
