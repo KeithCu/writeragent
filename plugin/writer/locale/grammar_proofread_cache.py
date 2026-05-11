@@ -14,7 +14,7 @@ import re
 import threading
 from typing import Any
 
-from .grammar_proofread_locale import fingerprint_for_text, looks_complete_sentence
+from .grammar_proofread_locale import GRAMMAR_CACHE_NORMALIZATION_RE, fingerprint_for_text, looks_complete_sentence
 
 _CACHE_LOCK = threading.Lock()
 _ignored_rules: set[str] = set()
@@ -64,7 +64,7 @@ def _normalize_for_sentence_cache(text: str) -> str:
     s = text.rstrip()
     if not s:
         return s
-    match = re.search(r"^(.*?[.!?…。！？])([.!?…。！？]*)$", s)
+    match = GRAMMAR_CACHE_NORMALIZATION_RE.search(s)
     if match:
         return match.group(1)
     return s

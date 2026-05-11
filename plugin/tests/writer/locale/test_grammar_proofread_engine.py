@@ -11,6 +11,35 @@ from plugin.writer.locale import grammar_proofread_locale as gl
 from plugin.writer.locale import grammar_proofread_text as gt
 from plugin.writer.locale.grammar_proofread_cache import _normalize_for_sentence_cache
 
+import pytest
+from unittest.mock import MagicMock, patch
+
+class FakeBI:
+    def getWordBoundary(self, text, pos, locale, wordType, bDirection):
+        import re
+        res = MagicMock()
+        m = re.compile(r"\w+|\W+").match(text, pos)
+        if m:
+            res.startPos = pos + m.start()
+            res.endPos = pos + m.end()
+        else:
+            res.startPos = pos
+            res.endPos = len(text)
+        return res
+        
+    def endOfSentence(self, text, pos, locale):
+        import re
+        m = re.search(r'[.!?]', text[pos:])
+        if m:
+            return pos + m.end()
+        return len(text)
+
+@pytest.fixture(autouse=True)
+def mock_bi():
+    with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(FakeBI(), "en-US")):
+        yield
+
+
 
 def test_parse_grammar_json_empty() -> None:
     assert gt.parse_grammar_json("") == []
@@ -54,11 +83,11 @@ def test_normalize_errors_duplicate_wrong_two_occurrences_ordered() -> None:
     assert norms[1].n_error_start == 6
 
 
-def test_split_regex_includes_inter_sentence_whitespace() -> None:
-    """Regex fallback path attaches the matched whitespace run so double spaces are visible to the LLM."""
-    sents = gt.split_into_sentences(None, "en-US", "Hi.  There.")
+def test_split_includes_inter_sentence_whitespace() -> None:
+    """Split path attaches the matched whitespace run so double spaces are visible to the LLM."""
+    sents = gt.split_into_sentences(None, "en-US", "Hello.  There.")
     assert len(sents) == 2
-    assert sents[0][1].startswith("Hi.")
+    assert sents[0][1].startswith("Hello.")
     assert "  " in sents[0][1]
 
 

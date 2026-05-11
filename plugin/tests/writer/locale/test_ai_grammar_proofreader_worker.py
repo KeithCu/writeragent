@@ -33,6 +33,34 @@ setattr(
     ),
 )
 
+import pytest
+from unittest.mock import MagicMock, patch
+
+class FakeBI:
+    def getWordBoundary(self, text, pos, locale, wordType, bDirection):
+        import re
+        res = MagicMock()
+        m = re.compile(r"\w+|\W+").match(text, pos)
+        if m:
+            res.startPos = pos + m.start()
+            res.endPos = pos + m.end()
+        else:
+            res.startPos = pos
+            res.endPos = len(text)
+        return res
+        
+    def endOfSentence(self, text, pos, locale):
+        import re
+        m = re.search(r'[.!?]', text[pos:])
+        if m:
+            return pos + m.end()
+        return len(text)
+
+@pytest.fixture(autouse=True)
+def mock_bi():
+    with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(FakeBI(), "en-US")):
+        yield
+
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem
 
@@ -167,7 +195,7 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
-        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
+        patch("plugin.writer.locale.grammar_work_queue.split_into_sentences", side_effect=_split_must_not_run),
         patch("plugin.writer.locale.grammar_proofread_locale.parse_grammar_json", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
@@ -388,7 +416,7 @@ def test_worker_one_llm_call_per_sentence_when_slice_splits() -> None:
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
-        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as split_mock,
+        patch("plugin.writer.locale.grammar_work_queue.split_into_sentences") as split_mock,
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
         patch("plugin.writer.locale.grammar_proofread_locale.parse_grammar_json", return_value=[]),
@@ -397,7 +425,7 @@ def test_worker_one_llm_call_per_sentence_when_slice_splits() -> None:
     ):
         lane_ctx.return_value.__enter__ = MagicMock(return_value=None)
         lane_ctx.return_value.__exit__ = MagicMock(return_value=False)
-        split_mock.return_value = [(0, "A."), (4, "B.")]
+        split_mock.return_value = [(0, "A. "), (3, "B.")]
         client = client_cls.return_value
         client.chat_completion_sync.return_value = '{"errors":[]}'
         proofreader._run_llm_and_cache(

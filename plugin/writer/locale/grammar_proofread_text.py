@@ -13,7 +13,6 @@ from typing import Any, Iterable, Sequence
 
 from .grammar_proofread_locale import (
     GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
-    GRAMMAR_SENTENCE_SPLIT_RE,
     GRAMMAR_WHITESPACE_RUN_RE,
     count_nonspace_chars,
     fingerprint_for_text,
@@ -33,22 +32,16 @@ _grammar_diag = logging.getLogger("writeragent.grammar")
 
 def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, Any]:
     """Initialize LO BreakIterator and Locale from a BCP-47 key."""
-    if not ctx or not loc_key:
-        return None, None
-    try:
-        import uno
+    import uno
 
-        smgr = ctx.ServiceManager
-        bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
-        parts = loc_key.split("-")
-        if len(parts) > 1:
-            loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
-        else:
-            loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
-        return bi, loc
-    except Exception as e:
-        _grammar_diag.warning("[grammar] get_break_iterator_and_locale failed: %s", e)
-        return None, None
+    smgr = ctx.ServiceManager
+    bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
+    parts = (loc_key or "").split("-")
+    if len(parts) > 1:
+        loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
+    else:
+        loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
+    return bi, loc
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +66,6 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
         return split_sentence_chunks_by_separator_regex(text, GRAMMAR_WHITESPACE_RUN_RE)
 
     bi, locale = get_break_iterator_and_locale(ctx, locale_key)
-
-    if not bi or not locale:
-        return split_sentence_chunks_by_separator_regex(text, GRAMMAR_SENTENCE_SPLIT_RE)
 
     pos = 0
     sentences = []
@@ -182,26 +172,22 @@ class NormalizedProofError:
     rule_identifier: str
 
 
-def _tokenize(text: str, break_iterator: Any = None, locale: Any = None) -> list[str]:
+def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
     """Split text into word / punctuation tokens (BreakIterator when available)."""
     if not text:
         return []
 
-    if break_iterator and locale:
-        try:
-            tokens = []
-            start = 0
-            while start < len(text):
-                res = break_iterator.getWordBoundary(text, start, locale, 0, True)
-                if res.endPos <= start:
-                    break
-                tokens.append(text[res.startPos : res.endPos])
-                start = res.endPos
+    tokens = []
+    start = 0
+    while start < len(text):
+        res = break_iterator.getWordBoundary(text, start, locale, 0, True)
+        if res.endPos <= start:
+            break
+        tokens.append(text[res.startPos : res.endPos])
+        start = res.endPos
 
-            if sum(len(t) for t in tokens) == len(text):
-                return tokens
-        except Exception as e:
-            _grammar_diag.debug("[grammar] _tokenize: BreakIterator failed: %s", e)
+    if sum(len(t) for t in tokens) == len(text):
+        return tokens
 
     return re.findall(r"\w+|\W+", text)
 

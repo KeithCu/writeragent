@@ -58,6 +58,8 @@ def test_do_proofreading_returns_cached_errors() -> None:
         0,
         len(text),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
+        ctx=_test_ctx,
+        loc_key="en-US",
     )
     gc.cache_put_sentence("en-US", text, [asdict(n) for n in norms])
 
@@ -89,6 +91,8 @@ def test_ignore_rule_filters_cached_error() -> None:
         0,
         len(text),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
+        ctx=_test_ctx,
+        loc_key="en-US",
     )
     assert len(norms) == 1
     rid = norms[0].rule_identifier
@@ -120,6 +124,8 @@ def test_incomplete_short_sentence_skips_before_cache_lookup() -> None:
         0,
         len(text),
         [{"wrong": "short", "correct": "brief", "type": "style", "reason": "test"}],
+        ctx=_test_ctx,
+        loc_key="en-US",
     )
     gc.cache_put_sentence("en-US", text[n_start:n_end], [asdict(n) for n in norms])
 
@@ -147,6 +153,8 @@ def test_incomplete_long_sentence_uses_cache_when_allowed() -> None:
         0,
         len(slice_txt),
         [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
+        ctx=_test_ctx,
+        loc_key="en-US",
     )
     gc.cache_put_sentence("en-US", slice_txt, [asdict(n) for n in norms])
 
@@ -177,6 +185,8 @@ def test_paragraph_two_cached_sentences_return_both_errors() -> None:
             0,
             len(st),
             [{"wrong": wrong, "correct": "x", "type": "style", "reason": "t"}],
+            ctx=_test_ctx,
+            loc_key="en-US",
         )
         gc.cache_put_sentence("en-US", st, [asdict(n) for n in norms])
     res = pr.doProofreading("doc-pair", text, loc, 0, len(text), ())
@@ -205,6 +215,8 @@ def test_incremental_nonzero_start_returns_only_overlapping_sentence() -> None:
         0,
         len(t_txt),
         [{"wrong": "Third", "correct": "third", "type": "spelling", "reason": "t"}],
+        ctx=_test_ctx,
+        loc_key="en-US",
     )
     gc.cache_put_sentence("en-US", t_txt, [asdict(n) for n in norms])
     res = pr.doProofreading("doc-inc", text, loc, t_off, t_off + len(t_txt), ())
