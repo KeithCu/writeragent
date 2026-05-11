@@ -4,21 +4,6 @@
 **Authors**: WriterAgent Team  
 **Audience**: Developers and PMs aligning on **native Writer linguistic grammar** vs optional **sidebar chat** (different surfaces, different jobs).
 
-### Design note: `deduplicate_grammar_batch` (cross-sentence prefix bug)
-
-**Problem:** An older implementation added a *second* dedup step that grouped queue items by `(doc_id, locale)` and dropped items whose **slice text** was in a **string prefix** relation with another item (newest `enqueue_seq` wins). That matches typing inside **one** sentence, but `inflight_key` is already `doc|locale|sentence_start` — one key per sentence. **Different sentences** in the same paragraph can still have texts where one is a prefix of the other (e.g. first sentence `No.` and a later sentence `No problem today.`). Cross-key prefix logic **dropped the shorter sentence’s work** and skipped a valid LLM check.
-
-**Fix shipped:** `deduplicate_grammar_batch` only keeps, for each **`inflight_key`**, the item with the highest **`enqueue_seq`**. No text-prefix pass across distinct keys. Same-sentence typing is covered by the same `inflight_key` plus enqueue tail-replace.
-
-**Other ways to fix** (if you revisit this — avoid regressions):
-
-| Approach | Notes |
-|----------|--------|
-| Prefix-newest-wins **only for the same `inflight_key`** | Narrow the old idea to the typing timeline only; often equivalent to “one survivor per key” after step 1. |
-| **Span-aware** prefix rules | Drop prefix-related items only when `n_start`/`n_end` ranges overlap (same physical sentence), not when offsets differ. |
-| **No cross-key text comparison** | Rely on `inflight_key` + tail-replace only (current direction). |
-
-**Regression test:** [`test_two_sentences_string_prefix_collision_both_survive`](../plugin/tests/writer/locale/test_grammar_work_queue.py). Implementation notes are in **comments directly above** [`deduplicate_grammar_batch`](../plugin/writer/locale/grammar_work_queue.py) in that file (not in the module docstring).
 
 ---
 
@@ -362,3 +347,20 @@ Currently, too many recoverable errors are silently swallowed with just a warnin
 - Keep [`AGENTS.md`](../AGENTS.md) in sync when behavior or config keys change (per project rules).
 - Optional non-LLM checker roadmap grounded in LT behavior: [`languagetool-local-parity-phased-plan.md`](languagetool-local-parity-phased-plan.md).
 
+
+EXTRA text to be integrated elsewhere 
+### Design note: `deduplicate_grammar_batch` (cross-sentence prefix bug)
+
+**Problem:** An older implementation added a *second* dedup step that grouped queue items by `(doc_id, locale)` and dropped items whose **slice text** was in a **string prefix** relation with another item (newest `enqueue_seq` wins). That matches typing inside **one** sentence, but `inflight_key` is already `doc|locale|sentence_start` — one key per sentence. **Different sentences** in the same paragraph can still have texts where one is a prefix of the other (e.g. first sentence `No.` and a later sentence `No problem today.`). Cross-key prefix logic **dropped the shorter sentence’s work** and skipped a valid LLM check.
+
+**Fix shipped:** `deduplicate_grammar_batch` only keeps, for each **`inflight_key`**, the item with the highest **`enqueue_seq`**. No text-prefix pass across distinct keys. Same-sentence typing is covered by the same `inflight_key` plus enqueue tail-replace.
+
+**Other ways to fix** (if you revisit this — avoid regressions):
+
+| Approach | Notes |
+|----------|--------|
+| Prefix-newest-wins **only for the same `inflight_key`** | Narrow the old idea to the typing timeline only; often equivalent to “one survivor per key” after step 1. |
+| **Span-aware** prefix rules | Drop prefix-related items only when `n_start`/`n_end` ranges overlap (same physical sentence), not when offsets differ. |
+| **No cross-key text comparison** | Rely on `inflight_key` + tail-replace only (current direction). |
+
+**Regression test:** [`test_two_sentences_string_prefix_collision_both_survive`](../plugin/tests/writer/locale/test_grammar_work_queue.py). Implementation notes are in **comments directly above** [`deduplicate_grammar_batch`](../plugin/writer/locale/grammar_work_queue.py) in that file (not in the module docstring).

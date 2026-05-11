@@ -289,6 +289,109 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             log.warning("[grammar] getLocales: %s", e, exc_info=True)
             return ()
 
+    def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
+        """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
+        from plugin.framework.config import get_config_bool
+        try:
+            enabled = get_config_bool(self.ctx, "doc.grammar_proofreader_enabled")
+        except Exception as e:
+            log.warning("[grammar] doProofreading: could not read doc.grammar_proofreader_enabled -> off: %s", e, exc_info=True)
+            enabled = False
+
+        loc_raw = _locale_key(a_locale)
+        grammar_bcp47 = normalize_uno_locale_to_bcp47(a_locale)
+
+        if not enabled:
+            global _GRAMMAR_DISABLED_NOTICE_EMITTED
+            if not _GRAMMAR_DISABLED_NOTICE_EMITTED:
+                _GRAMMAR_DISABLED_NOTICE_EMITTED = True
+                log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
+            _grammar_obs("do_proofreading_skip", reason="grammar_disabled", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
+            return None
+
+        _GRAMMAR_DISABLED_NOTICE_EMITTED = False
+        if grammar_bcp47 is None:
+            log.info("[grammar] doProofreading: locale not in WriterAgent registry: %s", loc_raw)
+            _grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
+            return None
+
+        _grammar_obs("do_proofreading_entry", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, grammar_bcp47=grammar_bcp47, locale_raw=loc_raw, text_preview=_slice_preview_debug(a_text))
+        return grammar_bcp47
+
+    def _resolve_work_spans(self, a_doc_id: str, loc_key: str, a_text: str, n_start: int, n_suggested_end: int) -> list[tuple[int, int, str]]:
+        """Find and filter sentence spans to check."""
+        raw_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, a_text, n_start, n_suggested_end)
+        work_spans = filter_sentence_spans_for_thresholds(raw_spans)
+        if not work_spans:
+            log.info("[grammar] doProofreading: no eligible sentences (overlap/threshold) n_start=%s", n_start)
+            _grammar_obs(
+                "do_proofreading_skip",
+                reason="no_eligible_sentences_or_incomplete_short",
+                doc_id=a_doc_id,
+                n_start_lo=n_start,
+                raw_candidates=len(raw_spans),
+                grammar_bcp47=loc_key,
+            )
+            return []
+        return work_spans
+
+    def _process_cache_hits(self, a_doc_id: str, loc_key: str, work_spans: list[tuple[int, int, str]]) -> tuple[list[dict[str, Any]], list[tuple[int, int, str]]]:
+        """Check cache for spans; return (combined_errors, uncached_spans)."""
+        combined_errors: list[dict[str, Any]] = []
+        uncached_spans: list[tuple[int, int, str]] = []
+        for sent_start, _sent_end, sent_text in work_spans:
+            cached = cache_get_sentence(loc_key, sent_text)
+            _grammar_obs(
+                "do_proofreading_sentence_cache",
+                doc_id=a_doc_id,
+                sent_start=sent_start,
+                sent_len=len(sent_text),
+                cache_hit=cached is not None,
+                sent_preview=_slice_preview_debug(sent_text, 48),
+            )
+            if cached is None:
+                uncached_spans.append((sent_start, _sent_end, sent_text))
+                continue
+            for err_item in cached:
+                adj = dict(err_item)
+                adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
+                combined_errors.append(adj)
+        return combined_errors, uncached_spans
+
+    def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]]) -> None:
+        """Enqueue uncached sentences for background processing."""
+        for sent_start, sent_end, sent_text in uncached_spans:
+            seq = next_enqueue_seq()
+            inflight_key = _grammar_inflight_key(a_doc_id, loc_key, sent_start)
+            complete_sentence = _looks_complete_sentence(sent_text)
+            log.info("[grammar] cache MISS enqueue sentence seq=%s key=%s len=%s", seq, inflight_key, len(sent_text))
+            _grammar_obs(
+                "do_proofreading_enqueue",
+                doc_id=a_doc_id,
+                grammar_bcp47=loc_key,
+                inflight_key=inflight_key,
+                enqueue_seq=seq,
+                n_start=sent_start,
+                n_end=sent_end,
+                slice_len=len(sent_text),
+                partial_sentence_arg=not complete_sentence,
+            )
+            _emit_grammar_status("start", sent_text, result="queued")
+            grammar_queue.enqueue(
+                GrammarWorkItem(
+                    ctx=self.ctx,
+                    full_text=a_text,
+                    n_start=sent_start,
+                    n_end=sent_end,
+                    grammar_bcp47=loc_key,
+                    partial_sentence=not complete_sentence,
+                    doc_id=a_doc_id,
+                    inflight_key=inflight_key,
+                    enqueue_seq=seq,
+                    proofread_sentence_text=sent_text,
+                )
+            )
+
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:
         return False
@@ -299,55 +402,29 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             raise RuntimeError("uno not available")
         a_res: Any = None
         try:
-            from plugin.framework.config import get_config_bool
             from plugin.framework.logging import init_logging
             try:
                 init_logging(self.ctx)
             except Exception as e:
                 log.warning("[grammar] doProofreading: init_logging: %s", e, exc_info=True)
-            a_res = _build_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
-            try:
-                enabled = get_config_bool(self.ctx, "doc.grammar_proofreader_enabled")
-            except Exception as e:
-                log.warning("[grammar] doProofreading: could not read doc.grammar_proofreader_enabled -> off: %s", e, exc_info=True)
-                enabled = False
-            loc_raw = _locale_key(aLocale)
-            grammar_bcp47 = normalize_uno_locale_to_bcp47(aLocale)
-            if not enabled:
-                global _GRAMMAR_DISABLED_NOTICE_EMITTED
-                if not _GRAMMAR_DISABLED_NOTICE_EMITTED:
-                    _GRAMMAR_DISABLED_NOTICE_EMITTED = True
-                    log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
-                _grammar_obs("do_proofreading_skip", reason="grammar_disabled", doc_id=aDocumentIdentifier, len_aText=len(aText), n_start_lo=nStartOfSentencePosition, n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition, locale_raw=loc_raw)
-                return a_res
-            _GRAMMAR_DISABLED_NOTICE_EMITTED = False
-            if grammar_bcp47 is None:
-                log.info("[grammar] doProofreading: locale not in WriterAgent registry: %s", loc_raw)
-                _grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=aDocumentIdentifier, len_aText=len(aText), n_start_lo=nStartOfSentencePosition, n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition, locale_raw=loc_raw)
-                return a_res
-            loc_key = grammar_bcp47
-            _grammar_obs("do_proofreading_entry", doc_id=aDocumentIdentifier, len_aText=len(aText), n_start_lo=nStartOfSentencePosition, n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition, grammar_bcp47=grammar_bcp47, locale_raw=loc_raw, text_preview=_slice_preview_debug(aText))
 
-            raw_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
-            work_spans = filter_sentence_spans_for_thresholds(raw_spans)
+            a_res = _build_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+
+            loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+            if not loc_key:
+                return a_res
+
+            work_spans = self._resolve_work_spans(aDocumentIdentifier, loc_key, aText, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
             if not work_spans:
-                log.info("[grammar] doProofreading: no eligible sentences (overlap/threshold) n_start=%s", nStartOfSentencePosition)
-                _grammar_obs(
-                    "do_proofreading_skip",
-                    reason="no_eligible_sentences_or_incomplete_short",
-                    doc_id=aDocumentIdentifier,
-                    n_start_lo=nStartOfSentencePosition,
-                    raw_candidates=len(raw_spans),
-                    grammar_bcp47=grammar_bcp47,
-                )
                 return a_res
 
             covered_end = max(end for _s, end, _t in work_spans)
             _apply_proofreading_end_positions(a_res, aText, covered_end)
+
             _grammar_obs(
                 "do_proofreading_covered_span",
                 doc_id=aDocumentIdentifier,
-                grammar_bcp47=grammar_bcp47,
+                grammar_bcp47=loc_key,
                 covered_end=covered_end,
                 sentence_count=len(work_spans),
                 n_start_lo=nStartOfSentencePosition,
@@ -355,7 +432,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
             )
             log.info(
-                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) covered_end=%s sentences=%s enabled=%s",
+                "[grammar] doProofreading doc_id=%r len_text=%s locale=%s lo_range=[%s,%s) covered_end=%s sentences=%s",
                 aDocumentIdentifier,
                 len(aText),
                 loc_key,
@@ -363,34 +440,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 nSuggestedBehindEndOfSentencePosition,
                 covered_end,
                 len(work_spans),
-                enabled,
             )
 
-            combined_errors: list[dict[str, Any]] = []
-            uncached_spans: list[tuple[int, int, str]] = []
-            for sent_start, _sent_end, sent_text in work_spans:
-                cached = cache_get_sentence(loc_key, sent_text)
-                _grammar_obs(
-                    "do_proofreading_sentence_cache",
-                    doc_id=aDocumentIdentifier,
-                    sent_start=sent_start,
-                    sent_len=len(sent_text),
-                    cache_hit=cached is not None,
-                    sent_preview=_slice_preview_debug(sent_text, 48),
-                )
-                if cached is None:
-                    uncached_spans.append((sent_start, _sent_end, sent_text))
-                    continue
-                for err_item in cached:
-                    adj = dict(err_item)
-                    adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
-                    combined_errors.append(adj)
+            combined_errors, uncached_spans = self._process_cache_hits(aDocumentIdentifier, loc_key, work_spans)
 
             if not uncached_spans:
                 try:
                     a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
                     log.info("[grammar] per-sentence cache ALL HIT: %s sentence(s), %s error(s)", len(work_spans), len(combined_errors))
-                    _grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=grammar_bcp47, sentence_count=len(work_spans), error_count=len(combined_errors))
+                    _grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(work_spans), error_count=len(combined_errors))
                 except Exception as e:
                     log.exception("[grammar] doProofreading: per-sentence cache HIT path failed: %s", e)
                     try:
@@ -404,63 +462,29 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                     a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
                 except Exception as e:
                     log.exception("[grammar] doProofreading: partial cache path failed: %s", e)
+
             cached_ct = len(work_spans) - len(uncached_spans)
             if cached_ct > 0:
-                log.info(
-                    "[grammar] per-sentence cache PARTIAL HIT: %s cached, %s uncached → enqueueing sentence-sized item(s)",
-                    cached_ct,
-                    len(uncached_spans),
-                )
+                log.info("[grammar] per-sentence cache PARTIAL HIT: %s cached, %s uncached", cached_ct, len(uncached_spans))
                 miss_reason = "partial_miss"
             else:
-                log.info(
-                    "[grammar] per-sentence cache MISS (all %s sentence(s) uncached) → enqueueing",
-                    len(uncached_spans),
-                )
+                log.info("[grammar] per-sentence cache MISS (all %s sentence(s) uncached)", len(uncached_spans))
                 miss_reason = "all_uncached"
+
             _grammar_obs(
                 "do_proofreading_cache_partial_hit",
                 doc_id=aDocumentIdentifier,
-                grammar_bcp47=grammar_bcp47,
+                grammar_bcp47=loc_key,
                 cached_count=cached_ct,
                 uncached_count=len(uncached_spans),
                 errors_returned=len(combined_errors),
                 miss_reason=miss_reason,
             )
 
-            for sent_start, sent_end, sent_text in uncached_spans:
-                seq = next_enqueue_seq()
-                inflight_key = _grammar_inflight_key(aDocumentIdentifier, loc_key, sent_start)
-                complete_sentence = _looks_complete_sentence(sent_text)
-                log.info("[grammar] cache MISS enqueue sentence seq=%s key=%s len=%s", seq, inflight_key, len(sent_text))
-                _grammar_obs(
-                    "do_proofreading_enqueue",
-                    doc_id=aDocumentIdentifier,
-                    grammar_bcp47=grammar_bcp47,
-                    inflight_key=inflight_key,
-                    enqueue_seq=seq,
-                    n_start=sent_start,
-                    n_end=sent_end,
-                    slice_len=len(sent_text),
-                    partial_sentence_arg=not complete_sentence,
-                )
-                _emit_grammar_status("start", sent_text, result="queued")
-                grammar_queue.enqueue(
-                    GrammarWorkItem(
-                        ctx=self.ctx,
-                        full_text=aText,
-                        n_start=sent_start,
-                        n_end=sent_end,
-                        grammar_bcp47=grammar_bcp47,
-                        partial_sentence=not complete_sentence,
-                        doc_id=aDocumentIdentifier,
-                        inflight_key=inflight_key,
-                        enqueue_seq=seq,
-                        proofread_sentence_text=sent_text,
-                    )
-                )
+            self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_spans)
             log.info("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
             return a_res
+
         except Exception as e:
             log.exception("[grammar] doProofreading failed (returning empty errors if possible): %s", e)
             if a_res is not None:
