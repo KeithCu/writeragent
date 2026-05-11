@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from plugin.chatbot.memory import (
     MemoryStore,
@@ -14,15 +14,28 @@ from plugin.chatbot.memory import (
     upsert_memory_arguments_dict,
 )
 
+class DummyCtx:
+    def __init__(self, tmp_dir):
+        self.tmp_dir = tmp_dir
+
+    # Mocking getServiceManager so user_config_dir resolves here
+    def getServiceManager(self):
+        sm = Mock()
+        path_settings = Mock()
+        path_settings.UserConfig = f"file://{self.tmp_dir}"
+        sm.createInstanceWithContext.return_value = path_settings
+        return sm
+
 
 class _ToolContextLike:
     def __init__(self, inner_ctx):
         self.ctx = inner_ctx
 
 
-class TestMemoryToolContext(unittest.TestCase):
+class TestMemory(unittest.TestCase):
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp()
+        self.ctx = DummyCtx(self.tmp_dir)
 
     def tearDown(self):
         shutil.rmtree(self.tmp_dir)
@@ -93,6 +106,46 @@ class TestMemoryToolContext(unittest.TestCase):
         )
         self.assertIsNone(upsert_memory_arguments_dict("not json"))
 
+'''
+@unittest.skip("Disabled per user request - depends on uno")
+class TestMemoryTool(unittest.TestCase):
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.ctx = DummyCtx(self.tmp_dir)
+        try:
+            import uno
+            uno.fileUrlToSystemPath = lambda x: x.replace("file://", "")
+        except ImportError:
+            pass
 
-if __name__ == "__main__":
+    def tearDown(self):
+        shutil.rmtree(self.tmp_dir)
+
+    def test_memory_tool_actions(self):
+        tool = MemoryTool()
+        store = MemoryStore(self.ctx)
+
+        # Insert new key
+        res = tool.execute(self.ctx, key="favorite_language", content="Python")
+        self.assertEqual(res["status"], "ok", f"Expected ok but got {res}")
+
+        # Verify store read
+        content = store.read("user")
+        self.assertIn("favorite_language: Python", content)
+
+        # Update existing key
+        res = tool.execute(self.ctx, key="favorite_language", content="Rust")
+        self.assertEqual(res["status"], "ok")
+        content = store.read("user")
+        self.assertIn("favorite_language: Rust", content)
+
+        # Insert nested key
+        res = tool.execute(self.ctx, key="editor.vim", content="Yes")
+        self.assertEqual(res["status"], "ok")
+        content = store.read("user")
+        self.assertIn("editor:", content)
+        self.assertIn("vim: Yes", content)
+'''
+
+if __name__ == '__main__':
     unittest.main()
