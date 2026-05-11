@@ -10,7 +10,6 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 from __future__ import annotations
 
 import collections
-import re
 import threading
 from typing import Any
 
