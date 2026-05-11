@@ -9,6 +9,9 @@
 
 A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer, Calc, and Draw.
 
+> [!NOTE]
+> **Update May 11, 2026:** Removed `dspy` from `pyproject.toml` to remove dependencies like `litellm`. Run `uv sync` to update your `.venv`. If you want to do prompt optimization, install manually.
+
 ![GPLv3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg) ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)
 
 ## 📑 Table of Contents
