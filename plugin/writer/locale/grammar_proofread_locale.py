@@ -177,6 +177,17 @@ GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
     '"reason" and any comments when you give them.'
 )
 
+GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE = (
+    "You are a strict grammar and style checker. The user will provide multiple sentences. "
+    "Reply with a single JSON object only, no markdown, shaped exactly as: "
+    '{{"results": [{{"errors": [{{"wrong": "...", "correct": "...", "type": "...", "reason": "..."}}]}}]}}. '
+    "The 'results' array must have exactly the same number of elements as the input sentences, in the same order. "
+    "Use an empty errors array for sentences with no issues. "
+    "The text is in {lang_name} (BCP-47: {bcp47}). Apply grammar, spelling, "
+    "and style rules appropriate to that language; use the same language as the text in "
+    '"reason" and any comments when you give them.'
+)
+
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # ---------------------------------------------------------------------------
@@ -403,4 +414,51 @@ def parse_grammar_json(content: str) -> list[dict[str, Any]]:
         if wrong is None or correct is None:
             continue
         out.append({"wrong": str(wrong), "correct": str(correct), "type": str(row.get("type", "grammar")), "reason": str(row.get("reason", ""))})
+    return out
+
+
+def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
+    """Parse assistant message into a list of lists of error dicts."""
+    if not content or not content.strip():
+        return []
+    text = content.strip()
+    m = GRAMMAR_JSON_TAIL_RE.search(text)
+    if m:
+        text = m.group(0)
+    data: Any = safe_json_loads(text)
+    if not isinstance(data, Mapping):
+        try:
+            _log.info("[grammar] parse_grammar_batch_json: attempting json_repair")
+            data = json_repair.repair_json(text, return_objects=True)
+        except Exception as e:
+            _log.warning("[grammar] parse_grammar_batch_json: json_repair failed: %s", e)
+            return []
+    if not isinstance(data, Mapping):
+        return []
+    root = cast("Mapping[str, Any]", data)
+    results = root.get("results")
+    if not isinstance(results, list):
+        return []
+
+    out: list[list[dict[str, Any]]] = []
+    for res in results:
+        if not isinstance(res, Mapping):
+            out.append([])
+            continue
+        res_map = cast("Mapping[str, Any]", res)
+        errors = res_map.get("errors")
+        if not isinstance(errors, list):
+            out.append([])
+            continue
+        sent_errors: list[dict[str, Any]] = []
+        for item in errors:
+            if not isinstance(item, Mapping):
+                continue
+            row = cast("Mapping[str, Any]", item)
+            wrong = row.get("wrong")
+            correct = row.get("correct")
+            if wrong is None or correct is None:
+                continue
+            sent_errors.append({"wrong": str(wrong), "correct": str(correct), "type": str(row.get("type", "grammar")), "reason": str(row.get("reason", ""))})
+        out.append(sent_errors)
     return out

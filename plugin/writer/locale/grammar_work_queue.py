@@ -15,11 +15,13 @@ from typing import Any, Literal, Mapping
 
 from .grammar_proofread_cache import cache_get_sentence, cache_put_sentence, ignored_rules_snapshot
 from .grammar_proofread_locale import (
+    GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE,
     GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS,
     GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
     GRAMMAR_SYSTEM_PROMPT_TEMPLATE,
     GRAMMAR_WORKER_PAUSE_TIMEOUT_S,
     looks_complete_sentence,
+    parse_grammar_batch_json,
     parse_grammar_json,
 )
 from .grammar_proofread_text import normalize_errors_for_text, split_into_sentences
@@ -165,109 +167,169 @@ def run_llm_and_cache(
     grammar_queue: Any | None = None,
 ) -> None:
     """Process one queue item: LLM request(s) + sentence cache write(s)."""
+    item = GrammarWorkItem(
+        ctx=ctx,
+        full_text=full_text,
+        n_start=n_start,
+        n_end=n_end,
+        grammar_bcp47=grammar_bcp47,
+        partial_sentence=partial_sentence,
+        doc_id="",  # not strictly needed here for single item legacy call
+        inflight_key=inflight_key,
+        enqueue_seq=enqueue_seq,
+        proofread_sentence_text=proofread_sentence_text,
+    )
+    run_llm_and_cache_batch([item], grammar_queue=grammar_queue)
+
+
+def run_llm_and_cache_batch(
+    items: list[GrammarWorkItem],
+    *,
+    grammar_queue: Any | None = None,
+) -> None:
+    """Process a batch of items (ideally from one paragraph): single LLM request + multi-sentence cache writes."""
+    if not items:
+        return
+
+    # All items in a batch MUST share ctx and locale (grouped by _drain_loop)
+    ctx = items[0].ctx
+    grammar_bcp47 = items[0].grammar_bcp47
+    gq = grammar_queue or _grammar_queue_singleton
+
     try:
         from plugin.framework.config import get_api_config, get_config_bool, get_config_str, get_text_model
         from plugin.framework.queue_executor import is_agent_active, llm_request_lane
         from plugin.framework.client.llm_client import LlmClient
-
         from .grammar_proofread_locale import grammar_english_name_for_bcp47
-
-        gq = grammar_queue or _grammar_queue_singleton
 
         try:
             if not get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
-                grammar_obs("worker_skip", reason="grammar_disabled_after_enqueue", enqueue_seq=enqueue_seq, inflight_key=inflight_key)
+                grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
                 return
         except Exception as e:
             log.warning("[grammar] worker: get_config_bool enabled: %s", e, exc_info=True)
             return
+
         try:
             pause_during_agent = get_config_bool(ctx, "doc.grammar_proofreader_pause_during_agent")
         except Exception as e:
             log.warning("[grammar] worker: get_config_bool pause_during_agent: %s", e, exc_info=True)
             pause_during_agent = False
+
         if pause_during_agent and is_agent_active():
-            grammar_obs("worker_skip", reason="pause_during_agent", enqueue_seq=enqueue_seq, inflight_key=inflight_key)
+            grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
             return
-        slice_txt = full_text[n_start:n_end]
-        grammar_obs("worker_slice", enqueue_seq=enqueue_seq, inflight_key=inflight_key, grammar_bcp47=grammar_bcp47, partial_sentence=partial_sentence, n_start=n_start, n_end=n_end, slice_len=len(slice_txt), slice_preview=slice_preview_debug(slice_txt))
-        if len(slice_txt) > GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS:
-            grammar_obs("worker_skip", reason="slice_exceeds_safety_max_chars", slice_len=len(slice_txt), max_chars=GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS)
-            return
-        if proofread_sentence_text:
-            if proofread_sentence_text != slice_txt:
-                log.warning("[grammar] worker slice mismatch (using enqueue proofread_sentence_text) n_start=%s n_end=%s", n_start, n_end)
-            to_process = [proofread_sentence_text]
-            grammar_obs("worker_use_enqueue_sentence_text", enqueue_seq=enqueue_seq, len_proof=len(proofread_sentence_text))
-        else:
-            sentences = split_into_sentences(ctx, grammar_bcp47, slice_txt)
-            if not sentences:
-                to_process = [slice_txt]
-                grammar_obs("worker_split_fallback_whole_slice", enqueue_seq=enqueue_seq, slice_len=len(slice_txt))
+
+        # 1. Resolve actual sentences to process for each item (filtering hits/superseded)
+        valid_items: list[tuple[GrammarWorkItem, str]] = []
+        for item in items:
+            if gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
+                grammar_obs("worker_skip", reason="superseded_before_process", enqueue_seq=item.enqueue_seq, inflight_key=item.inflight_key)
+                continue
+
+            # Resolve text for this item
+            if item.proofread_sentence_text:
+                to_process = [item.proofread_sentence_text]
             else:
-                to_process = [txt for _off, txt in sentences]
-                if len(to_process) > 1:
-                    grammar_obs("worker_multi_fragment_slice", enqueue_seq=enqueue_seq, fragment_count=len(to_process))
+                slice_txt = item.full_text[item.n_start : item.n_end]
+                sentences = split_into_sentences(ctx, grammar_bcp47, slice_txt)
+                if not sentences:
+                    to_process = [slice_txt]
+                else:
+                    to_process = [txt for _off, txt in sentences]
 
-        uncached_texts: list[str] = []
-        for sent_text in to_process:
-            if cache_get_sentence(grammar_bcp47, sent_text) is None:
-                uncached_texts.append(sent_text)
-        if not uncached_texts:
-            grammar_obs("worker_skip", reason="all_sentences_cached_race", enqueue_seq=enqueue_seq, slice_len=len(slice_txt))
+            # Only keep uncached ones
+            for sent_text in to_process:
+                if cache_get_sentence(grammar_bcp47, sent_text) is None:
+                    valid_items.append((item, sent_text))
+
+        if not valid_items:
+            grammar_obs("worker_batch_skip", reason="all_cached_or_superseded", item_count=len(items))
             return
 
+        # 2. LLM Request
         max_tok = GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         try:
             model = get_config_str(ctx, "doc.grammar_proofreader_model").strip() or get_text_model(ctx)
         except Exception as e:
             log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
             model = ""
-        _lang = grammar_english_name_for_bcp47(grammar_bcp47)
-        base_sys = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
 
+        _lang = grammar_english_name_for_bcp47(grammar_bcp47)
         client = LlmClient(get_api_config(ctx), ctx)
-        total_norms = 0
-        for sent_text in uncached_texts:
-            llm_text = sent_text
+
+        # Batch or Single?
+        if len(valid_items) > 1:
+            # Batch mode
+            sys_prompt = GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
+            # Format as numbered list
+            user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(valid_items))
+
+            grammar_obs("worker_llm_batch_request", item_count=len(valid_items), total_len=len(user_content))
+            messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_content}]
+            
+            request_start = time.monotonic()
+            emit_grammar_status("request", f"Batch of {len(valid_items)}", result="LLM batch request")
+            with llm_request_lane():
+                content = client.chat_completion_sync(messages, max_tokens=max_tok * 2, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
+            elapsed_ms = int((time.monotonic() - request_start) * 1000)
+
+            batch_results = parse_grammar_batch_json(content or "")
+            if len(batch_results) != len(valid_items):
+                log.warning("[grammar] LLM batch result count mismatch: expected %s, got %s. Falling back to individual processing for this batch.", len(valid_items), len(batch_results))
+                # Fallback: process individually
+                for item, text in valid_items:
+                    run_llm_and_cache(ctx, item.full_text, item.n_start, item.n_end, item.enqueue_seq, item.inflight_key, grammar_bcp47, item.partial_sentence, proofread_sentence_text=text, grammar_queue=gq)
+                return
+
+            # Store results
+            ignored = ignored_rules_snapshot()
+            for idx, (item, text) in enumerate(valid_items):
+                if gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
+                    continue
+                
+                sent_results = batch_results[idx]
+                norms = normalize_errors_for_text(text, 0, len(text), sent_results, ignored, ctx, grammar_bcp47)
+                cache_put_sentence(grammar_bcp47, text, [asdict(n) for n in norms])
+                
+                issue_word = "issue" if len(norms) == 1 else "issues"
+                emit_grammar_status("complete", text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms // len(valid_items))
+
+        else:
+            # Single item mode (classic)
+            item, llm_text = valid_items[0]
             if len(llm_text) > GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS:
                 llm_text = llm_text[:GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS]
-                grammar_obs("worker_sentence_truncated_to_safety", enqueue_seq=enqueue_seq, truncated_len=len(llm_text))
-            use_partial = partial_sentence or not looks_complete_sentence(llm_text)
-            sys_prompt = base_sys
+            
+            use_partial = item.partial_sentence or not looks_complete_sentence(llm_text)
+            sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
             if use_partial:
                 sys_prompt += " The input may be a partial sentence; prefer conservative grammar suggestions and avoid broad rewrites."
-            grammar_obs("worker_llm_request_prepare", enqueue_seq=enqueue_seq, llm_text_len=len(llm_text), llm_preview=slice_preview_debug(llm_text, 96))
+            
+            grammar_obs("worker_llm_request_prepare", enqueue_seq=item.enqueue_seq, llm_text_len=len(llm_text), llm_preview=slice_preview_debug(llm_text, 96))
             messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": llm_text}]
+            
             request_start = time.monotonic()
             emit_grammar_status("request", llm_text, result="LLM request")
             with llm_request_lane():
                 content = client.chat_completion_sync(messages, max_tokens=max_tok, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
             elapsed_ms = int((time.monotonic() - request_start) * 1000)
-            log.debug("[grammar] LLM raw response length=%s", len(content or ""))
-            if gq.inflight_superseded(inflight_key, enqueue_seq):
-                grammar_obs("worker_skip", reason="superseded_during_llm", enqueue_seq=enqueue_seq, inflight_key=inflight_key)
-                continue
-            items = parse_grammar_json(content or "")
+
+            if gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
+                return
+
+            sent_results = parse_grammar_json(content or "")
             ignored = ignored_rules_snapshot()
-            norms = normalize_errors_for_text(llm_text, 0, len(llm_text), items, ignored, ctx, grammar_bcp47)
-            total_norms += len(norms)
-            sent_errors = [asdict(n) for n in norms]
-            cache_put_sentence(grammar_bcp47, llm_text, sent_errors)
+            norms = normalize_errors_for_text(llm_text, 0, len(llm_text), sent_results, ignored, ctx, grammar_bcp47)
+            cache_put_sentence(grammar_bcp47, llm_text, [asdict(n) for n in norms])
+            
             issue_word = "issue" if len(norms) == 1 else "issues"
             emit_grammar_status("complete", llm_text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)
 
-        grammar_obs(
-            "worker_cache_put_done",
-            enqueue_seq=enqueue_seq,
-            uncached_sentence_count=len(uncached_texts),
-            normalized_issue_count=total_norms,
-            slice_len=len(slice_txt),
-        )
     except Exception as e:
-        log.error("[grammar] worker failed: %s", e, exc_info=True)
+        log.error("[grammar] worker batch failed: %s", e, exc_info=True)
         try:
-            emit_grammar_status("failed", full_text[n_start:n_end], result=type(e).__name__)
+            emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
         except Exception:
             pass
 
@@ -353,27 +415,21 @@ class GrammarWorkQueue:
             grammar_obs("queue_drain_batch", batch_size=len(batch), seqs=tuple(x.enqueue_seq for x in batch), keys=tuple(x.inflight_key for x in batch))
             survivors = deduplicate_grammar_batch(batch)
             grammar_obs("queue_drain_survivors", survivor_count=len(survivors), seqs=tuple(x.enqueue_seq for x in survivors))
+
+            from collections import defaultdict
+            groups: dict[tuple[str, str], list[GrammarWorkItem]] = defaultdict(list)
             for item in survivors:
-                latest = self._latest_seq_for(item.inflight_key)
                 if self._is_stale(item):
-                    grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, latest_seq=latest, inflight_key=item.inflight_key)
+                    grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key)
                     continue
+                groups[(item.doc_id, item.grammar_bcp47)].append(item)
+
+            for (doc_id, locale), group_items in groups.items():
                 try:
-                    grammar_obs("queue_execute", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, latest_seq=latest, inflight_key=item.inflight_key, n_start=item.n_start, n_end=item.n_end, slice_len=len(item.full_text[item.n_start : item.n_end]), partial_sentence=item.partial_sentence)
-                    run_llm_and_cache(
-                        item.ctx,
-                        item.full_text,
-                        item.n_start,
-                        item.n_end,
-                        item.enqueue_seq,
-                        item.inflight_key,
-                        item.grammar_bcp47,
-                        partial_sentence=item.partial_sentence,
-                        proofread_sentence_text=item.proofread_sentence_text,
-                        grammar_queue=self,
-                    )
+                    grammar_obs("queue_execute_batch", doc_id=doc_id, locale=locale, item_count=len(group_items))
+                    run_llm_and_cache_batch(group_items, grammar_queue=self)
                 except Exception as e:
-                    log.error("[grammar] queue worker item failed: %s", e, exc_info=True)
+                    log.error("[grammar] queue worker batch failed doc=%s loc=%s: %s", doc_id, locale, e, exc_info=True)
 
 
 _grammar_queue_singleton = GrammarWorkQueue()

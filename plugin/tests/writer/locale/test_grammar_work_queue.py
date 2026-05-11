@@ -12,8 +12,12 @@ from plugin.writer.locale.grammar_work_queue import (
     inflight_superseded,
     is_stale,
     record_enqueue_latest,
+    run_llm_and_cache_batch,
     tail_enqueue_operation,
 )
+from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
+from unittest.mock import MagicMock, patch
+from dataclasses import asdict
 
 
 def _item(seq: int, key: str = "d|en-US|0") -> GrammarWorkItem:
@@ -275,3 +279,78 @@ def test_is_stale_and_inflight_superseded() -> None:
     assert inflight_superseded(latest, "k", 7) is True
     cur = _item(9, key="k")
     assert is_stale(latest, cur) is False
+
+
+def test_run_llm_and_cache_batch_success() -> None:
+    """Verify that multiple items are batched and results are stored in cache."""
+    ctx = MagicMock()
+    # Mock config to enable checker
+    with patch("plugin.framework.config.get_config_bool", return_value=True), \
+         patch("plugin.framework.config.get_config_str", return_value="test-model"), \
+         patch("plugin.framework.config.get_text_model", return_value="test-model"), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.queue_executor.llm_request_lane"), \
+         patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
+         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_put, \
+         patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+         patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text") as mock_norm, \
+         patch("plugin.writer.locale.grammar_work_queue.ignored_rules_snapshot", return_value=set()):
+
+        mock_client = mock_client_cls.return_value
+        # Mock LLM response with 2 results
+        mock_client.chat_completion_sync.return_value = '{"results": [{"errors": [{"wrong": "is", "correct": "are"}]}, {"errors": []}]}'
+
+        # Mock normalization to return a dummy error for the first sentence
+        dummy_error = NormalizedProofError(n_error_start=5, n_error_length=2, suggestions=("are",), short_comment="grammar", full_comment="grammar", rule_identifier="wa_grammar_0_0f61208a")
+        mock_norm.side_effect = [[dummy_error], []]
+
+        items = [
+            GrammarWorkItem(ctx=ctx, full_text="They is here.", n_start=0, n_end=13, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="They is here."),
+            GrammarWorkItem(ctx=ctx, full_text="All good.", n_start=14, n_end=23, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text="All good."),
+        ]
+
+        run_llm_and_cache_batch(items)
+
+        # Verify LLM was called once with batch prompt
+        assert mock_client.chat_completion_sync.call_count == 1
+        args, kwargs = mock_client.chat_completion_sync.call_args
+        messages = args[0]
+        assert "provide multiple sentences" in messages[0]["content"] # Batch prompt
+        assert "1. They is here.\n2. All good." in messages[1]["content"]
+
+        # Verify cache_put_sentence was called for each sentence
+        assert mock_put.call_count == 2
+        # First call: "They is here." -> one error
+        mock_put.assert_any_call("en-US", "They is here.", [{"n_error_start": 5, "n_error_length": 2, "suggestions": ("are",), "short_comment": "grammar", "full_comment": "grammar", "rule_identifier": "wa_grammar_0_0f61208a"}])
+        # Second call: "All good." -> no errors
+        mock_put.assert_any_call("en-US", "All good.", [])
+
+
+def test_run_llm_and_cache_batch_mismatch_fallback() -> None:
+    """Verify fallback to individual processing if LLM returns wrong number of results."""
+    ctx = MagicMock()
+    with patch("plugin.framework.config.get_config_bool", return_value=True), \
+         patch("plugin.framework.config.get_config_str", return_value="test-model"), \
+         patch("plugin.framework.config.get_text_model", return_value="test-model"), \
+         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.queue_executor.llm_request_lane"), \
+         patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
+         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence"), \
+         patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+         patch("plugin.writer.locale.grammar_work_queue.run_llm_and_cache") as mock_single_run:
+
+        mock_client = mock_client_cls.return_value
+        # Mock LLM response with only 1 result instead of 2
+        mock_client.chat_completion_sync.return_value = '{"results": [{"errors": []}]}'
+
+        items = [
+            GrammarWorkItem(ctx=ctx, full_text="S1.", n_start=0, n_end=3, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="S1."),
+            GrammarWorkItem(ctx=ctx, full_text="S2.", n_start=4, n_end=7, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text="S2."),
+        ]
+
+        run_llm_and_cache_batch(items)
+
+        # Should have fallen back to run_llm_and_cache for each
+        assert mock_single_run.call_count == 2
