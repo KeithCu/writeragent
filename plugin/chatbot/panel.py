@@ -140,34 +140,73 @@ class ChatSession:
         # This keeps the persistent history clean of tool formatting requirements.
 
     def update_document_context(self, doc_text):
-        """Update or insert the document context as a system message.
-        Replaces the existing document context if present, otherwise appends."""
+        """Merge document context into the first system message.
+        Replaces the existing document context block if present, otherwise appends."""
         context_marker = "[DOCUMENT CONTENT]"
-        context_msg = "%s\n%s\n[END DOCUMENT]" % (context_marker, doc_text)
+        end_marker = "[END DOCUMENT]"
+        context_block = "%s\n%s\n%s" % (context_marker, doc_text, end_marker)
 
-        # Check if we already have a document context message
-        for i, msg in enumerate(self.messages):
+        # Migration: old persistent history may have a separate system message with the marker.
+        # Remove any trailing document-context system messages so only messages[0] carries it.
+        i = 1
+        while i < len(self.messages):
+            msg = self.messages[i]
             if msg["role"] == "system" and context_marker in (msg.get("content") or ""):
-                self.messages[i]["content"] = context_msg
-                return
-        # Insert after the first system prompt
-        insert_at = 1 if self.messages and self.messages[0]["role"] == "system" else 0
-        self.messages.insert(insert_at, {"role": "system", "content": context_msg})
+                self.messages.pop(i)
+                continue
+            i += 1
+
+        # Ensure messages[0] is a system message
+        if not self.messages or self.messages[0]["role"] != "system":
+            self.messages.insert(0, {"role": "system", "content": context_block})
+            return
+
+        content = self.messages[0].get("content") or ""
+        if context_marker in content:
+            start = content.find(context_marker)
+            end = content.find(end_marker, start)
+            if end != -1:
+                end += len(end_marker)
+                new_content = content[:start] + context_block + content[end:]
+                while "\n\n\n" in new_content:
+                    new_content = new_content.replace("\n\n\n", "\n\n")
+                self.messages[0]["content"] = new_content
+            else:
+                self.messages[0]["content"] = content + "\n" + context_block
+        else:
+            if content and not content.endswith("\n"):
+                content += "\n"
+            self.messages[0]["content"] = content + context_block
 
     def clear(self):
-        """Reset to just the system prompt."""
-        system = None
+        """Reset to just the system prompt, stripping any document context block."""
+        context_marker = "[DOCUMENT CONTENT]"
+        end_marker = "[END DOCUMENT]"
+        system_content = ""
         for msg in self.messages:
-            if msg["role"] == "system" and "[DOCUMENT CONTENT]" not in (msg.get("content") or ""):
-                system = msg
+            if msg["role"] == "system":
+                system_content = msg.get("content") or ""
                 break
+
         self.messages = []
         if self.db:
             self.db.clear()
-        if system:
-            self.messages.append(system)
-            if self.db:
-                self.db.add_message("system", system["content"])
+
+        if system_content:
+            # Strip the [DOCUMENT CONTENT] block if present
+            if context_marker in system_content:
+                start = system_content.find(context_marker)
+                end = system_content.find(end_marker, start)
+                if end != -1:
+                    end += len(end_marker)
+                    system_content = system_content[:start] + system_content[end:]
+                else:
+                    system_content = system_content[:start]
+                system_content = system_content.strip()
+            if system_content:
+                self.messages.append({"role": "system", "content": system_content})
+                if self.db:
+                    self.db.add_message("system", system_content)
 
 
 # ---------------------------------------------------------------------------
