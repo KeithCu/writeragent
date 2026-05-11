@@ -33,44 +33,48 @@ _log = logging.getLogger("writeragent.grammar")
 # Order: English first, then alphabetical by BCP-47. Must match ``LinguisticWriterAgentGrammar.xcu``.
 #
 # * ``pt`` → ``pt-BR`` (user docs may set ``pt-PT``; ``normalize_uno_locale_to_bcp47`` maps any ``pt`` to ``pt-BR``)
-GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = (
-    "en-US",
-    "en-GB",
-    "bg-BG",
-    "bn-IN",
-    "ca-ES",
-    "cs-CZ",
-    "da-DK",
-    "de-DE",
-    "el-GR",
-    "es-ES",
-    "et-EE",
-    "fi-FI",
-    "fr-FR",
-    "hi-IN",
-    "hr-HR",
-    "hu-HU",
-    "id-ID",
-    "it-IT",
-    "ja-JP",
-    "ko-KR",
-    "lt-LT",
-    "lv-LV",
-    "nb-NO",
-    "nl-NL",
-    "nn-NO",
-    "pl-PL",
-    "pt-BR",
-    "ro-RO",
-    "ru-RU",
-    "sk-SK",
-    "sv-SE",
-    "tr-TR",
-    "uk-UA",
-    "ur-PK",
-    "zh-CN",
-    "zh-TW",
-)
+#
+# English names for the LLM (short addendum; JSON schema part stays in English)
+GRAMMAR_REGISTRY_LOCALES: dict[str, str] = {
+    "en-US": "English (United States)",
+    "en-GB": "English (United Kingdom)",
+    "bg-BG": "Bulgarian",
+    "bn-IN": "Bengali (India)",
+    "ca-ES": "Catalan",
+    "cs-CZ": "Czech",
+    "da-DK": "Danish",
+    "de-DE": "German",
+    "el-GR": "Greek",
+    "es-ES": "Spanish",
+    "et-EE": "Estonian",
+    "fi-FI": "Finnish",
+    "fr-FR": "French",
+    "hi-IN": "Hindi (India)",
+    "hr-HR": "Croatian",
+    "hu-HU": "Hungarian",
+    "id-ID": "Indonesian",
+    "it-IT": "Italian",
+    "ja-JP": "Japanese",
+    "ko-KR": "Korean",
+    "lt-LT": "Lithuanian",
+    "lv-LV": "Latvian",
+    "nb-NO": "Norwegian Bokmål",
+    "nl-NL": "Dutch",
+    "nn-NO": "Norwegian Nynorsk",
+    "pl-PL": "Polish",
+    "pt-BR": "Portuguese (Brazil)",
+    "ro-RO": "Romanian",
+    "ru-RU": "Russian",
+    "sk-SK": "Slovak",
+    "sv-SE": "Swedish",
+    "tr-TR": "Turkish",
+    "uk-UA": "Ukrainian",
+    "ur-PK": "Urdu (Pakistan)",
+    "zh-CN": "Chinese (Simplified, China)",
+    "zh-TW": "Chinese (Traditional, Taiwan)",
+}
+
+GRAMMAR_REGISTRY_LOCALE_TAGS: tuple[str, ...] = tuple(GRAMMAR_REGISTRY_LOCALES.keys())
 
 
 def bcp47_to_uno_lang_country(bcp47: str) -> tuple[str, str]:
@@ -151,49 +155,8 @@ def normalize_uno_locale_to_bcp47(a_locale: Any) -> str | None:
     return None
 
 
-# English names for the LLM (short addendum; JSON schema part stays in English)
-_GRAMMAR_BCP47_EN_NAME: dict[str, str] = {
-    "en-US": "English (United States)",
-    "en-GB": "English (United Kingdom)",
-    "bg-BG": "Bulgarian",
-    "bn-IN": "Bengali (India)",
-    "ca-ES": "Catalan",
-    "cs-CZ": "Czech",
-    "da-DK": "Danish",
-    "de-DE": "German",
-    "el-GR": "Greek",
-    "es-ES": "Spanish",
-    "et-EE": "Estonian",
-    "fi-FI": "Finnish",
-    "fr-FR": "French",
-    "hi-IN": "Hindi (India)",
-    "hr-HR": "Croatian",
-    "hu-HU": "Hungarian",
-    "id-ID": "Indonesian",
-    "it-IT": "Italian",
-    "ja-JP": "Japanese",
-    "ko-KR": "Korean",
-    "lt-LT": "Lithuanian",
-    "lv-LV": "Latvian",
-    "nb-NO": "Norwegian Bokmål",
-    "nl-NL": "Dutch",
-    "nn-NO": "Norwegian Nynorsk",
-    "pl-PL": "Polish",
-    "pt-BR": "Portuguese (Brazil)",
-    "ro-RO": "Romanian",
-    "ru-RU": "Russian",
-    "sk-SK": "Slovak",
-    "sv-SE": "Swedish",
-    "tr-TR": "Turkish",
-    "uk-UA": "Ukrainian",
-    "ur-PK": "Urdu (Pakistan)",
-    "zh-CN": "Chinese (Simplified, China)",
-    "zh-TW": "Chinese (Traditional, Taiwan)",
-}
-
-
 def grammar_english_name_for_bcp47(bcp47: str) -> str:
-    return _GRAMMAR_BCP47_EN_NAME.get(bcp47, bcp47)
+    return GRAMMAR_REGISTRY_LOCALES.get(bcp47, bcp47)
 
 
 # ---------------------------------------------------------------------------
