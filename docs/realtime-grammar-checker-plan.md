@@ -154,7 +154,7 @@ While sentence-scoped checking is excellent for localized grammar, it inherently
 - **Pinned sentence text on enqueue**: Each [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) carries **`proofread_sentence_text`** — the exact sentence segment chosen during `doProofreading`. The worker uses it for LLM + cache and **does not** call `split_into_sentences` again on the slice, avoiding BreakIterator disagreements between substring vs full-buffer splits.
 - **Sentence cache**: Cache is keyed by **individual sentence** text (locale + fingerprint, trailing whitespace stripped via `rstrip()`). `MAX_CACHE_SIZE` is **2048**. `split_into_sentences` ([`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py)) uses a **hybrid approach**: for Western/CJK languages, LibreOffice `BreakIterator` plus abbreviation merging (**short Title-case tokens** and **`GRAMMAR_ABBREV_DOT_WORDS`** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py), e.g. `approx`, `dept`, `prof`); for Thai, Lao, and Khmer, [`split_sentence_chunks_by_separator_regex`](../plugin/writer/locale/grammar_proofread_locale.py) on whitespace **includes** the delimiter run on each segment so the LLM can see spacing. Each sentence segment **includes trailing whitespace up to the next sentence** so double spaces between sentences are visible to the model; cache keys still normalize via `_normalize_for_sentence_cache`. On **lookup** (`doProofreading`): each sentence is checked independently — if **all** are cached, combined errors are returned immediately (no enqueue); on **partial hit**, cached errors are returned immediately while uncached sentences are enqueued **one queue item per sentence**. On **worker execution** (`_run_llm_and_cache`): **one LLM request per uncached sentence** (pathological multi-fragment slices without pinned text may still split).
 
-  **Incomplete-prefix compaction:** See **#7: Cache Prefix Compaction** (§6 Code Quality → 7.2 Medium Priority) — newest-first bounded scan, locale-only scan budget, evict all matching incomplete strict-prefix predecessors per put.
+  **Incomplete-prefix compaction:** See **#6: Cache Prefix Compaction** (§6 Code Quality → 7.2 Medium Priority) — newest-first bounded scan, locale-only scan budget, evict all matching incomplete strict-prefix predecessors per put.
 - **LLM**: [`LlmClient.chat_completion_sync`](../plugin/framework/client/llm_client.py) with `response_format={"type":"json_object"}` on the OpenAI-compatible path (Together, OpenRouter, etc.; see docstring on `make_chat_request`), a system prompt (**`GRAMMAR_SYSTEM_PROMPT_TEMPLATE`** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py)) requiring a single JSON object `{"errors":[{"wrong","correct","type","reason"},...]}` (schema description in English) plus the **document language** (BCP-47 and English name from the registry), and user message the **checked sentence text** for that worker item (one sentence per request in normal prose). The prompt explicitly asks for errors in the order they appear. For threshold-allowed partial slices, the prompt adds a conservative note that input may be partial. Parser: [`parse_grammar_json`](../plugin/writer/locale/grammar_proofread_locale.py) uses `safe_json_loads` then `json_repair` (with logging) when needed.
 - **Offset Normalization**: `normalize_errors_for_text` uses **`search_pos` tracking** to handle multiple occurrences of the same erroneous text within a window. If ordered scan fails and a global `find` matches **before** `search_pos`, that item is **skipped** (avoids anchoring duplicate substrings to the wrong occurrence).
 - **Traversal whitespace**: `_apply_proofreading_end_positions` and initial empty-result advancement use Unicode **`str.isspace()`**, not ASCII space only, so tabs/NBSP between sentences advance Writer’s next position correctly.
@@ -248,29 +248,23 @@ This section tracks **code health** improvements: simplification, robustness, an
 
 | # | Task | File | Lines | Impact | Effort |
 |---|------|------|-------|--------|--------|
-| 1 | Fix `_GRAMMAR_DISABLED_NOTICE_EMITTED` global state bug | `ai_grammar_proofreader.py` | 258-260 | Never resets on re-enable → disabled message stops appearing | 5 min |
-| 2 | Reduce exception swallowing in `doProofreading` | `ai_grammar_proofreader.py` | 310-510 | Hard to debug failures; masks real problems | 30 min |
-| 3 | Extract `time.sleep` into patchable helper | `ai_grammar_proofreader.py` | 22-24 | Tests shouldn't patch internal `time` import | 10 min |
-| 4 | Remove duplicate `unohelper` import | `ai_grammar_proofreader.py` | 30, 476 | First import unused; shadows second | 2 min |
-| 5 | Use `re.escape()` for `_sterm_class` regex | `grammar_proofread_locale.py` | 290-300 | Prevents subtle bugs with special regex chars | 5 min |
+| 1 | Reduce exception swallowing in `doProofreading` | `ai_grammar_proofreader.py` | 310-510 | Hard to debug failures; masks real problems | 30 min |
+| 2 | Extract `time.sleep` into patchable helper | `ai_grammar_proofreader.py` | 22-24 | Tests shouldn't patch internal `time` import | 10 min |
+| 3 | Remove duplicate `unohelper` import | `ai_grammar_proofreader.py` | 30, 476 | First import unused; shadows second | 2 min |
+| 4 | Use `re.escape()` for `_sterm_class` regex | `grammar_proofread_locale.py` | 290-300 | Prevents subtle bugs with special regex chars | 5 min |
 
 **Details:**
 
-**#1: Global State Bug**
-The module-level `_GRAMMAR_DISABLED_NOTICE_EMITTED` flag is set to `True` when grammar is disabled, but **never reset to `False`** when re-enabled. This means the "grammar disabled" log message appears only once per session, even if the user toggles the feature off and on.
-
-**Fix:** Add `_GRAMMAR_DISABLED_NOTICE_EMITTED = False` after the disabled check in `doProofreading` (line ~263).
-
-**#2: Exception Swallowing**
+**#1: Exception Swallowing**
 The `doProofreading` method has ~6 nested try-except blocks, many of which only log warnings and continue. This masks real problems like config read failures or UNO struct creation errors. Consider extracting helper functions (`_safe_init_logging`, `_safe_get_config`, `_safe_build_result`) to reduce nesting and make failures more explicit.
 
-**#3: Testability**
+**#2: Testability**
 Tests currently patch `time.sleep` at the module level. Extract into `_sleep(seconds)` helper that tests can patch instead.
 
-**#4: Dead Import**
+**#3: Dead Import**
 Line 30 imports `unohelper` but it's unused. The actual import is at line 476. Remove line 30.
 
-**#5: Regex Safety**
+**#4: Regex Safety**
 The `_sterm_class` regex is built by manual escaping which is fragile. Use `re.escape(_sterm_chars)` instead.
 
 ---
@@ -279,18 +273,17 @@ The `_sterm_class` regex is built by manual escaping which is fragile. Use `re.e
 
 | # | Task | File | Lines | Impact | Effort |
 |---|------|------|-------|--------|--------|
-| 6 | Consolidate redundant logging in `enqueue()` | `grammar_work_queue.py` | 320-330 | 3 log lines for same operation | 15 min |
-| 7 | Cache prefix compaction (incomplete sentence LRU) — **shipped** | `grammar_proofread_cache.py` | ~133–164 (`cache_put_sentence`) | Supersedes old “one predecessor / awkward scan” issues; see **#7** details | Done |
-| 8 | Split `doProofreading` into smaller functions | `ai_grammar_proofreader.py` | 270-470 | ~200 line function; hard to follow | 45 min |
-| 9 | Partial locale tuple on failure | `ai_grammar_proofreader.py` | 108-122 | All-or-nothing: one failure → empty tuple | 15 min |
-| 10 | Pre-compile regex patterns | `grammar_proofread_text.py` | Various | Minor performance + clarity | 10 min |
+| 5 | Consolidate redundant logging in `enqueue()` | `grammar_work_queue.py` | 320-330 | 3 log lines for same operation | 15 min |
+| 6 | Cache prefix compaction (incomplete sentence LRU) — **shipped** | `grammar_proofread_cache.py` | ~133–164 (`cache_put_sentence`) | Supersedes old “one predecessor / awkward scan” issues; see **#6** details | Done |
+| 7 | Split `doProofreading` into smaller functions | `ai_grammar_proofreader.py` | 270-470 | ~200 line function; hard to follow | 45 min |
+| 8 | Pre-compile regex patterns | `grammar_proofread_text.py` | Various | Minor performance + clarity | 10 min |
 
 **Details:**
 
-**#6: Redundant Logging**
-`GrammarWorkQueue.enqueue()` emits: (1) `log.info` with full details, (2) `grammar_obs` with same data, (3) more logs inside `tail_enqueue_operation`. Consolidate to one structured log call.
+**#5: Redundant Logging**
+`GrammarWorkQueue.enqueue()` emits: (1) `log.info` with full details, (2) `grammar_obs` with same data, (3) more logs inside `tail_enqueue_operation`. Consolidate to one debug-level structured log call.
 
-**#7: Cache Prefix Compaction**
+**#6: Cache Prefix Compaction**
 
 **Problem (historical):** Each incomplete fragment (`The`, `The qu`, …) gets its own fingerprint key. Without compaction, incremental typing would leave **many** LRU slots for one logical sentence. Earlier implementations removed **at most one** predecessor per put (spurious `break`), applied the bounded-scan counter in an awkward order relative to locale filtering, or materialized `list(_SENTENCE_CACHE.items())[::-1]` on every put.
 
@@ -298,17 +291,14 @@ The `_sterm_class` regex is built by manual escaping which is fragile. Use `re.e
 
 **Regression tests:** [`test_sentence_cache_incomplete_prefix_compaction`](../plugin/tests/writer/locale/test_grammar_proofread_engine.py), [`test_sentence_cache_locale_isolation`](../plugin/tests/writer/locale/test_grammar_proofread_engine.py).
 
-**#8: Large Function**
+**#7: Large Function**
 `doProofreading` (~200 lines) mixes: UNO setup, config checks, sentence splitting, cache lookup, queue management, result building. Split into:
 - `_check_enabled_and_locale()`
 - `_get_work_spans()`
 - `_process_span_cache()`
 - `_build_and_return_result()`
 
-**#9: Partial Locale Tuple**
-If one locale in `GRAMMAR_REGISTRY_LOCALE_TAGS` fails to create a UNO struct, the entire `_locale_tuple()` returns empty tuple. Better to continue and return partial list.
-
-**#10: Regex Pre-compilation**
+**#8: Regex Pre-compilation**
 Patterns like `GRAMMAR_WHITESPACE_RUN_RE` are defined as raw strings then used in `re.compile()` calls. Could pre-compile at module level.
 
 ---
@@ -317,14 +307,14 @@ Patterns like `GRAMMAR_WHITESPACE_RUN_RE` are defined as raw strings then used i
 
 | # | Task | File | Impact |
 |---|------|------|--------|
-| 11 | Use `@dataclass` for ProofreadingResult helper | `ai_grammar_proofreader.py` | Cleaner code |
-| 12 | Add type hints for UNO struct returns | Various | Better IDE support |
-| 13 | Unify `is_stale()` and `inflight_superseded()` | `grammar_work_queue.py` | DRY |
-| 14 | Improve docstrings for complex algorithms | `grammar_proofread_text.py` | Maintainability |
+| 9 | Use `@dataclass` for ProofreadingResult helper | `ai_grammar_proofreader.py` | Cleaner code |
+| 10 | Add type hints for UNO struct returns | Various | Better IDE support |
+| 11 | Unify `is_stale()` and `inflight_superseded()` | `grammar_work_queue.py` | DRY |
+| 12 | Improve docstrings for complex algorithms | `grammar_proofread_text.py` | Maintainability |
 
 **Details:**
 
-**#13: Unify Stale Functions**
+**#10: Unify Stale Functions**
 `is_stale(latest_seq: Mapping[str, int], item: GrammarWorkItem)` and `inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueue_seq: int)` do nearly the same thing. Could be one function with overloaded signatures or a helper that takes the key extraction as a parameter.
 
 ---
@@ -365,9 +355,7 @@ Currently, too many recoverable errors are silently swallowed with just a warnin
 
 1. **Remove dead import:** `import unohelper` at line 30 of `ai_grammar_proofreader.py`
 2. **Fix regex escaping:** Use `re.escape()` in `grammar_proofread_locale.py`
-3. **Reset global flag:** Add `_GRAMMAR_DISABLED_NOTICE_EMITTED = False` after disabled block
-4. **Extract sleep:** Wrap `time.sleep()` in `_sleep()` helper
-5. **Partial locale:** Change `return ()` to `continue` in `_locale_tuple()` loop
+3. **Extract sleep:** Wrap `time.sleep()` in `_sleep()` helper
 
 ### Docs / agents
 
