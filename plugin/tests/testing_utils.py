@@ -63,14 +63,14 @@ def setup_uno_mocks():
     um = sys.modules.get("uno")
     use_magicmock_uno = not (uno_import_ok and isinstance(um, types.ModuleType))
 
+    class MockBase(object):
+        pass
+
     if use_magicmock_uno:
         sys.modules["uno"] = MagicMock()
         sys.modules["unohelper"] = MagicMock()
 
         # We must use types.ModuleType and attach empty classes to avoid 'metaclass conflict' with ty
-        class MockBase(object):
-            pass
-
         sys.modules["unohelper"].Base = MockBase
         sys.modules["unohelper.Base"] = MockBase
 
@@ -161,6 +161,7 @@ def setup_uno_mocks():
         pass
 
     setattr(sys.modules["com.sun.star.frame"], "XDispatchProvider", MockXDispatchProvider)
+    setattr(sys.modules["com.sun.star.frame"], "DispatchDescriptor", MockBase)
 
 class ElementStub:
     def __init__(self, text, outline_level=0, services=None):
