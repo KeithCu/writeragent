@@ -31,10 +31,11 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 dev = [
     "latex2mathml",
+    "json-repair",
+    "snowballstemmer",
     "pytest",
     "pyyaml",
     "sounddevice",
-    "dspy",
     "mypy",
     "types-requests",
     "types-unopy",
