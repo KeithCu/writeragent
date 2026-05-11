@@ -7,8 +7,8 @@
 
 > [!IMPORTANT]
 > **Tests:** New features and bugfixes **must** include tests.
-> - **Unit:** `plugin/tests/`, **pytest** when logic can be mocked.
-> - **UNO / LibreOffice:** `plugin/tests/uno/` via **`testing_runner.py`** (no pytest)—use **`@native_test`**, **`@setup`**, **`@teardown`**; test functions take **`ctx`**.
+> - **Unit:** `plugin/tests/`, **pytest** when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`).
+> - **UNO / LibreOffice:** `plugin/tests/uno/` or `_uno.py` suffix via **`testing_runner.py`** (no pytest)—use **`@native_test`**, **`@setup`**, **`@teardown`**; test functions take **`ctx`**.
 > - Run **`make test`** before you consider the work done.
 
 > [!IMPORTANT]
