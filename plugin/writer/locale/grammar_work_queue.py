@@ -89,16 +89,20 @@ def record_enqueue_latest(prev: dict[str, int], item: GrammarWorkItem) -> tuple[
     return new_d, out_of_order, prev_seq if out_of_order else None
 
 
+def _enqueue_seq_superseded_by_latest(latest_seq: Mapping[str, int], inflight_key: str, enqueue_seq: int) -> bool:
+    """True if ``latest_seq`` records a newer generation than ``enqueue_seq`` for ``inflight_key`` (pre-execute skip and post-LLM cache skip)."""
+    latest = latest_seq.get(inflight_key)
+    return latest is not None and enqueue_seq < latest
+
+
 def is_stale(latest_seq: Mapping[str, int], item: GrammarWorkItem) -> bool:
     """True if a newer enqueue has been recorded for this ``inflight_key``."""
-    latest = latest_seq.get(item.inflight_key)
-    return latest is not None and item.enqueue_seq < latest
+    return _enqueue_seq_superseded_by_latest(latest_seq, item.inflight_key, item.enqueue_seq)
 
 
 def inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueue_seq: int) -> bool:
     """True if ``enqueue_seq`` is older than the latest known generation for ``inflight_key``."""
-    latest = latest_seq.get(inflight_key)
-    return latest is not None and enqueue_seq < latest
+    return _enqueue_seq_superseded_by_latest(latest_seq, inflight_key, enqueue_seq)
 
 
 def tail_enqueue_operation(tail: GrammarWorkItem | None, incoming: GrammarWorkItem) -> TailEnqueueOp:

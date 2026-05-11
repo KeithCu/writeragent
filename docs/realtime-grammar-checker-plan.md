@@ -273,6 +273,7 @@ Major items that were previously listed as future work or cleanup but are **impl
 - **Whitespace / hot regex**: `GRAMMAR_WHITESPACE_RUN_RE` and related patterns precompiled at module load where appropriate.
 - **Persistence initialization**: thread-safe singleton setup for grammar cache persistence (`grammar_persistence.py`); no unsafe fork-based locking.
 - **Worker idle batching**: quiet period via `GRAMMAR_WORKER_PAUSE_TIMEOUT_S` on queue `get`, coalescing bursts before LLM calls.
+- **Optional grammar-only model**: `doc.grammar_proofreader_model` (Doc tab); empty uses the chat text model so grammar can be pointed at a cheaper or local endpoint without changing chat defaults.
 
 ---
 
@@ -291,15 +292,14 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P5 | Optional model / temperature | Surface more controls in Settings if needed (grammar model override exists). |
 | P6 | Document-generation invalidation | Fold revision/mod-generation into cache keys if LO exposes it; reduces stale offsets after edits above span. |
 | P7 | Shared policy with chat | Expand beyond pause-during-agent + shared LLM lane (endpoint-aware policy, status UX, adaptive queue). |
-| P8 | Smaller / faster grammar model | Route grammar traffic to a cheaper or local model by default. |
-| P9 | Prompt and schema hardening | Few-shot edge cases (quotes, lists, track changes); stricter JSON recovery. |
-| P10 | Paragraph / traversal tuning | Compare sentence selection vs stock Lightproof (`len(rText)` etc.) if underlines misbehave on some LO versions. |
-| P11 | Ignore rules | Persist `ignoreRule` across sessions; locale-specific ignores if API evolves. |
-| P12 | Observability | Cache hit rate, supersede counts, p50/p95 schedule→`cache_put` behind a verbose flag. |
-| P13 | Accessibility / UX copy | Clear copy that grammar is asynchronous; link Writing aids when multiple proofreaders exist. |
-| P14 | LanguageTool-class local checking | Research roadmap: [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md). |
-| P15 | Parallel grammar worker | Optional limited parallelism across **distinct** documents while respecting `llm_request_lane`. |
-| P16 | Queue priority / visibility | Prefer currently edited or visible ranges over scroll-induced backlog (related to **C5**). |
+| P8 | Prompt and schema hardening | Few-shot edge cases (quotes, lists, track changes); stricter JSON recovery. |
+| P9 | Paragraph / traversal tuning | Compare sentence selection vs stock Lightproof (`len(rText)` etc.) if underlines misbehave on some LO versions. |
+| P10 | Ignore rules | Persist `ignoreRule` across sessions; locale-specific ignores if API evolves. |
+| P11 | Observability | Cache hit rate, supersede counts, p50/p95 schedule→`cache_put` behind a verbose flag. |
+| P12 | Accessibility / UX copy | Clear copy that grammar is asynchronous; link Writing aids when multiple proofreaders exist. |
+| P13 | LanguageTool-class local checking | Research roadmap: [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md). |
+| P14 | Parallel grammar worker | Optional limited parallelism across **distinct** documents while respecting `llm_request_lane`. |
+| P15 | Queue priority / visibility | Prefer currently edited or visible ranges over scroll-induced backlog (related to **C5**). |
 
 ### Code health and maintainability
 
@@ -308,8 +308,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C1 | Tiered error handling in `doProofreading` | Reduce nested try/except that only log-and-continue; extract `_safe_*` helpers so failures are visible in tests. |
 | C2 | Optional `unohelper` consolidation | Top-level import serves `unohelper.Base`; registration block imports again for `ImplementationHelper` — optional single pattern for clarity. |
 | C3 | HTTP 429 / backoff | Same work as **P2** (worker / `run_llm_and_cache_batch`). |
-| C4 | Unify `is_stale()` and `inflight_superseded()` | DRY — both compare `enqueue_seq` to `latest_seq` (see [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py)). |
-| C5 | Viewport / LIFO-ish priority | Mitigate scroll enqueue starving active typing (**P16**). |
+| C5 | Viewport / LIFO-ish priority | Mitigate scroll enqueue starving active typing (**P15**). |
 | C6 | Regex audit | Most patterns are compiled; audit [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) for any remaining compile-per-call hot paths. |
 | C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries ([Appendix B](#appendix-b-structural-notes)). |
 | C8 | ProofreadingResult helpers / hints | Optional `@dataclass`-style helpers or richer type hints for UNO structs where stubs help. |
