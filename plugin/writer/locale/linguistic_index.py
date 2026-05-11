@@ -196,6 +196,10 @@ _STOP_WORDS_FALLBACK: frozenset[str] = frozenset()
 # ── Tokenisation ──────────────────────────────────────────────────────
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_NOT_RE = re.compile(r"\bNOT\b", re.IGNORECASE)
+_NEAR_RE = re.compile(r"(.+?)\s+NEAR/(\d+)\s+(.+)", re.IGNORECASE)
+_AND_RE = re.compile(r"\bAND\b", re.IGNORECASE)
+_OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
 _MIN_TOKEN_LEN = 2
 
 
@@ -405,15 +409,15 @@ class IndexService(ServiceBase):
     def _parse_query(self, query, stemmer, stop_words):
         result = {"and_stems": [], "or_stems": [], "not_stems": [], "near": [], "dropped_stops": [], "mode": "and", "error": None}
 
-        not_split = re.split(r"\bNOT\b", query, flags=re.IGNORECASE)
+        not_split = _NOT_RE.split(query)
         main_part = not_split[0].strip()
         for part in not_split[1:]:
             stems, dropped = self._stem_query_tokens(part, stemmer, stop_words)
             result["not_stems"].extend(stems)
             result["dropped_stops"].extend(dropped)
-
+ 
         # NEAR/N
-        near_match = re.search(r"(.+?)\s+NEAR/(\d+)\s+(.+)", main_part, re.IGNORECASE)
+        near_match = _NEAR_RE.search(main_part)
         if near_match:
             left, dropped_l = self._stem_query_tokens(near_match.group(1), stemmer, stop_words)
             dist = int(near_match.group(2))
@@ -425,15 +429,15 @@ class IndexService(ServiceBase):
             elif not left and not right:
                 result["error"] = "NEAR terms are all stop words"
             return result
-
-        has_and = bool(re.search(r"\bAND\b", main_part, re.IGNORECASE))
-        has_or = bool(re.search(r"\bOR\b", main_part, re.IGNORECASE))
+ 
+        has_and = bool(_AND_RE.search(main_part))
+        has_or = bool(_OR_RE.search(main_part))
         if has_and and has_or:
             result["error"] = "Mixed AND/OR not supported. Use one operator per query."
             return result
-
+ 
         if has_or:
-            chunks = re.split(r"\bOR\b", main_part, flags=re.IGNORECASE)
+            chunks = _OR_RE.split(main_part)
             for chunk in chunks:
                 stems, dropped = self._stem_query_tokens(chunk, stemmer, stop_words)
                 result["or_stems"].extend(stems)
@@ -441,7 +445,7 @@ class IndexService(ServiceBase):
             result["mode"] = "or"
         else:
             if has_and:
-                chunks = re.split(r"\bAND\b", main_part, flags=re.IGNORECASE)
+                chunks = _AND_RE.split(main_part)
             else:
                 chunks = [main_part]
             for chunk in chunks:

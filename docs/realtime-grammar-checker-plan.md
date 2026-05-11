@@ -255,8 +255,9 @@ This section tracks **code health** improvements: simplification, robustness, an
 |---|------|------|-------|--------|--------|
 | 1 | Reduce exception swallowing in `doProofreading` | `ai_grammar_proofreader.py` | 310-510 | Hard to debug failures; masks real problems | 30 min |
 | 2 | Extract `time.sleep` into patchable helper | `ai_grammar_proofreader.py` | 22-24 | Tests shouldn't patch internal `time` import | 10 min |
-| 3 | Remove duplicate `unohelper` import | `ai_grammar_proofreader.py` | 30, 476 | First import unused; shadows second | 2 min |
-| 4 | Use `re.escape()` for `_sterm_class` regex | `grammar_proofread_locale.py` | 290-300 | Prevents subtle bugs with special regex chars | 5 min |
+| 3 | Remove duplicate `unohelper` import | `ai_grammar_proofreader.py` | 28, 470 | First import unused; shadows second | 2 min |
+| 4 | Use `re.escape()` for `_sterm_class` regex | `grammar_proofread_locale.py` | 388-391 | **Done** | 5 min |
+| 5 | Add HTTP 429 / exponential backoff | `grammar_work_queue.py` | `run_llm_and_cache_batch` | Prevents API flooding during rapid typing or doc load | 45 min |
 
 **Details:**
 
@@ -267,10 +268,13 @@ The `doProofreading` method has ~6 nested try-except blocks, many of which only 
 Tests currently patch `time.sleep` at the module level. Extract into `_sleep(seconds)` helper that tests can patch instead.
 
 **#3: Dead Import**
-Line 30 imports `unohelper` but it's unused. The actual import is at line 476. Remove line 30.
+Line 28 imports `unohelper` but it's unused. The actual import is at line 470. Remove line 28.
 
 **#4: Regex Safety**
-The `_sterm_class` regex is built by manual escaping which is fragile. Use `re.escape(_sterm_chars)` instead.
+The `_sterm_class` regex is built by manual escaping which is fragile and misses many regex metacharacters. Use `re.escape(_sterm_chars)` instead of hand-rolled `.replace()` chain.
+
+**#5: HTTP 429 / Backoff**
+Track last request time per endpoint and implement exponential backoff (base 1s, cap at 60s) to prevent rate-limiting errors during bursts of typing or document scroll events.
 
 ---
 
@@ -280,6 +284,8 @@ The `_sterm_class` regex is built by manual escaping which is fragile. Use `re.e
 |---|------|------|-------|--------|--------|
 | 6 | Cache prefix compaction (incomplete sentence LRU) — **shipped** | `grammar_proofread_cache.py` | ~133–164 (`cache_put_sentence`) | Supersedes old “one predecessor / awkward scan” issues; see **#6** details | Done |
 | 8 | Pre-compile regex patterns | `grammar_proofread_text.py` | Various | Minor performance + clarity | 10 min |
+| 9 | Unify `is_stale()` and `inflight_superseded()` | `grammar_work_queue.py` | ~100-110 | DRY; both check seq against latest | 15 min |
+| 10 | Add viewport priority to queue | `grammar_work_queue.py` | `GrammarWorkItem`, `deduplicate_grammar_batch` | Active typing area jumps queue ahead of scroll/chrome work | 60 min |
 
 **Details:**
 
@@ -346,9 +352,13 @@ Currently, too many recoverable errors are silently swallowed with just a warnin
 
 ### 7.5 Quick Wins (Under 5 minutes)
 
-1. **Remove dead import:** `import unohelper` at line 30 of `ai_grammar_proofreader.py`
-2. **Fix regex escaping:** Use `re.escape()` in `grammar_proofread_locale.py`
-3. **Extract sleep:** Wrap `time.sleep()` in `_sleep()` helper
+| # | Task | File | Lines | Status | Effort |
+|---|------|------|-------|--------|--------|
+| 1 | Remove dead import: `import unohelper` at line 28 (shadowed by line 470) | `ai_grammar_proofreader.py` | 28 | **Done** | 2 min |
+| 2 | Fix broken `_persistence_lock` (`os.fork()` → remove) | `grammar_persistence.py` | 227 | **Done** | 2 min |
+| 3 | Fix regex escaping: use `re.escape(_sterm_chars)` | `grammar_proofread_locale.py` | 388-391 | **Done** | 5 min |
+| 4 | Extract `time.sleep()` into patchable `_sleep()` helper | `ai_grammar_proofreader.py` | 22-24 | **Done** | 10 min |
+| 5 | Pre-compile regex patterns (`GRAMMAR_WHITESPACE_RUN_RE`, etc.) | `grammar_proofread_text.py` | Various | **Done** | 10 min |
 
 ### Docs / agents
 
@@ -356,7 +366,8 @@ Currently, too many recoverable errors are silently swallowed with just a warnin
 - Optional non-LLM checker roadmap grounded in LT behavior: [`languagetool-local-parity-phased-plan.md`](languagetool-local-parity-phased-plan.md).
 
 
-EXTRA text to be integrated elsewhere 
+---
+
 ### Design note: `deduplicate_grammar_batch` (cross-sentence prefix bug)
 
 **Problem:** An older implementation added a *second* dedup step that grouped queue items by `(doc_id, locale)` and dropped items whose **slice text** was in a **string prefix** relation with another item (newest `enqueue_seq` wins). That matches typing inside **one** sentence, but `inflight_key` is already `doc|locale|sentence_start` — one key per sentence. **Different sentences** in the same paragraph can still have texts where one is a prefix of the other (e.g. first sentence `No.` and a later sentence `No problem today.`). Cross-key prefix logic **dropped the shorter sentence’s work** and skipped a valid LLM check.

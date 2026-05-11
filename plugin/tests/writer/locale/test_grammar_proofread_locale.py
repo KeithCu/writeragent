@@ -133,3 +133,17 @@ def test_word_before_period_is_abbrev() -> None:
     assert gl.word_before_period_is_abbrev("Dr") is True
     assert gl.word_before_period_is_abbrev("abc") is False
     assert gl.word_before_period_is_abbrev("A") is True  # Single capital letter
+
+def test_tricky_terminator_regex_escaping() -> None:
+    """Test that _sterm_class handles tricky chars like ] - \\ ^."""
+    # Verify that the regex string is safe (contains escapes for special chars)
+    # re.escape escapes almost everything non-alphanumeric.
+    assert "\\]" in gl._sterm_escaped or "]" not in gl._sterm_chars
+    assert "\\-" in gl._sterm_escaped or "-" not in gl._sterm_chars
+    assert "\\\\" in gl._sterm_escaped or "\\" not in gl._sterm_chars
+    
+    # Test normalization with a simulated tricky terminator if we could, 
+    # but let's just verify the compiled regex doesn't crash and matches dots.
+    assert re.match(gl._sterm_class, ".")
+    assert gl.GRAMMAR_CACHE_NORMALIZATION_RE.match("Hello.")
+

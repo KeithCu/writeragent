@@ -388,7 +388,7 @@ def split_sentence_chunks_by_separator_regex(text: str, sep_re: re.Pattern[str])
     return result or [(0, text)]
 
 _sterm_chars = "".join(sorted(GRAMMAR_SENTENCE_TERMINATORS))
-_sterm_escaped = _sterm_chars.replace("\\", "\\\\").replace("]", "\\]").replace("-", "\\-").replace("^", "\\^")
+_sterm_escaped = re.escape(_sterm_chars)
 _sterm_class = f"[{_sterm_escaped}]"
 
 # Terminators used for cache key normalization (strips redundant trailing terminators).

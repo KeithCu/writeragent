@@ -24,6 +24,7 @@ from .grammar_proofread_locale import (
 )
 
 _grammar_diag = logging.getLogger("writeragent.grammar")
+_TOKEN_RE = re.compile(r"\w+|\W+")
 
 # ---------------------------------------------------------------------------
 # LibreOffice BreakIterator + Locale
@@ -200,7 +201,7 @@ def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
     if sum(len(t) for t in tokens) == len(text):
         return tokens
 
-    return re.findall(r"\w+|\W+", text)
+    return _TOKEN_RE.findall(text)
 
 
 def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_idx: int | None = None) -> int | None:
