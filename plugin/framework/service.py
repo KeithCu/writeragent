@@ -116,7 +116,7 @@ class ServiceRegistry:
                     # We check if __init__ is overridden; if so, we pass self (the registry).
                     # Otherwise we call the default constructor.
                     if obj.__init__ is not object.__init__:
-                        svc_instance = cast(Any, obj)(self)
+                        svc_instance = cast("Any", obj)(self)
                     else:
                         svc_instance = obj()
                     self.register(obj.name, svc_instance)
