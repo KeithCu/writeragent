@@ -319,7 +319,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | ID | Task | Notes |
 |----|------|--------|
 | P1 | Native linguistic integration | Research built-in `SpellChecker` / morphological analysis before or alongside LLM (Lightproof-style). |
-| P2 | HTTP 429 / backoff | Exponential backoff and cooldown in the grammar worker; optional coordination with sidebar chat (shared policy). |
+| P2 | HTTP 429 / backoff | Theoretical: Exponential backoff and cooldown in the grammar worker if providers ever rate-limit; currently unnecessary due to `LlmClient` request pacing. |
 | P3 | Locales | Optional regional tags in XCU if an LO build needs explicit `hasLocale`/`getLocales` pairing beyond normalization. |
 | P4 | Refresh UX | LO shows new squiggles on subsequent passes — document for users; research safe invalidate APIs if any. |
 | P5 | Optional model / temperature | Surface more controls in Settings if needed (grammar model override exists). |
@@ -350,7 +350,6 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C6 | Regex audit | Most patterns are compiled; audit [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) for any remaining compile-per-call hot paths. |
 | C7 | Logging discipline | Structured events, avoid duplicate levels, DEBUG vs INFO boundaries ([Appendix B](#appendix-b-structural-notes)). |
 | C8 | ProofreadingResult helpers / hints | Optional `@dataclass`-style helpers or richer type hints for UNO structs where stubs help. |
-| C9 | Pre-LLM stale detection | In `GrammarWorkQueue`, before calling the LLM, check `_latest_seq[inflight_key] > item.enqueue_seq` and **skip the HTTP call entirely** — currently only a post-LLM guard exists, wasting a round-trip on already-superseded work. |
 | C10 | Batch diagnostics logging | Add structured **DEBUG** logs for batch stats: `sentences_queued`, `sentences_deduped`, `sentences_stale_skipped`, `sentences_llm_requested`, `llm_request_duration_ms` to help diagnose performance and correctness issues. |
 | C11 | Module docstrings | Add `"""Real-time grammar proofreading via UNO XProofreader + LLM."""` docstrings to `ai_grammar_proofreader.py`, `grammar_work_queue.py`, and `grammar_proofread_cache.py` for better IDE support and maintainability. |
 | C12 | Constants documentation | Document all `GRAMMAR_*` constants in `grammar_proofread_locale.py` with **units**, **default values**, and **rationale** (e.g., why 8192 chars, why 2048 tokens) as inline comments or a module-level docstring section. |

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-10T19:30:53.648Z",
+  "updated_at": "2026-05-12T02:30:52.671Z",
   "models": [
     {
       "id": "inclusionai/ring-2.6-1t:free",
@@ -782,10 +782,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.29958e-07,
+        "text_cache_read": 2.26962e-07,
         "text_cache_write": null,
-        "text_input": 1.583e-06,
-        "text_output": 3.227778e-06
+        "text_input": 1.6647e-06,
+        "text_output": 3.385e-06
       }
     },
     {
@@ -833,10 +833,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.04e-08,
+        "text_cache_read": 3.16e-08,
         "text_cache_write": null,
-        "text_input": 1.4375e-07,
-        "text_output": 2.8875e-07
+        "text_input": 1.5e-07,
+        "text_output": 3.01111e-07
       }
     },
     {
@@ -1117,8 +1117,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.03929e-07,
         "text_cache_write": null,
-        "text_input": 9.25882e-07,
-        "text_output": 4.015e-06
+        "text_input": 9.13529e-07,
+        "text_output": 3.950294e-06
       }
     },
     {
@@ -1126,6 +1126,7 @@
       "name": "Claude Opus 4.7",
       "author_name": "Anthropic",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -1168,6 +1169,7 @@
       "name": "Claude Opus 4.6 (Fast)",
       "author_name": "Anthropic",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -1254,10 +1256,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.78583e-07,
+        "text_cache_read": 2.76417e-07,
         "text_cache_write": null,
-        "text_input": 1.344667e-06,
-        "text_output": 4.281333e-06
+        "text_input": 1.335333e-06,
+        "text_output": 4.252e-06
       }
     },
     {
@@ -1394,8 +1396,8 @@
         "reasoning_output": null,
         "text_cache_read": 8.25e-08,
         "text_cache_write": null,
-        "text_input": 1.525e-07,
-        "text_output": 4.26667e-07
+        "text_input": 1.47857e-07,
+        "text_output": 4.18571e-07
       }
     },
     {
@@ -1564,6 +1566,35 @@
         "text_input": 2.60833e-07,
         "text_output": 9.25e-07
       }
+    },
+    {
+      "id": "arcee-ai/trinity-large-thinking:free",
+      "name": "Trinity Large Thinking (free)",
+      "author_name": "Arcee AI",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "arcee-ai/trinity-large-thinking",
+      "created_at": "2026-04-01T15:45:18.036Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
     },
     {
       "id": "x-ai/grok-4.20",
@@ -2809,6 +2840,7 @@
       "name": "Claude Sonnet 4.6",
       "author_name": "Anthropic",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -2997,8 +3029,8 @@
         "reasoning_output": null,
         "text_cache_read": 6.1692e-08,
         "text_cache_write": null,
-        "text_input": 2.78611e-07,
-        "text_output": 1.213333e-06
+        "text_input": 2.83056e-07,
+        "text_output": 1.247222e-06
       }
     },
     {
@@ -3129,6 +3161,7 @@
       "name": "Claude Opus 4.6",
       "author_name": "Anthropic",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -3350,10 +3383,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.34091e-07,
+        "text_cache_read": 1.27083e-07,
         "text_cache_write": null,
-        "text_input": 5.43571e-07,
-        "text_output": 2.764286e-06
+        "text_input": 5.27333e-07,
+        "text_output": 2.662e-06
       }
     },
     {
@@ -5252,6 +5285,7 @@
       "name": "Claude Haiku 4.5",
       "author_name": "Anthropic",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -6739,8 +6773,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.45e-07,
         "text_cache_write": null,
-        "text_input": 4.16e-07,
-        "text_output": 1.272e-06
+        "text_input": 4.45556e-07,
+        "text_output": 1.33e-06
       }
     },
     {
@@ -7183,10 +7217,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.365e-07,
+        "text_cache_read": 1.20571e-07,
         "text_cache_write": null,
-        "text_input": 1.28053e-07,
-        "text_output": 5.35263e-07
+        "text_input": 1.2415e-07,
+        "text_output": 5.31e-07
       }
     },
     {
@@ -8120,8 +8154,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 4.2e-07,
-        "text_output": 1.98e-06
+        "text_input": 4.75e-07,
+        "text_output": 2.2e-06
       }
     },
     {
@@ -9390,7 +9424,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 2.03333e-07,
+        "text_input": 2.46667e-07,
         "text_output": 4.26667e-07
       }
     },
@@ -9485,90 +9519,6 @@
         "text_cache_write": null,
         "text_input": 7.5e-08,
         "text_output": 3e-07
-      }
-    },
-    {
-      "id": "anthropic/claude-3.7-sonnet:thinking",
-      "name": "Claude 3.7 Sonnet (thinking)",
-      "author_name": "Anthropic",
-      "input_modalities": [
-        "file",
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "thinking",
-      "version_id": "anthropic/claude-3-7-sonnet-20250219",
-      "created_at": "2025-02-24T18:35:10.000Z",
-      "context_length": 200000,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 3e-07,
-        "text_cache_write": 3.75e-06,
-        "text_input": 3e-06,
-        "text_output": 1.5e-05
-      }
-    },
-    {
-      "id": "anthropic/claude-3.7-sonnet",
-      "name": "Claude 3.7 Sonnet",
-      "author_name": "Anthropic",
-      "input_modalities": [
-        "file",
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "anthropic/claude-3-7-sonnet-20250219",
-      "created_at": "2025-02-24T18:35:10.000Z",
-      "context_length": 200000,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 3e-07,
-        "text_cache_write": 3.75e-06,
-        "text_input": 3e-06,
-        "text_output": 1.5e-05
       }
     },
     {
