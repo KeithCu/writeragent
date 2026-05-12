@@ -297,10 +297,9 @@ def test_run_llm_and_cache_batch_success() -> None:
     """Verify that multiple items are batched and results are stored in cache."""
     ctx = MagicMock()
     # Mock config to enable checker
-    with patch("plugin.writer.locale.grammar_work_queue.safe_get_config_int", return_value=4), \
-         patch("plugin.writer.locale.grammar_work_queue.safe_get_config_bool", return_value=True), \
-         patch("plugin.framework.config.get_config_str", return_value="test-model"), \
-         patch("plugin.framework.config.get_text_model", return_value="test-model"), \
+    with patch("plugin.framework.config.get_config_int_safe", return_value=4), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
@@ -343,10 +342,9 @@ def test_run_llm_and_cache_batch_success() -> None:
 def test_run_llm_and_cache_batch_mismatch_fallback() -> None:
     """Verify fallback to individual processing if LLM returns wrong number of results."""
     ctx = MagicMock()
-    with patch("plugin.writer.locale.grammar_work_queue.safe_get_config_int", return_value=4), \
-         patch("plugin.writer.locale.grammar_work_queue.safe_get_config_bool", return_value=True), \
-         patch("plugin.framework.config.get_config_str", return_value="test-model"), \
-         patch("plugin.framework.config.get_text_model", return_value="test-model"), \
+    with patch("plugin.framework.config.get_config_int_safe", return_value=4), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
@@ -373,10 +371,9 @@ def test_run_llm_and_cache_batch_mismatch_fallback() -> None:
 def test_run_llm_and_cache_batch_chunking() -> None:
     """Verify that large batches are split into smaller chunks."""
     ctx = MagicMock()
-    with patch("plugin.writer.locale.grammar_work_queue.safe_get_config_int", return_value=2), \
-         patch("plugin.writer.locale.grammar_work_queue.safe_get_config_bool", return_value=True), \
-         patch("plugin.framework.config.get_config_str", return_value="test-model"), \
-         patch("plugin.framework.config.get_text_model", return_value="test-model"), \
+    with patch("plugin.framework.config.get_config_int_safe", return_value=2), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
@@ -422,10 +419,9 @@ def test_run_llm_and_cache_batch_size_1() -> None:
     """Verify that multiple items are processed individually when batch_size is 1."""
     ctx = MagicMock()
     # Mock batch_size to 1 (the default)
-    with patch("plugin.writer.locale.grammar_work_queue.safe_get_config_int", return_value=1), \
-         patch("plugin.writer.locale.grammar_work_queue.safe_get_config_bool", return_value=True), \
-         patch("plugin.framework.config.get_config_str", return_value="test-model"), \
-         patch("plugin.framework.config.get_text_model", return_value="test-model"), \
+    with patch("plugin.framework.config.get_config_int_safe", return_value=1), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \

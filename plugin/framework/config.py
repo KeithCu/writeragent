@@ -587,6 +587,22 @@ def get_config_bool(ctx, key) -> bool:
     return as_bool(v)
 
 
+def get_config_bool_safe(ctx: Any, key: str, default: bool = False) -> bool:
+    """Safely read a boolean config value, returning default on failure."""
+    try:
+        return get_config_bool(ctx, key)
+    except Exception:
+        return default
+
+
+def get_config_int_safe(ctx: Any, key: str, default: int = 0) -> int:
+    """Safely read an integer config value, returning default on failure."""
+    try:
+        return get_config_int(ctx, key)
+    except Exception:
+        return default
+
+
 def get_config_float(ctx, key) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""
@@ -1040,6 +1056,19 @@ def get_stt_model(ctx):
     provider = get_provider_from_endpoint(current_endpoint)
     defaults = get_provider_defaults(provider)
     return str(defaults.get("stt_model", "") or "").strip()
+
+
+def get_grammar_model(ctx):
+    """Return the configured grammar model, fallback to chat text model."""
+    val = str(get_config(ctx, "doc.grammar_proofreader_model") or "").strip()
+    if val:
+        return val
+    return get_text_model(ctx)
+
+
+def is_grammar_enabled(ctx):
+    """True if the AI grammar checker is enabled on the Doc tab."""
+    return get_config_bool_safe(ctx, "doc.grammar_proofreader_enabled")
 
 
 def get_endpoint_presets():

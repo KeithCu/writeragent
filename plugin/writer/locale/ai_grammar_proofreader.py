@@ -31,8 +31,6 @@ from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales
 
 log = logging.getLogger("writeragent.grammar")
-# Do not inherit writeragent's log level (often WARN); grammar uses INFO for diagnostics.
-log.setLevel(logging.DEBUG)
 
 IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
 SERVICE_NAME = "com.sun.star.linguistic2.Proofreader"
@@ -65,8 +63,6 @@ from plugin.writer.locale.grammar_proofread_locale import (
     count_nonspace_chars,
     looks_complete_sentence,
     normalize_uno_locale_to_bcp47,
-    safe_get_config_bool,
-    safe_init_logging,
 )
 from plugin.writer.locale.grammar_proofread_text import (
     NormalizedProofError,
@@ -155,12 +151,12 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     list). The Linguistic ``GrammarCheckers`` XCU is bundled in the default OXT; users still pick the
     active grammar checker under Tools → Options → Language Settings → Writing aids.
     """
-    safe_init_logging(ctx)
+    from plugin.framework.logging import init_logging
+    init_logging(ctx)
     log.info("[grammar] ensure_proofreader_selection: entry")
-    if uno_mod is None:
-        log.warning("[grammar] ensure_proofreader_selection: uno module missing, skipping")
-        return
-    enabled = safe_get_config_bool(ctx, "doc.grammar_proofreader_enabled")
+    from plugin.framework.config import is_grammar_enabled
+
+    enabled = is_grammar_enabled(ctx)
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
@@ -240,7 +236,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del args
         super().__init__()
         self.ctx = ctx
-        safe_init_logging(ctx)
+        from plugin.framework.logging import init_logging
+        init_logging(ctx)
         self._implementation_name = IMPLEMENTATION_NAME
         self._supported_service_names = (SERVICE_NAME,)
         try:
@@ -281,7 +278,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
-        enabled = safe_get_config_bool(self.ctx, "doc.grammar_proofreader_enabled")
+        from plugin.framework.config import is_grammar_enabled
+
+        enabled = is_grammar_enabled(self.ctx)
 
         loc_raw = _locale_key(a_locale)
         grammar_bcp47 = normalize_uno_locale_to_bcp47(a_locale)

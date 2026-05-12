@@ -24,13 +24,10 @@ from .grammar_proofread_locale import (
     looks_complete_sentence,
     parse_grammar_batch_json,
     parse_grammar_json,
-    safe_get_config_bool,
-    safe_get_config_int,
 )
 from .grammar_proofread_text import normalize_errors_for_text, split_into_sentences
 
 log = logging.getLogger("writeragent.grammar")
-log.setLevel(logging.DEBUG)
 
 
 @dataclass(frozen=True)
@@ -204,16 +201,22 @@ def run_llm_and_cache_batch(
     gq = grammar_queue or _grammar_queue_singleton
 
     try:
-        from plugin.framework.config import get_api_config, get_config_str, get_text_model
+        from plugin.framework.config import (
+            get_api_config,
+            get_grammar_model,
+            is_grammar_enabled,
+            get_config_bool_safe,
+            get_config_int_safe,
+        )
         from plugin.framework.queue_executor import is_agent_active, llm_request_lane
         from plugin.framework.client.llm_client import LlmClient
         from .grammar_proofread_locale import grammar_english_name_for_bcp47
 
-        if not safe_get_config_bool(ctx, "doc.grammar_proofreader_enabled"):
+        if not is_grammar_enabled(ctx):
             grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
             return
 
-        pause_during_agent = safe_get_config_bool(ctx, "doc.grammar_proofreader_pause_during_agent")
+        pause_during_agent = get_config_bool_safe(ctx, "doc.grammar_proofreader_pause_during_agent")
 
         if pause_during_agent and is_agent_active():
             grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
@@ -248,8 +251,10 @@ def run_llm_and_cache_batch(
 
         # 2. LLM Request
         max_tok = GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
+        max_chars = GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
+        
         try:
-            model = get_config_str(ctx, "doc.grammar_proofreader_model").strip() or get_text_model(ctx)
+            model = get_grammar_model(ctx)
         except Exception as e:
             log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
             model = ""
@@ -258,7 +263,7 @@ def run_llm_and_cache_batch(
         client = LlmClient(get_api_config(ctx), ctx)
 
         # Batch or Single?
-        batch_size = safe_get_config_int(ctx, "doc.grammar_proofreader_batch_sentences", 1)
+        batch_size = get_config_int_safe(ctx, "doc.grammar_proofreader_batch_sentences", 1)
         batch_size = max(1, min(GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
 
         if len(valid_items) > 1 and batch_size > 1:
@@ -305,8 +310,8 @@ def run_llm_and_cache_batch(
         else:
             # Single item mode (or forced single)
             for item, llm_text in valid_items:
-                if len(llm_text) > GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS:
-                    llm_text = llm_text[:GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS]
+                if len(llm_text) > max_chars:
+                    llm_text = llm_text[:max_chars]
                 
                 use_partial = item.partial_sentence or not looks_complete_sentence(llm_text)
                 sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)

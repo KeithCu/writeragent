@@ -26,36 +26,6 @@ from plugin.framework.json_utils import safe_json_loads
 _log = logging.getLogger("writeragent.grammar")
 
 
-def safe_init_logging(ctx: Any) -> None:
-    """Safely initialize logging using the framework's init_logging."""
-    from plugin.framework.logging import init_logging
-
-    try:
-        init_logging(ctx)
-    except Exception as e:
-        _log.warning("[grammar] safe_init_logging failed: %s", e)
-
-
-def safe_get_config_bool(ctx: Any, key: str, default: bool = False) -> bool:
-    """Safely read a boolean config value, returning default on failure."""
-    from plugin.framework.config import get_config_bool
-
-    try:
-        return get_config_bool(ctx, key)
-    except Exception as e:
-        _log.warning("[grammar] safe_get_config_bool failed for key %s: %s", key, e)
-        return default
-
-
-def safe_get_config_int(ctx: Any, key: str, default: int = 0) -> int:
-    """Safely read an integer config value, returning default on failure."""
-    from plugin.framework.config import get_config_int
-
-    try:
-        return get_config_int(ctx, key)
-    except Exception as e:
-        _log.warning("[grammar] safe_get_config_int failed for key %s: %s", key, e)
-        return default
 
 # ---------------------------------------------------------------------------
 # Shipped BCP-47 registry + UNO CharLocale bridging
@@ -195,8 +165,9 @@ def grammar_english_name_for_bcp47(bcp47: str) -> str:
 # Worker LLM policy (fixed caps, prompt template, drain debounce)
 # ---------------------------------------------------------------------------
 
+# Default caps for LLM requests (can be overridden via doc tab)
 GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
-GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 2048
+GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 3072
 GRAMMAR_BATCH_MAX_SENTENCES = 8
 
 GRAMMAR_SYSTEM_PROMPT_TEMPLATE = (
