@@ -356,7 +356,6 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | C11 | Module docstrings | Add `"""Real-time grammar proofreading via UNO XProofreader + LLM."""` docstrings to `ai_grammar_proofreader.py`, `grammar_work_queue.py`, and `grammar_proofread_cache.py` for better IDE support and maintainability. |
 | C12 | Constants documentation | Document all `GRAMMAR_*` constants in `grammar_proofread_locale.py` with **units**, **default values**, and **rationale** (e.g., why 8192 chars, why 2048 tokens) as inline comments or a module-level docstring section. |
 | C13 | Remove dead code | Delete any remaining references to `doc.grammar_proofreader_wait_timeout_ms` (config reads, UI bindings, validation) that are now defunct. |
-| C14 | Tokenization fallback investigation | BreakIterator should always be available; if the `_TOKEN_RE` fallback is hit, investigate why. Consider script-specific regexes for scripts without spaces (though Thai/Lao/Khmer have their own splitting path). |
 | C15 | Update normalization comment | Correct the stale comment in `_normalize_for_sentence_cache` (grammar_proofread_cache.py) which claims it uses a subset of terminators. |
 
 ### Tests

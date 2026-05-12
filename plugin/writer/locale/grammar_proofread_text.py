@@ -34,8 +34,6 @@ from .grammar_proofread_locale import (
     word_before_period_is_abbrev,
 )
 
-_TOKEN_RE = re.compile(r"\w+|\W+")
-
 # ---------------------------------------------------------------------------
 # LibreOffice BreakIterator + Locale
 # ---------------------------------------------------------------------------
@@ -203,7 +201,7 @@ class NormalizedProofError:
 
 
 def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
-    """Split text into word / punctuation tokens (BreakIterator when available)."""
+    """Split text into word / punctuation tokens using BreakIterator."""
     if not text:
         return []
 
@@ -212,14 +210,15 @@ def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
     while start < len(text):
         res = break_iterator.getWordBoundary(text, start, locale, 0, True)
         if res.endPos <= start:
+            # BI failed to progress, take the rest as a single token
+            tokens.append(text[start:])
             break
+        if res.startPos > start:
+            # BI skipped some text (e.g. control chars), include it as a token
+            tokens.append(text[start : res.startPos])
         tokens.append(text[res.startPos : res.endPos])
         start = res.endPos
-
-    if sum(len(t) for t in tokens) == len(text):
-        return tokens
-
-    return _TOKEN_RE.findall(text)
+    return tokens
 
 
 def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_idx: int | None = None) -> int | None:
