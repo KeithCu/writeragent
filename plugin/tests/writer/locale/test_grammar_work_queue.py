@@ -16,7 +16,7 @@ from plugin.writer.locale.grammar_work_queue import (
     run_llm_and_cache_batch,
     tail_enqueue_operation,
 )
-from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
+from plugin.writer.locale.grammar_proofread_text import NormalizedProofError, grammar_inflight_key
 from unittest.mock import MagicMock, patch, ANY
 from dataclasses import asdict
 
@@ -565,6 +565,71 @@ def test_locale_mismatch_proceeds_and_double_caches(
         # Check zh-CN cache put (the loop breaker)
         args_zh, _ = mock_cache_put.call_args_list[1]
         assert args_zh[0] == "zh-CN"
+
+
+def test_locale_mismatch_requeue_not_superseded_by_newer_same_sentence_zh_cn_key(
+) -> None:
+    """After LANG_DETECT mismatch, requeue must not reuse the zh-CN inflight_key.
+
+    While the detect LLM call blocks, the main thread can enqueue a newer generation for the
+    same zh-CN inflight_key. Requeue under that key + the old enqueue_seq was skipped as
+    superseded_before_process and never ran the ja-JP grammar pass.
+    """
+    from plugin.writer.locale.grammar_work_queue import _lang_detect_cache
+
+    sent = "日本語で書いています。"
+    _lang_detect_cache.pop(sent, None)
+    try:
+        ctx = MagicMock()
+        doc_id = "doc123"
+        old_zh_key = grammar_inflight_key(doc_id, "zh-CN", sent, True)
+        gq = GrammarWorkQueue()
+
+        def llm_chat_completion_sync(*_a: object, **_k: object) -> str:
+            llm_chat_completion_sync.call_n += 1
+            if llm_chat_completion_sync.call_n == 1:
+                with gq._seq_lock:
+                    gq._latest_seq[old_zh_key] = 50_000
+                return '{"detected_language_bcp47": "ja-JP"}'
+            return '{"errors": []}'
+
+        llm_chat_completion_sync.call_n = 0
+
+        with patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+             patch("plugin.framework.config.get_config_int_safe", return_value=1), \
+             patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False), \
+             patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
+             patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put, \
+             patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply, \
+             patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+             patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
+             patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
+
+            mock_client_inst = mock_llm_client.return_value
+            mock_client_inst.chat_completion_sync.side_effect = llm_chat_completion_sync
+
+            item = GrammarWorkItem(
+                ctx=ctx,
+                full_text=sent,
+                n_start=0,
+                n_end=len(sent),
+                grammar_bcp47="zh-CN",
+                partial_sentence=False,
+                doc_id=doc_id,
+                inflight_key=old_zh_key,
+                enqueue_seq=1,
+                proofread_sentence_text=sent,
+            )
+
+            run_llm_and_cache_batch([item], grammar_queue=gq)
+
+        assert mock_client_inst.chat_completion_sync.call_count == 2, "detect + ja-JP grammar must run despite newer seq on zh-CN key after detect"
+        mock_apply.assert_called_once_with(ctx, doc_id, sent, "ja-JP")
+        assert mock_cache_put.call_count == 2
+        assert mock_cache_put.call_args_list[0][0][0] == "ja-JP"
+        assert mock_cache_put.call_args_list[1][0][0] == "zh-CN"
+    finally:
+        _lang_detect_cache.pop(sent, None)
 
 
 def test_locale_mismatch_batch_splits_and_double_caches(

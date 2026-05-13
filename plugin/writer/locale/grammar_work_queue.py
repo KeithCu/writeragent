@@ -31,7 +31,7 @@ from .grammar_proofread_locale import (
     parse_language_detect_json,
     normalize_uno_locale_to_bcp47,
 )
-from .grammar_proofread_text import normalize_errors_for_text, split_into_sentences
+from .grammar_proofread_text import grammar_inflight_key, normalize_errors_for_text, split_into_sentences
 from .grammar_persistence import _find_model_by_runtime_uid
 
 log = logging.getLogger("writeragent.grammar")
@@ -552,19 +552,27 @@ def run_llm_and_cache_batch(
                             _apply_language_change(ctx, effect.doc_id, effect.sentence_text, effect.new_bcp47)
                             
                         elif isinstance(effect, RequeueIndividualItemEffect):
+                            # Requeue must use an inflight_key for the *detected* locale. Reusing the
+                            # original key embeds paragraph aLocale (e.g. zh-CN); newer doProofreading
+                            # enqueues bump _latest_seq for that key and inflight_superseded skips the
+                            # ja-JP grammar pass before any LLM runs (superseded_before_process).
+                            sent_complete = (not effect.item.partial_sentence) and looks_complete_sentence(effect.text)
+                            requeue_inflight_key = grammar_inflight_key(
+                                effect.item.doc_id, effect.new_bcp47, effect.text, sent_complete
+                            )
                             run_llm_and_cache(
                                 ctx,
                                 effect.item.full_text,
                                 effect.item.n_start,
                                 effect.item.n_end,
-                                effect.item.enqueue_seq,
-                                effect.item.inflight_key,
+                                next_enqueue_seq(),
+                                requeue_inflight_key,
                                 effect.new_bcp47,
-                                effect.item.partial_sentence,
+                                not sent_complete,
                                 doc_id=effect.item.doc_id,
                                 proofread_sentence_text=effect.text,
                                 grammar_queue=gq,
-                                original_bcp47=effect.original_bcp47
+                                original_bcp47=effect.original_bcp47,
                             )
                             
                         elif isinstance(effect, ProcessGrammarResultsEffect):
