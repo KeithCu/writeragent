@@ -65,6 +65,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
         host_matches=("generativelanguage.googleapis.com",),
     ),
     "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none", host_matches=("localhost:11434", "127.0.0.1:11434", "ollama")),
+    "zai": ProviderConfig(id="zai", name="Z.ai", header_style="bearer", host_matches=("api.z.ai", "z.ai")),
     # Fallback for endpoints we don't recognize explicitly.
     "custom": ProviderConfig(id="custom", name="Custom", header_style="bearer", host_matches=()),
 }
@@ -115,7 +116,8 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
       }
     """
     endpoint_raw = str(api_config.get("endpoint") or "")
-    endpoint = normalize_endpoint_url(endpoint_raw)
+    is_owu = api_config.get("is_openwebui", False)
+    endpoint = normalize_endpoint_url(endpoint_raw, is_openwebui=is_owu)
     api_key = str(api_config.get("api_key") or "").strip()
 
     if not endpoint:

@@ -56,17 +56,34 @@ uno: Any = _uno_mod
 unohelper: Any = _unohelper_mod
 
 
-def normalize_endpoint_url(url):
-    """Clean up endpoint URL: strip whitespace, trailing slashes, and common v1 suffix."""
+def get_api_version_suffix(url, is_openwebui=False):
+    """Return the API version suffix (e.g. '/v1', '/v4', '/api') for a given endpoint URL."""
+    if is_openwebui:
+        return "/api"
+    # Check for Z.ai domains directly to avoid recursion with normalize_endpoint_url
+    url_lower = url.lower()
+    if "api.z.ai" in url_lower or "z.ai" in url_lower:
+        return "/v4"
+    return "/v1"
+
+
+def normalize_endpoint_url(url, is_openwebui=False):
+    """Clean up endpoint URL: strip whitespace, trailing slashes, and domain-specific version suffixes."""
     if not url:
         return ""
     url = url.strip()
     # Remove trailing /
     while url.endswith("/"):
         url = url[:-1]
-    # Remove /v1 suffix (OpenAI compatible)
-    if url.lower().endswith("/v1"):
+
+    # Remove the version suffix we expect to add back (e.g. /v1, /v4, /api)
+    suffix = get_api_version_suffix(url, is_openwebui=is_openwebui)
+    if url.lower().endswith(suffix):
+        url = url[:-len(suffix)]
+    elif url.lower().endswith("/v1"):
+        # Always strip /v1 as a fallback for custom endpoints
         url = url[:-3]
+
     return url
 
 
@@ -166,6 +183,7 @@ ENDPOINT_PRESETS = [
     ("X.ai (Grok)", "https://api.x.ai/v1"),
     ("Anthropic", "https://api.anthropic.com/v1"),
     ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
+    ("Z.ai", "https://api.z.ai/v4"),
 ]
 
 # Simple AI settings fields that the Tools → Options \"AI\" page should map
@@ -314,7 +332,7 @@ class WriterAgentConfig:
                 log.debug("config validate: stripped PO/header from extra key %r (len=%s)", k, len(v))
                 self._extra_config[k] = ""
 
-        self.endpoint = normalize_endpoint_url(str(self.endpoint or ""))
+        self.endpoint = normalize_endpoint_url(str(self.endpoint or ""), is_openwebui=self.is_openwebui)
 
         # Normalize localized strings back to internal keys (e.g. image_default_aspect, agent_backend.*)
         # Dotted module keys live in _extra_config; flat keys are dataclass attributes.
@@ -754,6 +772,8 @@ def get_provider_from_endpoint(endpoint):
         return "lmstudio"
     if "localhost:4891" in url:
         return "gpt4all"
+    if "api.z.ai" in url or "z.ai" in url:
+        return "zai"
     return None
 
 
@@ -874,7 +894,9 @@ def fetch_available_models(endpoint, ctx=None, api_key_override: str | None = No
         return None
     if not endpoint_url_suitable_for_v1_models_fetch(base):
         return None
-    url = f"{base}/v1/models"
+    is_owu = get_config_bool_safe(ctx, "is_openwebui") if ctx else False
+    suffix = get_api_version_suffix(base, is_openwebui=is_owu)
+    url = f"{base}{suffix}/models"
     cache_key = _model_fetch_cache_key(url, ctx, base, api_key_override)
     if cache_key in _model_fetch_cache:
         return _model_fetch_cache[cache_key]

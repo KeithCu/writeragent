@@ -21,7 +21,7 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.errors import WorkerPoolError
 from plugin.framework.async_stream import StreamQueueKind, run_stream_drain_loop
 from plugin.framework.logging import SafeLogger, safe_log_exception
-from plugin.framework.config import normalize_endpoint_url
+from plugin.framework.config import normalize_endpoint_url, get_api_version_suffix
 'Tests for plugin.framework.config (ConfigService + ModuleConfigProxy).'
 
 @pytest.fixture
@@ -596,3 +596,28 @@ class TestNormalizeEndpointUrl():
     def test_empty_and_whitespace(self):
         assert (normalize_endpoint_url('') == '')
         assert (normalize_endpoint_url('  ') == '')
+
+    def test_zai_normalization(self):
+        # Test that /v4 is stripped for Z.ai
+        assert normalize_endpoint_url("https://api.z.ai/v4") == "https://api.z.ai"
+        assert normalize_endpoint_url("https://z.ai/v4") == "https://z.ai"
+        # Test that /v1 is also stripped for Z.ai (as a fallback)
+        assert normalize_endpoint_url("https://api.z.ai/v1") == "https://api.z.ai"
+
+    def test_openwebui_normalization(self):
+        # Test that /api is stripped when is_openwebui is True
+        assert normalize_endpoint_url("http://localhost:3000/api", is_openwebui=True) == "http://localhost:3000"
+        # Test that /api is NOT stripped when is_openwebui is False
+        assert normalize_endpoint_url("http://localhost:3000/api", is_openwebui=False) == "http://localhost:3000/api"
+
+
+class TestApiVersionSuffix():
+
+    def test_zai_suffix(self):
+        assert get_api_version_suffix("https://api.z.ai") == "/v4"
+        assert get_api_version_suffix("https://z.ai") == "/v4"
+        assert get_api_version_suffix("https://other-api.com") == "/v1"
+
+    def test_openwebui_suffix(self):
+        assert get_api_version_suffix("http://localhost:3000", is_openwebui=True) == "/api"
+        assert get_api_version_suffix("http://localhost:3000", is_openwebui=False) == "/v1"

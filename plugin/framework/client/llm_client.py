@@ -95,7 +95,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE, LLM_DEV_BUILD_SYS
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError
-from plugin.framework.config import get_url_hostname, get_url_path_and_query
+from plugin.framework.config import get_url_hostname, get_url_path_and_query, get_api_version_suffix
 
 from .errors import format_error_message, _format_http_error_response
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
@@ -193,7 +193,7 @@ class LlmClient:
         return self.config.get("endpoint", "http://127.0.0.1:5000")
 
     def _api_path(self):
-        return "/api" if self.config.get("is_openwebui") else "/v1"
+        return get_api_version_suffix(self._endpoint(), is_openwebui=self.config.get("is_openwebui"))
 
     def _headers(self):
         """
