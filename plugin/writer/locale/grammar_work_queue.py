@@ -324,6 +324,7 @@ def run_llm_and_cache(
     doc_id: str = "",
     proofread_sentence_text: str = "",
     grammar_queue: Any | None = None,
+    original_bcp47: str = "",
 ) -> None:
     """Process one queue item: LLM request(s) + sentence cache write(s)."""
     item = GrammarWorkItem(
@@ -338,13 +339,14 @@ def run_llm_and_cache(
         enqueue_seq=enqueue_seq,
         proofread_sentence_text=proofread_sentence_text,
     )
-    run_llm_and_cache_batch([item], grammar_queue=grammar_queue)
+    run_llm_and_cache_batch([item], grammar_queue=grammar_queue, original_bcp47=original_bcp47)
 
 
 def run_llm_and_cache_batch(
     items: list[GrammarWorkItem],
     *,
     grammar_queue: Any | None = None,
+    original_bcp47: str = "",
 ) -> None:
     """Process a batch of items (ideally from one paragraph): single LLM request + multi-sentence cache writes."""
     if not items:
@@ -472,13 +474,37 @@ def run_llm_and_cache_batch(
                     
                     if len(detected_langs) == len(chunk):
                         mismatch_found = False
+                        matching_chunk: list[tuple[GrammarWorkItem, str]] = []
                         for idx, d_lang in enumerate(detected_langs):
                             if d_lang and d_lang != grammar_bcp47:
                                 log.info("[grammar] Language mismatch detected in batch: %s vs %s. Triggering locale change.", d_lang, grammar_bcp47)
                                 _apply_language_change(ctx, chunk[idx][0].doc_id, chunk[idx][1], d_lang)
+                                # Fallback: process this specific item individually with the CORRECT locale
+                                # while also caching under the original locale to break the loop.
+                                run_llm_and_cache(
+                                    ctx,
+                                    chunk[idx][0].full_text,
+                                    chunk[idx][0].n_start,
+                                    chunk[idx][0].n_end,
+                                    chunk[idx][0].enqueue_seq,
+                                    chunk[idx][0].inflight_key,
+                                    d_lang, # New locale
+                                    chunk[idx][0].partial_sentence,
+                                    doc_id=chunk[idx][0].doc_id,
+                                    proofread_sentence_text=chunk[idx][1],
+                                    grammar_queue=gq,
+                                    original_bcp47=grammar_bcp47, # Old locale
+                                )
                                 mismatch_found = True
+                            else:
+                                matching_chunk.append(chunk[idx])
+
                         if mismatch_found:
-                            continue # Skip grammar check for this batch to allow re-check
+                            # Process remaining matching items (if any) as a smaller batch
+                            if not matching_chunk:
+                                return # Everything was a mismatch and handled individually
+                            chunk = matching_chunk
+                            user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(chunk))
 
                 # --- Grammar Check ---
                 grammar_obs("worker_llm_batch_request", item_count=len(chunk), total_len=len(user_content))
@@ -509,6 +535,7 @@ def run_llm_and_cache_batch(
                             doc_id=item.doc_id,
                             proofread_sentence_text=text,
                             grammar_queue=gq,
+                            original_bcp47=original_bcp47,
                         )
                     continue
 
@@ -519,6 +546,8 @@ def run_llm_and_cache_batch(
                     sent_results = batch_results[idx]
                     norms = normalize_errors_for_text(text, 0, len(text), sent_results, ignored, ctx, grammar_bcp47)
                     cache_put_sentence(grammar_bcp47, text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
+                    if original_bcp47 and original_bcp47 != grammar_bcp47:
+                        cache_put_sentence(original_bcp47, text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
                     
                     issue_word = "issue" if len(norms) == 1 else "issues"
                     emit_grammar_status("complete", text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms // len(chunk))
@@ -547,7 +576,10 @@ def run_llm_and_cache_batch(
                     if detected_lang and detected_lang != grammar_bcp47:
                         log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", detected_lang, grammar_bcp47)
                         _apply_language_change(ctx, item.doc_id, llm_text, detected_lang)
-                        continue
+                        # Switch to the detected locale for the subsequent grammar check
+                        original_bcp47 = grammar_bcp47
+                        grammar_bcp47 = detected_lang
+                        _lang = grammar_english_name_for_bcp47(grammar_bcp47)
 
                 # --- Grammar Check ---
                 use_partial = item.partial_sentence or not looks_complete_sentence(llm_text)
@@ -571,6 +603,8 @@ def run_llm_and_cache_batch(
                 ignored = ignored_rules_snapshot()
                 norms = normalize_errors_for_text(llm_text, 0, len(llm_text), sent_results, ignored, ctx, grammar_bcp47)
                 cache_put_sentence(grammar_bcp47, llm_text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
+                if original_bcp47 and original_bcp47 != grammar_bcp47:
+                    cache_put_sentence(original_bcp47, llm_text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
                 
                 issue_word = "issue" if len(norms) == 1 else "issues"
                 emit_grammar_status("complete", llm_text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)

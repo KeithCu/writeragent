@@ -508,3 +508,166 @@ def test_run_llm_and_cache_batch_size_1() -> None:
         assert "S0." == args[0][1]["content"] # args[0][1] is the user message
 
         assert mock_put.call_count == 3
+
+def test_locale_mismatch_proceeds_and_double_caches(
+) -> None:
+    """Verify that locale mismatch detected during individual check triggers update and double-caches."""
+    ctx = MagicMock()
+    with patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=1), \
+         patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False), \
+         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put, \
+         patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply, \
+         patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+         patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
+         patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
+
+        # Mock LLM client to return Japanese detection then grammar result
+        mock_client_inst = mock_llm_client.return_value
+        mock_client_inst.chat_completion_sync.side_effect = [
+            '{"detected_language_bcp47": "ja-JP"}', # Detection
+            '{"errors": [{"wrong": "日本語", "correct": "にほんご", "type": "grammar", "reason": "test"}]}' # Grammar
+        ]
+    
+        item = GrammarWorkItem(
+            ctx=ctx,
+            full_text="日本語で書いています。",
+            n_start=0,
+            n_end=10,
+            grammar_bcp47="zh-CN", # Wrong locale
+            partial_sentence=False,
+            doc_id="doc123",
+            inflight_key="key123",
+            enqueue_seq=1,
+            proofread_sentence_text="日本語で書いています。"
+        )
+    
+        run_llm_and_cache_batch([item])
+    
+        # 1. Verify document update was triggered
+        mock_apply.assert_called_once_with(ctx, "doc123", "日本語で書いています。", "ja-JP")
+    
+        # 2. Verify grammar check was done with ja-JP
+        args, _ = mock_client_inst.chat_completion_sync.call_args_list[1]
+        messages = args[0]
+        sys_prompt = messages[0]["content"]
+        assert "ja-JP" in sys_prompt
+        assert "Japanese" in sys_prompt
+    
+        # 3. Verify double caching
+        assert mock_cache_put.call_count == 2
+        
+        # Check ja-JP cache put
+        args_ja, _ = mock_cache_put.call_args_list[0]
+        assert args_ja[0] == "ja-JP"
+        
+        # Check zh-CN cache put (the loop breaker)
+        args_zh, _ = mock_cache_put.call_args_list[1]
+        assert args_zh[0] == "zh-CN"
+
+
+def test_locale_mismatch_batch_splits_and_double_caches(
+) -> None:
+    """Verify that locale mismatch in a batch triggers individual check and double-caches for mismatched item."""
+    ctx = MagicMock()
+    with patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=8), \
+         patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False), \
+         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put, \
+         patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply, \
+         patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+         patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
+         patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
+
+        # Mock LLM client:
+        # 1. Batch detection: [zh-CN, ja-JP]
+        # 2. Individual grammar check for item 2 (ja-JP)
+        # 3. Batch grammar check for item 1 (zh-CN)
+        mock_client_inst = mock_llm_client.return_value
+        mock_client_inst.chat_completion_sync.side_effect = [
+            '{"results": [{"detected_language_bcp47": "zh-CN"}, {"detected_language_bcp47": "ja-JP"}]}', # Batch Detection
+            '{"errors": []}', # Individual Grammar for item 2
+            '{"results": [{"errors": []}]}' # Batch Grammar for item 1 (now a batch of 1)
+        ]
+    
+        item1 = GrammarWorkItem(ctx=ctx, full_text="Sentence 1.", n_start=0, n_end=11, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="Sentence 1.")
+        item2 = GrammarWorkItem(ctx=ctx, full_text="日本語の文章。", n_start=12, n_end=20, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text="日本語の文章。")
+    
+        run_llm_and_cache_batch([item1, item2])
+    
+        # 1. Verify document update for item 2
+        mock_apply.assert_called_once_with(ctx, "d1", "日本語の文章。", "ja-JP")
+    
+        # 2. Verify cache puts:
+        # - item 2 ja-JP
+        # - item 2 zh-CN (loop breaker)
+        # - item 1 zh-CN (original batch)
+        assert mock_cache_put.call_count == 3
+        
+        # Check item 2 ja-JP
+        args, _ = mock_cache_put.call_args_list[0]
+        assert args[0] == "ja-JP"
+        assert args[1] == "日本語の文章。"
+        
+        # Check item 2 zh-CN
+        args, _ = mock_cache_put.call_args_list[1]
+        assert args[0] == "zh-CN"
+        assert args[1] == "日本語の文章。"
+        
+        # Check item 1 zh-CN
+        args, _ = mock_cache_put.call_args_list[2]
+        assert args[0] == "zh-CN"
+        assert args[1] == "Sentence 1."
+
+def test_locale_mismatch_batch_cached_detection_double_caches(
+) -> None:
+    """Verify that locale mismatch in a batch works even when detection results are already cached."""
+    ctx = MagicMock()
+    # Mock detection cache to return ja-JP for sentence 2
+    sent2_text = "日本語の文章。"
+    from plugin.writer.locale.grammar_work_queue import _lang_detect_cache
+    _lang_detect_cache[sent2_text] = "ja-JP"
+    
+    try:
+        with patch("plugin.framework.config.is_grammar_enabled", return_value=True),              patch("plugin.framework.config.get_config_int_safe", return_value=8),              patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False),              patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None),              patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put,              patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply,              patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"),              patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,              patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
+
+            # Mock LLM client:
+            # 1. Individual Grammar for item 2 (ja-JP) - triggered by mismatch detection
+            # 2. Batch Grammar for item 1 (zh-CN)
+            mock_client_inst = mock_llm_client.return_value
+            mock_client_inst.chat_completion_sync.side_effect = [
+                '{"errors": []}', # Individual Grammar for item 2
+                '{"results": [{"errors": []}]}' # Batch Grammar for item 1
+            ]
+        
+            item1 = GrammarWorkItem(ctx=ctx, full_text="Sentence 1.", n_start=0, n_end=11, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="Sentence 1.")
+            item2 = GrammarWorkItem(ctx=ctx, full_text=sent2_text, n_start=12, n_end=20, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text=sent2_text)
+        
+            # This should NOT trigger batch detection because item 2 is cached and we'll mock item 1 too
+            _lang_detect_cache["Sentence 1."] = "zh-CN"
+            
+            run_llm_and_cache_batch([item1, item2])
+        
+            # 1. Verify document update for item 2
+            mock_apply.assert_called_once_with(ctx, "d1", sent2_text, "ja-JP")
+        
+            # 2. Verify cache puts:
+            # - item 2 ja-JP
+            # - item 2 zh-CN (loop breaker)
+            # - item 1 zh-CN
+            assert mock_cache_put.call_count == 3
+            
+            # Check item 2 ja-JP
+            args, _ = mock_cache_put.call_args_list[0]
+            assert args[0] == "ja-JP"
+            assert args[1] == sent2_text
+            
+            # Check item 2 zh-CN
+            args, _ = mock_cache_put.call_args_list[1]
+            assert args[0] == "zh-CN"
+            assert args[1] == sent2_text
+    finally:
+        _lang_detect_cache.pop(sent2_text, None)
+        _lang_detect_cache.pop("Sentence 1.", None)
