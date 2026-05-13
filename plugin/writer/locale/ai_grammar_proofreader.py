@@ -322,7 +322,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         combined_errors: list[dict[str, Any]] = []
         uncached_spans: list[tuple[int, int, str]] = []
         for sent_start, _sent_end, sent_text in work_spans:
-            cached = cache_get_sentence(loc_key, sent_text, ctx=self.ctx)
+            cached = cache_get_sentence(loc_key, sent_text, ctx=self.ctx, doc_id=a_doc_id)
             _grammar_obs(
                 "do_proofreading_sentence_cache",
                 doc_id=a_doc_id,

@@ -13,7 +13,7 @@ import collections
 import threading
 from typing import Any
 
-from .grammar_persistence import get_persistence
+from .grammar_persistence import USE_SQLITE_CACHE, clear_all_document_persistence, get_persistence
 from .grammar_proofread_locale import GRAMMAR_CACHE_NORMALIZATION_RE, fingerprint_for_text, looks_complete_sentence
 
 _CACHE_LOCK = threading.Lock()
@@ -27,14 +27,22 @@ MAX_RECENT_INCOMPLETE_SCAN = 10
 _SENTENCE_CACHE: collections.OrderedDict[str, tuple[str, str, bool, list[dict[str, Any]]]] = collections.OrderedDict()
 
 
-def cache_clear(ctx: Any | None = None) -> None:
+def cache_clear(ctx: Any | None = None, doc_id: str | None = None) -> None:
     """Clear proofreading cache (e.g. tests)."""
     with _CACHE_LOCK:
         _SENTENCE_CACHE.clear()
-    if ctx:
+    if not ctx:
+        return
+    if USE_SQLITE_CACHE:
         p = get_persistence(ctx)
         if p:
             p.clear()
+    elif doc_id:
+        p = get_persistence(ctx, doc_id)
+        if p:
+            p.clear()
+    else:
+        clear_all_document_persistence(ctx)
 
 
 def ignore_rules_clear() -> None:
@@ -143,8 +151,16 @@ def _populate_memory_cache_only(locale_key: str, sentence: str, errors: list[dic
     return fp, canon, is_complete, key, cloned_errors
 
 
-def cache_get_sentence(locale_key: str, sentence: str, ctx: Any | None = None) -> list[dict[str, Any]] | None:
+def cache_get_sentence(locale_key: str, sentence: str, ctx: Any | None = None, doc_id: str | None = None) -> list[dict[str, Any]] | None:
     """Return cached errors for this exact sentence (relative to sentence start = 0)."""
+    if not USE_SQLITE_CACHE and ctx and doc_id:
+        p = get_persistence(ctx, doc_id)
+        if not p:
+            return None
+        fp = sentence_identity_fp(sentence)
+        persisted = p.get(fp)
+        return list(persisted) if persisted is not None else None
+
     key = make_sentence_key(locale_key, sentence)
     with _CACHE_LOCK:
         hit = _SENTENCE_CACHE.get(key)
@@ -154,22 +170,36 @@ def cache_get_sentence(locale_key: str, sentence: str, ctx: Any | None = None) -
                 _SENTENCE_CACHE.move_to_end(key)
                 return list(errors)
 
-    # Persistence fallback
     if ctx:
         p = get_persistence(ctx)
         if p:
             fp = sentence_identity_fp(sentence)
             persisted = p.get(fp)
             if persisted is not None:
-                # Populate memory cache so future hits are faster
                 _populate_memory_cache_only(locale_key, sentence, persisted)
                 return list(persisted)
 
     return None
 
 
-def cache_put_sentence(locale_key: str, sentence: str, errors: list[dict[str, Any]], ctx: Any | None = None) -> None:
+def cache_put_sentence(
+    locale_key: str,
+    sentence: str,
+    errors: list[dict[str, Any]],
+    ctx: Any | None = None,
+    doc_id: str | None = None,
+) -> None:
     """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
+    if not USE_SQLITE_CACHE and ctx and doc_id:
+        # Document mode: no global LRU or incomplete-prefix compaction (those scan _SENTENCE_CACHE only).
+        canon = _normalize_for_sentence_cache(sentence)
+        fp = fingerprint_for_text(canon)
+        clipped = _clip_errors_to_canonical_length(errors, len(canon))
+        p = get_persistence(ctx, doc_id)
+        if p:
+            p.put(fp, locale_key, canon, [dict(e) for e in clipped])
+        return
+
     fp, canon, is_complete, key, clipped_errors = _populate_memory_cache_only(locale_key, sentence, errors)
 
     if ctx:

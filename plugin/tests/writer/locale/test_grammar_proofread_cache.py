@@ -194,3 +194,23 @@ def test_cache_persistence_fallback() -> None:
         got2 = gc.cache_get_sentence("en-US", "Persistence test.", ctx=ctx)
         assert got2 == errors
         assert mock_p.get.call_count == 1
+
+
+def test_document_mode_skips_global_lru() -> None:
+    """When ``USE_SQLITE_CACHE`` is False and ``doc_id`` is set, only document persistence is used."""
+    from unittest.mock import MagicMock
+
+    from plugin.writer.locale.grammar_persistence import GrammarPersistence
+
+    ctx = object()
+    mock_p = MagicMock(spec=GrammarPersistence)
+    mock_p.get.return_value = [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "t"}]
+
+    with (
+        patch("plugin.writer.locale.grammar_proofread_cache.USE_SQLITE_CACHE", False),
+        patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=mock_p) as mock_gp,
+    ):
+        got = gc.cache_get_sentence("en-US", "Hello.", ctx=ctx, doc_id="uid-1")
+        assert got is not None
+        assert len(gc._SENTENCE_CACHE) == 0
+        mock_gp.assert_called_once_with(ctx, "uid-1")

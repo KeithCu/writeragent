@@ -167,6 +167,7 @@ def run_llm_and_cache(
     grammar_bcp47: str,
     partial_sentence: bool = False,
     *,
+    doc_id: str = "",
     proofread_sentence_text: str = "",
     grammar_queue: Any | None = None,
 ) -> None:
@@ -178,7 +179,7 @@ def run_llm_and_cache(
         n_end=n_end,
         grammar_bcp47=grammar_bcp47,
         partial_sentence=partial_sentence,
-        doc_id="",  # not strictly needed here for single item legacy call
+        doc_id=doc_id,
         inflight_key=inflight_key,
         enqueue_seq=enqueue_seq,
         proofread_sentence_text=proofread_sentence_text,
@@ -242,7 +243,7 @@ def run_llm_and_cache_batch(
 
             # Only keep uncached ones
             for sent_text in to_process:
-                if cache_get_sentence(grammar_bcp47, sent_text, ctx=ctx) is None:
+                if cache_get_sentence(grammar_bcp47, sent_text, ctx=ctx, doc_id=item.doc_id) is None:
                     valid_items.append((item, sent_text))
 
         if not valid_items:
@@ -292,7 +293,19 @@ def run_llm_and_cache_batch(
                     log.warning("[grammar] LLM batch result count mismatch for chunk: expected %s, got %s. Falling back to individual processing for this chunk.", len(chunk), len(batch_results))
                     # Fallback: process only this chunk individually
                     for item, text in chunk:
-                        run_llm_and_cache(ctx, item.full_text, item.n_start, item.n_end, item.enqueue_seq, item.inflight_key, grammar_bcp47, item.partial_sentence, proofread_sentence_text=text, grammar_queue=gq)
+                        run_llm_and_cache(
+                            ctx,
+                            item.full_text,
+                            item.n_start,
+                            item.n_end,
+                            item.enqueue_seq,
+                            item.inflight_key,
+                            grammar_bcp47,
+                            item.partial_sentence,
+                            doc_id=item.doc_id,
+                            proofread_sentence_text=text,
+                            grammar_queue=gq,
+                        )
                     continue
 
                 # Store results for this chunk
@@ -302,7 +315,7 @@ def run_llm_and_cache_batch(
                     
                     sent_results = batch_results[idx]
                     norms = normalize_errors_for_text(text, 0, len(text), sent_results, ignored, ctx, grammar_bcp47)
-                    cache_put_sentence(grammar_bcp47, text, [asdict(n) for n in norms], ctx=ctx)
+                    cache_put_sentence(grammar_bcp47, text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
                     
                     issue_word = "issue" if len(norms) == 1 else "issues"
                     emit_grammar_status("complete", text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms // len(chunk))
@@ -333,7 +346,7 @@ def run_llm_and_cache_batch(
                 sent_results = parse_grammar_json(content or "")
                 ignored = ignored_rules_snapshot()
                 norms = normalize_errors_for_text(llm_text, 0, len(llm_text), sent_results, ignored, ctx, grammar_bcp47)
-                cache_put_sentence(grammar_bcp47, llm_text, [asdict(n) for n in norms], ctx=ctx)
+                cache_put_sentence(grammar_bcp47, llm_text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
                 
                 issue_word = "issue" if len(norms) == 1 else "issues"
                 emit_grammar_status("complete", llm_text, result=f"{len(norms)} {issue_word}", elapsed_ms=elapsed_ms)

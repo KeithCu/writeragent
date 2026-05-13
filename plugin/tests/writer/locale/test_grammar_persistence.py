@@ -94,18 +94,60 @@ class TestGrammarPersistence(unittest.TestCase):
             self.assertEqual(len(os.listdir(dir_path)), 2)
 
     def test_factory_and_singleton(self):
-        # Reset singleton for testing
-        with patch("plugin.writer.locale.grammar_persistence._persistence_instance", None):
-            with patch("plugin.framework.config.user_config_dir", return_value=self.tmp_dir):
-                p = get_persistence(self.ctx)
-                self.assertIsNotNone(p)
-                p2 = get_persistence(self.ctx)
-                self.assertIs(p, p2)
-                
-                if HAS_SQLITE:
-                    self.assertIsInstance(p, SQLitePersistence)
-                else:
-                    self.assertIsInstance(p, JSONPersistence)
+        # Reset singleton for testing (force SQLite/JSON path).
+        with patch("plugin.writer.locale.grammar_persistence.USE_SQLITE_CACHE", True), patch(
+            "plugin.writer.locale.grammar_persistence._persistence_instance", None
+        ), patch("plugin.framework.config.user_config_dir", return_value=self.tmp_dir):
+            p = get_persistence(self.ctx)
+            self.assertIsNotNone(p)
+            p2 = get_persistence(self.ctx)
+            self.assertIs(p, p2)
+
+            if HAS_SQLITE:
+                self.assertIsInstance(p, SQLitePersistence)
+            else:
+                self.assertIsInstance(p, JSONPersistence)
+
+    def test_get_persistence_document_mode_per_doc_id(self) -> None:
+        from plugin.writer.locale import grammar_persistence as gp
+
+        ctx = MagicMock()
+        with patch.object(gp, "USE_SQLITE_CACHE", False), patch.object(gp, "_find_model_by_runtime_uid", return_value=None):
+            gp._doc_persistence_instances.clear()
+            try:
+                pa = gp.get_persistence(ctx, "runtime-a")
+                pb = gp.get_persistence(ctx, "runtime-b")
+                pa2 = gp.get_persistence(ctx, "runtime-a")
+                self.assertIsNotNone(pa)
+                self.assertIs(pa, pa2)
+                self.assertIsNot(pa, pb)
+            finally:
+                gp.clear_all_document_persistence(ctx)
+
+    def test_document_persistence_persist_prunes_to_session(self) -> None:
+        from plugin.writer.locale.grammar_persistence import DocumentPersistence
+
+        ctx = MagicMock()
+        model = MagicMock()
+        with (
+            patch("plugin.writer.locale.grammar_persistence._find_model_by_runtime_uid", return_value=model),
+            patch("plugin.doc.document_helpers.get_document_property", return_value=None),
+        ):
+            dp = DocumentPersistence(ctx, "doc-x")
+        self.assertIsNone(dp.get("fp_missing"))
+        dp.put("fp1", "en-US", "One.", [{"n_error_start": 0, "n_error_length": 1}])
+        dp.put("fp2", "en-US", "Two.", [])
+        dp.get("fp1")
+        with patch("plugin.doc.document_helpers.set_document_property") as mock_set:
+            dp._persist_to_udprops()
+        self.assertTrue(mock_set.called)
+        args = mock_set.call_args[0]
+        self.assertIs(args[0], model)
+        written = json.loads(str(args[2]))
+        self.assertIn("fp1", written)
+        self.assertIn("fp2", written)
+        self.assertEqual(written["fp2"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

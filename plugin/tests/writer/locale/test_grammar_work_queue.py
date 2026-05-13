@@ -334,9 +334,15 @@ def test_run_llm_and_cache_batch_success() -> None:
         # Verify cache_put_sentence was called for each sentence
         assert mock_put.call_count == 2
         # First call: "They is here." -> one error
-        mock_put.assert_any_call("en-US", "They is here.", [{"n_error_start": 5, "n_error_length": 2, "suggestions": ("are",), "short_comment": "grammar", "full_comment": "grammar", "rule_identifier": "wa_grammar_0_0f61208a"}], ctx=ANY)
+        mock_put.assert_any_call(
+            "en-US",
+            "They is here.",
+            [{"n_error_start": 5, "n_error_length": 2, "suggestions": ("are",), "short_comment": "grammar", "full_comment": "grammar", "rule_identifier": "wa_grammar_0_0f61208a"}],
+            ctx=ANY,
+            doc_id="d1",
+        )
         # Second call: "All good." -> no errors
-        mock_put.assert_any_call("en-US", "All good.", [], ctx=ANY)
+        mock_put.assert_any_call("en-US", "All good.", [], ctx=ANY, doc_id="d1")
 
 
 def test_run_llm_and_cache_batch_mismatch_fallback() -> None:
