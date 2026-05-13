@@ -606,6 +606,46 @@ class TestNormalizeEndpointUrl():
         # Test that /v1 is also stripped for Z.ai (as a fallback)
         assert normalize_endpoint_url("https://api.z.ai/v1") == "https://api.z.ai"
 
+    def test_populate_combobox_stray_model_filtering(self):
+        from unittest.mock import MagicMock
+        from plugin.framework.config import populate_combobox_with_lru
+        
+        ctx = MagicMock()
+        ctrl = MagicMock()
+        
+        # Scenario: Current val is a Google model, but we just switched to Z.ai.
+        # Fetch fails (None).
+        current_val = "google/gemini-3.1-flash-lite-preview"
+        endpoint = "https://api.z.ai/v4"
+        
+        # Mock get_config to return empty LRU
+        with patch("plugin.framework.config.get_config", return_value=[]):
+            # Mock fetch_available_models to return None (fail)
+            with patch("plugin.framework.config.fetch_available_models", return_value=None):
+                populate_combobox_with_lru(ctx, ctrl, current_val, "text_model_lru", endpoint)
+                
+        # Verify that ctrl.addItems was called with the placeholder, NOT the stray Gemini model
+        call_args = ctrl.addItems.call_args[0][0]
+        assert "(Enter API Key to load models)" in call_args
+        assert "google/gemini-3.1-flash-lite-preview" not in call_args
+
+    def test_populate_combobox_placeholder_no_provider(self):
+        from unittest.mock import MagicMock
+        from plugin.framework.config import populate_combobox_with_lru
+        
+        ctx = MagicMock()
+        ctrl = MagicMock()
+        
+        # Scenario: Unknown endpoint, fetch fails.
+        endpoint = "https://unknown.provider/api"
+        
+        with patch("plugin.framework.config.get_config", return_value=[]):
+            with patch("plugin.framework.config.fetch_available_models", return_value=None):
+                populate_combobox_with_lru(ctx, ctrl, "", "text_model_lru", endpoint)
+                
+        call_args = ctrl.addItems.call_args[0][0]
+        assert "(Connection failed)" in call_args
+
     def test_openwebui_normalization(self):
         # Test that /api is stripped when is_openwebui is True
         assert normalize_endpoint_url("http://localhost:3000/api", is_openwebui=True) == "http://localhost:3000"

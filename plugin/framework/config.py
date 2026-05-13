@@ -963,6 +963,34 @@ def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     return False
 
 
+def _is_model_id_associated_with_other_provider(model_id: str, current_provider: str | None) -> bool:
+    """True if model_id is a known default for SOME provider, but NOT the current_provider.
+
+    This helps filter out 'sticky' models from a previous endpoint (e.g. Gemini appearing
+    in a Z.ai dropdown) when a remote fetch fails.
+    """
+    if not model_id or not current_provider:
+        return False
+
+    from .default_models import DEFAULT_MODELS
+
+    # Check if this model ID is mapped to ANY provider in our catalog
+    is_known_elsewhere = False
+    is_known_here = False
+
+    for m in DEFAULT_MODELS:
+        ids = m.get("ids", {})
+        for pid, mid in ids.items():
+            if mid == model_id:
+                if pid == current_provider:
+                    is_known_here = True
+                else:
+                    is_known_elsewhere = True
+
+    # If it's a known model for others but NOT known for us, it's probably a 'stray'
+    return is_known_elsewhere and not is_known_here
+
+
 def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, *, remote_models: list[str] | None = None, skip_remote_fetch: bool = False):
     """Helper to populate a combobox with values from an LRU list in config.
     LRU is scoped to the provided endpoint.
@@ -1020,10 +1048,21 @@ def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, *, rem
                         to_show.append(effective_id)
 
     curr_val_str = str(current_val).strip()
-    if curr_val_str and curr_val_str not in to_show:
+    # Filter out models that belong to other providers if we are on a specific provider endpoint
+    is_stray = _is_model_id_associated_with_other_provider(curr_val_str, provider)
+    
+    if curr_val_str and not is_stray and curr_val_str not in to_show:
         to_show.insert(0, curr_val_str)
 
-    display_val = curr_val_str if curr_val_str else (to_show[0] if to_show else "")
+    # If the list is empty (fetch failed and no defaults), add a helpful placeholder
+    if not to_show:
+        from plugin.framework.i18n import _
+        if provider:
+            to_show.append(_("(Enter API Key to load models)"))
+        else:
+            to_show.append(_("(Connection failed)"))
+
+    display_val = curr_val_str if (curr_val_str and not is_stray) else (to_show[0] if to_show else "")
 
     if to_show:
         ctrl.removeItems(0, ctrl.getItemCount())
