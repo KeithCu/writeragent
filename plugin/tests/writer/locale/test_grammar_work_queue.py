@@ -442,7 +442,7 @@ def test_run_llm_and_cache_batch_chunking() -> None:
         mock_client.chat_completion_sync.side_effect = [
             '{"results": [{"errors": []}, {"errors": []}]}',
             '{"results": [{"errors": []}, {"errors": []}]}',
-            '{"results": [{"errors": []}]}',
+            '{"errors": []}',
         ]
         mock_norm.return_value = []
 
@@ -461,9 +461,9 @@ def test_run_llm_and_cache_batch_chunking() -> None:
         args, _ = mock_client.chat_completion_sync.call_args_list[0]
         assert "1. Sent 0.\n2. Sent 1." in args[0][1]["content"]
 
-        # Verify third call had 1 sentence
+        # Verify third call had 1 sentence (uses individual prompt logic)
         args, _ = mock_client.chat_completion_sync.call_args_list[2]
-        assert "1. Sent 4." in args[0][1]["content"]
+        assert "Sent 4." == args[0][1]["content"]
 
         assert mock_put.call_count == 5
 
@@ -654,7 +654,7 @@ def test_locale_mismatch_batch_splits_and_double_caches(
         mock_client_inst.chat_completion_sync.side_effect = [
             '{"results": [{"detected_language_bcp47": "zh-CN"}, {"detected_language_bcp47": "ja-JP"}]}', # Batch Detection
             '{"errors": []}', # Individual Grammar for item 2
-            '{"results": [{"errors": []}]}' # Batch Grammar for item 1 (now a batch of 1)
+            '{"errors": []}' # Individual Grammar for item 1 (now re-processed as individual)
         ]
     
         item1 = GrammarWorkItem(ctx=ctx, full_text="Sentence 1.", n_start=0, n_end=11, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="Sentence 1.")
@@ -704,7 +704,7 @@ def test_locale_mismatch_batch_cached_detection_double_caches(
             mock_client_inst = mock_llm_client.return_value
             mock_client_inst.chat_completion_sync.side_effect = [
                 '{"errors": []}', # Individual Grammar for item 2
-                '{"results": [{"errors": []}]}' # Batch Grammar for item 1
+                '{"errors": []}' # Individual Grammar for item 1
             ]
         
             item1 = GrammarWorkItem(ctx=ctx, full_text="Sentence 1.", n_start=0, n_end=11, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="Sentence 1.")

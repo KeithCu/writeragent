@@ -436,15 +436,15 @@ def run_llm_and_cache_batch(
             locales_in_use = _get_cached_document_locales(ctx, valid_items[0][0].doc_id)
             detect_lang_instruction = f" Choose from the following locales currently used in the document, or provide a new one if none match: {', '.join(locales_in_use)}."
             
-        chunks: list[tuple[list[tuple[GrammarWorkItem, str]], bool]] = []
+        chunks: list[list[tuple[GrammarWorkItem, str]]] = []
         if len(valid_items) > 1 and batch_size > 1:
             for i in range(0, len(valid_items), batch_size):
-                chunks.append((valid_items[i : i + batch_size], True))
+                chunks.append(valid_items[i : i + batch_size])
         else:
             for item, text in valid_items:
                 if len(text) > max_chars:
                     text = text[:max_chars]
-                chunks.append(([(item, text)], False))
+                chunks.append([(item, text)])
 
         from .grammar_fsm_state import (
             GrammarChunkState, GrammarEvent, EventKind, next_state,
@@ -454,14 +454,13 @@ def run_llm_and_cache_batch(
         )
 
         # 3. FSM Execution per chunk
-        for chunk, is_batch in chunks:
+        for chunk in chunks:
             state = GrammarChunkState(
                 bcp47=grammar_bcp47,
                 original_bcp47=original_bcp47,
                 chunk=chunk,
                 detect_lang_enabled=detect_lang_enabled,
-                detect_lang_instruction=detect_lang_instruction,
-                is_batch=is_batch
+                detect_lang_instruction=detect_lang_instruction
             )
             
             tr = next_state(state, GrammarEvent(EventKind.START))
@@ -481,7 +480,7 @@ def run_llm_and_cache_batch(
                                     all_cached = False
                                     
                             if not all_cached:
-                                if effect.is_batch:
+                                if len(effect.chunk) > 1:
                                     user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(effect.chunk))
                                     detect_prompt = LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT.format(detect_lang_instruction=effect.detect_lang_instruction)
                                     detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": user_content}]
@@ -514,9 +513,13 @@ def run_llm_and_cache_batch(
                             
                         elif isinstance(effect, ExecuteGrammarCheckEffect):
                             _lang = grammar_english_name_for_bcp47(effect.bcp47)
-                            if effect.is_batch:
+                            if len(effect.chunk) > 1:
                                 user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(effect.chunk))
                                 sys_prompt = GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=effect.bcp47)
+                                any_partial = any(item.partial_sentence or not looks_complete_sentence(text) for item, text in effect.chunk)
+                                if any_partial:
+                                    sys_prompt += " The input may contain partial sentences; prefer conservative grammar suggestions and avoid broad rewrites."
+                                
                                 messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_content}]
                                 
                                 grammar_obs("worker_llm_batch_request", item_count=len(effect.chunk), total_len=len(user_content))
@@ -592,7 +595,7 @@ def run_llm_and_cache_batch(
                                     cache_put_sentence(effect.original_bcp47, text, [asdict(n) for n in norms], ctx=ctx, doc_id=item.doc_id)
                                 
                                 issue_word = "issue" if len(norms) == 1 else "issues"
-                                emit_grammar_status("complete", text, result=f"{len(norms)} {issue_word}", elapsed_ms=effect.elapsed_ms // len(effect.chunk) if effect.is_batch else effect.elapsed_ms)
+                                emit_grammar_status("complete", text, result=f"{len(norms)} {issue_word}", elapsed_ms=effect.elapsed_ms // len(effect.chunk))
                                 
                         elif isinstance(effect, EmitStatusEffect):
                             emit_grammar_status(effect.phase, effect.text, result=effect.result, elapsed_ms=effect.elapsed_ms)

@@ -36,7 +36,6 @@ class GrammarChunkState(BaseState):
     chunk: List[Tuple['GrammarWorkItem', str]]
     detect_lang_enabled: bool
     detect_lang_instruction: str
-    is_batch: bool
     status: str = "init"
     is_done: bool = False
 
@@ -47,14 +46,12 @@ class GrammarChunkState(BaseState):
 class ExecuteLanguageDetectEffect:
     chunk: List[Tuple['GrammarWorkItem', str]]
     detect_lang_instruction: str
-    is_batch: bool
 
 
 @dataclasses.dataclass(frozen=True)
 class ExecuteGrammarCheckEffect:
     chunk: List[Tuple['GrammarWorkItem', str]]
     bcp47: str
-    is_batch: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,7 +76,6 @@ class ProcessGrammarResultsEffect:
     bcp47: str
     original_bcp47: str
     elapsed_ms: int
-    is_batch: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -105,15 +101,13 @@ def next_state(state: GrammarChunkState, event: GrammarEvent) -> FsmTransition[G
         if state.detect_lang_enabled:
             effects.append(ExecuteLanguageDetectEffect(
                 chunk=state.chunk,
-                detect_lang_instruction=state.detect_lang_instruction,
-                is_batch=state.is_batch
+                detect_lang_instruction=state.detect_lang_instruction
             ))
             return FsmTransition(dataclasses.replace(state, status="detecting_language"), effects)
         else:
             effects.append(ExecuteGrammarCheckEffect(
                 chunk=state.chunk,
-                bcp47=state.bcp47,
-                is_batch=state.is_batch
+                bcp47=state.bcp47
             ))
             return FsmTransition(dataclasses.replace(state, status="checking_grammar"), effects)
 
@@ -136,8 +130,7 @@ def next_state(state: GrammarChunkState, event: GrammarEvent) -> FsmTransition[G
 
         effects.append(ExecuteGrammarCheckEffect(
             chunk=matching_chunk,
-            bcp47=state.bcp47,
-            is_batch=state.is_batch if len(matching_chunk) > 1 else False
+            bcp47=state.bcp47
         ))
         return FsmTransition(dataclasses.replace(state, chunk=matching_chunk, status="checking_grammar"), effects)
 
@@ -145,8 +138,8 @@ def next_state(state: GrammarChunkState, event: GrammarEvent) -> FsmTransition[G
         results = event.data.get("results", [])
         elapsed_ms = event.data.get("elapsed_ms", 0)
 
-        if state.is_batch and len(results) != len(state.chunk):
-            effects.append(LogEffect("warning", "[grammar] LLM batch result count mismatch for chunk: expected %s, got %s. Falling back to individual processing.", (len(state.chunk), len(results))))
+        if len(results) != len(state.chunk):
+            effects.append(LogEffect("warning", "[grammar] LLM batch result count mismatch for chunk: expected %s, got %s. Requeuing items.", (len(state.chunk), len(results))))
             for item, text in state.chunk:
                 effects.append(RequeueIndividualItemEffect(item, text, state.bcp47, state.original_bcp47))
         else:
@@ -155,8 +148,7 @@ def next_state(state: GrammarChunkState, event: GrammarEvent) -> FsmTransition[G
                 results=results,
                 bcp47=state.bcp47,
                 original_bcp47=state.original_bcp47,
-                elapsed_ms=elapsed_ms,
-                is_batch=state.is_batch
+                elapsed_ms=elapsed_ms
             ))
 
         return FsmTransition(dataclasses.replace(state, is_done=True, status="done"), effects)

@@ -28,7 +28,6 @@ from .grammar_proofread_locale import (
     fingerprint_for_text,
     is_whitespace_sentence_locale,
     looks_complete_sentence,
-    parse_grammar_json,  # noqa: F401 — re-export for `grammar_proofread_text.parse_grammar_json`
     split_sentence_chunks_by_separator_regex,
     word_before_period_is_abbrev,
 )
