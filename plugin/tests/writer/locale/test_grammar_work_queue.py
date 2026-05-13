@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from plugin.writer.locale.grammar_work_queue import (
+    GrammarWorkQueue,
     GrammarWorkItem,
     deduplicate_grammar_batch,
     inflight_superseded,
@@ -282,6 +283,52 @@ def test_tail_enqueue_operation() -> None:
     assert tail_enqueue_operation(a, b) == "replace_tail"
     assert tail_enqueue_operation(b, a) == "skip_tail"
     assert tail_enqueue_operation(a, c) == "append"
+
+
+def test_drain_loop_collapses_same_key_items_during_burst() -> None:
+    """Regression: during typing bursts the worker pulls items between keystrokes,
+    so enqueue's tail-replace path cannot help — the queue is empty between
+    each keystroke. The drain loop's accumulator must collapse same-key items
+    as they arrive so the worker's batch holds only one item per inflight_key.
+    """
+    import threading
+
+    q = GrammarWorkQueue()
+    incomplete_key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
+    complete_a = "doc1|en-US|complete-a"
+    complete_b = "doc1|en-US|complete-b"
+
+    items = [
+        _item(1, key=incomplete_key),
+        _item(2, key=complete_a),
+        _item(3, key=incomplete_key),
+        _item(4, key=complete_b),
+        _item(5, key=incomplete_key),
+    ]
+
+    drained: list[list[GrammarWorkItem]] = []
+    drain_done = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue=None):
+        drained.append(list(group_items))
+        q._q.put(None)
+        drain_done.set()
+
+    for it in items:
+        q._q.put(it)
+
+    with patch("plugin.writer.locale.grammar_work_queue.run_llm_and_cache_batch", side_effect=fake_run), \
+         patch("plugin.writer.locale.grammar_work_queue.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.01):
+        q._ensure_worker()
+        assert drain_done.wait(timeout=2.0), "drain loop did not run"
+
+    assert len(drained) == 1
+    survivors = drained[0]
+    assert {item.inflight_key for item in survivors} == {incomplete_key, complete_a, complete_b}
+    by_key = {item.inflight_key: item for item in survivors}
+    assert by_key[incomplete_key].enqueue_seq == 5
+    assert by_key[complete_a].enqueue_seq == 2
+    assert by_key[complete_b].enqueue_seq == 4
 
 
 def test_is_stale_and_inflight_superseded() -> None:

@@ -197,7 +197,7 @@ def cache_put_sentence(
         clipped = _clip_errors_to_canonical_length(errors, len(canon))
         p = get_persistence(ctx, doc_id)
         if p:
-            p.put(fp, locale_key, canon, [dict(e) for e in clipped])
+            p.put(fp, locale_key, [dict(e) for e in clipped])
         return
 
     fp, canon, is_complete, key, clipped_errors = _populate_memory_cache_only(locale_key, sentence, errors)
@@ -205,7 +205,7 @@ def cache_put_sentence(
     if ctx:
         p = get_persistence(ctx)
         if p:
-            p.put(fp, locale_key, canon, [dict(e) for e in clipped_errors])
+            p.put(fp, locale_key, [dict(e) for e in clipped_errors])
 
     if not is_complete:
         with _CACHE_LOCK:

@@ -234,6 +234,22 @@ def mock_queue_fixture():
     with patch("plugin.writer.locale.ai_grammar_proofreader.grammar_queue", mock_q):
         yield mock_q
 
+@pytest.fixture(autouse=True)
+def _reset_grammar_caches():
+    """Clear both the global LRU and the per-doc DocumentPersistence map.
+
+    Under ``USE_SQLITE_CACHE=False`` ``DocumentPersistence`` instances live in a
+    module-level dict keyed by doc id and would otherwise leak warm state across
+    tests (any test that reuses ``doc_id="test-doc"`` would see stale entries).
+    """
+    from plugin.writer.locale import grammar_persistence as gp
+
+    gc.cache_clear()
+    gp._doc_persistence_instances.clear()
+    yield
+    gc.cache_clear()
+    gp._doc_persistence_instances.clear()
+
 def _make_proofreader(ctx: Any = None) -> Any:
     if ctx is None: ctx = MagicMock()
     return proofreader.WriterAgentAiGrammarProofreader(ctx)
@@ -254,9 +270,13 @@ class TestTypingIntegration:
         assert "INCOMPLETE_WRITER_AGENT_INTERNAL_STRING" in list(keys)[0]
 
     def test_slow_typing_cache_hit(self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture):
+        # Pass ctx + doc_id so write and read target the same cache layer under both
+        # USE_SQLITE_CACHE=True (global SQLite/JSON singleton) and USE_SQLITE_CACHE=False
+        # (per-doc DocumentPersistence keyed by doc_id). doProofreading reads with
+        # ctx=self.ctx, doc_id="test-doc"; the test must match that.
         pr = _make_proofreader()
         sentence = "The boy runs."
-        gc.cache_put_sentence("en-US", sentence, [{"n_error_start": 4, "n_error_length": 3, "rule_identifier": "r1"}])
+        gc.cache_put_sentence("en-US", sentence, [{"n_error_start": 4, "n_error_length": 3, "rule_identifier": "r1"}], ctx=pr.ctx, doc_id="test-doc")
         res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
         assert len(res.aErrors) == 1
         mock_queue_fixture.enqueue.assert_not_called()
@@ -265,7 +285,7 @@ class TestTypingIntegration:
         pr = _make_proofreader()
         sentences = ["First sentence.", "Second sentence.", "Third sentence."]
         for sent in sentences:
-            gc.cache_put_sentence("en-US", sent, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r"}])
+            gc.cache_put_sentence("en-US", sent, [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "r"}], ctx=pr.ctx, doc_id="test-doc")
         edited_text = sentences[0] + " SecondX sentence. " + sentences[2]
         enqueued_items = []
         mock_queue_fixture.enqueue.side_effect = lambda item: enqueued_items.append(item)

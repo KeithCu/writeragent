@@ -399,6 +399,12 @@ class GrammarWorkQueue:
         grammar_obs("queue_enqueue", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key, n_start=item.n_start, n_end=item.n_end, slice_len=len(item.full_text[item.n_start : item.n_end]), partial_sentence=item.partial_sentence, preview=slice_preview_debug(item.full_text[item.n_start : item.n_end]))  # fmt: skip
 
         with self._q.mutex:
+            # Note on same-key bursts: tail-replace only collapses items that are
+            # still in the queue. During a typing burst the drain worker pulls
+            # items into its batch within microseconds, so the queue is usually
+            # empty when the next enqueue arrives and same-key items still
+            # accumulate. Final collapse happens in ``_drain_loop`` via
+            # ``deduplicate_grammar_batch``.
             tail = self._q.queue[-1] if self._q.queue else None
             op = tail_enqueue_operation(tail, item)
             if op == "replace_tail":
@@ -428,15 +434,23 @@ class GrammarWorkQueue:
             first = self._q.get()
             if first is None:
                 break
-            batch: list[GrammarWorkItem] = [first]
+            # Collapse same-key items as they arrive instead of appending all of
+            # them to a list and dedup-ing at the end. During typing bursts the
+            # worker pulls items in microseconds, so the queue is empty between
+            # keystrokes and ``enqueue``'s tail-replace path can't help — without
+            # this dict the batch routinely held 20+ identical INCOMPLETE keys.
+            batch_by_key: dict[str, GrammarWorkItem] = {first.inflight_key: first}
             while True:
                 try:
                     more = self._q.get(timeout=GRAMMAR_WORKER_PAUSE_TIMEOUT_S)
                     if more is None:
                         return
-                    batch.append(more)
+                    prev = batch_by_key.get(more.inflight_key)
+                    if prev is None or more.enqueue_seq > prev.enqueue_seq:
+                        batch_by_key[more.inflight_key] = more
                 except queue.Empty:
                     break
+            batch = list(batch_by_key.values())
             grammar_obs("queue_drain_batch", batch_size=len(batch), seqs=tuple(x.enqueue_seq for x in batch), keys=tuple(x.inflight_key for x in batch))
             survivors = deduplicate_grammar_batch(batch)
             grammar_obs("queue_drain_survivors", survivor_count=len(survivors), seqs=tuple(x.enqueue_seq for x in survivors))

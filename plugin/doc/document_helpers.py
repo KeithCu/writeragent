@@ -282,6 +282,34 @@ class WriterStreamedRewriteSession:
             self._compound_undo.close()
 
 
+def _user_defined_property_exists(props, name) -> bool:
+    """Return True iff ``name`` is already defined on ``UserDefinedProperties``.
+
+    ``UserDefinedProperties`` is a ``com.sun.star.beans.PropertyBag`` which
+    implements ``XPropertySet`` (offering ``getPropertySetInfo().hasPropertyByName``)
+    and ``XPropertyContainer`` (``addProperty``/``removeProperty``) — but not
+    ``XNameAccess``. So ``hasattr(props, "hasByName")`` is False, the old
+    ``not exists`` branch always fired, and the second save raised
+    ``Property name or handle already used``.
+    """
+    if hasattr(props, "getPropertySetInfo"):
+        try:
+            info = props.getPropertySetInfo()
+        except Exception:
+            info = None
+        if info is not None and hasattr(info, "hasPropertyByName"):
+            try:
+                return bool(info.hasPropertyByName(name))
+            except Exception:
+                pass
+    if hasattr(props, "hasByName"):
+        try:
+            return bool(props.hasByName(name))
+        except Exception:
+            pass
+    return False
+
+
 def get_document_property(model, name, default=None):
     """Get a custom document property from the model."""
     try:
@@ -294,15 +322,9 @@ def get_document_property(model, name, default=None):
 
             check_disposed(props, "UserDefinedProperties")
 
-            # Use safe_call and specific logic for properties
-            if hasattr(props, "hasByName"):
-                if safe_call(props.hasByName, "Check property name", name):
-                    return safe_call(props.getPropertyValue, "Get property value", name)
-                return default
-
-            if hasattr(props, "getPropertyValue"):
-                # Fallback if hasByName is missing
-                return safe_call(props.getPropertyValue, "Get property value fallback", name)
+            if _user_defined_property_exists(props, name):
+                return safe_call(props.getPropertyValue, "Get property value", name)
+            return default
     except UnoObjectError as e:
         # WriterAgentSessionID is created on first session setup; missing until then is normal (often hits fallback path).
         _lg = logging.getLogger(__name__)
@@ -324,17 +346,15 @@ def set_document_property(model, name, value):
             props = doc_props.UserDefinedProperties
             if props is not None:
                 check_disposed(props, "UserDefinedProperties")
-                exists = False
-                if hasattr(props, "hasByName"):
-                    exists = safe_call(props.hasByName, "Check property name", name) or False
+                exists = _user_defined_property_exists(props, name)
 
-                REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
-                if not exists and hasattr(props, "addProperty"):
+                if exists and hasattr(props, "setPropertyValue"):
+                    safe_call(props.setPropertyValue, "Set property value", name, str(value))
+                elif hasattr(props, "addProperty"):
+                    REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
                     safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
                 elif hasattr(props, "setPropertyValue"):
-                    result = safe_call(props.setPropertyValue, "Set property value", name, str(value))
-                    if result is None and hasattr(props, "addProperty"):
-                        safe_call(props.addProperty, "Add property fallback", name, REMOVABLE, str(value))
+                    safe_call(props.setPropertyValue, "Set property value (no addProperty)", name, str(value))
     except UnoObjectError as e:
         # Fallback context enrichment
         doc_url = ""

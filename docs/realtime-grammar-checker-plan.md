@@ -17,6 +17,7 @@
 
 - **Native grammar** is implemented as an `XProofreader` service with Lightproof-style registry (`LinguisticWriterAgentGrammar.xcu`); users enable LLM work on the **Doc** tab and pick the proofreader under Writing aids.
 - **Batching** groups sentences from the same paragraph into chunked LLM requests; batch size is capped (`doc.grammar_proofreader_batch_sentences`, max 8).
+- **Cache** is **document-embedded by default** (`USE_SQLITE_CACHE = False`): results live inside the `.odt` as user-defined property `WriterAgentGrammarCache`, so they travel with the file across machines and collaborators. SQLite / profile-JSON remains available as a code-flag fallback.
 - **Sidebar chat** is separate: use it for explanations, rewrites, and editorial comment tools—not as a second linguistic pipeline.
 
 ---
@@ -229,40 +230,71 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 #### Sentence cache
 
 - **In-memory LRU**: Keyed by sentence fingerprint (locale + text hash). `MAX_CACHE_SIZE` is **2048**.
-- **Persistent storage (SQLite)**: Stores up to **5000** sentences in `writeragent_grammar.db` in the user config directory. Includes a `last_used` timestamp.
-- **JSON fallback**: If SQLite is unavailable, shards results into `.json` files in `writeragent_grammar_cache.d/`.
+- **Persistent storage (SQLite)**: Stores up to **5000** sentence fingerprints in `writeragent_grammar.db` in the user config directory. Rows contain only `fingerprint`, `locale`, `errors_json`, and `last_used` — no plaintext sentence text. Older databases with the former `text` column are rebuilt on initialization with the column removed.
+- **JSON fallback**: If SQLite is unavailable, shards results into `.json` files in `writeragent_grammar_cache.d/`; new shards store `fingerprint`, `locale`, `errors`, and `timestamp` only.
 - **Pruning**: Once per session, if the persistent cache exceeds 5000 entries, it prunes back to 4000 using LRU/mtime.
 - **Normalization**: Uses `_normalize_for_sentence_cache` so trailing whitespace and redundant punctuation share keys. Errors are clipped to the canonical length.
 - **Incomplete-prefix compaction**: On **`cache_put_sentence`**, when the normalized text is still **incomplete**, the cache walks the sentence `OrderedDict` newest-first (bounded scan per locale) and evicts strict-prefix incomplete predecessors so incremental typing does not fill the LRU with `"The"`, `"The qu"`, … stubs. Details and regression tests: [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py), [`test_sentence_cache_incomplete_prefix_compaction`](../plugin/tests/writer/locale/test_grammar_proofread_engine.py). For the historical cross-sentence queue dedup bug, see [Appendix A](#appendix-a-cross-sentence-prefix-dedup).
 - **Memory warm-up**: `cache_get_sentence` promotes persistence hits to the memory LRU cache via `_populate_memory_cache_only`. This ensures subsequent re-traversals of the same sentence are handled in memory without repeated disk I/O.
 - **UI responsiveness**: Persistence writes in `cache_put_sentence` are performed outside the global `_CACHE_LOCK`, ensuring slow disk I/O does not block the foreground proofreading pass.
-- **Optional document-embedded persistence (code)**: In [`grammar_persistence.py`](../plugin/writer/locale/grammar_persistence.py), set **`USE_SQLITE_CACHE = False`** to use **`DocumentPersistence`**: in-memory map per document id, load/save JSON under user-defined property **`WriterAgentGrammarCache`**, save on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`**, registry cleanup on **`OnUnload`** / dispose. [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py) then skips the global LRU for sentence get/put when this mode is active and requires **`doc_id`** on those paths. **Default: `True`** (global SQLite / profile JSON unchanged).
+- **Document-embedded persistence (current default — `USE_SQLITE_CACHE = False`)**: [`DocumentPersistence`](../plugin/writer/locale/grammar_persistence.py) keeps an in-memory map per document id, loads from user-defined property **`WriterAgentGrammarCache`** on first grammar call, and writes JSON back on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`** via `set_document_property` in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py). A single **`XDocumentEventListener`** handles document events and broadcaster `disposing` (registered on `addDocumentEventListener` and `addEventListener`). Registry cleanup runs on `OnUnload` / dispose, removing the per-document entry from the module-level map so the wrapper and its memory cache become unreachable. [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py) skips the global LRU when this mode is active and requires **`doc_id`** on `cache_get_sentence` / `cache_put_sentence`. Set `USE_SQLITE_CACHE = True` to fall back to the global SQLite / profile-JSON cache instead.
 
 > [!NOTE]
-> **Alternative: Document-embedded Cache (optional implementation)**
-> An optional persistence strategy (off by default) stores grammar sentence results **inside** the `.odt` (user-defined property) instead of the global profile database. Implementation: [`grammar_persistence.py`](../plugin/writer/locale/grammar_persistence.py) (`USE_SQLITE_CACHE`, `DocumentPersistence`, `get_persistence(ctx, doc_id)`).
-> 
-> - **Mechanism**: 
->   - **Load**: On document open (or first grammar call), load the cached errors from a hidden document property or a custom stream within the ODF package.
->   - **Run**: Use an in-memory cache for the duration of the session.
->   - **Save**: Hook into the `onPrepareSave` event to serialize the current cache back into the document.
-> - **Storage Optimization (Avoiding Bloat)**:
->   - **Full Data for Errors**: Store the full error payload (wrong/correct text, suggestions, reasons) only for sentences that have issues.
->   - **Hashes for Clean Sentences**: For sentences with zero errors, store only their **fingerprint hash**. This allows the engine to recognize "I've checked this and it's perfect" with minimal storage overhead (e.g., 8-16 bytes per clean sentence).
-> - **Pruning Strategies**:
->   - **Session Survival (Efficient)**: Only persist entries (both error payloads and clean hashes) that were actually requested during the current session. This naturally prunes deleted text with $O(1)$ overhead on save. *Note*: The risk of "prematurely pruning unread sections" is mitigated if the host application (LibreOffice) traverses the entire document on open/check.
-> - **Cache vs. Official List**:
->   - **If it's just a cache**: (A performance optimization to avoid LLM costs), SQLite is superior because it shares knowledge across *all* documents.
->   - **If it's an "Official List"**: (A record of "the AI has reviewed this and these are the results"), then it *belongs* in the document. This turns the cache into a persistent "Grammar State" that ensures the document looks the same on every machine.
-> - **Advantages**:
->   - **No Global Limit**: We don't have to worry about a global 5000-entry limit; each file manages its own cache size.
->   - **Portability**: If you send the document to a colleague (who also has WriterAgent), they see the squiggles immediately without re-triggering LLM calls.
->   - **Isolation**: Work on "Document A" doesn't evict cache entries for "Document B".
-> - **Implementation Note**: The current architecture already uses **fingerprint hashes** (`fingerprint_for_text`) as the primary key for all sentence cache lookups (memory and SQLite). Adding a document-embedded layer would require zero refactoring of the core logic; it would simply be another persistence backend that stores and retrieves these existing hashes.
-> - **Runtime ownership (implemented shape; why not `setattr` on the UNO document)**: In-process state is a Python `DocumentPersistence` per open document in a **module-level map** keyed by document id, with **`OnUnload`** / dispose handling to **unregister listeners** and **remove that map entry** so the object (and its in-memory cache) becomes unreachable and is garbage-collected. We **do not** hang that state on the PyUNO `XModel` wrapper via Python **`setattr`** as the primary registry: that would add **complexity and risk** (wrapper identity across threads and call paths, reference cycles with the model, and harder unit testing) for little benefit once explicit unload teardown is in place.
-> - **Personal Opinion**: 
->   If we treat this purely as a **cache**, SQLite is better because it's more efficient for the user's total workflow (boilerplate text is checked once for all files). But if we want WriterAgent to provide a **consistent experience across collaborators**, document-embedding is the only way to ensure two people see the same underlines without double-spending tokens. 
->   **The Trade-off**: The primary risk is **privacy and bloat**. If a user checks a sensitive document and then shares the `.odt`, the cached text snippets might be recoverable from the file metadata even if the visible text is changed.
+> <a id="document-embedded-cache-default"></a>
+> **Document-embedded cache — design notes (shipped default)**
+>
+> `USE_SQLITE_CACHE = False` is the **current default**. Grammar results travel with the `.odt` as a user-defined string property (`WriterAgentGrammarCache`). SQLite/profile-JSON remains available as the alternative, set the flag to `True` to revert.
+>
+> **Why default to embedded:**
+>
+> - **Stays with the document.** Open the same `.odt` on a new machine (or hand it to a collaborator with WriterAgent) and the squiggles appear immediately without re-triggering LLM calls.
+> - **No global cache ceiling.** Each file manages its own size — no shared 5000-entry pruning, no `writeragent_grammar.db` growing across unrelated projects.
+> - **Isolation.** Work on document A never evicts entries for document B.
+> - **Treats reviewed grammar as document state**, not as a hidden machine-local optimization: the AI's verdict on each sentence is recorded next to the prose it judged.
+>
+> **Trade-offs (vs SQLite):**
+>
+> - **No cross-document reuse.** Boilerplate phrases that repeat across files are re-checked the first time per file (still cached within each file).
+> - **Privacy / file-share footprint.** The user-property contains sentence fingerprints and full LLM error payloads (suggestions, comments). If the document is shared, this metadata travels with it. Hashes are SHA-256 of normalized sentences, so the raw sentence text is not directly recoverable from the cache itself, but error payloads quote the wrong fragments by string. Users sharing a sensitive draft can clear the property by toggling the flag or by stripping user-defined properties before sending.
+> - **Save-cycle pruning is by `_session_accessed`.** Only sentences the proofreader actually looked at during the current session are persisted on save. Writer's open-time proofreading pass touches visible paragraphs, but sections that were never scrolled into view can disappear from the cache after a save. (See **Size and pruning** below — listed in the backlog as P22 "full-doc retention on save".)
+>
+> **On-disk format (`WriterAgentGrammarCache`):**
+>
+> ```jsonc
+> {
+>   "<sha256-hex fingerprint of normalized sentence>": [
+>     {
+>       "n_error_start": 4,
+>       "n_error_length": 3,
+>       "suggestions": ["..."],
+>       "short_comment": "...",
+>       "full_comment": "...",
+>       "rule_identifier": "..."
+>     }
+>   ],
+>   "<another fingerprint>": []   // clean sentence (reviewed, no errors)
+> }
+> ```
+>
+> Clean sentences are stored as the fingerprint mapped to an empty array — they're how the engine remembers "I've already checked this one and there's nothing to flag," and they're the bulk of a typical document's payload. The serialized JSON is currently capped at **900 KB**; over that, the save is skipped with a warning.
+>
+> **Size budget today.** Each fingerprint is a full SHA-256 hex (64 chars). A clean entry is ~70 bytes; a sentence with one short error is ~250–350 bytes. A 5000-sentence all-clean document fits comfortably (~350 KB); long novels with many errors approach the cap.
+>
+> **Size-optimization options (deferred, P21 in the backlog):**
+>
+> | Lever | Approx. savings | Notes |
+> |-------|-----------------|-------|
+> | Truncate fingerprint to 16-hex (64-bit) or 22-char URL-safe base64 (128-bit) | -50 to -75% on keys | 64-bit hash collision probability ≈ 10⁻¹² at 5000 sentences; needs a payload-version bump (`{"v":2,...}`) and migration of any in-the-wild caches. Cache-only data, so old caches can simply be discarded. |
+> | Shorten error-dict keys (`n_error_start` → `s`, `n_error_length` → `l`, `suggestions` → `g`, `short_comment` → `c`, `full_comment` → `f`, `rule_identifier` → `r`) | -30 to -50 bytes per error | Mechanical; same version bump covers it. |
+> | Split clean-set from dirty-map: `{"v":2, "clean":"hash1hash2…", "dirty":{...}}` | Removes `[]` + comma + quoted-key overhead on the (typical majority) clean sentences | Concatenating fixed-width fingerprints is significantly cheaper than per-key JSON entries. |
+> | Drop `short_comment` if always derivable from `full_comment` | Modest | Audit usage first — Writer UI distinguishes them in the proofreading dialog. |
+> | gzip + base64 the whole payload into the property | Often 3–4× | Adds CPU per save/load and makes the saved property opaque to other tools that might want to inspect it. Reasonable last resort once smaller fixes are in. |
+>
+> The first three are nearly free wins and additive; the last two are only worth doing if real-world documents start hitting the 900 KB cap.
+>
+> **Implementation reuse.** The architecture already keyed all sentence cache lookups on `fingerprint_for_text`, so adding `DocumentPersistence` didn't require core refactoring — it's just another `GrammarPersistence` backend.
+>
+> **Why not `setattr` on the UNO model wrapper?** State is held in a module-level `_doc_persistence_instances: dict[doc_id, DocumentPersistence]`, with `OnUnload` / dispose dropping the entry so the object (and its in-memory cache) becomes unreachable. Hanging it on the PyUNO `XModel` wrapper via Python `setattr` is rejected: wrapper identity is not stable across threads/call paths, it creates ref cycles with the model, and it's harder to unit-test.
 
 
 #### LLM wire format and parser
@@ -335,6 +367,8 @@ Major items that were previously listed as future work or cleanup but are **impl
 - **Persistence initialization**: thread-safe singleton setup for grammar cache persistence (`grammar_persistence.py`); no unsafe fork-based locking.
 - **Worker idle batching**: quiet period via `GRAMMAR_WORKER_PAUSE_TIMEOUT_S` on queue `get`, coalescing bursts before LLM calls.
 - **Optional grammar-only model**: `doc.grammar_proofreader_model` (Doc tab); empty uses the chat text model so grammar can be pointed at a cheaper or local endpoint without changing chat defaults.
+- **No plaintext in global persistence**: SQLite `sentence_cache` no longer stores the unused `text` column, and JSON-shard fallback no longer writes a `text` field. Lookup has always been by fingerprint and only `errors_json` / `errors` is read; `SQLitePersistence` migrates older DBs by rebuilding the table without `text`.
+- **Document-embedded persistence default**: [`DocumentPersistence`](../plugin/writer/locale/grammar_persistence.py) is now the shipped default (`USE_SQLITE_CACHE = False`). `OnPrepareSave` / `OnSave` / `OnSaveAs` / `OnSaveTo` write `WriterAgentGrammarCache` back to the doc; `OnUnload` / broadcaster `disposing` clean up per-document state. The UNO listener uses the correct `documentEventOccured` callback (the earlier `documentEvent` typo silently dropped every save), and `set_document_property` detects existing properties via `XPropertySet.getPropertySetInfo().hasPropertyByName` (the `UserDefinedProperties` `PropertyBag` does **not** implement `XNameAccess`) — without that check the second save raised `Property name or handle already used` and the JSON never landed in the file. See [Appendix D](#appendix-d-documentpersistence-save-fix) for the historical write-up.
 
 ---
 
@@ -365,8 +399,11 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P17 | Configurable LLM max tokens | Expose the hardcoded **3072** max output tokens as `doc.grammar_proofreader_max_tokens` so users can tune for different endpoints or models. |
 | P18 | Configurable max chars | Move `GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS` (8192) to a config key `doc.grammar_proofreader_max_chars`; allows tuning for very long sentences without code changes. |
 | P19 | Batch size validation | Enforce `1 <= doc.grammar_proofreader_batch_sentences <= 8` at config read time; log **WARNING** if out of range and clamp to bounds. |
-| P20 | Document-embedded cache | Optional: `USE_SQLITE_CACHE = False` in [`grammar_persistence.py`](../plugin/writer/locale/grammar_persistence.py) + user-defined property `WriterAgentGrammarCache`; see [Alternative](#alternative-document-embedded-cache-proposed) and Sentence cache bullets. |
-| P23 | Regional locale opt-out | Allow specific locales (e.g., `en-AU`, `pt-PT`) to opt-out of normalization to the "base" language if regional grammar nuances are significant. |
+| P20 | ✅ Document-embedded cache | **Shipped as default.** `USE_SQLITE_CACHE = False` in [`grammar_persistence.py`](../plugin/writer/locale/grammar_persistence.py) + user-defined property `WriterAgentGrammarCache`; see [Document-embedded cache — design notes](#document-embedded-cache-default) and Sentence cache bullets. |
+| P21 | Compact document-embedded payload | Implement the three near-free wins listed in [Document-embedded cache — design notes](#document-embedded-cache-default): truncated fingerprint (64-bit or 128-bit b64), short error-dict keys (`s`/`l`/`g`/`c`/`f`/`r`), and a split `{"v":2,"clean":"...","dirty":{...}}` shape that strips quoted-key + `[]` overhead from clean sentences. Bump payload version; old caches can be discarded on load mismatch. |
+| P22 | Embedded cache: full-document retention on save | Today `_persist_to_udprops` only writes sentences in `_session_accessed` (touched this session). Document sections that were never scrolled into view can drop after a save. Either persist `_memory_cache` in full when small enough, or always re-include previously persisted fingerprints we haven't explicitly invalidated. Trade-off vs cap and edit-detection cost. |
+| P23 | Surface `USE_SQLITE_CACHE` as a user-facing option | Doc-tab toggle (or a single advanced setting) so users can opt into the global SQLite cache when they want cross-document reuse and don't mind machine-local state, instead of editing source. |
+| P24 | Regional locale opt-out | Allow specific locales (e.g., `en-AU`, `pt-PT`) to opt-out of normalization to the "base" language if regional grammar nuances are significant. |
 
 ### Code health and maintainability
 
@@ -434,6 +471,30 @@ Ideas from earlier cleanup planning — not scheduled as separate tickets:
 
 - Prefer injectable helpers over patching `time.sleep` at module scope where sleeps exist.
 - Prefer pure functions for dedup/stale logic (already partly true).
+
+### Appendix D: `DocumentPersistence` save fix
+
+When `USE_SQLITE_CACHE = False` was first wired up, no JSON ever landed in the saved `.odt`. The log on each Ctrl+S showed:
+
+```
+set_document_property error: Add property failed: Property name or handle already used.
+[grammar] DocumentPersistence: save user property failed: Add property failed: Property name or handle already used.
+```
+
+Two latent bugs combined:
+
+1. **Listener callback name typo.** `_GrammarDocumentEventListener` defined `documentEvent(self, Event)`. The UNO `XDocumentEventListener` IDL method is **`documentEventOccured`** (note the spelling). LibreOffice happily registered the listener but never dispatched any event to our handler, so `_persist_to_udprops` was simply never called. Fixed by renaming the method and consolidating broadcaster `disposing` into the same class (the interface inherits from `lang.XEventListener`).
+
+2. **Wrong existence check in `set_document_property`.** The old code used `hasattr(props, "hasByName")` to decide between `addProperty` and `setPropertyValue`. But `UserDefinedProperties` is a `com.sun.star.beans.PropertyBag` that implements `XPropertyContainer` + `XPropertySet` — **not** `XNameAccess`. `hasByName` does not exist on it, so `exists` was always `False` and the code always took the `addProperty` branch. First save created the property fine; every save after that raised `Property name or handle already used`, the exception bubbled up, and `_persist_to_udprops` logged the warning above. The XModel's `WriterAgentGrammarCache` was never updated, so what LibreOffice wrote to disk was stale.
+
+   Fixed by checking existence via **`XPropertySet.getPropertySetInfo().hasPropertyByName(name)`** (the actual `XPropertySet` API on `UserDefinedProperties`), with `hasByName` kept only as a secondary path for objects that happen to expose it. `get_document_property` was updated symmetrically, which also silences the `Get property value fallback failed: WriterAgentGrammarCache` warning on first open.
+
+**Regression tests:**
+
+- [`test_document_event_listener_has_correct_uno_method_names`](../plugin/tests/writer/locale/test_grammar_persistence.py) — pins the method name and signature.
+- [`test_set_document_property_updates_existing_without_readding`](../plugin/tests/writer/test_document_helpers.py) — second save updates via `setPropertyValue`, no `addProperty` call.
+- [`test_set_document_property_creates_missing_property`](../plugin/tests/writer/test_document_helpers.py) — first save still uses `addProperty`.
+- [`test_get_document_property_returns_default_when_missing_without_warning`](../plugin/tests/writer/test_document_helpers.py) — first load returns default quietly.
 
 ### Appendix C: Documentation maintenance
 

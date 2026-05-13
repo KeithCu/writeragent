@@ -39,16 +39,13 @@ except ImportError:
 
 _unohelper: Any = None
 _XDocumentEventListener: Any = None
-_XEventListener: Any = None
 _HAVE_UNO_DOC_EVENTS = False
 try:
     import unohelper as _unohelper_impl
     from com.sun.star.document import XDocumentEventListener as _XDocumentEventListener_impl
-    from com.sun.star.lang import XEventListener as _XEventListener_impl
 
     _unohelper = _unohelper_impl
     _XDocumentEventListener = _XDocumentEventListener_impl
-    _XEventListener = _XEventListener_impl
     _HAVE_UNO_DOC_EVENTS = True
 except ImportError:
     pass
@@ -63,9 +60,18 @@ _doc_persistence_instances: dict[str, "DocumentPersistence"] = {}
 _doc_map_lock = threading.Lock()
 
 
+_DESKTOP_ITER_HARD_CAP = 1024
+
+
 def _iter_desktop_components(ctx: Any) -> Any:
     from plugin.framework.uno_context import get_desktop
 
+    # Skip enumeration entirely when UNO isn't actually loaded. Without
+    # _HAVE_UNO_DOC_EVENTS we cannot register listeners anyway (DocumentPersistence
+    # stays in-memory only), and walking a non-UNO ``ctx`` (e.g. a MagicMock in
+    # pytest) can infinite-loop because Mock.hasMoreElements() is always truthy.
+    if not _HAVE_UNO_DOC_EVENTS:
+        return
     try:
         desktop = get_desktop(ctx)
         comps = desktop.getComponents()
@@ -74,8 +80,14 @@ def _iter_desktop_components(ctx: Any) -> Any:
         enum = comps.createEnumeration()
         if not enum:
             return
-        while enum.hasMoreElements():
+        # Belt-and-suspenders cap: real desktops have a small number of open docs;
+        # a high finite cap prevents runaway iteration if a future caller passes a
+        # non-UNO enumeration stub.
+        for _ in range(_DESKTOP_ITER_HARD_CAP):
+            if not enum.hasMoreElements():
+                return
             yield enum.nextElement()
+        log.warning("[grammar] _iter_desktop_components: hit hard cap %s", _DESKTOP_ITER_HARD_CAP)
     except Exception as e:
         log.debug("[grammar] enumerate desktop components: %s", e)
 
@@ -117,7 +129,7 @@ class GrammarPersistence(ABC):
         pass
 
     @abstractmethod
-    def put(self, fp: str, locale: str, text: str, errors: list[dict[str, Any]]) -> None:
+    def put(self, fp: str, locale: str, errors: list[dict[str, Any]]) -> None:
         pass
 
     @abstractmethod
@@ -156,15 +168,39 @@ class SQLitePersistence(GrammarPersistence):
                     CREATE TABLE IF NOT EXISTS sentence_cache (
                         fingerprint TEXT PRIMARY KEY,
                         locale TEXT,
-                        text TEXT,
                         errors_json TEXT,
                         last_used INTEGER
                     )
                 """)
+                self._migrate_drop_text_column(conn)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_last_used ON sentence_cache(last_used)")
                 conn.commit()
         except Exception as e:
             log.error("[grammar] SQLitePersistence _init_db failed: %s", e)
+
+    def _migrate_drop_text_column(self, conn: Any) -> None:
+        try:
+            cols = [str(row[1]) for row in conn.execute("PRAGMA table_info(sentence_cache)").fetchall()]
+            if "text" not in cols:
+                return
+            # The sentence text was never read after writes; keep only the stable
+            # fingerprint and errors to reduce cache size and plaintext footprint.
+            conn.executescript("""
+                DROP INDEX IF EXISTS idx_last_used;
+                CREATE TABLE sentence_cache_new (
+                    fingerprint TEXT PRIMARY KEY,
+                    locale TEXT,
+                    errors_json TEXT,
+                    last_used INTEGER
+                );
+                INSERT INTO sentence_cache_new (fingerprint, locale, errors_json, last_used)
+                    SELECT fingerprint, locale, errors_json, last_used FROM sentence_cache;
+                DROP TABLE sentence_cache;
+                ALTER TABLE sentence_cache_new RENAME TO sentence_cache;
+            """)
+            log.info("[grammar] SQLitePersistence: migrated sentence_cache schema without text column")
+        except Exception as e:
+            log.warning("[grammar] SQLitePersistence text-column migration failed: %s", e)
 
     def get(self, fp: str) -> list[dict[str, Any]] | None:
         if not HAS_SQLITE or sqlite3 is None:
@@ -181,19 +217,19 @@ class SQLitePersistence(GrammarPersistence):
             log.debug("[grammar] SQLitePersistence get failed: %s", e)
         return None
 
-    def put(self, fp: str, locale: str, text: str, errors: list[dict[str, Any]]) -> None:
+    def put(self, fp: str, locale: str, errors: list[dict[str, Any]]) -> None:
         if not HAS_SQLITE or sqlite3 is None:
             return
         try:
             errors_json = json.dumps(errors)
             with sqlite3.connect(self.base_path) as conn:
                 conn.execute("""
-                    INSERT INTO sentence_cache (fingerprint, locale, text, errors_json, last_used)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO sentence_cache (fingerprint, locale, errors_json, last_used)
+                    VALUES (?, ?, ?, ?)
                     ON CONFLICT(fingerprint) DO UPDATE SET
                         errors_json = excluded.errors_json,
                         last_used = excluded.last_used
-                """, (fp, locale, text, errors_json, int(time.time())))
+                """, (fp, locale, errors_json, int(time.time())))
                 conn.commit()
         except Exception as e:
             log.warning("[grammar] SQLitePersistence put failed: %s", e)
@@ -254,13 +290,12 @@ class JSONPersistence(GrammarPersistence):
             log.debug("[grammar] JSONPersistence get failed: %s", e)
         return None
 
-    def put(self, fp: str, locale: str, text: str, errors: list[dict[str, Any]]) -> None:
+    def put(self, fp: str, locale: str, errors: list[dict[str, Any]]) -> None:
         path = self._file_path(fp)
         try:
             data = {
                 "fingerprint": fp,
                 "locale": locale,
-                "text": text,
                 "errors": errors,
                 "timestamp": int(time.time()),
             }
@@ -296,43 +331,59 @@ class JSONPersistence(GrammarPersistence):
             log.warning("[grammar] JSONPersistence clear failed: %s", e)
 
 
+def _dispatch_doc_event(outer: "DocumentPersistence", event_name: str) -> None:
+    """Route XDocumentEventListener.documentEventOccured to the right persistence action.
+
+    Shared between the real UNO listener and the no-UNO stub so a single source
+    of truth defines which events trigger save vs teardown.
+    """
+    if event_name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo"):
+        outer._persist_to_udprops()
+    elif event_name == "OnUnload":
+        outer._teardown()
+
+
 if _HAVE_UNO_DOC_EVENTS:
     assert _unohelper is not None
     assert _XDocumentEventListener is not None
-    assert _XEventListener is not None
 
+    # XDocumentEventListener extends com.sun.star.lang.XEventListener, so a single
+    # class handles both document events (incl. OnUnload) and broadcaster disposal.
+    # The UNO interface name is `documentEventOccured`; defining `documentEvent`
+    # would silently no-op on save events.
     class _GrammarDocumentEventListener(_unohelper.Base, _XDocumentEventListener):  # type: ignore[misc, valid-type]
         def __init__(self, outer: DocumentPersistence) -> None:
             super().__init__()
             self._outer = outer
 
-        def documentEvent(self, evt: Any) -> None:
+        def documentEventOccured(self, Event: Any) -> None:  # noqa: N802, N803  -- UNO IDL signature
             try:
-                name = getattr(evt, "EventName", "") or ""
+                name = getattr(Event, "EventName", "") or ""
             except Exception:
                 return
-            if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo"):
-                self._outer._persist_to_udprops()
-            elif name == "OnUnload":
-                self._outer._teardown()
+            _dispatch_doc_event(self._outer, name)
 
-    class _GrammarModelDisposeListener(_unohelper.Base, _XEventListener):  # type: ignore[misc, valid-type]
-        def __init__(self, outer: DocumentPersistence) -> None:
-            super().__init__()
-            self._outer = outer
-
-        def disposing(self, Source: Any) -> None:
+        def disposing(self, Source: Any) -> None:  # noqa: N803  -- UNO IDL signature
             self._outer._teardown()
 
 else:
 
+    # Test/no-UNO stub: mirrors the real class signature so unit tests can exercise
+    # the event dispatch logic (especially the documentEventOccured method name,
+    # which was previously typoed as ``documentEvent`` and silently dropped saves).
     class _GrammarDocumentEventListener:  # type: ignore[no-redef]
         def __init__(self, outer: Any) -> None:
-            pass
+            self._outer = outer
 
-    class _GrammarModelDisposeListener:  # type: ignore[no-redef]
-        def __init__(self, outer: Any) -> None:
-            pass
+        def documentEventOccured(self, Event: Any) -> None:  # noqa: N802, N803  -- UNO IDL signature
+            try:
+                name = getattr(Event, "EventName", "") or ""
+            except Exception:
+                return
+            _dispatch_doc_event(self._outer, name)
+
+        def disposing(self, Source: Any) -> None:  # noqa: N803  -- UNO IDL signature
+            self._outer._teardown()
 
 
 class DocumentPersistence(GrammarPersistence):
@@ -346,7 +397,6 @@ class DocumentPersistence(GrammarPersistence):
         self._session_accessed: set[str] = set()
         self._model: Any = _find_model_by_runtime_uid(ctx, doc_id)
         self._doc_listener: Any = None
-        self._dispose_listener: Any = None
         self._teardown_done = False
         if self._model:
             self._load_from_udprops()
@@ -357,13 +407,13 @@ class DocumentPersistence(GrammarPersistence):
     def _register_listeners(self) -> None:
         if not _HAVE_UNO_DOC_EVENTS or self._model is None:
             return
+        # XDocumentEventListener handles both OnSave/OnUnload (via documentEventOccured)
+        # and broadcaster teardown (via disposing inherited from lang.XEventListener),
+        # so a single registration on XDocumentEventBroadcaster covers both paths.
         try:
             self._doc_listener = _GrammarDocumentEventListener(self)
             if hasattr(self._model, "addDocumentEventListener"):
                 self._model.addDocumentEventListener(self._doc_listener)
-            self._dispose_listener = _GrammarModelDisposeListener(self)
-            if hasattr(self._model, "addEventListener"):
-                self._model.addEventListener(self._dispose_listener)
         except Exception as e:
             log.warning("[grammar] DocumentPersistence: listener registration failed: %s", e)
 
@@ -376,13 +426,7 @@ class DocumentPersistence(GrammarPersistence):
                 m.removeDocumentEventListener(self._doc_listener)
         except Exception as e:
             log.debug("[grammar] removeDocumentEventListener: %s", e)
-        try:
-            if self._dispose_listener is not None and hasattr(m, "removeEventListener"):
-                m.removeEventListener(self._dispose_listener)
-        except Exception as e:
-            log.debug("[grammar] removeEventListener: %s", e)
         self._doc_listener = None
-        self._dispose_listener = None
 
     def _load_from_udprops(self) -> None:
         from plugin.doc.document_helpers import get_document_property
@@ -392,6 +436,7 @@ class DocumentPersistence(GrammarPersistence):
         try:
             raw = get_document_property(self._model, GRAMMAR_DOC_CACHE_UDPROP, None)
             if not raw or not isinstance(raw, str):
+                log.debug("[grammar] DocumentPersistence: no cached property on doc_id=%s", self._doc_id[:32] if self._doc_id else "")
                 return
             data = json.loads(raw)
             if isinstance(data, dict):
@@ -400,6 +445,8 @@ class DocumentPersistence(GrammarPersistence):
                     for k, v in data.items():
                         if isinstance(v, list):
                             self._memory_cache[str(k)] = [dict(e) for e in v if isinstance(e, dict)]
+                    loaded_count = len(self._memory_cache)
+                log.debug("[grammar] DocumentPersistence: loaded %s sentences from udprop (doc_id=%s)", loaded_count, self._doc_id[:32] if self._doc_id else "")
         except Exception as e:
             log.warning("[grammar] DocumentPersistence: load user property failed: %s", e)
 
@@ -416,6 +463,7 @@ class DocumentPersistence(GrammarPersistence):
                 log.warning("[grammar] DocumentPersistence: cache JSON too large (%s bytes), skip write", len(payload))
                 return
             set_document_property(self._model, GRAMMAR_DOC_CACHE_UDPROP, payload)
+            log.debug("[grammar] DocumentPersistence: saved %s sentences (%s bytes) to udprop (doc_id=%s)", len(pruned), len(payload), self._doc_id[:32] if self._doc_id else "")
         except Exception as e:
             log.warning("[grammar] DocumentPersistence: save user property failed: %s", e)
 
@@ -437,7 +485,7 @@ class DocumentPersistence(GrammarPersistence):
             hit = self._memory_cache.get(fp)
             return list(hit) if hit is not None else None
 
-    def put(self, fp: str, locale: str, text: str, errors: list[dict[str, Any]]) -> None:
+    def put(self, fp: str, locale: str, errors: list[dict[str, Any]]) -> None:
         with self._lock:
             self._session_accessed.add(fp)
             self._memory_cache[fp] = [dict(e) for e in errors]

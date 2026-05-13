@@ -6,7 +6,9 @@ from plugin.doc.document_helpers import (
     WriterCompoundUndo,
     WriterStreamedRewriteSession,
     build_writer_rewrite_prompt,
+    get_document_property,
     get_string_without_tracked_deletions,
+    set_document_property,
 )
 
 
@@ -108,6 +110,60 @@ class _MockDoc:
         return self.undo
 
 
+class _UserDefinedPropertySetInfo:
+    def __init__(self, owner):
+        self._owner = owner
+
+    def hasPropertyByName(self, name):
+        return name in self._owner.values
+
+
+class _UserDefinedProperties:
+    """Mirrors LibreOffice's ``UserDefinedProperties`` (``PropertyBag``).
+
+    Real bag exposes ``getPropertySetInfo()`` + ``addProperty`` + ``setPropertyValue``
+    + ``getPropertyValue``, but NOT ``hasByName`` (it is not an ``XNameAccess``).
+    """
+
+    def __init__(self):
+        self.values = {}
+        self.add_calls = []
+        self.set_calls = []
+
+    def getPropertySetInfo(self):
+        return _UserDefinedPropertySetInfo(self)
+
+    def addProperty(self, name, _attrs, value):
+        if name in self.values:
+            raise RuntimeError("Property name or handle already used")
+        self.add_calls.append((name, value))
+        self.values[name] = value
+
+    def setPropertyValue(self, name, value):
+        if name not in self.values:
+            raise RuntimeError("Unknown property")
+        self.set_calls.append((name, value))
+        self.values[name] = value
+        return None
+
+    def getPropertyValue(self, name):
+        if name not in self.values:
+            raise RuntimeError("Unknown property")
+        return self.values[name]
+
+
+class _DocWithUserDefinedProperties:
+    def __init__(self, props):
+        self._props = props
+
+    def getDocumentProperties(self):
+        class _DocProps:
+            def __init__(self, user_props):
+                self.UserDefinedProperties = user_props
+
+        return _DocProps(self._props)
+
+
 def test_get_string_without_tracked_deletions_skips_deleted_portions():
     text_range = _TextRange(
         [
@@ -204,3 +260,53 @@ def test_writer_compound_undo_enter_close_and_idempotent():
     assert doc.undo.left is True
     cu.close()
     assert doc.undo.left is True
+
+
+def test_set_document_property_updates_existing_without_readding(monkeypatch):
+    """Regression: ``UserDefinedProperties`` exposes existence via ``getPropertySetInfo``,
+    not ``hasByName``. The old check fell through to ``addProperty`` even when the
+    property already existed and second saves raised ``Property name or handle already used``.
+    """
+    props = _UserDefinedProperties()
+    props.values["WriterAgentGrammarCache"] = "{}"
+    doc = _DocWithUserDefinedProperties(props)
+
+    monkeypatch.setattr("plugin.doc.document_helpers.uno.getConstantByName", lambda _name: 1)
+
+    set_document_property(doc, "WriterAgentGrammarCache", '{"fp":[]}')
+
+    assert props.values["WriterAgentGrammarCache"] == '{"fp":[]}'
+    assert props.set_calls == [("WriterAgentGrammarCache", '{"fp":[]}')]
+    assert props.add_calls == []
+
+
+def test_set_document_property_creates_missing_property(monkeypatch):
+    """First save on a doc that has never stored the cache must call addProperty()."""
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+
+    monkeypatch.setattr("plugin.doc.document_helpers.uno.getConstantByName", lambda _name: 1)
+
+    set_document_property(doc, "WriterAgentGrammarCache", '{"fp":[]}')
+
+    assert props.values["WriterAgentGrammarCache"] == '{"fp":[]}'
+    assert props.add_calls == [("WriterAgentGrammarCache", '{"fp":[]}')]
+    assert props.set_calls == []
+
+
+def test_get_document_property_returns_default_when_missing_without_warning():
+    """First open: property doesn't exist yet. Old code warned via the
+    ``Get property value fallback`` path; existence check via PropertySetInfo
+    means we now return ``default`` quietly."""
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+
+    assert get_document_property(doc, "WriterAgentGrammarCache", default=None) is None
+
+
+def test_get_document_property_returns_existing_value():
+    props = _UserDefinedProperties()
+    props.values["WriterAgentGrammarCache"] = '{"fp":[1]}'
+    doc = _DocWithUserDefinedProperties(props)
+
+    assert get_document_property(doc, "WriterAgentGrammarCache", default=None) == '{"fp":[1]}'
