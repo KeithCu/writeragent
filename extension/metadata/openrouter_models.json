@@ -1,6 +1,49 @@
 {
-  "updated_at": "2026-05-12T02:30:52.671Z",
+  "updated_at": "2026-05-13T18:10:48.124Z",
   "models": [
+    {
+      "id": "anthropic/claude-opus-4.7-fast",
+      "name": "Claude Opus 4.7 (Fast)",
+      "author_name": "Anthropic",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "anthropic/claude-4.7-opus-fast-20260512",
+      "created_at": "2026-05-12T19:10:11.422Z",
+      "context_length": 1000000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "tool_choice",
+        "tools",
+        "verbosity"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 3e-06,
+        "text_cache_write": 3.75e-05,
+        "text_input": 3e-05,
+        "text_output": 0.00015
+      }
+    },
     {
       "id": "inclusionai/ring-2.6-1t:free",
       "name": "Ring-2.6-1T (free)",
@@ -782,10 +825,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.26962e-07,
+        "text_cache_read": 2.2042e-07,
         "text_cache_write": null,
-        "text_input": 1.6647e-06,
-        "text_output": 3.385e-06
+        "text_input": 1.675091e-06,
+        "text_output": 3.417091e-06
       }
     },
     {
@@ -833,10 +876,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.16e-08,
+        "text_cache_read": 3.0889e-08,
         "text_cache_write": null,
-        "text_input": 1.5e-07,
-        "text_output": 3.01111e-07
+        "text_input": 1.476e-07,
+        "text_output": 2.962e-07
       }
     },
     {
@@ -1115,10 +1158,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.03929e-07,
+        "text_cache_read": 1.97e-07,
         "text_cache_write": null,
-        "text_input": 9.13529e-07,
-        "text_output": 3.950294e-06
+        "text_input": 9.03333e-07,
+        "text_output": 3.925278e-06
       }
     },
     {
@@ -1256,10 +1299,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.76417e-07,
+        "text_cache_read": 2.85e-07,
         "text_cache_write": null,
-        "text_input": 1.335333e-06,
-        "text_output": 4.252e-06
+        "text_input": 1.359286e-06,
+        "text_output": 4.335714e-06
       }
     },
     {
@@ -1870,8 +1913,8 @@
         "reasoning_output": null,
         "text_cache_read": 5.975e-08,
         "text_cache_write": null,
-        "text_input": 3.99833e-07,
-        "text_output": 1.6e-06
+        "text_input": 3.81286e-07,
+        "text_output": 1.542857e-06
       }
     },
     {
@@ -2543,7 +2586,7 @@
         "reasoning_output": null,
         "text_cache_read": 1.20313e-07,
         "text_cache_write": null,
-        "text_input": 2.05e-07,
+        "text_input": 2e-07,
         "text_output": 1.29375e-06
       }
     },
@@ -2647,10 +2690,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.225e-07,
+        "text_cache_read": 3e-07,
         "text_cache_write": null,
         "text_input": 3.5e-07,
-        "text_output": 2.916e-06
+        "text_output": 2.816e-06
       }
     },
     {
@@ -2974,10 +3017,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.3625e-07,
+        "text_cache_read": 3.475e-07,
         "text_cache_write": null,
-        "text_input": 5.42333e-07,
-        "text_output": 3.44e-06
+        "text_input": 5.49833e-07,
+        "text_output": 3.536667e-06
       }
     },
     {
@@ -3029,8 +3072,8 @@
         "reasoning_output": null,
         "text_cache_read": 6.1692e-08,
         "text_cache_write": null,
-        "text_input": 2.83056e-07,
-        "text_output": 1.247222e-06
+        "text_input": 2.78611e-07,
+        "text_output": 1.213333e-06
       }
     },
     {
@@ -3383,10 +3426,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.27083e-07,
+        "text_cache_read": 1.33182e-07,
         "text_cache_write": null,
-        "text_input": 5.27333e-07,
-        "text_output": 2.662e-06
+        "text_input": 5.32857e-07,
+        "text_output": 2.703571e-06
       }
     },
     {
@@ -7790,8 +7833,8 @@
         "reasoning_output": null,
         "text_cache_read": 3.35e-07,
         "text_cache_write": null,
-        "text_input": 7.40625e-07,
-        "text_output": 2.221875e-06
+        "text_input": 7.50625e-07,
+        "text_output": 2.253125e-06
       }
     },
     {
@@ -9424,7 +9467,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 2.46667e-07,
+        "text_input": 2.03333e-07,
         "text_output": 4.26667e-07
       }
     },
@@ -9651,87 +9694,6 @@
       }
     },
     {
-      "id": "qwen/qwen-vl-max",
-      "name": "Qwen VL Max",
-      "author_name": "Qwen",
-      "input_modalities": [
-        "image",
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "qwen/qwen-vl-max-2025-01-25",
-      "created_at": "2025-02-01T18:25:04.223Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 5.2e-07,
-        "text_output": 2.08e-06
-      }
-    },
-    {
-      "id": "qwen/qwen-turbo",
-      "name": "Qwen-Turbo",
-      "author_name": "Qwen",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "qwen/qwen-turbo-2024-11-01",
-      "created_at": "2025-02-01T11:56:14.820Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 6.5e-09,
-        "text_cache_write": null,
-        "text_input": 3.25e-08,
-        "text_output": 1.3e-07
-      }
-    },
-    {
       "id": "qwen/qwen-plus",
       "name": "Qwen-Plus",
       "author_name": "Qwen",
@@ -9769,46 +9731,6 @@
         "text_cache_write": 3.25e-07,
         "text_input": 2.6e-07,
         "text_output": 7.8e-07
-      }
-    },
-    {
-      "id": "qwen/qwen-max",
-      "name": "Qwen-Max ",
-      "author_name": "Qwen",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": false,
-      "variant": "standard",
-      "version_id": "qwen/qwen-max-2025-01-25",
-      "created_at": "2025-02-01T09:31:29.206Z",
-      "context_length": 32768,
-      "supported_parameters": [
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 2.08e-07,
-        "text_cache_write": null,
-        "text_input": 1.04e-06,
-        "text_output": 4.16e-06
       }
     },
     {

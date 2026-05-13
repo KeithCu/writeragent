@@ -725,3 +725,130 @@ def test_locale_mismatch_batch_cached_detection_double_caches(
     finally:
         _lang_detect_cache.pop(sent2_text, None)
         _lang_detect_cache.pop("Sentence 1.", None)
+
+
+def test_language_detect_skips_llm_when_persisted_grammar_exists() -> None:
+    """Persisted grammar for sentence (fp) implies skip language-detect LLM (reopen heuristic)."""
+    from plugin.writer.locale import grammar_persistence as gp_mod
+    from plugin.writer.locale.grammar_fsm_state import EventKind, ExecuteLanguageDetectEffect
+    from plugin.writer.locale.grammar_work_queue import _handle_grammar_effect, _lang_detect_cache
+
+    item = _make_item("The cat sat.", doc_id="doc99")
+    effect = ExecuteLanguageDetectEffect(chunk=[(item, item.text)], detect_lang_instruction="")
+
+    mock_p = MagicMock()
+    mock_p.get.return_value = []
+
+    mock_client = MagicMock()
+    mock_lane = MagicMock()
+    mock_lane.__enter__ = MagicMock(return_value=None)
+    mock_lane.__exit__ = MagicMock(return_value=None)
+
+    try:
+        _lang_detect_cache.pop(item.text, None)
+        with patch.object(gp_mod, "USE_SQLITE_CACHE", False):
+            with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p) as mock_get_p:
+                with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
+                    with patch("plugin.framework.queue_executor.llm_request_lane", return_value=mock_lane):
+                        ev = _handle_grammar_effect(
+                            effect,
+                            client=mock_client,
+                            ctx=object(),
+                            gq=None,
+                            model="m",
+                            original_bcp47="en-US",
+                            grammar_bcp47="en-US",
+                            max_tok=100,
+                            detect_lang_instruction="",
+                        )
+        mock_client.chat_completion_sync.assert_not_called()
+        assert ev is not None
+        assert ev.kind == EventKind.LANG_DETECT_DONE
+        assert ev.data.get("detected_langs") == ["en-US"]
+        mock_get_p.assert_called_once()
+    finally:
+        _lang_detect_cache.pop(item.text, None)
+
+
+def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
+    from plugin.writer.locale import grammar_persistence as gp_mod
+    from plugin.writer.locale.grammar_fsm_state import EventKind, ExecuteLanguageDetectEffect
+    from plugin.writer.locale.grammar_work_queue import _handle_grammar_effect, _lang_detect_cache
+
+    item = _make_item("Fresh sentence.", doc_id="doc100")
+    effect = ExecuteLanguageDetectEffect(chunk=[(item, item.text)], detect_lang_instruction="")
+
+    mock_p = MagicMock()
+    mock_p.get.return_value = None
+
+    mock_client = MagicMock()
+    mock_client.chat_completion_sync.return_value = '{"detected_language_bcp47": "en-US"}'
+    mock_lane = MagicMock()
+    mock_lane.__enter__ = MagicMock(return_value=None)
+    mock_lane.__exit__ = MagicMock(return_value=None)
+
+    try:
+        _lang_detect_cache.pop(item.text, None)
+        with patch.object(gp_mod, "USE_SQLITE_CACHE", False):
+            with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p):
+                with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
+                    with patch("plugin.framework.queue_executor.llm_request_lane", return_value=mock_lane):
+                        ev = _handle_grammar_effect(
+                            effect,
+                            client=mock_client,
+                            ctx=object(),
+                            gq=None,
+                            model="m",
+                            original_bcp47="en-US",
+                            grammar_bcp47="en-US",
+                            max_tok=100,
+                            detect_lang_instruction="",
+                        )
+        mock_client.chat_completion_sync.assert_called_once()
+        assert ev is not None
+        assert ev.kind == EventKind.LANG_DETECT_DONE
+        assert ev.data.get("detected_langs") == ["en-US"]
+    finally:
+        _lang_detect_cache.pop(item.text, None)
+
+
+def test_language_detect_skips_llm_when_sqlite_persistence_has_grammar() -> None:
+    """SQLite global persistence: same heuristic via fingerprint get (no doc_id)."""
+    from plugin.writer.locale import grammar_persistence as gp_mod
+    from plugin.writer.locale.grammar_fsm_state import EventKind, ExecuteLanguageDetectEffect
+    from plugin.writer.locale.grammar_work_queue import _handle_grammar_effect, _lang_detect_cache
+
+    item = _make_item("Orm row hit.", doc_id="")
+    effect = ExecuteLanguageDetectEffect(chunk=[(item, item.text)], detect_lang_instruction="")
+
+    mock_p = MagicMock()
+    mock_p.get.return_value = []
+
+    mock_client = MagicMock()
+    mock_lane = MagicMock()
+    mock_lane.__enter__ = MagicMock(return_value=None)
+    mock_lane.__exit__ = MagicMock(return_value=None)
+
+    try:
+        _lang_detect_cache.pop(item.text, None)
+        with patch.object(gp_mod, "USE_SQLITE_CACHE", True):
+            with patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p):
+                with patch("plugin.writer.locale.grammar_work_queue._get_cached_language", return_value=None):
+                    with patch("plugin.framework.queue_executor.llm_request_lane", return_value=mock_lane):
+                        ev = _handle_grammar_effect(
+                            effect,
+                            client=mock_client,
+                            ctx=object(),
+                            gq=None,
+                            model="m",
+                            original_bcp47="en-US",
+                            grammar_bcp47="en-US",
+                            max_tok=100,
+                            detect_lang_instruction="",
+                        )
+        mock_client.chat_completion_sync.assert_not_called()
+        assert ev is not None
+        assert ev.kind == EventKind.LANG_DETECT_DONE
+        assert ev.data.get("detected_langs") == ["en-US"]
+    finally:
+        _lang_detect_cache.pop(item.text, None)

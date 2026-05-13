@@ -17,7 +17,7 @@ from typing import Any, Literal, Mapping, TYPE_CHECKING
 if TYPE_CHECKING:
     from .grammar_fsm_state import GrammarEvent
 
-from .grammar_proofread_cache import cache_get_sentence, cache_put_sentence, ignored_rules_snapshot
+from .grammar_proofread_cache import cache_get_sentence, cache_put_sentence, ignored_rules_snapshot, sentence_identity_fp
 from .grammar_proofread_locale import (
     GRAMMAR_BATCH_MAX_SENTENCES,
     GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE,
@@ -302,6 +302,29 @@ def run_llm_and_cache(
     run_llm_and_cache_batch([item], grammar_queue=grammar_queue, original_bcp47=original_bcp47)
 
 
+def _persisted_grammar_skip_lang_detect(ctx: Any, doc_id: str, text: str) -> bool:
+    """True if persistence already stores grammar for this sentence (fingerprint).
+
+    Heuristic to skip redundant language-detect LLM on reopen: any stored row (including
+    empty errors for 'good' sentences) implies prior proofreading — good enough to treat
+    as language-resolved for this session. Wrong-locale clean rows could skip redetect.
+    """
+    try:
+        from .grammar_persistence import USE_SQLITE_CACHE, get_persistence
+
+        fp = sentence_identity_fp(text)
+        if USE_SQLITE_CACHE:
+            p = get_persistence(ctx)
+            return p is not None and p.get(fp) is not None
+        if not doc_id:
+            return False
+        p = get_persistence(ctx, doc_id)
+        return p is not None and p.get(fp) is not None
+    except Exception as e:
+        log.debug("[grammar] persisted grammar heuristic lookup failed: %s", e, exc_info=True)
+        return False
+
+
 def _handle_grammar_effect(
     effect: Any,
     *,
@@ -326,12 +349,18 @@ def _handle_grammar_effect(
     
     try:
         if isinstance(effect, ExecuteLanguageDetectEffect):
-            detected_langs = []
+            detected_langs: list[str | None] = []
             all_cached = True
-            for _item, text in effect.chunk:
+            for item, text in effect.chunk:
                 cached = _get_cached_language(text)
-                detected_langs.append(cached)
-                if not cached:
+                if cached:
+                    detected_langs.append(cached)
+                elif _persisted_grammar_skip_lang_detect(ctx, item.doc_id, text):
+                    grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
+                    _put_cached_language(text, grammar_bcp47)
+                    detected_langs.append(grammar_bcp47)
+                else:
+                    detected_langs.append(None)
                     all_cached = False
                     
             if not all_cached:
