@@ -168,6 +168,10 @@ def candidate_sentence_spans_for_proofreading(
     for off, txt in all_sents:
         end = off + len(txt)
         spans.append((off, end, txt))
+    # Paragraph-scale pass from LibreOffice (n_start_lo == 0): process ALL sentences in aText.
+    # Incremental mode (n_start_lo != 0): only sentences overlapping [n_start_lo, n_suggested_behind_end).
+    if n_start_lo == 0:
+        return spans
     lo = max(0, min(n_start_lo, nlen))
     hi = max(lo, min(n_suggested_behind_end, nlen))
     return [(s, e, t) for s, e, t in spans if span_overlaps_range(s, e, lo, hi)]
