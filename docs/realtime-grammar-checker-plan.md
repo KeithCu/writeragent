@@ -183,7 +183,8 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 ### Code and packaging
 
 - **UNO component**: [`plugin/writer/locale/ai_grammar_proofreader.py`](../plugin/writer/locale/ai_grammar_proofreader.py) — `WriterAgentAiGrammarProofreader` (`unohelper` + `XProofreader`, locales, service info). Standalone entrypoint: extends `sys.path` like [`plugin/chatbot/panel_factory.py`](../plugin/chatbot/panel_factory.py) so `import plugin.*` works when LO loads the module. The service constructor must remain **`__init__(self, ctx, *args)`** because LibreOffice may instantiate proofreaders with `createInstanceWithArgumentsAndContext`.
-- **Pure Python modules**: [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py) — **`GRAMMAR_REGISTRY_LOCALE_TAGS`**, UNO `Locale` ↔ BCP-47 bridging; Unicode sentence terminals, `looks_complete_sentence`, abbrev table, system prompt templates (**single and batch**), `parse_grammar_json`, `parse_grammar_batch_json`. [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) — BreakIterator orchestration, `split_into_sentences`, offset normalization. [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py) — sentence LRU + ignore rules. [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py) — `GrammarWorkItem`, `GrammarWorkQueue`, `run_llm_and_cache_batch` (handles grouping and LLM batching).
+- **Pure Python modules**: [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py) — **`GRAMMAR_REGISTRY_LOCALE_TAGS`**, UNO `Locale` ↔ BCP-47 bridging; Unicode sentence terminals, `looks_complete_sentence`, abbrev table, system prompt templates (**single and batch**), `parse_grammar_json`, `parse_grammar_batch_json`. [`grammar_proofread_text.py`](../plugin/writer/locale/grammar_proofread_text.py) — BreakIterator orchestration, `split_into_sentences`, offset normalization. [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py) — sentence LRU + ignore rules. [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py) — `GrammarWorkItem`, `GrammarWorkQueue`, `run_llm_and_cache_batch` (orchestrates pipeline stages).
+- **Modular FSM Driver**: The grammar pipeline is refactored into pure module-level functions. `_run_fsm_stage` drives the state transitions, while `_handle_grammar_effect` centralizes all I/O side effects (LLM requests, cache writes, status updates). This separation of concerns simplifies the monolithic `run_llm_and_cache_batch` and enables easier unit testing of the state machine logic without side effects.
 - **Registry**: [`extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu`](../extension/registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu) — fuses `org.extension.writeragent.comp.pyuno.AiGrammarProofreader` under `GrammarCheckers` with `Locales` set to a space-separated list of BCP-47 tags (one `oor:string-list` `<value>`, matching Lightproof). Tags are defined as **`GRAMMAR_REGISTRY_LOCALE_TAGS`** in [`grammar_proofread_locale.py`](../plugin/writer/locale/grammar_proofread_locale.py) (same coverage as shipped gettext `locales/` plus `en-US` / `en-GB`). Must stay aligned with `getLocales()` (UNO `Locale` per tag) and `GRAMMAR_REGISTRY_LOCALE_TAGS` (unit test enforces parity). Document **regional** `CharLocale` values normalize to the canonical tag per language for cache and the LLM prompt.
 - **Bundle**: [`scripts/manifest_registry.py`](../scripts/manifest_registry.py) — `META-INF/manifest.xml` always lists the Python UNO module and `registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu` in default `make manifest` / `make build` output.
 
@@ -572,63 +573,61 @@ Two latent bugs combined:
 - **Character-Level Heuristics:** Before calling the LLM, we could run a fast regex-based detector for non-Latin scripts (e.g., Japanese, Korean, Arabic). If detected, we can bypass the LLM and instantly apply the matching locale if the document supports it.
 - **Persistent Language Cache:** The current LRU is transient (in-memory). We could persist the language map to the `WriterAgentGrammarCache` user-defined property. However, since the primary use case is immediate feedback during typing sessions, the transient in-memory cache is highly effective without bloating the `.odt` file.
 - **Model Downgrading:** Language detection requires virtually zero "reasoning." In the future, we could configure the HTTP request to route detection tasks to a significantly cheaper/faster model (e.g., `gemini-flash-8b`) while keeping the heavy grammar evaluation on the primary intelligent model.
-+
-+<a id="appendix-g-cross-document-memory-sharing"></a>
-+
-+### Appendix G: Cross-document Memory Sharing (Hybrid L1/L2 Cache)
-+
-+**Goal:** Allow grammar results to be shared across documents in memory (to support copy-paste hits) while keeping persistence document-specific and ensuring memory is reclaimed when documents close.
-+
-+**Current Limitation:** When `USE_SQLITE_CACHE = False`, `grammar_proofread_cache.py` bypasses the global `_SENTENCE_CACHE` LRU and talks directly to the document's `DocumentPersistence`. This prevents Doc B from seeing results cached for Doc A, even if the same sentence is copied over.
-+
-+**Proposed Design (Hybrid Tiered Cache):**
-+
-+1.  **Tier 1 (Global In-Memory LRU):** Continue using `_SENTENCE_CACHE` (default 2048 entries). This cache is global to the Python process and shared by all documents. It is **transient** (never saved to a global disk DB when `USE_SQLITE_CACHE = False`).
-+2.  **Tier 2 (Per-Document Persistence):** Continue using `DocumentPersistence`. This is document-specific and persists to the `.odt` file.
-+
-+**Modified Logic Flow:**
-+
-+-   **`cache_get_sentence`**:
-+    1.  **Global Hit?** Check `_SENTENCE_CACHE` first. If found, return results immediately. This handles the copy-paste scenario.
-+    2.  **Document Hit?** If not in `_SENTENCE_CACHE` and `doc_id` is provided, check `DocumentPersistence`.
-+    3.  **Promotion:** If found in `DocumentPersistence`, "warm up" the global `_SENTENCE_CACHE` with these results so they are available for other documents.
-+-   **`cache_put_sentence`**:
-+    1.  **Global Put:** Always store results in `_SENTENCE_CACHE`.
-+    2.  **Document Put:** If `doc_id` is provided, also store in `DocumentPersistence`.
-+
-+**Lifecycle & Accumulation:**
-+-   **Reclamation:** When a document closes, its `DocumentPersistence` (Tier 2) is cleared and removed from the map. The global `_SENTENCE_CACHE` (Tier 1) remains, but its size is capped (2048 entries), so it won't grow indefinitely even with many documents.
+
+<a id="appendix-g-cross-document-memory-sharing"></a>
+
+### Appendix G: Cross-document Memory Sharing (Hybrid L1/L2 Cache)
+
+**Goal:** Allow grammar results to be shared across documents in memory (to support copy-paste hits) while keeping persistence document-specific and ensuring memory is reclaimed when documents close.
+
+**Current Limitation:** When `USE_SQLITE_CACHE = False`, `grammar_proofread_cache.py` bypasses the global `_SENTENCE_CACHE` LRU and talks directly to the document's `DocumentPersistence`. This prevents Doc B from seeing results cached for Doc A, even if the same sentence is copied over.
+
+**Proposed Design (Hybrid Tiered Cache):**
+
+1.  **Tier 1 (Global In-Memory LRU):** Continue using `_SENTENCE_CACHE` (default 2048 entries). This cache is global to the Python process and shared by all documents. It is **transient** (never saved to a global disk DB when `USE_SQLITE_CACHE = False`).
+2.  **Tier 2 (Per-Document Persistence):** Continue using `DocumentPersistence`. This is document-specific and persists to the `.odt` file.
+
+**Modified Logic Flow:**
+
+-   **`cache_get_sentence`**:
+    1.  **Global Hit?** Check `_SENTENCE_CACHE` first. If found, return results immediately. This handles the copy-paste scenario.
+    2.  **Document Hit?** If not in `_SENTENCE_CACHE` and `doc_id` is provided, check `DocumentPersistence`.
+    3.  **Promotion:** If found in `DocumentPersistence`, "warm up" the global `_SENTENCE_CACHE` with these results so they are available for other documents.
+-   **`cache_put_sentence`**:
+    1.  **Global Put:** Always store results in `_SENTENCE_CACHE`.
+    2.  **Document Put:** If `doc_id` is provided, also store in `DocumentPersistence`.
+
+**Lifecycle & Accumulation:**
+-   **Reclamation:** When a document closes, its `DocumentPersistence` (Tier 2) is cleared and removed from the map. The global `_SENTENCE_CACHE` (Tier 1) remains, but its size is capped (2048 entries), so it won't grow indefinitely even with many documents.
 -   **No Global Disk Bloat:** Since `USE_SQLITE_CACHE = False`, the only thing saved to disk is the document itself. The cross-document sharing happens entirely in the transient Tier 1 memory layer.
 -   **Copy-Paste Experience:** User copies a checked paragraph from Doc A to Doc B. Doc B calls `doProofreading`. `cache_get_sentence` hits the global Tier 1 cache. Squiggles appear instantly in Doc B without a new LLM call.
-+
-+**Implementation Pointers:**
-+-   Modify `cache_get_sentence` in `grammar_proofread_cache.py` to remove the `if not USE_SQLITE_CACHE and ctx and doc_id` early exit. Instead, let it fall through the global cache check first.
-+-   Modify `cache_put_sentence` to always perform the global `_populate_memory_cache_only` step, then conditionally call `p.put` on the document persistence.
-+
-+### Comparison of Implementation Alternatives
-+
-+| Approach | Lifecycle Management | Cross-doc Sharing | Complexity | Notes |
-+|----------|----------------------|-------------------|------------|-------|
-+| **Hybrid L1/L2 (Proposed)** | L2 is cleared on `OnUnload`. L1 manages itself via global LRU (2048). | Immediate via L1. | Low | Clean separation. `DocumentPersistence` remains the source of truth for a file's state. |
-+| **Tagged Global Cache** | Global map entries tagged with `set(doc_ids)`. On close, remove `doc_id` from all tags. | Built-in. | Medium | Requires reverse indices to find which sentences belong to a doc for save/cleanup. |
-+| **Ref-Counted Global Cache** | Entries dropped when count hits 0. | Built-in. | Low | Simple for memory, but doesn't help with the "Save" operation (which sentences belong to this doc?). |
-+
-+#### Deep Dive: Tagged Global Cache
-+
-+One alternative is to move to a **single global cache** where every entry is tagged with the IDs of documents that "own" or have requested it.
-+
-+- **Mechanism**: A map of `fingerprint -> {errors, doc_ids: set()}`.
-+- **Lifecycle**: When a document closes, the system iterates the cache and removes that `doc_id` from all sets. If a set becomes empty, the entry is either deleted or marked as "orphan" for the global LRU to evict.
-+- **Save Operation**: Requires a "forward index" (`doc_id -> set(fingerprints)`) to efficiently know which sentences to write to the document's user-defined properties on save.
-+
-+**Pros:**
-+- **Zero Memory Redundancy**: A sentence is stored exactly once in memory regardless of how many documents use it.
-+- **Strict Reclamation**: Can precisely drop sentences that are no longer in use by any open document.
-+
-+**Cons:**
-+- **Higher Implementation Surface**: Managing double-indices (fingerprint-to-docs and doc-to-fingerprints) adds complexity and potential for sync bugs.
-+- **Scanning Overhead**: Scans on document close/save scale with the size of the global cache (though negligible at `MAX_CACHE_SIZE=2048`).
-+
-+**Conclusion:** The **Hybrid L1/L2** approach is preferred because it leverages existing `DocumentPersistence` logic. It treats the document state as primary and the global memory as a "volatile optimizer." The memory redundancy (storing a sentence in both the global LRU and the document's active map) is minimal (a few hundred KB) compared to the architectural simplicity.
-++-   Modify `cache_put_sentence` to always perform the global `_populate_memory_cache_only` step, then conditionally call `p.put` on the document persistence.
-+
+
+**Implementation Pointers:**
+-   Modify `cache_get_sentence` in `grammar_proofread_cache.py` to remove the `if not USE_SQLITE_CACHE and ctx and doc_id` early exit. Instead, let it fall through the global cache check first.
+-   Modify `cache_put_sentence` to always perform the global `_populate_memory_cache_only` step, then conditionally call `p.put` on the document persistence.
+
+### Comparison of Implementation Alternatives
+
+| Approach | Lifecycle Management | Cross-doc Sharing | Complexity | Notes |
+|----------|----------------------|-------------------|------------|-------|
+| **Hybrid L1/L2 (Proposed)** | L2 is cleared on `OnUnload`. L1 manages itself via global LRU (2048). | Immediate via L1. | Low | Clean separation. `DocumentPersistence` remains the source of truth for a file's state. |
+| **Tagged Global Cache** | Global map entries tagged with `set(doc_ids)`. On close, remove `doc_id` from all tags. | Built-in. | Medium | Requires reverse indices to find which sentences belong to a doc for save/cleanup. |
+| **Ref-Counted Global Cache** | Entries dropped when count hits 0. | Built-in. | Low | Simple for memory, but doesn't help with the "Save" operation (which sentences belong to this doc?). |
+
+#### Deep Dive: Tagged Global Cache
+
+One alternative is to move to a **single global cache** where every entry is tagged with the IDs of documents that "own" or have requested it.
+
+- **Mechanism**: A map of `fingerprint -> {errors, doc_ids: set()}`.
+- **Lifecycle**: When a document closes, the system iterates the cache and removes that `doc_id` from all sets. If a set becomes empty, the entry is either deleted or marked as "orphan" for the global LRU to evict.
+- **Save Operation**: Requires a "forward index" (`doc_id -> set(fingerprints)`) to efficiently know which sentences to write to the document's user-defined properties on save.
+
+**Pros:**
+- **Zero Memory Redundancy**: A sentence is stored exactly once in memory regardless of how many documents use it.
+- **Strict Reclamation**: Can precisely drop sentences that are no longer in use by any open document.
+
+**Cons:**
+- **Higher Implementation Surface**: Managing double-indices (fingerprint-to-docs and doc-to-fingerprints) adds complexity and potential for sync bugs.
+- **Scanning Overhead**: Scans on document close/save scale with the size of the global cache (though negligible at `MAX_CACHE_SIZE=2048`).
+
+**Conclusion:** The **Hybrid L1/L2** approach is preferred because it leverages existing `DocumentPersistence` logic. It treats the document state as primary and the global memory as a "volatile optimizer." The memory redundancy (storing a sentence in both the global LRU and the document's active map) is minimal (a few hundred KB) compared to the architectural simplicity.
