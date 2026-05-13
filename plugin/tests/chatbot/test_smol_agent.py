@@ -486,7 +486,21 @@ def test_format_grammar_status_complete() -> None:
         }
     )
 
-    assert text == "Grammar Check: done 'This are bad' len 42: 1 issue, 812ms"
+    assert text == "Grammar: done 'This are b…' len 42: 1 issue, 812ms"
+
+
+def test_format_grammar_status_done_matches_complete_line() -> None:
+    """Worker batch completion uses phase ``done``; sidebar should show result suffix like ``complete``."""
+    text = format_grammar_status(
+        {
+            "phase": "done",
+            "preview": "The quick brown fox jumps.",
+            "length": 120,
+            "result": "2 issues, 2 sentences",
+            "elapsed_ms": 400,
+        }
+    )
+    assert text == "Grammar: done 'The quick …' len 120: 2 issues, 2 sentences, 400ms"
 
 
 def test_format_grammar_status_request_language_detect() -> None:
@@ -498,10 +512,10 @@ def test_format_grammar_status_request_language_detect() -> None:
             "result": "Detecting language",
         }
     )
-    assert text == "Language Check: detecting 'Hello world' len 11"
+    assert text == "Language: detecting 'Hello worl…' len 11"
 
 
-def test_format_grammar_status_request_grammar_llm() -> None:
+def test_format_grammar_status_request_grammar_checking() -> None:
     text = format_grammar_status(
         {
             "phase": "request",
@@ -510,7 +524,7 @@ def test_format_grammar_status_request_grammar_llm() -> None:
             "result": "LLM request",
         }
     )
-    assert text == "Grammar Check: LLM 'Hello world' len 11"
+    assert text == "Grammar: checking 'Hello worl…' len 11"
 
 
 def test_format_grammar_status_failed_language_vs_grammar() -> None:
@@ -522,7 +536,7 @@ def test_format_grammar_status_failed_language_vs_grammar() -> None:
             "result": "TimeoutError",
         }
     )
-    assert lang == "Language Check: failed 'Language detection' len 19: TimeoutError"
+    assert lang == "Language: failed 'Language d…' len 19: TimeoutError"
 
     grm = format_grammar_status(
         {
@@ -532,7 +546,7 @@ def test_format_grammar_status_failed_language_vs_grammar() -> None:
             "result": "ValueError",
         }
     )
-    assert grm == "Grammar Check: failed 'Grammar check' len 13: ValueError"
+    assert grm == "Grammar: failed 'Grammar ch…' len 13: ValueError"
 
 
 def test_do_send_enters_librarian_when_user_memory_missing():

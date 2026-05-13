@@ -53,6 +53,19 @@ HAS_RECORDING = _AudioRecorderCls is not None
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
 
+_GRAMMAR_STATUS_PREVIEW_CHARS = 10
+
+
+def _clip_grammar_status_preview(s: str, max_len: int = _GRAMMAR_STATUS_PREVIEW_CHARS) -> str:
+    """One-line snippet for the sidebar status field (short to save space)."""
+    compact = " ".join(s.strip().split())
+    if not compact:
+        return "(empty)"
+    if len(compact) <= max_len:
+        return compact
+    return f"{compact[:max_len]}…"
+
+
 def _grammar_status_area(phase: str, result: str, preview: str) -> Literal["language", "grammar"]:
     """Sidebar label bucket: language-detection LLM / failures vs grammar pipeline."""
     if phase == "request" and result == "Detecting language":
@@ -65,23 +78,29 @@ def _grammar_status_area(phase: str, result: str, preview: str) -> Literal["lang
 def format_grammar_status(data: dict[str, Any]) -> str:
     """Format native grammar proofreader progress for the sidebar status field."""
     phase = str(data.get("phase") or "")
-    preview = str(data.get("preview") or "")
+    preview_raw = str(data.get("preview") or "")
     result = str(data.get("result") or "")
     try:
         length = int(data.get("length") or 0)
     except Exception:
         length = 0
     elapsed = data.get("elapsed_ms")
-    area = _grammar_status_area(phase, result, preview)
-    prefix = "Language Check:" if area == "language" else "Grammar Check:"
+    area = _grammar_status_area(phase, result, preview_raw)
+    preview = _clip_grammar_status_preview(preview_raw)
+    prefix = "Language:" if area == "language" else "Grammar:"
     if phase == "start":
-        return f"{prefix} checking '{preview}' len {length}"
+        return f"{prefix} queued '{preview}' len {length}"
     if phase == "join":
         return f"{prefix} waiting '{preview}' len {length}"
     if phase == "request":
-        verb = "detecting" if area == "language" else "LLM"
+        verb = "detecting" if area == "language" else "checking"
         return f"{prefix} {verb} '{preview}' len {length}"
     if phase == "complete":
+        suffix = result or "done"
+        if elapsed is not None:
+            suffix = f"{suffix}, {elapsed}ms"
+        return f"{prefix} done '{preview}' len {length}: {suffix}"
+    if phase == "done":
         suffix = result or "done"
         if elapsed is not None:
             suffix = f"{suffix}, {elapsed}ms"

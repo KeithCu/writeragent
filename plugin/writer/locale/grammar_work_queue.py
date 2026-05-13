@@ -252,16 +252,27 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
     return f"{compact[:max_len]}…"
 
 
-def _grammar_text_preview(text: str) -> str:
-    words = text.strip().split()
-    return " ".join(words[:3]) if words else "(empty)"
-
-
-def emit_grammar_status(phase: str, text: str, *, result: str = "", elapsed_ms: int | None = None) -> None:
+def emit_grammar_status(
+    phase: str,
+    text: str,
+    *,
+    result: str = "",
+    elapsed_ms: int | None = None,
+    preview_source: str | None = None,
+    length_hint: int | None = None,
+) -> None:
+    """Emit ``grammar:status``. Pass ``preview_source`` for a sentence snippet (sidebar, clipped to a few chars)."""
     try:
         from plugin.framework.event_bus import global_event_bus
 
-        global_event_bus.emit("grammar:status", phase=phase, preview=_grammar_text_preview(text), length=len(text), result=result, elapsed_ms=elapsed_ms)
+        if preview_source is not None:
+            raw = preview_source.strip() or "(empty)"
+            preview = slice_preview_debug(raw, 10)
+            length = len(raw) if length_hint is None else length_hint
+        else:
+            preview = slice_preview_debug(text.strip() or "(empty)", 10)
+            length = len(text)
+        global_event_bus.emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
     except Exception as e:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
 
@@ -417,6 +428,11 @@ def _handle_grammar_effect(
                 
         elif isinstance(effect, ProcessGrammarResultsEffect):
             ignored = ignored_rules_snapshot()
+            total_issues = 0
+            chars_checked = 0
+            n_written = 0
+            first_text = ""
+            second_text = ""
             for idx, (item, text) in enumerate(effect.chunk):
                 if gq and gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
                     continue
@@ -429,8 +445,30 @@ def _handle_grammar_effect(
                         cache_put_sentence(effect.original_bcp47, text, [asdict(e) for e in norm_errors], ctx=ctx, doc_id=item.doc_id)
                     else:
                         log.debug("[grammar] No double caching: original=%s, detected=%s", effect.original_bcp47, effect.bcp47)
-                    
-            emit_grammar_status("done", f"Batch of {len(effect.chunk)}", result="Success", elapsed_ms=effect.elapsed_ms)
+
+                    total_issues += len(norm_errors)
+                    chars_checked += len(text)
+                    n_written += 1
+                    tstrip = text.strip()
+                    if n_written == 1 and tstrip:
+                        first_text = tstrip
+                    elif n_written == 2 and tstrip:
+                        second_text = tstrip
+
+            if n_written:
+                preview_src = f"{first_text} · {second_text}" if second_text else first_text
+                iw = "issue" if total_issues == 1 else "issues"
+                sw = "sentence" if n_written == 1 else "sentences"
+                emit_grammar_status(
+                    "done",
+                    preview_src,
+                    result=f"{total_issues} {iw}, {n_written} {sw}",
+                    elapsed_ms=effect.elapsed_ms,
+                    preview_source=preview_src,
+                    length_hint=chars_checked,
+                )
+            else:
+                emit_grammar_status("done", "batch", result="skipped (superseded)", elapsed_ms=effect.elapsed_ms)
             
         elif isinstance(effect, EmitStatusEffect):
             emit_grammar_status(effect.phase, effect.text, result=effect.result, elapsed_ms=effect.elapsed_ms)
