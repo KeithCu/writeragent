@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktøykall byttet til '{0}'. Du er i en spesialisert verktøymodus. Du må "
@@ -153,9 +153,11 @@ msgstr "Denne modellen tar lengre tid enn din nåværende konfigurasjon."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Vennligst prøv en annen modell. {0} vil ta lengre tid enn du har konfigurert."
+"Vennligst prøv en annen modell. {0} vil ta lengre tid enn du har "
+"konfigurert."
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Please try again later."
@@ -221,7 +223,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jeg kan hjelpe deg med formler, dataanalyse og fargerike diagrammer. "
 "Prøv meg!"
@@ -278,7 +281,8 @@ msgstr ""
 "innstillingene."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Tilkobling avvist. Kjører den lokale AI-tjeneren din (Ollama/LM Studio)?"
 
@@ -316,6 +320,14 @@ msgid ""
 msgstr ""
 "Modellen gjentar den samme delen (uendelig løkke). Prøv igjen eller bruk en "
 "annen modell."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Skriv inn API-nøkkel for å laste inn modeller)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Tilkobling mislyktes)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -562,7 +574,8 @@ msgstr "[Agent-backend '{0}' ikke funnet.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-backend '{0}' er ikke tilgjengelig. Sjekk innstillinger (bane, "
 "installasjon).]"
@@ -953,11 +966,11 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (f.eks. aider) eller ACP-tjener-URL (f.eks. http://"
-"localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (f.eks. aider) eller ACP-tjener-URL (f.eks. "
+"http://localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argumenter"
@@ -1047,8 +1060,8 @@ msgstr "Aktiver AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Når denne er på, registrerer WriterAgent sin AI-grammatikkontrollør hos "
 "Linguistic; kontrollert tekst bruker API-et ditt (Verktøy → Alternativer → "

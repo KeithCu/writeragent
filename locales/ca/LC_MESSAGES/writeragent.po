@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "La crida a l'eina ha canviat a «{0}». Esteu en un mode d'eines "
@@ -153,7 +153,8 @@ msgstr "Aquest model requereix més temps que la vostra configuració actual."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr "Proveu un altre model. {0} trigaria més temps del que heu configurat."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -220,7 +221,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "IA: Puc ajudar-vos amb fórmules, anàlisi de dades i gràfics acolorits. "
 "Proveu-me!"
@@ -278,7 +280,8 @@ msgstr ""
 "d'espera de la sol·licitud» a la configuració."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connexió refusada. El vostre servidor d'IA local (Ollama/LM Studio) està en "
 "marxa?"
@@ -317,6 +320,14 @@ msgid ""
 msgstr ""
 "El model repeteix el mateix fragment (bucle infinit). Torneu-ho a provar o "
 "utilitzeu un model diferent."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Introduïu la clau de l'API per carregar els models)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Ha fallat la connexió)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -443,8 +454,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw) "
-"a la finestra activa.]"
+"[No s'ha trobat cap document de LibreOffice compatible (Writer, Calc o Draw)"
+" a la finestra activa.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -534,8 +545,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). "
-"Camí:\n"
+"No s'ha trobat cap editor (instal·leu Kate o Gedit, o definiu EDITOR). Camí:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -564,7 +574,8 @@ msgstr "[No s'ha trobat el rerefons de l'agent '{0}'.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[El rerefons de l'agent '{0}' no està disponible. Comproveu la configuració "
 "(camí, instal·lació).]"
@@ -611,8 +622,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines → "
-"Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
+"Hi ha una versió més nova del WriterAgent (%s) disponible. Utilitzeu Eines →"
+" Gestor d'extensions per cercar actualitzacions i instal·lar l'extensió més "
 "recent."
 
 #: plugin/chatbot/librarian.py
@@ -955,11 +966,11 @@ msgid "Path / URL"
 msgstr "Camí / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. http://"
-"localhost:8000 per a Hermes). Buit = provar el predeterminat."
+"Camí al CLI del backend (p. ex. aider) o URL del servidor ACP (p. ex. "
+"http://localhost:8000 per a Hermes). Buit = provar el predeterminat."
 
 msgid "Extra arguments"
 msgstr "Arguments addicionals"
@@ -1052,12 +1063,12 @@ msgstr "Activa el corrector gramatical d'IA (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Quan està activat, WriterAgent registra el seu corrector gramatical d'IA a "
-"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA). "
-"Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
+"Linguistic; el text comprovat utilitza la vostra API (Eines → Opcions → IA)."
+" Els subratllats apareixen poc després de deixar d'escriure. Desactivat per "
 "defecte."
 
 msgid "Grammar check wait timeout (ms)"
@@ -1099,7 +1110,8 @@ msgid ""
 msgstr ""
 "Nombre de frases a enviar per cada sol·licitud a l'LLM (1-8). 1 "
 "(predeterminat) és el més fiable; valors més alts són més ràpids i "
-"econòmics, però poden arribar als límits de tokens o causar errors del model."
+"econòmics, però poden arribar als límits de tokens o causar errors del "
+"model."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "La tecla Retorn envia el missatge del xat a la barra lateral"

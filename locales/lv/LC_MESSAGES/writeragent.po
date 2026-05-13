@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Rīka izsaukums pārslēgts uz '{0}'. Jūs atrodaties specializētā rīkkopas "
@@ -154,7 +154,8 @@ msgstr "Šis modelis prasa vairāk laika nekā jūsu pašreizējā konfigurācij
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Lūdzu, izmēģiniet citu modeli. {0} prasītu vairāk laika, nekā esat "
 "konfigurējis."
@@ -223,7 +224,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Es varu palīdzēt ar formulām, datu analīzi un krāsainām diagrammām. "
 "Izmēģiniet mani!"
@@ -259,7 +261,8 @@ msgstr "API piekļuve liegta. Jūsu atslēgai var trūkt atļauju šim modelim."
 
 #: plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
+msgstr ""
+"Galapunkts nav atrasts (404). Pārbaudiet savu URL un modeļa nosaukumu."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -277,7 +280,8 @@ msgstr ""
 "Pieprasījuma noildze. Mēģiniet palielināt \"Request Timeout\" iestatījumos."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Savienojums atteikts. Vai jūsu lokālais AI serveris (Ollama/LM Studio) "
 "darbojas?"
@@ -316,6 +320,14 @@ msgid ""
 msgstr ""
 "Modelis atkārto vienu un to pašu fragmentu (bezgalīga cilpa). Mēģiniet "
 "vēlreiz vai izmantojiet citu modeli."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Ievadiet API atslēgu, lai ielādētu modeļus)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Savienojuma kļūda)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -460,8 +472,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par "
-"to!]"
+"[Iekšēja kļūda: nevarēja identificēt dokumenta tipu {0}. Lūdzu, ziņojiet par"
+" to!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -533,8 +545,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). "
-"Ceļš:\n"
+"Redaktors nav atrasts (instalējiet Kate vai Gedit, vai iestatiet EDITOR). Ceļš:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -563,7 +574,8 @@ msgstr "[Aģenta aizmugursistēma '{0}' nav atrasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Aģenta aizmugursistēma '{0}' nav pieejama. Pārbaudiet iestatījumus (ceļu, "
 "instalāciju).]"
@@ -954,8 +966,8 @@ msgid "Path / URL"
 msgstr "Ceļš / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Ceļš uz aizmugursistēmas CLI (piem., aider) vai ACP servera URL (piem., "
 "http://localhost:8000 priekš Hermes). Tukšs = mēģināt noklusējuma."
@@ -1051,12 +1063,13 @@ msgstr "Iespējot AI gramatikas pārbaudītāju (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
-"Ja ir ieslēgts, WriterAgent reģistrē savu AI gramatikas korektoru Linguistic "
-"rīkā; pārbaudītais teksts izmanto jūsu API (Rīki → Opcijas → AI). "
-"Pasvītrojumi parādās neilgi pēc rakstīšanas pauzes. Pēc noklusējuma izslēgts."
+"Ja ir ieslēgts, WriterAgent reģistrē savu AI gramatikas korektoru Linguistic"
+" rīkā; pārbaudītais teksts izmanto jūsu API (Rīki → Opcijas → AI). "
+"Pasvītrojumi parādās neilgi pēc rakstīšanas pauzes. Pēc noklusējuma "
+"izslēgts."
 
 msgid "Grammar check wait timeout (ms)"
 msgstr "Gramatikas pārbaudes gaidīšanas noildze (ms)"
@@ -1084,8 +1097,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Ja ir ieslēgts, AI gramatikas pārbaude izlaiž fona pieprasījumus, kamēr "
-"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API "
-"izsaukumiem."
+"darbojas sānjoslas tērzēšana vai aģents, lai izvairītos no vienlaicīgiem API"
+" izsaukumiem."
 
 msgid "Grammar batch sentences"
 msgstr "Teikumu pakešu gramatika"
@@ -1096,8 +1109,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienā LLM pieprasījumā sūtāmo teikumu skaits (1-8). 1 (noklusējums) ir "
-"visuzticamākais; lielākas vērtības ir ātrākas un lētākas, taču var pārsniegt "
-"marķieru (token) limitus vai izraisīt modeļa kļūdas."
+"visuzticamākais; lielākas vērtības ir ātrākas un lētākas, taču var pārsniegt"
+" marķieru (token) limitus vai izraisīt modeļa kļūdas."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "Enter taustiņš nosūta sānjoslas tērzēšanas ziņojumu"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,13 +20,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Panggilan alat beralih ke '{0}'. Anda berada dalam mode perangkat alat "
-"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai "
-"untuk memulihkan rangkaian API lengkap."
+"khusus. Anda harus memanggil 'specialized_workflow_finished' setelah selesai"
+" untuk memulihkan rangkaian API lengkap."
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -60,7 +60,8 @@ msgid ""
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
 "Saat ini kami tidak dapat memproses permintaan Anda, silakan coba lagi "
-"nanti. Jika ini terjadi dalam waktu yang lama, beri tahu kami melalui Discord"
+"nanti. Jika ini terjadi dalam waktu yang lama, beri tahu kami melalui "
+"Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -72,8 +73,8 @@ msgid ""
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
 "Horde sedang dalam mode pemeliharaan, silakan coba lagi nanti, jika Anda "
-"sudah mencoba dan layanan tidak merespons selama berjam-jam, silakan hubungi "
-"melalui Discord"
+"sudah mencoba dan layanan tidak merespons selama berjam-jam, silakan hubungi"
+" melalui Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid ""
@@ -154,10 +155,11 @@ msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
-"Silakan coba model lain. {0} akan membutuhkan waktu lebih lama daripada yang "
-"Anda konfigurasi."
+"Silakan coba model lain. {0} akan membutuhkan waktu lebih lama daripada yang"
+" Anda konfigurasi."
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Please try again later."
@@ -218,12 +220,13 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Saya dapat mengedit atau menerjemahkan dokumen Anda secara instan dengan "
-"pemformatan dan warna profesional. Coba saya!"
+"AI: Saya dapat mengedit atau menerjemahkan dokumen Anda secara instan dengan"
+" pemformatan dan warna profesional. Coba saya!"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Saya dapat membantu Anda dengan rumus, analisis data, dan bagan "
 "berwarna. Coba saya!"
@@ -280,7 +283,8 @@ msgstr ""
 "Pengaturan."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Koneksi Ditolak. Apakah server AI lokal Anda (Ollama/LM Studio) sedang "
 "berjalan?"
@@ -317,8 +321,16 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau "
-"gunakan model yang berbeda."
+"Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau"
+" gunakan model yang berbeda."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Masukkan Kunci API untuk memuat model)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Koneksi gagal)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -535,7 +547,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: {0}"
+"Editor tidak ditemukan (instal Kate atau Gedit, atau atur EDITOR). Jalur: "
+"{0}"
 
 #: plugin/chatbot/external_editor.py
 #, python-brace-format
@@ -563,7 +576,8 @@ msgstr "[Backend agen '{0}' tidak ditemukan.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agen '{0}' tidak tersedia. Periksa Pengaturan (jalur, instalasi).]"
 
@@ -952,17 +966,18 @@ msgid "Path / URL"
 msgstr "Path / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Path ke CLI backend (contoh: aider) atau URL server ACP (contoh: http://"
-"localhost:8000 untuk Hermes). Kosong = coba default."
+"Path ke CLI backend (contoh: aider) atau URL server ACP (contoh: "
+"http://localhost:8000 untuk Hermes). Kosong = coba default."
 
 msgid "Extra arguments"
 msgstr "Argumen tambahan"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Argumen opsional untuk backend yang dipilih (dipisahkan dengan spasi)."
+msgstr ""
+"Argumen opsional untuk backend yang dipilih (dipisahkan dengan spasi)."
 
 msgid "ACP agent name"
 msgstr "Nama agen ACP"
@@ -1030,7 +1045,8 @@ msgid "Web Cache Max Size (MB)"
 msgstr "Ukuran Maksimum Cache Web (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
-msgstr "Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
+msgstr ""
+"Ukuran disk maksimum untuk cache pencarian web (0 untuk menonaktifkan)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Validitas Cache Web (Hari)"
@@ -1046,8 +1062,8 @@ msgstr "Aktifkan pemeriksa tata bahasa AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Saat aktif, WriterAgent mendaftarkan pemeriksa tata bahasa AI-nya ke "
 "Linguistik; teks yang diperiksa menggunakan API Anda (Alat → Opsi → AI). "
@@ -1062,9 +1078,9 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Dicadangkan untuk kemungkinan penggunaan di masa mendatang. Pemeriksa segera "
-"kembali jika terjadi cache miss (asinkron); hasil muncul pada proses Writer "
-"berikutnya setelah cache kalimat terisi."
+"Dicadangkan untuk kemungkinan penggunaan di masa mendatang. Pemeriksa segera"
+" kembali jika terjadi cache miss (asinkron); hasil muncul pada proses Writer"
+" berikutnya setelah cache kalimat terisi."
 
 msgid "Grammar check model (optional)"
 msgstr "Model pemeriksaan tata bahasa (opsional)"

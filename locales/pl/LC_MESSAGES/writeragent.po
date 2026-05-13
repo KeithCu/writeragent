@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Wywołanie narzędzia przełączone na „{0}”. Jesteś w trybie specjalistycznego "
@@ -154,7 +154,8 @@ msgstr "Ten model wymaga więcej czasu niż obecna konfiguracja."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Proszę spróbować innego modelu. {0} wymagałby więcej czasu niż "
 "skonfigurowano."
@@ -223,7 +224,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Mogę pomóc Ci z formułami, analizą danych i kolorowymi wykresami. "
 "Wypróbuj mnie!"
@@ -281,9 +283,11 @@ msgstr ""
 "Ustawieniach."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Odmowa połączenia. Czy lokalny serwer AI (Ollama/LM Studio) jest uruchomiony?"
+"Odmowa połączenia. Czy lokalny serwer AI (Ollama/LM Studio) jest "
+"uruchomiony?"
 
 #: plugin/framework/client/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -319,6 +323,14 @@ msgid ""
 msgstr ""
 "Model powtarza ten sam fragment (pętla nieskończona). Spróbuj ponownie lub "
 "użyj innego modelu."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Wprowadź klucz API, aby załadować modele)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Połączenie nieudane)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -463,8 +475,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Błąd wewnętrzny: Nie można zidentyfikować typu dokumentu dla {0}. Proszę to "
-"zgłosić!]"
+"[Błąd wewnętrzny: Nie można zidentyfikować typu dokumentu dla {0}. Proszę to"
+" zgłosić!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -565,7 +577,8 @@ msgstr "[Nie znaleziono backendu agenta „{0}”.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}” jest niedostępny. Sprawdź ustawienia (ścieżka, "
 "instalacja).]"
@@ -956,11 +969,11 @@ msgid "Path / URL"
 msgstr "Ścieżka / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Ścieżka do CLI backendu (np. aider) lub URL serwera ACP (np. http://"
-"localhost:8000 dla Hermes). Puste = spróbuj domyślnego."
+"Ścieżka do CLI backendu (np. aider) lub URL serwera ACP (np. "
+"http://localhost:8000 dla Hermes). Puste = spróbuj domyślnego."
 
 msgid "Extra arguments"
 msgstr "Dodatkowe argumenty"
@@ -1036,8 +1049,8 @@ msgstr "Maksymalny rozmiar pamięci podręcznej sieci (MB)"
 
 msgid "Max disk size for web search cache (0 to disable)"
 msgstr ""
-"Maksymalny rozmiar dysku dla pamięci podręcznej wyszukiwania w sieci (0, aby "
-"wyłączyć)"
+"Maksymalny rozmiar dysku dla pamięci podręcznej wyszukiwania w sieci (0, aby"
+" wyłączyć)"
 
 msgid "Web Cache Validity (Days)"
 msgstr "Ważność pamięci podręcznej sieci (dni)"
@@ -1055,12 +1068,12 @@ msgstr "Włącz sprawdzanie gramatyki AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Po włączeniu WriterAgent rejestruje swój moduł sprawdzania gramatyki AI w "
-"narzędziach językowych; sprawdzany tekst korzysta z Twojego API (Narzędzia → "
-"Opcje → AI). Podkreślenia pojawiają się krótko po zatrzymaniu pisania. "
+"narzędziach językowych; sprawdzany tekst korzysta z Twojego API (Narzędzia →"
+" Opcje → AI). Podkreślenia pojawiają się krótko po zatrzymaniu pisania. "
 "Domyślnie wyłączone."
 
 msgid "Grammar check wait timeout (ms)"
@@ -1072,9 +1085,9 @@ msgid ""
 "cache is filled."
 msgstr ""
 "Zarezerwowane do przyszłego użytku. Moduł sprawdzania zwraca wynik "
-"natychmiast w przypadku braku w pamięci podręcznej (asynchronicznie); wyniki "
-"pojawiają się w kolejnym przebiegu Writera po wypełnieniu pamięci podręcznej "
-"zdań."
+"natychmiast w przypadku braku w pamięci podręcznej (asynchronicznie); wyniki"
+" pojawiają się w kolejnym przebiegu Writera po wypełnieniu pamięci "
+"podręcznej zdań."
 
 msgid "Grammar check model (optional)"
 msgstr "Model sprawdzania gramatyki (opcjonalnie)"

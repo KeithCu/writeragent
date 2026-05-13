@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Chiamata allo strumento passata a '{0}'. Sei in una modalità set di "
@@ -59,8 +59,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Al momento non possiamo elaborare la tua richiesta, riprova più tardi. Se il "
-"problema persiste per un lungo periodo, faccelo sapere tramite Discord"
+"Al momento non possiamo elaborare la tua richiesta, riprova più tardi. Se il"
+" problema persiste per un lungo periodo, faccelo sapere tramite Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -79,8 +79,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Hai effettuato troppe richieste, attendi il loro completamento e riprova più "
-"tardi"
+"Hai effettuato troppe richieste, attendi il loro completamento e riprova più"
+" tardi"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -111,8 +111,8 @@ msgstr "Orda contattata"
 msgid ""
 "When trying to ask for the image, the Horde was too slow, try again later"
 msgstr ""
-"Nel tentativo di richiedere l'immagine, l'Orda è stata troppo lenta, riprova "
-"più tardi"
+"Nel tentativo di richiedere l'immagine, l'Orda è stata troppo lenta, riprova"
+" più tardi"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "to learn to earn kudos. Detail:"
@@ -153,7 +153,8 @@ msgstr ""
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Prova un altro modello. {0} richiederebbe più tempo di quanto configurato."
 
@@ -221,7 +222,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Posso aiutarti con formule, analisi dati e grafici colorati. Provami!"
 
@@ -230,8 +232,8 @@ msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
 msgstr ""
-"AI: Posso aiutarti a creare e modificare forme rifinite e colorate in Draw e "
-"Impress. Provami!"
+"AI: Posso aiutarti a creare e modificare forme rifinite e colorate in Draw e"
+" Impress. Provami!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -264,7 +266,8 @@ msgstr "Endpoint non trovato (404). Controllare l'URL e il nome del modello."
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr "Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
+msgstr ""
+"Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -278,7 +281,8 @@ msgstr ""
 "Impostazioni."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connessione rifiutata. Il tuo server IA locale (Ollama/LM Studio) è in "
 "esecuzione?"
@@ -315,8 +319,16 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un "
-"modello diverso."
+"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un"
+" modello diverso."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Inserire la chiave API per caricare i modelli)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Connessione non riuscita)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -534,8 +546,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). "
-"Percorso:\n"
+"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). Percorso:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -564,7 +575,8 @@ msgstr "[Backend agente '{0}' non trovato.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agente '{0}' non disponibile. Controllare le impostazioni "
 "(percorso, installazione).]"
@@ -955,8 +967,8 @@ msgid "Path / URL"
 msgstr "Percorso / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Percorso verso la CLI del backend (es. aider) o URL del server ACP (es. "
 "http://localhost:8000 per Hermes). Vuoto = prova il predefinito."
@@ -974,8 +986,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nome dell'agente sul server ACP (es. hermes). Vuoto = rileva automaticamente "
-"il primo agente."
+"Nome dell'agente sul server ACP (es. hermes). Vuoto = rileva automaticamente"
+" il primo agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Strumenti foglio di calcolo Calc"
@@ -1053,12 +1065,12 @@ msgstr "Abilita correttore grammaticale AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Se attivo, WriterAgent registra il suo correttore grammaticale AI in "
-"Linguistica; il testo controllato utilizza la tua API (Strumenti → Opzioni → "
-"AI). Le sottolineature appaiono poco dopo aver interrotto la digitazione. "
+"Linguistica; il testo controllato utilizza la tua API (Strumenti → Opzioni →"
+" AI). Le sottolineature appaiono poco dopo aver interrotto la digitazione. "
 "Disattivato per impostazione predefinita."
 
 msgid "Grammar check wait timeout (ms)"
@@ -1088,8 +1100,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Se attivo, la grammatica AI salta le richieste in background mentre la chat "
-"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API "
-"simultanee."
+"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API"
+" simultanee."
 
 msgid "Grammar batch sentences"
 msgstr "Analisi grammaticale a blocchi"
@@ -1099,8 +1111,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più "
-"affidabile; valori più alti sono più veloci ed economici ma potrebbero "
+"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più"
+" affidabile; valori più alti sono più veloci ed economici ma potrebbero "
 "raggiungere i limiti di token o causare errori del modello."
 
 msgid "Enter key sends sidebar chat message"

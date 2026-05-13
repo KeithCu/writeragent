@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Apelul instrumentului a comutat la „{0}”. Sunteți într-un mod de set de "
@@ -90,8 +90,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Se pare că «{}» are probleme, verifică-l din nou, creează unul nou sau intră "
-"pe Discord pentru a cere ajutor"
+"Se pare că «{}» are probleme, verifică-l din nou, creează unul nou sau intră"
+" pe Discord pentru a cere ajutor"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -155,7 +155,8 @@ msgstr "Acest model necesită mai mult timp decât configurația actuală."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Vă rugăm să încercați alt model. {0} ar necesita mai mult timp decât ați "
 "configurat."
@@ -224,10 +225,11 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Vă pot ajuta cu formule, analiză de date și diagrame colorate. Încercați-"
-"mă!"
+"AI: Vă pot ajuta cu formule, analiză de date și diagrame colorate. "
+"Încercați-mă!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -282,7 +284,8 @@ msgstr ""
 "pentru cerere” în Setări."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Conexiune refuzată. Serverul local AI (Ollama/LM Studio) rulează?"
 
 #: plugin/framework/client/errors.py
@@ -319,6 +322,14 @@ msgid ""
 msgstr ""
 "Modelul repetă același fragment (buclă infinită). Încercați din nou sau "
 "folosiți un alt model."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(Introduceți cheia API pentru a încărca modelele)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Conexiunea a eșuat)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -454,8 +465,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Eroare internă: Tipul documentului s-a schimbat din {0} în {1}! Vă rugăm să "
-"raportați eroarea.]"
+"[Eroare internă: Tipul documentului s-a schimbat din {0} în {1}! Vă rugăm să"
+" raportați eroarea.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -486,7 +497,8 @@ msgstr "Temperatura trebuie să fie <= 1.0"
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid "This search query '%s' will be sent to the search engine."
-msgstr "Această interogare de căutare „%s” va fi trimisă motorului de căutare."
+msgstr ""
+"Această interogare de căutare „%s” va fi trimisă motorului de căutare."
 
 #: plugin/chatbot/web_research_chat.py
 msgid "[Web search — approval required]"
@@ -565,7 +577,8 @@ msgstr "[Backend-ul agentului „{0}” nu a fost găsit.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend-ul agentului „{0}” nu este disponibil. Verificați Setările (cale, "
 "instalare).]"
@@ -612,8 +625,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"O versiune mai nouă WriterAgent (%s) este disponibilă. Utilizați Instrumente "
-"→ Manager extensii pentru a verifica actualizările și a instala cea mai "
+"O versiune mai nouă WriterAgent (%s) este disponibilă. Utilizați Instrumente"
+" → Manager extensii pentru a verifica actualizările și a instala cea mai "
 "recentă extensie."
 
 #: plugin/chatbot/librarian.py
@@ -956,8 +969,8 @@ msgid "Path / URL"
 msgstr "Cale / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Calea către CLI-ul backend (de ex. aider) sau URL-ul serverului ACP (de ex. "
 "http://localhost:8000 pentru Hermes). Gol = încearcă valoarea implicită."
@@ -966,7 +979,8 @@ msgid "Extra arguments"
 msgstr "Argumente suplimentare"
 
 msgid "Optional arguments for the selected backend (space-separated)."
-msgstr "Argumente opționale pentru backend-ul selectat (separate prin spațiu)."
+msgstr ""
+"Argumente opționale pentru backend-ul selectat (separate prin spațiu)."
 
 msgid "ACP agent name"
 msgstr "Nume agent ACP"
@@ -975,8 +989,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Numele agentului pe serverul ACP (de ex. hermes). Gol = detectare automată a "
-"primului agent."
+"Numele agentului pe serverul ACP (de ex. hermes). Gol = detectare automată a"
+" primului agent."
 
 msgid "Calc spreadsheet tools"
 msgstr "Instrumente pentru foaia de calcul Calc"
@@ -1053,8 +1067,8 @@ msgstr "Activează corectorul gramatical AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Când este activat, WriterAgent înregistrează corectorul gramatical AI în "
 "Linguistic; textul verificat utilizează API-ul dumneavoastră (Instrumente → "
@@ -1069,8 +1083,8 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Rezervat pentru o posibilă utilizare viitoare. Corectorul returnează imediat "
-"rezultatul în caz de cache miss (asincron); rezultatele apar la o trecere "
+"Rezervat pentru o posibilă utilizare viitoare. Corectorul returnează imediat"
+" rezultatul în caz de cache miss (asincron); rezultatele apar la o trecere "
 "ulterioară a Writer odată ce cache-ul de propoziții este completat."
 
 msgid "Grammar check model (optional)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-11 17:47-0400\n"
+"POT-Creation-Date: 2026-05-13 11:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -20,12 +20,12 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam "
-"API setini geri yüklemek için işiniz bittiğinde "
+"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam"
+" API setini geri yüklemek için işiniz bittiğinde "
 "'specialized_workflow_finished' komutunu çağırmalısınız."
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
@@ -61,8 +61,9 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Şu anda isteğinizi işleme alamıyoruz, lütfen daha sonra tekrar deneyin. Eğer "
-"bu durum uzun süredir devam ediyorsa, lütfen Discord üzerinden bize bildirin"
+"Şu anda isteğinizi işleme alamıyoruz, lütfen daha sonra tekrar deneyin. Eğer"
+" bu durum uzun süredir devam ediyorsa, lütfen Discord üzerinden bize "
+"bildirin"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -81,8 +82,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Çok fazla istekte bulundunuz, lütfen tamamlanmalarını bekleyin ve daha sonra "
-"tekrar deneyin"
+"Çok fazla istekte bulundunuz, lütfen tamamlanmalarını bekleyin ve daha sonra"
+" tekrar deneyin"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -153,7 +154,8 @@ msgstr "Bu model, mevcut yapılandırmanızdan daha fazla zaman alıyor."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid "Please try another model. {0} would take more time than you configured."
+msgid ""
+"Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Lütfen başka bir model deneyin. {0} yapılandırdığınızdan daha fazla zaman "
 "alacaktır."
@@ -222,7 +224,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "YZ: Formüller, veri analizi ve renkli grafikler konusunda size yardımcı "
 "olabilirim. Beni deneyin!"
@@ -280,10 +283,11 @@ msgstr ""
 "artırmayı deneyin."
 
 #: plugin/framework/client/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor "
-"mu?"
+"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor"
+" mu?"
 
 #: plugin/framework/client/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -319,6 +323,14 @@ msgid ""
 msgstr ""
 "Model aynı parçayı tekrarlıyor (sonsuz döngü). Tekrar deneyin veya farklı "
 "bir model kullanın."
+
+#: plugin/framework/config.py
+msgid "(Enter API Key to load models)"
+msgstr "(API Anahtarını girerek modelleri yükleyin)"
+
+#: plugin/framework/config.py
+msgid "(Connection failed)"
+msgstr "(Bağlantı başarısız)"
 
 #: plugin/calc/legacy.py plugin/writer/legacy.py
 msgid "Please enter edit instructions!"
@@ -535,8 +547,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini "
-"ayarlayın). Yol:\n"
+"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini ayarlayın). Yol:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -565,7 +576,8 @@ msgstr "['{0}' aracı arka ucu bulunamadı.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
 
@@ -954,11 +966,11 @@ msgid "Path / URL"
 msgstr "Yol / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için http://"
-"localhost:8000). Boş = varsayılanı dene."
+"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için "
+"http://localhost:8000). Boş = varsayılanı dene."
 
 msgid "Extra arguments"
 msgstr "Ek argümanlar"
@@ -1049,8 +1061,8 @@ msgstr "Yapay zeka dil bilgisi denetleyicisini etkinleştir (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
-"after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
+" after you pause typing. Off by default."
 msgstr ""
 "Açık olduğunda, WriterAgent yapay zeka dil bilgisi denetleyicisini "
 "Linguistic ile kaydeder; denetlenen metin API'nizi kullanır (Araçlar → "
