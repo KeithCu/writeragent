@@ -42,6 +42,13 @@ config:
     label: Grammar batch sentences
     helper: "Number of sentences to send per LLM request (1-8). 1 (default) is most reliable; higher values are faster and cheaper but may hit token limits or cause model errors."
 
+  grammar_proofreader_detect_language:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Detect and correct sentence language
+    helper: "When on, asks the AI to verify the language of each sentence against the document's used locales. If incorrect, the language property is updated automatically."
+
   chat_enter_key_sends_message:
     type: boolean
     default: true

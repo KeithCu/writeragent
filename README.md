@@ -80,6 +80,7 @@ Another option is [Together.AI](https://www.together.ai/), which also has a vari
 - **Specialized Toolsets**: A nested API design that prevents context bloat. [Smol vs. Main Chat Tooling](docs/smol-main-chat-tool-architecture.md).
 - **Persistent Memory**: [Agent Memory & Skills](docs/agent-memory-and-skills.md) and [Librarian Onboarding](docs/librarian-agentic-onboarding.md).
 - **34 Locales**: Automated AI-driven translation and review pipeline. [Localization Pipeline](docs/localization.md).
+- **Multilingual Grammar**: An optional feature that uses the LLM to identify and correct the underlying text language when typing in multiple languages, before running the grammar checker.
 
 #### Showcase
 Hermes-Agent with Claude Opus 4.6 and the Web Research sub-agent:

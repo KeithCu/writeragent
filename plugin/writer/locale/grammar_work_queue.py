@@ -10,6 +10,7 @@ import logging
 import queue
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, Mapping
 
@@ -21,13 +22,166 @@ from .grammar_proofread_locale import (
     GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,
     GRAMMAR_SYSTEM_PROMPT_TEMPLATE,
     GRAMMAR_WORKER_PAUSE_TIMEOUT_S,
+    LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT,
+    LANGUAGE_DETECT_SYSTEM_PROMPT,
     looks_complete_sentence,
     parse_grammar_batch_json,
     parse_grammar_json,
+    parse_language_detect_batch_json,
+    parse_language_detect_json,
+    normalize_uno_locale_to_bcp47,
 )
 from .grammar_proofread_text import normalize_errors_for_text, split_into_sentences
+from .grammar_persistence import _find_model_by_runtime_uid
 
 log = logging.getLogger("writeragent.grammar")
+
+_doc_locales_cache: dict[str, tuple[float, list[str]]] = {}
+_lang_detect_cache: OrderedDict[str, str] = OrderedDict()
+
+def _get_cached_language(text: str) -> str | None:
+    if text in _lang_detect_cache:
+        _lang_detect_cache.move_to_end(text)
+        return _lang_detect_cache[text]
+    return None
+
+def _put_cached_language(text: str, lang: str) -> None:
+    _lang_detect_cache[text] = lang
+    if len(_lang_detect_cache) > 1000:
+        _lang_detect_cache.popitem(last=False)
+
+def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
+    now = time.time()
+    cached = _doc_locales_cache.get(doc_id)
+    if cached is not None and now - cached[0] < 60:
+        return cached[1]
+
+    def _query_locales() -> list[str]:
+        locales = set()
+        try:
+            smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
+            if smgr:
+                lingu_props = smgr.createInstanceWithContext("com.sun.star.linguistic2.LinguProperties", ctx)
+                if lingu_props:
+                    def_loc = getattr(lingu_props, "DefaultLocale", None)
+                    bcp = normalize_uno_locale_to_bcp47(def_loc)
+                    if bcp:
+                        locales.add(bcp)
+        except Exception as e:
+            log.warning("Failed to get LinguProperties: %s", e)
+
+        try:
+            model = _find_model_by_runtime_uid(ctx, doc_id)
+            if model:
+                log.debug("[grammar] Document locale detection starting")
+                
+                # 1. Styles
+                if hasattr(model, "getStyleFamilies"):
+                    families = model.getStyleFamilies()
+                    for family_name in ("ParagraphStyles", "CharacterStyles"):
+                        if families.hasByName(family_name):
+                            family = families.getByName(family_name)
+                            for style_name in family.getElementNames():
+                                try:
+                                    style = family.getByName(style_name)
+                                    loc = getattr(style, "CharLocale", None)
+                                    bcp = normalize_uno_locale_to_bcp47(loc)
+                                    if bcp:
+                                        locales.add(bcp)
+                                except Exception:
+                                    pass
+
+                # 2. First 50 paragraphs text portions (captures direct formatting)
+                if hasattr(model, "getText"):
+                    enum = model.getText().createEnumeration()
+                    para_count = 0
+                    while enum.hasMoreElements() and para_count < 50:
+                        para = enum.nextElement()
+                        para_count += 1
+                        if hasattr(para, "createEnumeration"):
+                            portion_enum = para.createEnumeration()
+                            while portion_enum.hasMoreElements():
+                                portion = portion_enum.nextElement()
+                                loc = getattr(portion, "CharLocale", None)
+                                bcp = normalize_uno_locale_to_bcp47(loc)
+                                if bcp:
+                                    locales.add(bcp)
+                
+                # 3. 1000 characters around the view cursor
+                ctrl = getattr(model, "getCurrentController", lambda: None)()
+                view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
+                if view_cursor:
+                    try:
+                        tc = view_cursor.getText().createTextCursorByRange(view_cursor)
+                        tc.goLeft(500, False)
+                        for _ in range(1000):
+                            if not tc.goRight(1, True):
+                                break
+                            loc = getattr(tc, "CharLocale", None)
+                            bcp = normalize_uno_locale_to_bcp47(loc)
+                            if bcp:
+                                locales.add(bcp)
+                            tc.collapseToEnd()
+                    except Exception as e:
+                        log.debug("[grammar] Failed to scan near cursor for locales: %s", e)
+                        
+                log.debug("[grammar] Document locale detection finished. Found: %s", locales)
+        except Exception as e:
+            log.warning("Failed to query document styles/text for locales: %s", e)
+
+        if not locales:
+            locales.add("en-US")
+        return sorted(list(locales))
+
+    from plugin.framework.queue_executor import execute_on_main_thread
+    try:
+        locs = execute_on_main_thread(_query_locales)
+        _doc_locales_cache[doc_id] = (now, locs)
+        return locs
+    except Exception as e:
+        log.warning("Failed to get cached locales: %s", e)
+        return ["en-US"]
+
+def _apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bcp47: str) -> None:
+    def _do_update() -> None:
+        model = _find_model_by_runtime_uid(ctx, doc_id)
+        if not model:
+            return
+        
+        parts = detected_bcp47.split("-")
+        lang = parts[0]
+        country = parts[1] if len(parts) > 1 else ""
+        
+        from com.sun.star.lang import Locale
+        new_locale = Locale(Language=lang, Country=country)
+        
+        ctrl = getattr(model, "getCurrentController", lambda: None)()
+        view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
+        
+        search_desc = model.createSearchDescriptor()
+        search_desc.setSearchString(sentence_text)
+        try:
+            search_desc.setPropertyValue("SearchCaseSensitive", True)
+        except Exception:
+            # Fallback for attribute assignment
+            search_desc.SearchCaseSensitive = True
+        
+        found_range = None
+        if view_cursor:
+            found_range = model.findNext(view_cursor.getStart(), search_desc)
+        
+        if not found_range:
+            found_range = model.findFirst(search_desc)
+            
+        if found_range:
+            found_range.setPropertyValue("CharLocale", new_locale)
+            log.info("[grammar] Updated CharLocale for sentence to %s", detected_bcp47)
+            
+    from plugin.framework.queue_executor import execute_on_main_thread
+    try:
+        execute_on_main_thread(_do_update)
+    except Exception as e:
+        log.warning("Failed to update language property: %s", e)
 
 
 @dataclass(frozen=True)
@@ -267,6 +421,21 @@ def run_llm_and_cache_batch(
         batch_size = get_config_int_safe(ctx, "doc.grammar_proofreader_batch_sentences", 1)
         batch_size = max(1, min(GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
 
+        detect_lang_enabled = get_config_bool_safe(ctx, "doc.grammar_proofreader_detect_language")
+        if detect_lang_enabled:
+            filtered_items = []
+            for item, text in valid_items:
+                if item.partial_sentence or not looks_complete_sentence(text):
+                    continue
+                filtered_items.append((item, text))
+            valid_items = filtered_items
+            if not valid_items:
+                return
+            locales_in_use = _get_cached_document_locales(ctx, valid_items[0][0].doc_id)
+            detect_lang_instruction = f" Choose from the following locales currently used in the document, or provide a new one if none match: {', '.join(locales_in_use)}."
+        else:
+            detect_lang_instruction = ""
+
         if len(valid_items) > 1 and batch_size > 1:
             # Batch mode - chunked to avoid hitting LLM output token limits
             sys_prompt = GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
@@ -277,6 +446,41 @@ def run_llm_and_cache_batch(
                 # Format as numbered list
                 user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(chunk))
 
+                # --- Detect Language First (Optional) ---
+                if detect_lang_enabled:
+                    detected_langs = []
+                    all_cached = True
+                    for _it, text in chunk:
+                        cached = _get_cached_language(text)
+                        detected_langs.append(cached)
+                        if not cached:
+                            all_cached = False
+                            
+                    if not all_cached:
+                        detect_prompt = LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT.format(detect_lang_instruction=detect_lang_instruction)
+                        detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": user_content}]
+                        
+                        emit_grammar_status("request", f"Batch of {len(chunk)}", result="Detecting language")
+                        with llm_request_lane():
+                            detect_content = client.chat_completion_sync(detect_messages, max_tokens=100 * len(chunk), model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
+                        
+                        detected_langs = parse_language_detect_batch_json(detect_content or "")
+                        if len(detected_langs) == len(chunk):
+                            for idx, d_lang in enumerate(detected_langs):
+                                if d_lang:
+                                    _put_cached_language(chunk[idx][1], d_lang)
+                    
+                    if len(detected_langs) == len(chunk):
+                        mismatch_found = False
+                        for idx, d_lang in enumerate(detected_langs):
+                            if d_lang and d_lang != grammar_bcp47:
+                                log.info("[grammar] Language mismatch detected in batch: %s vs %s. Triggering locale change.", d_lang, grammar_bcp47)
+                                _apply_language_change(ctx, chunk[idx][0].doc_id, chunk[idx][1], d_lang)
+                                mismatch_found = True
+                        if mismatch_found:
+                            continue # Skip grammar check for this batch to allow re-check
+
+                # --- Grammar Check ---
                 grammar_obs("worker_llm_batch_request", item_count=len(chunk), total_len=len(user_content))
                 messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_content}]
                 
@@ -308,7 +512,6 @@ def run_llm_and_cache_batch(
                         )
                     continue
 
-                # Store results for this chunk
                 for idx, (item, text) in enumerate(chunk):
                     if gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
                         continue
@@ -326,6 +529,27 @@ def run_llm_and_cache_batch(
                 if len(llm_text) > max_chars:
                     llm_text = llm_text[:max_chars]
                 
+                # --- Detect Language First (Optional) ---
+                if detect_lang_enabled:
+                    detected_lang = _get_cached_language(llm_text)
+                    if not detected_lang:
+                        detect_prompt = LANGUAGE_DETECT_SYSTEM_PROMPT.format(detect_lang_instruction=detect_lang_instruction)
+                        detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": llm_text}]
+                        
+                        emit_grammar_status("request", llm_text, result="Detecting language")
+                        with llm_request_lane():
+                            detect_content = client.chat_completion_sync(detect_messages, max_tokens=50, model=model or None, response_format={"type": "json_object"}, prepend_dev_build_system_prefix=False)
+                        
+                        detected_lang = parse_language_detect_json(detect_content or "")
+                        if detected_lang:
+                            _put_cached_language(llm_text, detected_lang)
+                    
+                    if detected_lang and detected_lang != grammar_bcp47:
+                        log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", detected_lang, grammar_bcp47)
+                        _apply_language_change(ctx, item.doc_id, llm_text, detected_lang)
+                        continue
+
+                # --- Grammar Check ---
                 use_partial = item.partial_sentence or not looks_complete_sentence(llm_text)
                 sys_prompt = GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=_lang, bcp47=grammar_bcp47)
                 if use_partial:

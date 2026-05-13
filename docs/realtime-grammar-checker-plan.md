@@ -11,12 +11,13 @@
 | **Concepts and behavior** | UNO proofreader API basics, product boundaries, sentence vs paragraph scheduling |
 | **Shipped implementation reference** | Module map, settings keys, runtime/cache/queue behavior, tests |
 | **Completed milestones** vs **Open backlog** | What is done vs what remains (single source for work items) |
-| **Appendices** | Historical bug write-ups and doc-maintenance pointers |
+| **Appendices** | Historical bug write-ups, [dialogue / BreakIterator split limitation](#appendix-e-dialogue-splits), doc-maintenance pointers |
 
 ### At a glance
 
 - **Native grammar** is implemented as an `XProofreader` service with Lightproof-style registry (`LinguisticWriterAgentGrammar.xcu`); users enable LLM work on the **Doc** tab and pick the proofreader under Writing aids.
 - **Batching** groups sentences from the same paragraph into chunked LLM requests; batch size is capped (`doc.grammar_proofreader_batch_sentences`, max 8).
+- **Language Detection** automatically identifies mismatches between LibreOffice's `CharLocale` and the actual text using a lightweight LLM call, actively triggering localized paragraph re-checks (`doc.grammar_proofreader_detect_language`).
 - **Cache** is **document-embedded by default** (`USE_SQLITE_CACHE = False`): results live inside the `.odt` as user-defined property `WriterAgentGrammarCache`, so they travel with the file across machines and collaborators. SQLite / profile-JSON remains available as a code-flag fallback.
 - **Sidebar chat** is separate: use it for explanations, rewrites, and editorial comment tools—not as a second linguistic pipeline.
 
@@ -227,6 +228,16 @@ The native grammar checker pairs **sentence-bound work units** with **sentence-l
 - **Abbreviation extension logic**: When BreakIterator identifies a period as a potential sentence boundary, the code checks if the preceding word is an abbreviation (alpha count > 0). If so, it skips past the period to `i + 1`, advances past any whitespace, then calls `BreakIterator.endOfSentence()` from that clean position to find the true sentence end. This avoids infinite loops while correctly handling cases like `Dr. Johnson asked...` as a single sentence.
 - **Why not spaCy**: Evaluated spaCy for abbreviation detection but rejected it because its tokenization data and models contained email addresses, personal data, and other extraneous content. The dynamic character-counting approach is simpler, more maintainable, privacy-preserving, and works universally across all scripts without large static tables or external dependencies.
 
+<a id="dialogue-breakiterator-limitation"></a>
+
+#### Dialogue and quoted speech (BreakIterator limitation)
+
+**Example:** `"Fire! Fire!"` — LibreOffice `BreakIterator` typically ends the first “sentence” after the first `!`, so the checker may send **`"Fire!`** (opening quote, no closing quote yet) to the LLM as a standalone unit. The abbreviation extension logic only revises boundaries when the candidate end falls on **`.`** and `word_before_period_is_abbrev` applies; **`!` and `?` inside speech are not extended.** The fragment still ends in `!`, so `looks_complete_sentence` is true and the slice is treated as **complete**, not as a short partial to drop.
+
+**User-visible effect:** The model often reports a **missing closing quotation mark** (or similar dialogue punctuation). That is a sensible reading of the **isolated substring**, not a random hallucination.
+
+**Why a naive “merge until quotes balance” is dangerous:** If the implementation simply walks forward and **concatenates every following BreakIterator segment until the closing `"` appears**, a long stretch of dialogue can turn into **one enormous pseudo-sentence** spanning **many** underlying LO sentence boundaries. That undermines **sentence-level caching** (one huge key, any edit inside the quote invalidates it), **batching** (`GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS`, worker latency), and the product goal of **localized squiggles**. A robust design needs **hard caps** (max extra characters and/or max number of merged segments), a defined **fallback** when the cap is hit (e.g. keep the first segment only, or stop merging and accept occasional false positives), and **UNO tests** with real `BreakIterator` plus unit tests for merge logic. Narrower triggers (e.g. only consider extension when the split is on `!`/`?` and quote parity is odd) reduce collateral damage in ordinary prose. See [Appendix E](#appendix-e-dialogue-splits) for a structured write-up.
+
 #### Sentence cache
 
 - **In-memory LRU**: Keyed by sentence fingerprint (locale + text hash). `MAX_CACHE_SIZE` is **2048**.
@@ -420,6 +431,7 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 | P22 | Embedded cache: full-document retention on save | Today `_persist_to_udprops` only writes sentences in `_session_accessed` (touched this session). Document sections that were never scrolled into view can drop after a save. Either persist `_memory_cache` in full when small enough, or always re-include previously persisted fingerprints we haven't explicitly invalidated. Trade-off vs cap and edit-detection cost. |
 | P23 | Surface `USE_SQLITE_CACHE` as a user-facing option | Doc-tab toggle (or a single advanced setting) so users can opt into the global SQLite cache when they want cross-document reuse and don't mind machine-local state, instead of editing source. |
 | P24 | Regional locale opt-out | Allow specific locales (e.g., `en-AU`, `pt-PT`) to opt-out of normalization to the "base" language if regional grammar nuances are significant. |
+| P25 | Quote-aware sentence merge (optional) | Reduce false "missing quote" on dialogue split at `!`/`?` inside quotes. Requires capped post-`split_into_sentences` merge, i18n-safe quote rules, UNO + unit tests. See [Dialogue / BreakIterator limitation](#dialogue-breakiterator-limitation) and [Appendix E](#appendix-e-dialogue-splits). |
 
 ### Code health and maintainability
 
@@ -516,3 +528,46 @@ Two latent bugs combined:
 
 - Keep [`AGENTS.md`](../AGENTS.md) in sync when behavior or config keys change (per project rules).
 - Optional non-LLM checker roadmap: [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md).
+
+<a id="appendix-e-dialogue-splits"></a>
+
+### Appendix E: Dialogue splits and false closing-quote warnings
+
+**Observed behavior:** Quoted lines where **sentence-ending punctuation appears before the closing quote** (e.g. `"Fire! Fire!"`, or multi-clause speech with internal `!` / `?`) can produce grammar suggestions about **missing closing quotation marks** or other dialogue punctuation errors.
+
+**Root cause (implementation):**
+
+1. **Primary split:** [`split_into_sentences`](../plugin/writer/locale/grammar_proofread_text.py) uses `com.sun.star.i18n.BreakIterator.endOfSentence`. For common English locales, **`!` and `?` end a sentence** the same way `.` does, including when they appear inside an opening `"` …
+2. **No `!`/`?` analogue to the abbrev heuristic:** The loop that extends past a false `.` boundary only runs when the boundary character is **`.`** and the preceding token matches `word_before_period_is_abbrev`. There is **no** parallel path for “this `!` is mid-utterance inside dialogue.”
+3. **Completeness gating still passes:** [`looks_complete_sentence`](../plugin/writer/locale/grammar_proofread_locale.py) treats the last non-closer character as the sentence terminal; `"Fire!` ends in `!`, so the chunk counts as **complete** and is not filtered as an incomplete short fragment.
+4. **Pinned text to the LLM:** [`WriterAgentAiGrammarProofreader`](../plugin/writer/locale/ai_grammar_proofreader.py) enqueues [`GrammarWorkItem`](../plugin/writer/locale/grammar_work_queue.py) with `proofread_sentence_text` set to that segment. The worker does **not** re-split, so the model genuinely receives a **truncated quoted string**.
+
+**Why this is a hardening problem, not “fix the prompt only”:** Prompt tweaks might reduce false positives but do not fix **wrong work units**, **cache granularity**, or **offset** semantics if we ever map errors back across merged spans.
+
+**Robust mitigation ideas (design space):**
+
+| Direction | Strength | Risk |
+|-----------|----------|------|
+| **Post-split merge with quote parity** | Aligns LLM input with author intent for many dialogue lines | Apostrophes, nested `"`/`'`, guillemets, RTL, and mixed curly/ASCII quotes need explicit policy; wrong parity can merge too much or too little. |
+| **Hard cap on forward merge** | Prevents one open quote from absorbing **many** BreakIterator sentences until the closing quote—avoiding runaway **token cost**, **cache key bloat**, and **8192-char** pressure | Below the cap, some long speech blocks may still split incorrectly; above the cap, fall back must be defined. |
+| **Trigger only on `!`/`?` boundaries** | Avoids touching the common `.` + abbrev path | Misses edge cases like period-inside-dialogue when BI still splits early. |
+| **Prompt-only “ignore incomplete quote”** | Cheap | Leaves bad segmentation and weak cache behavior unchanged. |
+
+**Regression surface:** Any change should add coverage in [`plugin/tests/writer/locale/test_grammar_proofread_text_uno.py`](../plugin/tests/writer/locale/test_grammar_proofread_text_uno.py) (real `BreakIterator`) and focused unit tests for merge helpers without UNO.
+
+**Status:** Documented limitation + backlog **P25**; no code change required for users who hit this rarely.
+
+### Appendix F: Real-time Language Detection Architecture
+
+**Problem:** Users often type in multiple languages (e.g., mixing English and French sentences in the same document) without actively updating the LibreOffice language property. When the grammar checker runs, it applies rules for the wrong language. LibreOffice's built-in automatic language detection is often flaky or relies on rigid dictionaries.
+
+**Implementation (Current):**
+- **Decoupled Prompting:** The language detection feature (`doc.grammar_proofreader_detect_language`) uses an isolated prompt (`LANGUAGE_DETECT_SYSTEM_PROMPT`) *before* any grammar checking occurs. This ensures the model isn't confused by dual instructions.
+- **Incomplete Sentence Guard:** If the user hasn't finished typing the sentence (`looks_complete_sentence` fails), language detection and grammar checking are bypassed entirely to prevent jumping the gun on a half-written word.
+- **Boundary Preservation:** The pipeline respects LibreOffice's paragraph segmentation constraints (`n_suggested_behind_end`). By returning control when a language changes, we allow LibreOffice to naturally iterate over the newly-detected language chunks.
+- **LRU Deduplication:** To prevent redundant LLM calls when a paragraph bounces between locale invalidation updates, we maintain an in-memory `OrderedDict` (`_lang_detect_cache`) bounded to 1,000 sentences. If the text string was recently evaluated for a language, the LLM request is skipped.
+
+**Future Ideas & Cache Alternatives:**
+- **Character-Level Heuristics:** Before calling the LLM, we could run a fast regex-based detector for non-Latin scripts (e.g., Japanese, Korean, Arabic). If detected, we can bypass the LLM and instantly apply the matching locale if the document supports it.
+- **Persistent Language Cache:** The current LRU is transient (in-memory). We could persist the language map to the `WriterAgentGrammarCache` user-defined property. However, since the primary use case is immediate feedback during typing sessions, the transient in-memory cache is highly effective without bloating the `.odt` file.
+- **Model Downgrading:** Language detection requires virtually zero "reasoning." In the future, we could configure the HTTP request to route detection tasks to a significantly cheaper/faster model (e.g., `gemini-flash-8b`) while keeping the heavy grammar evaluation on the primary intelligent model.

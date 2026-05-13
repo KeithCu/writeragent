@@ -192,6 +192,17 @@ GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE = (
     '"reason" and any comments when you give them.'
 )
 
+LANGUAGE_DETECT_SYSTEM_PROMPT = """You are a language detection engine. The user will provide a text segment.
+Return a JSON object with a single key 'detected_language_bcp47' containing the BCP-47 language tag for the text.
+{detect_lang_instruction}
+"""
+
+LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT = """You are a language detection engine. The user will provide multiple numbered text segments.
+Return a JSON object with a 'results' array. Each element in the array must be an object with a 'detected_language_bcp47' key containing the BCP-47 language tag for the corresponding segment.
+The 'results' array must have exactly the same number of elements as the input segments, in the same order.
+{detect_lang_instruction}
+"""
+
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # ---------------------------------------------------------------------------
@@ -466,4 +477,54 @@ def parse_grammar_batch_json(content: str) -> list[list[dict[str, Any]]]:
                 continue
             sent_errors.append({"wrong": str(wrong), "correct": str(correct), "type": str(row.get("type", "grammar")), "reason": str(row.get("reason", ""))})
         out.append(sent_errors)
+    return out
+
+def parse_language_detect_json(content: str) -> str | None:
+    """Parse assistant message to extract the detected language string."""
+    if not content or not content.strip():
+        return None
+    text = content.strip()
+    m = GRAMMAR_JSON_TAIL_RE.search(text)
+    if m:
+        text = m.group(0)
+    data: Any = safe_json_loads(text)
+    if not isinstance(data, Mapping):
+        try:
+            data = json_repair.repair_json(text, return_objects=True)
+        except Exception:
+            return None
+    if not isinstance(data, Mapping):
+        return None
+    root = cast("Mapping[str, Any]", data)
+    lang = root.get("detected_language_bcp47")
+    return str(lang) if isinstance(lang, str) else None
+
+def parse_language_detect_batch_json(content: str) -> list[str | None]:
+    """Parse assistant message into a list of detected languages."""
+    if not content or not content.strip():
+        return []
+    text = content.strip()
+    m = GRAMMAR_JSON_TAIL_RE.search(text)
+    if m:
+        text = m.group(0)
+    data: Any = safe_json_loads(text)
+    if not isinstance(data, Mapping):
+        try:
+            data = json_repair.repair_json(text, return_objects=True)
+        except Exception:
+            return []
+    if not isinstance(data, Mapping):
+        return []
+    root = cast("Mapping[str, Any]", data)
+    results = root.get("results")
+    if not isinstance(results, list):
+        return []
+    
+    out: list[str | None] = []
+    for res in results:
+        if not isinstance(res, Mapping):
+            out.append(None)
+            continue
+        lang = res.get("detected_language_bcp47")
+        out.append(str(lang) if isinstance(lang, str) else None)
     return out

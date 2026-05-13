@@ -114,6 +114,19 @@ def test_parse_grammar_json_valid() -> None:
     assert items[0]["wrong"] == "they is"
     assert items[0]["correct"] == "they are"
 
+def test_parse_language_detect_json() -> None:
+    raw = '{"detected_language_bcp47": "fr-FR", "errors": []}'
+    lang = gl.parse_language_detect_json(raw)
+    assert lang == "fr-FR"
+    
+    assert gl.parse_language_detect_json('{"other": 1}') is None
+
+def test_parse_language_detect_batch_json() -> None:
+    raw = '{"detected_language_bcp47": "es-ES", "results": [{"detected_language_bcp47": "es-ES"}]}'
+    langs = gl.parse_language_detect_batch_json(raw)
+    assert len(langs) == 1
+    assert langs[0] == "es-ES"
+
 def test_looks_complete_sentence_matches_proofreader_gating() -> None:
     """Includes STerm chars beyond ASCII."""
     assert gl.looks_complete_sentence("Hello world.") is True
