@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktøykall bytta til '{0}'. Du er i ein spesialisert verktøymodus. Du må "
@@ -89,8 +89,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Det ser ut til at «{}» har problem, dobbeltsjekk det, opprett eit nytt eller"
-" bli med på Discord for å be om hjelp"
+"Det ser ut til at «{}» har problem, dobbeltsjekk det, opprett eit nytt eller "
+"bli med på Discord for å be om hjelp"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -152,8 +152,7 @@ msgstr "Denne modellen tek lengre tid enn den noverande konfigurasjonen din."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Prøv ein annan modell. {0} vil ta lengre tid enn det du har konfigurert."
 
@@ -221,8 +220,7 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: Eg kan hjelpe deg med formlar, dataanalyse og fargerike diagram. Prøv "
 "meg!"
@@ -241,8 +239,7 @@ msgid ""
 "without seeing or changing your document. Let's chat."
 msgstr ""
 "AI: Eg kan gjere nettsøk for å svare på kva som helst spørsmål, eller "
-"oppsummere ei nettside, utan å sjå eller endre dokumentet ditt. La oss "
-"prate."
+"oppsummere ei nettside, utan å sjå eller endre dokumentet ditt. La oss prate."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -279,10 +276,8 @@ msgstr ""
 "innstillingane."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr ""
-"Tilkobling nekta. Køyrer den lokale AI-tenaren din (Ollama/LM Studio)?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "Tilkobling nekta. Køyrer den lokale AI-tenaren din (Ollama/LM Studio)?"
 
 #: plugin/framework/client/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -461,8 +456,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Intern feil: Dokumenttypen er endra frå {0} til {1}! Ver venleg og meld frå"
-" om feilen.]"
+"[Intern feil: Dokumenttypen er endra frå {0} til {1}! Ver venleg og meld frå "
+"om feilen.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -572,8 +567,7 @@ msgstr "[Agent-bakende '{0}' vart ikkje funnen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-bakende '{0}' er ikkje tilgjengeleg. Kontroller innstillingar (bane, "
 "installasjon).]"
@@ -964,11 +958,11 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (t.d. aider) eller ACP-tenar-URL (t.d. "
-"http://localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (t.d. aider) eller ACP-tenar-URL (t.d. http://"
+"localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argument"
@@ -1057,8 +1051,8 @@ msgstr "Aktiver AI-grammatikkontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Når denne er på, registrerer WriterAgent sin AI-grammatikkontrollør med "
 "Linguistic; kontrollert tekst brukar API-et ditt (Verktøy → Val → AI). "
@@ -1073,9 +1067,9 @@ msgid ""
 "cache miss (async); results appear on a later Writer pass once the sentence "
 "cache is filled."
 msgstr ""
-"Reservert for mogleg framtidig bruk. Kontrolløren returnerer umiddelbart ved"
-" cache-bom (asynkront); resultata dukkar opp i ein seinare Writer-"
-"gjennomgang når setningscachen er fylt."
+"Reservert for mogleg framtidig bruk. Kontrolløren returnerer umiddelbart ved "
+"cache-bom (asynkront); resultata dukkar opp i ein seinare Writer-gjennomgang "
+"når setningscachen er fylt."
 
 msgid "Grammar check model (optional)"
 msgstr "Modell for grammatikkontroll (valfri)"

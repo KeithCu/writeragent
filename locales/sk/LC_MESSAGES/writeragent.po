@@ -20,13 +20,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Volanie nástroja prepnuté na '{0}'. Nachádzate sa v režime špecializovanej "
-"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished',"
-" aby sa obnovila úplná sada rozhraní API."
+"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished', "
+"aby sa obnovila úplná sada rozhraní API."
 
 #: plugin/contrib/aihordeclient/__init__.py plugin/chatbot/panel.py
 msgid "Starting..."
@@ -152,8 +152,7 @@ msgstr "Tento model vyžaduje viac času, než je vaša aktuálna konfigurácia.
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr "Skúste iný model. {0} by vyžadoval viac času, než ste nastavili."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -220,8 +219,7 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: Pomôžem vám so vzorcami, analýzou údajov a farebnými grafmi. Vyskúšajte "
 "ma!"
@@ -279,8 +277,7 @@ msgstr ""
 "Nastaveniach."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Pripojenie odmietnuté. Je váš lokálny AI server (Ollama/LM Studio) spustený?"
 
@@ -316,8 +313,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite"
-" iný model."
+"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite "
+"iný model."
 
 #: plugin/framework/config.py
 msgid "(Enter API Key to load models)"
@@ -543,7 +540,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte premennú EDITOR). Cesta:\n"
+"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte "
+"premennú EDITOR). Cesta:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -572,8 +570,7 @@ msgstr "[Backend agenta „{0}“ sa nenašiel.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}“ nie je k dispozícii. Skontrolujte nastavenia (cesta, "
 "inštalácia).]"
@@ -963,11 +960,11 @@ msgid "Path / URL"
 msgstr "Cesta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. "
-"http://localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
+"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. http://"
+"localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
 
 msgid "Extra arguments"
 msgstr "Ďalšie argumenty"
@@ -1051,8 +1048,8 @@ msgstr "Platnosť webovej vyrovnávacej pamäte (dni)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
-"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za"
-" platné."
+"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za "
+"platné."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -1062,8 +1059,8 @@ msgstr "Povoliť kontrolu gramatiky AI (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Keď je táto možnosť zapnutá, WriterAgent zaregistruje svoj nástroj na "
 "kontrolu gramatiky AI v rámci jazykových nástrojov; kontrolovaný text "
@@ -1097,8 +1094,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Keď je táto možnosť zapnutá, kontrola gramatiky AI preskočí žiadosti na "
-"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným"
-" volaniam API."
+"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným "
+"volaniam API."
 
 msgid "Grammar batch sentences"
 msgstr "Dávkové spracovanie viet"
@@ -1148,8 +1145,7 @@ msgid "Enable MCP Server"
 msgstr "Povoliť server MCP"
 
 msgid "Localhost only, no auth. Access via stdio is always enabled."
-msgstr ""
-"Iba localhost, bez autentifikácie. Prístup cez stdio je vždy povolený."
+msgstr "Iba localhost, bez autentifikácie. Prístup cez stdio je vždy povolený."
 
 msgid "MCP Port"
 msgstr "Port MCP"

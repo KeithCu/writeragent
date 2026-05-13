@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tööriista väljakutse lülitus režiimile '{0}'. Olete spetsiaalses "
@@ -59,8 +59,8 @@ msgid ""
 "At this moment we can not process your request, please try again later.  If "
 "this is happening for a long period of time, please let us know via Discord"
 msgstr ""
-"Hetkel ei saa me sinu päringut töödelda, palun proovi hiljem uuesti. Kui see"
-" kestab pikemat aega, anna meile sellest Discordi kaudu teada"
+"Hetkel ei saa me sinu päringut töödelda, palun proovi hiljem uuesti. Kui see "
+"kestab pikemat aega, anna meile sellest Discordi kaudu teada"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "Problem requesting kudos"
@@ -151,8 +151,7 @@ msgstr "See mudel võtab rohkem aega kui teie praegune konfiguratsioon."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Palun proovige teist mudelit. {0} võtaks rohkem aega kui konfigureerisite."
 
@@ -220,8 +219,7 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: Saan teid aidata valemite, andmeanalüüsi ja värviliste diagrammidega. "
 "Proovige mind!"
@@ -277,8 +275,7 @@ msgstr ""
 "Päringu aegumine. Proovige sätetes „Request Timeout“ väärtust suurendada."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Ühendusest keelduti. Kas teie kohalik AI-server (Ollama/LM Studio) töötab?"
 
@@ -450,8 +447,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer,"
-" Calc või Draw).]"
+"[Aktiivses aknas ei leitud ühtegi ühilduvat LibreOffice'i dokumenti (Writer, "
+"Calc või Draw).]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -468,8 +465,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage"
-" sellest!]"
+"[Sisemine viga: dokumendi tüüpi {0} ei õnnestunud tuvastada. Palun teavitage "
+"sellest!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -568,8 +565,7 @@ msgstr "[Agendi taustaprogrammi '{0}' ei leitud.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agendi taustaprogramm '{0}' pole saadaval. Kontrollige sätteid (asukoht, "
 "install).]"
@@ -959,11 +955,11 @@ msgid "Path / URL"
 msgstr "Tee / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Tee taustaprogrammi CLI-le (nt aider) või ACP-serveri URL (nt "
-"http://localhost:8000 Hermes'i jaoks). Tühi = proovi vaikimisi."
+"Tee taustaprogrammi CLI-le (nt aider) või ACP-serveri URL (nt http://"
+"localhost:8000 Hermes'i jaoks). Tühi = proovi vaikimisi."
 
 msgid "Extra arguments"
 msgstr "Lisargumendid"
@@ -1053,8 +1049,8 @@ msgstr "Luba tehisintellektil põhinev grammatikakontroll (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Kui see on sisse lülitatud, registreerib WriterAgent oma tehisintellektil "
 "põhineva grammatikakontrolli keeletööriistade hulgas; kontrollitud tekst "
@@ -1110,8 +1106,8 @@ msgid ""
 "document's used locales. If incorrect, the language property is updated "
 "automatically."
 msgstr ""
-"Kui see on sisse lülitatud, palub see tehisintellektil kontrollida iga lause"
-" keelt vastavalt dokumendis kasutatud keeleseadetele. Kui keel on vale, "
+"Kui see on sisse lülitatud, palub see tehisintellektil kontrollida iga lause "
+"keelt vastavalt dokumendis kasutatud keeleseadetele. Kui keel on vale, "
 "uuendatakse keeleomadust automaatselt."
 
 msgid "Enter key sends sidebar chat message"

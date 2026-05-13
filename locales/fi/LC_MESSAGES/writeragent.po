@@ -20,8 +20,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Työkalukutsu vaihdettu tilaan '{0}'. Olet erikoistyökalutilassa. Sinun on "
@@ -151,8 +151,7 @@ msgstr "Tämä malli vie enemmän aikaa kuin nykyinen asetuksesi."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr "Kokeile toista mallia. {0} vie enemmän aikaa kuin olet määrittänyt."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -219,8 +218,7 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: Voin auttaa sinua kaavojen, data-analyysin ja värikkäiden kaavioiden "
 "kanssa. Kokeile minua!"
@@ -276,8 +274,7 @@ msgstr ""
 "asetuksista."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Yhteys evätty. Onko paikallinen tekoälypalvelimesi (Ollama/LM Studio) "
 "käynnissä?"
@@ -539,7 +536,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-ympäristömuuttuja). Polku:\n"
+"Editoria ei löytynyt (asenna Kate tai Gedit, tai määritä EDITOR-"
+"ympäristömuuttuja). Polku:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -568,8 +566,7 @@ msgstr "[Agent-taustajärjestelmää '{0}' ei löytynyt.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-taustajärjestelmä '{0}' ei ole käytettävissä. Tarkista asetukset "
 "(polku, asennus).]"
@@ -959,8 +956,8 @@ msgid "Path / URL"
 msgstr "Polku / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Taustajärjestelmän CLI-polku (esim. aider) tai ACP-palvelimen URL-osoite "
 "(esim. http://localhost:8000 Hermesille). Tyhjä = kokeile oletusta."
@@ -1056,12 +1053,12 @@ msgstr "Ota käyttöön tekoälypohjainen kieliopin tarkistus (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Kun tämä on päällä, WriterAgent rekisteröi tekoälypohjaisen kieliopin "
-"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi"
-" (Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
+"tarkistimensa Linguistic-palveluun; tarkistettu teksti käyttää API-avaintasi "
+"(Työkalut → Asetukset → AI). Alleviivaus ilmestyy pian kirjoitustauon "
 "jälkeen. Oletuksena pois päältä."
 
 msgid "Grammar check wait timeout (ms)"
@@ -1090,8 +1087,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Kun tämä on päällä, tekoälypohjainen kieliopin tarkistus ohittaa "
-"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään"
-" samanaikaiset API-kutsut."
+"taustapyynnöt, kun sivupalkin chat tai agentti on käynnissä, jotta vältetään "
+"samanaikaiset API-kutsut."
 
 msgid "Grammar batch sentences"
 msgstr "Kieliopin eräkäsittelylauseet"

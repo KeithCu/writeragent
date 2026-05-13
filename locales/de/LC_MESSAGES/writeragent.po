@@ -15,8 +15,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Tool-Aufruf auf '{0}' umgeschaltet. Sie befinden sich im spezialisierten "
@@ -69,8 +69,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch"
-" einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
+"The Horde befindet sich im Wartungsmodus, bitte versuchen Sie es später noch "
+"einmal. Wenn Sie es versucht haben und der Dienst stundenlang nicht "
 "antwortet, kontaktieren Sie uns bitte über Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -153,8 +153,7 @@ msgstr "Dieses Modell benötigt mehr Zeit als Ihre aktuelle Konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Bitte versuchen Sie ein anderes Modell. {0} würde mehr Zeit in Anspruch "
 "nehmen, als Sie konfiguriert haben."
@@ -224,8 +223,7 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "KI: Ich kann Ihnen bei Formeln, Datenanalysen und farbigen Diagrammen "
 "helfen. Probieren Sie es aus!"
@@ -284,8 +282,7 @@ msgstr ""
 "den Einstellungen zu erhöhen."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Verbindung abgelehnt. Läuft Ihr lokaler KI-Server (Ollama/LM Studio)?"
 
 #: plugin/framework/client/errors.py
@@ -465,8 +462,8 @@ msgid ""
 "[Internal Error: Document type changed from {0} to {1}! Please file an "
 "error.]"
 msgstr ""
-"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden"
-" Sie einen Fehler.]"
+"[Interner Fehler: Dokumenttyp hat sich von {0} in {1} geändert! Bitte melden "
+"Sie einen Fehler.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -547,7 +544,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie EDITOR). Pfad:\n"
+"Kein Editor gefunden (installieren Sie Kate oder Gedit oder setzen Sie "
+"EDITOR). Pfad:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -576,8 +574,7 @@ msgstr "[Agent-Backend '{0}' nicht gefunden.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-Backend '{0}' ist nicht verfügbar. Einstellungen prüfen (Pfad, "
 "Installation).]"
@@ -968,11 +965,11 @@ msgid "Path / URL"
 msgstr "Pfad / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. "
-"http://localhost:8000 für Hermes). Leer = Standard versuchen."
+"Pfad zum Backend-CLI (z. B. aider) oder ACP-Server-URL (z. B. http://"
+"localhost:8000 für Hermes). Leer = Standard versuchen."
 
 msgid "Extra arguments"
 msgstr "Zusätzliche Argumente"
@@ -1064,8 +1061,8 @@ msgstr "KI-Grammatikprüfer aktivieren (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Wenn aktiviert, registriert WriterAgent seinen KI-Grammatikprüfer bei "
 "Linguistic; geprüfter Text verwendet Ihre API (Extras → Optionen → KI). "
@@ -1109,8 +1106,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Anzahl der Sätze pro LLM-Anfrage (1-8). 1 (Standard) ist am zuverlässigsten;"
-" höhere Werte sind schneller und kostengünstiger, können aber Token-Limits "
+"Anzahl der Sätze pro LLM-Anfrage (1-8). 1 (Standard) ist am zuverlässigsten; "
+"höhere Werte sind schneller und kostengünstiger, können aber Token-Limits "
 "überschreiten oder Modellfehler verursachen."
 
 msgid "Detect and correct sentence language"
