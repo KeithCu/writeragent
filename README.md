@@ -15,18 +15,6 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 - [8. Roadmap & Future](#-roadmap--future-vision)
 - [9. Credits & Collaboration](#credits--collaboration)
 
-### The Evolution of WriterAgent
-A weekly chronicle of building a professional AI suite inside LibreOffice:
-
-- **Week 1:** [Initial fork, sidebar chat, multi-turn tools, and async streaming](https://keithcu.com/wordpress/?p=5060).
-- **Week 2 & 3:** [MCP, research sub-agent, voice support, and evaluation dashboard](https://keithcu.com/wordpress/?p=5112).
-- **Week 4-6:** [State machines, formal verification, and specialized toolsets](https://keithcu.com/wordpress/?p=5245).
-- **Week 6 & 7:** [Async grammar checking and TeX import support](https://keithcu.com/wordpress/?p=5276).
-
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
-
-> DeepWiki provides excellent analysis of the codebase, including visual dependency graphs
-
 WriterAgent provides powerful AI-driven capabilities integrated directly into your LibreOffice suite:
 
 ### 1. Local-First & Flexible
@@ -251,12 +239,23 @@ Configure your endpoint, model, and behavior in **WriterAgent > Settings**. The 
 
 For detailed configuration examples, see [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
 
+### The Evolution of WriterAgent
+A weekly chronicle of building a professional AI suite inside LibreOffice:
+
+- **Week 1:** [Initial fork, sidebar chat, multi-turn tools, and async streaming](https://keithcu.com/wordpress/?p=5060).
+- **Week 2 & 3:** [MCP, research sub-agent, voice support, and evaluation dashboard](https://keithcu.com/wordpress/?p=5112).
+- **Week 4-6:** [State machines, formal verification, and specialized toolsets](https://keithcu.com/wordpress/?p=5245).
+- **Week 6 & 7:** [Async grammar checking and TeX import support](https://keithcu.com/wordpress/?p=5276).
+
 ## Contributing
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
+
+> DeepWiki provides excellent analysis of the codebase, including visual dependency graphs
 
 ### Local Development
 
-> [!NOTE]
-> **Update May 11, 2026:** Removed `dspy` from `pyproject.toml` to remove dependencies like `litellm`. Run `uv sync` to update your `.venv`. If you want to do prompt optimization, install manually.
+**Update May 11, 2026:** Removed `dspy` from `pyproject.toml` to remove dependencies like `litellm`. Run `uv sync` to update your `.venv`. If you want to do prompt optimization, install manually.
 
 **Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Run `make check-setup` to verify.
 
@@ -298,12 +297,3 @@ Copyright (c) 2025-2026 quazardous (config, registries, build system)
 Copyright (c) 2026 LibreCalc AI Assistant (Calc integration features, originally MIT)
 Copyright (c) 2026 KeithCu (modifications and relicensing)
 
----
-
-## 📚 Documentation Index
-The documents below are specialized reports, configuration guides, and future integration plans that are not linked in the main sections above.
-
-- **🛠️ Development & Tooling**
-  - [Evaluation & Benchmarking Plan](docs/eval-dev-plan.md)
-  - [Agent Architectures Analysis](docs/agent_architectures_analysis.md)
-  - [Architecture: LangChain Integration Plan](docs/langchain-plan.md)
