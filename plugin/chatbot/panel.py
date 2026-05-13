@@ -35,7 +35,7 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.chatbot.history_db import get_chat_history
 
 # Recording available only if audio_recorder (and plugin/contrib/audio) is present
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -53,6 +53,15 @@ HAS_RECORDING = _AudioRecorderCls is not None
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
 
+def _grammar_status_area(phase: str, result: str, preview: str) -> Literal["language", "grammar"]:
+    """Sidebar label bucket: language-detection LLM / failures vs grammar pipeline."""
+    if phase == "request" and result == "Detecting language":
+        return "language"
+    if phase == "failed" and preview.strip().lower() == "language detection":
+        return "language"
+    return "grammar"
+
+
 def format_grammar_status(data: dict[str, Any]) -> str:
     """Format native grammar proofreader progress for the sidebar status field."""
     phase = str(data.get("phase") or "")
@@ -63,24 +72,27 @@ def format_grammar_status(data: dict[str, Any]) -> str:
     except Exception:
         length = 0
     elapsed = data.get("elapsed_ms")
+    area = _grammar_status_area(phase, result, preview)
+    prefix = "Language Check:" if area == "language" else "Grammar Check:"
     if phase == "start":
-        return f"Grammar: checking '{preview}' len {length}"
+        return f"{prefix} checking '{preview}' len {length}"
     if phase == "join":
-        return f"Grammar: waiting '{preview}' len {length}"
+        return f"{prefix} waiting '{preview}' len {length}"
     if phase == "request":
-        return f"Grammar: LLM '{preview}' len {length}"
+        verb = "detecting" if area == "language" else "LLM"
+        return f"{prefix} {verb} '{preview}' len {length}"
     if phase == "complete":
         suffix = result or "done"
         if elapsed is not None:
             suffix = f"{suffix}, {elapsed}ms"
-        return f"Grammar: done '{preview}' len {length}: {suffix}"
+        return f"{prefix} done '{preview}' len {length}: {suffix}"
     if phase == "timeout":
-        return f"Grammar: still running '{preview}' len {length}: {result}"
+        return f"{prefix} still running '{preview}' len {length}: {result}"
     if phase == "skipped":
-        return f"Grammar: skipped '{preview}' len {length}: {result}"
+        return f"{prefix} skipped '{preview}' len {length}: {result}"
     if phase == "failed":
-        return f"Grammar: failed '{preview}' len {length}: {result}"
-    return f"Grammar: {phase or 'update'} '{preview}' len {length}"
+        return f"{prefix} failed '{preview}' len {length}: {result}"
+    return f"{prefix} {phase or 'update'} '{preview}' len {length}"
 
 
 # ---------------------------------------------------------------------------

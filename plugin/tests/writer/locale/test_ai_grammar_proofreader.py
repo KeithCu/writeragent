@@ -101,9 +101,7 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
     ):
         proofreader._run_llm_and_cache(
             ctx=None,
-            full_text="test",
-            n_start=0,
-            n_end=4,
+            text="test",
             enqueue_seq=3,
             inflight_key="doc|en",
             grammar_bcp47="en-US",
@@ -159,7 +157,7 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
         patch("plugin.writer.locale.ai_grammar_proofreader.time.sleep"),
-        patch("plugin.writer.locale.grammar_work_queue.split_into_sentences", side_effect=_split_must_not_run),
+        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
         patch("plugin.writer.locale.grammar_proofread_locale.parse_grammar_json", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
@@ -167,7 +165,7 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
         lane_ctx.return_value.__enter__ = MagicMock()
         lane_ctx.return_value.__exit__ = MagicMock()
         client_cls.return_value.chat_completion_sync.return_value = '{"errors":[]}'
-        proofreader._run_llm_and_cache(None, "Hello.", 0, 6, 1, "d|en", "en-US", proofread_sentence_text="Hello.")
+        proofreader._run_llm_and_cache(None, "Hello.", 1, "d|en", "en-US")
 
 def test_partial_sentence_adds_prompt_note() -> None:
     def _get_config_bool(_ctx, key: str) -> bool:
@@ -191,7 +189,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
         lane_ctx.return_value.__exit__ = MagicMock()
         client = client_cls.return_value
         client.chat_completion_sync.return_value = '{"errors":[]}'
-        proofreader._run_llm_and_cache(None, "This is long enough...", 0, 20, 0, "doc|en", "en-US", partial_sentence=True)
+        proofreader._run_llm_and_cache(None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=True)
     args, _ = client.chat_completion_sync.call_args
     assert "partial sentence" in args[0][0]["content"]
 

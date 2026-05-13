@@ -24,9 +24,7 @@ from dataclasses import asdict
 def _item(seq: int, key: str = "d|en-US|k1") -> GrammarWorkItem:
     return GrammarWorkItem(
         ctx=None,
-        full_text="x",
-        n_start=0,
-        n_end=1,
+        text="x",
         grammar_bcp47="en-US",
         partial_sentence=False,
         doc_id="d",
@@ -48,9 +46,7 @@ def _make_item(
         inflight_key = f"{doc_id}|{locale}|k1"
     return GrammarWorkItem(
         ctx=None,
-        full_text=text,
-        n_start=0,
-        n_end=len(text),
+        text=text,
         grammar_bcp47=locale,
         partial_sentence=False,
         doc_id=doc_id,
@@ -85,7 +81,7 @@ def test_prefix_dedup_typing_sequence() -> None:
     ]
     result = deduplicate_grammar_batch(items)
     assert len(result) == 1
-    surviving_text = result[0].full_text[result[0].n_start : result[0].n_end]
+    surviving_text = result[0].text
     assert surviving_text == "This is a story."
 
 
@@ -96,7 +92,7 @@ def test_prefix_dedup_different_paragraphs() -> None:
         _make_item("Goodbye world.", seq=2, doc_id="para_b"),
     ]
     result = deduplicate_grammar_batch(items)
-    texts = {r.full_text[r.n_start : r.n_end] for r in result}
+    texts = {r.text for r in result}
     assert texts == {"Hello world.", "Goodbye world."}
 
 
@@ -127,7 +123,7 @@ def test_mixed_dedup() -> None:
         _make_item("Unrelated paragraph.", seq=8, doc_id="doc_other"),
     ]
     result = deduplicate_grammar_batch(items)
-    texts = {r.full_text[r.n_start : r.n_end] for r in result}
+    texts = {r.text for r in result}
     # "Short." survives (seq=5), "The cat" dropped (older prefix-related),
     # "The cat sat on the mat." survives (newer), "Unrelated paragraph." survives
     # (distinct doc_id so inflight_key does not collapse unrelated paragraphs).
@@ -160,7 +156,7 @@ def test_newest_wins_over_longest_for_prefix_related_items() -> None:
     assert len(result) == 1
     item = result[0]
     assert item.enqueue_seq == 11
-    assert item.full_text[item.n_start : item.n_end] == "What is going"
+    assert item.text == "What is going"
 
 
 def test_reverse_prefix_chain_executes_only_latest() -> None:
@@ -181,7 +177,7 @@ def test_reverse_prefix_chain_executes_only_latest() -> None:
     assert len(result) == 1
     item = result[0]
     assert item.enqueue_seq == 10
-    assert item.full_text[item.n_start : item.n_end] == "W"
+    assert item.text == "W"
 
 
 def test_two_sentences_same_document_distinct_inflight_keys_survive() -> None:
@@ -234,9 +230,7 @@ def test_two_sentences_string_prefix_collision_both_survive() -> None:
     items = [
         GrammarWorkItem(
             ctx=None,
-            full_text="No. No problem today.",
-            n_start=0,
-            n_end=3,
+            text="No.",
             grammar_bcp47="en-US",
             partial_sentence=False,
             doc_id="doc1",
@@ -245,9 +239,7 @@ def test_two_sentences_string_prefix_collision_both_survive() -> None:
         ),
         GrammarWorkItem(
             ctx=None,
-            full_text="No. No problem today.",
-            n_start=4,
-            n_end=len("No. No problem today."),
+            text="No problem today.",
             grammar_bcp47="en-US",
             partial_sentence=False,
             doc_id="doc1",
@@ -257,7 +249,6 @@ def test_two_sentences_string_prefix_collision_both_survive() -> None:
     ]
     result = deduplicate_grammar_batch(items)
     assert len(result) == 2
-
 
 
 def test_record_enqueue_latest_updates_map() -> None:
@@ -365,8 +356,8 @@ def test_run_llm_and_cache_batch_success() -> None:
         mock_norm.side_effect = [[dummy_error], []]
 
         items = [
-            GrammarWorkItem(ctx=ctx, full_text="They is here.", n_start=0, n_end=13, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="They is here."),
-            GrammarWorkItem(ctx=ctx, full_text="All good.", n_start=14, n_end=23, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text="All good."),
+            GrammarWorkItem(ctx=ctx, text="They is here.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1),
+            GrammarWorkItem(ctx=ctx, text="All good.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2),
         ]
 
         run_llm_and_cache_batch(items)
@@ -411,8 +402,8 @@ def test_run_llm_and_cache_batch_mismatch_fallback() -> None:
         mock_client.chat_completion_sync.return_value = '{"results": [{"errors": []}]}'
 
         items = [
-            GrammarWorkItem(ctx=ctx, full_text="S1.", n_start=0, n_end=3, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="S1."),
-            GrammarWorkItem(ctx=ctx, full_text="S2.", n_start=4, n_end=7, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text="S2."),
+            GrammarWorkItem(ctx=ctx, text="S1.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1),
+            GrammarWorkItem(ctx=ctx, text="S2.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2),
         ]
 
         # Use the singleton instance since run_llm_and_cache_batch uses it
@@ -451,7 +442,7 @@ def test_run_llm_and_cache_batch_chunking() -> None:
 
         # 5 items, batch size 2 -> 3 chunks (2, 2, 1)
         items = [
-            GrammarWorkItem(ctx=ctx, full_text=f"Sent {i}.", n_start=0, n_end=10, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key=f"k{i}", enqueue_seq=i, proofread_sentence_text=f"Sent {i}.")
+            GrammarWorkItem(ctx=ctx, text=f"Sent {i}.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key=f"k{i}", enqueue_seq=i)
             for i in range(5)
         ]
 
@@ -493,7 +484,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
 
         # 3 items -> should result in 3 separate LLM calls
         items = [
-            GrammarWorkItem(ctx=ctx, full_text=f"S{i}.", n_start=0, n_end=3, grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key=f"k{i}", enqueue_seq=i, proofread_sentence_text=f"S{i}.")
+            GrammarWorkItem(ctx=ctx, text=f"S{i}.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key=f"k{i}", enqueue_seq=i)
             for i in range(3)
         ]
 
@@ -535,15 +526,12 @@ def test_locale_mismatch_proceeds_and_double_caches(
     
         item = GrammarWorkItem(
             ctx=ctx,
-            full_text="日本語で書いています。",
-            n_start=0,
-            n_end=10,
+            text="日本語で書いています。",
             grammar_bcp47="zh-CN", # Wrong locale
             partial_sentence=False,
             doc_id="doc123",
             inflight_key="key123",
             enqueue_seq=1,
-            proofread_sentence_text="日本語で書いています。"
         )
     
         run_llm_and_cache_batch([item])
@@ -613,15 +601,12 @@ def test_locale_mismatch_requeue_not_superseded_by_newer_same_sentence_zh_cn_key
 
             item = GrammarWorkItem(
                 ctx=ctx,
-                full_text=sent,
-                n_start=0,
-                n_end=len(sent),
+                text=sent,
                 grammar_bcp47="zh-CN",
                 partial_sentence=False,
                 doc_id=doc_id,
                 inflight_key=old_zh_key,
                 enqueue_seq=1,
-                proofread_sentence_text=sent,
             )
 
             run_llm_and_cache_batch([item], grammar_queue=gq)
@@ -660,8 +645,8 @@ def test_locale_mismatch_batch_splits_and_double_caches(
             '{"errors": []}' # Individual Grammar for item 1 (now re-processed as individual)
         ]
     
-        item1 = GrammarWorkItem(ctx=ctx, full_text="Sentence 1.", n_start=0, n_end=11, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="Sentence 1.")
-        item2 = GrammarWorkItem(ctx=ctx, full_text="日本語の文章。", n_start=12, n_end=20, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text="日本語の文章。")
+        item1 = GrammarWorkItem(ctx=ctx, text="Sentence 1.", grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1)
+        item2 = GrammarWorkItem(ctx=ctx, text="日本語の文章。", grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2)
     
         run_llm_and_cache_batch([item1, item2])
     
@@ -683,6 +668,7 @@ def test_locale_mismatch_batch_splits_and_double_caches(
         assert args[0] == "zh-CN"
         assert args[1] == "Sentence 1."
 
+
 def test_locale_mismatch_batch_cached_detection_double_caches(
 ) -> None:
     """Verify that locale mismatch in a batch works even when detection results are already cached."""
@@ -693,7 +679,15 @@ def test_locale_mismatch_batch_cached_detection_double_caches(
     _lang_detect_cache[sent2_text] = "ja-JP"
     
     try:
-        with patch("plugin.framework.config.is_grammar_enabled", return_value=True),              patch("plugin.framework.config.get_config_int_safe", return_value=8),              patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False),              patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None),              patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put,              patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply,              patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"),              patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client,              patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
+        with patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+             patch("plugin.framework.config.get_config_int_safe", return_value=8), \
+             patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False), \
+             patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
+             patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put, \
+             patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply, \
+             patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
+             patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
+             patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
 
             # Mock LLM client:
             # 1. Individual Grammar for item 2 (ja-JP) - triggered by mismatch detection
@@ -704,8 +698,8 @@ def test_locale_mismatch_batch_cached_detection_double_caches(
                 '{"errors": []}' # Individual Grammar for item 1
             ]
         
-            item1 = GrammarWorkItem(ctx=ctx, full_text="Sentence 1.", n_start=0, n_end=11, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1, proofread_sentence_text="Sentence 1.")
-            item2 = GrammarWorkItem(ctx=ctx, full_text=sent2_text, n_start=12, n_end=20, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2, proofread_sentence_text=sent2_text)
+            item1 = GrammarWorkItem(ctx=ctx, text="Sentence 1.", grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k1", enqueue_seq=1)
+            item2 = GrammarWorkItem(ctx=ctx, text=sent2_text, grammar_bcp47="zh-CN", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2)
         
             # This should NOT trigger batch detection because item 2 is cached and we'll mock item 1 too
             _lang_detect_cache["Sentence 1."] = "zh-CN"

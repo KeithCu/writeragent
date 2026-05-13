@@ -486,7 +486,53 @@ def test_format_grammar_status_complete() -> None:
         }
     )
 
-    assert text == "Grammar: done 'This are bad' len 42: 1 issue, 812ms"
+    assert text == "Grammar Check: done 'This are bad' len 42: 1 issue, 812ms"
+
+
+def test_format_grammar_status_request_language_detect() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "request",
+            "preview": "Hello world",
+            "length": 11,
+            "result": "Detecting language",
+        }
+    )
+    assert text == "Language Check: detecting 'Hello world' len 11"
+
+
+def test_format_grammar_status_request_grammar_llm() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "request",
+            "preview": "Hello world",
+            "length": 11,
+            "result": "LLM request",
+        }
+    )
+    assert text == "Grammar Check: LLM 'Hello world' len 11"
+
+
+def test_format_grammar_status_failed_language_vs_grammar() -> None:
+    lang = format_grammar_status(
+        {
+            "phase": "failed",
+            "preview": "Language detection",
+            "length": 19,
+            "result": "TimeoutError",
+        }
+    )
+    assert lang == "Language Check: failed 'Language detection' len 19: TimeoutError"
+
+    grm = format_grammar_status(
+        {
+            "phase": "failed",
+            "preview": "Grammar check",
+            "length": 13,
+            "result": "ValueError",
+        }
+    )
+    assert grm == "Grammar Check: failed 'Grammar check' len 13: ValueError"
 
 
 def test_do_send_enters_librarian_when_user_memory_missing():

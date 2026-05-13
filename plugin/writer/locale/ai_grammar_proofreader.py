@@ -361,15 +361,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             grammar_queue.enqueue(
                 GrammarWorkItem(
                     ctx=self.ctx,
-                    full_text=a_text,
-                    n_start=sent_start,
-                    n_end=sent_end,
+                    text=sent_text,
                     grammar_bcp47=loc_key,
                     partial_sentence=not complete_sentence,
                     doc_id=a_doc_id,
                     inflight_key=inflight_key,
                     enqueue_seq=seq,
-                    proofread_sentence_text=sent_text,
                 )
             )
 

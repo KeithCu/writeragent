@@ -34,7 +34,7 @@ from .grammar_proofread_locale import (
     parse_language_detect_json,
     normalize_uno_locale_to_bcp47,
 )
-from .grammar_proofread_text import grammar_inflight_key, normalize_errors_for_text, split_into_sentences
+from .grammar_proofread_text import grammar_inflight_key, normalize_errors_for_text
 from .grammar_persistence import _find_model_by_runtime_uid
 log = logging.getLogger("writeragent.grammar")
 
@@ -149,17 +149,12 @@ class GrammarWorkItem:
     """One queued grammar job (defined here so dedup tests avoid UNO imports)."""
 
     ctx: Any
-    full_text: str
-    n_start: int
-    n_end: int
+    text: str
     grammar_bcp47: str
     partial_sentence: bool
     doc_id: str
     inflight_key: str
     enqueue_seq: int
-    # Main-thread sentence text from doProofreading; when set, worker skips split_into_sentences
-    # on the slice so substring BreakIterator cannot disagree with cache keys (see _run_llm_and_cache).
-    proofread_sentence_text: str = ""
 
 
 def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:
@@ -273,31 +268,25 @@ def emit_grammar_status(phase: str, text: str, *, result: str = "", elapsed_ms: 
 
 def run_llm_and_cache(
     ctx: Any,
-    full_text: str,
-    n_start: int,
-    n_end: int,
+    text: str,
     enqueue_seq: int,
     inflight_key: str,
     grammar_bcp47: str,
     partial_sentence: bool = False,
     *,
     doc_id: str = "",
-    proofread_sentence_text: str = "",
     grammar_queue: Any | None = None,
     original_bcp47: str = "",
 ) -> None:
     """Process one queue item: LLM request(s) + sentence cache write(s)."""
     item = GrammarWorkItem(
         ctx=ctx,
-        full_text=full_text,
-        n_start=n_start,
-        n_end=n_end,
+        text=text,
         grammar_bcp47=grammar_bcp47,
         partial_sentence=partial_sentence,
         doc_id=doc_id,
         inflight_key=inflight_key,
         enqueue_seq=enqueue_seq,
-        proofread_sentence_text=proofread_sentence_text,
     )
     run_llm_and_cache_batch([item], grammar_queue=grammar_queue, original_bcp47=original_bcp47)
 
@@ -422,7 +411,7 @@ def _handle_grammar_effect(
                     grammar_bcp47=effect.new_bcp47,
                     enqueue_seq=next_enqueue_seq(),
                     inflight_key=requeue_inflight_key,
-                    proofread_sentence_text=effect.text
+                    text=effect.text
                 )
                 gq.enqueue(new_item)
                 
@@ -527,7 +516,7 @@ def run_llm_and_cache_batch(
             get_config_bool_safe,
             get_config_int_safe,
         )
-        from plugin.framework.queue_executor import is_agent_active, llm_request_lane
+        from plugin.framework.queue_executor import is_agent_active
         from plugin.framework.client.llm_client import LlmClient
         from .grammar_fsm_state import (
             LanguageValidationState, GrammarCheckState,
@@ -550,21 +539,9 @@ def run_llm_and_cache_batch(
                 grammar_obs("worker_skip", reason="superseded_before_process", enqueue_seq=item.enqueue_seq, inflight_key=item.inflight_key)
                 continue
 
-            # Resolve text for this item
-            if item.proofread_sentence_text:
-                to_process = [item.proofread_sentence_text]
-            else:
-                slice_txt = item.full_text[item.n_start : item.n_end]
-                sentences = split_into_sentences(ctx, grammar_bcp47, slice_txt)
-                if not sentences:
-                    to_process = [slice_txt]
-                else:
-                    to_process = [txt for _off, txt in sentences]
-
             # Only keep uncached ones
-            for sent_text in to_process:
-                if cache_get_sentence(grammar_bcp47, sent_text, ctx=ctx, doc_id=item.doc_id) is None:
-                    valid_items.append((item, sent_text))
+            if cache_get_sentence(grammar_bcp47, item.text, ctx=ctx, doc_id=item.doc_id) is None:
+                valid_items.append((item, item.text))
 
         if not valid_items:
             grammar_obs("worker_batch_skip", reason="all_cached_or_superseded", item_count=len(items))
@@ -688,8 +665,7 @@ class GrammarWorkQueue:
 
     @staticmethod
     def _slice_preview(item: GrammarWorkItem, max_len: int = 48) -> str:
-        slice_txt = item.full_text[item.n_start : item.n_end]
-        compact = " ".join(slice_txt.split())
+        compact = " ".join(item.text.split())
         if len(compact) <= max_len:
             return compact
         return f"{compact[:max_len]}…"
@@ -713,7 +689,7 @@ class GrammarWorkQueue:
             self._latest_seq, out_of_order, superseded_prev_seq = record_enqueue_latest(self._latest_seq, item)
             if out_of_order:
                 log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, superseded_prev_seq)
-        grammar_obs("queue_enqueue", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key, n_start=item.n_start, n_end=item.n_end, slice_len=len(item.full_text[item.n_start : item.n_end]), partial_sentence=item.partial_sentence, preview=slice_preview_debug(item.full_text[item.n_start : item.n_end]))  # fmt: skip
+        grammar_obs("queue_enqueue", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key, slice_len=len(item.text), partial_sentence=item.partial_sentence, preview=slice_preview_debug(item.text))  # fmt: skip
 
         with self._q.mutex:
             # Note on same-key bursts: tail-replace only collapses items that are
