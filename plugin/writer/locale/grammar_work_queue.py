@@ -52,6 +52,10 @@ def _put_cached_language(text: str, lang: str) -> None:
     if len(_lang_detect_cache) > 1000:
         _lang_detect_cache.popitem(last=False)
 
+# Super simple locale detection: 1k chars around cursor should be "good enough" for most cases.
+# Historical overkill (styles, first 50 paragraphs, LinguProperties) was removed to prioritize
+# speed and local relevance. If precision drops, consider re-adding style-based detection
+# or a smarter text portion enumeration within the visible range.
 def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
     now = time.time()
     cached = _doc_locales_cache.get(doc_id)
@@ -61,55 +65,9 @@ def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
     def _query_locales() -> list[str]:
         locales = set()
         try:
-            smgr = getattr(ctx, "ServiceManager", getattr(ctx, "getServiceManager", lambda: None)())
-            if smgr:
-                lingu_props = smgr.createInstanceWithContext("com.sun.star.linguistic2.LinguProperties", ctx)
-                if lingu_props:
-                    def_loc = getattr(lingu_props, "DefaultLocale", None)
-                    bcp = normalize_uno_locale_to_bcp47(def_loc)
-                    if bcp:
-                        locales.add(bcp)
-        except Exception as e:
-            log.warning("Failed to get LinguProperties: %s", e)
-
-        try:
             model = _find_model_by_runtime_uid(ctx, doc_id)
             if model:
-                log.debug("[grammar] Document locale detection starting")
-                
-                # 1. Styles
-                if hasattr(model, "getStyleFamilies"):
-                    families = model.getStyleFamilies()
-                    for family_name in ("ParagraphStyles", "CharacterStyles"):
-                        if families.hasByName(family_name):
-                            family = families.getByName(family_name)
-                            for style_name in family.getElementNames():
-                                try:
-                                    style = family.getByName(style_name)
-                                    loc = getattr(style, "CharLocale", None)
-                                    bcp = normalize_uno_locale_to_bcp47(loc)
-                                    if bcp:
-                                        locales.add(bcp)
-                                except Exception:
-                                    pass
-
-                # 2. First 50 paragraphs text portions (captures direct formatting)
-                if hasattr(model, "getText"):
-                    enum = model.getText().createEnumeration()
-                    para_count = 0
-                    while enum.hasMoreElements() and para_count < 50:
-                        para = enum.nextElement()
-                        para_count += 1
-                        if hasattr(para, "createEnumeration"):
-                            portion_enum = para.createEnumeration()
-                            while portion_enum.hasMoreElements():
-                                portion = portion_enum.nextElement()
-                                loc = getattr(portion, "CharLocale", None)
-                                bcp = normalize_uno_locale_to_bcp47(loc)
-                                if bcp:
-                                    locales.add(bcp)
-                
-                # 3. 1000 characters around the view cursor
+                # 1000 characters around the view cursor (500 behind, 500 ahead)
                 ctrl = getattr(model, "getCurrentController", lambda: None)()
                 view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
                 if view_cursor:
@@ -127,9 +85,9 @@ def _get_cached_document_locales(ctx: Any, doc_id: str) -> list[str]:
                     except Exception as e:
                         log.debug("[grammar] Failed to scan near cursor for locales: %s", e)
                         
-                log.debug("[grammar] Document locale detection finished. Found: %s", locales)
+                log.debug("[grammar] Document locale detection finished (cursor scan). Found: %s", locales)
         except Exception as e:
-            log.warning("Failed to query document styles/text for locales: %s", e)
+            log.warning("Failed to query document for locales: %s", e)
 
         if not locales:
             locales.add("en-US")
