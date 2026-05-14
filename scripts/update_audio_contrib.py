@@ -8,6 +8,7 @@ Assumes 'uv' is installed and used for package management.
 """
 
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -38,6 +39,57 @@ def run_command(cmd, cwd=None):
     if result.returncode != 0:
         print(f"Error: {result.stderr}")
     return result
+
+
+def strip_binary(filepath):
+    """Strip debug symbols from a binary file to reduce size.
+    
+    Uses platform-appropriate strip tool:
+    - llvm-strip: Cross-platform, handles any architecture (preferred)
+    - strip: Native platform strip tool
+    - Windows: llvm-strip or strip (MSYS2/MinGW)
+    """
+    filepath = Path(filepath)
+    
+    if not filepath.exists():
+        return
+    
+    # Skip if file is too small to be a meaningful binary
+    if filepath.stat().st_size < 1024:
+        return
+    
+    system = platform.system().lower()
+    
+    # Try llvm-strip first - it's cross-platform and can handle any architecture
+    strippers = ["llvm-strip"]
+    
+    if system == "windows":
+        # On Windows, also try strip from MSYS2/MinGW
+        strippers.append("strip")
+    elif system != "darwin":
+        # On Linux/Unix (not macOS), also try native strip
+        # Note: native strip on Linux is architecture-specific (e.g., x86_64 strip
+        # can't handle aarch64), so we prefer llvm-strip which is universal
+        strippers.append("strip")
+    # On macOS, only try llvm-strip (native strip may not work well with
+    # cross-compiled binaries)
+    
+    for stripper in strippers:
+        try:
+            result = subprocess.run(
+                [stripper, str(filepath)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                print(f"  Stripped {filepath.name} ({filepath.stat().st_size} bytes)")
+                return
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            continue
+    
+    # If we get here, stripping failed - not a fatal error
+    print(f"  Warning: Could not strip {filepath.name} (no strip tool available)")
 
 def main():
     if not CONTRIB_AUDIO_DIR.exists():
@@ -128,6 +180,8 @@ def main():
                 for f in wheel_extract_dir.glob("_cffi_backend.*"):
                     print(f"Updating cffi backend: {f.name}")
                     shutil.copy2(f, CONTRIB_AUDIO_DIR / f.name)
+                    # Strip debug symbols to reduce file size
+                    strip_binary(CONTRIB_AUDIO_DIR / f.name)
                 
                 if not pure_python_updated["cffi"]:
                     cffi_src = wheel_extract_dir / "cffi"
