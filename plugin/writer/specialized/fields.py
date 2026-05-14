@@ -97,12 +97,15 @@ class FieldsList(ToolWriterFieldBase):
             props = {}
             if hasattr(field, "getPropertySetInfo"):
                 try:
-                    for prop in field.getPropertySetInfo().getProperties():
+                    info = field.getPropertySetInfo()
+                    KNOWN_PROPERTIES = ("NumberingType", "IsDate", "SubType", "Format", "IsFixed", "DateTimeValue", "Content", "Author", "Level", "Offset", "PageNumberType", "Condition", "Placeholder", "Hint", "VariableName", "Value", "SequenceValue", "URL", "TargetFrame", "Name")
+                    for prop_name in KNOWN_PROPERTIES:
                         try:
-                            # Avoid extracting complex types
-                            val = field.getPropertyValue(prop.Name)
-                            if isinstance(val, (int, float, str, bool)):
-                                props[prop.Name] = val
+                            if info.hasPropertyByName(prop_name):
+                                # Avoid extracting complex types
+                                val = field.getPropertyValue(prop_name)
+                                if isinstance(val, (int, float, str, bool)):
+                                    props[prop_name] = val
                         except Exception:
                             pass
                 except Exception:
