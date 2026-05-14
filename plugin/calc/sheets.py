@@ -113,6 +113,100 @@ class CreateSheet(ToolCalcSheetBase):
             raise ToolExecutionError(str(e)) from e
 
 
+class RenameSheet(ToolCalcSheetBase):
+    """Rename an existing sheet."""
+
+    name = "rename_sheet"
+    intent = "edit"
+    description = "Renames an existing sheet."
+    parameters = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        bridge = CalcBridge(ctx.doc)
+        old_name = kwargs["old_name"]
+        new_name = kwargs["new_name"]
+
+        try:
+            doc = bridge.get_active_document()
+            sheets = doc.getSheets()
+            if not sheets.hasByName(old_name):
+                raise UnoObjectError(f"No sheet found named '{old_name}'.")
+            sheet = sheets.getByName(old_name)
+            sheet.setName(new_name)
+            logger.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
+            return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
+        except Exception as e:
+            logger.error("Sheet rename error (%s): %s", old_name, str(e))
+            raise ToolExecutionError(str(e)) from e
+
+
+class DeleteSheet(ToolCalcSheetBase):
+    """Delete an existing sheet."""
+
+    name = "delete_sheet"
+    intent = "edit"
+    description = "Deletes an existing sheet by name."
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet_name"]}
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        bridge = CalcBridge(ctx.doc)
+        sheet_name = kwargs["sheet_name"]
+
+        try:
+            doc = bridge.get_active_document()
+            sheets = doc.getSheets()
+            if not sheets.hasByName(sheet_name):
+                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+            if sheets.getCount() <= 1:
+                return self._tool_error("Cannot delete the only sheet in the document.")
+            sheets.removeByName(sheet_name)
+            logger.info("Sheet deleted: %s", sheet_name)
+            return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
+        except Exception as e:
+            logger.error("Sheet deletion error (%s): %s", sheet_name, str(e))
+            raise ToolExecutionError(str(e)) from e
+
+
+class ProtectSheet(ToolCalcSheetBase):
+    """Protect or unprotect a sheet."""
+
+    name = "protect_sheet"
+    intent = "edit"
+    description = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
+    parameters = {"type": "object", "properties": {"sheet_name": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        bridge = CalcBridge(ctx.doc)
+        sheet_name = kwargs.get("sheet_name")
+        should_protect = kwargs.get("protect", True)
+
+        try:
+            doc = bridge.get_active_document()
+            if sheet_name:
+                sheets = doc.getSheets()
+                if not sheets.hasByName(sheet_name):
+                    raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+                sheet = sheets.getByName(sheet_name)
+            else:
+                sheet = bridge.get_active_sheet()
+
+            if should_protect:
+                sheet.protect("")
+                msg = f"Sheet '{sheet.getName()}' is now protected."
+            else:
+                sheet.unprotect("")
+                msg = f"Sheet '{sheet.getName()}' is now unprotected."
+
+            logger.info(msg)
+            return {"status": "ok", "message": msg}
+        except Exception as e:
+            logger.error("Sheet protection error: %s", str(e))
+            raise ToolExecutionError(str(e)) from e
+
+
 class GetSheetSummary(ToolBase):
     """Return a summary of a sheet."""
 

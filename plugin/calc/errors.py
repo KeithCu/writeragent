@@ -24,7 +24,7 @@ CellInspector, and ErrorDetector per call using ``ctx.doc``.
 import logging
 from typing import cast
 
-from plugin.framework.tool import ToolBase
+from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
 from plugin.calc.error_detector import ErrorDetector
@@ -32,7 +32,7 @@ from plugin.calc.error_detector import ErrorDetector
 logger = logging.getLogger("writeragent.calc")
 
 
-class DetectErrors(ToolBase):
+class DetectErrors(ToolCalcErrorBase):
     """Detect and explain formula errors in a range."""
 
     name = "detect_and_explain_errors"

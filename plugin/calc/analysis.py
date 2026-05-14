@@ -21,7 +21,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
-from plugin.calc.base import ToolCalcAnalysisBase
+from plugin.calc.base import ToolCalcSolverBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.address_utils import parse_address
 
@@ -116,7 +116,7 @@ def _get_cell_address(doc, address_str: str) -> CellAddress:
     return cell.getCellAddress()
 
 
-class GoalSeekTool(ToolCalcAnalysisBase):
+class GoalSeekTool(ToolCalcSolverBase):
     """Find the value of a variable cell that results in a target formula value."""
 
     name = "calc_goal_seek"
@@ -174,7 +174,7 @@ class GoalSeekTool(ToolCalcAnalysisBase):
             raise ToolExecutionError(str(e)) from e
 
 
-class SolverTool(ToolCalcAnalysisBase):
+class SolverTool(ToolCalcSolverBase):
     """Solve an optimization problem with multiple variables and constraints."""
 
     name = "calc_solver"

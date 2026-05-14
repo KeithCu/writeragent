@@ -140,7 +140,8 @@ DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "Instructions for the sub-agent: it has t
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED WRITER (nested tools):
 The default tool list hides deep Writer features.
 When the user needs those, call delegate_to_specialized_writer_toolset with:
-domain one of: {domains} —
+domain one of:
+{domains}
 and a `task` string that fully specifies what the sub-agent must do. The sub-agent only sees tools for that domain, but they are the real tools: **full parameter lists and full LibreOffice/UNO access** for that area (nothing is dumbed down for the sub-agent).
 
 Rules for `task`:
@@ -151,17 +152,18 @@ Rules for `task`:
 """
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED CALC (nested tools):
-The default tool list hides advanced Calc features (Pivot Tables, Conditional Formatting, Goal Seek/Solver, etc.).
+The default tool list hides advanced Calc features.
 When the user needs those, call delegate_to_specialized_calc_toolset with:
-domain one of: {domains} —
+domain one of:
+{domains}
 and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain.
-Basic sheet operations and sheet filtering (AutoFilter) tools are located in the `sheets` domain.
 """
 
 DRAW_SPECIALIZED_DELEGATION_TEMPLATE = """SPECIALIZED DRAW (nested tools):
-The default tool list hides advanced Draw/Impress features (shapes, connectors, groups, charts, transitions, etc.).
+The default tool list hides advanced Draw/Impress features.
 When the user needs those, call delegate_to_specialized_draw_toolset with:
-domain one of: {domains} —
+domain one of:
+{domains}
 and a `task` string that fully specifies what the sub-agent must do. The sub-agent has full tool access for that domain.
 """
 
@@ -169,8 +171,6 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Writer assistant
 Honor any stated memory preferences for color, etc.
 
 {CORE_DIRECTIVES}
-
-{{specialized_delegation}}
 
 TOOLS:
 - apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
@@ -183,6 +183,8 @@ TOOLS:
 {TOOL_USAGE_PATTERNS}
 
 {FORMATTING_RULES}
+
+{{specialized_delegation}}
 
 # {MEMORY_GUIDANCE}
 """
@@ -239,9 +241,7 @@ TOOLS (eval harness):
 # Calc spreadsheet prompt (structure inspired by libre_calc_ai prompt_templates.py:
 # workflow, grouped tools, "do not explain—do the operation", specify addresses).
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
-Do not explain—do the operation directly using tools. Perform as many steps as needed in one turn when possible.
-
-{{specialized_delegation}}
+Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
 {CALC_WORKFLOW}
 
@@ -270,12 +270,12 @@ CHART:
 ERRORS:
 - detect_and_explain_errors: Find formula errors in a range and get explanations/fix suggestions. Use when the user reports errors or you need to diagnose formulas.
 
+{{specialized_delegation}}
+
 When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
-
-{specialized_delegation}
 
 WORKFLOW:
 1. Understand the user's request.
@@ -283,21 +283,36 @@ WORKFLOW:
 3. Use the specialized delegation tool to perform shape operations (create, edit, group, etc.).
 4. Give a short confirmation (e.g. "Changed rectangle color to red").
 
-TOOLS:
-
-PAGE MANAGEMENT:
-- list_pages: List all pages/slides in the document.
-
 COORDINATES:
 All coordinates (x, y, width, height) are in 100ths of a millimeter.
 A typical page is roughly 21000 x 29700 (A4).
 
-When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information."""
+TOOLS:
+- list_pages: List all pages/slides in the document.
+
+{specialized_delegation}
+
+When asked to make a document about a topic you are not certain about, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information."""
 
 
 # We dynamically set these later when calling get_chat_system_prompt_for_document
 DEFAULT_CHAT_SYSTEM_PROMPT = ""
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT = ""
+DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
+
+
+def _get_specialized_domains_str(base_cls) -> str:
+    """Build a bulleted list of 'domain: description' for specialized toolsets."""
+    lines = []
+    for cls in base_cls.__subclasses__():
+        domain = getattr(cls, "specialized_domain", None)
+        desc = getattr(cls, "specialized_domain_description", None)
+        if domain:
+            if desc:
+                lines.append(f"- {domain}: {desc}")
+            else:
+                lines.append(f"- {domain}")
+    return "\n".join(sorted(lines))
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = ""
 
 
@@ -338,11 +353,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     if is_calc(model):
         from plugin.calc.base import ToolCalcSpecialBase
 
-        domains = []
-        for cls in ToolCalcSpecialBase.__subclasses__():
-            if cls.specialized_domain:
-                domains.append(cls.specialized_domain)
-        domains_str = ", ".join(domains)
+        domains_str = _get_specialized_domains_str(ToolCalcSpecialBase)
         delegation = CALC_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
 
@@ -352,11 +363,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     elif is_draw(model):
         from plugin.draw.base import ToolDrawSpecialBase
 
-        domains = []
-        for cls in ToolDrawSpecialBase.__subclasses__():
-            if cls.specialized_domain:
-                domains.append(cls.specialized_domain)
-        domains_str = ", ".join(domains)
+        domains_str = _get_specialized_domains_str(ToolDrawSpecialBase)
         delegation = DRAW_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
 
@@ -367,12 +374,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         # Generate domain list dynamically
         from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-        domains = []
-        for cls in ToolWriterSpecialBase.__subclasses__():
-            if cls.specialized_domain:
-                domains.append(cls.specialized_domain)
-        domains_str = ", ".join(domains)
-
+        domains_str = _get_specialized_domains_str(ToolWriterSpecialBase)
         delegation = WRITER_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
 

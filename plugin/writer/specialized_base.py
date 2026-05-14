@@ -43,6 +43,7 @@ class ToolWriterSpecialBase(ToolBase):
     # The domain name this tool belongs to (e.g., "tables").
     # Subclasses MUST override this.
     specialized_domain: ClassVar[str | None] = None
+    specialized_domain_description: ClassVar[str | None] = None
 
 
 class DelegateToSpecializedWriter(DelegateToSpecializedBase):
@@ -74,78 +75,92 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
 
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
+    specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterPageBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "page"
+    specialized_domain_description: ClassVar[str | None] = "Page layout, margins, columns, headers, footers, and page breaks."
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "textframes"
+    specialized_domain_description: ClassVar[str | None] = "Manage text frames, their content, and positioning."
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "embedded"
+    specialized_domain_description: ClassVar[str | None] = "Manage embedded OLE objects like spreadsheets or formulas."
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterImageBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
+    specialized_domain_description: ClassVar[str | None] = "In-document image operations: generate, list, insert, and replace images."
     intent = "media"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterShapeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
+    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, lines, and connectors."
 
 
 class ToolWriterChartBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
+    specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the document."
 
 
 class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
+    specialized_domain_description: ClassVar[str | None] = "Manage Table of Contents and alphabetical indexes."
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "fields"
+    specialized_domain_description: ClassVar[str | None] = "Manage document fields, variables, and cross-references."
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "comments"
+    specialized_domain_description: ClassVar[str | None] = "View, add, and manage document comments and feedback."
     intent = "review"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class WriterAgentSpecialTracking(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "tracking"
+    specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes (redlines) in the document."
     intent = "review"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "bookmarks"
+    specialized_domain_description: ClassVar[str | None] = "Manage document bookmarks and navigation points."
     intent = "navigate"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterStructuralBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "structural"
+    specialized_domain_description: ClassVar[str | None] = "Document navigation, headings, and structural summary."
     intent = "navigate"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "footnotes"
+    specialized_domain_description: ClassVar[str | None] = "Create and manage footnotes and endnotes."
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
@@ -155,12 +170,14 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
 
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"
+    specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
     intent = "edit"
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "web_research"
+    specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the document."
 
 
 class SpecializedWorkflowFinished(ToolBase):

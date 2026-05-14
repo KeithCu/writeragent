@@ -64,7 +64,7 @@ def test_write_formula_range():
 
 @native_test
 def test_formulas_error_detector():
-    from plugin.calc.formulas import DetectErrors
+    from plugin.calc.errors import DetectErrors
     from plugin.framework.tool import ToolContext
 
     active_sheet = _test_doc.getCurrentController().getActiveSheet()

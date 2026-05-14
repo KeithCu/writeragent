@@ -666,6 +666,9 @@ def get_calc_context_for_chat(model, max_context=8000, ctx=None):
         summary = analyzer.get_sheet_summary()
 
         ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
+        sheets = model.getSheets()
+        sheet_names = list(sheets.getElementNames())
+        ctx_str += f"Sheets: {sheet_names}\n"
         ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
         ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
         ctx_str += f"Columns: {', '.join([str(h) for h in summary['headers'] if h])}\n"

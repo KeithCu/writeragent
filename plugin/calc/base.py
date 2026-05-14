@@ -32,6 +32,7 @@ class ToolCalcSpecialBase(ToolBase):
 
     tier = "specialized"
     specialized_domain: ClassVar[str | None] = None
+    specialized_domain_description: ClassVar[str | None] = None
 
 
 # --- Domain-Specific Base Classes ---
@@ -39,56 +40,71 @@ class ToolCalcSpecialBase(ToolBase):
 
 class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain = "images"
+    specialized_domain_description: ClassVar[str | None] = "Image manipulation and insertion in spreadsheets."
     intent = "media"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
 class ToolCalcWebResearchBase(ToolCalcSpecialBase):
     specialized_domain = "web_research"
+    specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the spreadsheet."
 
 
 class ToolCalcCommentBase(ToolCalcSpecialBase):
     specialized_domain = "comments"
+    specialized_domain_description: ClassVar[str | None] = "View, add, and manage cell comments and feedback."
     intent = "review"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
 class ToolCalcConditionalBase(ToolCalcSpecialBase):
     specialized_domain = "conditional_formatting"
+    specialized_domain_description: ClassVar[str | None] = "Apply rules to format cells based on their values."
     intent = "edit"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-
 
 
 class ToolCalcSheetBase(ToolCalcSpecialBase):
     """Base for sheet operations and sheet filtering (AutoFilter)."""
 
     specialized_domain = "sheets"
+    specialized_domain_description: ClassVar[str | None] = "List, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
     intent = "edit"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
 class ToolCalcPivotBase(ToolCalcSpecialBase):
     specialized_domain = "pivot_tables"
+    specialized_domain_description: ClassVar[str | None] = "Create and manage data pivot tables for analysis."
     intent = "analyze"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
 class ToolCalcRangeBase(ToolCalcSpecialBase):
     specialized_domain = "ranges"
+    specialized_domain_description: ClassVar[str | None] = "Bulk operations on cell ranges (sort, advanced find/replace)."
     intent = "edit"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
 class ToolCalcSearchBase(ToolCalcSpecialBase):
     specialized_domain = "search"
+    specialized_domain_description: ClassVar[str | None] = "Search for text or values across the entire spreadsheet."
     intent = "navigate"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
-class ToolCalcAnalysisBase(ToolCalcSpecialBase):
-    specialized_domain = "analysis"
+class ToolCalcSolverBase(ToolCalcSpecialBase):
+    specialized_domain = "solvers"
+    specialized_domain_description: ClassVar[str | None] = "Goal Seek and optimization Solver for mathematical problems."
     intent = "analyze"
+    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+
+class ToolCalcErrorBase(ToolCalcSpecialBase):
+    specialized_domain = "errors"
+    specialized_domain_description: ClassVar[str | None] = "Find, diagnose, and suggest fixes for formula errors (e.g. #REF!, #DIV/0!)."
+    intent = "edit"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
@@ -96,5 +112,6 @@ class ToolCalcSpecialTracking(ToolCalcSpecialBase):
     """Track changes (shared tool classes with Writer via multiple inheritance)."""
 
     specialized_domain: ClassVar[str | None] = "tracking"
+    specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes in the spreadsheet."
     intent = "review"
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]

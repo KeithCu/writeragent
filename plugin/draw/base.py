@@ -32,6 +32,7 @@ class ToolDrawSpecialBase(ToolBase):
 
     tier = "specialized"
     specialized_domain: ClassVar[str | None] = None
+    specialized_domain_description: ClassVar[str | None] = None
 
 
 # --- Domain-Specific Base Classes ---
@@ -39,24 +40,29 @@ class ToolDrawSpecialBase(ToolBase):
 
 class ToolDrawWebResearchBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "web_research"
+    specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the drawing or presentation."
 
 
 class ToolDrawChartBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
+    specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the drawing or presentation."
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawShapeBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
+    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, connectors, and groups."
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawFormBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "forms"
+    specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
     intent = "edit"
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
 class ToolDrawHeaderFooterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "headers_footers"
+    specialized_domain_description: ClassVar[str | None] = "Manage presentation-wide headers, footers, and page numbers."
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
