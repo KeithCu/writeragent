@@ -29,9 +29,10 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 - [MCP Server](#mcp-server-optional)
 - [Agent Backends](#agent-backends)
 - [Architecture](#architecture)
-- [Roadmap & Future Vision](#-roadmap--future-vision)
+- [Roadmap & Future Vision](#roadmap--future-vision)
 - [Credits & Collaboration](#credits--collaboration)
-- [Getting Started](#getting-started)
+- [Quick Start](#-quick-start)
+- [Installation & Setup](#installation--setup)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -39,11 +40,20 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 
 ## Local-First & Flexible
 
-Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between them in less than 2 seconds, maintaining full control over where your data goes.
+Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between providers (e.g., OpenRouter, Together.AI) in less than 2 seconds, maintaining full control over your data.
+
+### For the GPU-poor
+If you don't have a powerful GPU or an API key, consider [OpenRouter](https://openrouter.ai/collections/free-models) (free models, but prompts may be used for training) or [Together.AI](https://www.together.ai/) (generous private free tier).
+
 
 ---
 
 ## Powerful Feature Suites
+
+- **Grammar Checker**: Real-time, local-first editing with persistent storage of good/bad sentences.
+- **TeX Import**: Seamless LaTeX and MathML support for scientific documents.
+- **Multi-Document Tasks**: Agent handoffs for long documents (see [Week 6 & 7 updates](https://keithcu.com/wordpress/?p=5276)).
+
 
 ### 🖋️ Writer & Professional Publishing
 
@@ -84,12 +94,16 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 | **Arch Linux Resume** | ![Opus 4.6 Resume](Showcase/Opus46Resume.png) |
 | **Spreadsheet Dashboard** | ![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png) |
 | **Math Expressions** | ![Math Expressions](Showcase/Math.png) |
+| **Sonnet diagram of an Arch Linux deity** | ![Sonnet 4.6 Visual](Showcase/Sonnet46ArchDiagram.jpg) |
 
 ---
 
 ## Web Research & Fact-Checking
 
+Private, local web searches and fact-checking with citable sources. No data leaves your machine unless you opt into cloud APIs.
+
 Powered by [Hugging Face smolagents](https://github.com/huggingface/smolagents) (vendored and adapted to have zero dependencies, per [this discussion](https://github.com/huggingface/smolagents/issues/1999)). Now you can ask the AI a question and it will search the web and give you the answer—with all requests running directly from your computer. It uses DuckDuckGo for privacy and executes the entire search-and-browse loop locally, ensuring your research stays private.
+
 
 It's better than a standard Google search box because it understands natural language and can synthesize information from multiple pages.
 
@@ -101,7 +115,11 @@ It's better than a standard Google search box because it understands natural lan
 
 ## High-Fidelity Editing & Formatting
 
+- **Two-Layer Editing**: Basic grammar fixes first, then detailed "add comment" feedback.
+- **Formatting Preservation**: Maintains styles, tables, and images during edits.
+
 WriterAgent is "format-aware." Unlike simpler plugins that strip away your hard work, our engine is designed to respect your document's visual integrity.
+
 
 - **Format Preservation**: When fixing typos or rephrasing, WriterAgent uses a "surgical" replacement method. It preserves your existing bold, italics, highlights, and font sizes—even if the AI sends back plain text.
 - **HTML-First Architecture**: For complex elements like tables, nested lists, and colored layouts, we use a robust HTML import layer. This ensures that what the AI "sees" and what it "writes" matches the professional standards of LibreOffice.
@@ -114,7 +132,10 @@ One of the unique challenges of building an AI assistant for a rich word process
 
 ## MCP Server (Optional)
 
+Enable integration with [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol) for advanced AI workflows.
+
 When enabled in **WriterAgent > Settings**, an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop, etc.).
+
 
 - **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the sidebar.
 - **Targeting**: Clients target a document via the `**X-Document-URL**` header.
@@ -124,7 +145,11 @@ When enabled in **WriterAgent > Settings**, an HTTP server runs on localhost and
 
 ## Agent Backends
 
+- **Local**: Ollama, LM Studio, or custom servers (e.g., `http://localhost:11434`).
+- **Cloud**: OpenRouter, Together.AI, or any OpenAI-compatible API.
+
 You can plug in **external agent backends** so that Chat with Document uses an external process (e.g., Hermes or others) instead of the built-in LLM.
+
 
 - **[Hermes ACP Integration](https://github.com/NousResearch/hermes-agent)**: Spawns Hermes locally as a subprocess using the Agent Communication Protocol (ACP) via stdio.
 - **HITL (Approve/Reject)**: If a backend requests approval for a tool call, a dialog appears for the user.
@@ -145,7 +170,12 @@ WriterAgent is engineered for professional-grade reliability, moving beyond simp
 
 ---
 
-## 🚀 Roadmap & Future Vision
+## Roadmap & Future Vision
+
+- **Short-term**: Improve agent handoffs for long documents.
+- **Long-term**: Full-time development and consulting contracts for custom features.
+- Follow our progress: [Week 6 & 7](https://keithcu.com/wordpress/?p=5276), [Week 5](https://keithcu.com/wordpress/?p=5245).
+
 
 Our primary focus is deep **LibreOffice Fidelity**—systematically closing the gap between the AI's capabilities and the full breadth of the UNO API to ensure the agent can manipulate every professional feature the suite offers.
 
@@ -226,7 +256,7 @@ This framework allows us to differentiate between "Flash" models that prioritize
 
 ---
 
-## Getting Started
+## Installation & Setup
 
 ### Installation
 
@@ -303,13 +333,11 @@ make test
 make help
 ```
 
-![Sonnet 4.6 architecture diagram](Showcase/Sonnet46ArchDiagram.jpg)
-
 ---
 
 ## License
 
-WriterAgent is released under the **GNU General Public License v3 (or later)**. See `LICENSE` for the full text.
+WriterAgent is released under the **GNU General Public License v3 (or later)**. See `LICENSE` for the full text. This transition ensures all improvements remain open and reciprocal under GPL v3.
 
 ### History & Attribution
 
