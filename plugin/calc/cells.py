@@ -136,7 +136,6 @@ class InsertCellHtml(ToolBase):
     description = "Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text."
     parameters = {"type": "object", "properties": {"cell_address": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell_address", "html"]}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "extended"
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

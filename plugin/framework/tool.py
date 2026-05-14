@@ -162,10 +162,12 @@ class ToolBase(ABC):
         parameters:  JSON Schema dict (MCP ``inputSchema`` format).
         uno_services: List of UNO services the tool supports (e.g.,
                      ["com.sun.star.text.TextDocument"], or None for all).
-        tier:        "core" = always sent to the LLM, "extended" = on demand
-                     via the tool broker.  Default "extended".
-        intent:      Broker group: "navigate", "edit", "review", or "media".
-                     Used by request_tools(intent=...) to load tool groups.
+        tier:        Main chat and MCP default lists use ``"core"``. Nested
+                     specialized toolsets use ``"specialized"`` or
+                     ``"specialized_control"`` (hidden from default lists via
+                     ``exclude_tiers``). Default ``"core"``.
+        intent:      Optional group label (e.g. "navigate", "edit", "review",
+                     "media") for ``get_tools(intent=...)`` filtering.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from name prefix.
         long_running: Hint that the tool may take a while (e.g. image gen).
@@ -175,7 +177,7 @@ class ToolBase(ABC):
     description: str = ""
     parameters: dict | None = None
     uno_services: list | None = None
-    tier: str = "extended"
+    tier: str = "core"
     intent: str | None = None
     is_mutation: bool | None = None
     long_running: bool = False
@@ -431,7 +433,7 @@ class ToolRegistry:
         Args:
             doc: Optional document model instance to check against uno_services.
             doc_type: Optional string indicating compatibility (deprecated, use doc). If None, only universal tools are returned (unless filter_doc_type=False).
-            tier: Optional string (e.g. "core", "extended").
+            tier: Optional string; main chat tools use ``"core"``.
             intent: Optional string filtering by tool intent.
             names: Optional list of specific tool names to include.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
@@ -482,7 +484,7 @@ class ToolRegistry:
 
         if active_domain:
             # If an active domain is set, restrict the list ONLY to the specialized tools
-            # for that domain and the finish tool. Do not include normal core/extended tools.
+            # for that domain and the finish tool. Do not include normal default-tier tools.
             filtered_tools = []
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):

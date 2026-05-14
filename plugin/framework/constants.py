@@ -267,9 +267,6 @@ WRITE & FORMAT:
 CHART:
 - create_chart: Create a chart from a data range (bar, column, line, pie, scatter).
 
-ERRORS:
-- detect_and_explain_errors: Find formula errors in a range and get explanations/fix suggestions. Use when the user reports errors or you need to diagnose formulas.
-
 {{specialized_delegation}}
 
 When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""

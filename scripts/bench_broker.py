@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Benchmark: time-to-first-token with all tools vs core-only tools.
+"""Benchmark: time-to-first-token with Writer tool schemas on Ollama.
 
 Usage:
     python scripts/bench_broker.py [--model qwen2.5:32b] [--runs 2]
 
-Loads the real tool registry, generates OpenAI schemas for writer doc type,
-and sends a simple prompt to Ollama measuring TTFT and total time.
+Discovers ToolBase subclasses under selected plugin packages, filters to
+Writer-compatible tools, builds OpenAI-style tool schemas, and measures TTFT
+for a simple chat completion.
 """
 
 import argparse
@@ -22,7 +23,7 @@ sys.path.insert(0, ROOT)
 
 def collect_tools():
     """Instantiate all ToolBase subclasses from the codebase."""
-    from plugin.framework.tool_base import ToolBase
+    from plugin.framework.tool import ToolBase
     import importlib
     import inspect
     import pkgutil
@@ -137,37 +138,25 @@ def ollama_stream(model, messages, tools, endpoint="http://localhost:11434"):
 
 def run_bench(model, runs):
     print("=" * 60)
-    print("Tool Broker Benchmark — Ollama + %s" % model)
+    print("Writer tool schema TTFT — Ollama + %s" % model)
     print("=" * 60)
 
-    # Collect tools
     all_tools = collect_tools()
     writer_tools = filter_for_writer(all_tools)
-    core_tools = [t for t in writer_tools if t.tier == "core"]
-    extended_tools = [t for t in writer_tools if t.tier == "extended"]
+    schemas = make_schemas(writer_tools)
 
     print("\nTotal tools discovered: %d" % len(all_tools))
     print("Writer-compatible:     %d" % len(writer_tools))
-    print("  Core:                %d" % len(core_tools))
-    print("  Extended:            %d" % len(extended_tools))
+    print("Schemas:               %d" % len(schemas))
 
-    all_schemas = make_schemas(writer_tools)
-    core_schemas = make_schemas(core_tools)
-
-    all_json_size = len(json.dumps(all_schemas))
-    core_json_size = len(json.dumps(core_schemas))
-
-    print("\nSchema payload sizes:")
-    print("  All tools:  %d bytes (%.1f KB)" % (all_json_size, all_json_size / 1024))
-    print("  Core only:  %d bytes (%.1f KB)" % (core_json_size, core_json_size / 1024))
-    print("  Reduction:  %.0f%%" % ((1 - core_json_size / all_json_size) * 100))
+    json_size = len(json.dumps(schemas))
+    print("\nSchema payload size: %d bytes (%.1f KB)" % (json_size, json_size / 1024))
 
     messages = [
         {"role": "system", "content": "You are a helpful assistant for editing LibreOffice Writer documents."},
         {"role": "user", "content": "What is the current word count of my document?"},
     ]
 
-    # Warmup run (not counted)
     print("\nWarming up model...")
     try:
         ollama_stream(model, [{"role": "user", "content": "hi"}], None)
@@ -175,51 +164,34 @@ def run_bench(model, runs):
         print("Warmup failed: %s" % e)
         return
 
-    print("\nRunning %d iterations each...\n" % runs)
+    print("\nRunning %d iterations...\n" % runs)
 
-    results = {"all": [], "core": []}
+    results = []
+    print("--- Writer tools (%d) ---" % len(schemas))
+    for i in range(runs):
+        try:
+            ttft, total, text, tc = ollama_stream(model, messages, schemas)
+            results.append({"ttft": ttft, "total": total})
+            preview = text[:60].replace("\n", " ") if text else "(tool_call)"
+            print("  Run %d: TTFT=%.0fms  Total=%.0fms  [%s]"
+                  % (i + 1, ttft, total, preview))
+        except Exception as e:
+            print("  Run %d: ERROR — %s" % (i + 1, e))
+    print()
 
-    for scenario, schemas, label in [
-        ("all", all_schemas, "ALL tools (%d)" % len(all_schemas)),
-        ("core", core_schemas, "CORE tools (%d)" % len(core_schemas)),
-    ]:
-        print("--- %s ---" % label)
-        for i in range(runs):
-            try:
-                ttft, total, text, tc = ollama_stream(model, messages, schemas)
-                results[scenario].append({"ttft": ttft, "total": total})
-                preview = text[:60].replace("\n", " ") if text else "(tool_call)"
-                print("  Run %d: TTFT=%.0fms  Total=%.0fms  [%s]"
-                      % (i + 1, ttft, total, preview))
-            except Exception as e:
-                print("  Run %d: ERROR — %s" % (i + 1, e))
-        print()
-
-    # Summary
     print("=" * 60)
     print("RESULTS SUMMARY")
     print("=" * 60)
-    for scenario, label in [("all", "All tools"), ("core", "Core only")]:
-        data = results[scenario]
-        if not data:
-            continue
-        ttfts = [d["ttft"] for d in data]
-        totals = [d["total"] for d in data]
+    if results:
+        ttfts = [d["ttft"] for d in results]
+        totals = [d["total"] for d in results]
         avg_ttft = sum(ttfts) / len(ttfts)
         avg_total = sum(totals) / len(totals)
-        print("  %s: avg TTFT=%.0fms  avg Total=%.0fms" % (label, avg_ttft, avg_total))
-
-    if results["all"] and results["core"]:
-        avg_all = sum(d["ttft"] for d in results["all"]) / len(results["all"])
-        avg_core = sum(d["ttft"] for d in results["core"]) / len(results["core"])
-        if avg_all > 0:
-            speedup = avg_all / avg_core
-            saved = avg_all - avg_core
-            print("\n  TTFT speedup: %.1fx (saved %.0fms)" % (speedup, saved))
+        print("  Writer tools: avg TTFT=%.0fms  avg Total=%.0fms" % (avg_ttft, avg_total))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Benchmark tool broker TTFT")
+    parser = argparse.ArgumentParser(description="Benchmark TTFT with Writer tool schemas (Ollama)")
     parser.add_argument("--model", default="qwen2.5:32b")
     parser.add_argument("--runs", type=int, default=2)
     args = parser.parse_args()

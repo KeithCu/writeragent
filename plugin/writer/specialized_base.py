@@ -37,7 +37,7 @@ class ToolWriterSpecialBase(ToolBase):
     domain (e.g., 'tables', 'charts').
     """
 
-    # Do not expose to the main agent's default "core" or "extended" tier.
+    # Not on the main chat default tool list (tier specialized); exposed via delegation only.
     tier = "specialized"
 
     # The domain name this tool belongs to (e.g., "tables").

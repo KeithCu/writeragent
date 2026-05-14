@@ -233,7 +233,6 @@ class ApplyStyle(FrameworkToolBase):
 
     name = "apply_style"
     intent = "edit"
-    tier = "extended"
     description = (
         "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
         "styles (e.g. Heading 1) or family='CharacterStyles' for character "
@@ -295,7 +294,6 @@ class UpdateStyle(ToolBase):
 
     name = "update_style"
     intent = "edit"
-    tier = "extended"
     description = (
         "Update the properties of an existing style. "
         "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
