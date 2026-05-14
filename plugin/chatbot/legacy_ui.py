@@ -109,34 +109,187 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
                 pass
 
 
-def settings_box(ctx, title="Settings", x=None, y=None):
 
-    from .settings_dialog import get_settings_field_specs, apply_settings_result
-    from plugin.framework.config import get_api_key_for_endpoint, as_bool
-    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, populate_endpoint_selector
-    from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
-    from plugin.framework.queue_executor import post_to_main_thread
-    from plugin.framework.worker_pool import run_in_background
+class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
+    def __init__(self, dialog, context, combo_ctrl):
+        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.worker_pool import run_in_background
+        from plugin.framework.config import get_api_key_for_endpoint
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text
+        from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
+        from .dialogs import get_optional, get_control_text, set_control_text
 
-    _ENDPOINT_DEBOUNCE_SEC = 1.0
+        self._dlg = dialog
+        self._ctx = context
+        self._ctrl = combo_ctrl
+        self._debounce_gen = 0
+        self._closed = False
+        self._timer = None
+        self.post_to_main_thread = post_to_main_thread
+        self.run_in_background = run_in_background
+        self.get_api_key_for_endpoint = get_api_key_for_endpoint
+        self.populate_combobox_with_lru = populate_combobox_with_lru
+        self.populate_image_model_selector = populate_image_model_selector
+        self.endpoint_from_selector_text = endpoint_from_selector_text
+        self.endpoint_url_suitable_for_v1_models_fetch = endpoint_url_suitable_for_v1_models_fetch
+        self.fetch_available_models = fetch_available_models
+        self.get_optional = get_optional
+        self.get_control_text = get_control_text
+        self.set_control_text = set_control_text
 
-    log.debug("settings_box entry")
+    def close(self):
+        self._closed = True
+        self._debounce_gen += 1
+        if self._timer is not None:
+            try:
+                self._timer.cancel()
+            except Exception:
+                pass
+            self._timer = None
 
-    smgr = ctx.getServiceManager()
-    log.debug("Calling get_settings_field_specs")
-    field_specs = get_settings_field_specs(ctx)
-    log.debug(f"get_settings_field_specs returned {len(field_specs)} fields")
+    def _dialog_api_key_override_for_fetch(self):
+        ak = self.get_optional(self._dlg, "api_key")
+        if ak is None:
+            return None
+        try:
+            return str(self.get_control_text(ak) or "")
+        except Exception:
+            return None
 
-    base_url = get_extension_url()
-    dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-    dialog_url = base_url + "/WriterAgentDialogs/SettingsDialog.xdl"
-    try:
-        dlg = dp.createDialog(dialog_url)
-    except Exception as e:
-        error_msg = getattr(e, "Message", str(e))
-        agent_log("legacy_ui:settings_box", "createDialog failed", data={"url": dialog_url, "error": error_msg}, hypothesis_id="H5")
-        raise UnoObjectError(f"Could not create dialog from {dialog_url}: {error_msg}")
+    def _sync_api_key_only(self):
+        try:
+            resolved = self.endpoint_from_selector_text(self._ctrl.getText())
+            if not resolved:
+                return
+            api_key_ctrl = self._dlg.getControl("api_key")
+            if api_key_ctrl:
+                self.set_control_text(api_key_ctrl, self.get_api_key_for_endpoint(self._ctx, resolved))
+        except Exception as e:
+            log.error("EndpointCombinedListener _sync_api_key_only: %s", e, exc_info=True)
 
+    def _apply_dropdowns(self, resolved, *, text_remote_models=None, skip_remote_fetch=False):
+        from plugin.framework.config import get_config_str
+        try:
+            if not resolved:
+                return
+            text_ctrl = self._dlg.getControl("text_model")
+            image_ctrl = self._dlg.getControl("image_model")
+            if text_ctrl:
+                if text_remote_models is not None:
+                    self.populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, remote_models=text_remote_models)
+                else:
+                    self.populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
+            if image_ctrl:
+                if get_config_str(self._ctx, "image_provider") == "endpoint":
+                    self.populate_combobox_with_lru(self._ctx, image_ctrl, "", "image_model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
+                else:
+                    self.populate_image_model_selector(self._ctx, image_ctrl)
+            stt_ctrl = self._dlg.getControl("stt_model")
+            if stt_ctrl:
+                self.populate_combobox_with_lru(self._ctx, stt_ctrl, "", "audio_model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
+        except Exception as e:
+            log.error("EndpointCombinedListener _apply_dropdowns: %s", e, exc_info=True)
+
+    def _bg_fetch(self, gen, resolved):
+        if self._closed or gen != self._debounce_gen:
+            return
+        key_ov = self._dialog_api_key_override_for_fetch()
+        models = None
+        if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
+            models = self.fetch_available_models(resolved, self._ctx, api_key_override=key_ov)
+
+        def apply_ui():
+            if self._closed or gen != self._debounce_gen:
+                return
+            cur = self.endpoint_from_selector_text(self._ctrl.getText())
+            if cur != resolved:
+                return
+            if models is not None:
+                self._apply_dropdowns(resolved, text_remote_models=models, skip_remote_fetch=False)
+            else:
+                self._apply_dropdowns(resolved, skip_remote_fetch=True)
+
+        self.post_to_main_thread(apply_ui)
+
+    def _schedule_async_refresh(self, gen):
+        if self._closed or gen != self._debounce_gen:
+            return
+        resolved = self.endpoint_from_selector_text(self._ctrl.getText())
+        if not resolved:
+            return
+
+        def worker():
+            self._bg_fetch(gen, resolved)
+
+        self.run_in_background(worker, name="settings-endpoint-models")
+
+    def _on_timer_fired(self, gen):
+        self.post_to_main_thread(lambda: self._schedule_async_refresh(gen))
+
+    def _schedule_debounced_models_fetch(self):
+        if self._timer is not None:
+            try:
+                self._timer.cancel()
+            except Exception:
+                pass
+            self._timer = None
+        self._debounce_gen += 1
+        gen = self._debounce_gen
+        self._timer = threading.Timer(1.0, self._on_timer_fired, args=(gen,))
+        self._timer.daemon = True
+        self._timer.start()
+
+    def textChanged(self, rEvent):
+        try:
+            self._sync_api_key_only()
+            self._schedule_debounced_models_fetch()
+        except Exception as e:
+            log.error("EndpointCombinedListener textChanged: %s", e, exc_info=True)
+
+    def itemStateChanged(self, rEvent):
+        try:
+            idx = getattr(rEvent, "Selected", -1)
+            if idx < 0:
+                return
+            item_text = self._ctrl.getItem(idx)
+            if not item_text:
+                return
+            url = self.endpoint_from_selector_text(item_text)
+            if url:
+                self._ctrl.setText(url)
+            if self._timer is not None:
+                try:
+                    self._timer.cancel()
+                except Exception:
+                    pass
+                self._timer = None
+            self._debounce_gen += 1
+            gen = self._debounce_gen
+            resolved = self.endpoint_from_selector_text(self._ctrl.getText())
+            if not resolved:
+                return
+            self._sync_api_key_only()
+
+            def worker():
+                self._bg_fetch(gen, resolved)
+
+            self.run_in_background(worker, name="settings-endpoint-models-select")
+        except Exception as e:
+            log.error("EndpointCombinedListener itemStateChanged: %s", e, exc_info=True)
+
+
+class SettingsApiKeyTextListener(BaseListener, XTextListener):
+    def __init__(self, outer):
+        self._outer = outer
+
+    def textChanged(self, rEvent):
+        try:
+            self._outer._schedule_debounced_models_fetch()
+        except Exception as e:
+            log.error("SettingsApiKeyTextListener textChanged: %s", e, exc_info=True)
+
+
+def _setup_static_tabs(ctx, dlg):
     dlg.getControl("btn_tab_chat").addActionListener(TabListener(dlg, 1))
     dlg.getControl("btn_tab_image").addActionListener(TabListener(dlg, 2))
     try:
@@ -146,6 +299,8 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     except Exception:
         pass
 
+
+def _setup_module_tabs(dlg):
     try:
         from plugin._manifest import MODULES
 
@@ -201,235 +356,154 @@ def settings_box(ctx, title="Settings", x=None, y=None):
     except ImportError:
         pass
 
-    current_endpoint = get_current_endpoint(ctx)
+
+def _populate_settings_fields(ctx, dlg, field_specs, current_endpoint):
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector, populate_endpoint_selector
+    from plugin.framework.config import as_bool
 
     endpoint_listener = None
     api_key_text_listener = None
 
-    try:
-        for field in field_specs:
+    for field in field_specs:
+        ctrl = dlg.getControl(field["name"])
+        if ctrl:
+            if field["name"] == "text_model":
+                populate_combobox_with_lru(ctx, ctrl, field["value"], "model_lru", current_endpoint)
+            elif field["name"] == "image_model":
+                populate_image_model_selector(ctx, ctrl)
+            elif field["name"] == "stt_model":
+                populate_combobox_with_lru(ctx, ctrl, field["value"], "audio_model_lru", current_endpoint)
+            elif field["name"] == "additional_instructions":
+                populate_combobox_with_lru(ctx, ctrl, field["value"], "prompt_lru", "")
+            elif field["name"] == "endpoint":
+                populate_endpoint_selector(ctx, ctrl, field["value"])
+                if hasattr(ctrl, "addItemListener"):
+                    endpoint_listener = EndpointCombinedListener(dlg, ctx, ctrl)
+                    ctrl.addItemListener(endpoint_listener)
+                    if hasattr(ctrl, "addTextListener"):
+                        ctrl.addTextListener(endpoint_listener)
+
+                    ak_ctrl = get_optional(dlg, "api_key")
+                    if ak_ctrl is not None and hasattr(ak_ctrl, "addTextListener"):
+                        api_key_text_listener = SettingsApiKeyTextListener(endpoint_listener)
+                        ak_ctrl.addTextListener(api_key_text_listener)
+            elif field["name"] == "image_base_size":
+                populate_combobox_with_lru(ctx, ctrl, field["value"], "image_base_size_lru", "")
+            else:
+                is_checkbox = is_checkbox_control(ctrl)
+                if field.get("type") == "bool" and is_checkbox:
+                    try:
+                        set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
+                    except Exception:
+                        pass
+                elif hasattr(ctrl, "setText"):
+                    # Populate options if provided (for select/combo widgets)
+                    if "options" in field:
+                        opts = field["options"]
+                        if not isinstance(opts, list):
+                            opts = []
+                        # For ComboBox/ListBox, we set the items
+                        try:
+                            # ComboBox/ListBox typically have StringItemList or can be added directly
+                            # In SettingsDialog.xdl, select=menulist, combo=combobox
+                            labels = tuple(o.get("label", o.get("value", "")) for o in opts if isinstance(o, dict))
+                            model = ctrl.getModel()
+                            if hasattr(model, "StringItemList"):
+                                log.debug(f"Populating {field['name']} with {len(labels)} options: {labels}")
+                                model.StringItemList = labels
+                            else:
+                                log.debug(f"Control {field['name']} model does NOT have StringItemList")
+                        except Exception as e:
+                            log.error(f"Failed to set StringItemList for {field['name']}: {e}")
+                    # Config values are user data — do NOT pass through gettext. In particular
+                    # gettext("") can return the entire .po catalog header in some environments,
+                    # which then appeared in Agent backend and other text fields.
+                    display_val = str(field.get("value", ""))
+                    fn = field.get("name", "")
+                    if "Project-Id-Version" in display_val or "Report-Msgid-Bugs-To" in display_val:
+                        log.warning("settings_box: field %r value still looks like PO/header junk from config (len=%s): %s", fn, len(display_val), display_val[:300] + ("..." if len(display_val) > 300 else ""))
+                    ctrl.setText(display_val)
+                else:
+                    try:
+                        set_control_text(ctrl, field["value"])
+                    except Exception:
+                        pass
+
+    return endpoint_listener, api_key_text_listener
+
+def _extract_settings_results(dlg, field_specs):
+    from plugin.framework.config import as_bool
+    result = {}
+    for field in field_specs:
+        try:
             ctrl = dlg.getControl(field["name"])
             if ctrl:
-                if field["name"] == "text_model":
-                    populate_combobox_with_lru(ctx, ctrl, field["value"], "model_lru", current_endpoint)
-                elif field["name"] == "image_model":
-                    populate_image_model_selector(ctx, ctrl)
-                elif field["name"] == "stt_model":
-                    populate_combobox_with_lru(ctx, ctrl, field["value"], "audio_model_lru", current_endpoint)
-                elif field["name"] == "additional_instructions":
-                    populate_combobox_with_lru(ctx, ctrl, field["value"], "prompt_lru", "")
-                elif field["name"] == "endpoint":
-                    populate_endpoint_selector(ctx, ctrl, field["value"])
-                    if hasattr(ctrl, "addItemListener"):
-
-                        class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
-                            def __init__(self, dialog, context, combo_ctrl):
-                                self._dlg = dialog
-                                self._ctx = context
-                                self._ctrl = combo_ctrl
-                                self._debounce_gen = 0
-                                self._closed = False
-                                self._timer = None
-
-                            def close(self):
-                                self._closed = True
-                                self._debounce_gen += 1
-                                if self._timer is not None:
-                                    try:
-                                        self._timer.cancel()
-                                    except Exception:
-                                        pass
-                                    self._timer = None
-
-                            def _dialog_api_key_override_for_fetch(self):
-                                ak = get_optional(self._dlg, "api_key")
-                                if ak is None:
-                                    return None
-                                try:
-                                    return str(get_control_text(ak) or "")
-                                except Exception:
-                                    return None
-
-                            def _sync_api_key_only(self):
-                                try:
-                                    resolved = endpoint_from_selector_text(self._ctrl.getText())
-                                    if not resolved:
-                                        return
-                                    api_key_ctrl = self._dlg.getControl("api_key")
-                                    if api_key_ctrl:
-                                        set_control_text(api_key_ctrl, get_api_key_for_endpoint(self._ctx, resolved))
-                                except Exception as e:
-                                    log.error("EndpointCombinedListener _sync_api_key_only: %s", e, exc_info=True)
-
-                            def _apply_dropdowns(self, resolved, *, text_remote_models=None, skip_remote_fetch=False):
-                                try:
-                                    if not resolved:
-                                        return
-                                    text_ctrl = self._dlg.getControl("text_model")
-                                    image_ctrl = self._dlg.getControl("image_model")
-                                    if text_ctrl:
-                                        if text_remote_models is not None:
-                                            populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, remote_models=text_remote_models)
-                                        else:
-                                            populate_combobox_with_lru(self._ctx, text_ctrl, "", "model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
-                                    if image_ctrl:
-                                        if get_config_str(self._ctx, "image_provider") == "endpoint":
-                                            populate_combobox_with_lru(self._ctx, image_ctrl, "", "image_model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
-                                        else:
-                                            populate_image_model_selector(self._ctx, image_ctrl)
-                                    stt_ctrl = self._dlg.getControl("stt_model")
-                                    if stt_ctrl:
-                                        populate_combobox_with_lru(self._ctx, stt_ctrl, "", "audio_model_lru", resolved, skip_remote_fetch=skip_remote_fetch)
-                                except Exception as e:
-                                    log.error("EndpointCombinedListener _apply_dropdowns: %s", e, exc_info=True)
-
-                            def _bg_fetch(self, gen, resolved):
-                                if self._closed or gen != self._debounce_gen:
-                                    return
-                                key_ov = self._dialog_api_key_override_for_fetch()
-                                models = None
-                                if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved):
-                                    models = fetch_available_models(resolved, self._ctx, api_key_override=key_ov)
-
-                                def apply_ui():
-                                    if self._closed or gen != self._debounce_gen:
-                                        return
-                                    cur = endpoint_from_selector_text(self._ctrl.getText())
-                                    if cur != resolved:
-                                        return
-                                    if models is not None:
-                                        self._apply_dropdowns(resolved, text_remote_models=models, skip_remote_fetch=False)
-                                    else:
-                                        self._apply_dropdowns(resolved, skip_remote_fetch=True)
-
-                                post_to_main_thread(apply_ui)
-
-                            def _schedule_async_refresh(self, gen):
-                                if self._closed or gen != self._debounce_gen:
-                                    return
-                                resolved = endpoint_from_selector_text(self._ctrl.getText())
-                                if not resolved:
-                                    return
-
-                                def worker():
-                                    self._bg_fetch(gen, resolved)
-
-                                run_in_background(worker, name="settings-endpoint-models")
-
-                            def _on_timer_fired(self, gen):
-                                post_to_main_thread(lambda: self._schedule_async_refresh(gen))
-
-                            def _schedule_debounced_models_fetch(self):
-                                if self._timer is not None:
-                                    try:
-                                        self._timer.cancel()
-                                    except Exception:
-                                        pass
-                                    self._timer = None
-                                self._debounce_gen += 1
-                                gen = self._debounce_gen
-                                self._timer = threading.Timer(_ENDPOINT_DEBOUNCE_SEC, self._on_timer_fired, args=(gen,))
-                                self._timer.daemon = True
-                                self._timer.start()
-
-                            def textChanged(self, rEvent):
-                                try:
-                                    self._sync_api_key_only()
-                                    self._schedule_debounced_models_fetch()
-                                except Exception as e:
-                                    log.error("EndpointCombinedListener textChanged: %s", e, exc_info=True)
-
-                            def itemStateChanged(self, rEvent):
-                                try:
-                                    idx = getattr(rEvent, "Selected", -1)
-                                    if idx < 0:
-                                        return
-                                    item_text = self._ctrl.getItem(idx)
-                                    if not item_text:
-                                        return
-                                    url = endpoint_from_selector_text(item_text)
-                                    if url:
-                                        self._ctrl.setText(url)
-                                    if self._timer is not None:
-                                        try:
-                                            self._timer.cancel()
-                                        except Exception:
-                                            pass
-                                        self._timer = None
-                                    self._debounce_gen += 1
-                                    gen = self._debounce_gen
-                                    resolved = endpoint_from_selector_text(self._ctrl.getText())
-                                    if not resolved:
-                                        return
-                                    self._sync_api_key_only()
-
-                                    def worker():
-                                        self._bg_fetch(gen, resolved)
-
-                                    run_in_background(worker, name="settings-endpoint-models-select")
-                                except Exception as e:
-                                    log.error("EndpointCombinedListener itemStateChanged: %s", e, exc_info=True)
-
-                        endpoint_listener = EndpointCombinedListener(dlg, ctx, ctrl)
-                        ctrl.addItemListener(endpoint_listener)
-                        if hasattr(ctrl, "addTextListener"):
-                            ctrl.addTextListener(endpoint_listener)
-
-                        class SettingsApiKeyTextListener(BaseListener, XTextListener):
-                            def __init__(self, outer):
-                                self._outer = outer
-
-                            def textChanged(self, rEvent):
-                                try:
-                                    self._outer._schedule_debounced_models_fetch()
-                                except Exception as e:
-                                    log.error("SettingsApiKeyTextListener textChanged: %s", e, exc_info=True)
-
-                        ak_ctrl = get_optional(dlg, "api_key")
-                        if ak_ctrl is not None and hasattr(ak_ctrl, "addTextListener"):
-                            api_key_text_listener = SettingsApiKeyTextListener(endpoint_listener)
-                            ak_ctrl.addTextListener(api_key_text_listener)
-                elif field["name"] == "image_base_size":
-                    populate_combobox_with_lru(ctx, ctrl, field["value"], "image_base_size_lru", "")
+                if hasattr(ctrl, "getText") and not is_checkbox_control(ctrl):
+                    control_text = ctrl.getText()
                 else:
-                    is_checkbox = is_checkbox_control(ctrl)
-                    if field.get("type") == "bool" and is_checkbox:
-                        try:
-                            set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
-                        except Exception:
-                            pass
-                    elif hasattr(ctrl, "setText"):
-                        # Populate options if provided (for select/combo widgets)
-                        if "options" in field:
-                            opts = field["options"]
-                            if not isinstance(opts, list):
-                                opts = []
-                            # For ComboBox/ListBox, we set the items
-                            try:
-                                # ComboBox/ListBox typically have StringItemList or can be added directly
-                                # In SettingsDialog.xdl, select=menulist, combo=combobox
-                                labels = tuple(o.get("label", o.get("value", "")) for o in opts if isinstance(o, dict))
-                                model = ctrl.getModel()
-                                if hasattr(model, "StringItemList"):
-                                    log.debug(f"Populating {field['name']} with {len(labels)} options: {labels}")
-                                    model.StringItemList = labels
-                                else:
-                                    log.debug(f"Control {field['name']} model does NOT have StringItemList")
-                            except Exception as e:
-                                log.error(f"Failed to set StringItemList for {field['name']}: {e}")
-                        # Config values are user data — do NOT pass through gettext. In particular
-                        # gettext("") can return the entire .po catalog header in some environments,
-                        # which then appeared in Agent backend and other text fields.
-                        display_val = str(field.get("value", ""))
-                        fn = field.get("name", "")
-                        if "Project-Id-Version" in display_val or "Report-Msgid-Bugs-To" in display_val:
-                            log.warning("settings_box: field %r value still looks like PO/header junk from config (len=%s): %s", fn, len(display_val), display_val[:300] + ("..." if len(display_val) > 300 else ""))
-                        ctrl.setText(display_val)
-                    else:
-                        try:
-                            set_control_text(ctrl, field["value"])
-                        except Exception:
-                            pass
+                    try:
+                        control_text = get_control_text(ctrl)
+                    except Exception:
+                        control_text = ""
+
+                field_type = field.get("type", "text")
+                if field_type == "int":
+                    try:
+                        result[field["name"]] = int(float(control_text))
+                    except (ValueError, TypeError):
+                        result[field["name"]] = control_text
+                elif field_type == "bool":
+                    val = as_bool(control_text)
+                    if is_checkbox_control(ctrl):
+                        val = get_checkbox_state(ctrl) == 1
+                    result[field["name"]] = val
+                elif field_type == "float":
+                    try:
+                        result[field["name"]] = float(control_text)
+                    except ValueError:
+                        result[field["name"]] = control_text
+                else:
+                    result[field["name"]] = control_text
+            else:
+                result[field["name"]] = ""
+        except (ValueError, TypeError, AttributeError) as e:
+            log.error(f"Failed to extract or parse field {field['name']}: {e}")
+            raise UnoObjectError(f"Failed to extract or parse field {field['name']}: {e}") from e
+        except Exception as e:
+            log.error(f"Unexpected error extracting field {field['name']}: {e}")
+            raise UnoObjectError(f"Unexpected error extracting field {field['name']}: {e}") from e
+
+    return result
+
+
+def settings_box(ctx, title="Settings", x=None, y=None):
+    from .settings_dialog import get_settings_field_specs, apply_settings_result
+
+    log.debug("settings_box entry")
+
+    smgr = ctx.getServiceManager()
+    log.debug("Calling get_settings_field_specs")
+    field_specs = get_settings_field_specs(ctx)
+    log.debug(f"get_settings_field_specs returned {len(field_specs)} fields")
+
+    base_url = get_extension_url()
+    dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
+    dialog_url = base_url + "/WriterAgentDialogs/SettingsDialog.xdl"
+    try:
+        dlg = dp.createDialog(dialog_url)
+    except Exception as e:
+        error_msg = getattr(e, "Message", str(e))
+        agent_log("legacy_ui:settings_box", "createDialog failed", data={"url": dialog_url, "error": error_msg}, hypothesis_id="H5")
+        raise UnoObjectError(f"Could not create dialog from {dialog_url}: {error_msg}")
+
+    current_endpoint = get_current_endpoint(ctx)
+    endpoint_listener = None
+    api_key_text_listener = None
+
+    try:
+        _setup_static_tabs(ctx, dlg)
+        _setup_module_tabs(dlg)
+        endpoint_listener, api_key_text_listener = _populate_settings_fields(ctx, dlg, field_specs, current_endpoint)
         if not HAS_SQLITE:
             for name in ("web_cache_max_mb", "web_cache_validity_days"):
                 ctrl = get_optional(dlg, name)
@@ -448,44 +522,7 @@ def settings_box(ctx, title="Settings", x=None, y=None):
 
         result = {}
         if dlg.execute():
-            for field in field_specs:
-                try:
-                    ctrl = dlg.getControl(field["name"])
-                    if ctrl:
-                        if hasattr(ctrl, "getText") and not is_checkbox_control(ctrl):
-                            control_text = ctrl.getText()
-                        else:
-                            try:
-                                control_text = get_control_text(ctrl)
-                            except Exception:
-                                control_text = ""
-
-                        field_type = field.get("type", "text")
-                        if field_type == "int":
-                            try:
-                                result[field["name"]] = int(float(control_text))
-                            except (ValueError, TypeError):
-                                result[field["name"]] = control_text
-                        elif field_type == "bool":
-                            val = as_bool(control_text)
-                            if is_checkbox_control(ctrl):
-                                val = get_checkbox_state(ctrl) == 1
-                            result[field["name"]] = val
-                        elif field_type == "float":
-                            try:
-                                result[field["name"]] = float(control_text)
-                            except ValueError:
-                                result[field["name"]] = control_text
-                        else:
-                            result[field["name"]] = control_text
-                    else:
-                        result[field["name"]] = ""
-                except (ValueError, TypeError, AttributeError) as e:
-                    log.error(f"Failed to extract or parse field {field['name']}: {e}")
-                    raise UnoObjectError(f"Failed to extract or parse field {field['name']}: {e}") from e
-                except Exception as e:
-                    log.error(f"Unexpected error extracting field {field['name']}: {e}")
-                    raise UnoObjectError(f"Unexpected error extracting field {field['name']}: {e}") from e
+            result = _extract_settings_results(dlg, field_specs)
 
         if result:
             apply_settings_result(ctx, result)
@@ -510,7 +547,6 @@ def settings_box(ctx, title="Settings", x=None, y=None):
             except Exception:
                 pass
         dlg.dispose()
-
 
 def show_eval_dashboard(ctx):
     from .listeners import BaseActionListener
