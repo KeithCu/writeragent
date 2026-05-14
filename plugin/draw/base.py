@@ -67,3 +67,18 @@ class ToolDrawHeaderFooterBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "headers_footers"
     specialized_domain_description: ClassVar[str | None] = "Manage presentation-wide headers, footers, and page numbers."
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
+
+
+class ToolDrawSpeakerNotesBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "speaker_notes"
+    specialized_domain_description: ClassVar[str | None] = "Read and edit Impress speaker notes per slide."
+
+
+class ToolDrawSlideTransitionsBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "slide_transitions"
+    specialized_domain_description: ClassVar[str | None] = "Slide transition effects, timing, and Impress slide layouts."
+
+
+class ToolDrawSlideMastersBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "slide_masters"
+    specialized_domain_description: ClassVar[str | None] = "List master slides and assign masters to slides."

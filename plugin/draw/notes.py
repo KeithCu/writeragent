@@ -5,8 +5,8 @@
 
 """Impress speaker notes tools."""
 
+from plugin.draw.base import ToolDrawSpeakerNotesBase
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import ToolBase
 
 
 def _get_slide(doc, page_index=None):
@@ -22,7 +22,7 @@ def _get_slide(doc, page_index=None):
     return pages.getByIndex(0)
 
 
-class GetSpeakerNotes(ToolBase):
+class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Read speaker notes from a slide."""
 
     name = "get_speaker_notes"
@@ -41,7 +41,7 @@ class GetSpeakerNotes(ToolBase):
         return {"status": "ok", "page_index": kwargs.get("page_index"), "notes": notes_text}
 
 
-class SetSpeakerNotes(ToolBase):
+class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Set speaker notes on a slide."""
 
     name = "set_speaker_notes"

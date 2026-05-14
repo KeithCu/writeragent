@@ -8,7 +8,7 @@
 from plugin.framework.errors import ToolExecutionError
 import logging
 
-from plugin.framework.tool import ToolBase
+from plugin.draw.base import ToolDrawSlideTransitionsBase
 
 log = logging.getLogger("nelson.draw")
 
@@ -93,7 +93,7 @@ _LAYOUTS = {
 _LAYOUT_NAMES = {v: k for k, v in _LAYOUTS.items()}
 
 
-class GetSlideTransition(ToolBase):
+class GetSlideTransition(ToolDrawSlideTransitionsBase):
     """Read the current transition settings from a slide."""
 
     name = "get_slide_transition"
@@ -145,7 +145,7 @@ class GetSlideTransition(ToolBase):
         return {"status": "ok", "page_index": kwargs.get("page_index"), "effect": effect, "speed": speed, "duration": duration, "transition_duration": transition_duration, "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click")}
 
 
-class SetSlideTransition(ToolBase):
+class SetSlideTransition(ToolDrawSlideTransitionsBase):
     """Set the transition effect on a slide."""
 
     name = "set_slide_transition"
@@ -283,7 +283,7 @@ class SetSlideTransition(ToolBase):
         return {"status": "ok", "page_index": kwargs.get("page_index"), "updated": updated}
 
 
-class GetSlideLayout(ToolBase):
+class GetSlideLayout(ToolDrawSlideTransitionsBase):
     """Get the layout of an Impress slide."""
 
     name = "get_slide_layout"
@@ -299,7 +299,7 @@ class GetSlideLayout(ToolBase):
         return {"status": "ok", "page_index": kwargs.get("page_index"), "layout_id": layout_id, "layout_name": layout_name, "available_layouts": sorted(_LAYOUTS.keys())}
 
 
-class SetSlideLayout(ToolBase):
+class SetSlideLayout(ToolDrawSlideTransitionsBase):
     """Set the layout of an Impress slide."""
 
     name = "set_slide_layout"

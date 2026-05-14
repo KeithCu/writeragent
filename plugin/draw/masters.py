@@ -6,7 +6,7 @@
 """Impress/Draw master slide tools."""
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import ToolBase
+from plugin.draw.base import ToolDrawSlideMastersBase
 
 
 def _get_slide(doc, page_index=None):
@@ -22,7 +22,7 @@ def _get_slide(doc, page_index=None):
     return pages.getByIndex(0)
 
 
-class ListMasterSlides(ToolBase):
+class ListMasterSlides(ToolDrawSlideMastersBase):
     """List all master slides in a Draw/Impress document."""
 
     name = "list_master_slides"
@@ -47,7 +47,7 @@ class ListMasterSlides(ToolBase):
         return {"status": "ok", "master_slides": result, "count": len(result)}
 
 
-class GetSlideMaster(ToolBase):
+class GetSlideMaster(ToolDrawSlideMastersBase):
     """Get which master slide is assigned to a slide."""
 
     name = "get_slide_master"
@@ -62,7 +62,7 @@ class GetSlideMaster(ToolBase):
         return {"status": "ok", "page_index": kwargs.get("page_index"), "master_name": master.Name if hasattr(master, "Name") else ""}
 
 
-class SetSlideMaster(ToolBase):
+class SetSlideMaster(ToolDrawSlideMastersBase):
     """Assign a master slide to a slide."""
 
     name = "set_slide_master"

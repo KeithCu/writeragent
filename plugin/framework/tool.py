@@ -22,7 +22,7 @@ import logging
 import queue
 import threading
 from abc import ABC, abstractmethod
-from typing import Any, cast, Callable
+from typing import Any, Callable, ClassVar, cast
 
 from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.worker_pool import run_in_background

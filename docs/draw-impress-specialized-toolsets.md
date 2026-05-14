@@ -45,15 +45,6 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `delete_slide` | `pages.py` | Drawing+Presentation | Delete a page/slide |
 | `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
 | `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
-| `get_slide_transition` | `transitions.py` | Presentation | Get transition effect/speed/duration |
-| `set_slide_transition` | `transitions.py` | Presentation | Set transition effect/speed/duration |
-| `get_slide_layout` | `transitions.py` | Presentation | Get current layout |
-| `set_slide_layout` | `transitions.py` | Presentation | Set layout by name (title, text, two_column, etc.) |
-| `list_master_slides` | `masters.py` | Drawing+Presentation | List all master slides |
-| `get_slide_master` | `masters.py` | Drawing+Presentation | Get master for a slide |
-| `set_slide_master` | `masters.py` | Drawing+Presentation | Assign a master to a slide |
-| `get_speaker_notes` | `notes.py` | Presentation | Read speaker notes (Impress only) |
-| `set_speaker_notes` | `notes.py` | Presentation | Set speaker notes (Impress only) |
 | `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `get_placeholder_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `set_placeholder_text` | `placeholders.py` | Presentation | Set text in a placeholder |
@@ -81,6 +72,15 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control | Drawing+Presentation+Spreadsheet+Text |
 | `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
+| `get_speaker_notes` | `speaker_notes` | `draw/notes.py` | Read speaker notes (Impress) | Presentation |
+| `set_speaker_notes` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
+| `get_slide_transition` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |
+| `set_slide_transition` | `slide_transitions` | `draw/transitions.py` | Set transition effect/speed/duration | Presentation |
+| `get_slide_layout` | `slide_transitions` | `draw/transitions.py` | Get current slide layout | Presentation |
+| `set_slide_layout` | `slide_transitions` | `draw/transitions.py` | Set slide layout by name | Presentation |
+| `list_master_slides` | `slide_masters` | `draw/masters.py` | List all master slides | Drawing+Presentation |
+| `get_slide_master` | `slide_masters` | `draw/masters.py` | Get master for a slide | Drawing+Presentation |
+| `set_slide_master` | `slide_masters` | `draw/masters.py` | Assign a master to a slide | Drawing+Presentation |
 | `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 
 > **Note**: Form tools are implemented in `writer/forms.py` but inherit from `ToolDrawFormBase`, making them available across document types. This document focuses on Draw/Impress usage.
@@ -97,10 +97,10 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 |--------|--------|-------|-------|
 | **Shapes (core)** | ✅ Complete | 7 tools | Create, edit, delete, connect, group, summary, tree |
 | **Pages/Slides (core)** | ✅ Complete | 4 tools | List, add, delete, read text |
-| **Master Slides (core)** | ✅ Complete | 3 tools | List, get, set |
-| **Speaker Notes (core)** | ✅ Complete | 2 tools | Get, set (Impress only — Draw has no speaker notes) |
+| **Master Slides (specialized)** | ✅ Complete | 3 tools | `slide_masters`: list, get, set |
+| **Speaker Notes (specialized)** | ✅ Complete | 2 tools | `speaker_notes`: get, set (Impress only — Draw has no speaker notes) |
 | **Placeholders (core)** | ✅ Complete | 3 tools | List, get text, set text (Impress only) |
-| **Transitions (core)** | ✅ Complete | 4 tools | Get/set transition, get/set layout |
+| **Transitions (specialized)** | ✅ Complete | 4 tools | `slide_transitions`: get/set transition, get/set layout |
 | **Charts (specialized)** | ✅ Complete | 5 tools | Full CRUD + info |
 | **Tree Structure (core)** | ✅ Complete | 1 tool | JSON DOM for LLM understanding |
 | **Web Research (specialized)** | ✅ Complete | 1 tool | Delegated search |
@@ -136,15 +136,15 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 
 These tools now work with both Draw and Impress documents.
 
-### 4.2 Impress-Only Features
+### 4.2 Impress-Only vs Delegated APIs
 
-The following features are **intentionally Impress-only** as Draw does not support them:
-- Speaker notes (`get_speaker_notes`, `set_speaker_notes`)
-- Slide placeholders (`list_placeholders`, `get_placeholder_text`, `set_placeholder_text`)
-- Slide transitions (`get_slide_transition`, `set_slide_transition`, `get_slide_layout`, `set_slide_layout`)
-- Master slides (`list_master_slides`, `get_slide_master`, `set_slide_master`)
+The following are **Impress-only** (Draw has no equivalent): speaker notes; slide placeholders; slide transitions and Impress slide layouts. They are exposed via **`delegate_to_specialized_draw_toolset`** with domains `speaker_notes` and `slide_transitions` (not on the default main-agent tool list).
 
-> These tools correctly use `uno_services = ["com.sun.star.presentation.PresentationDocument"]` only.
+**Slide master** tools (`list_master_slides`, `get_slide_master`, `set_slide_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_presentation_info` summarizes.
+
+Core **placeholders** remain on the default list (`list_placeholders`, `get_placeholder_text`, `set_placeholder_text`).
+
+> Speaker notes and transition/layout tools use `uno_services = ["com.sun.star.presentation.PresentationDocument"]` only. Master slide tools include both `DrawingDocument` and `PresentationDocument` where applicable.
 
 ### 4.3 Shared Tools (Draw + Impress + Other Types)
 

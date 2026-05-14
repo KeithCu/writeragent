@@ -44,7 +44,7 @@ class ToolWriterSpecialBase(ToolBase):
     # Subclasses MUST override this.
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools = frozenset(["get_document_content", "get_document_tree"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_document_content", "get_document_tree"])
     uno_services = ["com.sun.star.text.TextDocument"]
 
 
@@ -78,7 +78,7 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
     specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
-    required_core_tools = ToolWriterSpecialBase.required_core_tools | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
     intent = "edit"
 
 
@@ -124,7 +124,7 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "fields"
     specialized_domain_description: ClassVar[str | None] = "Manage document fields, variables, and cross-references."
-    required_core_tools = ToolWriterSpecialBase.required_core_tools | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
 
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
@@ -142,7 +142,7 @@ class WriterAgentSpecialTracking(ToolWriterSpecialBase):
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "bookmarks"
     specialized_domain_description: ClassVar[str | None] = "Manage document bookmarks and navigation points."
-    required_core_tools = ToolWriterSpecialBase.required_core_tools | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
     intent = "navigate"
 
 
@@ -155,7 +155,7 @@ class ToolWriterStructuralBase(ToolWriterSpecialBase):
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "footnotes"
     specialized_domain_description: ClassVar[str | None] = "Create and manage footnotes and endnotes."
-    required_core_tools = ToolWriterSpecialBase.required_core_tools | frozenset(["search_in_document"])
+    required_core_tools: ClassVar[frozenset[str] | None] = (ToolWriterSpecialBase.required_core_tools or frozenset()) | frozenset(["search_in_document"])
     intent = "edit"
 
 

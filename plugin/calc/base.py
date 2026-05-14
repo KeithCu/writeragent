@@ -33,7 +33,7 @@ class ToolCalcSpecialBase(ToolBase):
     tier = "specialized"
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str]] = frozenset(["get_sheet_summary", "read_cell_range"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_cell_range"])
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
