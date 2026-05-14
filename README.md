@@ -39,26 +39,26 @@ A LibreOffice extension (Python + UNO) that adds generative AI editing to Writer
 
 ## Local-First & Flexible
 
-Unlike proprietary office suites that lock you into a single cloud provider and **send all your data to their servers**, WriterAgent is **local-first**. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between providers (e.g., OpenRouter, Together.AI) in less than 2 seconds, maintaining full control over your data.
+Unlike proprietary office suites that lock you into a single cloud provider and send all your data to their servers, WriterAgent is local-first. You can run fast, private models locally (via Ollama, LM Studio, or local servers) ensuring your documents never leave your machine. If you choose to use cloud APIs, you can switch between providers (e.g., OpenRouter, Together.AI) in less than 2 seconds, maintaining full control over your data.
+
 ---
 
-## Powerful Feature Suites
+## Core Features
 
 - **Grammar Checker**: Real-time, local-first editing with persistent storage of good/bad sentences.
 - **TeX Import**: Seamless LaTeX and MathML support for scientific documents.
-- **Multi-Document Tasks**: Agent handoffs for long documents (see [Week 6 & 7 updates](https://keithcu.com/wordpress/?p=5276)).
 
 
-### 🖋️ Writer & Professional Publishing
+### 🖋️ Writer
 
 - **Real-time Grammar Checker**: An experimental, asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. [Read the Plan](docs/realtime-grammar-checker-plan.md).
 - **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). [Design Docs](docs/libreoffice-html-math-dev-plan.md) & [Extraction Logic](docs/math-extraction-editing-dev-plan.md).
-- **Advanced Editing**: Supports rich text, page layout, shapes, charts, bookmarks, fields, footnotes, and track-changes. [Specialized Toolsets](docs/writer-specialized-toolsets.md) & [Writer Tools Deep Dive](docs/writer_tools_analysis.md).
+- **Advanced Editing**: Supports rich text, page layout, shapes, charts, bookmarks, fields, footnotes, and track-changes. [Specialized Toolsets](docs/writer-specialized-toolsets.md)
 - **Format Preservation**: Uses a "surgical" replacement method that preserves existing bold, italics, highlights, and font sizes.
 - **Extend & Edit Selection**: Quick shortcuts (**`Ctrl+Q`** to extend, **`Ctrl+E`** to rewrite) that act directly on your highlighted text.
 - **Reference Guides**: [Footnotes](docs/footnotes-api-reference.md), [Bookmarks](docs/bookmarks-api-reference.md), [Page Layout](docs/page-api-reference.md), [Track Changes](docs/writer-tracking-api-reference.md), and [Section Replace Options](docs/section-replace-options.md).
 
-### 📊 Calc & Data Intelligence
+### 📊 Calc
 
 - **=PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
 - **Deep Analysis**: Analyze **pivot tables** and detect **complex logical errors** across massive datasets. [Analysis Tools](docs/calc-analysis-tools.md).
