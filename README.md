@@ -64,7 +64,8 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Deep Analysis**: Analyze **pivot tables** and detect **complex logical errors** across massive datasets. [Analysis Tools](docs/calc-analysis-tools.md).
 - **Rich Text Cells**: Paste **HTML** (bold, links, breaks) into a **single cell** using advanced StarWriter import paths.
 - **Batch Range Edits**: Apply formulas and formatting in bulk. [Specialized Toolsets](docs/calc-specialized-toolsets.md).
-- **Advanced Features**: [Conditional Formatting](docs/calc-conditional-formatting.md), [Sheet Filtering (AutoFilter)](docs/calc-sheet-filter.md), and [Native Python Support](docs/native_python_in_calc.md). (See also: [Enabling NumPy](docs/enabling_numpy_in_libreoffice.md)).
+- **Advanced Features**: [Conditional Formatting](docs/calc-conditional-formatting.md) and [Sheet Filtering (AutoFilter)](docs/calc-sheet-filter.md).
+
 
 ### 🌐 Multi-modal & Research
 
@@ -170,17 +171,13 @@ WriterAgent is engineered for professional-grade reliability, moving beyond simp
 
 ## Roadmap & Future Vision
 
-- **Short-term**: Improve agent handoffs for long documents.
-- **Long-term**: Full-time development and consulting contracts for custom features.
-- Follow our progress: [Week 6 & 7](https://keithcu.com/wordpress/?p=5276), [Week 5](https://keithcu.com/wordpress/?p=5245).
-
-
 Our primary focus is deep **LibreOffice Fidelity**—systematically closing the gap between the AI's capabilities and the full breadth of the UNO API to ensure the agent can manipulate every professional feature the suite offers.
 
 Our application-specific roadmap is focused on closing the remaining gaps in the LibreOffice API surface:
 
 - **🖋️ Writer**: We are expanding from text and style management into complex document automation, including **Mail Merge** (CSV/DB/Sheets), **Bibliographies**, and **Watermark** support. We are also evolving our **Sections** tools from read-only navigation to a full lifecycle suite (multi-column layouts, conditional visibility, and password protection).
-- **📊 Calc**: Beyond cell and sheet manipulation, we are targeting advanced data modeling. This includes **Macros & VBA compatibility**, **Scenarios (what-if analysis)**, and **External Data** integration (SQL/Web queries). We are also working toward interactive controls like **Table Slicers** and comprehensive **Sheet Protection**.
+- **📊 Calc**: Beyond cell and sheet manipulation, we are targeting advanced data modeling. This includes **Macros & VBA compatibility**, **Scenarios (what-if analysis)**, and **External Data** integration (SQL/Web queries). We are also working toward interactive controls like **Table Slicers**, comprehensive **Sheet Protection**, and experimental **Python/NumPy** support ([Native Python](docs/native_python_in_calc.md), [NumPy](docs/enabling_numpy_in_libreoffice.md)).
+
 - **🎨 Draw & Impress**: We are moving toward full presentation mastery by adding support for **Slide Animations**, **Layer Management**, and **Slide Show Controls**. High-priority multimedia support, including **Audio/Video insertion** and **3D Shape** manipulation, will round out the creative suite.
 
 Building on this foundation, we are eventually working on **Long-Document and Multi-Document Support**. Handling 100+ page documents is a complex engineering challenge; it will require internal caching, a **page-at-a-time navigation** system that allows the agent to move through large files while maintaining awareness of nested elements. For **Multi-Document Support**, we are leveraging the LibreOffice Desktop service to discover and coordinate between all open documents, and eventually expanding the agent's scope to operate on a **directory of files** to synthesize information across Writer reports, Calc sheets, and Draw presentations.
@@ -320,9 +317,8 @@ make build
 
 # Full dev cycle: build + reinstall + restart LibreOffice + show log
 make deploy
-
-# Or for fast iteration: symlink the project into LO extensions (no rebuild needed)
-make dev-deploy
+or
+make deploy writer, calc, draw, or impress
 
 # Run typecheckers (ty, mypy, pyright) then tests
 make test
