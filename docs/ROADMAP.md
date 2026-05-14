@@ -196,6 +196,53 @@ The sidebar now updates `model_lru@<endpoint>` when the user picks a model (same
 
 ---
 
+
+# ROADMAP.md — WriterAgent Development
+
+This document tracks the long-term vision, medium-term priorities, and immediate research goals for WriterAgent.
+
+---
+
+## 🚀 High-Level Vision
+Our primary focus is **LibreOffice Fidelity**—systematically closing the gap between the AI's capabilities and the full breadth of the UNO API to ensure the agent can manipulate every professional feature the suite offers.
+
+---
+
+## 🛠️ Medium Priority Roadmap
+
+| Feature | Description |
+| :--- | :--- |
+| **LLM Response Parsing Refactor** | Extract provider-specific parsing logic into `plugin/framework/client/parsers.py` to improve resilience against API changes. |
+| **Batch Section Rewriting** | Implement heading-based document segmentation for whole-document processing. |
+| **Advanced Impress Layouts** | Adopt native shape positioning/sizing for Draw/Impress image generation. |
+
+---
+
+## 💡 Refactoring Plan: LLM Parsing for Resilience
+
+To improve modularity and stability, we are refactoring provider-specific response parsing into a dedicated module. 
+
+### Why this is needed
+LLM APIs frequently update their JSON structures. Currently, these parsing quirks are interleaved with request logic in `llm_client.py`, making them hard to test and maintain. We are porting patterns from **LibreAI's** modular C++ clients to create a robust Python equivalent.
+
+### Common Quirks to Address
+When refactoring, ensure these provider-specific behaviors are isolated:
+1. **Gemini Role Mapping:** Gemini uses `model` for assistant roles, while others use `assistant`. 
+   ```python
+   # Example pattern to port
+   role = "model" if msg.role == "assistant" else "user"
+   ```
+2. **Anthropic Nested Content:** Anthropic responses wrap text in an array within a `content` object, requiring deeper traversal.
+   ```python
+   # Port from AnthropicClient::parseResponse
+   return data["content"][0]["text"]
+   ```
+3. **Ollama JSON Non-Standard:** Ollama occasionally returns trailing newline characters or non-standard JSON formatting that requires stricter parsing than OpenAI-compatible providers.
+4. **Hardcoded Fallbacks:** If the live model-list endpoint fails, use a predefined list (e.g., `["claude-opus-4-7", "claude-sonnet-4-6"]`) to keep the UI functional.
+
+---
+
+
 ## 📋 Medium Priority Features
 
 ### 4. **Enhanced Style Management** 🎭

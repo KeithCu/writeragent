@@ -183,7 +183,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                 url = str(step.arguments.get("url", "")) if isinstance(step.arguments, dict) else ""
                 if append_thinking_callback:
                     append_thinking_callback(f"Running tool: {step.name} with {{'url': '{url}'}}\n")
-                from plugin.framework.config import get_url_domain
+                from plugin.framework.url_utils import get_url_domain
 
                 status_msg = f"Read: {get_url_domain(url)}"
             else:

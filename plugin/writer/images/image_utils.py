@@ -23,8 +23,6 @@ import re
 import base64
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.requests import sync_request
-from plugin.framework.client.errors import _format_http_error_response
-from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.contrib.aihordeclient import AiHordeClient
 from plugin.framework.config import get_config_bool, get_config_int, get_config_float, get_config_str
 

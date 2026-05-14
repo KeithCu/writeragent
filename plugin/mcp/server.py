@@ -26,7 +26,7 @@ import logging
 import socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, cast
-from plugin.framework.config import get_url_path, get_url_query_dict
+from plugin.framework.url_utils import get_url_path, get_url_query_dict
 
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background

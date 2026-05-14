@@ -20,21 +20,16 @@ Configuration logic for WriterAgent.
 Reads/writes writeragent.json in LibreOffice's user config directory.
 """
 import dataclasses
-import ipaddress
 import json
 import logging
 import os
 import time
-import urllib.parse
-from typing import Any, Callable, Dict, cast, Optional
+from typing import Any, Dict, cast
 
-from plugin.framework.constants import ModelCapability, get_plugin_dir
-from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
-from plugin.framework.errors import ConfigError, NetworkError, safe_call
+from plugin.framework.constants import get_plugin_dir
+from plugin.framework.errors import ConfigError, safe_call
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
-from plugin.framework.service import ServiceBase
-from plugin.framework.uno_context import get_ctx
 
 try:
     from plugin._manifest import MODULES
@@ -56,13 +51,6 @@ uno: Any = _uno_mod
 unohelper: Any = _unohelper_mod
 
 from plugin.framework.url_utils import (
-    get_api_version_suffix,
-    get_url_domain,
-    get_url_hostname,
-    get_url_path,
-    get_url_path_and_query,
-    get_url_query_dict,
-    is_pdf_url,
     normalize_endpoint_url,
 )
 

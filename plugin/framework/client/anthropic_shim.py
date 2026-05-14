@@ -20,7 +20,7 @@ Anthropic provider shim.
 import json
 from typing import Any
 
-from plugin.framework.config import get_url_path_and_query
+from plugin.framework.url_utils import get_url_path_and_query
 from .llm_client import BaseProviderShim
 
 

@@ -9,7 +9,7 @@
 
 WriterAgent is not just another "AI wrapper." It is a sophisticated, high-performance platform that bridges the gap between modern Artificial Intelligence and the complex, legacy environment of LibreOffice (Writer, Calc, and Draw). 
 
-While many AI tools struggle to interact with desktop software reliably, WriterAgent uses advanced systems engineering—similar to a mini-operating system—to provide a seamless, robust, and semantically-aware assistant. After six weeks of intensive development, the core architecture is now a "fortress" of code, ready to be scaled into a world-class productivity suite.
+While many AI tools struggle to interact with desktop software reliably, WriterAgent uses advanced systems engineering—similar to a mini-operating system—to provide a seamless, robust, and semantically-aware assistant. After six weeks of intensive development, the core architecture is ready to scale into a world-class productivity suite.
 
 ---
 

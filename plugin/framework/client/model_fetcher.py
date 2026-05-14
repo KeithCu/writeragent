@@ -4,11 +4,10 @@ Logic for fetching available models from LLM endpoints.
 import urllib.parse
 import ipaddress
 import logging
-from typing import Any, cast, Optional, Dict
+from typing import Any
 
 from plugin.framework.constants import ModelCapability
 from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
-from plugin.framework.event_bus import global_event_bus
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
 from plugin.framework.errors import NetworkError
 from plugin.framework.config import (
@@ -16,9 +15,6 @@ from plugin.framework.config import (
     get_config_bool_safe,
     as_bool,
     get_config,
-    get_config_str,
-    get_config_int,
-    get_config_float,
     get_current_endpoint,
     set_config,
 )
