@@ -45,12 +45,10 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ## Core Features
 
-- **Grammar Checker**: Real-time, local-first editing with persistent storage of good/bad sentences.
-- **TeX Import**: Seamless LaTeX and MathML support for scientific documents.
-
-
 ### 🖋️ Writer
 
+- **Grammar Checker**: Real-time, local-first editing with persistent storage of good/bad sentences.
+- **TeX Import**: Seamless LaTeX and MathML support for scientific documents.
 - **Real-time Grammar Checker**: An experimental, asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. [Read the Plan](docs/realtime-grammar-checker-plan.md).
 - **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). [Design Docs](docs/libreoffice-html-math-dev-plan.md) & [Extraction Logic](docs/math-extraction-editing-dev-plan.md).
 - **Advanced Editing**: Supports rich text, page layout, shapes, charts, bookmarks, fields, footnotes, and track-changes. [Specialized Toolsets](docs/writer-specialized-toolsets.md)
