@@ -11,7 +11,7 @@ from .errors import _format_http_error_response, format_error_message
 log = logging.getLogger(__name__)
 
 
-def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
+def sync_request(url, data=None, headers=None, timeout=10, parse_json=True, method=None):
     """
     Blocking HTTP GET or POST. Shared by aihordeclient and other code.
     url: str or urllib.request.Request. If Request, headers/data come from it.
@@ -32,7 +32,7 @@ def sync_request(url, data=None, headers=None, timeout=10, parse_json=True):
         headers["X-Title"] = APP_TITLE
 
     if isinstance(url, str):
-        req = Request(url, data=data, headers=headers)
+        req = Request(url, data=data, headers=headers, method=method)
     else:
         req = url
 

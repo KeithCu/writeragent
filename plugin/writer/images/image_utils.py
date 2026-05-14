@@ -112,52 +112,19 @@ class EndpointImageProvider(ImageProvider):
             if paths:
                 return paths, ""
         else:
-            # Use standard /images/generations endpoint (Together, OpenAI, etc.). Optional source_image for img2img.
+            # Use the unified image_completion method (handles Google, Ollama, OpenAI, etc. via shims)
             valid_steps = steps if (steps is not None and steps > 0) else None
-            method, path, body, headers = self.client.make_image_request(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"))
-
             try:
-                conn = self.client._get_connection()
-                conn.request(method, path, body=body, headers=headers)
-                http_resp = conn.getresponse()
-
-                if http_resp.status != 200:
-                    err_body = http_resp.read().decode("utf-8", errors="replace")
-                    logger.error("Image API Error %d: %s", http_resp.status, err_body)
-                    err_msg = _format_http_error_response(http_resp.status, http_resp.reason, err_body)
-                    return [], err_msg
-
-                result = json.loads(http_resp.read().decode("utf-8"))
-                log_result = redact_sensitive_payload_for_log(result) if TRIM_IMAGES_IN_LOG else result
-                log.debug("=== Image Response: %s" % json.dumps(log_result, indent=2))
-
-                # Standard OpenAI format: {"data": [{"url": "...", "b64_json": "..."}]}
+                b64_list = self.client.image_completion(prompt, model=model, width=width, height=height, steps=valid_steps, source_image=kwargs.get("source_image"))
                 paths = []
-                for img in result.get("data") or []:
-                    if b64 := img.get("b64_json"):
-                        paths.extend(self._save_b64(b64))
-                    elif url := img.get("url"):
-                        if "data:image" in url:
-                            match = re.search(r"base64,([A-Za-z0-9+/=]+)", url)
-                            if match:
-                                paths.extend(self._save_b64(match.group(1)))
-                        else:
-                            paths.extend(self._save_url(url))
-
+                for b64 in b64_list:
+                    paths.extend(self._save_b64(b64))
                 if paths:
                     return paths, ""
-            except (ValueError, TypeError, IOError) as e:
-                logger.error("Image generation IO/Parse error: %s", e)
-                return [], str(e)
+                return [], "No image data returned from provider"
             except Exception as e:
-                from plugin.framework.errors import NetworkError
-
-                if isinstance(e, NetworkError):
-                    logger.error("Image generation NetworkError: %s", e)
-                    return [], str(e)
-                else:
-                    logger.exception("Image generation unexpected error")
-                    return [], str(e)
+                logger.error("Image generation error: %s", e)
+                return [], str(e)
 
         # Fallback: image in content string (some endpoints)
         if "data:image" in fallback_content:

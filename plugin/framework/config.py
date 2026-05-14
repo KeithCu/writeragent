@@ -991,6 +991,33 @@ def _is_model_id_associated_with_other_provider(model_id: str, current_provider:
     return is_known_elsewhere and not is_known_here
 
 
+def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
+    """Filter raw model IDs from /v1/models based on the requested capability (text/image/audio)."""
+    if not models:
+        return []
+
+    out = []
+    if req_cap == "text":
+        # Exclude known non-chat models (mirrors LibreAI C++ logic)
+        exclude = {"embedding", "aqa", "attribution", "retrieval", "vision", "rerank", "classifier", "moderation"}
+        for m in models:
+            m_lower = m.lower()
+            if any(kw in m_lower for kw in exclude):
+                continue
+            out.append(m)
+    elif req_cap == "image":
+        # Positive filter for image models (especially useful for Ollama/Custom endpoints)
+        include = {"flux", "stable-diffusion", "sdxl", "dall-e", "aurora", "imagen", "dreamshaper", "playground", "juggernaut"}
+        for m in models:
+            m_lower = m.lower()
+            if any(kw in m_lower for kw in include):
+                out.append(m)
+    else:
+        # Audio/STT or other: no filtering yet
+        out = list(models)
+    return out
+
+
 def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, *, remote_models: list[str] | None = None, skip_remote_fetch: bool = False):
     """Helper to populate a combobox with values from an LRU list in config.
     LRU is scoped to the provided endpoint.
@@ -1019,11 +1046,12 @@ def populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint, *, rem
             fetched_models = remote_models
     elif skip_remote_fetch:
         fetched_models = None
-    elif req_cap == "text" and endpoint and (not provider or provider not in massive_providers):
+    elif endpoint and (not provider or provider not in massive_providers):
         fetched_models = fetch_available_models(endpoint, ctx)
 
     if fetched_models is not None:
-        for mid in fetched_models:
+        filtered = _filter_fetched_models(fetched_models, req_cap)
+        for mid in filtered:
             if mid not in to_show:
                 to_show.append(mid)
     else:

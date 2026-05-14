@@ -105,6 +105,323 @@ from .requests import sync_request
 log = logging.getLogger(__name__)
 
 
+class BaseProviderShim:
+    """Base class for provider-specific shims (Anthropic, Google, OpenAI)."""
+
+    def __init__(self, client: "LlmClient"):
+        self.client = client
+
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+        raise NotImplementedError()
+
+    def parse_response_chunk(self, chunk):
+        """Extract content, finish_reason, thinking, and delta from a response chunk."""
+        raise NotImplementedError()
+
+    def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
+        """Build an image generation request."""
+        raise NotImplementedError()
+
+    def parse_image_responses(self, response_data):
+        """Extract list of base64 image data from response."""
+        raise NotImplementedError()
+
+
+class OpenAIShim(BaseProviderShim):
+    """Shim for OpenAI-compatible providers."""
+
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+        endpoint = self.client._endpoint()
+        api_path = self.client._api_path()
+        url = endpoint + api_path + "/chat/completions"
+
+        data = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature, "top_p": 0.9, "stream": stream}
+        if model_name:
+            data["model"] = model_name
+        if tools:
+            data["tools"] = tools
+            data["tool_choice"] = "auto"
+            data["parallel_tool_calls"] = False
+        if response_format:
+            data["response_format"] = response_format
+
+        if self.client.config.get("is_openrouter"):
+            extra = self.client.config.get("openrouter_chat_extra")
+            if isinstance(extra, dict) and extra:
+                merge_openrouter_chat_extra(data, extra)
+
+        json_data = json.dumps(data).encode("utf-8")
+        path = get_url_path_and_query(url)
+        return "POST", path, json_data, self.client._headers()
+
+    def parse_response_chunk(self, chunk):
+        choices = chunk.get("choices", [])
+        choice = choices[0] if choices else {}
+        delta = choice.get("delta", {})
+
+        finish_reason = choice.get("finish_reason") if choice else None
+        if not finish_reason:
+            finish_reason = chunk.get("finish_reason")
+        if not finish_reason and choices:
+            for c in choices:
+                if isinstance(c, dict) and c.get("finish_reason"):
+                    finish_reason = c.get("finish_reason")
+                    break
+
+        content = (delta.get("content") or "") if delta else ""
+        thinking = _extract_thinking_from_delta(chunk)
+        return content, finish_reason, thinking, delta
+
+    def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
+        endpoint = self.client._endpoint()
+        api_path = self.client._api_path()
+        url = endpoint + api_path + "/images/generations"
+        data = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
+        if model:
+            data["model"] = model
+        if steps:
+            data["steps"] = steps
+
+        # img2img extension for Together/Fal/Replicate
+        if image_url:
+            data["image_url"] = image_url
+        elif source_image:
+            if source_image.startswith("data:image"):
+                data["image_url"] = source_image
+            else:
+                data["image_url"] = "data:image/png;base64," + source_image
+
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+
+    def parse_image_responses(self, response_data):
+        # OpenAI returns {"data": [{"b64_json": "<base64>", ...}, ...]}
+        items = response_data.get("data", [])
+        out = []
+        for it in items:
+            if b64 := it.get("b64_json"):
+                out.append(b64)
+        return out
+
+
+class AnthropicShim(BaseProviderShim):
+    """Shim for Anthropic native API."""
+
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+        endpoint = self.client._endpoint()
+        url = f"{endpoint}/v1/messages"
+        system_msg = ""
+        converted = []
+        for m in messages:
+            if m.get("role") == "system":
+                system_msg = m.get("content", "")
+            else:
+                converted.append({"role": m["role"], "content": m["content"]})
+
+        data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "temperature": temperature, "stream": stream}
+        if system_msg:
+            data["system"] = system_msg
+        if tools:
+            data["tools"] = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
+
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+
+    def parse_response_chunk(self, chunk):
+        msg_type = chunk.get("type", "")
+        content = ""
+        finish_reason = None
+        thinking = None
+        delta: dict[str, Any] = {}
+
+        if msg_type == "content_block_delta":
+            d = chunk.get("delta", {})
+            if d.get("type") == "text_delta":
+                content = d.get("text") or ""
+        elif msg_type == "message":
+            # SYNC response
+            content_parts = chunk.get("content", [])
+            content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
+            finish_reason = chunk.get("stop_reason")
+            # Handle tools
+            tool_calls = []
+            for p in content_parts:
+                if p.get("type") == "tool_use":
+                    tool_calls.append({"id": p["id"], "type": "function", "function": {"name": p["name"], "arguments": json.dumps(p["input"])}})
+            delta = {"role": "assistant", "content": content}
+            if tool_calls:
+                delta["tool_calls"] = tool_calls
+        elif msg_type == "message_delta":
+            finish_reason = chunk.get("delta", {}).get("stop_reason")
+        elif msg_type == "message_stop":
+            finish_reason = "stop"
+        return content, finish_reason, thinking, delta
+
+    def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
+        # Anthropic doesn't have a native image generation API (yet)
+        # Fallback to OpenAI-compatible if they ever add one or for local shims
+        return super().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
+
+    def parse_image_responses(self, response_data):
+        return super().parse_image_responses(response_data)
+
+
+class GoogleShim(BaseProviderShim):
+    """Shim for Google Gemini native API."""
+
+    def build_chat_request(self, messages, max_tokens, temperature, tools, stream, model_name, response_format):
+        endpoint = self.client._endpoint()
+        auth_info = self.client._resolve_auth()
+        key = auth_info.get("api_key", "")
+        m_id = model_name
+        if not m_id:
+            m_id = "gemini-1.5-flash"
+        if not m_id.startswith("models/"):
+            m_id = f"models/{m_id}"
+        action = ":streamGenerateContent" if stream else ":generateContent"
+        url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
+
+        contents: list[dict[str, Any]] = []
+        system_instruction = None
+        for m in messages:
+            role = m["role"]
+            parts: list[dict[str, Any]] = []
+
+            content = m.get("content")
+            if content:
+                if isinstance(content, str):
+                    parts.append({"text": content})
+                elif isinstance(content, list):
+                    for part in content:
+                        if part.get("type") == "text":
+                            parts.append({"text": part.get("text", "")})
+
+            tool_calls = m.get("tool_calls")
+            if tool_calls:
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments", "{}")
+                    try:
+                        args_obj = json.loads(args) if isinstance(args, str) else args
+                    except Exception:
+                        args_obj = {}
+                    parts.append({"functionCall": {"name": fn.get("name"), "args": args_obj}})
+
+            if role == "system":
+                system_instruction = {"parts": parts}
+            elif role == "tool":
+                try:
+                    resp_obj = json.loads(content) if isinstance(content, str) else content
+                except Exception:
+                    resp_obj = {"result": content}
+                if not isinstance(resp_obj, dict):
+                    resp_obj = {"result": resp_obj}
+                contents.append({"role": "function", "parts": [{"functionResponse": {"name": m.get("name") or m.get("tool_call_id"), "response": resp_obj}}]})
+            else:
+                if role == "assistant":
+                    role = "model"
+                contents.append({"role": role, "parts": parts})
+
+        google_data: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature}}
+        if system_instruction:
+            google_data["system_instruction"] = system_instruction
+        if tools:
+            decls = []
+            for t in tools:
+                fn = t.get("function", {})
+                decls.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters", {"type": "object", "properties": {}})})
+            google_data["tools"] = [{"function_declarations": decls}]
+
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(google_data).encode("utf-8"), self.client._headers()
+
+    def parse_response_chunk(self, chunk):
+        candidates = chunk.get("candidates", [])
+        choice = candidates[0] if candidates else {}
+        content = ""
+        tool_calls = []
+        parts = choice.get("content", {}).get("parts", [])
+        for p in parts:
+            if "text" in p:
+                content += p.get("text") or ""
+            if "functionCall" in p:
+                fc = p["functionCall"]
+                tool_calls.append({"id": fc.get("id", "call_" + str(len(tool_calls))), "type": "function", "function": {"name": fc.get("name"), "arguments": json.dumps(fc.get("args", {}))}})
+        finish_reason = choice.get("finishReason")
+        if finish_reason == "STOP":
+            finish_reason = "stop"
+
+        usage = chunk.get("usageMetadata", {})
+        delta: dict[str, Any] = {"usage": usage}
+        if tool_calls:
+            delta["tool_calls"] = tool_calls
+        return content, finish_reason, None, delta
+
+    def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
+        endpoint = self.client._endpoint()
+        key = self.client._resolve_auth().get("api_key", "")
+        model_name = model or "imagen-3.0-generate-002"
+
+        if model_name.startswith("imagen"):
+            # Imagen models use :predict
+            url = f"{endpoint}/v1beta/models/{model_name}:predict?key={key}"
+            aspect = "1:1"
+            if width > height * 1.5:
+                aspect = "16:9"
+            elif height > width * 1.5:
+                aspect = "9:16"
+
+            data = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": aspect}}
+        else:
+            # Gemini multimodal use :generateContent
+            url = f"{endpoint}/v1beta/models/{model_name}:generateContent?key={key}"
+            data = {"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}}
+
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+
+    def parse_image_responses(self, response_data):
+        out = []
+        if "predictions" in response_data:
+            # Imagen response
+            preds = response_data.get("predictions", [])
+            for pr in preds:
+                if b64 := pr.get("bytesBase64Encoded"):
+                    out.append(b64)
+
+        # Gemini multimodal response
+        candidates = response_data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for p in parts:
+                inline = p.get("inlineData", {})
+                if inline and inline.get("data"):
+                    out.append(inline["data"])
+        return out
+
+
+class OllamaShim(OpenAIShim):
+    """Shim for Ollama specifically (handles native /api endpoints if needed)."""
+
+    def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
+        endpoint = self.client._endpoint()
+        url = f"{endpoint}/api/generate"
+        # Ollama native generation (e.g. for flux)
+        data = {"model": model or "flux", "prompt": prompt, "stream": False}
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+
+    def parse_image_responses(self, response_data):
+        # Ollama returns {"images": ["<base64>"]}
+        images = response_data.get("images")
+        if images and isinstance(images, list):
+            return images
+        # Some models use "image"
+        if img := response_data.get("image"):
+            return [img]
+        return []
+
+
 class LlmClient:
     """LLM API client. Takes config dict from get_api_config(ctx) and UNO ctx."""
 
@@ -115,6 +432,21 @@ class LlmClient:
         self._conn_key = None  # (scheme, host, port)
         self._ssl_fallback_hosts = set()
         self._last_llm_request_sent_monotonic = 0.0
+        self._shims: dict[str, BaseProviderShim] = {}
+
+    def _get_shim(self) -> BaseProviderShim:
+        """Get the provider shim for this client."""
+        provider = self._get_provider()
+        if provider not in self._shims:
+            if provider == "anthropic":
+                self._shims[provider] = AnthropicShim(self)
+            elif provider == "google":
+                self._shims[provider] = GoogleShim(self)
+            elif provider == "ollama":
+                self._shims[provider] = OllamaShim(self)
+            else:
+                self._shims[provider] = OpenAIShim(self)
+        return self._shims[provider]
 
     def _pace_before_llm_request(self) -> None:
         """Sleep if needed so consecutive HTTP sends on this client are not back-to-back."""
@@ -259,119 +591,16 @@ class LlmClient:
 
     def extract_content_from_response(self, chunk):
         """Extract text content and optional thinking from response chunk (provider-aware)."""
-        provider = self._get_provider()
-
-        # 1. Anthropic native
-        if provider == "anthropic":
-            # https://docs.anthropic.com/en/api/messages-streaming
-            msg_type = chunk.get("type", "")
-            content = ""
-            finish_reason = None
-            thinking = None
-            delta: dict[str, Any] = {}
-
-            if msg_type == "content_block_delta":
-                d = chunk.get("delta", {})
-                if d.get("type") == "text_delta":
-                    content = d.get("text") or ""
-            elif msg_type == "message":
-                # SYNC response
-                content_parts = chunk.get("content", [])
-                content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
-                finish_reason = chunk.get("stop_reason")
-                # Handle tools
-                tool_calls = []
-                for p in content_parts:
-                    if p.get("type") == "tool_use":
-                        tool_calls.append({"id": p["id"], "type": "function", "function": {"name": p["name"], "arguments": json.dumps(p["input"])}})
-                delta = {"role": "assistant", "content": content}
-                if tool_calls:
-                    delta["tool_calls"] = tool_calls
-            elif msg_type == "message_delta":
-                finish_reason = chunk.get("delta", {}).get("stop_reason")
-            elif msg_type == "message_stop":
-                finish_reason = "stop"
-            return content, finish_reason, thinking, delta
-
-        # 2. Google Gemini native
-        if provider == "google":
-            candidates = chunk.get("candidates", [])
-            choice = candidates[0] if candidates else {}
-            content = ""
-            tool_calls = []
-            parts = choice.get("content", {}).get("parts", [])
-            for p in parts:
-                if "text" in p:
-                    content += p.get("text") or ""
-                if "functionCall" in p:
-                    fc = p["functionCall"]
-                    tool_calls.append({"id": fc.get("id", "call_" + str(len(tool_calls))), "type": "function", "function": {"name": fc.get("name"), "arguments": json.dumps(fc.get("args", {}))}})
-            finish_reason = choice.get("finishReason")
-            # Map Google finishReason to OpenAI finish_reason
-            if finish_reason == "STOP":
-                finish_reason = "stop"
-
-            usage = chunk.get("usageMetadata", {})
-            delta: dict[str, Any] = {"usage": usage}
-            if tool_calls:
-                delta["tool_calls"] = tool_calls
-            return content, finish_reason, None, delta
-
-        # 3. OpenAI / compatible default
-        choices = chunk.get("choices", [])
-        choice = choices[0] if choices else {}
-        delta = choice.get("delta", {})
-
-        finish_reason = choice.get("finish_reason") if choice else None
-        if not finish_reason:
-            finish_reason = chunk.get("finish_reason")
-        if not finish_reason and choices:
-            for c in choices:
-                if isinstance(c, dict) and c.get("finish_reason"):
-                    finish_reason = c.get("finish_reason")
-                    break
-
-        content = (delta.get("content") or "") if delta else ""
-        thinking = _extract_thinking_from_delta(chunk)
-
-        return content, finish_reason, thinking, delta
+        return self._get_shim().parse_response_chunk(chunk)
 
     def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None, *, prepend_dev_build_system_prefix: bool = True):
-        """Build a chat completions request from a full messages array (provider-aware).
-
-        ``prepend_dev_build_system_prefix``: when True (default), non-release bundles may prepend
-        ``LLM_DEV_BUILD_SYSTEM_PREFIX`` to the first string system message — intended for sidebar
-        chat with the document. Set False for narrow tasks (e.g. grammar JSON) so the model sees
-        only the task system prompt.
-
-        ``response_format`` (e.g. ``{"type": "json_object"}``) is merged into the JSON body on the
-        **OpenAI-compatible** path only (Together, generic OpenAI bases, OpenRouter when not using
-        native shims). Together and OpenRouter document ``response_format`` / ``json_object`` on chat
-        completions; not every OpenRouter upstream model supports JSON mode. See
-        https://docs.together.ai/reference/chat-completions and
-        https://openrouter.ai/docs/api-reference/chat-completion
-
-        **Google** (``provider == "google"``) and **Anthropic** (``provider == "anthropic"``) native
-        shims return before this field is applied — callers relying on JSON mode should use an
-        OpenAI-compatible endpoint (e.g. OpenRouter) or parse without strict API JSON mode.
-        """
+        """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
         except (TypeError, ValueError):
             max_tokens = 512
 
-        auth_info = self._resolve_auth()
-        provider = auth_info.get("provider", "custom")
-        endpoint = self._endpoint()
-        model_name = model or self.config.get("model", "")
-        temperature = self.config.get("temperature", 0.5)
-
-        # 0. Coalesce consecutive system messages to prevent dropping instructions in shims
-        # This is a robustness safety net. Typically, this shouldn't happen because we compose 
-        # the base prompt and document context at creation in `tool_loop.py`. If we see this log 
-        # firing, we should investigate what is generating multiple system messages. If it never fires,
-        # we could consider removing this one day.
-        # We work on a new list to avoid modifying the caller's session
+        # 0. Coalesce consecutive system messages
         coalesced_messages: list[Any] = []
         coalesced_any = False
         for m in messages:
@@ -379,25 +608,22 @@ class LlmClient:
                 prev_content = coalesced_messages[-1].get("content", "")
                 curr_content = m.get("content", "")
                 if not isinstance(prev_content, str) or not isinstance(curr_content, str):
-                    err_msg = "make_chat_request: System message content is not a string. Multimodal system prompts are not supported by the coalescer."
+                    err_msg = "make_chat_request: System message content is not a string."
                     log.error(err_msg)
                     raise ValueError(err_msg)
-
                 coalesced_messages[-1]["content"] = prev_content + "\n\n" + curr_content
                 coalesced_any = True
             else:
                 coalesced_messages.append(dict(m) if isinstance(m, dict) else m)
-        
+
         if coalesced_any:
-            log.error("make_chat_request: Coalesced multiple consecutive system messages. This is a fallback and shouldn't typically happen.")
-            
+            log.error("make_chat_request: Coalesced multiple consecutive system messages.")
+
         messages = coalesced_messages
 
-        # 1. Inject date into the first system message if present, or add one.
-        # This is done before native shims so all providers see the current date.
+        # 1. Inject date into the first system message
         today = datetime.date.today().strftime("%A, %Y-%m-%d")
         date_msg = f"Today's date is {today}."
-
         system_message: Any = None
         for m in messages:
             if m.get("role") == "system":
@@ -407,192 +633,54 @@ class LlmClient:
         if system_message:
             old_content = system_message.get("content")
             if isinstance(old_content, str):
-                # Include ``date_msg in old_content`` so we do not prepend again after
-                # ``LLM_DEV_BUILD_SYSTEM_PREFIX`` moved today's date away from the first line;
-                # otherwise tool-loop reuse repeatedly stacks date + dev-prefix blocks.
                 already_has_date_line = (
                     old_content.startswith(date_msg)
                     or old_content.startswith("Today's date is ")
                     or date_msg in old_content
                 )
                 if not already_has_date_line:
-                    if old_content:
-                        system_message["content"] = f"{date_msg}\n\n{old_content}"
-                    else:
-                        system_message["content"] = date_msg
+                    system_message["content"] = f"{date_msg}\n\n{old_content}" if old_content else date_msg
         else:
             messages.insert(0, {"role": "system", "content": date_msg})
-
-        # 2. Anthropic Native Shim
-        if provider == "anthropic":
-            if prepend_dev_build_system_prefix:
-                _prepend_dev_build_system_prefix_to_messages(messages)
-            url = f"{endpoint}/v1/messages"
-            system_msg = ""
-            converted = []
-            for m in messages:
-                if m.get("role") == "system":
-                    system_msg = m.get("content", "")
-                else:
-                    converted.append({"role": m["role"], "content": m["content"]})
-
-            data: dict[str, Any] = {"model": model_name or "claude-3-5-sonnet-20241022", "messages": converted, "max_tokens": max_tokens, "temperature": temperature, "stream": stream}
-            if system_msg:
-                data["system"] = system_msg
-            if tools:
-                # Anthropic tool format
-                data["tools"] = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]} for t in tools]
-
-            log.debug("=== Anthropic Native Request (stream=%s) ===" % stream)
-            log.debug("URL: %s" % url)
-            log.debug("Model: %s" % data["model"])
-            log.debug("Note: Anthropic shim implemented, needs verification with live key.")
-
-            path = get_url_path_and_query(url)
-            return "POST", path, json.dumps(data).encode("utf-8"), self._headers()
-
-        # 3. Google Native Shim
-        if provider == "google":
-            # Google Gemini: v1beta/models/{model}:streamGenerateContent?key={key}
-            key = auth_info.get("api_key", "")
-            m_id = model_name
-            if not m_id:
-                m_id = "gemini-1.5-flash"
-            if not m_id.startswith("models/"):
-                m_id = f"models/{m_id}"
-            action = ":streamGenerateContent" if stream else ":generateContent"
-            url = f"{endpoint}/v1beta/{m_id}{action}?key={key}"
-
-            if prepend_dev_build_system_prefix:
-                _prepend_dev_build_system_prefix_to_messages(messages)
-            contents: list[dict[str, Any]] = []
-            system_instruction = None
-            for m in messages:
-                role = m["role"]
-                parts: list[dict[str, Any]] = []
-
-                content = m.get("content")
-                if content:
-                    if isinstance(content, str):
-                        parts.append({"text": content})
-                    elif isinstance(content, list):
-                        for part in content:
-                            if part.get("type") == "text":
-                                parts.append({"text": part.get("text", "")})
-                            # Google supports inline_data for images/multimodal, but
-                            # we'll stick to text for now in this shim.
-
-                tool_calls = m.get("tool_calls")
-                if tool_calls:
-                    for tc in tool_calls:
-                        fn = tc.get("function", {})
-                        args = fn.get("arguments", "{}")
-                        try:
-                            args_obj = json.loads(args) if isinstance(args, str) else args
-                        except Exception:
-                            args_obj = {}
-                        parts.append({"functionCall": {"name": fn.get("name"), "args": args_obj}})
-
-                if role == "system":
-                    system_instruction = {"parts": parts}
-                elif role == "tool":
-                    # For Google, the 'tool' role is 'function'.
-                    # It requires a 'name' and 'response' object.
-                    try:
-                        resp_obj = json.loads(content) if isinstance(content, str) else content
-                    except Exception:
-                        resp_obj = {"result": content}
-
-                    # Ensure it's a dict for the 'response' field
-                    if not isinstance(resp_obj, dict):
-                        resp_obj = {"result": resp_obj}
-
-                    contents.append({"role": "function", "parts": [{"functionResponse": {"name": m.get("name") or m.get("tool_call_id"), "response": resp_obj}}]})
-                else:
-                    if role == "assistant":
-                        role = "model"
-                    contents.append({"role": role, "parts": parts})
-
-            google_data: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature}}
-            if system_instruction:
-                google_data["system_instruction"] = system_instruction
-            if tools:
-                # Convert OpenAI tools to Google function_declarations
-                decls = []
-                for t in tools:
-                    # t is expected to be an OpenAI-style tool: {"type": "function", "function": {...}}
-                    fn = t.get("function", {})
-                    decls.append({"name": fn.get("name"), "description": fn.get("description", ""), "parameters": fn.get("parameters", {"type": "object", "properties": {}})})
-                google_data["tools"] = [{"function_declarations": decls}]
-
-            log.debug("=== Google Gemini Native Request (stream=%s) ===" % stream)
-            log.debug("URL: %s (redacted key)" % url.split("?")[0])
-            log.debug("Note: Google shim implemented, needs verification with live key.")
-
-            path = get_url_path_and_query(url)
-            return "POST", path, json.dumps(google_data).encode("utf-8"), self._headers()
-
-        # 4. Default OpenAI-Compatible Path
-        api_path = self._api_path()
-        url = endpoint + api_path + "/chat/completions"
-
-        data = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature, "top_p": 0.9, "stream": stream}
 
         if prepend_dev_build_system_prefix:
             _prepend_dev_build_system_prefix_to_messages(messages)
 
-        if model_name:
-            data["model"] = model_name
-        if tools:
-            data["tools"] = tools
-            data["tool_choice"] = "auto"
-            data["parallel_tool_calls"] = False
-        if response_format:
-            data["response_format"] = response_format
+        model_name = model or self.config.get("model", "")
+        temperature = self.config.get("temperature", 0.5)
 
-        if self.config.get("is_openrouter"):
-            extra = self.config.get("openrouter_chat_extra")
-            if isinstance(extra, dict) and extra:
-                merge_openrouter_chat_extra(data, extra)
+        shim = self._get_shim()
+        method, path, body, headers = shim.build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format)
 
-        json_data = json.dumps(data).encode("utf-8")
         init_logging(self.ctx)
-        log.debug("=== Chat Request (tools=%s, stream=%s) ===" % (bool(tools), stream))
-        log.debug("URL: %s" % url)
-
+        log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
+        log.debug("URL: %s" % path)
         log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
 
-        path = get_url_path_and_query(url)
-        return "POST", path, json_data, self._headers()
+        return method, path, body, headers
 
     def make_image_request(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
-        """Build an image generation request (OpenAI-compatible /images/generations).
-        When source_image (base64 str) or image_url is provided, include image_url in the body for img2img (e.g. Together, FLUX)."""
+        """Build an image generation request (provider-aware)."""
+        shim = self._get_shim()
+        return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
+
+    def image_completion(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
+        """Generate images using the configured provider. Returns list of base64 strings."""
+        method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
-        api_path = self._api_path()
-        url = endpoint + api_path + "/images/generations"
-        model_name = model or self.config.get("model", "")
+        url = endpoint + path if path.startswith("/") else path
 
-        data = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "url"}
-        if model_name:
-            data["model"] = model_name
-        if steps:
-            data["steps"] = steps
-        if image_url:
-            data["image_url"] = image_url
-        elif source_image:
-            data["image_url"] = "data:image/png;base64," + source_image
-
-        json_data = json.dumps(data).encode("utf-8")
+        # log.debug...
         init_logging(self.ctx)
         log.debug("=== Image Request ===")
         log.debug("URL: %s" % url)
 
-        log.debug("Data: %s" % json.dumps(redact_sensitive_payload_for_log(data), indent=2))
+        res = sync_request(url, method=method, data=body, headers=headers)
+        if not res:
+            return []
 
-        path = get_url_path_and_query(url)
-
-        return "POST", path, json_data, self._headers()
+        shim = self._get_shim()
+        return shim.parse_image_responses(res)
 
     def transcribe_audio(self, wav_path, model=None):
         """Transcribe audio using the /v1/audio/transcriptions endpoint (fallback path).

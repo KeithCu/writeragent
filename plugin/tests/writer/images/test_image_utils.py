@@ -63,17 +63,11 @@ class TestEndpointImageProvider(unittest.TestCase):
 
     def test_generate_standard_b64(self):
         self.mock_client.config.get.return_value = False # Not OpenRouter
-        self.mock_client.make_image_request.return_value = ("POST", "/images", "{}", {})
-        
-        # Mock standard connection and response
-        mock_conn = MagicMock()
-        self.mock_client._get_connection.return_value = mock_conn
         b64_data = base64.b64encode(b"standard-b64-data").decode()
-        mock_http_resp = create_mock_http_response(200, {"data": [{"b64_json": b64_data}]})
-        mock_conn.getresponse.return_value = mock_http_resp
+        self.mock_client.image_completion.return_value = [b64_data]
 
         paths, err = self.provider.generate("test prompt")
-        
+
         self.assertEqual(len(paths), 1)
         self.assertEqual(err, "")
         self.assertTrue(paths[0].endswith(".png"))
@@ -124,25 +118,13 @@ class TestEndpointImageProvider(unittest.TestCase):
     def test_scoping_bug_fix_verification(self):
         """
         Verifies that the scoping bug is fixed. 
-        Previously, 'response' in the fallback block would be an HTTPResponse 
-        if the standard path was taken, causing a crash.
         """
         self.mock_client.config.get.return_value = False # Standard path
-        self.mock_client.make_image_request.return_value = ("POST", "/images", "{}", {})
-        
-        # Mock standard connection and response that returns no images in data
-        mock_conn = MagicMock()
-        self.mock_client._get_connection.return_value = mock_conn
-        mock_http_resp = create_mock_http_response(200, {"data": []}) # No images
-        mock_conn.getresponse.return_value = mock_http_resp
+        self.mock_client.image_completion.return_value = [] # No images
 
-        # This should NOT crash now, even if fallback fails to find anything.
-        # It should just return [].
-        try:
-            result = self.provider.generate("test prompt")
-            self.assertEqual(result, ([], ""))
-        except AttributeError as e:
-            self.fail(f"Scoping bug still present! AttributeError: {e}")
+        # This should NOT crash now. It should just return [].
+        result = self.provider.generate("test prompt")
+        self.assertEqual(result, ([], "No image data returned from provider"))
 
     def test_generate_error_handling_missing_fields(self):
         """When provider response lacks expected image fields, ensure we return ([], '')."""
@@ -159,24 +141,13 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.assertEqual(paths, [])
         self.assertEqual(err, "")
 
-    @patch('plugin.writer.images.image_utils.sync_request')
-    def test_generate_multi_image(self, mock_sync):
+    def test_generate_multi_image(self):
         """If provider returns multiple images, ensure paths preserves ordering and all paths are created/cleaned."""
         self.mock_client.config.get.return_value = False # Not OpenRouter
-        self.mock_client.make_image_request.return_value = ("POST", "/images", "{}", {})
 
-        # Mock standard connection and response with multiple images
-        mock_conn = MagicMock()
-        self.mock_client._get_connection.return_value = mock_conn
-
-        b64_data = base64.b64encode(b"multi-image-b64-data").decode()
-        mock_sync.return_value = b"multi-image-url-data"
-
-        mock_http_resp = create_mock_http_response(200, {"data": [
-            {"b64_json": b64_data},
-            {"url": "http://example.com/multi_image.png"}
-        ]})
-        mock_conn.getresponse.return_value = mock_http_resp
+        b64_data1 = base64.b64encode(b"multi-image-b64-data-1").decode()
+        b64_data2 = base64.b64encode(b"multi-image-b64-data-2").decode()
+        self.mock_client.image_completion.return_value = [b64_data1, b64_data2]
 
         paths, err = self.provider.generate("test prompt")
 
@@ -185,10 +156,11 @@ class TestEndpointImageProvider(unittest.TestCase):
 
         self.assertTrue(paths[0].endswith(".png"))
         with open(paths[0], 'rb') as f:
-            self.assertEqual(f.read(), b"multi-image-b64-data")
+            self.assertEqual(f.read(), b"multi-image-b64-data-1")
 
-        self.assertTrue(paths[1].endswith(".webp"))
-        mock_sync.assert_called_once_with("http://example.com/multi_image.png", parse_json=False)
+        self.assertTrue(paths[1].endswith(".png"))
+        with open(paths[1], 'rb') as f:
+            self.assertEqual(f.read(), b"multi-image-b64-data-2")
 
         os.unlink(paths[0])
         os.unlink(paths[1])
@@ -235,13 +207,9 @@ class TestEndpointImageProvider(unittest.TestCase):
 
     @patch('plugin.writer.images.image_utils.LlmClient')
     def test_edit_image_standard_endpoint_passes_source_image(self, mock_client_cls):
-        """When not OpenRouter and source_image is set, make_image_request is called with source_image (img2img)."""
+        """When not OpenRouter and source_image is set, image_completion is called with source_image."""
         mock_client = create_mock_client()
-        mock_client.make_image_request.return_value = ("POST", "/images", "{}", {})
-        mock_conn = MagicMock()
-        mock_client._get_connection.return_value = mock_conn
-        mock_http_resp = create_mock_http_response(200, {"data": [{"b64_json": base64.b64encode(b"edited").decode()}]})
-        mock_conn.getresponse.return_value = mock_http_resp
+        mock_client.image_completion.return_value = [base64.b64encode(b"edited").decode()]
         mock_client_cls.return_value = mock_client
         provider = EndpointImageProvider({"model": "test"}, MockContext())
         provider.client = mock_client
@@ -249,8 +217,8 @@ class TestEndpointImageProvider(unittest.TestCase):
         b64 = "xyz789"
         provider.generate("edit prompt", source_image=b64)
 
-        mock_client.make_image_request.assert_called_once()
-        kwargs = mock_client.make_image_request.call_args[1]
+        mock_client.image_completion.assert_called_once()
+        kwargs = mock_client.image_completion.call_args[1]
         self.assertEqual(kwargs.get("source_image"), b64)
 
     @patch('plugin.framework.client.llm_client.init_logging')
