@@ -57,6 +57,8 @@ These tools are **always available** to the main agent for Draw/Impress document
 
 > ✅ **Fixed**: All applicable tools now correctly include both `DrawingDocument` and `PresentationDocument` in their `uno_services` declarations where appropriate. Tools marked "Impress only" correctly use `PresentationDocument` only.
 
+**`add_slide` and the active slide:** After inserting a page, [`DrawBridge.create_slide`](plugin/draw/bridge.py) calls the document controller’s `setCurrentPage` on the new slide when the UNO interface supports it. LibreOffice’s `insertNewByIndex` alone does not reliably move the current page; activating the new slide keeps `create_shape` and other tools that default to `getCurrentPage()` aligned with what the user (and agent) expect.
+
 ### 2.2 Specialized Tools (tier = "specialized")
 
 These are available only via `delegate_to_specialized_draw_toolset`:

@@ -64,6 +64,23 @@ def _exec_tool(name, args):
     return json.dumps(res) if isinstance(res, dict) else res
 
 
+def _active_draw_page_index():
+    """Index of the page the Draw controller treats as current (0 if unknown)."""
+    if _test_doc is None:
+        return 0
+    pages = _test_doc.getDrawPages()
+    ctrl = _test_doc.getCurrentController()
+    if ctrl is None or not hasattr(ctrl, "getCurrentPage"):
+        return 0
+    page = ctrl.getCurrentPage()
+    if page is None:
+        return 0
+    for i in range(pages.getCount()):
+        if pages.getByIndex(i) == page:
+            return i
+    return 0
+
+
 @native_test
 def test_list_pages():
     try:
@@ -95,6 +112,9 @@ def test_create_and_verify_shape():
     assert data.get("status") == "ok", f"add_slide failed: {result}"
     new_page_count = _test_doc.getDrawPages().getCount()
     assert new_page_count == initial_page_count + 1, "Page count did not increase after add_slide"
+    inserted = _test_doc.getDrawPages().getByIndex(new_page_count - 1)
+    cur = _test_doc.getCurrentController().getCurrentPage()
+    assert cur is not None and cur == inserted, "add_slide should activate the new slide for subsequent tools"
 
     # 1. Create shape
     active_page = _test_doc.getCurrentController().getCurrentPage()
@@ -124,7 +144,7 @@ def test_create_and_verify_shape():
     assert size.Height == 3000, f"Expected Height=3000, got {size.Height}"
 
     # 2. Get draw summary to find shape_id
-    result = _exec_tool("get_draw_summary", {"page_index": 0})
+    result = _exec_tool("get_draw_summary", {"page_index": new_page_count - 1})
     data = json.loads(result)
     assert data.get("status") == "ok", f"get_draw_summary failed: {result}"
     shapes = data.get("shapes", [])
@@ -257,7 +277,7 @@ def test_get_draw_tree():
         "bg_color": "#FF0000"
     })
 
-    result = _exec_tool("get_draw_tree", {"page_index": 0})
+    result = _exec_tool("get_draw_tree", {"page_index": _active_draw_page_index()})
     data = json.loads(result)
     assert data.get("status") == "ok", f"get_draw_tree failed: {result}"
     tree = data.get("tree", [])
@@ -292,12 +312,9 @@ def test_insert_math_draw():
     data = json.loads(result)
     assert data.get("status") == "ok", f"insert_math failed: {result}"
 
-    # Query shape using UNO
-    active_page = _test_doc.getCurrentController().getCurrentPage()
-    if active_page is None:
-        active_page = _test_doc.getDrawPages().getByIndex(0)
-
-    shape = active_page.getByIndex(data.get("shape_index"))
+    # insert_math used page_index 0 — read shape from that page (current slide may differ after prior tests).
+    target_page = _test_doc.getDrawPages().getByIndex(0)
+    shape = target_page.getByIndex(data.get("shape_index"))
 
     assert shape.CLSID == "078B7ABA-54FC-457F-8551-6147e776a997"
     sz = shape.getSize()

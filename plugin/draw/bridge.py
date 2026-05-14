@@ -77,7 +77,16 @@ class DrawBridge:
         pages = self.get_pages()
         if index is None:
             index = pages.getCount()
-        return pages.insertNewByIndex(index)
+        new_page = pages.insertNewByIndex(index)
+        # insertNewByIndex does not reliably activate the new page; follow-up tools
+        # (create_shape with page=None, etc.) use getCurrentPage — make selection explicit.
+        controller = self.doc.getCurrentController()
+        if controller is not None and hasattr(controller, "setCurrentPage"):
+            try:
+                controller.setCurrentPage(new_page)
+            except Exception as exc:
+                logger.debug("setCurrentPage after insert failed: %s", exc)
+        return new_page
 
     def delete_slide(self, index):
         """Deletes the slide at the specified index."""
