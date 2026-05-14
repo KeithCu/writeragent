@@ -10,13 +10,21 @@
 param(
     [switch]$Full,
     [switch]$Restore,
+    [switch]$Writer,
+    [switch]$Calc,
+    [switch]$Draw,
+    [switch]$Impress,
     [switch]$Help
 )
 
 if ($Help) {
-    Write-Host "Usage: .\scripts\launch-lo-debug.ps1 [-Full] [-Restore]"
+    Write-Host "Usage: .\scripts\launch-lo-debug.ps1 [-Full] [-Restore] [-Writer|-Calc|-Draw|-Impress]"
     Write-Host "  -Full    : verbose SAL_LOG (+INFO, slow startup)"
     Write-Host "  -Restore : enable document recovery on startup"
+    Write-Host "  -Writer  : start LibreOffice Writer (default)"
+    Write-Host "  -Calc    : start LibreOffice Calc"
+    Write-Host "  -Draw    : start LibreOffice Draw"
+    Write-Host "  -Impress : start LibreOffice Impress"
     exit 0
 }
 
@@ -43,6 +51,14 @@ $loArgs = @()
 if (-not $Restore) {
     $loArgs += "--norestore"
     Write-Host "Recovery disabled (--norestore, use -Restore to enable)"
+}
+
+if ($Writer) { $loArgs += "--writer" }
+elseif ($Calc) { $loArgs += "--calc" }
+elseif ($Draw) { $loArgs += "--draw" }
+elseif ($Impress) { $loArgs += "--impress" }
+else {
+    $loArgs += "--writer"
 }
 
 # ── Find LibreOffice binary ────────────────────────────────────────────────

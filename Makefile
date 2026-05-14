@@ -33,6 +33,8 @@
 #   make help                      Show this help
 
 EXTENSION_NAME = WriterAgent
+COMPONENTS := writer calc draw impress
+SELECTED_COMPONENT := $(filter $(COMPONENTS),$(MAKECMDGOALS))
 
 
 # ── Local overrides (gitignored) ────────────────────────────────────────────
@@ -96,6 +98,8 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
+        lo-start-log \
+        writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-format-check ruff-format-grammar
 
@@ -115,7 +119,7 @@ help:
 	@echo "  make clean                  Remove build artifacts"
 	@echo ""
 	@echo "Install:"
-	@echo "  make deploy                 Build + reinstall + restart LO + show log"
+	@echo "  make deploy                 Build + reinstall + stop (add writer/calc/draw/impress to launch)"
 	@echo "  make install                Build + install via unopkg"
 	@echo "  make install-force          Build + install (no prompts)"
 	@echo "  make uninstall              Remove extension via unopkg"
@@ -126,7 +130,7 @@ help:
 	@echo "  make dev-deploy-remove      Remove the dev symlink"
 	@echo ""
 	@echo "LibreOffice:"
-	@echo "  make lo-start               Launch with debug logging"
+	@echo "  make lo-start               Launch Writer (default) with debug logging"
 	@echo "  make lo-start-full          Launch with verbose logging"
 	@echo "  make lo-kill                Kill all LO processes"
 	@echo ""
@@ -231,16 +235,11 @@ repack:
 
 repack-deploy: repack
 	$(MAKE) lo-kill
-	@sleep 3
 	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
-	-unopkg remove org.extension.writeragent 2>/dev/null; sleep 1
+	-unopkg remove org.extension.writeragent 2>/dev/null
 	unopkg add build/$(EXTENSION_NAME).oxt
 	@rm -f $(HOME_DIR)/writeragent.log
-	#@sleep 1
-	$(MAKE) lo-start
-	@echo "Waiting for LO to load..."
-	@sleep 12
-	@$(MAKE) log
+	@$(if $(SELECTED_COMPONENT),$(MAKE) lo-start-log COMPONENT=$(SELECTED_COMPONENT))
 
 manifest:
 	$(PYTHON) $(SCRIPTS)/generate_manifest.py
@@ -293,7 +292,13 @@ endif
 # ── LibreOffice ──────────────────────────────────────────────────────────────
 
 lo-start:
-	WRITERAGENT_SET_CONFIG="$(WRITERAGENT_SET_CONFIG)" $(RUN_SH) $(SCRIPTS)/launch-lo-debug$(EXT)
+	WRITERAGENT_SET_CONFIG="$(WRITERAGENT_SET_CONFIG)" $(RUN_SH) $(SCRIPTS)/launch-lo-debug$(EXT) $(if $(COMPONENT),--$(COMPONENT))
+
+lo-start-log:
+	$(MAKE) lo-start COMPONENT=$(COMPONENT)
+	@echo "Waiting for LO to load..."
+	@sleep 12
+	@$(MAKE) log
 
 lo-start-full:
 ifeq ($(OS),Windows_NT)
@@ -369,16 +374,14 @@ lo-restart:
 
 deploy: build
 	$(MAKE) lo-kill
-	#@sleep 3
 	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
 	-unopkg remove org.extension.writeragent 2>/dev/null
 	unopkg add build/$(EXTENSION_NAME).oxt
 	@rm -f $(HOME_DIR)/writeragent.log
-	#@sleep 1
-	$(MAKE) lo-start
-	@echo "Waiting for LO to load..."
-	@sleep 12
-	@$(MAKE) log
+	@$(if $(SELECTED_COMPONENT),$(MAKE) lo-start-log COMPONENT=$(SELECTED_COMPONENT))
+
+writer calc draw impress:
+	@$(if $(filter deploy repack-deploy,$(MAKECMDGOALS)),,@echo "Stand-alone 'make $@' is disabled. Use 'make deploy $@' to build and launch.")
 
 log:
 	@cat $(HOME_DIR)/writeragent.log 2>/dev/null || echo "No writeragent.log found"

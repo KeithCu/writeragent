@@ -72,7 +72,7 @@
 
 **Optional:** **`make pyrefly`** — not in **`make test`**; see [`docs/type-checking.md`](docs/type-checking.md).
 
-Restart LibreOffice after **`make deploy`**.
+Restart LibreOffice after **`make deploy`** (or use `make deploy writer/calc/draw/impress` to launch automatically).
 
 ---
 

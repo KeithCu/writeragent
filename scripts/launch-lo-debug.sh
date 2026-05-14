@@ -10,15 +10,24 @@
 
 FULL=false
 NORESTORE=true
+COMPONENT=""
 
 for arg in "$@"; do
     case "$arg" in
         --full)    FULL=true ;;
         --restore) NORESTORE=false ;;
+        --writer)  COMPONENT="--writer" ;;
+        --calc)    COMPONENT="--calc" ;;
+        --draw)    COMPONENT="--draw" ;;
+        --impress) COMPONENT="--impress" ;;
         -h|--help)
-            echo "Usage: $0 [--full] [--restore]"
+            echo "Usage: $0 [--full] [--restore] [--writer|--calc|--draw|--impress]"
             echo "  --full    : verbose SAL_LOG (+INFO, slow startup)"
             echo "  --restore : enable document recovery on startup"
+            echo "  --writer  : start LibreOffice Writer (default)"
+            echo "  --calc    : start LibreOffice Calc"
+            echo "  --draw    : start LibreOffice Draw"
+            echo "  --impress : start LibreOffice Impress"
             exit 0
             ;;
     esac
@@ -76,5 +85,5 @@ if [ -n "$WRITERAGENT_SET_CONFIG" ]; then
 fi
 
 echo "Launching LibreOffice ($SOFFICE)..."
-WRITERAGENT_SET_CONFIG="${WRITERAGENT_SET_CONFIG:-}" $SOFFICE $LO_ARGS --writer 2>"$LOG_FILE" &
+WRITERAGENT_SET_CONFIG="${WRITERAGENT_SET_CONFIG:-}" $SOFFICE $LO_ARGS ${COMPONENT:-"--writer"} 2>"$LOG_FILE" &
 echo "LibreOffice launched. Tail log: tail -f $LOG_FILE"
