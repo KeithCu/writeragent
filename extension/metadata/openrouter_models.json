@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-13T18:10:48.124Z",
+  "updated_at": "2026-05-14T00:50:49.461Z",
   "models": [
     {
       "id": "anthropic/claude-opus-4.7-fast",
@@ -883,6 +883,31 @@
       }
     },
     {
+      "id": "deepseek/deepseek-v4-flash:free",
+      "name": "DeepSeek V4 Flash (free)",
+      "author_name": "DeepSeek",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "deepseek/deepseek-v4-flash-20260423",
+      "created_at": "2026-04-24T03:17:46.710Z",
+      "context_length": 256000,
+      "supported_parameters": [
+        "include_reasoning",
+        "reasoning",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
       "id": "inclusionai/ling-2.6-1t",
       "name": "Ling-2.6-1T",
       "author_name": "inclusionAI",
@@ -1158,9 +1183,9 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.97e-07,
+        "text_cache_read": 1.94333e-07,
         "text_cache_write": null,
-        "text_input": 9.03333e-07,
+        "text_input": 9.00556e-07,
         "text_output": 3.925278e-06
       }
     },
@@ -3072,8 +3097,8 @@
         "reasoning_output": null,
         "text_cache_read": 6.1692e-08,
         "text_cache_write": null,
-        "text_input": 2.78611e-07,
-        "text_output": 1.213333e-06
+        "text_input": 2.83056e-07,
+        "text_output": 1.247222e-06
       }
     },
     {
@@ -3289,8 +3314,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.06667e-07,
         "text_cache_write": null,
-        "text_input": 2.22e-07,
-        "text_output": 1.13e-06
+        "text_input": 1.525e-07,
+        "text_output": 1.1125e-06
       }
     },
     {
@@ -5791,8 +5816,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.42e-07,
         "text_cache_write": null,
-        "text_input": 5.7e-07,
-        "text_output": 2.165e-06
+        "text_input": 6.06e-07,
+        "text_output": 2.218e-06
       }
     },
     {
@@ -6671,8 +6696,8 @@
         "reasoning_output": null,
         "text_cache_read": 5.5e-07,
         "text_cache_write": null,
-        "text_input": 6.5e-07,
-        "text_output": 2.5e-06
+        "text_input": 7.33333e-07,
+        "text_output": 2.666667e-06
       }
     },
     {
@@ -6689,7 +6714,7 @@
       "variant": "standard",
       "version_id": "qwen/qwen3-30b-a3b-thinking-2507",
       "created_at": "2025-08-28T16:39:52.539Z",
-      "context_length": 262144,
+      "context_length": 131072,
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
@@ -6720,8 +6745,8 @@
         "reasoning_output": null,
         "text_cache_read": 8e-08,
         "text_cache_write": null,
-        "text_input": 1e-07,
-        "text_output": 7.53333e-07
+        "text_input": 1.05e-07,
+        "text_output": 9.8e-07
       }
     },
     {
@@ -6816,8 +6841,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.45e-07,
         "text_cache_write": null,
-        "text_input": 4.45556e-07,
-        "text_output": 1.33e-06
+        "text_input": 4.2625e-07,
+        "text_output": 1.28375e-06
       }
     },
     {
@@ -7929,8 +7954,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.375e-07,
         "text_cache_write": null,
-        "text_input": 1.89208e-07,
-        "text_output": 6.615e-07
+        "text_input": 1.98227e-07,
+        "text_output": 6.67091e-07
       }
     },
     {
@@ -8518,8 +8543,8 @@
         "reasoning_output": null,
         "text_cache_read": 3.5e-07,
         "text_cache_write": null,
-        "text_input": 1.05e-06,
-        "text_output": 3.196e-06
+        "text_input": 5.625e-07,
+        "text_output": 2.245e-06
       }
     },
     {
@@ -9467,7 +9492,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 2.03333e-07,
+        "text_input": 2.46667e-07,
         "text_output": 4.26667e-07
       }
     },

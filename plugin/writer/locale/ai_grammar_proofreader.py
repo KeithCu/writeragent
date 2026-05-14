@@ -64,12 +64,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
     normalize_uno_locale_to_bcp47,
 )
-from plugin.writer.locale.grammar_proofread_text import (
-    NormalizedProofError,
-    candidate_sentence_spans_for_proofreading,
-    filter_sentence_spans_for_thresholds,
-    grammar_inflight_key,
-)
+from plugin.writer.locale.grammar_proofread_text import NormalizedProofError, candidate_sentence_spans_for_proofreading, filter_sentence_spans_for_thresholds, grammar_inflight_key
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue as _GrammarWorkQueue,  # noqa: F401 — test hook ``proofreader._GrammarWorkQueue``
@@ -152,6 +147,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     active grammar checker under Tools → Options → Language Settings → Writing aids.
     """
     from plugin.framework.logging import init_logging
+
     init_logging(ctx)
     log.info("[grammar] ensure_proofreader_selection: entry")
     from plugin.framework.config import is_grammar_enabled
@@ -237,6 +233,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         super().__init__()
         self.ctx = ctx
         from plugin.framework.logging import init_logging
+
         init_logging(ctx)
         self._implementation_name = IMPLEMENTATION_NAME
         self._supported_service_names = (SERVICE_NAME,)
@@ -306,14 +303,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         raw_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, a_text, n_start, n_suggested_end)
         work_spans = filter_sentence_spans_for_thresholds(raw_spans)
         if not work_spans:
-            _grammar_obs(
-                "do_proofreading_skip",
-                reason="no_eligible_sentences_or_incomplete_short",
-                doc_id=a_doc_id,
-                n_start_lo=n_start,
-                raw_candidates=len(raw_spans),
-                grammar_bcp47=loc_key,
-            )
+            _grammar_obs("do_proofreading_skip", reason="no_eligible_sentences_or_incomplete_short", doc_id=a_doc_id, n_start_lo=n_start, raw_candidates=len(raw_spans), grammar_bcp47=loc_key)
             return []
         return work_spans
 
@@ -323,14 +313,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         uncached_spans: list[tuple[int, int, str]] = []
         for sent_start, _sent_end, sent_text in work_spans:
             cached = cache_get_sentence(loc_key, sent_text, ctx=self.ctx, doc_id=a_doc_id)
-            _grammar_obs(
-                "do_proofreading_sentence_cache",
-                doc_id=a_doc_id,
-                sent_start=sent_start,
-                sent_len=len(sent_text),
-                cache_hit=cached is not None,
-                sent_preview=_slice_preview_debug(sent_text, 48),
-            )
+            _grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=_slice_preview_debug(sent_text, 48))
             if cached is None:
                 uncached_spans.append((sent_start, _sent_end, sent_text))
                 continue
@@ -346,29 +329,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             seq = next_enqueue_seq()
             complete_sentence = _looks_complete_sentence(sent_text)
             inflight_key = _grammar_inflight_key(a_doc_id, loc_key, sent_text, complete_sentence)
-            _grammar_obs(
-                "do_proofreading_enqueue",
-                doc_id=a_doc_id,
-                grammar_bcp47=loc_key,
-                inflight_key=inflight_key,
-                enqueue_seq=seq,
-                n_start=sent_start,
-                n_end=sent_end,
-                slice_len=len(sent_text),
-                partial_sentence_arg=not complete_sentence,
-            )
+            _grammar_obs("do_proofreading_enqueue", doc_id=a_doc_id, grammar_bcp47=loc_key, inflight_key=inflight_key, enqueue_seq=seq, n_start=sent_start, n_end=sent_end, slice_len=len(sent_text), partial_sentence_arg=not complete_sentence)
             _emit_grammar_status("start", sent_text, result="queued")
-            grammar_queue.enqueue(
-                GrammarWorkItem(
-                    ctx=self.ctx,
-                    text=sent_text,
-                    grammar_bcp47=loc_key,
-                    partial_sentence=not complete_sentence,
-                    doc_id=a_doc_id,
-                    inflight_key=inflight_key,
-                    enqueue_seq=seq,
-                )
-            )
+            grammar_queue.enqueue(GrammarWorkItem(ctx=self.ctx, text=sent_text, grammar_bcp47=loc_key, partial_sentence=not complete_sentence, doc_id=a_doc_id, inflight_key=inflight_key, enqueue_seq=seq))
 
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:
@@ -417,15 +380,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             cached_ct = len(work_spans) - len(uncached_spans)
             miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
 
-            _grammar_obs(
-                "do_proofreading_cache_partial_hit",
-                doc_id=aDocumentIdentifier,
-                grammar_bcp47=loc_key,
-                cached_count=cached_ct,
-                uncached_count=len(uncached_spans),
-                errors_returned=len(combined_errors),
-                miss_reason=miss_reason,
-            )
+            _grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
 
             self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_spans)
             log.info("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")

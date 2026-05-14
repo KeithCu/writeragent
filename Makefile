@@ -493,4 +493,4 @@ ruff-format-check:
 
 # Grammar proofreader: formatting this file only is faster than `ruff format plugin`.
 ruff-format-grammar:
-	$(PYTHON) -m ruff format plugin/writer/ai_grammar_proofreader.py
+	$(PYTHON) -m ruff format plugin/writer/locale/ai_grammar_proofreader.py
