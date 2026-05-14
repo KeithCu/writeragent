@@ -9,12 +9,14 @@ import unittest
 import queue
 import time
 import pytest
-from plugin.framework.config import ConfigService, ConfigAccessError
+from plugin.framework.config_service import ConfigService, ConfigAccessError
 from plugin.framework.event_bus import EventBus
 from plugin.framework.constants import get_plugin_dir
 from unittest.mock import MagicMock, patch
 from plugin.tests.testing_utils import setup_uno_mocks
-from plugin.framework.config import get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, update_lru_history, get_config, get_config_int, set_config, endpoint_url_suitable_for_v1_models_fetch
+from plugin.framework.config import get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, get_config, get_config_int, set_config
+from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch
 from plugin.framework.event_bus import global_event_bus
 from unittest.mock import MagicMock, patch
 from plugin.framework.worker_pool import run_in_background
@@ -204,12 +206,18 @@ class TestConfigSync(unittest.TestCase):
             self.config_data[key] = value
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
+        self.ui_get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
+        self.ui_set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
+        self.ui_get_patcher.start()
+        self.ui_set_patcher.start()
 
     def tearDown(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
+        self.ui_get_patcher.stop()
+        self.ui_set_patcher.stop()
 
     def test_set_image_model_aihorde(self):
         self.config_data['image_provider'] = 'aihorde'
@@ -221,7 +229,7 @@ class TestConfigSync(unittest.TestCase):
 
     def test_set_image_model_endpoint(self):
         self.config_data['image_provider'] = 'endpoint'
-        with patch('plugin.framework.config.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
             set_image_model(self.ctx, 'new-endpoint-model')
             self.assertEqual(self.config_data.get('image_model'), 'new-endpoint-model')
             self.assertIsNone(self.config_data.get('aihorde_model'))
@@ -323,26 +331,32 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
             self.config_data[key] = value
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
+        self.ui_get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
+        self.ui_set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
         self.get_patcher.start()
         self.set_patcher.start()
+        self.ui_get_patcher.start()
+        self.ui_set_patcher.start()
 
     def tearDown(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
+        self.ui_get_patcher.stop()
+        self.ui_set_patcher.stop()
 
     def test_skip_remote_fetch_does_not_call_fetch(self):
-        from plugin.framework.config import populate_combobox_with_lru
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.config.fetch_available_models') as mock_fetch:
+        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:8080', skip_remote_fetch=True)
             mock_fetch.assert_not_called()
 
     def test_remote_models_does_not_call_fetch(self):
-        from plugin.framework.config import populate_combobox_with_lru
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.config.fetch_available_models') as mock_fetch:
+        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:8080', remote_models=['m1', 'm2'])
             mock_fetch.assert_not_called()
             ctrl.addItems.assert_called()
@@ -352,11 +366,11 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
 
     def test_together_empty_lru_merges_default_text_model(self):
         'Massive providers skip /v1/models in populate_combobox_with_lru; defaults must still appear.'
-        from plugin.framework.config import populate_combobox_with_lru
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
         self.config_data['model_lru@https://api.together.xyz'] = []
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        with patch('plugin.framework.config.fetch_available_models') as mock_fetch:
+        with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'https://api.together.xyz', skip_remote_fetch=True)
             mock_fetch.assert_not_called()
         ctrl.addItems.assert_called()
@@ -365,7 +379,7 @@ class TestPopulateComboboxWithLruFetchOptions(unittest.TestCase):
 
     def test_empty_current_val_uses_lru_head_after_sidebar_style_pick(self):
         'Simulates Settings _apply_dropdowns passing "" — active pick must stay LRU head so setText is not a stale model.'
-        from plugin.framework.config import populate_combobox_with_lru
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
         ep = 'http://localhost:8080'
         self.config_data[f'model_lru@{ep}'] = ['picked-model', 'other-model']
         ctrl = MagicMock()
@@ -377,13 +391,13 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     '_model_fetch_cache is process-wide; same normalized endpoint hits HTTP once.'
 
     def tearDown(self):
-        import plugin.framework.config as cfg
+        import plugin.framework.client.model_fetcher as cfg
         keys_to_del = [k for k in cfg._model_fetch_cache if (('127.0.0.1:58901' in k) or ('127.0.0.1:58902' in k) or ('127.0.0.1:58903' in k) or ('127.0.0.1:58904' in k) or ('127.0.0.1:58905' in k))]
         for k in keys_to_del:
             del cfg._model_fetch_cache[k]
 
     def test_second_call_does_not_http(self):
-        from plugin.framework import config as cfg
+        from plugin.framework.client import model_fetcher as cfg
         with patch('plugin.framework.client.requests.sync_request') as mock_sync:
             mock_sync.return_value = {'data': [{'id': 'alpha'}]}
             r1 = cfg.fetch_available_models('http://127.0.0.1:58901')
@@ -393,7 +407,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
             self.assertEqual(mock_sync.call_count, 1)
 
     def test_normalized_url_shares_cache_entry(self):
-        from plugin.framework import config as cfg
+        from plugin.framework.client import model_fetcher as cfg
         with patch('plugin.framework.client.requests.sync_request') as mock_sync:
             mock_sync.return_value = {'data': [{'id': 'beta'}]}
             cfg.fetch_available_models('http://127.0.0.1:58902/')
@@ -402,7 +416,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
 
     def test_fetch_available_models_sends_bearer_when_ctx_and_api_key(self):
         'GET /v1/models must use the same per-endpoint key as chat (LocalAI, etc.).'
-        from plugin.framework import config as cfg
+        from plugin.framework.client import model_fetcher as cfg
         from plugin.framework.config import normalize_endpoint_url
         ctx = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
@@ -415,9 +429,10 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
             def mock_config_path(c):
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
-                cfg._cached_config_dict = None
-                cfg._cached_config_mtime = 0
-                cfg._cached_config_mtime_last_checked = 0.0
+                import plugin.framework.config as real_config
+                real_config._cached_config_dict = None
+                real_config._cached_config_mtime = 0
+                real_config._cached_config_mtime_last_checked = 0.0
                 for k in list(cfg._model_fetch_cache):
                     if ('58903' in k):
                         del cfg._model_fetch_cache[k]
@@ -432,7 +447,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                     self.assertEqual(headers.get('Authorization'), 'Bearer secret-token')
 
     def test_model_fetch_cache_key_differs_for_override(self):
-        from plugin.framework import config as cfg
+        from plugin.framework.client import model_fetcher as cfg
         from unittest.mock import MagicMock
         ctx = MagicMock()
         url = 'http://127.0.0.1:58903/v1/models'
@@ -447,7 +462,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
 
     def test_fetch_available_models_override_used_not_config_file(self):
         'Settings passes live api_key field; override must win over api_keys_by_endpoint.'
-        from plugin.framework import config as cfg
+        from plugin.framework.client import model_fetcher as cfg
         from plugin.framework.config import normalize_endpoint_url
         ctx = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
@@ -460,9 +475,10 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
             def mock_config_path(c):
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
-                cfg._cached_config_dict = None
-                cfg._cached_config_mtime = 0
-                cfg._cached_config_mtime_last_checked = 0.0
+                import plugin.framework.config as real_config
+                real_config._cached_config_dict = None
+                real_config._cached_config_mtime = 0
+                real_config._cached_config_mtime_last_checked = 0.0
                 for k in list(cfg._model_fetch_cache):
                     if ('58904' in k):
                         del cfg._model_fetch_cache[k]
@@ -477,7 +493,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
                     self.assertEqual(headers.get('Authorization'), 'Bearer from-override')
 
     def test_fetch_override_and_saved_key_separate_cache(self):
-        from plugin.framework import config as cfg
+        from plugin.framework.client import model_fetcher as cfg
         from plugin.framework.config import normalize_endpoint_url
         ctx = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
@@ -490,9 +506,10 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
             def mock_config_path(c):
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
-                cfg._cached_config_dict = None
-                cfg._cached_config_mtime = 0
-                cfg._cached_config_mtime_last_checked = 0.0
+                import plugin.framework.config as real_config
+                real_config._cached_config_dict = None
+                real_config._cached_config_mtime = 0
+                real_config._cached_config_mtime_last_checked = 0.0
                 for k in list(cfg._model_fetch_cache):
                     if ('58905' in k):
                         del cfg._model_fetch_cache[k]
@@ -566,7 +583,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
             get_config(self.ctx, 'some_custom_map')
 
     def test_set_config_skips_identical_value(self):
-        import plugin.framework.config as cfg
+        import plugin.framework.client.model_fetcher as cfg
         cfg._cached_config_dict = None
         cfg._cached_config_mtime = 0
         cfg._cached_config_mtime_last_checked = 0.0
@@ -608,7 +625,7 @@ class TestNormalizeEndpointUrl():
 
     def test_populate_combobox_stray_model_filtering(self):
         from unittest.mock import MagicMock
-        from plugin.framework.config import populate_combobox_with_lru
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
         
         ctx = MagicMock()
         ctrl = MagicMock()
@@ -621,8 +638,8 @@ class TestNormalizeEndpointUrl():
         # Mock get_config to return empty LRU
         with patch("plugin.framework.config.get_config", return_value=[]):
             # Mock fetch_available_models to return None (fail)
-            with patch("plugin.framework.config.fetch_available_models", return_value=None):
-                populate_combobox_with_lru(ctx, ctrl, current_val, "text_model_lru", endpoint)
+            with patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
+                populate_combobox_with_lru(ctx, ctrl, current_val, "model_lru", endpoint)
                 
         # Verify that ctrl.addItems was called with the placeholder, NOT the stray Gemini model
         call_args = ctrl.addItems.call_args[0][0]
@@ -631,7 +648,7 @@ class TestNormalizeEndpointUrl():
 
     def test_populate_combobox_placeholder_no_provider(self):
         from unittest.mock import MagicMock
-        from plugin.framework.config import populate_combobox_with_lru
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
         
         ctx = MagicMock()
         ctrl = MagicMock()
@@ -640,8 +657,8 @@ class TestNormalizeEndpointUrl():
         endpoint = "https://unknown.provider/api"
         
         with patch("plugin.framework.config.get_config", return_value=[]):
-            with patch("plugin.framework.config.fetch_available_models", return_value=None):
-                populate_combobox_with_lru(ctx, ctrl, "", "text_model_lru", endpoint)
+            with patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
+                populate_combobox_with_lru(ctx, ctrl, "", "model_lru", endpoint)
                 
         call_args = ctrl.addItems.call_args[0][0]
         assert "(Connection failed)" in call_args

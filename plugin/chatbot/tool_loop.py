@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 from plugin.framework.async_stream import run_stream_drain_loop, StreamQueueKind
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.client.errors import format_error_message, is_audio_unsupported_error
-from plugin.framework.config import get_api_config, get_config, get_config_int, get_config_bool, get_config_str, get_current_endpoint, get_stt_model, get_text_model, set_image_model, set_native_audio_support, update_lru_history, validate_api_config
+from plugin.framework.config import get_api_config, get_config, get_config_int, get_config_bool, get_config_str, get_current_endpoint, get_stt_model, get_text_model, set_image_model, set_native_audio_support, validate_api_config
+from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError

@@ -245,7 +245,8 @@ def _edit_writer(services, ctx, doc):
     if not user_input:
         return
     if extra_instructions:
-        from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
+        from plugin.framework.config import set_config, get_current_endpoint
+        from plugin.chatbot.config_ui_helpers import update_lru_history
 
         set_config(ctx, "additional_instructions", extra_instructions)
         update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
@@ -319,7 +320,8 @@ def _edit_calc(services, ctx, doc):
     if not user_input:
         return
     if extra_instructions:
-        from plugin.framework.config import set_config, update_lru_history, get_current_endpoint
+        from plugin.framework.config import set_config, get_current_endpoint
+        from plugin.chatbot.config_ui_helpers import update_lru_history
 
         set_config(ctx, "additional_instructions", extra_instructions)
         update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))

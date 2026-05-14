@@ -23,7 +23,8 @@ from .listeners import BaseActionListener, BaseListener
 from com.sun.star.awt import XItemListener, XTextListener
 from .dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog
 from plugin.framework.i18n import _
-from plugin.framework.config import get_config, get_current_endpoint, get_text_model, populate_combobox_with_lru, set_config, update_lru_history, get_config_str
+from plugin.framework.config import get_config, get_current_endpoint, get_text_model, set_config, get_config_str
+from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, update_lru_history
 from plugin.framework.logging import init_logging, agent_log
 from plugin.chatbot.history_db import HAS_SQLITE
 import uno
@@ -110,7 +111,9 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 def settings_box(ctx, title="Settings", x=None, y=None):
 
     from .settings_dialog import get_settings_field_specs, apply_settings_result
-    from plugin.framework.config import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, get_api_key_for_endpoint, populate_endpoint_selector, as_bool, endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
+    from plugin.framework.config import get_api_key_for_endpoint, as_bool
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text, populate_endpoint_selector
+    from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch, fetch_available_models
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.framework.worker_pool import run_in_background
 

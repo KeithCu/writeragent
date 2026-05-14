@@ -179,7 +179,7 @@ def bootstrap(ctx=None):
         _services.register("uno", ctx)
 
         # 3. Core Services (Framework)
-        from plugin.framework.config import ConfigService
+        from plugin.framework.config_service import ConfigService
         from plugin.doc.document_helpers import DocumentService
         from plugin.writer.format import FormatService
         from plugin.framework.event_bus import get_event_bus

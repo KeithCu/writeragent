@@ -205,7 +205,7 @@ class SendHandlersMixin:
 
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type="writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)))
                 try:
-                    from plugin.framework.config import update_lru_history
+                    from plugin.chatbot.config_ui_helpers import update_lru_history
 
                     update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
                 except Exception as elru:
