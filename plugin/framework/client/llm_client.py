@@ -210,8 +210,13 @@ class OllamaShim(OpenAIShim):
     def build_image_request(self, prompt, model, width, height, steps=None, source_image=None, image_url=None):
         endpoint = self.client._endpoint()
         url = f"{endpoint}/api/generate"
-        # Ollama native generation (e.g. for flux)
-        data = {"model": model or "flux", "prompt": prompt, "stream": False}
+        # Ollama native generation (e.g. for flux, sdxl, stable-diffusion)
+        # Keywords from C++: flux, stable-diffusion, sdxl, dall, wuerstchen, kandinsky, dreamshaper, playground, juggernaut
+        eff_model = model
+        if not eff_model:
+            eff_model = "flux"
+
+        data = {"model": eff_model, "prompt": prompt, "stream": False}
         path = get_url_path_and_query(url)
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
 
@@ -220,9 +225,12 @@ class OllamaShim(OpenAIShim):
         images = response_data.get("images")
         if images and isinstance(images, list):
             return images
-        # Some models use "image"
+        # Some models use "image" (single string)
         if img := response_data.get("image"):
             return [img]
+        # Fallback to OpenAI-style if they are using the /v1/images/generations proxy in Ollama
+        if "data" in response_data:
+            return super().parse_image_responses(response_data)
         return []
 
 
@@ -248,6 +256,9 @@ class LlmClient:
             elif provider == "google":
                 from .google_shim import GoogleShim
                 self._shims[provider] = GoogleShim(self)
+            elif provider == "xai":
+                from .grok_shim import GrokShim
+                self._shims[provider] = GrokShim(self)
             elif provider == "ollama":
                 self._shims[provider] = OllamaShim(self)
             else:

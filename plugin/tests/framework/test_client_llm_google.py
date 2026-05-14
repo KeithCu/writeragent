@@ -89,5 +89,40 @@ def test_google_extract_content_from_response(mock_ctx):
     assert json.loads(delta["tool_calls"][0]["function"]["arguments"]) == {"location": "Paris"}
     assert delta["usage"]["promptTokenCount"] == 10
 
+
+def test_google_image_completion(mock_ctx):
+    config = {
+        "endpoint": "https://generativelanguage.googleapis.com",
+        "api_key": "test-key",
+    }
+    client = LlmClient(config, mock_ctx)
+    client._resolve_auth = MagicMock(return_value={"provider": "google", "api_key": "test-key"})
+
+    with patch("plugin.framework.client.llm_client.sync_request") as mock_sync:
+        # 1. Test Imagen path (model name starts with imagen)
+        mock_sync.return_value = {"predictions": [{"bytesBase64Encoded": "imagen_data"}]}
+        client.image_completion("Draw a sunset", model="imagen-3.0-generate-002", width=1792, height=1024)
+        
+        args, kwargs = mock_sync.call_args
+        assert ":predict" in args[0]
+        body = json.loads(kwargs["data"])
+        assert body["parameters"]["aspectRatio"] == "16:9"
+
+        # 2. Test Multimodal path (other models)
+        mock_sync.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"inlineData": {"data": "multimodal_data", "mimeType": "image/png"}}]
+                }
+            }]
+        }
+        client.image_completion("Generate an image", model="gemini-2.0-flash-exp-image-generation")
+        
+        args, kwargs = mock_sync.call_args
+        assert ":generateContent" in args[0]
+        body = json.loads(kwargs["data"])
+        assert "responseModalities" in body["generationConfig"]
+        assert "IMAGE" in body["generationConfig"]["responseModalities"]
+
 if __name__ == "__main__":
     pytest.main([__file__])

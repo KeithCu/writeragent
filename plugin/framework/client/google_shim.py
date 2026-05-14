@@ -18,10 +18,13 @@ Google Gemini provider shim.
 """
 
 import json
+import logging
 from typing import Any
 
 from plugin.framework.config import get_url_path_and_query
 from .llm_client import BaseProviderShim
+
+log = logging.getLogger(__name__)
 
 
 class GoogleShim(BaseProviderShim):
@@ -140,6 +143,11 @@ class GoogleShim(BaseProviderShim):
 
     def parse_image_responses(self, response_data):
         out = []
+        if "error" in response_data:
+            msg = response_data["error"].get("message", "Unknown Google API error")
+            log.error(f"Google image generation error: {msg}")
+            return []
+
         if "predictions" in response_data:
             # Imagen response
             preds = response_data.get("predictions", [])

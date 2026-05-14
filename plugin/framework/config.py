@@ -999,7 +999,12 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     out = []
     if req_cap == "text":
         # Exclude known non-chat models (mirrors LibreAI C++ logic)
-        exclude = {"embedding", "aqa", "attribution", "retrieval", "vision", "rerank", "classifier", "moderation"}
+        exclude = {
+            "embedding", "embed", "aqa", "attribution", "retrieval", "vision",
+            "rerank", "classifier", "moderation", "whisper", "speech", "audio",
+            "llava", "stable-diffusion", "sdxl", "dall", "aurora", "imagen",
+            "codellama", "codegemma", "starcoder", "deepseek-coder", "coder"
+        }
         for m in models:
             m_lower = m.lower()
             if any(kw in m_lower for kw in exclude):

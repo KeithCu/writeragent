@@ -563,3 +563,73 @@ def test_make_chat_request_coalesces_system_messages(client):
         assert "Today's date is" in combined_text
         assert len(api_messages) == 2  # The merged system message + the user message
         assert api_messages[1]["role"] == "user"
+
+
+def test_grok_shim(client):
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+    ):
+        mock_auth.return_value = {"provider": "xai"}
+        mock_sync.return_value = {"data": []}
+
+        # Test image request for Grok (should omit size)
+        client.image_completion("Draw a cat", model="aurora", width=1024, height=1024)
+        
+        # Check the request body sent to sync_request
+        _, kwargs = mock_sync.call_args
+        body = json.loads(kwargs["data"])
+        assert body["prompt"] == "Draw a cat"
+        assert body["model"] == "aurora"
+        assert "size" not in body
+
+
+def test_ollama_shim_image(client):
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+    ):
+        mock_auth.return_value = {"provider": "ollama"}
+        mock_sync.return_value = {"images": ["abc"]}
+
+        # Test image request for Ollama
+        client.image_completion("Draw a dog", model="flux", width=1024, height=1024)
+        
+        _, kwargs = mock_sync.call_args
+        body = json.loads(kwargs["data"])
+        assert body["prompt"] == "Draw a dog"
+        assert body["model"] == "flux"
+        assert body["stream"] is False
+
+        # Test parsing
+        shim = client._get_shim()
+        # Native array format
+        assert shim.parse_image_responses({"images": ["abc"]}) == ["abc"]
+        # Native single string format
+        assert shim.parse_image_responses({"image": "def"}) == ["def"]
+        # Fallback to OpenAI style
+        assert shim.parse_image_responses({"data": [{"b64_json": "ghi"}]}) == ["ghi"]
+
+
+def test_anthropic_shim(client):
+    # Clear the default model so we see the shim's default
+    client.config["model"] = ""
+    
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello!"}
+        ]
+        
+        method, path, body, headers = client.make_chat_request(messages, max_tokens=100)
+        
+        assert method == "POST"
+        assert "/v1/messages" in path
+        
+        data = json.loads(body)
+        assert data["model"] == "claude-3-5-sonnet-20241022"
+        assert data["system"].endswith("You are a helpful assistant.")
+        assert data["messages"] == [{"role": "user", "content": "Hello!"}]
+        assert data["max_tokens"] == 100
