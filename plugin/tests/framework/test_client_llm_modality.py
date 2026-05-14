@@ -59,7 +59,7 @@ def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
 
     # We must patch has_native_audio in the namespace where transcribe_audio calls it
     # Looking at the code: from plugin.framework.config import has_native_audio
-    with patch("plugin.framework.config.has_native_audio", return_value=False):
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=False):
         client = LlmClient({"endpoint": "http://test", "stt_model": "whisper-1"}, ctx)
 
         # Call with a dummy path using mock_open
@@ -95,7 +95,7 @@ def test_transcribe_audio_uses_native_audio(mock_sync_chat):
     mock_sync_chat.return_value = "Native multimodal transcript"
     ctx = MagicMock()
 
-    with patch("plugin.framework.config.has_native_audio", return_value=True):
+    with patch("plugin.framework.client.model_fetcher.has_native_audio", return_value=True):
         client = LlmClient({"endpoint": "http://test", "stt_model": "gemini-flash"}, ctx)
 
         m = mock_open(read_data=b"dummy audio data")

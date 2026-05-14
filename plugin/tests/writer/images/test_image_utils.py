@@ -242,7 +242,7 @@ class TestImageService(unittest.TestCase):
         }
         with (
             patch("plugin.framework.config.get_api_config", return_value=api.copy()),
-            patch("plugin.framework.config.get_image_model", return_value="image-model-fallback"),
+            patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
         ):
             service = ImageService(mock_ctx, None)
             provider = service.get_provider("endpoint")
@@ -251,7 +251,7 @@ class TestImageService(unittest.TestCase):
 
         with (
             patch("plugin.framework.config.get_api_config", return_value=api.copy()),
-            patch("plugin.framework.config.get_image_model", return_value="image-model-fallback"),
+            patch("plugin.framework.client.model_fetcher.get_image_model", return_value="image-model-fallback"),
         ):
             service = ImageService(mock_ctx, {"image_model": "  my-image-model  "})
             provider = service.get_provider("endpoint")

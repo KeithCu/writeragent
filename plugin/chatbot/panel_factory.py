@@ -333,7 +333,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         root = self.m_panelRootWindow
         if not root or not hasattr(root, "getControl"):
             return
-        from plugin.framework.config import get_config, get_current_endpoint, get_text_model, get_image_model, set_config, set_image_model
+        from plugin.framework.config import get_config, get_current_endpoint, set_config
+        from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
         def get_optional(name):
@@ -434,7 +435,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _wire_model_selectors(self, model_selector, image_model_selector):
         """Initializes model selectors and their sync listeners."""
-        from plugin.framework.config import get_current_endpoint, get_text_model, get_image_model, set_image_model, set_config
+        from plugin.framework.config import get_current_endpoint, set_config
+        from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model
         from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, populate_image_model_selector
 
         current_model = get_text_model(self.ctx)
@@ -458,7 +460,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self.ctx = ctx
 
                 def on_item_state_changed(self, rEvent):
-                    from plugin.framework.config import get_current_endpoint, get_text_model, set_config
+                    from plugin.framework.config import get_current_endpoint, set_config
+                    from plugin.framework.client.model_fetcher import get_text_model
                     from plugin.chatbot.config_ui_helpers import update_lru_history
 
                     txt = model_selector.getText()
@@ -477,7 +480,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     self.ctx = ctx
 
                 def on_item_state_changed(self, rEvent):
-                    from plugin.framework.config import get_config, set_image_model
+                    from plugin.framework.config import get_config
+                    from plugin.framework.client.model_fetcher import set_image_model
 
                     txt = image_model_selector.getText()
                     if not txt:

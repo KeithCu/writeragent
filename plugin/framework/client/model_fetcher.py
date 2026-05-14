@@ -4,13 +4,44 @@ Logic for fetching available models from LLM endpoints.
 import urllib.parse
 import ipaddress
 import logging
-from typing import Any
+from typing import Any, cast, Optional, Dict
 
+from plugin.framework.constants import ModelCapability
+from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
+from plugin.framework.event_bus import global_event_bus
 from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix
 from plugin.framework.errors import NetworkError
-from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, as_bool, get_config
+from plugin.framework.config import (
+    get_api_key_for_endpoint,
+    get_config_bool_safe,
+    as_bool,
+    get_config,
+    get_config_str,
+    get_config_int,
+    get_config_float,
+    get_current_endpoint,
+    set_config,
+)
 
 log = logging.getLogger(__name__)
+
+# Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; api.py adds /v1 (or /api for OpenWebUI).
+ENDPOINT_PRESETS = [
+    ("Local (Ollama)", "http://localhost:11434"),
+    ("Local (LM Studio)", "http://localhost:1234"),
+    ("OpenRouter", "https://openrouter.ai/api"),
+    ("Mistral", "https://api.mistral.ai"),
+    ("Together AI", "https://api.together.xyz"),
+    ("Groq", "https://api.groq.com/openai"),
+    ("DeepSeek", "https://api.deepseek.com"),
+    ("Cerebras", "https://api.cerebras.ai/v1"),
+    ("Perplexity", "https://api.perplexity.ai"),
+    ("X.ai (Grok)", "https://api.x.ai/v1"),
+    ("Anthropic", "https://api.anthropic.com/v1"),
+    ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
+    ("Z.ai", "https://api.z.ai/v4"),
+]
+
 
 # GET {base}/v1/models — memoized for the lifetime of this Python process (LibreOffice
 # session). Key is normalized URL, or ``url + "\\x1f" + api_key`` when ``ctx`` is passed
@@ -149,3 +180,181 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
         # Audio/STT or other: no filtering yet
         out = list(models)
     return out
+
+
+# --- Provider and Endpoint resolution ---
+
+
+def get_provider_from_endpoint(endpoint):
+    """Return provider key for DEFAULT_MODELS based on endpoint URL or labels."""
+    if not endpoint:
+        return None
+    url = normalize_endpoint_url(endpoint).lower()
+    if "openrouter.ai" in url:
+        return "openrouter"
+    if "together.xyz" in url:
+        return "together"
+    if "localhost:11434" in url or "ollama" in url:
+        return "ollama"
+    if "api.mistral.ai" in url:
+        return "mistral"
+    if "api.openai.com" in url:
+        return "openai"
+    if "api.groq.com" in url:
+        return "groq"
+    if "api.cerebras.ai" in url:
+        return "cerebras"
+    if "api.perplexity.ai" in url:
+        return "perplexity"
+    if "api.x.ai" in url:
+        return "xai"
+    if "api.anthropic.com" in url:
+        return "anthropic"
+    if "generativelanguage.googleapis.com" in url:
+        return "google"
+    if "localhost:1234" in url:
+        return "lmstudio"
+    if "localhost:4891" in url:
+        return "gpt4all"
+    if "api.z.ai" in url or "z.ai" in url:
+        return "zai"
+    return None
+
+
+def get_endpoint_presets():
+    """Return list of (label, url) for endpoint selector, in display order."""
+    return list(ENDPOINT_PRESETS)
+
+
+# --- Model capability and audio support ---
+
+
+def get_model_capability(ctx, model_id, endpoint):
+    """Check the model catalog for capabilities bitmask."""
+    provider = get_provider_from_endpoint(endpoint)
+    # Check DEFAULT_MODELS for this ID/provider
+    for m in DEFAULT_MODELS:
+        effective_id = resolve_model_id(m, provider)
+        if effective_id == model_id:
+            return m.get("capability", ModelCapability.CHAT)
+    return ModelCapability.NONE
+
+
+def has_native_audio(ctx, model_id, endpoint):
+    """Determine if a model supports native audio input.
+    Uses persistent cache first, then catalog/heuristics.
+    Returns: True if supported, False if unsupported, None if unknown.
+    """
+    model_id = str(model_id).lower()
+    endpoint = normalize_endpoint_url(endpoint)
+
+    # 1. Persistent Cache Check
+    cache = get_config(ctx, "audio_support_map")
+    if isinstance(cache, dict):
+        key = f"{endpoint}@{model_id}"
+        if key in cache:
+            return as_bool(cache[key])
+
+    # 2. Catalog check
+    caps = get_model_capability(ctx, model_id, endpoint)
+    if isinstance(caps, int) and (caps & ModelCapability.AUDIO):
+        return True
+
+    # 3. Heuristics (Regex/Keywords) for known audio-native families
+    # Gemini (Flash/Pro 1.5+)
+    if "gemini" in model_id and "1.5" in model_id:
+        return True
+    # Explicit audio models
+    if "audio-preview" in model_id or "multimodal" in model_id:
+        return True
+
+    return None  # Unknown, allow trying native audio
+
+
+def set_native_audio_support(ctx, model_id, endpoint, supported):
+    """Save the audio support status for a model+endpoint pair."""
+    model_id = str(model_id).lower()
+    endpoint = normalize_endpoint_url(endpoint)
+    key = f"{endpoint}@{model_id}"
+
+    cache = get_config(ctx, "audio_support_map")
+    if not isinstance(cache, dict):
+        cache = {}
+
+    cache[key] = bool(supported)
+    set_config(ctx, "audio_support_map", cache)
+
+
+# --- Resolved model getters (text / STT / grammar / image) ---
+
+
+def get_text_model(ctx):
+    """Return the text/chat model (stored as text_model, fallback to model)."""
+    val = str(get_config(ctx, "text_model") or get_config(ctx, "model") or "").strip()
+    if val:
+        return val
+    current_endpoint = get_current_endpoint(ctx)
+    provider = get_provider_from_endpoint(current_endpoint)
+    defaults = get_provider_defaults(provider)
+    return str(defaults.get("text_model", "")).strip()
+
+
+def get_stt_model(ctx):
+    """Return the configured STT model."""
+    val = get_config(ctx, "stt_model")
+    if val is not None and str(val).strip():
+        return str(val).strip()
+    current_endpoint = get_current_endpoint(ctx)
+    provider = get_provider_from_endpoint(current_endpoint)
+    defaults = get_provider_defaults(provider)
+    return str(defaults.get("stt_model", "") or "").strip()
+
+
+def get_grammar_model(ctx):
+    """Return the configured grammar model, fallback to chat text model."""
+    val = str(get_config(ctx, "doc.grammar_proofreader_model") or "").strip()
+    if val:
+        return val
+    return get_text_model(ctx)
+
+
+def get_image_model(ctx):
+    """Return current image model based on provider."""
+    image_provider = get_config(ctx, "image_provider")
+    if image_provider == "aihorde":
+        return str(get_config(ctx, "aihorde_model") or "").strip()
+    val = str(get_config(ctx, "image_model") or "").strip()
+    if val:
+        return val
+    if image_provider == "endpoint":
+        current_endpoint = get_current_endpoint(ctx)
+        provider = get_provider_from_endpoint(current_endpoint)
+    else:
+        provider = image_provider
+    defaults = get_provider_defaults(provider)
+    return str(defaults.get("image_model", "")).strip()
+
+
+def set_image_model(ctx, val, update_lru=True):
+    """Set image model based on provider and notify listeners."""
+    if val is None:
+        return
+    val_str = str(val).strip()
+    if not val_str:
+        return
+
+    image_provider = get_config(ctx, "image_provider")
+    storage_key = "aihorde_model" if image_provider == "aihorde" else "image_model"
+    current = str(get_config(ctx, storage_key) or "").strip()
+    if val_str == current:
+        return
+
+    if image_provider == "aihorde":
+        set_config(ctx, "aihorde_model", val_str)
+    else:
+        set_config(ctx, "image_model", val_str)
+        if update_lru:
+            from plugin.chatbot.config_ui_helpers import update_lru_history
+
+            update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
+

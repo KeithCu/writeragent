@@ -23,7 +23,8 @@ from .listeners import BaseActionListener, BaseListener
 from com.sun.star.awt import XItemListener, XTextListener
 from .dialogs import TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state, get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog
 from plugin.framework.i18n import _
-from plugin.framework.config import get_config, get_current_endpoint, get_text_model, set_config, get_config_str
+from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str
+from plugin.framework.client.model_fetcher import get_text_model
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru, update_lru_history
 from plugin.framework.logging import init_logging, agent_log
 from plugin.chatbot.history_db import HAS_SQLITE

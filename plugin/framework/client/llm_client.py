@@ -95,7 +95,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE, LLM_DEV_BUILD_SYS
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import resolve_auth_for_config, build_auth_headers, AuthError
 from plugin.framework.errors import NetworkError
-from plugin.framework.config import get_url_hostname, get_url_path_and_query, get_api_version_suffix
+from plugin.framework.url_utils import get_url_hostname, get_url_path_and_query, get_api_version_suffix
 
 from .errors import format_error_message, _format_http_error_response
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context, _is_certificate_verify_error, _is_local_host
@@ -506,7 +506,7 @@ class LlmClient:
         import uuid
         import os
         import base64
-        from plugin.framework.config import has_native_audio
+        from plugin.framework.client.model_fetcher import has_native_audio
 
         # Determine model
         model_name = model or self.config.get("stt_model") or "whisper-1"

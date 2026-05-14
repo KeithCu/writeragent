@@ -14,7 +14,19 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from plugin.framework.config import get_config, set_config, get_current_endpoint, as_bool, get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, get_config_bool, get_config_int, get_config_float, get_config_str
+from plugin.framework.config import (
+    get_config,
+    set_config,
+    get_current_endpoint,
+    as_bool,
+    get_api_key_for_endpoint,
+    set_api_key_for_endpoint,
+    get_config_bool,
+    get_config_int,
+    get_config_float,
+    get_config_str,
+)
+from plugin.framework.client.model_fetcher import get_image_model, set_image_model
 from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
 from plugin.framework.event_bus import global_event_bus
 

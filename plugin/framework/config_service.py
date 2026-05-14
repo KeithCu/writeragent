@@ -18,9 +18,9 @@ from plugin.framework.config import (
     get_config_dict,
     get_current_endpoint,
     set_api_key_for_endpoint,
-    set_image_model,
     AI_SIMPLE_FIELDS,
 )
+from plugin.framework.client.model_fetcher import set_image_model
 
 _unohelper_mod: Any
 try:
@@ -46,7 +46,13 @@ def _dummy_impl(name, services=()):
     return decorator
 
 def _uno_service_implementation_decorator() -> Callable[..., Any]:
-    """Return UNO's ``unohelper.implementation`` or a no-op when unohelper is mocked."""
+    """Return UNO's ``unohelper.implementation`` or a no-op when unohelper is mocked.
+
+    Headless pytest loads ``conftest`` before ``plugin.framework.config``; ``unohelper``
+    may be a ``MagicMock``. That exposes a fake ``implementation`` callable, which is
+    not LibreOffice's registration helper and breaks ``ConfigService()`` if used as a
+    class decorator (tests would get nested mocks instead of the real class).
+    """
     if not unohelper:
         return _dummy_impl
     impl = getattr(unohelper, "implementation", None)

@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.config import get_image_model, set_image_model, get_api_key_for_endpoint, set_api_key_for_endpoint, get_config, get_config_int, set_config
+from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint, get_config, get_config_int, set_config
+from plugin.framework.client.model_fetcher import get_image_model, set_image_model
 from plugin.framework.event_bus import global_event_bus
 from plugin.tests.testing_utils import setup_uno_mocks
 from plugin.framework.constants import get_plugin_dir
@@ -26,12 +27,18 @@ class TestConfigSync(unittest.TestCase):
             self.config_data[key] = value
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
         self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
+        self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
+        self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config)
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
+        self.get_mf_patcher.start()
+        self.set_mf_patcher.start()
 
     def tearDown(self):
         self.get_patcher.stop()
         self.set_patcher.stop()
+        self.get_mf_patcher.stop()
+        self.set_mf_patcher.stop()
 
     def test_set_image_model_aihorde(self):
         self.config_data['image_provider'] = 'aihorde'

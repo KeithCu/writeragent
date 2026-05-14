@@ -337,7 +337,7 @@ def test_run_llm_and_cache_batch_success() -> None:
     # Mock config to enable checker
     with patch("plugin.framework.config.get_config_int_safe", return_value=4), \
          patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
+         patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
@@ -388,7 +388,7 @@ def test_run_llm_and_cache_batch_mismatch_fallback() -> None:
     ctx = MagicMock()
     with patch("plugin.framework.config.get_config_int_safe", return_value=4), \
          patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
+         patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
@@ -420,7 +420,7 @@ def test_run_llm_and_cache_batch_chunking() -> None:
     ctx = MagicMock()
     with patch("plugin.framework.config.get_config_int_safe", return_value=2), \
          patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
+         patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
@@ -468,7 +468,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
     # Mock batch_size to 1 (the default)
     with patch("plugin.framework.config.get_config_int_safe", return_value=1), \
          patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_grammar_model", return_value="test-model"), \
+         patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \

@@ -866,7 +866,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Transcription Fallback check
         if self.audio_wav_path:
-            from plugin.framework.config import get_text_model, get_current_endpoint, has_native_audio, get_stt_model
+            from plugin.framework.config import get_current_endpoint
+            from plugin.framework.client.model_fetcher import get_text_model, has_native_audio, get_stt_model
 
             current_model = get_text_model(self.ctx)
             current_endpoint = get_current_endpoint(self.ctx)

@@ -6,6 +6,8 @@ from plugin.framework.config import (
     get_config,
     set_config,
     get_current_endpoint,
+)
+from plugin.framework.client.model_fetcher import (
     get_provider_from_endpoint,
     get_image_model,
     ENDPOINT_PRESETS,

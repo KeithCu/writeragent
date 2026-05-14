@@ -26,7 +26,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
 
     def tearDown(self):
         import plugin.framework.client.model_fetcher as cfg
-        keys_to_del = [k for k in cfg._model_fetch_cache if (('127.0.0.1:58901' in k) or ('127.0.0.1:58902' in k) or ('127.0.0.1:58903' in k) or ('127.0.0.1:58904' in k) or ('127.0.0.1:58905' in k))]
+        keys_to_del = [k for k in cfg._model_fetch_cache if (('127.0.0.1:5890' in k))]
         for k in keys_to_del:
             del cfg._model_fetch_cache[k]
 
@@ -51,40 +51,25 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     def test_fetch_available_models_sends_bearer_when_ctx_and_api_key(self):
         'GET /v1/models must use the same per-endpoint key as chat (LocalAI, etc.).'
         from plugin.framework.client import model_fetcher as cfg
-        from plugin.framework.config import normalize_endpoint_url
         ctx = MagicMock()
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = os.path.join(tmp, 'writeragent.json')
-            endpoint = 'http://127.0.0.1:58903'
-            norm = normalize_endpoint_url(endpoint)
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump({'api_keys_by_endpoint': {norm: 'secret-token'}}, f)
-
-            def mock_config_path(c):
-                return config_path
-            with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
-                import plugin.framework.config as real_config
-                real_config._cached_config_dict = None
-                real_config._cached_config_mtime = 0
-                real_config._cached_config_mtime_last_checked = 0.0
-                for k in list(cfg._model_fetch_cache):
-                    if ('58903' in k):
-                        del cfg._model_fetch_cache[k]
-                with patch('plugin.framework.client.requests.sync_request') as mock_sync:
-                    mock_sync.return_value = {'data': [{'id': 'm1'}]}
-                    r = cfg.fetch_available_models(endpoint, ctx)
-                    self.assertEqual(r, ['m1'])
-                    mock_sync.assert_called_once()
-                    (_args, kwargs) = mock_sync.call_args
-                    headers = kwargs.get('headers')
-                    self.assertIsInstance(headers, dict)
-                    self.assertEqual(headers.get('Authorization'), 'Bearer secret-token')
+        endpoint = 'http://127.0.0.1:58903'
+        
+        with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value='secret-token'):
+            with patch('plugin.framework.client.requests.sync_request') as mock_sync:
+                mock_sync.return_value = {'data': [{'id': 'm1'}]}
+                r = cfg.fetch_available_models(endpoint, ctx)
+                self.assertEqual(r, ['m1'])
+                mock_sync.assert_called_once()
+                (_args, kwargs) = mock_sync.call_args
+                headers = kwargs.get('headers')
+                self.assertIsInstance(headers, dict)
+                self.assertEqual(headers.get('Authorization'), 'Bearer secret-token')
 
     def test_model_fetch_cache_key_differs_for_override(self):
         from plugin.framework.client import model_fetcher as cfg
         ctx = MagicMock()
-        url = 'http://127.0.0.1:58903/v1/models'
-        base = 'http://127.0.0.1:58903'
+        url = 'http://127.0.0.1:58906/v1/models'
+        base = 'http://127.0.0.1:58906'
         with patch.object(cfg, 'get_api_key_for_endpoint', return_value='saved'):
             k_saved = cfg._model_fetch_cache_key(url, ctx, base, None)
             k_a = cfg._model_fetch_cache_key(url, ctx, base, 'typed-a')
@@ -96,7 +81,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
     def test_fetch_available_models_override_used_not_config_file(self):
         'Settings passes live api_key field; override must win over api_keys_by_endpoint.'
         from plugin.framework.client import model_fetcher as cfg
-        from plugin.framework.config import normalize_endpoint_url
+        from plugin.framework.url_utils import normalize_endpoint_url
         ctx = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
             config_path = os.path.join(tmp, 'writeragent.json')
@@ -127,7 +112,7 @@ class TestFetchAvailableModelsCache(unittest.TestCase):
 
     def test_fetch_override_and_saved_key_separate_cache(self):
         from plugin.framework.client import model_fetcher as cfg
-        from plugin.framework.config import normalize_endpoint_url
+        from plugin.framework.url_utils import normalize_endpoint_url
         ctx = MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
             config_path = os.path.join(tmp, 'writeragent.json')

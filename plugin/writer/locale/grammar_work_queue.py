@@ -578,11 +578,11 @@ def run_llm_and_cache_batch(
     try:
         from plugin.framework.config import (
             get_api_config,
-            get_grammar_model,
             is_grammar_enabled,
             get_config_bool_safe,
             get_config_int_safe,
         )
+        from plugin.framework.client.model_fetcher import get_grammar_model
         from plugin.framework.queue_executor import is_agent_active
         from plugin.framework.client.llm_client import LlmClient
         from .grammar_fsm_state import (

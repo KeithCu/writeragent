@@ -26,7 +26,7 @@ import logging
 import os
 import time
 import urllib.parse
-from typing import Any, Callable, Dict, cast
+from typing import Any, Callable, Dict, cast, Optional
 
 from plugin.framework.constants import ModelCapability, get_plugin_dir
 from plugin.framework.default_models import DEFAULT_MODELS, get_provider_defaults, resolve_model_id
@@ -73,13 +73,43 @@ log = logging.getLogger(__name__)
 
 CONFIG_FILENAME = "writeragent.json"
 
-# MCP server: mcp_enabled (bool, default False), mcp_port (int, default 8765)
-
 # Max items for all LRU lists; base names also listed in _LRU_LIST_CONFIG_KEY_PREFIXES for get_config defaults.
 LRU_MAX_ITEMS = 10
 
 # Keys used by populate_combobox_with_lru / update_lru_history (including endpoint-scoped "name@url").
 _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_lru", "image_model_lru", "audio_model_lru", "endpoint_lru", "image_base_size_lru"})
+
+# Simple AI settings fields that the Tools → Options "AI" page should map
+# directly to top-level config keys (endpoint, model, etc.).
+AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "chat_context_length", "request_timeout", "additional_instructions", "aihorde_api_key", "image_provider", "nsfw", "censor_nsfw", "max_wait"}
+
+
+# --- Small helpers ---
+
+
+def as_bool(value):
+    """Parse a value as boolean (handles str, int, float)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
+
+def _safe_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _is_lru_list_config_key(key: str) -> bool:
@@ -89,32 +119,6 @@ def _is_lru_list_config_key(key: str) -> bool:
         if key.startswith(prefix + "@"):
             return True
     return False
-
-
-# Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; api.py adds /v1 (or /api for OpenWebUI).
-# Uncomment any FOSS-focused line below once the base URL is verified OpenAI-compatible.
-ENDPOINT_PRESETS = [
-    ("Local (Ollama)", "http://localhost:11434"),
-    ("Local (LM Studio)", "http://localhost:1234"),
-    ("OpenRouter", "https://openrouter.ai/api"),
-    ("Mistral", "https://api.mistral.ai"),
-    ("Together AI", "https://api.together.xyz"),
-    ("Groq", "https://api.groq.com/openai"),
-    ("DeepSeek", "https://api.deepseek.com"),
-    ("Cerebras", "https://api.cerebras.ai/v1"),
-    ("Perplexity", "https://api.perplexity.ai"),
-    ("X.ai (Grok)", "https://api.x.ai/v1"),
-    ("Anthropic", "https://api.anthropic.com/v1"),
-    ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
-    ("Z.ai", "https://api.z.ai/v4"),
-]
-
-# Simple AI settings fields that the Tools → Options \"AI\" page should map
-# directly to top-level config keys (endpoint, model, etc.).
-AI_SIMPLE_FIELDS = {"endpoint", "text_model", "image_model", "stt_model", "temperature", "chat_max_tokens", "chat_context_length", "request_timeout", "additional_instructions", "aihorde_api_key", "image_provider", "nsfw", "censor_nsfw", "max_wait"}
-
-
-# --- Path / profile ---
 
 
 def _config_path(ctx):
@@ -143,53 +147,32 @@ def user_config_dir(ctx):
         raise ConfigError(f"Failed to resolve config dir: {e}", "CONFIG_DIR_ERROR") from e
 
 
-# --- MODULES / manifest schema ---
+def is_grammar_enabled(ctx):
+    """True if the AI grammar checker is enabled on the Doc tab."""
+    return get_config_bool_safe(ctx, "doc.grammar_proofreader_enabled")
 
 
-def _get_schema_default(key):
-    """Return default for key from MODULES (module.yaml schema). Supports flat and dotted keys."""
-    if not MODULES:
-        return None
-    # Dotted key (e.g. agent_backend.backend_id)
-    if "." in key:
-        mod_name, field_name = key.split(".", 1)
-        for m in MODULES:
-            if m.get("name") == mod_name:
-                config = m.get("config", {})
-                if isinstance(config, dict):
-                    for fname, schema in config.items():
-                        if fname == field_name and isinstance(schema, dict) and "default" in schema:
-                            return schema["default"]
-        return None
-    # Flat key: find first module that has this config field
-    for m in MODULES:
-        config = m.get("config", {})
-        if isinstance(config, dict):
-            for fname, schema in config.items():
-                if fname == key and isinstance(schema, dict) and "default" in schema:
-                    return schema["default"]
-    return None
+def get_current_endpoint(ctx):
+    """Return the current endpoint URL from config, normalized (stripped)."""
+    return str(get_config(ctx, "endpoint") or "").strip()
 
 
-def _dotted_fallback_keys(key):
-    """Yield dotted key variants for key using MODULES (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
-    if not MODULES:
-        return
-    if "." in key:
-        return
-    for m in MODULES:
-        mod_name = m.get("name", "")
-        if not mod_name:
-            continue
-        config = m.get("config", {})
-        if isinstance(config, dict):
-            for fname in config:
-                if fname == key:
-                    yield f"{mod_name}.{fname}"
-                    break
+# --- Config Cache ---
 
 
-# --- WriterAgentConfig ---
+@dataclasses.dataclass
+class ConfigCache:
+    """Encapsulates the in-memory configuration cache."""
+
+    data: Dict[str, Any] | None = None
+    mtime: float = 0
+    mtime_last_checked: float = 0.0
+
+
+_cache = ConfigCache()
+
+
+# --- WriterAgentConfig Schema ---
 
 
 @dataclasses.dataclass
@@ -240,7 +223,7 @@ class WriterAgentConfig:
     edit_selection_max_new_tokens: int = 1000
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
     is_openrouter: bool = False
-    # Merged into POST …/chat/completions JSON when OpenRouter is active; see AGENTS.md.
+    # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
     # Store arbitrary module.yaml config entries
@@ -253,6 +236,11 @@ class WriterAgentConfig:
             val = getattr(self, f.name)
             if isinstance(val, str) and "Project-Id-Version:" in val:
                 log.debug("config validate: stripped PO/header from dataclass field %r (len=%s)", f.name, len(val))
+                # Default seed should be -1, not empty string.
+                if f.name == "seed":
+                    setattr(self, f.name, "-1")
+                else:
+                    setattr(self, f.name, "")
                 # Default seed should be -1, not empty string.
                 if f.name == "seed":
                     setattr(self, f.name, "-1")
@@ -379,119 +367,6 @@ class WriterAgentConfig:
         return out
 
 
-# --- Default resolution ---
-
-
-def _resolve_default(key):
-    """Resolve default for key: schema first, then central dict. Safe fallbacks for None."""
-    if key == "log_level":
-        tests_dir = os.path.join(get_plugin_dir(), "tests")
-        return "DEBUG" if os.path.isdir(tests_dir) else "WARN"
-
-    val = _get_schema_default(key)
-    if val is not None:
-        return val
-
-    if _is_lru_list_config_key(key):
-        return []
-
-    # Get from default config object
-    default_config = WriterAgentConfig()
-
-    # Map dotted keys to flat keys if they match (e.g. chatbot.show_search_thinking)
-    safe_key = key.replace(".", "_")
-    field_names = {f.name for f in dataclasses.fields(default_config)}
-    if safe_key in field_names:
-        val = getattr(default_config, safe_key)
-        if val is not None:
-            return val
-
-    # Strict check: if not in schema and not a recognized dynamic pattern, it's a bug.
-    raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
-
-
-# --- Validated JSON cache ---
-
-# In-memory configuration cache so we don't open/parse/validate writeragent.json
-# on every single get_config access.
-_cached_config_dict = None
-_cached_config_mtime = 0
-_cached_config_mtime_last_checked = 0.0
-
-
-def _build_validated_config_export(data: Dict[str, Any], config: "WriterAgentConfig") -> Dict[str, Any]:
-    """Merge validated WriterAgentConfig into a dict with the same keys as JSON `data`.
-
-    Known dataclass fields are read from attributes; all other keys (e.g. ``agent_backend.path``)
-    must come from ``config._extra_config`` after :meth:`WriterAgentConfig.validate`.
-    """
-    out: Dict[str, Any] = {}
-    field_names = {f.name for f in dataclasses.fields(config) if f.name != "_extra_config"}
-    for k, v in data.items():
-        safe_key = k.replace(".", "_")
-        if safe_key in field_names:
-            out[k] = getattr(config, safe_key)
-        else:
-            merged = config._extra_config.get(k, v)
-            if merged != v:
-                log.debug("config export: extra key %r merged after validate (raw_len=%s merged_len=%s)", k, len(str(v)), len(str(merged)))
-            out[k] = merged
-    return out
-
-
-def _get_validated_config_dict(ctx):
-    """Return the full validated config as a dict, using an in-memory cache
-    keyed off the file modification time."""
-    global _cached_config_dict, _cached_config_mtime, _cached_config_mtime_last_checked
-
-    try:
-        config_file_path = _config_path(ctx)
-    except ConfigError:
-        return {}
-
-    if not config_file_path or not os.path.exists(config_file_path):
-        return {}
-
-    current_time = time.time()
-
-    # 2-second cache for the mtime check
-    if _cached_config_dict is not None and (current_time - _cached_config_mtime_last_checked) < 2.0:
-        return _cached_config_dict
-
-    try:
-        current_mtime = os.path.getmtime(config_file_path)
-    except OSError:
-        current_mtime = 0
-
-    _cached_config_mtime_last_checked = current_time
-
-    if _cached_config_dict is not None and current_mtime == _cached_config_mtime and current_mtime != 0:
-        return _cached_config_dict
-
-    try:
-        with open(config_file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        if not isinstance(data, dict):
-            raise ConfigError("Config must be a JSON object", "CONFIG_INVALID_FORMAT")
-
-        # Perform validation when config is loaded
-        config = WriterAgentConfig.from_dict(data)
-        config.validate()
-
-        out = _build_validated_config_export(data, config)
-
-        _cached_config_dict = out
-        _cached_config_mtime = current_mtime
-        return out
-    except json.JSONDecodeError as e:
-        log.error("Invalid JSON in %s: %s", config_file_path, e)
-        return {}
-    except OSError as e:
-        log.error("Error reading %s: %s", config_file_path, e)
-        return {}
-
-
 # --- Core config I/O ---
 
 
@@ -576,11 +451,6 @@ def get_config_dict(ctx):
     return _get_validated_config_dict(ctx)
 
 
-def get_current_endpoint(ctx):
-    """Return the current endpoint URL from config, normalized (stripped)."""
-    return str(get_config(ctx, "endpoint") or "").strip()
-
-
 def set_config(ctx, key, value):
     """Set a config key to value. Creates file if needed."""
     try:
@@ -611,10 +481,9 @@ def set_config(ctx, key, value):
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
 
-        global _cached_config_dict, _cached_config_mtime, _cached_config_mtime_last_checked
-        _cached_config_dict = None
-        _cached_config_mtime = 0
-        _cached_config_mtime_last_checked = 0.0
+        _cache.data = None
+        _cache.mtime = 0
+        _cache.mtime_last_checked = 0.0
 
         global_event_bus.emit("config:changed", ctx=ctx)
 
@@ -644,10 +513,9 @@ def remove_config(ctx, key):
         with open(config_file_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4)
 
-        global _cached_config_dict, _cached_config_mtime, _cached_config_mtime_last_checked
-        _cached_config_dict = None
-        _cached_config_mtime = 0
-        _cached_config_mtime_last_checked = 0.0
+        _cache.data = None
+        _cache.mtime = 0
+        _cache.mtime_last_checked = 0.0
 
         global_event_bus.emit("config:changed", ctx=ctx)
 
@@ -656,216 +524,155 @@ def remove_config(ctx, key):
         raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
 
 
-# --- Parsing helpers ---
+# --- MODULES / manifest schema ---
 
 
-def as_bool(value):
-    """Parse a value as boolean (handles str, int, float)."""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "on")
-    if isinstance(value, (int, float)):
-        return value != 0
-    return False
-
-
-def _safe_float(value, default):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_int(value, default):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-# --- Endpoint and provider ---
-
-
-def get_provider_from_endpoint(endpoint):
-    """Return provider key for DEFAULT_MODELS based on endpoint URL or labels."""
-    if not endpoint:
+def _get_schema_default(key):
+    """Return default for key from MODULES (module.yaml schema). Supports flat and dotted keys."""
+    if not MODULES:
         return None
-    url = normalize_endpoint_url(endpoint).lower()
-    if "openrouter.ai" in url:
-        return "openrouter"
-    if "together.xyz" in url:
-        return "together"
-    if "localhost:11434" in url or "ollama" in url:
-        return "ollama"
-    if "api.mistral.ai" in url:
-        return "mistral"
-    if "api.openai.com" in url:
-        return "openai"
-    if "api.groq.com" in url:
-        return "groq"
-    if "api.cerebras.ai" in url:
-        return "cerebras"
-    if "api.perplexity.ai" in url:
-        return "perplexity"
-    if "api.x.ai" in url:
-        return "xai"
-    if "api.anthropic.com" in url:
-        return "anthropic"
-    if "generativelanguage.googleapis.com" in url:
-        return "google"
-    if "localhost:1234" in url:
-        return "lmstudio"
-    if "localhost:4891" in url:
-        return "gpt4all"
-    if "api.z.ai" in url or "z.ai" in url:
-        return "zai"
+    # Dotted key (e.g. agent_backend.backend_id)
+    if "." in key:
+        mod_name, field_name = key.split(".", 1)
+        for m in MODULES:
+            if m.get("name") == mod_name:
+                config = m.get("config", {})
+                if isinstance(config, dict):
+                    for fname, schema in config.items():
+                        if fname == field_name and isinstance(schema, dict) and "default" in schema:
+                            return schema["default"]
+        return None
+    # Flat key: find first module that has this config field
+    for m in MODULES:
+        config = m.get("config", {})
+        if isinstance(config, dict):
+            for fname, schema in config.items():
+                if fname == key and isinstance(schema, dict) and "default" in schema:
+                    return schema["default"]
     return None
 
 
-def get_endpoint_presets():
-    """Return list of (label, url) for endpoint selector, in display order."""
-    return list(ENDPOINT_PRESETS)
+def _dotted_fallback_keys(key):
+    """Yield dotted key variants for key using MODULES (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
+    if not MODULES:
+        return
+    if "." in key:
+        return
+    for m in MODULES:
+        mod_name = m.get("name", "")
+        if not mod_name:
+            continue
+        config = m.get("config", {})
+        if isinstance(config, dict):
+            for fname in config:
+                if fname == key:
+                    yield f"{mod_name}.{fname}"
+                    break
 
 
-# --- Model catalog and audio cache ---
+# --- Default resolution ---
 
 
-def get_model_capability(ctx, model_id, endpoint):
-    """Check the model catalog for capabilities bitmask."""
-    provider = get_provider_from_endpoint(endpoint)
-    # Check DEFAULT_MODELS for this ID/provider
-    for m in DEFAULT_MODELS:
-        effective_id = resolve_model_id(m, provider)
-        if effective_id == model_id:
-            return m.get("capability", ModelCapability.CHAT)
-    return ModelCapability.NONE
+def _resolve_default(key):
+    """Resolve default for key: schema first, then central dict. Safe fallbacks for None."""
+    if key == "log_level":
+        tests_dir = os.path.join(get_plugin_dir(), "tests")
+        return "DEBUG" if os.path.isdir(tests_dir) else "WARN"
+
+    val = _get_schema_default(key)
+    if val is not None:
+        return val
+
+    if _is_lru_list_config_key(key):
+        return []
+
+    # Get from default config object
+    default_config = WriterAgentConfig()
+
+    # Map dotted keys to flat keys if they match (e.g. chatbot.show_search_thinking)
+    safe_key = key.replace(".", "_")
+    field_names = {f.name for f in dataclasses.fields(default_config)}
+    if safe_key in field_names:
+        val = getattr(default_config, safe_key)
+        if val is not None:
+            return val
+
+    # Strict check: if not in schema and not a recognized dynamic pattern, it's a bug.
+    raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
 
 
-def has_native_audio(ctx, model_id, endpoint):
-    """Determine if a model supports native audio input.
-    Uses persistent cache first, then catalog/heuristics.
-    Returns: True if supported, False if unsupported, None if unknown.
+# --- Validated JSON cache ---
+
+
+def _build_validated_config_export(data: Dict[str, Any], config: "WriterAgentConfig") -> Dict[str, Any]:
+    """Merge validated WriterAgentConfig into a dict with the same keys as JSON `data`.
+
+    Known dataclass fields are read from attributes; all other keys (e.g. ``agent_backend.path``)
+    must come from ``config._extra_config`` after :meth:`WriterAgentConfig.validate`.
     """
-    model_id = str(model_id).lower()
-    endpoint = normalize_endpoint_url(endpoint)
-
-    # 1. Persistent Cache Check
-    cache = get_config(ctx, "audio_support_map")
-    if isinstance(cache, dict):
-        key = f"{endpoint}@{model_id}"
-        if key in cache:
-            return as_bool(cache[key])
-
-    # 2. Catalog check
-    caps = get_model_capability(ctx, model_id, endpoint)
-    if isinstance(caps, int) and (caps & ModelCapability.AUDIO):
-        return True
-
-    # 3. Heuristics (Regex/Keywords) for known audio-native families
-    # Gemini (Flash/Pro 1.5+)
-    if "gemini" in model_id and "1.5" in model_id:
-        return True
-    # Explicit audio models
-    if "audio-preview" in model_id or "multimodal" in model_id:
-        return True
-
-    return None  # Unknown, allow trying native audio
+    out: Dict[str, Any] = {}
+    field_names = {f.name for f in dataclasses.fields(config) if f.name != "_extra_config"}
+    for k, v in data.items():
+        safe_key = k.replace(".", "_")
+        if safe_key in field_names:
+            out[k] = getattr(config, safe_key)
+        else:
+            merged = config._extra_config.get(k, v)
+            if merged != v:
+                log.debug("config export: extra key %r merged after validate (raw_len=%s merged_len=%s)", k, len(str(v)), len(str(merged)))
+            out[k] = merged
+    return out
 
 
-def set_native_audio_support(ctx, model_id, endpoint, supported):
-    """Save the audio support status for a model+endpoint pair."""
-    model_id = str(model_id).lower()
-    endpoint = normalize_endpoint_url(endpoint)
-    key = f"{endpoint}@{model_id}"
+def _get_validated_config_dict(ctx):
+    """Return the full validated config as a dict, using an in-memory cache
+    keyed off the file modification time."""
+    try:
+        config_file_path = _config_path(ctx)
+    except ConfigError:
+        return {}
 
-    cache = get_config(ctx, "audio_support_map")
-    if not isinstance(cache, dict):
-        cache = {}
+    if not config_file_path or not os.path.exists(config_file_path):
+        return {}
 
-    cache[key] = bool(supported)
-    set_config(ctx, "audio_support_map", cache)
+    current_time = time.time()
 
+    # 2-second cache for the mtime check
+    if _cache.data is not None and (current_time - _cache.mtime_last_checked) < 2.0:
+        return _cache.data
 
-# --- Resolved model getters (text / STT / grammar) ---
+    try:
+        current_mtime = os.path.getmtime(config_file_path)
+    except OSError:
+        current_mtime = 0
 
+    _cache.mtime_last_checked = current_time
 
-def get_text_model(ctx):
-    """Return the text/chat model (stored as text_model, fallback to model)."""
-    val = str(get_config(ctx, "text_model") or get_config(ctx, "model") or "").strip()
-    if val:
-        return val
-    current_endpoint = get_current_endpoint(ctx)
-    provider = get_provider_from_endpoint(current_endpoint)
-    defaults = get_provider_defaults(provider)
-    return str(defaults.get("text_model", "")).strip()
+    if _cache.data is not None and current_mtime == _cache.mtime and current_mtime != 0:
+        return _cache.data
 
+    try:
+        with open(config_file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-def get_stt_model(ctx):
-    """Return the configured STT model."""
-    val = get_config(ctx, "stt_model")
-    if val is not None and str(val).strip():
-        return str(val).strip()
-    current_endpoint = get_current_endpoint(ctx)
-    provider = get_provider_from_endpoint(current_endpoint)
-    defaults = get_provider_defaults(provider)
-    return str(defaults.get("stt_model", "") or "").strip()
+        if not isinstance(data, dict):
+            raise ConfigError("Config must be a JSON object", "CONFIG_INVALID_FORMAT")
 
+        # Perform validation when config is loaded
+        config = WriterAgentConfig.from_dict(data)
+        config.validate()
 
-def get_grammar_model(ctx):
-    """Return the configured grammar model, fallback to chat text model."""
-    val = str(get_config(ctx, "doc.grammar_proofreader_model") or "").strip()
-    if val:
-        return val
-    return get_text_model(ctx)
+        out = _build_validated_config_export(data, config)
 
-
-def is_grammar_enabled(ctx):
-    """True if the AI grammar checker is enabled on the Doc tab."""
-    return get_config_bool_safe(ctx, "doc.grammar_proofreader_enabled")
-
-
-# --- Image model ---
-
-
-def get_image_model(ctx):
-    """Return current image model based on provider."""
-    image_provider = get_config(ctx, "image_provider")
-    if image_provider == "aihorde":
-        return str(get_config(ctx, "aihorde_model") or "").strip()
-    val = str(get_config(ctx, "image_model") or "").strip()
-    if val:
-        return val
-    if image_provider == "endpoint":
-        current_endpoint = get_current_endpoint(ctx)
-        provider = get_provider_from_endpoint(current_endpoint)
-    else:
-        provider = image_provider
-    defaults = get_provider_defaults(provider)
-    return str(defaults.get("image_model", "")).strip()
-
-
-def set_image_model(ctx, val, update_lru=True):
-    """Set image model based on provider and notify listeners."""
-    if val is None:
-        return
-    val_str = str(val).strip()
-    if not val_str:
-        return
-
-    image_provider = get_config(ctx, "image_provider")
-    storage_key = "aihorde_model" if image_provider == "aihorde" else "image_model"
-    current = str(get_config(ctx, storage_key) or "").strip()
-    if val_str == current:
-        return
-
-    if image_provider == "aihorde":
-        set_config(ctx, "aihorde_model", val_str)
-    else:
-        set_config(ctx, "image_model", val_str)
-        if update_lru:
-            from plugin.chatbot.config_ui_helpers import update_lru_history
-            update_lru_history(ctx, val_str, "image_model_lru", get_current_endpoint(ctx))
+        _cache.data = out
+        _cache.mtime = current_mtime
+        return out
+    except json.JSONDecodeError as e:
+        log.error("Invalid JSON in %s: %s", config_file_path, e)
+        return {}
+    except OSError as e:
+        log.error("Error reading %s: %s", config_file_path, e)
+        return {}
 
 
 # --- Per-endpoint API keys ---
@@ -895,6 +702,8 @@ def set_api_key_for_endpoint(ctx, endpoint, key):
 
 def get_api_config(ctx):
     """Build API config dict from ctx for LlmClient. Pass to LlmClient(config, ctx)."""
+    from plugin.framework.client.model_fetcher import get_text_model
+
     endpoint = str(get_config(ctx, "endpoint") or "").rstrip("/")
     is_openwebui = as_bool(get_config(ctx, "is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
     is_openrouter = "openrouter.ai" in endpoint.lower() or as_bool(get_config(ctx, "is_openrouter"))
@@ -932,3 +741,4 @@ def validate_api_config(config):
     if not model:
         return (False, "Please set Model in Settings.")
     return (True, "")
+

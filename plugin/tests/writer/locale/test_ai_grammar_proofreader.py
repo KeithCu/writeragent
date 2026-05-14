@@ -151,7 +151,7 @@ def test_run_llm_skips_split_when_proofread_sentence_text_set() -> None:
     with (
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
         patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.framework.config.get_text_model", return_value="m"),
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
         patch("plugin.framework.config.get_api_config", return_value={}),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
@@ -175,7 +175,7 @@ def test_partial_sentence_adds_prompt_note() -> None:
     with (
         patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
         patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.framework.config.get_text_model", return_value="m"),
+        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
         patch("plugin.framework.config.get_api_config", return_value={}),
         patch("plugin.framework.queue_executor.is_agent_active", return_value=False),
         patch("plugin.framework.queue_executor.llm_request_lane") as lane_ctx,
@@ -203,7 +203,7 @@ def mock_config_fixture():
         patch("plugin.framework.config.get_config_bool") as mock_get_bool,
         patch("plugin.framework.config.get_config_str") as mock_get_str,
         patch("plugin.framework.config.get_config_int") as mock_get_int,
-        patch("plugin.framework.config.get_text_model") as mock_get_model,
+        patch("plugin.framework.client.model_fetcher.get_text_model") as mock_get_model,
         patch("plugin.framework.config.get_api_config") as mock_get_api,
         patch("plugin.framework.logging.init_logging"),
         patch.object(proofreader, "uno_mod", uno_mod),
