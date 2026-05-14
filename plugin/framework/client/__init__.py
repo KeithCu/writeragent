@@ -1,3 +1,8 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # WriterAgent — outbound HTTP / LLM client stack (see llm_client.py).
 """Shared HTTP client helpers and ``LlmClient``."""
 

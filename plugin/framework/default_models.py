@@ -1,3 +1,8 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Default models for various providers.
 
 Flat catalog: each model has ``ids`` (provider-specific IDs). models are

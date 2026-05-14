@@ -1,3 +1,8 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 def iterate_sse(stream):
     """
     Iterate over SSE (Server-Sent Events) data payloads from a stream of lines (bytes).

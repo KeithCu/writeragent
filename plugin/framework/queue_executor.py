@@ -1,3 +1,8 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Unified main thread execution via queue system.
 
 The MCP HTTP server runs in daemon threads. UNO is NOT thread-safe:
