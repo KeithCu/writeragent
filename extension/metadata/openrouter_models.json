@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-05-14T02:50:44.038Z",
+  "updated_at": "2026-05-15T01:50:44.442Z",
   "models": [
     {
       "id": "anthropic/claude-opus-4.7-fast",
@@ -295,6 +295,7 @@
       "name": "Mistral Medium 3.5",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -497,8 +498,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 4e-07,
-        "text_output": 2.4e-06
+        "text_input": 3e-07,
+        "text_output": 1.8e-06
       }
     },
     {
@@ -541,9 +542,9 @@
         "per_request": null,
         "reasoning_output": null,
         "text_cache_read": null,
-        "text_cache_write": 3.125e-07,
-        "text_input": 2.5e-07,
-        "text_output": 1.5e-06
+        "text_cache_write": 2.34375e-07,
+        "text_input": 1.875e-07,
+        "text_output": 1.125e-06
       }
     },
     {
@@ -691,8 +692,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.5e-07,
         "text_cache_write": null,
-        "text_input": 4.486e-07,
-        "text_output": 2.89e-06
+        "text_input": 4.186e-07,
+        "text_output": 2.71e-06
       }
     },
     {
@@ -825,10 +826,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.2042e-07,
+        "text_cache_read": 2.18602e-07,
         "text_cache_write": null,
-        "text_input": 1.675091e-06,
-        "text_output": 3.417091e-06
+        "text_input": 1.653273e-06,
+        "text_output": 3.373455e-06
       }
     },
     {
@@ -876,10 +877,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.0889e-08,
+        "text_cache_read": 3.0444e-08,
         "text_cache_write": null,
-        "text_input": 1.476e-07,
-        "text_output": 2.962e-07
+        "text_input": 1.456e-07,
+        "text_output": 2.922e-07
       }
     },
     {
@@ -896,7 +897,7 @@
       "variant": "free",
       "version_id": "deepseek/deepseek-v4-flash-20260423",
       "created_at": "2026-04-24T03:17:46.710Z",
-      "context_length": 256000,
+      "context_length": 1048576,
       "supported_parameters": [
         "include_reasoning",
         "reasoning",
@@ -1183,10 +1184,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.01e-07,
+        "text_cache_read": 1.93571e-07,
         "text_cache_write": null,
-        "text_input": 9.14444e-07,
-        "text_output": 3.894722e-06
+        "text_input": 8.96471e-07,
+        "text_output": 3.920294e-06
       }
     },
     {
@@ -1324,10 +1325,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.85e-07,
+        "text_cache_read": 2.67786e-07,
         "text_cache_write": null,
-        "text_input": 1.359286e-06,
-        "text_output": 4.335714e-06
+        "text_input": 1.295882e-06,
+        "text_output": 4.132941e-06
       }
     },
     {
@@ -1938,7 +1939,7 @@
         "reasoning_output": null,
         "text_cache_read": 5.975e-08,
         "text_cache_write": null,
-        "text_input": 3.81286e-07,
+        "text_input": 3.77e-07,
         "text_output": 1.542857e-06
       }
     },
@@ -3042,10 +3043,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.475e-07,
+        "text_cache_read": 3.29e-07,
         "text_cache_write": null,
-        "text_input": 5.49833e-07,
-        "text_output": 3.536667e-06
+        "text_input": 5.415e-07,
+        "text_output": 3.44e-06
       }
     },
     {
@@ -3149,7 +3150,6 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
-        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -3163,7 +3163,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -3175,10 +3174,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.21154e-07,
+        "text_cache_read": 2.22917e-07,
         "text_cache_write": null,
-        "text_input": 9.14706e-07,
-        "text_output": 2.871765e-06
+        "text_input": 9.09375e-07,
+        "text_output": 2.85125e-06
       }
     },
     {
@@ -4175,6 +4174,7 @@
       "name": "Devstral 2 2512",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -4618,6 +4618,7 @@
       "name": "Mistral Large 3 2512",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -4743,10 +4744,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.31088e-07,
-        "text_cache_write": 7.125e-07,
-        "text_input": 3.56667e-07,
-        "text_output": 8.10889e-07
+        "text_cache_read": 1.261e-07,
+        "text_cache_write": 4.63125e-07,
+        "text_input": 3.345e-07,
+        "text_output": 7.44389e-07
       }
     },
     {
@@ -5147,6 +5148,7 @@
       "author_name": "Mistral",
       "input_modalities": [
         "audio",
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -6813,7 +6815,6 @@
         "frequency_penalty",
         "include_reasoning",
         "logit_bias",
-        "logprobs",
         "max_tokens",
         "min_p",
         "presence_penalty",
@@ -6827,7 +6828,6 @@
         "tool_choice",
         "tools",
         "top_k",
-        "top_logprobs",
         "top_p"
       ],
       "chat_completions": true,
@@ -6839,10 +6839,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.45e-07,
+        "text_cache_read": 2.3625e-07,
         "text_cache_write": null,
-        "text_input": 4.2625e-07,
-        "text_output": 1.28375e-06
+        "text_input": 4.07143e-07,
+        "text_output": 1.227143e-06
       }
     },
     {
@@ -6898,6 +6898,7 @@
       "name": "Mistral Medium 3.1",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -7450,6 +7451,7 @@
       "name": "Codestral 2508",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -8006,6 +8008,7 @@
       "name": "Devstral Medium",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -8049,6 +8052,7 @@
       "name": "Devstral Small 1.1",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -8638,6 +8642,7 @@
       "name": "Mistral Medium 3",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -8915,7 +8920,7 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.35833e-07,
+        "text_input": 1.49167e-07,
         "text_output": 4.63333e-07
       }
     },
@@ -9594,6 +9599,7 @@
       "name": "Saba",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -10181,6 +10187,7 @@
       "name": "Mistral Large 2411",
       "author_name": "mistralai",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -10224,6 +10231,7 @@
       "name": "Mistral Large 2407",
       "author_name": "mistralai",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -10267,6 +10275,7 @@
       "name": "Pixtral Large 2411",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -11111,6 +11120,7 @@
       "name": "Mixtral 8x22B Instruct",
       "author_name": "Mistral",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [
@@ -11241,6 +11251,7 @@
       "name": "Mistral Large",
       "author_name": "mistralai",
       "input_modalities": [
+        "file",
         "text"
       ],
       "output_modalities": [

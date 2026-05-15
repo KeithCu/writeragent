@@ -93,7 +93,54 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 
 ----
 
-## 3. Domain Coverage Matrix
+
+
+### 2.4 Feature: Advanced Impress Layouts
+
+WriterAgent leverages the native Draw/Impress toolset to manage presentation layouts, including centering generated images on slides using explicit shape manipulation. **This layout strategy is derived directly from the explicit shape-handling implementation in LibreAI's `UnoHelper.cpp`.**
+
+#### The Concept
+When an AI generates an image for a slide, standard insertion logic often defaults to anchoring it to a generic position. The LibreAI approach, which we have adopted, uses explicit coordinate and dimension management to ensure images are correctly placed and sized within the `DrawingDocumentDrawView`.
+
+#### Implementation (Ported Logic)
+We adapt LibreAI's `insertImage` strategy from `UnoHelper.cpp` to create and position a `GraphicObjectShape` explicitly.
+
+```python
+def insert_image_into_impress(ctx, doc_model, image_path: str):
+    # 1. Get the current Draw Page (Slide)
+    controller = doc_model.getCurrentController()
+    current_page = controller.getCurrentPage()
+    
+    # 2. Create the GraphicObjectShape
+    factory = doc_model
+    shape = factory.createInstance("com.sun.star.drawing.GraphicObjectShape")
+    
+    # 3. Add to slide
+    current_page.add(shape)
+    
+    # 4. Set Image URL (needs file:/// conversion)
+    from com.sun.star.beans import PropertyValue
+    file_url = uno.systemPathToFileUrl(image_path)
+    shape.setPropertyValue("GraphicURL", file_url)
+    
+    # 5. Set Layout (LibreAI magic numbers: X:3000, Y:5000, W:14000, H:10500 in 1/100mm)
+    from com.sun.star.awt import Point, Size
+    shape.setPosition(Point(3000, 5000))
+    shape.setSize(Size(14000, 10500))
+    
+    return True
+```
+
+#### FSM Integration
+We update the "Generate Image" tool registry (`plugin/framework/tool.py`) to detect the document type:
+- **Writer:** Maintains the existing `TextGraphicObject` insertion logic (anchored to text).
+- **Impress/Draw:** Delegates to the `insert_image_into_impress` logic, which ignores text anchoring and uses the explicit `setPosition` coordinates to place the image as a standalone shape on the page.
+
+#### UI Updates
+The existing sidebar doesn't need new UI elements; the "Insert Image" action dynamically switches behavior based on the document's UNO service, providing a seamless "intelligent" insertion experience regardless of whether the user is in a slide or a document.
+
+**Velocity Advantage:** Python's UNO bindings allow us to translate the shape creation logic almost 1:1 from the C++ source, but with significantly less boilerplate and no need for manual memory management or complex `Reference<>` templates. Estimated dev time: 1-2 hours.
+
 
 | Domain | Status | Tools | Notes |
 |--------|--------|-------|-------|
@@ -168,15 +215,55 @@ Some tools are implemented in shared modules but work with Draw/Impress:
 | Add `PresentationDocument` to `uno_services` for 9 tools | 1 hour | Unblocks Impress users from core shape/page tools | ✅ **Done** |
 | Improve `insert_math` OLE shape sizing (`math_insert.py`) | Medium | Correct default box for formulas without model-supplied width/height | Open — see [§2.3](#23-insert_math-math-domain) |
 
+
 ### 5.2 Priority 2: High-Value Features
 
 | Feature | UNO Area | User Value | Effort |
 |---------|----------|-------------|--------|
+| **Advanced Impress Layouts** | `com.sun.star.drawing` | Intelligent image/shape placement on slides | Low |
 | **Slide Animations** | `com.sun.star.presentation.Animation*` | Professional presentations | Medium |
 | **Slide Show Controls** | `com.sun.star.presentation.Presentation` | Start/stop presentations | Low |
 | **Layers** | `com.sun.star.drawing.Layer*` | Advanced Draw organization | Medium |
 | **Media Insertion** | `com.sun.star.presentation.Media*` | Audio/video in slides | Medium |
 | **Tables in Draw** | `com.sun.star.drawing.TableShape` | Tabular data | Medium |
+
+#### Implementation Detail: Advanced Impress Layouts
+WriterAgent leverages the native Draw/Impress toolset to manage presentation layouts, including centering generated images on slides using explicit shape manipulation. **This layout strategy is derived directly from the explicit shape-handling implementation in LibreAI's `UnoHelper.cpp`.**
+
+**The Concept:**
+When an AI generates an image for a slide, standard insertion logic often defaults to anchoring it to a generic position. The LibreAI approach, which we have adopted, uses explicit coordinate and dimension management to ensure images are correctly placed and sized within the `DrawingDocumentDrawView`.
+
+**Implementation:**
+We adapt LibreAI's `insertImage` strategy from `UnoHelper.cpp` to create and position a `GraphicObjectShape` explicitly.
+
+```python
+def insert_image_into_impress(ctx, doc_model, image_path: str):
+    # 1. Get the current Draw Page (Slide)
+    controller = doc_model.getCurrentController()
+    current_page = controller.getCurrentPage()
+    
+    # 2. Create the GraphicObjectShape
+    factory = doc_model
+    shape = factory.createInstance("com.sun.star.drawing.GraphicObjectShape")
+    
+    # 3. Add to slide
+    current_page.add(shape)
+    
+    # 4. Set Image URL (needs file:/// conversion)
+    from com.sun.star.beans import PropertyValue
+    file_url = uno.systemPathToFileUrl(image_path)
+    shape.setPropertyValue("GraphicURL", file_url)
+    
+    # 5. Set Layout (LibreAI magic numbers: X:3000, Y:5000, W:14000, H:10500 in 1/100mm)
+    from com.sun.star.awt import Point, Size
+    shape.setPosition(Point(3000, 5000))
+    shape.setSize(Size(14000, 10500))
+    
+    return True
+```
+
+**FSM Integration & UI:**
+We update the "Generate Image" tool registry (`plugin/framework/tool.py`) to detect the document type and delegate to this logic for Impress/Draw, while keeping existing text-anchoring for Writer. The UI remains unchanged as this is an intelligent backend-delegation.
 
 ### 5.3 Priority 3: Specialized Domains
 
