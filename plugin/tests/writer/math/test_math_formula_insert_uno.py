@@ -10,8 +10,7 @@ from typing import Any
 
 from plugin.framework.uno_context import get_desktop
 from plugin.writer import format as format_support
-from plugin.writer.math.math_formula_insert import MATH_CLSID
-from plugin.writer.math.math_mml_convert import convert_mathml_to_starmath
+from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_mathml_to_starmath, insert_writer_math_formula
 from plugin.testing_runner import native_test, setup, teardown
 
 _test_doc: Any = None
@@ -101,7 +100,6 @@ def test_insert_formula_readable_formula_property() -> None:
     text = _test_doc.getText()
     cur = text.createTextCursor()
     cur.gotoEnd(False)
-    from plugin.writer.math.math_formula_insert import insert_writer_math_formula
 
     insert_writer_math_formula(
         _test_doc, cur, "a + b", display_block=False

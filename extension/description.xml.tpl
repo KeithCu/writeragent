@@ -11,7 +11,7 @@
 		<l:LibreOffice-minimal-version d:name="LibreOffice 24.8" value="24.8"/>
 	</dependencies>
     <publisher>
-        <name xlink:href="mailto:keithcu@gmail.com">Developer</name>
+        <name xlink:href="https://github.com/KeithCu/writeragent/">GitHub</name>
     </publisher>
     <display-name>
         <name>WriterAgent</name>

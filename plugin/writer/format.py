@@ -32,8 +32,7 @@ from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import get_desktop
 from plugin.doc.document_helpers import normalize_linebreaks as _normalize
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
-from .math.math_formula_insert import insert_writer_math_formula
-from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath
+from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 from .ops import get_selection_range, get_text_cursor_at_range
 
 log = logging.getLogger("writeragent.writer")
