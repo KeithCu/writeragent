@@ -808,16 +808,22 @@ def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
         if text_obj is None:
             text_obj = safe_call(match_range.getText, "Get text object")
         match_start = safe_call(match_range.getStart, "Get match start")
-        for i, para in enumerate(para_ranges):
-            try:
-                # compareRegionStarts: 1 if first is after second, -1 if before, 0 if equal
-                cmp_start = safe_call(text_obj.compareRegionStarts, "compareRegionStarts start", match_start, safe_call(para.getStart, "Get para start"))
+        low = 0
+        high = len(para_ranges) - 1
+
+        while low <= high:
+            mid = (low + high) // 2
+            para = para_ranges[mid]
+            # compareRegionStarts: -1 if first is after second, 1 if before, 0 if equal
+            cmp_start = safe_call(text_obj.compareRegionStarts, "compareRegionStarts start", match_start, safe_call(para.getStart, "Get para start"))
+            if cmp_start > 0:
+                high = mid - 1
+            else:
                 cmp_end = safe_call(text_obj.compareRegionStarts, "compareRegionStarts end", match_start, safe_call(para.getEnd, "Get para end"))
-                if cmp_start <= 0 and cmp_end >= 0:
-                    return i
-            except UnoObjectError as e:
-                logging.getLogger(__name__).debug("find_paragraph_for_range comparison error at index %d: %s", i, e)
-                continue
+                if cmp_end < 0:
+                    low = mid + 1
+                else:
+                    return mid
     except UnoObjectError as e:
         logging.getLogger(__name__).warning("find_paragraph_for_range error: %s", e)
     return 0

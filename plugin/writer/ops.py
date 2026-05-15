@@ -45,16 +45,21 @@ def find_paragraph_for_range(anchor, para_ranges, text_obj):
             raise WriterError("Text object is None", code="WRITER_TEXT_OBJ_NULL", details={"operation": "find_paragraph_for_range"})
 
         match_start = anchor.getStart()
-        for i, para in enumerate(para_ranges):
-            try:
-                cmp_start = text_obj.compareRegionStarts(match_start, para.getStart())
+        low = 0
+        high = len(para_ranges) - 1
+
+        while low <= high:
+            mid = (low + high) // 2
+            para = para_ranges[mid]
+            cmp_start = text_obj.compareRegionStarts(match_start, para.getStart())
+            if cmp_start > 0:
+                high = mid - 1
+            else:
                 cmp_end = text_obj.compareRegionStarts(match_start, para.getEnd())
-                if cmp_start <= 0 and cmp_end >= 0:
-                    return i
-            except Exception as e:
-                # Catch internal iteration exception and wrap it if it indicates a stale doc
-                log.debug("find_paragraph_for_range: region compare failed for para %d: %s", i, str(e))
-                continue
+                if cmp_end < 0:
+                    low = mid + 1
+                else:
+                    return mid
     except WriterError:
         raise
     except Exception as e:
