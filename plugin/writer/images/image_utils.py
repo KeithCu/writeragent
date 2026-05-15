@@ -297,31 +297,8 @@ class ImageService:
             defaults["model"] = get_config_str(self.ctx, "aihorde_model")
 
         # Special case: prompt translation
-        if get_config_bool(self.ctx, "image_translate_prompt"):
-            # We could add translation logic here if needed,
-            # or let the provider handle it. LOSHD has it.
-            pass
-
         for k, v in defaults.items():
             if k not in kwargs:
                 kwargs[k] = v
-
-        # Optional: translate prompt to English when image_translate_prompt is True and source language is set
-        if get_config_bool(self.ctx, "image_translate_prompt"):
-            src_lang = get_config_str(self.ctx, "image_translate_from")
-            if src_lang:
-                try:
-                    from plugin.chatbot.translation_tool import opustm_hf_translate
-
-                    prompt = opustm_hf_translate(prompt, src_lang, "English")
-                except (ImportError, ValueError, TypeError) as e:
-                    logger.warning("Prompt translation failed (IO/Parse), using original: %s", e)
-                except Exception as e:
-                    from plugin.framework.errors import NetworkError
-
-                    if isinstance(e, NetworkError):
-                        logger.warning("Prompt translation failed (NetworkError), using original: %s", e)
-                    else:
-                        logger.warning("Prompt translation failed (unexpected), using original: %s", e)
 
         return provider.generate(prompt, status_callback=status_callback, **kwargs)

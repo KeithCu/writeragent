@@ -28,7 +28,7 @@ Integrated into [core/document_tools.py](core/document_tools.py) and available t
 **Settings dialog** ([WriterAgentDialogs/SettingsDialog.xdl](WriterAgentDialogs/SettingsDialog.xdl))  
 - **Tabbed**: Chat/Text tab and Image Generation tab.
 - **Chat/Text tab**: Endpoint, **Text/Chat Model** (combobox, LRU `model_lru`), **Image model (same endpoint as chat)** (combobox, LRU `image_model_lru`), API key, API type, temperature, chat max tokens, context length, additional instructions.
-- **Image tab**: **Provider (aihorde / same as chat)**, AI Horde API key, width/height, steps, max wait, NSFW options, auto gallery, insert frame, translate prompt options.
+- **Image tab**: **Provider (aihorde / same as chat)**, AI Horde API key, width/height, steps, max wait, NSFW options, auto gallery, insert frame.
 - If the tabbed dialog fails to load in some LibreOffice versions, the XML uses `dlg:tabpagecontainer` / `dlg:tabpage`; fallback or alternate layout may be needed.
 
 **Chat sidebar** ([WriterAgentDialogs/ChatPanelDialog.xdl](WriterAgentDialogs/ChatPanelDialog.xdl), [chat_panel.py](chat_panel.py))  
@@ -65,7 +65,6 @@ Tool handlers in `core/document_tools.py` read config via `get_config_dict(ctx)`
 
 `generate_image` passes `add_to_gallery` and `add_frame` from config into `insert_image`. After a successful image generation via the chat endpoint, the model used is pushed into `image_model_lru`.
 
-When `image_translate_prompt` is True and `image_translate_from` is set (e.g. `es` or `Spanish`), the prompt is translated to English via `opustm_hf_translate` before generation; on failure the original prompt is used.
 
 ## Image editing (img2img) and provider support
 

@@ -408,18 +408,14 @@ Two tables: **product / hardening** (user-visible or systemic improvements) and 
 
 | ID | Task | Notes |
 |----|------|--------|
-| P1 | Native linguistic integration | Research built-in `SpellChecker` / morphological analysis before or alongside LLM (Lightproof-style). |
 | P2 | HTTP 429 / backoff | Theoretical: Exponential backoff and cooldown in the grammar worker if providers ever rate-limit; currently unnecessary due to `LlmClient` request pacing. |
 | P3 | Locales | Optional regional tags in XCU if an LO build needs explicit `hasLocale`/`getLocales` pairing beyond normalization. |
 | P4 | Refresh UX | LO shows new squiggles on subsequent passes — document for users; research safe invalidate APIs if any. |
-| P5 | Optional model / temperature | Surface more controls in Settings if needed (grammar model override exists). |
 | P6 | Document-generation invalidation | Fold revision/mod-generation into cache keys if LO exposes it; reduces stale offsets after edits above span. |
 | P7 | Shared policy with chat | Expand beyond pause-during-agent + shared LLM lane (endpoint-aware policy, status UX, adaptive queue). |
 | P8 | Prompt and schema hardening | Few-shot edge cases (quotes, lists, track changes); stricter JSON recovery. |
-| P9 | Paragraph / traversal tuning | Compare sentence selection vs stock Lightproof (`len(rText)` etc.) if underlines misbehave on some LO versions. |
 | P10 | Ignore rules | Persist `ignoreRule` across sessions; locale-specific ignores if API evolves. |
 | P11 | Observability | Cache hit rate, supersede counts, p50/p95 schedule→`cache_put` behind a verbose flag. |
-| P12 | Accessibility / UX copy | Clear copy that grammar is asynchronous; link Writing aids when multiple proofreaders exist. |
 | P13 | LanguageTool-class local checking | Research roadmap: [docs/languagetool-local-parity-phased-plan.md](languagetool-local-parity-phased-plan.md). |
 | P14 | Parallel grammar worker | Optional limited parallelism across **distinct** documents while respecting `llm_request_lane`. |
 | P15 | Queue priority / visibility | Prefer currently edited or visible ranges over scroll-induced backlog (related to **C5**). |

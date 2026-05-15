@@ -340,12 +340,6 @@ def _persisted_grammar_skip_lang_detect(ctx: Any, doc_id: str, text: str) -> boo
 
 def _handle_lang_detect_effect(effect: Any, ec: GrammarEffectContext) -> GrammarEvent | None:
     """Handle language detection, including caching and LLM requests."""
-    from .grammar_proofread_locale import (
-        LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT,
-        LANGUAGE_DETECT_SYSTEM_PROMPT,
-        parse_language_detect_batch_json,
-        parse_language_detect_json,
-    )
     from plugin.framework.queue_executor import llm_request_lane
     from .grammar_fsm_state import EventKind, GrammarEvent
 
@@ -400,12 +394,8 @@ def _handle_grammar_check_effect(effect: Any, ec: GrammarEffectContext) -> Gramm
     """Handle grammar check, including batching and partial sentence handling."""
     from .grammar_proofread_locale import (
         GRAMMAR_BATCH_MAX_SENTENCES,
-        GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE,
-        GRAMMAR_SYSTEM_PROMPT_TEMPLATE,
         grammar_english_name_for_bcp47,
         looks_complete_sentence,
-        parse_grammar_batch_json,
-        parse_grammar_json,
     )
     from plugin.framework.queue_executor import llm_request_lane
     from .grammar_fsm_state import EventKind, GrammarEvent

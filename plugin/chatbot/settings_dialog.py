@@ -77,8 +77,6 @@ def _get_image_field_specs(ctx):
         {"name": "image_max_wait", "value": str(get_config_int(ctx, "image_max_wait")), "type": "int"},
         {"name": "image_auto_gallery", "value": "true" if get_config_bool(ctx, "image_auto_gallery") else "false", "type": "bool"},
         {"name": "image_insert_frame", "value": "true" if get_config_bool(ctx, "image_insert_frame") else "false", "type": "bool"},
-        {"name": "image_translate_prompt", "value": "true" if get_config_bool(ctx, "image_translate_prompt") else "false", "type": "bool"},
-        {"name": "image_translate_from", "value": get_config_str(ctx, "image_translate_from")},
         {"name": "seed", "value": get_config_str(ctx, "seed")},
     ]
 

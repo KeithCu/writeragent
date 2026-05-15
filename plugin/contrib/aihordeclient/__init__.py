@@ -29,7 +29,6 @@ from time import sleep
 from typing import Any, Dict, List, Union
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
-from plugin.chatbot.translation_tool import opustm_hf_translate, OPUSTM_SOURCE_LANGUAGES  # noqa F401
 
 from plugin.framework.client.requests import sync_request
 from plugin.framework.client.errors import format_error_message

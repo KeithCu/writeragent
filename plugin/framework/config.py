@@ -189,8 +189,6 @@ class WriterAgentConfig:
     image_max_wait: int = 5
     image_auto_gallery: bool = True
     image_insert_frame: bool = False
-    image_translate_prompt: bool = True
-    image_translate_from: str = ""
     image_model: str = ""
     image_provider: str = "aihorde"
     aihorde_model: str = "stable_diffusion"
