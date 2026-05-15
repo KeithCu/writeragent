@@ -1,4 +1,4 @@
-#
+# Swedish
 msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
