@@ -77,11 +77,11 @@ def get_active_document(ctx=None):
         desktop = get_desktop(ctx)
         check_disposed(desktop, "Desktop")
         return safe_call(desktop.getCurrentComponent, "Desktop component resolution")
-    except UnoObjectError as e:
-        log.warning("get_active_document UnoObjectError: %s", e)
+    except UnoObjectError:
+        log.exception("get_active_document UnoObjectError")
         return None
-    except Exception as e:
-        log.warning("get_active_document unexpected exception: %s", e)
+    except Exception:
+        log.exception("get_active_document unexpected exception")
         return None
 
 
@@ -129,6 +129,6 @@ def get_toolkit(ctx=None):
         if smgr is None:
             return None
         return cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
-    except Exception as e:
-        log.warning("Failed to create toolkit: %s", e)
+    except Exception:
+        log.exception("Failed to create toolkit")
         return None

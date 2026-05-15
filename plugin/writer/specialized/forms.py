@@ -209,7 +209,7 @@ class CreateFormControl(ToolWriterFormBase):
                 shape.setPropertyValue("AnchorType", AS_CHARACTER)
                 text = doc.getText()
                 selection = doc.getCurrentController().getSelection()
-                if selection and selection.getCount() > 0:
+                if selection and hasattr(selection, "getCount") and selection.getCount() > 0:
                     anchor = selection.getByIndex(0)
                 else:
                     anchor = doc.getCurrentController().getViewCursor()

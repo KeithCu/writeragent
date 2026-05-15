@@ -360,8 +360,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 event_bus.subscribe("mcp:result", self._on_mcp_result)
                 log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
             global_event_bus.subscribe("grammar:status", self._on_grammar_status, weak=True)
-        except Exception as e:
-            log.error("SendButtonListener event subscribe error: %s" % e)
+        except Exception:
+            log.exception("SendButtonListener event subscribe error")
 
     @property
     def state(self):
@@ -463,7 +463,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if isinstance(e, (DisposedException, RuntimeException, UnoException)):
                 log.debug("begin_inline_web_approval error (likely disposed): %s", e)
             else:
-                log.error("begin_inline_web_approval: %s", e)
+                log.exception("begin_inline_web_approval failed")
 
         # Same block as non-approval path (see web_research_engine_chat_block), with approval header.
         self._append_response(web_research_engine_chat_block(query or "", approval_required=True))
@@ -525,8 +525,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if approved and query_override is not None:
                 log.debug("_finish_inline_web_approval: approved with query_override len=%d", len(query_override))
             ev.set()
-        except Exception as e:
-            log.error("_finish_inline_web_approval threading event error: %s", e)
+        except Exception:
+            log.exception("_finish_inline_web_approval threading event error")
 
     def _set_status(self, text):
         """Update the status field in the sidebar (read-only TextField).
@@ -599,8 +599,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             fmt_str = format_tool_call_for_display(tool, args, method)
             log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
-        except Exception as e:
-            log.error("_on_mcp_request error: %s" % e)
+        except Exception:
+            log.exception("_on_mcp_request error")
 
     def _on_mcp_result(self, tool="", result_snippet="", **kwargs):
         """Handle MCP result events from the bus (background thread)."""
@@ -611,13 +611,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
                 fmt_str = format_tool_result_for_display(tool, result_snippet, args=kwargs.get("args"))
                 self._append_response(f"[MCP Result] {fmt_str}\n")
-            except Exception as e:
-                log.error("_on_mcp_result UI update error: %s" % e)
+            except Exception:
+                log.exception("_on_mcp_result UI update error")
 
         try:
             self.queue_executor.post(_update_ui)
-        except Exception as e:
-            log.error("_on_mcp_result post error: %s" % e)
+        except Exception:
+            log.exception("_on_mcp_result post error")
 
     def _get_document_model(self):
         """Get the document model strictly from the frame.
@@ -729,9 +729,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     from plugin.framework.errors import WriterAgentException
 
                     if isinstance(e, WriterAgentException):
-                        log.error(f"WriterAgentException stopping recording: {e}")
+                        log.exception("WriterAgentException stopping recording")
                     else:
-                        log.error(f"Error stopping recording: {e}")
+                        log.exception("Error stopping recording")
                 self.sync_audio_slice()
 
             case StartSendEffect():
@@ -743,11 +743,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     with agent_session():
                         self._do_send()
                 except Exception as e:
-                    import traceback
-
-                    tb = traceback.format_exc()
                     doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
-                    log.error("SendButton unhandled exception [doc: %s]: %s\n%s", doc_type_for_log, e, tb)
+                    log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
                     self._append_response("\n\n[Error: %s]\n" % str(e))
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 finally:
@@ -765,15 +762,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if client and hasattr(client, "stop"):
                     try:
                         client.stop()
-                    except Exception as e:
-                        log.error("StopButton error stopping client: %s", e)
+                    except Exception:
+                        log.exception("StopButton error stopping client")
 
                 adapter = getattr(self, "_current_agent_backend", None)
                 if adapter and hasattr(adapter, "stop"):
                     try:
                         adapter.stop()
-                    except Exception as e:
-                        log.error("StopButton error stopping agent backend: %s", e)
+                    except Exception:
+                        log.exception("StopButton error stopping agent backend")
 
             case _:
                 log.debug("SendButtonListener: unhandled effect type %s", type(effect).__name__)
@@ -835,14 +832,14 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         if self.initial_doc_type and doc_type_str != self.initial_doc_type:
             err_msg = _("[Internal Error: Document type changed from {0} to {1}! Please file an error.]").format(self.initial_doc_type, doc_type_str)
-            log.error("_do_send ERROR: %s" % err_msg)
+            log.exception("_do_send ERROR: %s", err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"
             return
 
         if doc_type_str == "Unknown":
             err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown")
-            log.error("_do_send ERROR: %s" % err_msg)
+            log.exception("_do_send ERROR: %s", err_msg)
             self._append_response("\n%s\n" % err_msg)
             self._terminal_status = "Error"
             return
@@ -884,9 +881,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         from plugin.framework.errors import NetworkError
 
                         if isinstance(e, NetworkError):
-                            log.error("NetworkError during STT fallback: %s" % e)
+                            log.exception("NetworkError during STT fallback")
                         else:
-                            log.error("Error during STT fallback: %s" % e)
+                            log.exception("Error during STT fallback")
                         self._terminal_status = "Error"
                         return
                 else:
@@ -919,8 +916,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self.direct_image_checkbox:
             try:
                 direct_image_checked = get_checkbox_state(self.direct_image_checkbox) == 1
-            except Exception as e:
-                log.error("_do_send: Use Image model checkbox read error: %s" % e)
+            except Exception:
+                log.exception("_do_send: Use Image model checkbox read error")
         if direct_image_checked:
             log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
             self._do_send_direct_image(query_text, model)
@@ -936,8 +933,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 log.info("_do_send: using agent backend %s" % agent_backend_id)
                 self._do_send_via_agent_backend(query_text, model, doc_type_str.lower())
                 return
-        except Exception as e:
-            log.error("_do_send: agent backend check failed: %s" % e)
+        except Exception:
+            log.exception("_do_send: agent backend check failed")
 
         if self._in_librarian_mode:
             log.info("_do_send: continuing librarian onboarding agent")

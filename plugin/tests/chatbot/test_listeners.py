@@ -81,6 +81,7 @@ def test_base_action_listener_success(mock_log):
     listener.actionPerformed(MagicMock())
     assert listener.success
     mock_log.error.assert_not_called()
+    mock_log.exception.assert_not_called()
 
 @patch("plugin.chatbot.listeners.log")
 def test_base_action_listener_exceptions(mock_log):
@@ -99,22 +100,18 @@ def test_base_action_listener_exceptions(mock_log):
 
     # Test TypeError
     TypeErrListener().actionPerformed(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "TypeErrListener TypeError in actionPerformed: %s" == args[0]
-    assert isinstance(args[1], TypeError)
+    args, kwargs = mock_log.exception.call_args
+    assert "TypeErrListener TypeError in actionPerformed" == args[0]
 
     # Test ValueError
     ValueErrListener().actionPerformed(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "ValueErrListener ValueError in actionPerformed: %s" == args[0]
-    assert isinstance(args[1], ValueError)
+    args, kwargs = mock_log.exception.call_args
+    assert "ValueErrListener ValueError in actionPerformed" == args[0]
 
     # Test Generic Exception
     GenericErrListener().actionPerformed(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "GenericErrListener unhandled exception in actionPerformed: %s" == args[0]
-    assert isinstance(args[1], Exception)
-    assert kwargs.get("exc_info") is True
+    args, kwargs = mock_log.exception.call_args
+    assert "GenericErrListener unhandled exception in actionPerformed" == args[0]
 
 @patch("plugin.chatbot.listeners.log")
 def test_base_item_listener_exceptions(mock_log):
@@ -126,10 +123,8 @@ def test_base_item_listener_exceptions(mock_log):
     listener = TestItemListener()
     listener.itemStateChanged(MagicMock())
 
-    args, kwargs = mock_log.error.call_args
-    assert "TestItemListener unhandled exception in itemStateChanged: %s" == args[0]
-    assert isinstance(args[1], Exception)
-    assert kwargs.get("exc_info") is True
+    args, kwargs = mock_log.exception.call_args
+    assert "TestItemListener unhandled exception in itemStateChanged" == args[0]
 
 @patch("plugin.chatbot.listeners.log")
 def test_base_text_listener_exceptions(mock_log):
@@ -141,10 +136,8 @@ def test_base_text_listener_exceptions(mock_log):
     listener = TestTextListener()
     listener.textChanged(MagicMock())
 
-    args, kwargs = mock_log.error.call_args
-    assert "TestTextListener unhandled exception in textChanged: %s" == args[0]
-    assert isinstance(args[1], Exception)
-    assert kwargs.get("exc_info") is True
+    args, kwargs = mock_log.exception.call_args
+    assert "TestTextListener unhandled exception in textChanged" == args[0]
 
 @patch("plugin.chatbot.listeners.log")
 def test_base_window_listener_exceptions(mock_log):
@@ -163,20 +156,20 @@ def test_base_window_listener_exceptions(mock_log):
 
     # Test windowResized
     listener.windowResized(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "TestWindowListener unhandled exception in windowResized: %s" == args[0]
+    args, kwargs = mock_log.exception.call_args
+    assert "TestWindowListener unhandled exception in windowResized" == args[0]
 
     # Test windowMoved
     listener.windowMoved(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "TestWindowListener unhandled exception in windowMoved: %s" == args[0]
+    args, kwargs = mock_log.exception.call_args
+    assert "TestWindowListener unhandled exception in windowMoved" == args[0]
 
     # Test windowShown
     listener.windowShown(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "TestWindowListener unhandled exception in windowShown: %s" == args[0]
+    args, kwargs = mock_log.exception.call_args
+    assert "TestWindowListener unhandled exception in windowShown" == args[0]
 
     # Test windowHidden
     listener.windowHidden(MagicMock())
-    args, kwargs = mock_log.error.call_args
-    assert "TestWindowListener unhandled exception in windowHidden: %s" == args[0]
+    args, kwargs = mock_log.exception.call_args
+    assert "TestWindowListener unhandled exception in windowHidden" == args[0]

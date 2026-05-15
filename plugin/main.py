@@ -311,7 +311,7 @@ def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
     except UnoObjectError as e:
         log.warning(f"UNO error opening dialog: {e.message}")
     except Exception as e:
-        log.error(f"{error_msg}: {e}", exc_info=True)
+        log.exception("%s", error_msg)
         # Show user-friendly error message
         from plugin.chatbot.dialogs import msgbox
         from plugin.framework.i18n import _
@@ -362,8 +362,8 @@ def _dispatch_command(command):
     if handler:
         try:
             handler()
-        except Exception as e:
-            logging.getLogger("writeragent.main").error(f"Action {command} failed: {e}", exc_info=True)
+        except Exception:
+            logging.getLogger("writeragent.main").exception(f"Action {command} failed")
         return
 
     # If no handler, check for module delegation
@@ -612,8 +612,8 @@ def _update_menu_icons():
                             log.warning("_update_menu_icons: failed to insert/replace image for %s: %s", cmd, e)
             except Exception as e:
                 log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
-    except Exception as e:
-        log.warning("_update_menu_icons: outer exception: %s", e)
+    except Exception:
+        log.exception("_update_menu_icons: outer exception")
 
 
 def _get_http_module(ctx=None) -> McpModuleActions | None:

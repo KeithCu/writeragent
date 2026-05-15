@@ -29,7 +29,7 @@ def resolve_target_cursor(ctx, target, old_content):
         try:
             controller = doc.getCurrentController()
             sel = controller.getSelection()
-            if sel and sel.getCount() > 0:
+            if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
                 rng = sel.getByIndex(0)
                 cursor.gotoRange(rng.getStart(), False)
                 cursor.gotoRange(rng.getEnd(), True)

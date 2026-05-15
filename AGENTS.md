@@ -147,6 +147,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 ### Logging / MCP / misc
 
 - Logs: same directory as `writeragent.json` (else `~/writeragent_debug.log`). **`redact_sensitive_payload_for_log`** on HTTP debug ([`plugin/framework/logging.py`](plugin/framework/logging.py)).
+- **Error Logging:** use **`log.exception("Context")`** in `except` blocks for unexpected errors to ensure stacktraces are captured. Avoid f-strings that only embed `str(e)`.
 - **MCP:** HTTP threads → main-thread [`drain_mcp_queue`](plugin/mcp/mcp_protocol.py); **`X-Document-URL`** for targeting—[`document_helpers.py`](plugin/doc/document_helpers.py). Start/stop from [`plugin/main.py`](plugin/main.py) bootstrap / [`McpModule`](plugin/mcp/__init__.py)—localhost, no auth.
 - **Images:** endpoint uses **`get_image_model`** (not chat model); [`image_utils.py`](plugin/writer/image_utils.py), [`image_tools.py`](plugin/writer/image_tools.py); [docs/image-generation.md](docs/image-generation.md).
 - **Outline / navigation helpers:** ignore stale **DocumentCache** mentions in comments—cache class is not active.

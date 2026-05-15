@@ -281,10 +281,13 @@ When refactoring, ensure these provider-specific behaviors are isolated:
 **Blockers**: None
 
 ### 6. **Error Handling Standardization** ⚠️
-**Files**: `plugin/framework/errors.py`
-**Status**: Needs review
+**Files**: `plugin/framework/errors.py`, `plugin/framework/logging.py`
+**Status**: In Progress
 
 - [ ] Audit all error codes for consistency
+- [ ] **Standardize on `log.exception("Context")`** inside `except` blocks to ensure stacktraces are captured for debugging.
+- [✅] Enhance `SafeLogger` in `logging.py` to support `exception()` method.
+- [✅] Port key modules (`tool_loop.py`, `document_helpers.py`, `service.py`) to the new logging pattern.
 - [ ] Standardize error message formats
 - [ ] Add missing error codes for new features
 - [ ] Improve error context reporting

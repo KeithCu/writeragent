@@ -76,8 +76,8 @@ class FormatService(ServiceBase):
             if max_chars and len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[... truncated ...]"
             return content
-        except UnoObjectError as e:
-            log.error("export_as_text UnoObjectError: %s", e)
+        except UnoObjectError:
+            log.exception("export_as_text failed")
             return ""
 
     def export_as_html(self, model):
@@ -88,6 +88,7 @@ class FormatService(ServiceBase):
         """
         from plugin.framework.errors import UnoObjectError, safe_call
 
+        tmp_path = None
         try:
             import uno
             from com.sun.star.beans import PropertyValue
@@ -103,11 +104,10 @@ class FormatService(ServiceBase):
                 html = f.read()
             os.unlink(tmp_path)
             return html
-        except OSError as e:
-            log.error("export_as_html file error: %s", e)
-            return ""
-        except UnoObjectError as e:
-            log.error("export_as_html UnoObjectError: %s", e)
+        except (UnoObjectError, Exception):
+            log.exception("export_as_html failed")
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
             return ""
 
     def import_from_html(self, model, html):
@@ -116,8 +116,9 @@ class FormatService(ServiceBase):
         Returns:
             True on success, False on error.
         """
-        from plugin.framework.errors import UnoObjectError, safe_call
+        from plugin.framework.errors import safe_call
 
+        tmp_path = None
         try:
             import uno
             from com.sun.star.beans import PropertyValue
@@ -134,11 +135,10 @@ class FormatService(ServiceBase):
             safe_call(cursor.insertDocumentFromURL, "Insert document from HTML", url, (PropertyValue("FilterName", 0, "HTML (StarWriter)", 0),))
             os.unlink(tmp_path)
             return True
-        except OSError as e:
-            log.error("import_from_html file error: %s", e)
-            return False
-        except UnoObjectError as e:
-            log.error("import_from_html UnoObjectError: %s", e)
+        except Exception:
+            log.exception("import_from_html failed")
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
             return False
 
 
@@ -348,8 +348,8 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... truncated ...]"
         return content
-    except Exception as exc:
-        log.debug("_range_to_content_via_temp_doc failed: %s", exc)
+    except Exception:
+        log.exception("_range_to_content_via_temp_doc failed")
         return ""
     finally:
         if temp_doc is not None:
@@ -400,8 +400,8 @@ def document_to_content(model, ctx, services, max_chars=None, scope="full", rang
             if max_chars and len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[... truncated ...]"
             return content
-    except Exception as exc:
-        log.debug("document_to_content (full) failed: %s", exc)
+    except Exception:
+        log.exception("document_to_content (full) failed")
         return ""
 
 
@@ -499,7 +499,7 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
         try:
             controller = model.getCurrentController()
             sel = controller.getSelection()
-            if sel and sel.getCount() > 0:
+            if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
                 rng = sel.getByIndex(0)
                 rng.setString("")
                 cursor.gotoRange(rng.getStart(), False)

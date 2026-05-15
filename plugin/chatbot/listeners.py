@@ -36,13 +36,13 @@ def _catch_and_log(func):
     def wrapper(self, ev, *args, **kwargs):
         try:
             return func(self, ev, *args, **kwargs)
-        except TypeError as e:
-            log.error(f"{self.__class__.__name__} TypeError in {func.__name__}: %s", e)
-        except ValueError as e:
-            log.error(f"{self.__class__.__name__} ValueError in {func.__name__}: %s", e)
-        except Exception as e:
+        except TypeError:
+            log.exception(f"{self.__class__.__name__} TypeError in {func.__name__}")
+        except ValueError:
+            log.exception(f"{self.__class__.__name__} ValueError in {func.__name__}")
+        except Exception:
             # Base UNO listeners must not leak arbitrary Python exceptions into the C++ bridge.
-            log.error(f"{self.__class__.__name__} unhandled exception in {func.__name__}: %s", e, exc_info=True)
+            log.exception(f"{self.__class__.__name__} unhandled exception in {func.__name__}")
 
     return wrapper
 

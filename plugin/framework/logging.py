@@ -251,6 +251,16 @@ class SafeLogger:
                 print(f"LOG WARNING FAILED: {msg}")
                 print(f"Original error: {e}")
 
+    def exception(self, msg, *args, **kwargs):
+        """Safe exception logging (includes stacktrace)."""
+        try:
+            if self._logger:
+                self._logger.exception(msg, *args, **kwargs)
+        except Exception as e:
+            if self._fallback_enabled:
+                print(f"LOG EXCEPTION FAILED: {msg}")
+                print(f"Original error: {e}")
+
     def disable_fallback(self):
         """Disable fallback printing."""
         self._fallback_enabled = False

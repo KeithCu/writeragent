@@ -325,15 +325,15 @@ def get_document_property(model, name, default=None):
             if _user_defined_property_exists(props, name):
                 return safe_call(props.getPropertyValue, "Get property value", name)
             return default
-    except UnoObjectError as e:
+    except UnoObjectError:
         # WriterAgentSessionID is created on first session setup; missing until then is normal (often hits fallback path).
         _lg = logging.getLogger(__name__)
         if name == "WriterAgentSessionID":
-            _lg.debug("get_document_property (optional property not set yet): %s", e)
+            _lg.debug("get_document_property (optional property not set yet)")
         else:
-            _lg.warning("get_document_property error: %s", e)
-    except Exception as e:
-        logging.getLogger(__name__).warning("Unexpected error in get_document_property: %s", e)
+            _lg.exception("get_document_property failed")
+    except Exception:
+        logging.getLogger(__name__).exception("Unexpected error in get_document_property")
     return default
 
 
@@ -355,7 +355,7 @@ def set_document_property(model, name, value):
                     safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
                 elif hasattr(props, "setPropertyValue"):
                     safe_call(props.setPropertyValue, "Set property value (no addProperty)", name, str(value))
-    except UnoObjectError as e:
+    except UnoObjectError:
         # Fallback context enrichment
         doc_url = ""
         readonly = ""
@@ -367,7 +367,7 @@ def set_document_property(model, name, value):
         except Exception:
             pass
 
-        logging.getLogger(__name__).warning("set_document_property error: %s (url=%s, readonly=%s)", e, doc_url, readonly)
+        logging.getLogger(__name__).exception("set_document_property error (url=%s, readonly=%s)", doc_url, readonly)
         raise
 
 
@@ -468,8 +468,8 @@ def get_full_document_text(model, max_chars=8000):
             return get_draw_context_for_chat(model, max_chars)
 
         return ""
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_full_document_text error: %s", e)
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_full_document_text failed")
         return ""
 
 
@@ -485,8 +485,8 @@ def get_document_end(model, max_chars=4000):
         if len(full) <= max_chars:
             return full
         return full[-max_chars:]
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_document_end error: %s", e)
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_document_end failed")
         return ""
 
 
@@ -504,8 +504,8 @@ def get_document_length(model):
         safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
         length = len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
         return length
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_document_length error: %s", e)
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_document_length failed")
         return 0
 
 
@@ -537,8 +537,8 @@ def get_text_cursor_at_range(model, start_offset, end_offset):
             safe_call(cursor.goRight, "Cursor goRight", n, True)
             remaining -= n
         return cursor
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_text_cursor_at_range error: %s", e)
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
         return None
 
 
@@ -549,7 +549,11 @@ def get_selection_range(model):
         check_disposed(model, "Document Model")
         controller = safe_call(model.getCurrentController, "Get current controller")
         sel = safe_call(controller.getSelection, "Get selection")
-        if not sel or safe_call(sel.getCount, "Get selection count") == 0:
+        sel_count = 0
+        if sel and hasattr(sel, "getCount"):
+            sel_count = safe_call(sel.getCount, "Get selection count")
+
+        if not sel or sel_count == 0:
             # No selection: use view cursor for insertion point
             vc = safe_call(controller.getViewCursor, "Get view cursor")
             rng = vc
@@ -566,8 +570,8 @@ def get_selection_range(model):
         safe_call(cursor.gotoRange, "Cursor gotoRange end", safe_call(rng.getEnd, "Get range end"), True)
         end_offset = len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString end")))
         return (start_offset, end_offset)
-    except UnoObjectError as e:
-        logging.getLogger(__name__).warning("get_selection_range error: %s", e)
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_selection_range failed")
         return (0, 0)
 
 
@@ -593,8 +597,8 @@ def get_document_context_for_chat(model, max_context=8000, include_end=True, inc
             safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
             full = normalize_linebreaks(safe_call(cursor.getString, "Cursor getString"))
             doc_len = len(full)
-        except UnoObjectError as e:
-            logging.getLogger(__name__).warning("get_document_context_for_chat Writer error: %s", e)
+        except UnoObjectError:
+            logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed")
             return "[Unable to read Writer document context. The document may be locked or initializing.]"
 
         # Context Extensions (Memory, User Profile)

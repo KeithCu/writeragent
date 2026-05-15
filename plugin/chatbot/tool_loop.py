@@ -141,10 +141,7 @@ class ToolCallingMixin:
 
             log.debug("_do_send: core modules imported OK")
         except Exception as e:
-            if isinstance(e, UnoObjectError):
-                log.error("_do_send: core import failed (UnoObjectError): %s" % e)
-            else:
-                log.error("_do_send: core import FAILED: %s" % e)
+            log.exception("_do_send: core modules import FAILED")
             self._append_response("\n[Import error - core: %s]\n" % e)
             self._terminal_status = "Error"
             return
@@ -234,9 +231,8 @@ class ToolCallingMixin:
                     return json.dumps(res) if isinstance(res, dict) else str(res)
                 except (ToolExecutionError, UnoObjectError) as e:
                     import traceback
-
                     tb = traceback.format_exc()
-                    log.error("Tool execution failed: %s" % e, extra={"context": "tool_execution"})
+                    log.exception("Tool execution failed")
                     agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
                     err_payload = format_error_payload(e)
                     if "details" not in err_payload:
@@ -245,17 +241,13 @@ class ToolCallingMixin:
                     return json.dumps(err_payload)
                 except Exception as e:
                     import traceback
-
+                    log.exception("Unexpected tool error")
                     tb = traceback.format_exc()
                     wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
-                    log.error("Unexpected tool error: %s" % wrapped_error)
                     return json.dumps(format_error_payload(wrapped_error))
 
         except Exception as e:
-            if isinstance(e, UnoObjectError):
-                log.error("_do_send: tool import failed (UnoObjectError): %s" % e)
-            else:
-                log.error("_do_send: tool import FAILED: %s" % e)
+            log.exception("_do_send: tool import FAILED")
             self._append_response("\n[Import error - tools: %s]\n" % e)
             self._terminal_status = "Error"
             return
@@ -307,8 +299,8 @@ class ToolCallingMixin:
             
             base_prompt = get_chat_system_prompt_for_document(model, extra_instructions, ctx=self.ctx)
             self.session.set_system_context(base_prompt, doc_text)
-        except UnoObjectError as e:
-            log.error("Document unavailable: %s" % e, extra={"context": "document_context"})
+        except UnoObjectError:
+            log.exception("Document unavailable")
             self._append_response("\n[Document closed or unavailable.]\n")
             self._terminal_status = "Error"
             self._set_status("Error")
@@ -325,7 +317,7 @@ class ToolCallingMixin:
                 log.debug("Document likely disposed while reading context: %s", e)
                 self._append_response("\n[Document closed or unavailable.]\n")
             else:
-                log.error("Unexpected document error: %s" % e, extra={"context": "document_context"})
+                log.exception("Unexpected document error")
                 wrapped_error = UnoObjectError("Failed to get document context", code="DOCUMENT_CONTEXT_ERROR", details={"original_error": str(e), "type": type(e).__name__})
                 self._append_response("\n[Error reading document: %s]\n" % wrapped_error.message)
             self._terminal_status = "Error"
@@ -352,8 +344,8 @@ class ToolCallingMixin:
                 display_text = query_text + " [Audio Attached]" if query_text else "[Audio Message]"
                 self._append_response("\nYou: %s\n" % display_text)
                 # Note: We do NOT delete the audio file yet, in case native call fails and we need STT fallback
-            except (IOError, OSError) as e:
-                log.error("Audio file error: %s" % e, extra={"context": "audio_handling"})
+            except (IOError, OSError):
+                log.exception("Audio file error")
                 # Preserve file for debugging
                 log.debug("Audio file preserved at: %s" % self.audio_wav_path)
                 self.session.add_user_message(query_text)
@@ -363,9 +355,9 @@ class ToolCallingMixin:
                 from plugin.framework.errors import NetworkError
 
                 if isinstance(e, NetworkError):
-                    log.error("NetworkError while handling audio message: %s", e, extra={"context": "audio_handling"})
+                    log.exception("NetworkError while handling audio message")
                 else:
-                    log.error("Unexpected audio error: %s" % e, extra={"context": "audio_handling"})
+                    log.exception("Unexpected audio error")
                 self.session.add_user_message(query_text)
                 self._append_response("\nYou: %s\n" % query_text)
                 self.audio_wav_path = None
@@ -419,9 +411,9 @@ class ToolCallingMixin:
                 from plugin.framework.errors import NetworkError
 
                 if isinstance(e, NetworkError):
-                    log.error("Tool loop round %d: NetworkError: %s" % (round_num, e))
+                    log.exception("Tool loop round %d: NetworkError" % round_num)
                 else:
-                    log.error("Tool loop round %d: API ERROR: %s" % (round_num, e))
+                    log.exception("Tool loop round %d: API ERROR" % round_num)
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
         from plugin.framework.worker_pool import run_in_background
