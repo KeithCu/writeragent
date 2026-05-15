@@ -269,6 +269,9 @@ def assemble_bundle(base_dir, modules, no_recording=False, with_tests=False, dry
 def strip_production_code(bundle_path, dry_run=False):
     """Remove print, log.debug, log.info, and grammar_obs calls from Python files in the bundle.
     Uses AST to find line ranges and removes them while preserving comments.
+
+    Skips plugin/testing_runner.py, plugin/tests/, and plugin/contrib/smolagents/monitoring.py
+    (smolagents console trace for web research uses print via stub Console).
     """
     import ast
     action = "Dry run: would strip" if dry_run else "Stripping"
@@ -280,7 +283,13 @@ def strip_production_code(bundle_path, dry_run=False):
                 continue
             path = os.path.join(root, fn)
             rel_path = os.path.relpath(path, bundle_path).replace(os.sep, "/")
-            if rel_path == "plugin/testing_runner.py" or rel_path.startswith("plugin/tests/"):
+            # smolagents AgentLogger/Monitor console output goes through Console.print -> print;
+            # stripping would silence web-research subagent steps and Observations on stdout.
+            if (
+                rel_path == "plugin/testing_runner.py"
+                or rel_path.startswith("plugin/tests/")
+                or rel_path == "plugin/contrib/smolagents/monitoring.py"
+            ):
                 continue
             try:
                 with open(path, "r", encoding="utf-8") as f:
