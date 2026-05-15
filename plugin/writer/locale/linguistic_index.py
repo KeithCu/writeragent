@@ -457,6 +457,39 @@ class IndexService(ServiceBase):
 
         return result
 
+    # ── Query Execution & Formatting ──────────────────────────────
+
+    def _execute_query(self, idx, mode, near, or_stems, and_stems, not_stems):
+        if mode == "near" and near:
+            left, right, dist = near[0]
+            hits = idx.query_near(left, right, dist)
+        elif or_stems:
+            hits = idx.query_or(or_stems)
+        elif and_stems:
+            hits = idx.query_and(and_stems)
+        else:
+            raise ToolExecutionError("No search terms after stop-word filtering")
+
+        if not_stems:
+            hits = idx.query_not(hits, not_stems)
+
+        return hits
+
+    def _build_result_entry(self, idx, para_i, context_paragraphs, all_positive, bookmark_map):
+        ctx_lo = max(0, para_i - context_paragraphs)
+        ctx_hi = min(idx.para_count, para_i + context_paragraphs + 1)
+        context = [{"index": j, "text": idx.para_texts.get(j, "")} for j in range(ctx_lo, ctx_hi)]
+
+        matched = [s for s in all_positive if para_i in idx.terms.get(s, set())]
+
+        entry = {"paragraph_index": para_i, "text": idx.para_texts.get(para_i, ""), "matched_stems": matched, "context": context}
+
+        nearest = self._bm_svc.find_nearest_heading_bookmark(para_i, bookmark_map)
+        if nearest:
+            entry["nearest_heading"] = nearest
+
+        return entry
+
     # ── Public API ────────────────────────────────────────────────
 
     def search_boolean(self, doc, query, max_results=20, context_paragraphs=1):
@@ -485,38 +518,14 @@ class IndexService(ServiceBase):
                 all_positive.extend(left + right)
 
         # Execute query
-        if mode == "near" and near:
-            left, right, dist = near[0]
-            hits = idx.query_near(left, right, dist)
-        elif or_stems:
-            hits = idx.query_or(or_stems)
-        elif and_stems:
-            hits = idx.query_and(and_stems)
-        else:
-            raise ToolExecutionError("No search terms after stop-word filtering")
-
-        if not_stems:
-            hits = idx.query_not(hits, not_stems)
+        hits = self._execute_query(idx, mode, near, or_stems, and_stems, not_stems)
 
         total = len(hits)
         selected = sorted(hits)[:max_results]
 
         bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
 
-        results = []
-        for para_i in selected:
-            ctx_lo = max(0, para_i - context_paragraphs)
-            ctx_hi = min(idx.para_count, para_i + context_paragraphs + 1)
-            context = [{"index": j, "text": idx.para_texts.get(j, "")} for j in range(ctx_lo, ctx_hi)]
-
-            matched = [s for s in all_positive if para_i in idx.terms.get(s, set())]
-
-            entry = {"paragraph_index": para_i, "text": idx.para_texts.get(para_i, ""), "matched_stems": matched, "context": context}
-
-            nearest = self._bm_svc.find_nearest_heading_bookmark(para_i, bookmark_map)
-            if nearest:
-                entry["nearest_heading"] = nearest
-            results.append(entry)
+        results = [self._build_result_entry(idx, para_i, context_paragraphs, all_positive, bookmark_map) for para_i in selected]
 
         resp = {"query": query, "mode": mode, "language": idx.language, "total_found": total, "returned": len(results), "matches": results, "index": {"paragraphs": idx.para_count, "unique_stems": len(idx.terms), "build_ms": idx.build_ms, "cached": was_cached}}
         if near:
