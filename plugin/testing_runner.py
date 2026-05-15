@@ -281,6 +281,13 @@ def run_all_tests(ctx: Any) -> str:
                 sys.modules[sys_module_name] = test_module
                 spec.loader.exec_module(test_module)
 
+                # Menu-only facade (e.g. calc ``test_calc_uno``): aggregates other UNO
+                # modules via ``run_calc_tests`` / ``run_integration_tests`` and must not
+                # run here — ``'_uno.py' in filename`` matches it, but it has no
+                # ``@native_test`` and the generic fallback name would not map to those runners.
+                if getattr(test_module, "SKIP_NATIVE_RUN_ALL", False):
+                    continue
+
                 doc_to_pass = None
                 if "writer" in module_name or "format" in module_name:
                     # Writer core tests mutate the document and assume an empty starting state,
