@@ -22,7 +22,6 @@ import uno
 
 from plugin.framework.tool import ToolBase
 from ..specialized_base import ToolWriterCommentBase
-from ..ops import find_paragraph_for_range
 
 log = logging.getLogger("writeragent.writer")
 
@@ -52,7 +51,7 @@ class ListComments(ToolWriterCommentBase):
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue
 
-            entry = _read_annotation(field, para_ranges, text_obj)
+            entry = _read_annotation(field, para_ranges, text_obj, doc_svc)
 
             if author_filter:
                 af = author_filter.lower()
@@ -280,7 +279,7 @@ class Workflow(ToolWriterCommentBase):
                     resolved = False
                 if resolved:
                     continue
-            entry = _read_annotation(field, para_ranges, text_obj)
+            entry = _read_annotation(field, para_ranges, text_obj, doc_svc)
             entry["prefix"] = matched_prefix
             tasks.append(entry)
         return {"status": "ok", "tasks": tasks, "count": len(tasks)}
@@ -398,7 +397,7 @@ def _set_annotation_date(annotation):
         pass
 
 
-def _read_annotation(field, para_ranges, text_obj):
+def _read_annotation(field, para_ranges, text_obj, doc_svc):
     """Extract annotation properties into a plain dict."""
     entry = {}
     for prop, default in [("Author", ""), ("Content", ""), ("Name", ""), ("ParentName", ""), ("Resolved", False)]:
@@ -418,7 +417,7 @@ def _read_annotation(field, para_ranges, text_obj):
     # Paragraph index and anchor preview.
     try:
         anchor = field.getAnchor()
-        entry["paragraph_index"] = find_paragraph_for_range(anchor, para_ranges, text_obj)
+        entry["paragraph_index"] = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
         entry["anchor_preview"] = anchor.getString()[:80]
     except Exception:
         entry["paragraph_index"] = 0
