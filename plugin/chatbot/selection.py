@@ -1,7 +1,28 @@
-"""Action handlers for extending and editing document selections."""
-
+import uno
 import logging
+from typing import Any, cast
+
+try:
+    from com.sun.star.lang import DisposedException
+    from com.sun.star.uno import RuntimeException, Exception as UnoException
+    UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
+except ImportError:
+    UNO_DISPOSED_EXCEPTIONS = cast(Any, (Exception,))
+
 from plugin.framework.i18n import _
+from plugin.framework.uno_context import get_ctx
+from plugin.framework.async_stream import run_stream_async
+from plugin.framework.config import get_api_config, set_config, get_current_endpoint
+from plugin.framework.client.llm_client import LlmClient
+from plugin.doc.document_helpers import (
+    WriterCompoundUndo,
+    get_string_without_tracked_deletions,
+    build_writer_rewrite_prompt,
+    WriterStreamedRewriteSession,
+)
+from plugin.chatbot.config_ui_helpers import update_lru_history
+from .dialogs import msgbox
+from .dialog_views import input_box
 
 log = logging.getLogger("writeragent.chatbot.selection")
 
@@ -10,8 +31,7 @@ log = logging.getLogger("writeragent.chatbot.selection")
 
 def action_extend_selection(services):
     """Get document selection -> stream AI completion -> append to text."""
-    from plugin.framework.uno_context import get_ctx
-    from .dialogs import msgbox
+
 
     ctx = get_ctx()
     doc_svc = services.document
@@ -31,21 +51,14 @@ def action_extend_selection(services):
 
 def _extend_writer(services, ctx, doc):
     """Extend selection in a Writer document."""
-    from .dialogs import msgbox
-    from plugin.framework.async_stream import run_stream_async
-    from plugin.framework.config import get_api_config
-    from plugin.doc.document_helpers import WriterCompoundUndo, get_string_without_tracked_deletions
-    from plugin.framework.client.llm_client import LlmClient
+
 
     try:
         selection = doc.CurrentController.getSelection()
         text_range = selection.getByIndex(0)
         selected_text = get_string_without_tracked_deletions(text_range)
     except Exception as e:
-        from com.sun.star.lang import DisposedException
-        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
             log.debug("Failed to get Writer selection (likely disposed): %s", e)
         else:
             log.debug("No valid Writer selection found: %s", e)
@@ -73,10 +86,7 @@ def _extend_writer(services, ctx, doc):
             try:
                 text_range.setString(text_range.getString() + text)
             except Exception as e:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("Failed to append text to Writer selection (likely disposed): %s", e)
                 else:
                     log.exception("Failed to append text")
@@ -98,20 +108,12 @@ def _extend_writer(services, ctx, doc):
 
 def _extend_calc(services, ctx, doc):
     """Extend selection in a Calc document."""
-    from .dialogs import msgbox
-    from plugin.framework.async_stream import run_stream_async
-    from plugin.framework.config import get_api_config
-    from plugin.framework.client.llm_client import LlmClient
-
     try:
         sheet = doc.CurrentController.ActiveSheet
         selection = doc.CurrentController.Selection
         area = selection.getRangeAddress()
     except Exception as e:
-        from com.sun.star.lang import DisposedException
-        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
             log.debug("Failed to get Calc selection (likely disposed): %s", e)
         else:
             log.debug("No valid Calc selection found: %s", e)
@@ -163,10 +165,7 @@ def _extend_calc(services, ctx, doc):
                 try:
                     cell.setString(cell.getString() + text)
                 except Exception as e:
-                    from com.sun.star.lang import DisposedException
-                    from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                         log.debug("Failed to append text to Calc cell (likely disposed): %s", e)
 
         def on_error(e):
@@ -183,8 +182,7 @@ def _extend_calc(services, ctx, doc):
 
 def action_edit_selection(services):
     """Get selection -> input instructions -> stream AI -> replace text."""
-    from plugin.framework.uno_context import get_ctx
-    from .dialogs import msgbox
+
 
     ctx = get_ctx()
     doc_svc = services.document
@@ -206,8 +204,7 @@ def _show_edit_input():
     """Show the edit instructions dialog. Returns (user_input, extra_instructions); empty strings if cancelled.
     Uses the shared EditInputDialog.xdl (legacy_ui.input_box) so menu and shortcut share the same UI.
     """
-    from plugin.framework.uno_context import get_ctx
-    from .dialog_views import input_box
+
 
     ctx = get_ctx()
     user_input, extra_instructions = input_box(ctx, "Please enter edit instructions!", "Input", "")
@@ -216,21 +213,14 @@ def _show_edit_input():
 
 def _edit_writer(services, ctx, doc):
     """Edit selection in a Writer document."""
-    from .dialogs import msgbox
-    from plugin.framework.async_stream import run_stream_async
-    from plugin.framework.config import get_api_config
-    from plugin.doc.document_helpers import build_writer_rewrite_prompt, get_string_without_tracked_deletions, WriterStreamedRewriteSession
-    from plugin.framework.client.llm_client import LlmClient
+
 
     try:
         selection = doc.CurrentController.getSelection()
         text_range = selection.getByIndex(0)
         original_text = get_string_without_tracked_deletions(text_range)
     except Exception as e:
-        from com.sun.star.lang import DisposedException
-        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
             log.debug("Failed to get Writer selection for edit (likely disposed): %s", e)
         else:
             log.debug("No valid Writer selection found for edit: %s", e)
@@ -245,9 +235,6 @@ def _edit_writer(services, ctx, doc):
     if not user_input:
         return
     if extra_instructions:
-        from plugin.framework.config import set_config, get_current_endpoint
-        from plugin.chatbot.config_ui_helpers import update_lru_history
-
         set_config(ctx, "additional_instructions", extra_instructions)
         update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
@@ -281,10 +268,7 @@ def _edit_writer(services, ctx, doc):
         try:
             session.abort_and_restore()
         except Exception as recovery_err:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-            if isinstance(recovery_err, (DisposedException, RuntimeException, UnoException)):
+            if isinstance(recovery_err, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Failed to restore original text (likely disposed): %s", recovery_err)
         log.exception("Edit selection failed")
         msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))
@@ -296,20 +280,14 @@ def _edit_writer(services, ctx, doc):
 
 def _edit_calc(services, ctx, doc):
     """Edit selection in a Calc document."""
-    from .dialogs import msgbox
-    from plugin.framework.async_stream import run_stream_async
-    from plugin.framework.config import get_api_config
-    from plugin.framework.client.llm_client import LlmClient
+
 
     try:
         sheet = doc.CurrentController.ActiveSheet
         selection = doc.CurrentController.Selection
         area = selection.getRangeAddress()
     except Exception as e:
-        from com.sun.star.lang import DisposedException
-        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
             log.debug("Failed to get Calc selection for edit (likely disposed): %s", e)
         else:
             log.debug("No valid Calc selection found for edit: %s", e)
@@ -320,9 +298,6 @@ def _edit_calc(services, ctx, doc):
     if not user_input:
         return
     if extra_instructions:
-        from plugin.framework.config import set_config, get_current_endpoint
-        from plugin.chatbot.config_ui_helpers import update_lru_history
-
         set_config(ctx, "additional_instructions", extra_instructions)
         update_lru_history(ctx, extra_instructions, "prompt_lru", get_current_endpoint(ctx))
 
@@ -383,20 +358,14 @@ def _edit_calc(services, ctx, doc):
                 try:
                     cell.setString(cell.getString() + text)
                 except Exception as e:
-                    from com.sun.star.lang import DisposedException
-                    from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                    if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                    if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                         log.debug("Failed to write text to Calc cell (likely disposed): %s", e)
 
         def on_error(e):
             try:
                 cell.setString(original)
             except Exception as recovery_err:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                if isinstance(recovery_err, (DisposedException, RuntimeException, UnoException)):
+                if isinstance(recovery_err, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("Failed to restore original cell text (likely disposed): %s", recovery_err)
             log.exception("Edit selection (calc) failed")
             msgbox(ctx, _("WriterAgent: Edit Selection"), str(e))

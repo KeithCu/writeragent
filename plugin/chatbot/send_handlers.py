@@ -11,14 +11,44 @@ alternate send flows that would otherwise bloat that class:
 
 from __future__ import annotations
 
+import uno
+import os
+import json
+import threading
 import queue
 import logging
-from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
+import traceback
+from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar, cast
+
+try:
+    from com.sun.star.lang import DisposedException
+    from com.sun.star.uno import RuntimeException, Exception as UnoException
+    # Common exceptions for UI components that may be disposed during layout/refresh
+    UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
+except ImportError:
+    # Fallback for tests without PyUNO
+    UNO_DISPOSED_EXCEPTIONS = cast(Any, (Exception,))
+
+from plugin.framework.i18n import _
+from plugin.framework.async_stream import StreamQueueKind, run_blocking_in_thread, run_async_worker_with_drain
+from plugin.framework.errors import safe_json_loads, format_error_payload, AgentParsingError, ConfigError, NetworkError
+from plugin.framework.config import get_api_config, get_config, get_config_int, as_bool
+from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.constants import CORE_DIRECTIVES
+from plugin.framework.queue_executor import llm_request_lane
+from plugin.framework.event_bus import global_event_bus
+from plugin.doc.document_helpers import get_document_context_for_chat, is_calc, is_draw
+from plugin.agent_backend import get_backend
+from plugin.agent_backend.registry import normalize_backend_id
+from plugin.chatbot.state_machine import SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
+from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
+from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.framework.tool import ToolContext
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from plugin.framework.client.llm_client import LlmClient
     from plugin.chatbot.panel import ChatSession
-    from plugin.chatbot.state_machine import SendHandlerState, EffectInterpreter
 
 
 def _agent_backend_label(adapter: Any, backend_id: str) -> str:
@@ -73,12 +103,6 @@ class TypedEvent(Protocol):
 
 T = TypeVar("T", bound="SendHandlersMixin")
 
-from plugin.framework.async_stream import StreamQueueKind
-from plugin.framework.errors import safe_json_loads
-from plugin.chatbot.state_machine import SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
-
-log = logging.getLogger(__name__)
-
 
 class SendHandlersMixin:
     client: LlmClient | None
@@ -86,12 +110,10 @@ class SendHandlersMixin:
 
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread."""
-        from plugin.framework.async_stream import run_blocking_in_thread
-        from plugin.framework.i18n import _
+
 
         if not self.client:
-            from plugin.framework.config import get_api_config
-            from plugin.framework.client.llm_client import LlmClient
+
 
             api_config = get_api_config(self.ctx)
             self.client = LlmClient(api_config, self.ctx)
@@ -112,7 +134,7 @@ class SendHandlersMixin:
             self._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
             raise e
         finally:
-            import os
+
 
             try:
                 os.remove(wav_path)
@@ -123,7 +145,7 @@ class SendHandlersMixin:
     def _run_unified_worker_drain_loop(
         self: SendHandlerHost, q: "queue.Queue[Any]", worker_fn: Callable[[], None], current_state: "SendHandlerState", interpreter: "EffectInterpreter", show_thinking: bool = True, on_stopped_callback: Callable[[], None] | None = None, on_approval_callback: Callable[[Any], None] | None = None
     ) -> None:
-        from plugin.framework.async_stream import run_async_worker_with_drain
+
 
         def dispatch_event(event):
             nonlocal current_state
@@ -172,7 +194,7 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_direct_image_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-        from plugin.chatbot.dialogs import get_control_text
+
 
         q: queue.Queue[Any] = queue.Queue()
 
@@ -201,28 +223,24 @@ class SendHandlersMixin:
                     base_size_val = 512
 
                 from plugin.main import get_tools
-                from plugin.framework.tool import ToolContext
 
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type="writer", services=get_tools()._services, caller="chat", status_callback=lambda t: q.put((StreamQueueKind.STATUS, t)))
                 try:
-                    from plugin.chatbot.config_ui_helpers import update_lru_history
+
 
                     update_lru_history(self.ctx, base_size_val, "image_base_size_lru", "")
                 except Exception as elru:
-                    from plugin.framework.errors import ConfigError
+
 
                     if isinstance(elru, ConfigError):
                         log.error("LRU update ConfigError: %s" % elru)
                     else:
-                        from com.sun.star.lang import DisposedException
-                        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                        if isinstance(elru, (DisposedException, RuntimeException, UnoException)):
+                        if isinstance(elru, UNO_DISPOSED_EXCEPTIONS):
                             log.debug("LRU update error (likely disposed): %s" % elru)
                         else:
                             log.error("LRU update error: %s" % elru)
 
-                import json
+
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 res = get_tools().execute("generate_image", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text})
@@ -240,7 +258,7 @@ class SendHandlersMixin:
             except Exception as e:
                 doc_type = self._get_doc_type_str(model).lower() if model else "unknown"
                 log.error("Direct image path ERROR in _do_send_direct_image [doc: %s]: %s", doc_type, e)
-                from plugin.framework.errors import format_error_payload
+
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
@@ -263,30 +281,21 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_agent_backend_effect(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
-        from plugin.framework.config import get_config, get_config_int
-        from plugin.doc.document_helpers import get_document_context_for_chat
-        from plugin.agent_backend import get_backend
+
 
         document_url = ""
         try:
             if model and hasattr(model, "getURL"):
                 document_url = str(model.getURL() or "")
         except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Failed to get document URL for agent backend (likely disposed): %s", e)
 
         max_context = get_config_int(self.ctx, "chat_context_length")
         try:
             doc_context = get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=self.ctx)
         except Exception as e:
-            from plugin.framework.i18n import _
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
             else:
                 log.exception("Failed to build document context for agent backend")
@@ -295,19 +304,19 @@ class SendHandlersMixin:
             self._set_status(_("Error"))
             return
 
-        from plugin.agent_backend.registry import normalize_backend_id
+
 
         backend_id = normalize_backend_id(get_config(self.ctx, "agent_backend.backend_id"))
         adapter = get_backend(backend_id, ctx=self.ctx)
         if not adapter:
-            from plugin.framework.i18n import _
+
 
             self._append_response("\n" + _("[Agent backend '{0}' not found.]").format(backend_id) + "\n")
             self._terminal_status = "Error"
             self._set_status(_("Error"))
             return
         if not adapter.is_available(self.ctx):
-            from plugin.framework.i18n import _
+
 
             self._append_response("\n" + _("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id)) + "\n")
             self._terminal_status = "Error"
@@ -319,9 +328,7 @@ class SendHandlersMixin:
 
         def run_agent():
             try:
-                from plugin.framework.constants import CORE_DIRECTIVES
-                from plugin.framework.config import as_bool
-                from plugin.framework.queue_executor import llm_request_lane
+
 
                 # Lean system prompt for external agents: instructions + MCP connection info
                 mcp_url = self._get_mcp_url()
@@ -344,7 +351,7 @@ class SendHandlersMixin:
                     adapter.send(queue=q, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=lambda: self.stop_requested)
             except Exception as e:
                 log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
-                from plugin.framework.errors import format_error_payload
+
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
             finally:
@@ -357,8 +364,7 @@ class SendHandlersMixin:
 
         def on_approval_required(item):
             # item = ("approval_required", description, tool_name, args, request_id)
-            from plugin.chatbot.dialogs import show_approval_dialog
-            from plugin.framework.config import get_config, as_bool
+
 
             description = item[1] if len(item) > 1 else ""
             tool_name = item[2] if len(item) > 2 else ""
@@ -379,8 +385,6 @@ class SendHandlersMixin:
                 try:
                     adapter.submit_approval(request_id, approved)
                 except Exception as e:
-                    from plugin.framework.errors import NetworkError
-
                     if isinstance(e, NetworkError):
                         log.debug("NetworkError submitting agent backend approval: %s", e)
                     else:
@@ -425,30 +429,31 @@ class SendHandlersMixin:
             interpreter.interpret(effect)
 
     def _execute_web_research_effect(self: SendHandlerHost, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
+        from plugin.main import get_tools
         is_librarian = getattr(self, "_active_run_librarian", False)
         if hasattr(self, "_active_run_librarian"):
             delattr(self, "_active_run_librarian")
 
-        from plugin.main import get_tools
-        from plugin.doc.document_helpers import is_calc, is_draw
+
 
         q: queue.Queue[Any] = queue.Queue()
         # Read show_thinking before spawning the thread so apply_chunk can use it
         try:
-            from plugin.framework.config import get_config, as_bool
+
 
             show_thinking = as_bool(get_config(self.ctx, "chatbot.show_search_thinking"))
         except (ValueError, TypeError) as e:
             log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
             show_thinking = False
 
-        from plugin.chatbot.dialogs import get_control_text
+
 
         history_text = ""
         if self.response_control and self.response_control.getModel():
             history_text = get_control_text(self.response_control) or ""
 
         def run_search():
+            from plugin.main import get_tools
             doc_type = "calc" if is_calc(model) else "draw" if is_draw(model) else "writer"
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
@@ -466,7 +471,7 @@ class SendHandlersMixin:
                     q.put((StreamQueueKind.CHUNK, text))
 
                 def approval_cb(query_for_engine, tool_name, args):
-                    import threading
+
 
                     event = threading.Event()
                     # Use setattr/getattr to avoid static attribute errors on Event
@@ -482,11 +487,7 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.STOPPED,))
                     return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
-                from plugin.framework.tool import ToolContext
-
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=lambda: self.stop_requested, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb)
-
-                import json
 
                 if is_librarian:
                     res = get_tools().execute("librarian_onboarding", tctx, bypass_thread_guard=False, **{"query": query_text, "history_text": history_text})
@@ -494,15 +495,11 @@ class SendHandlersMixin:
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
-                        from plugin.framework.errors import AgentParsingError, format_error_payload
-
                         log.error("Failed to parse librarian result in _run_librarian [doc: %s]", doc_type)
                         parsed_err = AgentParsingError("Invalid JSON from librarian tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
                     if data.get("status") == "ok":
-                        from plugin.framework.i18n import _
-
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
@@ -512,7 +509,6 @@ class SendHandlersMixin:
                     elif data.get("status") == "switch_mode":
                         # We want to exit librarian flow on the next turn.
                         self._in_librarian_mode = False
-                        from plugin.framework.i18n import _
 
                         answer = data.get("result", _("Perfect! I'm switching you to the main assistant now."))
                         msg = _("Librarian: {0}").format(answer) + "\n"
@@ -520,7 +516,6 @@ class SendHandlersMixin:
                         self.session.add_assistant_message(content=msg)
                     else:
                         self._in_librarian_mode = False
-                        from plugin.framework.i18n import _
 
                         msg = data.get("message", _("Unknown librarian error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Librarian error: {0}]").format(msg) + "\n"))
@@ -532,15 +527,11 @@ class SendHandlersMixin:
 
                     data = safe_json_loads(result)
                     if not isinstance(data, dict):
-                        from plugin.framework.errors import AgentParsingError, format_error_payload
-
                         log.error("Failed to parse web_research result in _run_web_research [doc: %s]", doc_type)
                         parsed_err = AgentParsingError("Invalid JSON from web search tool.", details={"raw_result": result})
                         data = format_error_payload(parsed_err)
 
                     if data.get("status") == "ok":
-                        from plugin.framework.i18n import _
-
                         answer = data.get("result", "")
                         if not isinstance(answer, str):
                             answer = str(answer)
@@ -549,15 +540,12 @@ class SendHandlersMixin:
                         # Persist assistant result to current session
                         self.session.add_assistant_message(content=msg)
                     else:
-                        from plugin.framework.i18n import _
-
                         msg = data.get("message", _("Unknown research error."))
                         q.put((StreamQueueKind.CHUNK, "\n" + _("[Research error: {0}]").format(msg) + "\n"))
 
                     q.put((StreamQueueKind.STREAM_DONE, {}))
             except Exception as e:
                 log.exception("Web/Librarian path ERROR in _run_web_research [doc: %s]", doc_type)
-                from plugin.framework.errors import format_error_payload
 
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
@@ -575,7 +563,7 @@ class SendHandlersMixin:
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP server URL from config."""
         try:
-            from plugin.framework.config import get_config
+
 
             port = get_config(self.ctx, "mcp.mcp_port") or 8765
             host = get_config(self.ctx, "mcp.host") or "localhost"

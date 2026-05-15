@@ -4,13 +4,24 @@ This mixin is used by SendButtonListener in panel.py and contains the
 multi-round tool-calling loop plus simple streaming fallback.
 """
 
-from __future__ import annotations
-
+import uno
 import logging
 import inspect
 import dataclasses
 import queue
+import json
+import threading
+import traceback
+import base64
+import os
 from typing import TYPE_CHECKING, Protocol, Any, Callable, Sequence, cast
+
+try:
+    from com.sun.star.lang import DisposedException
+    from com.sun.star.uno import RuntimeException, Exception as UnoException
+    UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
+except ImportError:
+    UNO_DISPOSED_EXCEPTIONS = cast(Any, (Exception,))
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -37,9 +48,15 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.constants import get_chat_system_prompt_for_document
 from plugin.doc.document_helpers import get_document_context_for_chat
-from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError
+from plugin.framework.errors import format_error_payload, ToolExecutionError, UnoObjectError, NetworkError
+from plugin.framework.queue_executor import llm_request_lane
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import as_bool
+
+from plugin.framework.tool import ToolContext
+from plugin.framework.worker_pool import run_in_background
+from plugin.framework.uno_context import get_toolkit
+from plugin.framework.i18n import _
 
 from plugin.chatbot.tool_loop_state import (
     ToolLoopState,
@@ -158,10 +175,8 @@ class ToolCallingMixin:
             active_tools = get_tools().get_schemas("openai", doc=model, active_domain=active_domain)
 
             def execute_fn(name, args, doc, ctx, status_callback=None, append_thinking_callback=None, stop_checker=None):
-                import json
-                import threading
-                from plugin.framework.tool import ToolContext
                 from plugin.main import get_tools as _get_tools
+
 
                 # NOTE: Experimental planning/TodoStore wiring is intentionally
                 # commented out. When enabling the hermes-style todo tool,
@@ -230,7 +245,6 @@ class ToolCallingMixin:
                     res = _get_tools().execute(name, tctx, **args)
                     return json.dumps(res) if isinstance(res, dict) else str(res)
                 except (ToolExecutionError, UnoObjectError) as e:
-                    import traceback
                     tb = traceback.format_exc()
                     log.exception("Tool execution failed")
                     agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
@@ -240,7 +254,6 @@ class ToolCallingMixin:
                     err_payload["details"]["traceback"] = tb
                     return json.dumps(err_payload)
                 except Exception as e:
-                    import traceback
                     log.exception("Unexpected tool error")
                     tb = traceback.format_exc()
                     wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__, "traceback": tb})
@@ -258,9 +271,6 @@ class ToolCallingMixin:
         if self.model_selector:
             selected_model = self.model_selector.getText()
             if selected_model:
-                from plugin.framework.config import set_config
-
-                set_config(self.ctx, "text_model", selected_model)
                 current_endpoint = get_current_endpoint(self.ctx)
                 update_lru_history(self.ctx, selected_model, "model_lru", current_endpoint)
                 log.debug("_do_send: text model updated to %s" % selected_model)
@@ -306,14 +316,7 @@ class ToolCallingMixin:
             self._set_status("Error")
             return
         except Exception as e:
-            try:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                is_disposed = isinstance(e, (DisposedException, RuntimeException, UnoException))
-            except ImportError:
-                is_disposed = False
-            if is_disposed:
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Document likely disposed while reading context: %s", e)
                 self._append_response("\n[Document closed or unavailable.]\n")
             else:
@@ -326,8 +329,6 @@ class ToolCallingMixin:
 
         # If there's audio, embed it
         if self.audio_wav_path:
-            import base64
-
             try:
                 with open(self.audio_wav_path, "rb") as f:
                     wav_data = f.read()
@@ -352,7 +353,7 @@ class ToolCallingMixin:
                 self._append_response("\nYou: %s\n" % query_text)
                 self.audio_wav_path = None
             except Exception as e:
-                from plugin.framework.errors import NetworkError
+
 
                 if isinstance(e, NetworkError):
                     log.exception("NetworkError while handling audio message")
@@ -395,11 +396,8 @@ class ToolCallingMixin:
         update_activity_state("tool_loop", round_num=round_num)
         log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self.session.messages)))
         self._set_status("Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1))
-
         def run():
             try:
-                from plugin.framework.queue_executor import llm_request_lane
-
                 with llm_request_lane():
                     response = client.stream_request_with_tools(self.session.messages, max_tokens, tools=tools, append_callback=lambda t: q.put((StreamQueueKind.CHUNK, t)), append_thinking_callback=lambda t: q.put((StreamQueueKind.THINKING, t)), stop_checker=lambda: self.stop_requested)
                 if self.stop_requested:
@@ -408,15 +406,11 @@ class ToolCallingMixin:
                     update_activity_state("tool_loop", round_num=round_num)
                     q.put((StreamQueueKind.STREAM_DONE, response))
             except Exception as e:
-                from plugin.framework.errors import NetworkError
-
                 if isinstance(e, NetworkError):
                     log.exception("Tool loop round %d: NetworkError" % round_num)
                 else:
                     log.exception("Tool loop round %d: API ERROR" % round_num)
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
-
-        from plugin.framework.worker_pool import run_in_background
 
         run_in_background(run, name=f"llm-worker-{round_num}")
 
@@ -429,7 +423,6 @@ class ToolCallingMixin:
         def run_final():
             last_streamed = []
             try:
-                from plugin.framework.queue_executor import llm_request_lane
 
                 def append_c(c):
                     q.put((StreamQueueKind.CHUNK, c))
@@ -445,15 +438,13 @@ class ToolCallingMixin:
                 else:
                     q.put((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
             except Exception as e:
-                from plugin.framework.errors import NetworkError
-
                 if isinstance(e, NetworkError):
                     log.error("Final stream NetworkError: %s", e)
                 else:
                     log.error("Final stream error: %s", e)
                 q.put((StreamQueueKind.ERROR, format_error_payload(e)))
 
-        from plugin.framework.worker_pool import run_in_background
+
 
         run_in_background(run_final, name="llm-worker-final")
 
@@ -482,14 +473,8 @@ class ToolCallingMixin:
                     if tool and tool.detects_mutation():
                         mutates = True
                 except Exception as e:
-                    try:
-                        from com.sun.star.lang import DisposedException
-                        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
-                            log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
-                    except ImportError:
-                        pass
+                    if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
+                        log.debug("Tool loop event: mutates_document check failed (likely disposed): %s", e)
             return ToolLoopEvent(kind=EventKind.TOOL_RESULT, data={"call_id": s[1] if ln > 1 else None, "func_name": s[2] if ln > 2 else None, "func_args_str": s[3] if ln > 3 else None, "result": s[4] if ln > 4 else None, "mutates_document": mutates})
         elif kind == StreamQueueKind.FINAL_DONE:
             return ToolLoopEvent(kind=EventKind.FINAL_DONE, data={"content": data})
@@ -552,7 +537,7 @@ class ToolCallingMixin:
             current_model = get_text_model(self.ctx)
             current_endpoint = get_current_endpoint(self.ctx)
             set_native_audio_support(self.ctx, current_model, current_endpoint, supported=True)
-            import os
+            
 
             try:
                 if self.audio_wav_path:
@@ -588,11 +573,10 @@ class ToolCallingMixin:
                             res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx, stop_checker=lambda: self.stop_requested)
                         self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                     except Exception as e:
-                        import json
 
                         self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
 
-                from plugin.framework.worker_pool import run_in_background
+
 
                 run_in_background(run_async, name=f"tool-async-{func_name}")
             else:
@@ -603,7 +587,6 @@ class ToolCallingMixin:
                         res = self._active_execute_tool_fn(func_name, func_args, self._active_model, self.ctx)
                     self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
                 except Exception as e:
-                    import json
 
                     self._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))
 
@@ -681,8 +664,6 @@ class ToolCallingMixin:
         self._set_status("Error")
         # Cleanup audio if we aren't falling back
         if self.audio_wav_path:
-            import os
-
             try:
                 os.remove(self.audio_wav_path)
             except OSError as e:
@@ -741,11 +722,8 @@ class ToolCallingMixin:
                 log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
                 show_search_thinking = False
 
-            from plugin.framework.uno_context import get_toolkit
-
             toolkit = get_toolkit(self.ctx)
             if toolkit is None:
-                from plugin.framework.i18n import _
 
                 self._append_response("\n[" + _("Error: Toolkit unavailable") + "]\n")
                 self._terminal_status = "Error"

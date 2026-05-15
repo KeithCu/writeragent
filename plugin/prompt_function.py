@@ -46,6 +46,8 @@ except ImportError:
 
 from plugin.framework.config import get_config, get_api_config, get_config_int
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.async_stream import run_blocking_in_thread
+from plugin.framework.client.errors import format_error_for_display
 
 import logging
 
@@ -132,42 +134,35 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
 
     def prompt(self, message, systemPrompt, model, maxTokens):
         log.debug(f"=== PromptFunction.PROMPT({message}) called ===")
-        aProgrammaticName = "PROMPT"
-        if aProgrammaticName == "PROMPT":
-            try:
-                system_prompt = systemPrompt if systemPrompt is not None else get_config(self.ctx, "extend_selection_system_prompt")
-                model_name = model if model is not None else (get_config(self.ctx, "text_model") or get_config(self.ctx, "model") or "")
-                if maxTokens is not None:
-                    try:
-                        max_tokens = int(maxTokens)
-                    except (TypeError, ValueError):
-                        max_tokens = 70
-                else:
-                    max_tokens = get_config_int(self.ctx, "calc_prompt_max_tokens")
+        try:
+            system_prompt = systemPrompt if systemPrompt is not None else get_config(self.ctx, "extend_selection_system_prompt")
+            model_name = model if model is not None else (get_config(self.ctx, "text_model") or get_config(self.ctx, "model") or "")
+            if maxTokens is not None:
+                try:
+                    max_tokens = int(maxTokens)
+                except (TypeError, ValueError):
+                    max_tokens = 70
+            else:
+                max_tokens = get_config_int(self.ctx, "calc_prompt_max_tokens")
 
-                messages = []
-                if system_prompt:
-                    messages.append({"role": "system", "content": system_prompt})
-                messages.append({"role": "user", "content": message})
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": message})
 
-                config = get_api_config(self.ctx)
-                if model is not None:
-                    config = dict(config, model=str(model_name))
+            config = get_api_config(self.ctx)
+            if model is not None:
+                config = dict(config, model=str(model_name))
 
-                if not self.client:
-                    self.client = LlmClient(config, self.ctx)
-                else:
-                    self.client.config = config
+            if not self.client:
+                self.client = LlmClient(config, self.ctx)
+            else:
+                self.client.config = config
 
-                from plugin.framework.async_stream import run_blocking_in_thread
-
-                return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
-            except Exception as e:
-                from plugin.framework.client.errors import format_error_for_display
-
-                log.error("PROMPT error: %s" % str(e))
-                return format_error_for_display(e)
-        return ""
+            return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
+        except Exception as e:
+            log.error("PROMPT error: %s" % str(e))
+            return format_error_for_display(e)
 
     # XServiceInfo implementation
     def getImplementationName(self):
@@ -182,18 +177,3 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(PromptFunction, "org.extension.writeragent.PromptFunction", ("com.sun.star.sheet.AddIn",))
-
-
-# Test function registration
-def test_registration():
-    """Test if the function is properly registered"""
-    log.debug("=== Testing function registration ===")
-    try:
-        # This will be called when LibreOffice loads the extension
-        log.info("Function registration test completed")
-    except Exception as e:
-        log.error(f"Registration test failed: {e}")
-
-
-# Call test on module load
-test_registration()

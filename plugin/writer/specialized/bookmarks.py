@@ -53,7 +53,7 @@ class BookmarkService(ServiceBase):
                 para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                 if para_idx >= 0:
                     result[para_idx] = name
-        except Exception as e:
+        except Exception:
             log.exception("Failed to get MCP bookmark map")
 
         return result
@@ -133,7 +133,7 @@ class BookmarkService(ServiceBase):
                         doc.store()
                 except Exception:
                     pass
-        except Exception as e:
+        except Exception:
             log.exception("Failed to cleanup bookmarks")
         return removed
 

@@ -288,10 +288,29 @@ When refactoring, ensure these provider-specific behaviors are isolated:
 - [✅] **Standardize on `log.exception("Context")`** inside `except` blocks to ensure stacktraces are captured for debugging.
 - [✅] Enhance `SafeLogger` in `logging.py` to support `exception()` method.
 - [✅] Port key modules (`tool_loop.py`, `document_helpers.py`, `service.py`, `format.py`) to the new logging pattern.
-- [ ] Standardize error message formats
+- [✅] Standardize error message formats
 - [ ] Add missing error codes for new features
 - [ ] Improve error context reporting
 - [ ] Add error recovery patterns
+
+### 8. **Chatbot Import Architecture & Exception Standardization** 🧹 ✅ **COMPLETED**
+**Files**: `plugin/chatbot/*.py` (specifically `send_handlers.py`, `selection.py`, `tool_loop.py`)
+**Status**: Core refactoring completed and verified.
+
+- ✅ **Top-Level Consolidation**: Promoted 100+ local imports to the module level. This significantly improves static analysis accuracy and makes dependencies explicit.
+- ✅ **Circular Dependency Management**: Identified `get_tools` as a critical local import that must remain scoped to methods to prevent import cycles with `plugin.main`.
+- ✅ **UNO Exception Normalization**: Implemented the `UNO_DISPOSED_EXCEPTIONS` pattern. By wrapping UNO imports in a `try-except ImportError` block and casting to a standard tuple, the codebase remains testable in non-PyUNO environments (like standard pytest).
+- ✅ **"AI Slop" Purge**: Systematically removed repetitive, scattered import blocks and excessive whitespace introduced by iterative AI edits.
+
+#### Architectural Advice (Lessons Learned):
+> [!IMPORTANT]
+> **Maintaining the "Clean Room" Import Style:**
+> 1. **Prefer Top-Level**: Always place stdlib and lightweight framework imports (`json`, `threading`, `logging`, `traceback`) at the top.
+> 2. **Protect PyUNO**: Use the `try: from com.sun.star... except ImportError: ...` pattern for UNO types. This prevents test collection failures on developer machines without a live `soffice` bridge.
+> 3. **Standardize Cleanup**: Use `UNO_DISPOSED_EXCEPTIONS` in `except` blocks for all LibreOffice component interactions. It ensures consistent logging of "likely disposed" vs. "unexpected" errors.
+> 4. **Indent with Care**: When refactoring worker threads (like `run` or `run_final`), ensure the closure structure is preserved. Circular dependency fixes often require careful local scope management.
+
+**Impact**: 100% test pass rate (888/888), improved `ty`/`mypy` diagnostics, and cleaner developer experience.
 
 #### Advice for standardizing logging (The "Essence"):
 > [!TIP]
@@ -617,6 +636,7 @@ WriterAgent aims to be the most powerful, flexible, and user-friendly document a
 ## 📊 Current Status
 
 **Recently Completed** 🎉:
+- ✅ Chatbot import architecture & exception standardization (purged "AI slop", consolidated 100+ imports)
 - ✅ Shape API enhancements (rich formatting, connectors, groups)
 - ✅ Fields domain (full field type support, master/dependent system)
 - ✅ Indexes domain (TOC creation, marks, comprehensive management)

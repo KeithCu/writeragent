@@ -1,8 +1,20 @@
 import logging
+import traceback
+
+from com.sun.star.lang import DisposedException
+from com.sun.star.uno import RuntimeException, Exception as UnoException
+
+# Common exceptions for UI components that may be disposed during layout/refresh
+UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
 from typing import Any, Callable
 
-from plugin.chatbot.dialogs import get_optional as get_optional_control, get_checkbox_state, get_control_text, set_control_text
+from plugin.chatbot.dialogs import get_optional as get_optional_control, get_checkbox_state, get_control_text, set_control_text, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
+from plugin.framework.config import get_config
+from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
+from plugin.framework.i18n import _
+from plugin.framework.event_bus import global_event_bus
+from plugin.framework.logging import init_logging
 
 log = logging.getLogger(__name__)
 
@@ -22,10 +34,7 @@ def _measure_send_button_max_width(send_ctrl, has_recording):
         m.Label = saved
         return wmax if wmax > 0 else None
     except Exception as e:
-        from com.sun.star.lang import DisposedException
-        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
             log.debug("Failed to measure send button width (likely disposed): %s", e)
         else:
             log.debug("Unexpected error measuring send button width: %s", e)
@@ -46,10 +55,7 @@ def _measure_aux_button_max_width(ctrl, labels):
         m.Label = saved
         return wmax if wmax > 0 else None
     except Exception as e:
-        from com.sun.star.lang import DisposedException
-        from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-        if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+        if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
             log.debug("Failed to measure aux button width '%s' (likely disposed): %s", ctrl.getName() if hasattr(ctrl, "getName") else "?", e)
         else:
             log.debug("Unexpected error measuring aux button width: %s", e)
@@ -65,8 +71,6 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     def get_optional(name):
         return get_optional_control(root_window, name)
-
-    from plugin.chatbot.dialogs import translate_dialog
 
     translate_dialog(root_window)
 
@@ -99,10 +103,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                 current = get_control_text(controls["response"]) or ""
                 set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
         except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Failed to show init error on response control (likely disposed): %s", e)
             else:
                 log.error("Unexpected error displaying init error: %s", e)
@@ -111,16 +112,12 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     # 1. Config, Models, and UI
     try:
-        from plugin.framework.config import get_config
-
         extra_instructions = get_config(self.ctx, "additional_instructions")
 
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
 
         self._wire_image_ui(controls["aspect_ratio_selector"], controls["base_size_input"], controls["base_size_label"], controls["direct_image_check"], controls["web_research_check"], controls["model_label"], controls["model_selector"], controls["image_model_selector"])
     except Exception as e:
-        import traceback
-
         _show_init_error("Config: %s" % e)
         log.error(traceback.format_exc())
         extra_instructions = ""
@@ -130,18 +127,12 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     self._setup_sessions(model, extra_instructions)
 
     # 3. Determine Mode & Greeting
-    from plugin.framework.constants import get_greeting_for_document, DEFAULT_RESEARCH_GREETING
-    from plugin.framework.i18n import _
-
     web_checked = False
     if controls["web_research_check"]:
         try:
             web_checked = get_checkbox_state(controls["web_research_check"]) == 1
         except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Failed to read web_research_check state (likely disposed): %s", e)
             else:
                 log.exception("Error reading web_research_check state: %s", e)
@@ -187,14 +178,9 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
 
     if controls["status"] and hasattr(controls["status"], "setText"):
         try:
-            from plugin.framework.i18n import _
-
             controls["status"].setText(_("Ready"))
         except Exception as e:
-            from com.sun.star.lang import DisposedException
-            from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-            if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+            if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                 log.debug("Failed to set status text on init (likely disposed): %s", e)
             else:
                 log.exception("Error setting status text: %s", e)
@@ -228,10 +214,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                     sr = controls["send"].getPosSize()
                     controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
             except Exception as e:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("send button width stabilize skipped (likely disposed): %s", e)
                 else:
                     log.debug("send button width stabilize skipped: %s", e)
@@ -244,10 +227,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
                         r = c.getPosSize()
                         c.setPosSize(r.X, r.Y, aw, r.Height, 15)
             except Exception as e:
-                from com.sun.star.lang import DisposedException
-                from com.sun.star.uno import RuntimeException, Exception as UnoException
-
-                if isinstance(e, (DisposedException, RuntimeException, UnoException)):
+                if isinstance(e, UNO_DISPOSED_EXCEPTIONS):
                     log.debug("stop/clear button width stabilize skipped (likely disposed): %s", e)
                 else:
                     log.debug("stop/clear button width stabilize skipped: %s", e)
@@ -258,15 +238,11 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):
     self._update_backend_indicator(root_window)
 
     # 6. Global Config Listener
-    from plugin.framework.event_bus import global_event_bus
-
     global_event_bus.subscribe("config:changed", self._on_config_changed, weak=True)
 
     # Weekly extension update check: run once per process, late (after sidebar UI is wired)
     # so logging is initialized and AsyncCallback/msgbox are reliable.
     try:
-        from plugin.framework.logging import init_logging
-
         init_logging(self.ctx)
         from plugin.main import _schedule_extension_update_check_once
 

@@ -188,7 +188,7 @@ class WriterCompoundUndo:
             return
         try:
             um.leaveUndoContext()
-        except Exception as e:
+        except Exception:
             self._log.exception("leaveUndoContext failed")
 
 
@@ -241,7 +241,7 @@ class WriterStreamedRewriteSession:
                 self.doc.setPropertyValue("RecordChanges", True)
                 self.text_range.setString(self.generated_text)
                 return None
-            except Exception as commit_error:
+            except Exception:
                 logging.getLogger(__name__).exception("Failed to collapse streamed edit into one tracked change")
 
                 fallback_errors: list[str] = []
@@ -421,7 +421,7 @@ def resolve_document_by_url(ctx, url):
             except Exception as e:
                 logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
-    except Exception as e:
+    except Exception:
         logging.getLogger(__name__).exception("resolve_document_by_url enumeration error")
     return (None, None)
 
