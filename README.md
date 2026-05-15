@@ -47,14 +47,11 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ### 🖋️ Writer
 
-- **Grammar Checker**: Real-time, local-first editing with persistent storage of good/bad sentences.
-- **TeX Import**: Seamless LaTeX and MathML support for scientific documents.
-- **Real-time Grammar Checker**: An experimental, asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. [Read the Plan](docs/realtime-grammar-checker-plan.md).
-- **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). [Design Docs](docs/libreoffice-html-math-dev-plan.md) & [Extraction Logic](docs/math-extraction-editing-dev-plan.md).
-- **Advanced Editing**: Supports rich text, page layout, shapes, charts, bookmarks, fields, footnotes, and track-changes. [Specialized Toolsets](docs/writer-specialized-toolsets.md)
+- **Real-time Grammar Checker**: An experimental, asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. [Read the Plan](docs/realtime-grammar-checker-plan.md).
+- **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). [Design Docs](docs/libreoffice-html-math-dev-plan.md) & [Future Extraction Logic](docs/math-extraction-editing-dev-plan.md).
+- **Advanced Editing**: Supports rich text, [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), fields, [footnotes](docs/footnotes-api-reference.md), and [track-changes](docs/writer-tracking-api-reference.md). Tool delegation feature explained in [Writer Specialized Toolset](docs/writer-specialized-toolsets.md).
 - **Format Preservation**: Uses a "surgical" replacement method that preserves existing bold, italics, highlights, and font sizes.
 - **Extend & Edit Selection**: Quick shortcuts (**`Ctrl+Q`** to extend, **`Ctrl+E`** to rewrite) that act directly on your highlighted text.
-- **Reference Guides**: [Footnotes](docs/footnotes-api-reference.md), [Bookmarks](docs/bookmarks-api-reference.md), [Page Layout](docs/page-api-reference.md), [Track Changes](docs/writer-tracking-api-reference.md), and [Section Replace Options](docs/section-replace-options.md).
 
 ### 📊 Calc
 
@@ -74,7 +71,6 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 ### 🧠 The Intelligence Core (LO-DOM)
 
 - **Document Object Model (LO-DOM)**: A recursive model that understands structural relationships. [LO-DOM Semantic Tree](docs/lo-dom-semantic-tree.md).
-- **Specialized Toolsets**: A nested API design that prevents context bloat. [Smol vs. Main Chat Tooling](docs/smol-main-chat-tool-architecture.md).
 - **Persistent Memory**: [Agent Memory & Skills](docs/agent-memory-and-skills.md) and [Librarian Onboarding](docs/librarian-agentic-onboarding.md).
 - **34 Locales**: Automated AI-driven translation and review pipeline. [Localization Pipeline](docs/localization.md).
 - **Multilingual Grammar**: An optional feature that uses the LLM to identify and correct the underlying text language when typing in multiple languages, before running the grammar checker.
