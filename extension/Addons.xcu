@@ -65,6 +65,17 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M3d" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Run Python Script...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:scripting.run_python_dialog</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M_Debug" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Debug</value>

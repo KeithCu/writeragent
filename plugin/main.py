@@ -73,7 +73,7 @@ from com.sun.star.task import XJobExecutor, XJob
 from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from plugin.framework.uno_context import get_active_document, get_extension_url
+from plugin.framework.uno_context import get_active_document, get_extension_url, get_ctx
 
 # ---------------------------------------------------------------------------
 # HTTP / MCP Server (Module wrapper)
@@ -259,6 +259,12 @@ def _register_core_handlers():
     register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.draw.test_draw_uno"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
     register_action_handler("main", "NoOp", lambda: None)
 
+    def _run_python():
+        from plugin.scripting.python_runner import run_python_dialog
+        run_python_dialog(get_ctx())
+
+    register_action_handler("scripting", "run_python_dialog", _run_python)
+
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -439,6 +445,7 @@ def get_menu_text(command):
         "main.RunCalcIntegrationTests": _("Run Calc API integration tests"),
         "main.RunDrawTests": _("Run draw tests"),
         "main.EvaluationDashboard": _("Evaluation Dashboard"),
+        "scripting.run_python_dialog": _("Run Python Script..."),
     }
 
     if command in static_titles:
