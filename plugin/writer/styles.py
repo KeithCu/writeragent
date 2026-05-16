@@ -39,7 +39,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharPosture": {"type": "integer", "description": "Italics/posture (0=None, 1=Italic, 2=Oblique)."},
     "CharShadowed": {"type": "boolean", "description": "Whether text is shadowed."},
     # "CharRelief": {"type": "integer", "description": "Relief style (0=None, 1=Embossed, 2=Engraved)."},
-    # "CharHidden": {"type": "boolean", "description": "Whether text is hidden."},
+    "CharHidden": {"type": "boolean", "description": "Whether text is hidden."},
     "CharWordMode": {"type": "boolean", "description": "Whether underline/strikeout applies only to words."}
 }
 

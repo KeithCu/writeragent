@@ -309,7 +309,7 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
         q._q.put(it)
 
     with patch("plugin.writer.locale.grammar_work_queue.run_llm_and_cache_batch", side_effect=fake_run), \
-         patch("plugin.writer.locale.grammar_work_queue.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.01):
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.01):
         q._ensure_worker()
         assert drain_done.wait(timeout=2.0), "drain loop did not run"
 
@@ -341,11 +341,11 @@ def test_run_llm_and_cache_batch_success() -> None:
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
-         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
-         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_put, \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
          patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
-         patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text") as mock_norm, \
-         patch("plugin.writer.locale.grammar_work_queue.ignored_rules_snapshot", return_value=set()):
+         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text") as mock_norm, \
+         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()):
 
         mock_client = mock_client_cls.return_value
         # Mock LLM response with 2 results
@@ -393,11 +393,11 @@ def test_run_llm_and_cache_batch_size_1() -> None:
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.queue_executor.llm_request_lane"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_client_cls, \
-         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
-         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_put, \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
          patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
-         patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text") as mock_norm, \
-         patch("plugin.writer.locale.grammar_work_queue.ignored_rules_snapshot", return_value=set()):
+         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text") as mock_norm, \
+         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()):
 
         mock_client = mock_client_cls.return_value
         mock_client.chat_completion_sync.return_value = '{"errors": []}'
@@ -431,12 +431,12 @@ def test_locale_mismatch_proceeds_and_double_caches(
     with patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
          patch("plugin.framework.config.get_config_int_safe", return_value=1), \
          patch("plugin.framework.config.get_config_bool_safe", side_effect=lambda c, key, default=False: True if "detect_language" in key else False), \
-         patch("plugin.writer.locale.grammar_work_queue.cache_get_sentence", return_value=None), \
-         patch("plugin.writer.locale.grammar_work_queue.cache_put_sentence") as mock_cache_put, \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put, \
          patch("plugin.writer.locale.grammar_work_queue._apply_language_change") as mock_apply, \
          patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status"), \
          patch("plugin.framework.client.llm_client.LlmClient") as mock_llm_client, \
-         patch("plugin.writer.locale.grammar_work_queue.normalize_errors_for_text", return_value=[]):
+         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]):
 
         # Mock LLM client to return Japanese detection then grammar result
         mock_client_inst = mock_llm_client.return_value
