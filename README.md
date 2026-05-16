@@ -77,11 +77,12 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ### 🐍 Local Python Execution
 
-- **Execute Python**: Use your own virtual environment to access libraries like `numpy`, `pandas`, etc.
+- **Execute Python**: Use your own virtual environment (running any version of Python) to access libraries like `numpy`, `pandas`, etc.
 - **Enable it**: Set path in **Settings → Python**. Exposed to LLMs in Writer, Calc, and Draw / Impress.
 - **Agentic Analysis**: The AI can run computations and return structured results (as JSON) to update your document.
 - **New Calc Formula**: Use `=PYTHON("result = 3 ** 8")` or pass a range: `=PYTHON("result = sum(data)", A1:A10)` (2D blocks: see [data handoff](docs/enabling_numpy_in_libreoffice).
-- **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks.
+- **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks. Sub-millisecond overhead for small data exchanges, ensuring that the out-of-process boundary provides safety with minimal latency.
+
 
 
 ### 🎨 Showcase
