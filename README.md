@@ -56,6 +56,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 ### 📊 Calc
 
 - **=PROMPT() Function**: Run AI prompts directly within spreadsheet cells.
+- **=PYTHON() Function**: Execute Python code directly from cells using your configured venv. Use `result = ...` to return a value to the cell.
 - **Deep Analysis**: Analyze **pivot tables** and detect **complex logical errors** across massive datasets. [Analysis Tools](docs/calc-analysis-tools.md).
 - **Rich Text Cells**: Paste **HTML** (bold, links, breaks) into a **single cell** using advanced StarWriter import paths.
 - **Batch Range Edits**: Apply formulas and formatting in bulk. [Specialized Toolsets](docs/calc-specialized-toolsets.md).
@@ -77,12 +78,11 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ### 🐍 Local Python Execution
 
-- **Execute Python**: Use your own virtual environment to access libraries like `numpy`, `pandas`, `scipy`, `matplotlib`, `sympy`, and more.
-- **Enable it**: Set your venv path in **Settings → Python**. Works in Writer, Calc, and Draw / Impress.
+- **Execute Python**: Use your own virtual environment to access libraries like `numpy`, `pandas`, etc.
+- **Enable it**: Set path in **Settings → Python**. Exposed to LLMs in Writer, Calc, and Draw / Impress.
 - **Agentic Analysis**: The AI can run computations and return structured results (as JSON) to update your document.
-- **Safety & Isolation**: Code runs safely in a separate process, nothing is installed in LibreOffice itself. The code is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) that acts as a secure sandbox,  blocking dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks from known libraries.
-- **New Calc Function**: In Calc, use =PYTHON() to run Python / Numpy.
-
+- **New Calc Formula**: Use `=PYTHON("result = 3 ** 8")` to execute code and return the value to the cell.
+- **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks.
 
 
 ### 🎨 Showcase

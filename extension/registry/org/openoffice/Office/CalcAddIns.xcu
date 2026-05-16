@@ -26,6 +26,17 @@
             </node>
           </node>
         </node>
+        <node oor:name="python" oor:op="replace">
+          <prop oor:name="DisplayName"><value xml:lang="en">PYTHON</value></prop>
+          <prop oor:name="Description"><value xml:lang="en">Executes Python code in the configured venv and returns the result.</value></prop>
+          <prop oor:name="Category"><value>Add-In</value></prop>
+          <node oor:name="Parameters">
+            <node oor:name="code" oor:op="replace">
+              <prop oor:name="DisplayName"><value xml:lang="en">code</value></prop>
+              <prop oor:name="Description"><value xml:lang="en">The Python code to execute. Assign output to 'result'.</value></prop>
+            </node>
+          </node>
+        </node>
       </node>
     </node>
   </node>

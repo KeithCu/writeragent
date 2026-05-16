@@ -21,9 +21,11 @@ import sys
 # so that "plugin.xxx" imports work correctly.
 # We must do this before any imports from "plugin.xyz"
 _plugin_dir = os.path.dirname(os.path.abspath(__file__))
-_ext_root = os.path.dirname(_plugin_dir)
+_ext_root = os.path.dirname(os.path.dirname(_plugin_dir))
 if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
+if os.path.dirname(_plugin_dir) not in sys.path:
+    sys.path.insert(0, os.path.dirname(_plugin_dir))
 if _plugin_dir not in sys.path:
     sys.path.insert(0, _plugin_dir)
 
@@ -48,6 +50,7 @@ from plugin.framework.config import get_config, get_api_config, get_config_int
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.client.errors import format_error_for_display
+from plugin.scripting.run_venv_code import run_code_in_user_venv
 
 import logging
 
@@ -64,17 +67,23 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
         log.debug(f"=== getProgrammaticFunctionName called with: '{aDisplayName}' ===")
         if aDisplayName == "PROMPT":
             return "prompt"
+        if aDisplayName == "PYTHON":
+            return "python"
         return ""
 
     def getDisplayFunctionName(self, aProgrammaticName):
         log.debug(f"=== getDisplayFunctionName called with: '{aProgrammaticName}' ===")
         if aProgrammaticName == "prompt":
             return "PROMPT"
+        if aProgrammaticName == "python":
+            return "PYTHON"
         return ""
 
     def getFunctionDescription(self, aProgrammaticName):
         if aProgrammaticName == "prompt":
             return "Generates text using an LLM."
+        if aProgrammaticName == "python":
+            return "Executes Python code in the configured venv and returns the result."
         return ""
 
     def getArgumentDescription(self, aProgrammaticName, nArgument):
@@ -87,6 +96,9 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
                 return "The model to use."
             elif nArgument == 3:
                 return "The maximum number of tokens to generate."
+        if aProgrammaticName == "python":
+            if nArgument == 0:
+                return "The Python code to execute. Assign output to 'result'."
         return ""
 
     def getArgumentName(self, aProgrammaticName, nArgument):
@@ -99,6 +111,9 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
                 return "model"
             elif nArgument == 3:
                 return "max_tokens"
+        if aProgrammaticName == "python":
+            if nArgument == 0:
+                return "code"
         return ""
 
     def hasFunctionWizard(self, aProgrammaticName):
@@ -107,11 +122,15 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
     def getArgumentCount(self, aProgrammaticName):
         if aProgrammaticName == "prompt":
             return 4
+        if aProgrammaticName == "python":
+            return 1
         return 0
 
     def getArgumentIsOptional(self, aProgrammaticName, nArgument):
         if aProgrammaticName == "prompt":
             return nArgument > 0
+        if aProgrammaticName == "python":
+            return False
         return False
 
     def getProgrammaticCategoryName(self, aProgrammaticName):
@@ -162,6 +181,18 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
             return run_blocking_in_thread(self.ctx, self.client.chat_completion_sync, messages, max_tokens=max_tokens)
         except Exception as e:
             log.error("PROMPT error: %s" % str(e))
+            return format_error_for_display(e)
+
+    def python(self, code):
+        log.debug(f"=== PromptFunction.PYTHON({code}) called ===")
+        try:
+            res = run_blocking_in_thread(self.ctx, run_code_in_user_venv, self.ctx, code)
+            if res.get("status") == "ok":
+                return res.get("result")
+            else:
+                return f"Error: {res.get('message') or res.get('error')}"
+        except Exception as e:
+            log.error("PYTHON error: %s" % str(e))
             return format_error_for_display(e)
 
     # XServiceInfo implementation
