@@ -641,9 +641,9 @@ pivot_table = _PivotTableProxy()
 class _PythonProxy:
     """Proxy for python tools."""
 
-    def run_venv_python_script(self, code: str, *, timeout_sec: int = 0) -> dict:
+    def run_venv_python_script(self, code: str, *, data_range: str = "", data: list = [], timeout_sec: int = 0) -> dict:
         """Run Python code."""
-        return _rpc_call("run_venv_python_script", code=code, timeout_sec=timeout_sec)
+        return _rpc_call("run_venv_python_script", code=code, data_range=data_range, data=data, timeout_sec=timeout_sec)
 
 python = _PythonProxy()
 

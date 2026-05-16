@@ -7,7 +7,7 @@ module org { module extension { module writeragent { module PromptFunction {
     interface XPromptFunction : com::sun::star::uno::XInterface
     {
         string prompt( [in] string message, [in] any systemPrompt, [in] any model, [in] any maxTokens );
-        string python( [in] string code );
+        string python( [in] string code, [in] any data );
     };
 }; }; }; };
 

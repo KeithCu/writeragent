@@ -9,7 +9,10 @@
 
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
+
+from plugin.scripting.run_venv_code import _build_runner_script
 
 # We need to setup UNO mocks because plugin.main and other modules import uno
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -135,3 +138,18 @@ def test_interactive_runner_python_tool_domain_whitelist(mock_select, mock_popen
     assert res["status"] == "ok"
     mock_registry.execute.assert_called_once()
     assert mock_registry.execute.call_args[0][0] == "writer_tool"
+
+
+def test_build_runner_script_injects_data():
+    script = _build_runner_script("result = sum(data[0])", data=[[1, 2], [3, 4]])
+    assert "data = _json.loads" in script
+    assert "result = sum(data[0])" in script
+    assert "__WRITERAGENT_VENV_RESULT__" in script
+    ns: dict = {}
+    exec(script, ns)  # noqa: S102 — test fixture only
+    assert ns.get("_wa") == 3
+
+
+def test_build_runner_script_no_data_omits_preamble():
+    script = _build_runner_script("result = 1")
+    assert "data = _json.loads" not in script

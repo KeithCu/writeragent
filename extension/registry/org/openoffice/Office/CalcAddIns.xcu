@@ -35,6 +35,10 @@
               <prop oor:name="DisplayName"><value xml:lang="en">code</value></prop>
               <prop oor:name="Description"><value xml:lang="en">The Python code to execute. Assign output to 'result'.</value></prop>
             </node>
+            <node oor:name="data" oor:op="replace">
+              <prop oor:name="DisplayName"><value xml:lang="en">data</value></prop>
+              <prop oor:name="Description"><value xml:lang="en">Optional cell range; values are available as the variable data in the script.</value></prop>
+            </node>
           </node>
         </node>
       </node>

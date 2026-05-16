@@ -50,6 +50,7 @@ from plugin.framework.config import get_config, get_api_config, get_config_int
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.client.errors import format_error_for_display
+from plugin.calc.calc_addin_data import calc_addin_data_to_python, check_python_data_size
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 
 import logging
@@ -99,6 +100,8 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
         if aProgrammaticName == "python":
             if nArgument == 0:
                 return "The Python code to execute. Assign output to 'result'."
+            elif nArgument == 1:
+                return "Optional cell range; values are available as the variable data in the script."
         return ""
 
     def getArgumentName(self, aProgrammaticName, nArgument):
@@ -114,6 +117,8 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
         if aProgrammaticName == "python":
             if nArgument == 0:
                 return "code"
+            elif nArgument == 1:
+                return "data"
         return ""
 
     def hasFunctionWizard(self, aProgrammaticName):
@@ -123,14 +128,14 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
         if aProgrammaticName == "prompt":
             return 4
         if aProgrammaticName == "python":
-            return 1
+            return 2
         return 0
 
     def getArgumentIsOptional(self, aProgrammaticName, nArgument):
         if aProgrammaticName == "prompt":
             return nArgument > 0
         if aProgrammaticName == "python":
-            return False
+            return nArgument == 1
         return False
 
     def getProgrammaticCategoryName(self, aProgrammaticName):
@@ -183,10 +188,15 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
             log.error("PROMPT error: %s" % str(e))
             return format_error_for_display(e)
 
-    def python(self, code):
-        log.debug(f"=== PromptFunction.PYTHON({code}) called ===")
+    def python(self, code, data=None):
+        log.debug("=== PromptFunction.PYTHON(%r, data=%r) called ===", code, data)
         try:
-            res = run_blocking_in_thread(self.ctx, run_code_in_user_venv, self.ctx, code)
+            py_data = calc_addin_data_to_python(data)
+            if py_data is not None:
+                size_err = check_python_data_size(py_data)
+                if size_err:
+                    return f"Error: {size_err}"
+            res = run_blocking_in_thread(self.ctx, run_code_in_user_venv, self.ctx, code, data=py_data)
             if res.get("status") == "ok":
                 return res.get("result")
             else:

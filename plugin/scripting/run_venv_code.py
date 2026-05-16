@@ -43,10 +43,15 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     return out
 
 
-def _build_runner_script(user_code: str) -> str:
-    """Append a trailer so ``result`` (or ``_``) is emitted as JSON after user code."""
+def _build_runner_script(user_code: str, *, data: Any = None) -> str:
+    """Build temp script: optional ``data`` preamble, user code, then JSON result trailer."""
+    preamble = ""
+    if data is not None:
+        payload = json.dumps(data, default=str)
+        preamble = "import json as _json\n" f"data = _json.loads({payload!r})\n"
     return (
-        user_code.rstrip()
+        preamble
+        + user_code.rstrip()
         + "\n\nimport json as _json\n"
         + "_wa = locals().get('result', locals().get('_'))\n"
         + f"print('{_RESULT_PREFIX}' + _json.dumps(_wa, default=str))\n"
@@ -251,6 +256,7 @@ def run_code_in_user_venv(
     uno_ctx: Any,
     code: str,
     *,
+    data: Any = None,
     timeout_sec: int = 120,
     active_domain: str | None = None,
     python_tool_domain: str | None = None,
@@ -285,7 +291,7 @@ def run_code_in_user_venv(
     if timeout_sec > 600:
         timeout_sec = 600
 
-    script_body = _build_runner_script(code)
+    script_body = _build_runner_script(code, data=data)
     child_env = scrub_subprocess_env(dict(os.environ))
 
     try:

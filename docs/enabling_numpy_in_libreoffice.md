@@ -1012,3 +1012,59 @@ calc: _CalcProxy
 ```
 
 This means the user gets full IDE support (autocomplete, type checking, hover docs) even though the actual execution happens over RPC.
+
+---
+
+## 8. The `=PYTHON()` Calc Function
+
+While the LLM uses the `run_python_script` tool for background analysis, users can also trigger the same secure, out-of-process execution directly from a spreadsheet formula using the `=PYTHON()` function.
+
+### Usage
+`=PYTHON("result = 3 ** 8")`
+
+### Why this is powerful:
+- **Persistent State**: The function uses the same persistent `PythonWorkerManager` as the LLM tools. Variables defined in one cell's code are available to other cells evaluated in the same session.
+- **ABI Stability**: Since it uses Strategy 3 (Out-of-Process Execution), it will **never crash LibreOffice** even when using heavy binary libraries like NumPy or Pandas.
+- **Safe Evaluation**: The code is evaluated by the same AST-based executor (adapted from `smolagents`), ensuring that formulas cannot access sensitive system resources like the filesystem or network.
+- **No-Code to Low-Code**: You can use the `=PROMPT()` function to ask the AI to "Write a Python function to do X," and then paste that code into a `=PYTHON()` cell for high-performance symbolic or numerical computation.
+
+---
+
+## 9. Vision: The "Code Oracle" & Self-Modifying Spreadsheets
+
+The combination of `=PROMPT()` and `=PYTHON()` creates a powerful feedback loop where the AI doesn't just answer questions—it builds functional infrastructure.
+
+### The "Solution Generator" Pattern
+Users can use `=PROMPT()` as a "Code Oracle" to generate complex formulas on the fly:
+`=PROMPT("Write a Python formula using numpy to calculate the 95th percentile of range B1:B100")`
+
+The LLM (primed with knowledge of the `=PYTHON()` tool) can respond with a functional string:
+`=PYTHON("import numpy as np; data = [...]; result = np.percentile(data, 95)")`
+
+### Strategic Benefits:
+1.  **Natural Language Bridge**: Traditional Excel/Calc syntax is a barrier for many. This architecture replaces complex nested functions (VLOOKUP, INDEX/MATCH) with clear Python logic.
+2.  **Context-Aware Generation**: As the agent's awareness of the spreadsheet structure improves (via LO-DOM), it can generate formulas that correctly reference adjacent cells, effectively "writing the sheet" for the user.
+3.  **Educational Path**: Users start with `=PROMPT()`, see the code the AI generates, and eventually "graduate" to writing or tweaking their own `=PYTHON()` cells, making the spreadsheet a platform for learning data science.
+
+---
+
+## 10. Technical Spec: Data Handoff (Spreadsheet → Python) — implemented
+
+**`=PYTHON()`** and **`run_venv_python_script`** inject cell-range values as a variable named **`data`**.
+
+### IDL / formula
+`string python( [in] string code, [in] any data );` in [`extension/idl/XPromptFunction.idl`](../extension/idl/XPromptFunction.idl). Rebuild [`extension/XPromptFunction.rdb`](../extension/XPromptFunction.rdb) after IDL changes (`idlc` + `regmerge` when the LibreOffice SDK is installed).
+
+### Usage
+- **Calc formula**: `=PYTHON("import numpy as np; result = float(np.std(data))", C1:C50)` — second argument is an optional range; values become `data` (list of rows) in the venv subprocess.
+- **LLM tool**: `run_venv_python_script` accepts optional **`data_range`** (A1 notation, read on the host) or **`data`** (2D array). `data_range` wins if both are set.
+
+### Pipeline
+1. **Calc handoff**: Range values arrive as UNO 2D sequences (tuple of tuples in PyUNO).
+2. **Conversion**: [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) → JSON-serializable `list[list]` (empty cells → `None`; cap `MAX_PYTHON_DATA_CELLS`). Single-row **or** single-column ranges are folded to one row `[[v1, v2, …]]` so `sum(data[0])` sums the whole range; true 2D blocks stay row-major.
+3. **Venv injection**: [`plugin/scripting/run_venv_code.py`](../plugin/scripting/run_venv_code.py) prepends `data = json.loads(...)` in the temp script before user code runs.
+
+### Benefits
+- No manual string formatting of sheet data in the formula.
+- Numbers stay numeric through the UNO bridge and JSON round-trip.
+- Same `data` name for `=PYTHON()` and agent-driven `run_venv_python_script`.

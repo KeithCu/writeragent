@@ -28,14 +28,17 @@ def test_prompt_function_metadata():
     assert func.getDisplayFunctionName("python") == "PYTHON"
     
     assert func.getArgumentCount("prompt") == 4
-    assert func.getArgumentCount("python") == 1
-    
+    assert func.getArgumentCount("python") == 2
+
     assert func.getArgumentName("python", 0) == "code"
     assert "Python code" in func.getArgumentDescription("python", 0)
+    assert func.getArgumentName("python", 1) == "data"
+    assert func.getArgumentIsOptional("python", 1) is True
 
 @native_test
 def test_prompt_function_python_execution():
     from plugin.calc.prompt_function import PromptFunction
+    from plugin.scripting.run_venv_code import run_code_in_user_venv
     import unittest.mock
     
     func = PromptFunction(_ctx)
@@ -48,7 +51,18 @@ def test_prompt_function_python_execution():
         mock_run.return_value = {"status": "ok", "result": 42}
         res = func.python("result = 21 * 2")
         assert res == 42
-        
+        mock_run.assert_called_with(func.ctx, run_code_in_user_venv, func.ctx, "result = 21 * 2", data=None)
+
+        # Range data forwarded
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": 3}
+        res = func.python("result = sum(data[0])", ((1.0,), (2.0,), (3.0,)))
+        assert res == 6
+        mock_run.assert_called_once()
+        call_kw = mock_run.call_args
+        assert call_kw[0][3] == "result = sum(data[0])"
+        assert call_kw[1]["data"] == [[1.0, 2.0, 3.0]]
+
         # Error case
         mock_run.return_value = {"status": "error", "message": "Syntax error"}
         res = func.python("bad code")
