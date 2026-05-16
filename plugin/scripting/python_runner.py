@@ -19,6 +19,10 @@ from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import add_dialog_label, add_dialog_edit, add_dialog_button, msgbox
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 from plugin.writer.format import insert_content_at_position
+from plugin.doc.document_helpers import is_calc, is_writer, is_draw
+from plugin.calc.bridge import CalcBridge
+from plugin.calc.manipulator import CellManipulator
+from plugin.calc.address_utils import index_to_column
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -191,6 +195,184 @@ def format_result_for_writer(result: Any) -> str:
     return str(result)
 
 
+def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
+    """Insert the result of a Python script into a Calc document."""
+    try:
+        bridge = CalcBridge(doc)
+        manipulator = CellManipulator(bridge)
+        
+        # Determine anchor cell from selection
+        controller = doc.getCurrentController()
+        selection = controller.getSelection()
+        
+        start_col = 0
+        start_row = 0
+        if selection and hasattr(selection, "getRangeAddress"):
+            addr = selection.getRangeAddress()
+            start_col = addr.StartColumn
+            start_row = addr.StartRow
+        
+        def write_at(col_offset, row_offset, val):
+            addr = f"{index_to_column(start_col + col_offset)}{start_row + row_offset + 1}"
+            manipulator.write_formula_range(addr, val)
+
+        # Handle different result types
+        current_row = 0
+        
+        # 1. Handle specialized dictionary results
+        if isinstance(result, dict):
+            # Prioritize title/summary
+            title = result.get("title") or result.get("summary_text") or result.get("message")
+            if title:
+                write_at(0, current_row, str(title))
+                current_row += 1 # Immediately below
+
+            # Look for lists to insert as tables
+            for k, v in result.items():
+                if k in ("title", "summary_text", "message", "status", "result"):
+                    continue
+                if isinstance(v, list) and v:
+                    # Convert list of dicts to list of lists if needed
+                    table_data = v
+                    if isinstance(v[0], dict):
+                        headers = list(v[0].keys())
+                        rows = [[row.get(h, "") for h in headers] for row in v]
+                        table_data = [headers] + rows
+                    
+                    write_at(0, current_row, table_data)
+                    current_row += len(table_data) # Immediately below
+
+            # If result["result"] exists and hasn't been handled
+            res_val = result.get("result")
+            if res_val is not None:
+                write_at(0, current_row, res_val)
+        
+        # 2. Handle simple lists (1D or 2D)
+        elif isinstance(result, list) and result:
+            table_data = result
+            # write_formula_range handles 1D and 2D lists
+            write_at(0, 0, table_data)
+            
+        # 3. Handle primitives
+        else:
+            write_at(0, 0, str(result))
+
+    except Exception as e:
+        log.exception("Failed to insert result into Calc")
+        msgbox(uno_ctx, _("Error"), _("Failed to insert result into Calc: %s") % str(e))
+
+
+def insert_result_into_draw(doc: Any, uno_ctx: Any, result: Any) -> None:
+    """Insert the result of a Python script into a Draw/Impress document."""
+    msgbox(uno_ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
+    return
+
+    # The code below is experimental and currently disabled.
+    """
+    try:
+        from plugin.draw.bridge import DrawBridge
+        bridge = DrawBridge(doc)
+        log.debug(f"insert_result_into_draw: doc={doc!r}")
+        
+        page = bridge.get_active_page()
+        log.debug(f"insert_result_into_draw: active_page={page!r}")
+        
+        if page is None:
+            # Try to get first page directly if bridge failed
+            if hasattr(doc, "getDrawPages"):
+                pages = doc.getDrawPages()
+                if pages and pages.getCount() > 0:
+                    page = pages.getByIndex(0)
+                    log.debug(f"insert_result_into_draw: fallback to first page={page!r}")
+
+        if page is None:
+            log.error(f"insert_result_into_draw: No page found. doc services: {getattr(doc, 'getAvailableServiceNames', lambda: [])()!r}")
+            msgbox(uno_ctx, _("Error"), _("No active page found in Draw/Impress."))
+            return
+
+        # Determine if we should insert a Table or a Text box
+        table_data = None
+        if isinstance(result, list) and result and isinstance(result[0], (list, tuple, dict)):
+            table_data = result
+        elif isinstance(result, dict):
+            # Look for the first list of dicts/lists to use as a table
+            for v in result.values():
+                if isinstance(v, list) and v and isinstance(v[0], (list, tuple, dict)):
+                    table_data = v
+                    break
+
+        if table_data:
+            # Prepare data (headers + rows)
+            if isinstance(table_data[0], dict):
+                headers = list(table_data[0].keys())
+                rows = [[str(row.get(h, "")) for h in headers] for row in table_data]
+                final_data = [headers] + rows
+            else:
+                final_data = [[str(c) for c in r] for r in table_data]
+
+            num_rows = len(final_data)
+            num_cols = len(final_data[0])
+
+            # 1. Insert as TableShape
+            # We set the dimensions via properties immediately after creation
+            shape = doc.createInstance("com.sun.star.drawing.TableShape")
+            
+            # These properties are key to setting dimensions correctly during/immediately after creation
+            for name, val in [("Rows", num_rows), ("Columns", num_cols)]:
+                try:
+                    shape.setPropertyValue(name, val)
+                except Exception:
+                    pass
+
+            page.add(shape)
+
+            # Set a default size (15cm x 10cm) - units are 100ths of mm
+            from com.sun.star.awt import Size, Point
+            shape.setSize(Size(15000, 10000))
+            shape.setPosition(Point(1000, 1000))
+            
+            # Model access (XTable)
+            table = None
+            if hasattr(shape, "Model"):
+                table = shape.Model
+            elif hasattr(shape, "Table"):
+                table = shape.Table
+            
+            if table:
+                # We assume setPropertyValue set the correct dimensions.
+                for r_idx, row in enumerate(final_data):
+                    for c_idx, val in enumerate(row):
+                        try:
+                            cell = table.getCellByPosition(c_idx, r_idx)
+                            cell.getText().setString(val)
+                        except Exception as e:
+                            log.error(f"Error filling table cell ({r_idx}, {c_idx}): {e}")
+            else:
+                # Fallback to text if table model is inaccessible
+                shape.setString(str(result))
+        else:
+            # 2. Insert as TextShape
+            shape = doc.createInstance("com.sun.star.drawing.TextShape")
+            page.add(shape)
+            from com.sun.star.awt import Size, Point
+            shape.setSize(Size(10000, 5000))
+            shape.setPosition(Point(1000, 1000))
+            
+            # Format result as text
+            if isinstance(result, (dict, list)):
+                import json
+                text_val = json.dumps(result, indent=2)
+            else:
+                text_val = str(result)
+            
+            shape.setString(text_val)
+
+    except Exception as e:
+        log.exception("Failed to insert result into Draw")
+        msgbox(uno_ctx, _("Error"), _("Failed to insert result into Draw: %s") % str(e))
+    """
+
+
 def run_python_dialog(uno_ctx: Any = None) -> None:
     """Entry point for the 'Run Python Script...' menu command."""
     if uno_ctx is None:
@@ -213,24 +395,32 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
         
         if response.get("status") == "ok":
             result_data = response.get("result")
-            formatted = format_result_for_writer(result_data)
             
-            if not formatted and not response.get("stdout"):
+            if result_data is None and not response.get("stdout"):
                 msgbox(uno_ctx, _("Success"), _("Script executed successfully, but returned no result and produced no output."))
                 return
 
-            # If there was stdout but no result, maybe show stdout?
-            # Or just insert result if present.
-            if formatted:
-                desktop = get_desktop(uno_ctx)
-                doc = desktop.getCurrentComponent()
-                if hasattr(doc, "getText"):
+            desktop = get_desktop(uno_ctx)
+            doc = desktop.getCurrentComponent()
+            if not doc:
+                return
+
+            if is_calc(doc):
+                insert_result_into_calc(doc, uno_ctx, result_data)
+            elif is_writer(doc):
+                formatted = format_result_for_writer(result_data)
+                if formatted:
                     insert_content_at_position(doc, uno_ctx, formatted, "selection")
+            elif is_draw(doc):
+                insert_result_into_draw(doc, uno_ctx, result_data)
+            else:
+                # Fallback for other document types or if type detection fails
+                msgbox(uno_ctx, _("Error"), _("Unsupported document type for result insertion."))
             
             if response.get("stdout"):
                 log.info("Python script stdout: %s", response.get("stdout"))
                 # Optionally show stdout in a message box if there's no result?
-                if not formatted:
+                if result_data is None:
                     msgbox(uno_ctx, _("Output"), response.get("stdout"))
         else:
             error_msg = response.get("message", _("Unknown error"))
