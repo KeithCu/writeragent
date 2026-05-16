@@ -3,8 +3,9 @@ from unittest.mock import MagicMock, patch
 import sys
 import os
 
-# Add plugin to path
-sys.path.append(os.getcwd())
+# Add plugin to path if needed for local execution
+if os.getcwd() not in sys.path:
+    sys.path.append(os.getcwd())
 
 from plugin.scripting.python_runner import run_python_dialog
 
@@ -35,8 +36,6 @@ class TestPythonRunnerConfig(unittest.TestCase):
         
         run_python_dialog()
         mock_get.assert_called_with(mock_ctx_val, "last_python_script_writer")
-        # Note: the test mocks get_config_str, so we don't strictly test the default value here
-        # but we can verify the key is correct.
         mock_set.assert_called_with(mock_ctx_val, "last_python_script_writer", "print('hello')")
 
         # Test Calc

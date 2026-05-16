@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Any, Dict
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config_bool, get_config_str
 from plugin.scripting.python_worker_manager import PythonWorkerManager
 from plugin.scripting.venv_probe import resolve_libreoffice_python, resolve_venv_python
 
@@ -82,5 +82,6 @@ def run_code_in_user_venv(
         timeout_sec = 600
 
     child_env = scrub_subprocess_env(dict(os.environ))
-    manager = PythonWorkerManager.get(exe, child_env)
+    show_console = get_config_bool(uno_ctx, "scripting.python_show_console")
+    manager = PythonWorkerManager.get(exe, child_env, show_console=show_console)
     return manager.execute(code, data=data, timeout_sec=timeout_sec)

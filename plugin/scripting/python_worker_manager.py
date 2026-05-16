@@ -23,27 +23,29 @@ from typing import Any, IO
 log = logging.getLogger(__name__)
 
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker_harness.py")
-_instances: dict[str, PythonWorkerManager] = {}
+_instances: dict[tuple[str, bool], PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
 
 
 class PythonWorkerManager:
     """One warm child process per resolved Python executable path."""
 
-    def __init__(self, exe: str, env: dict[str, str]) -> None:
+    def __init__(self, exe: str, env: dict[str, str], show_console: bool = False) -> None:
         self.exe = exe
         self.env = dict(env)
+        self.show_console = show_console
         self._proc: subprocess.Popen[str] | None = None
         self._io_lock = threading.Lock()
 
     @classmethod
-    def get(cls, exe: str, env: dict[str, str]) -> PythonWorkerManager:
+    def get(cls, exe: str, env: dict[str, str], show_console: bool = False) -> PythonWorkerManager:
         """Return the singleton worker for *exe* (caller should pass a scrubbed env dict)."""
         with _registry_lock:
-            mgr = _instances.get(exe)
+            key = (exe, show_console)
+            mgr = _instances.get(key)
             if mgr is None:
-                mgr = cls(exe, dict(env))
-                _instances[exe] = mgr
+                mgr = cls(exe, dict(env), show_console=show_console)
+                _instances[key] = mgr
             return mgr
 
     @classmethod
@@ -115,6 +117,18 @@ class PythonWorkerManager:
         }
         if os.name != "nt":
             popen_kw["preexec_fn"] = os.setsid
+        
+        env = dict(self.env)
+        if self.show_console:
+            env["WRITERAGENT_SHOW_CONSOLE"] = "1"
+            if os.name == "nt":
+                # Show the console window on Windows.
+                # Use getattr to avoid type-check errors on non-Windows.
+                flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+                if flags:
+                    popen_kw["creationflags"] = flags
+        
+        popen_kw["env"] = env
         self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)
         log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 

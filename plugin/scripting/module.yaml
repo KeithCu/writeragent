@@ -8,9 +8,16 @@ config:
     default: ""
     widget: text
     label: Python venv path
-    helper: If set, runs tools in that venv (bin/python or Scripts/python.exe). If empty, run_venv_python_script uses this process's sys.executable (basic stdlib); use a venv for numpy/pandas.
+    helper: "If set, runs tools in that venv (bin/python or Scripts/python.exe). If empty, run_venv_python_script uses this process's sys.executable (basic stdlib); use a venv for numpy/pandas."
     width: 200
     inline: true
+
+  python_show_console:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Show console
+    helper: "Keep the Python worker console visible (Windows: new console window; Linux: attempt to launch in terminal)."
 
   test_venv:
     type: string

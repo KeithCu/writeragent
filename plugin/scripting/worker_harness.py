@@ -17,9 +17,24 @@ import contextlib
 import importlib
 import io
 import json
+import os
 import sys
 import traceback
-from typing import Any
+from typing import Any, IO
+
+
+class Tee:
+    def __init__(self, *files: IO[str]):
+        self.files = files
+
+    def write(self, obj: str):
+        for f in self.files:
+            f.write(obj)
+
+    def flush(self):
+        for f in self.files:
+            if hasattr(f, "flush"):
+                f.flush()
 
 
 def _optional_module(name: str) -> Any | None:
@@ -62,8 +77,19 @@ def _execute_request(code: str, data: Any | None) -> dict[str, Any]:
     if data is not None:
         namespace["data"] = data
     stdout_io = io.StringIO()
+    is_console = os.environ.get("WRITERAGENT_SHOW_CONSOLE") == "1"
+    
+    # Save original stdin to restore after exec if we redirect it
+    orig_stdin = sys.stdin
+    if is_console:
+        sys.stdin = sys.__stdin__
+
     try:
-        with contextlib.redirect_stdout(stdout_io):
+        targets: list[IO[str]] = [stdout_io]
+        if is_console and sys.__stdout__ is not None:
+            targets.append(sys.__stdout__)
+        
+        with contextlib.redirect_stdout(Tee(*targets)):
             compiled = compile(code, "<writeragent_worker>", "exec")
             exec(compiled, namespace, namespace)  # noqa: S102 — intentional user code in venv child
         result = namespace.get("result", namespace.get("_"))
@@ -79,6 +105,9 @@ def _execute_request(code: str, data: Any | None) -> dict[str, Any]:
             "traceback": traceback.format_exc(),
             "stdout": stdout_io.getvalue(),
         }
+    finally:
+        if is_console:
+            sys.stdin = orig_stdin
 
 
 def main() -> None:
