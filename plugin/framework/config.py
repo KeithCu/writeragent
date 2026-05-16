@@ -228,6 +228,10 @@ class WriterAgentConfig:
     last_python_script_calc: str = "# Python Calc script\n" + last_python_script
     last_python_script_draw: str = "# Python Draw/Impress script\n" + last_python_script
 
+    # Persists the last entries for inserting LaTeX math
+    last_latex_input: str = "e = m c^2"
+    last_latex_display_block: bool = False
+
     # Store arbitrary module.yaml config entries
     _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
 

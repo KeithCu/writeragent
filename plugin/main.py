@@ -265,6 +265,12 @@ def _register_core_handlers():
 
     register_action_handler("scripting", "run_python_dialog", _run_python)
 
+    def _insert_latex():
+        from plugin.writer.math.latex_dialog import insert_latex_math_dialog
+        insert_latex_math_dialog(get_ctx())
+
+    register_action_handler("writer", "insert_latex_dialog", _insert_latex)
+
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -446,6 +452,7 @@ def get_menu_text(command):
         "main.RunDrawTests": _("Run draw tests"),
         "main.EvaluationDashboard": _("Evaluation Dashboard"),
         "scripting.run_python_dialog": _("Run Python Script..."),
+        "writer.insert_latex_dialog": _("Insert LaTeX Math..."),
     }
 
     if command in static_titles:
