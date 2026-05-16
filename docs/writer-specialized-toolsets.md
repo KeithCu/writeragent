@@ -280,7 +280,7 @@ Some Writer tools intentionally use the default main-chat tier (**`tier = "core"
 | **Embedded OLE**            | ✅ Implemented           | `embedded.py`: EmbeddedInsert, EmbeddedEdit                                                                                                                                                                                                        | —                                                                                                      |
 | **Images**                  | ✅ Implemented           | `images.py`: GenerateImage (async), List/Get/SetImage*, DownloadImage, Insert/Delete/ReplaceImage                                                                                                                                                  | Advanced image editing                                                                                 |
 | **Shapes**                  | ✅ Implemented           | `shapes.py`: Create/Edit/DeleteShape, GetDrawSummary, ListWriterImages, ConnectShapes, GroupShapes (Draw lineage)                                                                                                                                  | —                                                                                                      |
-| **Charts**                  | ✅ Implemented           | `charts.py`: List/Get/Create/Edit/DeleteChart (Calc lineage)                                                                                                                                                                                       | —                                                                                                      |
+| **Charts**                  | ⚠️ Maintenance           | `charts.py`: List/Get/Create/Edit/DeleteChart (Calc lineage). Currently disabled in Writer due to OLE lifecycle issues. | —                                                                                                      |
 | **Indexes**                 | ✅ Implemented           | `indexes.py`: IndexesUpdateAll, RefreshIndexesAlias, IndexesList, IndexesCreate, IndexesAddMark                                                                                                                                                    | —                                                                                                      |
 | **Fields**                  | ✅ Implemented           | `fields.py`: FieldsUpdateAll, UpdateFieldsAlias, FieldsList, FieldsDelete, FieldsInsert                                                                                                                                                            | User-defined variables, conditional text, DB fields overlap LO; distinct from **Forms** (business) row |
 | **Tracking**                | ✅ Implemented           | `tracking.py`: TrackChangesStart/Stop/List/Show, Accept/Reject (all or single), comment insert/list/delete                                                                                                                                         | Document comparison; version control / integration (not agent)                                         |
@@ -367,10 +367,18 @@ The existing sidebar chat interface updates its status label to provide feedback
 - `[Batch] Applied. Moving to "Methodology"...`
 This provides clear progress tracking without needing a complex new dialog.
 
-**Velocity Advantage:** Because WriterAgent already has the async worker pool and HTML/Plain-text apply logic, this feature only requires the chunking generator and a new FSM loop. Estimated dev time: 3-5 hours.
+**Velocity Advantage:** Because WriterAgent already has the async worker pool and HTML/Plain-text apply logic, this feature only requires the chunking generator and a new FSM loop.
 
+#### Charts (OLE Lifecycle Findings)
 
-Sections (`com.sun.star.text.TextSection`) are a substantial Writer feature that is currently only **read-only** in WriterAgent (`list_sections` and `read_section` under the `structural` domain in [`plugin/writer/structural.py`](../../plugin/writer/structural.py)). A full create/edit/property surface belongs in its own specialized domain. This subsection captures the design context so that work can be picked up later.
+The Writer chart toolset is currently under maintenance. During development, it was discovered that Writer's OLE container (`SwXTextEmbeddedObject`) has a highly sensitive lifecycle compared to Calc:
+- **CLSID format**: Braced CLSIDs (`{...}`) are rejected by the `insertTextContent` validator as invalid.
+- **Initialization Order**: While setting CLSID before insertion is standard, `insertTextContent` sometimes fails to populate the `EmbeddedObject.Component` (the actual ChartDocument) even after successful return.
+- **Platform Sensitivity**: Linux builds may require raw `ByteSequence` CLSIDs for registry mapping.
+
+The toolset is temporarily disabled by deriving from `ToolBaseDummy` while these UNO lifecycle issues are investigated.
+
+#### Sections (Future Work)
 
 #### What sections are
 

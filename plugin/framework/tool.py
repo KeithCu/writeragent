@@ -59,7 +59,26 @@ def _normalize_schema_for_strict_providers(params):
     return params
 
 
-def to_openai_schema(tool):
+def _doc_type_str_from_doc(doc: Any) -> str | None:
+    """Map UNO document model to tool context doc_type string."""
+    if doc is None:
+        return None
+    try:
+        from plugin.doc.document_helpers import DocumentType, get_document_type
+
+        dt = get_document_type(doc)
+        if dt == DocumentType.CALC:
+            return "calc"
+        if dt in (DocumentType.DRAW, DocumentType.IMPRESS):
+            return "draw"
+        if dt == DocumentType.WRITER:
+            return "writer"
+    except Exception:
+        pass
+    return None
+
+
+def to_openai_schema(tool, *, doc_type: str | None = None):
     """Convert a ToolBase instance to an OpenAI function-calling schema.
 
     Returns::
@@ -73,15 +92,16 @@ def to_openai_schema(tool):
             }
         }
     """
-    params = copy.deepcopy(tool.parameters) if tool.parameters else {}
+    params = copy.deepcopy(tool.get_parameters(doc_type) or {})
     if "type" not in params:
         params["type"] = "object"
     params = _normalize_schema_for_strict_providers(params)
+    desc = tool.get_description(doc_type)
 
-    return {"type": "function", "function": {"name": tool.name, "description": tool.description or "", "parameters": params}}
+    return {"type": "function", "function": {"name": tool.name, "description": desc, "parameters": params}}
 
 
-def to_mcp_schema(tool):
+def to_mcp_schema(tool, *, doc_type: str | None = None):
     """Convert a ToolBase instance to an MCP tools/list schema.
 
     Returns::
@@ -92,11 +112,12 @@ def to_mcp_schema(tool):
             "inputSchema": { ... JSON Schema ... }
         }
     """
-    input_schema = copy.deepcopy(tool.parameters) if tool.parameters else {}
+    input_schema = copy.deepcopy(tool.get_parameters(doc_type) or {})
     if "type" not in input_schema:
         input_schema["type"] = "object"
+    desc = tool.get_description(doc_type)
 
-    return {"name": tool.name, "description": tool.description or "", "inputSchema": input_schema}
+    return {"name": tool.name, "description": desc, "inputSchema": input_schema}
 
 
 _log = logging.getLogger(__name__)
@@ -212,13 +233,21 @@ class ToolBase(ABC):
         """
         return format_error_payload(ToolExecutionError(message, code=code, details=details))
 
-    def validate(self, **kwargs):
+    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+        """JSON Schema for this tool; override for document-type-specific parameters."""
+        return self.parameters
+
+    def get_description(self, doc_type: str | None = None) -> str:
+        """Tool description for the LLM; override when ``get_parameters`` varies by doc type."""
+        return self.description or ""
+
+    def validate(self, *, doc_type: str | None = None, **kwargs):
         """Validate arguments against ``parameters`` schema.
 
         Returns:
             (ok: bool, error_message: str | None)
         """
-        schema = self.parameters or {}
+        schema = self.get_parameters(doc_type) or {}
         required = schema.get("required", [])
         for key in required:
             if key not in kwargs:
@@ -553,10 +582,11 @@ class ToolRegistry:
             **kwargs: Filters passed to get_tools().
         """
         tools = self.get_tools(active_domain=active_domain, **kwargs)
+        doc_type = kwargs.get("doc_type") or _doc_type_str_from_doc(kwargs.get("doc"))
         if protocol == "openai":
-            return [to_openai_schema(t) for t in tools]
+            return [to_openai_schema(t, doc_type=doc_type) for t in tools]
         elif protocol == "mcp":
-            return [to_mcp_schema(t) for t in tools]
+            return [to_mcp_schema(t, doc_type=doc_type) for t in tools]
         else:
             raise ValueError(f"Unknown protocol: {protocol}")
 
@@ -652,7 +682,8 @@ class ToolRegistry:
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
             # from API/LLM) do not cause "Unknown parameter" validation errors.
-            props = (tool.parameters or {}).get("properties", {})
+            schema = tool.get_parameters(ctx.doc_type) or {}
+            props = (schema or {}).get("properties", {})
             if props:
                 kwargs = {k: v for k, v in kwargs.items() if k in props}
 
@@ -664,7 +695,7 @@ class ToolRegistry:
                 common_details["doc_type"] = ctx.doc_type
 
             # Validate parameters
-            ok, err = tool.validate(**kwargs)
+            ok, err = tool.validate(doc_type=ctx.doc_type, **kwargs)
             if not ok:
                 return {"status": "error", "code": "VALIDATION_ERROR", "message": err, "details": common_details}
 

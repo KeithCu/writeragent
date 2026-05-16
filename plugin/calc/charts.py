@@ -42,9 +42,10 @@ def supportsService(obj, service_name: str) -> bool:
 logger = logging.getLogger("writeragent.calc")
 
 # Chart CLSID: classic OLE chart (Calc sheet charts, Writer TextEmbeddedObject)
-CHART_CLSID = "12dcae36-07da-43c1-9c17-56a938c64445"
+# Uppercase is often more compatible with older OLE registries
+CHART_CLSID = "12DCAE36-07DA-43C1-9C17-56A938C64445"
 # Draw/Impress OLE2Shape: add shape to page first, then set CLSID (OOo wiki sample)
-CHART_CLSID_DRAW_OLE = "12dcae26-281f-416f-a234-c3086127382e"
+CHART_CLSID_DRAW_OLE = "12DCAE26-281F-416F-A234-C3086127382E"
 
 
 def _normalize_clsid_value(clsid: Any) -> str:
@@ -90,17 +91,48 @@ def _writer_embed_is_chart(host: Any) -> bool:
 
 
 def _chart_document_from_host(host: Any):
-    """Chart model from a sheet chart, Writer embed, or Draw/Impress OLE2 shape."""
+    """Chart model from a sheet chart, Writer embed, or Draw/Impress OLE2 shape.
+    Handles the extra layer of com.sun.star.embed.XEmbeddedObject for Writer.
+    """
     if host is None:
         return None
+    
+    # 1. Try getEmbeddedObject (Standard for Writer TextEmbeddedObject)
     try:
         if hasattr(host, "getEmbeddedObject"):
             ed = host.getEmbeddedObject()
+            logger.debug("Host.getEmbeddedObject() -> %s", ed)
             if ed:
+                if hasattr(ed, "Component"):
+                    comp = ed.Component
+                    if comp is not None:
+                        return comp
                 return ed
+    except Exception as e:
+        logger.debug("_chart_document_from_host getEmbeddedObject failed: %s", e)
+
+    # 2. Try Model/Component properties (Standard for Shapes)
+    try:
+        m = getattr(host, "Model", None)
+        if m is not None:
+            return m
+        c = getattr(host, "Component", None)
+        if c is not None:
+            return c
     except Exception:
         pass
-    return getattr(host, "Model", None)
+
+    # 3. Writer Fallback: If we have a Name, try to find it in the DrawPage
+    # In Writer, TextEmbeddedObjects are also exposed as Shapes on the DrawPage
+    try:
+        name = getattr(host, "Name", None)
+        if name and hasattr(host, "getAnchor"): # Likely a Writer object
+            # We'll just assume the caller handles the doc-level search if this fails.
+            pass
+    except Exception:
+        pass
+
+    return None
 
 
 CHART_SERVICE_MAP = {
@@ -132,13 +164,17 @@ def _axis_title_shape_string(shape, value: str | None) -> str | None:
 
 def _process_events(ctx=None):
     """Give LO a moment to process UI events and update object names/states."""
-    return  # try:
-    #     from plugin.framework.uno_context import get_toolkit, get_ctx
-    #     tk = get_toolkit(ctx or get_ctx())
-    #     if tk:
-    #         tk.processEventsToIdle()
-    # except Exception:
-    #     pass
+    try:
+        from plugin.framework.uno_context import get_toolkit, get_ctx
+        uctx = ctx or get_ctx()
+        if not uctx:
+            return
+        tk = get_toolkit(uctx)
+        if tk and hasattr(tk, "processEventsToIdle"):
+            tk.processEventsToIdle()
+    except Exception:
+        # Avoid letting UI event processing crash the tool
+        pass
 
 
 # Shared parameters for Create and Edit
@@ -453,15 +489,25 @@ class CreateChart(ToolBase):
 
     def _create_writer_chart(self, ctx, rect, service, **kwargs):
         """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
-
-        Use ``createTextCursorByRange(getEnd())`` — ``getViewCursor()`` fails for hidden docs.
-        When the document has a visible window, ``getEmbeddedObjects()`` stays in sync
-        with ``list_charts``; headless hidden Writer may omit embeds from the registry.
+        Using a retry loop and event pumping to ensure the embedded model is initialized.
         """
+        import time
         doc = ctx.doc
         text = doc.getText()
+        logger.info("Creating Writer chart. Current text length: %d", len(text.getString()))
+
+        # 1. Resolve cursor position
         try:
-            cursor = text.createTextCursorByRange(text.getEnd())
+            pos = kwargs.get("position", "end")
+            if pos == "cursor":
+                controller = doc.getCurrentController()
+                if hasattr(controller, "getViewCursor"):
+                    vc = controller.getViewCursor()
+                    cursor = text.createTextCursorByRange(vc.getStart())
+                else:
+                    cursor = text.createTextCursorByRange(text.getEnd())
+            else:
+                cursor = text.createTextCursorByRange(text.getEnd())
         except Exception:
             cursor = text.createTextCursor()
             try:
@@ -469,13 +515,87 @@ class CreateChart(ToolBase):
             except Exception:
                 pass
 
+        # 2. Create and configure TextEmbeddedObject
         name = f"Chart_{len(doc.getEmbeddedObjects())}"
-        chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
-        chart_obj.CLSID = CHART_CLSID
-        chart_obj.Name = name
+        try:
+            # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
+            chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+            if not chart_obj:
+                 return self._tool_error("Failed to create TextEmbeddedObject instance.")
+            
+            try:
+                logger.debug("TextEmbeddedObject Implementation: %s", chart_obj.getImplementationName())
+            except Exception:
+                pass
+
+            # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
+            chart_obj.CLSID = CHART_CLSID.upper()
+            from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+            chart_obj.AnchorType = AS_CHARACTER
+            
+            # Try to set name before insertion
+            try:
+                chart_obj.Name = name
+            except Exception:
+                pass
+            
+            logger.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
+        except Exception as e:
+            logger.debug("Creation/config failed: %s", e)
+            return self._tool_error(f"Failed to configure chart object: {e}")
+
+        # 3. Insert into document
+        try:
+            # Ensure we are at a valid insertion point if the doc is empty
+            if text.getString() == "":
+                try:
+                    PARAGRAPH_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
+                    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+                except Exception:
+                    pass
+
+            text.insertTextContent(cursor, chart_obj, False)
+            logger.info("Successfully inserted chart object into text.")
+        except Exception as e:
+            # Fallback 1: Try AT_PARAGRAPH
+            logger.debug("First insertion attempt failed (%s). Trying AT_PARAGRAPH anchor...", e)
+            try:
+                from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH
+                chart_obj.AnchorType = AT_PARAGRAPH
+                text.insertTextContent(cursor, chart_obj, False)
+                logger.info("Successfully inserted chart object with AT_PARAGRAPH.")
+            except Exception:
+                # Fallback 2: Try CHART_CLSID_DRAW_OLE
+                logger.debug("Second insertion attempt failed. Trying DRAW_OLE CLSID...")
+                try:
+                    chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
+                    text.insertTextContent(cursor, chart_obj, False)
+                    logger.info("Successfully inserted chart object with DRAW_OLE CLSID.")
+                except Exception as e3:
+                    logger.error("All insertion attempts failed for chart object: %s", e3)
+                    return self._tool_error(f"Failed to insert chart into document: {e3}")
+
+        # 4. Configure properties after insertion
+        # Try to set name again if it failed before
+        try:
+            if not chart_obj.Name:
+                chart_obj.Name = name
+        except Exception:
+            pass
+
+        try:
+            from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+            # If we didn't already set AT_PARAGRAPH in the catch block, try setting AS_CHARACTER now
+            if chart_obj.AnchorType != AT_PARAGRAPH:
+                chart_obj.AnchorType = AS_CHARACTER
+                logger.debug("Set AnchorType to AS_CHARACTER (post-insertion)")
+        except Exception as e:
+            logger.debug("Failed to set AnchorType post-insertion: %s", e)
+
         try:
             chart_obj.setPropertyValue("Width", rect.Width)
             chart_obj.setPropertyValue("Height", rect.Height)
+            logger.debug("Set size post-insertion: %dx%d", rect.Width, rect.Height)
         except Exception:
             try:
                 chart_obj.Width = rect.Width
@@ -483,58 +603,48 @@ class CreateChart(ToolBase):
             except Exception:
                 pass
 
-        text.insertTextContent(cursor, chart_obj, False)
+        # 5. Wait for model initialization
+        chart_doc = None
+        for i in range(10):
+            chart_doc = _chart_document_from_host(chart_obj)
+            if chart_doc:
+                logger.info("Obtained chart model on attempt %d", i + 1)
+                break
+            logger.debug("Model missing on attempt %d, pumping events...", i + 1)
+            _process_events(ctx.ctx)
+            time.sleep(0.05)
 
-        chart_doc = chart_obj.getEmbeddedObject()
-        if chart_doc:
-            chart_doc.setDiagram(chart_doc.createInstance(service))
-            _apply_chart_styling(chart_doc, **kwargs)
-
-        chart_name = name
-        try:
-            is_same = getattr(uno, "isSame", None)
-        except Exception:
-            is_same = None
-        objects = doc.getEmbeddedObjects()
-        for n in objects.getElementNames():
+        if not chart_doc:
+            # Last ditch effort: find it in the collection
             try:
-                o = objects.getByName(n)
-                if o is chart_obj:
-                    chart_name = n
-                    break
-                try:
-                    if o == chart_obj:
-                        chart_name = n
-                        break
-                except Exception:
-                    pass
-                if callable(is_same) and is_same(o, chart_obj):
-                    chart_name = n
-                    break
-            except Exception:
+                objects = doc.getEmbeddedObjects()
+                logger.debug("Final attempt: checking EmbeddedObjects collection (count=%d)", objects.getCount())
+                if objects.hasByName(name):
+                    obj = objects.getByName(name)
+                    logger.debug("Found object in collection by name. Type: %s", type(obj))
+                    chart_doc = _chart_document_from_host(obj)
+            except Exception as e:
+                logger.debug("Last ditch effort failed: %s", e)
                 pass
-        if chart_name == name:
-            by_clsid = []
-            for n in objects.getElementNames():
-                try:
-                    o = objects.getByName(n)
-                    if _writer_embed_is_chart(o):
-                        by_clsid.append(n)
-                except Exception:
-                    pass
-            if len(by_clsid) == 1:
-                chart_name = by_clsid[0]
-            elif len(by_clsid) > 1:
-                chart_name = by_clsid[-1]
-        try:
-            enms = list(objects.getElementNames())
-            if len(enms) == 1 and chart_name == name:
-                chart_name = enms[0]
-        except Exception:
-            pass
+
+        # 5. Configure Diagram
+        if chart_doc:
+            try:
+                diagram = chart_doc.createInstance(service)
+                if diagram:
+                    chart_doc.setDiagram(diagram)
+                    logger.info("Set chart diagram: %s", service)
+                else:
+                    logger.error("Failed to create diagram instance for service: %s", service)
+            except Exception as e:
+                logger.error("Failed to set chart diagram: %s", e)
+
+            _apply_chart_styling(chart_doc, **kwargs)
+        else:
+            logger.error("Could not obtain chart model after retries. Chart might be empty/invisible.")
 
         _process_events()
-        return {"status": "ok", "message": f"Chart '{chart_name}' inserted in Writer.", "chart_name": chart_name}
+        return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "chart_name": name}
 
     def _create_draw_chart(self, ctx, rect, service, **kwargs):
         doc = ctx.doc

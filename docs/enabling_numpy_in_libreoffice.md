@@ -1050,7 +1050,7 @@ The LLM (primed with knowledge of the `=PYTHON()` tool) can respond with a funct
 
 ## 10. Technical Spec: Data Handoff (Spreadsheet → Python) — implemented
 
-**`=PYTHON()`** and **`run_venv_python_script`** inject cell-range values as a variable named **`data`**.
+**`=PYTHON()`** (Calc formula) and **`run_venv_python_script`** (LLM tool, **Calc only**) can inject cell-range values as a variable named **`data`**. In Writer and Draw, the LLM tool does not expose or inject `data` — use document tools for content, Python for computation only.
 
 ### IDL / formula
 `string python( [in] string code, [in] any data );` in [`extension/idl/XPromptFunction.idl`](../extension/idl/XPromptFunction.idl). Rebuild [`extension/XPromptFunction.rdb`](../extension/XPromptFunction.rdb) after IDL changes (`scripts/rebuild_xprompt_rdb.sh` or `unoidl-write` when the LibreOffice SDK is installed).
@@ -1059,7 +1059,18 @@ The LLM (primed with knowledge of the `=PYTHON()` tool) can respond with a funct
 - **Calc formula (one row or column)**: `=PYTHON("result = sum(data)", A1:A10)` — values arrive as a **flat list** `[v1, v2, …]`, so ordinary Python (`sum`, `max`, list comprehensions) works without indexing.
 - **Calc formula (2D block)**: `=PYTHON("result = sum(sum(row) for row in data)", A1:C10)` — see shape rules below.
 - **With NumPy** (optional venv): `import numpy as np; result = float(np.sum(data))` works for both flat lists and 2D lists.
-- **LLM tool**: `run_venv_python_script` accepts optional **`data_range`** (A1 notation, read on the host) or **`data`** (nested or flat array). `data_range` wins if both are set.
+- **LLM tool (Calc only)**: `run_venv_python_script` accepts optional **`data_range`** (A1 notation, read on the host) or **`data`** (nested or flat array). `data_range` wins if both are set.
+- **LLM tool (Writer / Draw)**: schema is **`code`** and **`timeout_sec` only** — no `data` variable is injected. Read or edit the document with normal Writer/Draw tools, then run Python for math or transforms on values you pass in `code` / `result`.
+
+### Calc vs Writer (LLM tool)
+
+| Context | `data` / `data_range` in tool schema? | Injected in subprocess? |
+|---------|--------------------------------------|-------------------------|
+| Calc chat, `domain=python` | Yes | Yes, when provided |
+| Writer / Draw chat, `domain=python` | No (hidden from schema) | Never — avoids `sum(data)` confusion |
+| `=PYTHON(code, range)` formula | N/A (second arg is the range) | Yes in Calc |
+
+This split is intentional: spreadsheet ranges are a Calc concept. Revisit if we add Writer-native tabular data later.
 
 ### How `data` is shaped (beginner-first)
 
@@ -1089,4 +1100,4 @@ Empty cells become `None`. There is a size cap (`MAX_PYTHON_DATA_CELLS`, default
 ### Benefits
 - No manual string formatting of sheet data in the formula.
 - Numbers stay numeric through the UNO bridge and JSON round-trip.
-- Same `data` name and shaping for `=PYTHON()` and `run_venv_python_script`.
+- Same `data` shaping for `=PYTHON()` and Calc-side `run_venv_python_script` when a range is supplied.

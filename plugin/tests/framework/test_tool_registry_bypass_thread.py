@@ -21,7 +21,13 @@ def test_execute_bypass_thread_guard_allows_background_thread() -> None:
         uno_services = None
         doc_types = None
 
-        def validate(self, **kwargs):
+        def get_parameters(self, doc_type=None):
+            return self.parameters
+
+        def get_description(self, doc_type=None):
+            return self.description
+
+        def validate(self, *, doc_type=None, **kwargs):
             return True, None
 
         def execute(self, ctx, **kwargs):

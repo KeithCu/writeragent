@@ -58,11 +58,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'cleanup_bookmarks',
                    'resolve_comment',
                    'workflow'],
     'conditional_formatting': ['add_conditional_format', 'list_conditional_formats', 'remove_conditional_formats'],
-    'core': [   'librarian_onboarding',
-                'specialized_workflow_finished',
-                'switch_to_document_mode',
-                'upsert_memory',
-                'web_research'],
+    'core': ['specialized_workflow_finished', 'upsert_memory', 'web_research'],
     'draw': [   'add_slide',
                 'delegate_to_specialized_draw_toolset',
                 'delete_slide',
@@ -315,17 +311,9 @@ conditional_formatting = _ConditionalFormattingProxy()
 class _CoreProxy:
     """Proxy for core tools."""
 
-    def librarian_onboarding(self, query: str, *, history_text: str = "") -> dict:
-        """Librarian agent for new user onboarding.."""
-        return _rpc_call("librarian_onboarding", query=query, history_text=history_text)
-
     def specialized_workflow_finished(self, answer: str) -> dict:
         """Provides a final answer to the given task and exits the specialized toolset mode.."""
         return _rpc_call("specialized_workflow_finished", answer=answer)
-
-    def switch_to_document_mode(self, message: str) -> dict:
-        """Exits the Librarian onboarding flow and switches the user to the main document assistant mode."""
-        return _rpc_call("switch_to_document_mode", message=message)
 
     def upsert_memory(self, key: str, content: str) -> dict:
         """Persistent memory for the agent."""

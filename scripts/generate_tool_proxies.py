@@ -281,7 +281,9 @@ def main():
     
     # Get all tools, regardless of doc type or tier
     # filter_doc_type=False ensures we see all tools even without a live document
+    # Get all tools, then filter out specialized_control EXCEPT for specialized_workflow_finished
     all_tools = registry.get_tools(filter_doc_type=False, exclude_tiers=frozenset())
+    all_tools = [t for t in all_tools if getattr(t, "tier", None) != "specialized_control" or t.name == "specialized_workflow_finished"]
     
     print(generate_module(all_tools))
 

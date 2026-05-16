@@ -719,9 +719,16 @@ def test_run_venv_python_script_in_schemas_for_writer_when_domain_python(registr
         return svc == "com.sun.star.text.TextDocument"
 
     mock_writer.supportsService = supports
-    names = [s["function"]["name"] for s in registry.get_schemas("openai", doc=mock_writer, active_domain="python")]
+    schemas = registry.get_schemas("openai", doc=mock_writer, active_domain="python")
+    names = [s["function"]["name"] for s in schemas]
     assert "run_venv_python_script" in names
     assert "specialized_workflow_finished" in names
+    py_schema = next(s for s in schemas if s["function"]["name"] == "run_venv_python_script")
+    props = py_schema["function"]["parameters"].get("properties", {})
+    assert "code" in props
+    assert "data" not in props
+    assert "data_range" not in props
+    assert "does not inject" in (py_schema["function"]["description"] or "")
 
 
 def test_active_domain_schemas_include_calc_and_draw(registry):

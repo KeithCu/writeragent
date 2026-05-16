@@ -55,7 +55,7 @@ def test_prompt_function_python_execution():
 
         # Range data forwarded
         mock_run.reset_mock()
-        mock_run.return_value = {"status": "ok", "result": 3}
+        mock_run.return_value = {"status": "ok", "result": 6}
         res = func.python("result = sum(data)", ((1.0,), (2.0,), (3.0,)))
         assert res == 6
         mock_run.assert_called_once()

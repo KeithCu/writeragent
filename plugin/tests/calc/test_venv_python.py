@@ -37,7 +37,47 @@ def test_execute_passes_data(mock_run):
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="calc", services=MagicMock())
     with patch("plugin.calc.venv_python._resolve_python_data", return_value=([10], None)):
-        out = tool.execute(ctx, code="result = data[0]")
+        out = tool.execute(ctx, code="result = sum(data)")
     assert out["status"] == "ok"
     mock_run.assert_called_once()
     assert mock_run.call_args.kwargs["data"] == [10]
+
+
+@patch("plugin.calc.venv_python.run_code_in_user_venv")
+def test_execute_writer_ignores_data(mock_run):
+    mock_run.return_value = {"status": "ok", "result": 0}
+    tool = RunVenvPythonScript()
+    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services=MagicMock())
+    with patch("plugin.calc.venv_python._resolve_python_data") as mock_resolve:
+        out = tool.execute(ctx, code="result = 1", data=[[1, 2]], data_range="A1:A2")
+    assert out["status"] == "ok"
+    mock_resolve.assert_not_called()
+    assert mock_run.call_args.kwargs["data"] is None
+
+
+def test_get_parameters_calc_vs_writer():
+    tool = RunVenvPythonScript()
+    calc_props = tool.get_parameters("calc")["properties"]
+    writer_props = tool.get_parameters("writer")["properties"]
+    assert "data_range" in calc_props
+    assert "data" in calc_props
+    assert "data_range" not in writer_props
+    assert "data" not in writer_props
+
+
+def test_calc_schema_includes_data_range():
+    from plugin.framework.tool import ToolRegistry
+
+    registry = ToolRegistry(services={})
+    registry.register(RunVenvPythonScript())
+    mock_sheet = MagicMock()
+
+    def supports(svc):
+        return svc == "com.sun.star.sheet.SpreadsheetDocument"
+
+    mock_sheet.supportsService = supports
+    schemas = registry.get_schemas("openai", doc=mock_sheet, active_domain="python")
+    py_schema = next(s for s in schemas if s["function"]["name"] == "run_venv_python_script")
+    props = py_schema["function"]["parameters"]["properties"]
+    assert "data_range" in props
+    assert "data" in props

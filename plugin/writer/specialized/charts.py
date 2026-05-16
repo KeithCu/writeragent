@@ -21,7 +21,7 @@ tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only mo
 """
 
 import logging
-from ..specialized_base import ToolWriterChartBase
+from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.charts import ListCharts as CalcListCharts
 from plugin.calc.charts import GetChartInfo as CalcGetChartInfo
 from plugin.calc.charts import CreateChart as CalcCreateChart
@@ -35,26 +35,26 @@ log = logging.getLogger("writeragent.writer")
 _ALL_CHART_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
 
-class ListCharts(CalcListCharts, ToolWriterChartBase):
+class ListCharts(CalcListCharts, ToolBaseDummy):
     name = "list_charts"
     uno_services = _ALL_CHART_DOCS
 
 
-class GetChartInfo(CalcGetChartInfo, ToolWriterChartBase):
+class GetChartInfo(CalcGetChartInfo, ToolBaseDummy):
     name = "get_chart_info"
     uno_services = _ALL_CHART_DOCS
 
 
-class CreateChart(CalcCreateChart, ToolWriterChartBase):
+class CreateChart(CalcCreateChart, ToolBaseDummy):
     name = "create_chart"
     uno_services = _ALL_CHART_DOCS
 
 
-class EditChart(CalcEditChart, ToolWriterChartBase):
+class EditChart(CalcEditChart, ToolBaseDummy):
     name = "edit_chart"
     uno_services = _ALL_CHART_DOCS
 
 
-class DeleteChart(CalcDeleteChart, ToolWriterChartBase):
+class DeleteChart(CalcDeleteChart, ToolBaseDummy):
     name = "delete_chart"
     uno_services = _ALL_CHART_DOCS
