@@ -45,19 +45,21 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
 
 def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, str]:
     """Run a diagnostic script; return (success, user-facing message)."""
-    # Diagnostic script to gather version and package info
+    # Diagnostic script to gather version and package info.
+    # We use newlines instead of semicolons because compound statements (for/try)
+    # cannot be semicolon-separated in a single line.
     script = (
-        "import sys, json; "
-        "res = {'v': sys.version.split()[0]}; "
-        "pkgs = {}; "
-        "for p in ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib']: "
-        "  try: "
-        "    m = __import__(p); "
-        "    v = getattr(m, '__version__', 'present'); "
-        "    pkgs[p] = str(v); "
-        "  except ImportError: "
-        "    pkgs[p] = None; "
-        "res['p'] = pkgs; "
+        "import sys, json\n"
+        "res = {'v': sys.version.split()[0]}\n"
+        "pkgs = {}\n"
+        "for p in ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib']:\n"
+        "    try:\n"
+        "        m = __import__(p)\n"
+        "        v = getattr(m, '__version__', 'present')\n"
+        "        pkgs[p] = str(v)\n"
+        "    except ImportError:\n"
+        "        pkgs[p] = None\n"
+        "res['p'] = pkgs\n"
         "print(json.dumps(res))"
     )
 
