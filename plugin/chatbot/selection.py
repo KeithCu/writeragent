@@ -1,4 +1,3 @@
-import uno
 import logging
 from typing import Any, cast
 
@@ -7,7 +6,7 @@ try:
     from com.sun.star.uno import RuntimeException, Exception as UnoException
     UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
 except ImportError:
-    UNO_DISPOSED_EXCEPTIONS = cast(Any, (Exception,))
+    UNO_DISPOSED_EXCEPTIONS = cast("Any", (Exception,))
 
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx

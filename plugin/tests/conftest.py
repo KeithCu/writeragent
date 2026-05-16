@@ -92,6 +92,9 @@ beans = _create_mock_module("com.sun.star.beans")
 setattr(beans, "PropertyValue", MockPropertyValue)
 
 sheet = _create_mock_module("com.sun.star.sheet")
+setattr(beans, "PropertyValue", MockPropertyValue) # Repeat for safety in case of earlier failure
+
+sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)
 setattr(sheet, "ConditionOperator2", MockBase)
 
@@ -148,18 +151,18 @@ def _setup_grammar_persistence_test_env():
     import shutil
     import tempfile
 
-    # Reset singleton to ensure fresh initialization per test
-    old_instance = grammar_persistence._persistence_instance
-    grammar_persistence._persistence_instance = None
+    # Reset doc instances to ensure fresh initialization per test
+    old_doc_instances = dict(grammar_persistence._doc_persistence_instances)
+    grammar_persistence._doc_persistence_instances.clear()
 
     tmp_dir = tempfile.mkdtemp()
     with patch("plugin.framework.config.user_config_dir", return_value=tmp_dir):
         yield
 
     # Clean up
-    grammar_persistence._persistence_instance = None
+    grammar_persistence._doc_persistence_instances.clear()
     shutil.rmtree(tmp_dir, ignore_errors=True)
-    grammar_persistence._persistence_instance = old_instance
+    grammar_persistence._doc_persistence_instances.update(old_doc_instances)
 
 
 def pytest_sessionstart(session):

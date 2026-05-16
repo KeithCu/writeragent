@@ -33,7 +33,6 @@ ALWAYS_INCLUDE_EXTENSION = [
     "extension/Jobs.xcu",
     "extension/registration/",
     "extension/registry/",
-    "extension/dialogs/",
     "extension/WriterAgentDialogs/",
     "extension/assets/",
 ]
@@ -65,7 +64,6 @@ RELEASE_INCLUDE_PLUGIN = [
 ]
 
 ALWAYS_INCLUDE_ROOT = [
-    "contrib/",
     "locales/",
 ]
 

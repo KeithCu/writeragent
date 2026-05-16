@@ -4,7 +4,6 @@ This mixin is used by SendButtonListener in panel.py and contains the
 multi-round tool-calling loop plus simple streaming fallback.
 """
 
-import uno
 import logging
 import inspect
 import dataclasses
@@ -21,7 +20,7 @@ try:
     from com.sun.star.uno import RuntimeException, Exception as UnoException
     UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
 except ImportError:
-    UNO_DISPOSED_EXCEPTIONS = cast(Any, (Exception,))
+    UNO_DISPOSED_EXCEPTIONS = cast("Any", (Exception,))
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient

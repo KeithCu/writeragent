@@ -11,13 +11,11 @@ alternate send flows that would otherwise bloat that class:
 
 from __future__ import annotations
 
-import uno
 import os
 import json
 import threading
 import queue
 import logging
-import traceback
 from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar, cast
 
 try:
@@ -27,7 +25,7 @@ try:
     UNO_DISPOSED_EXCEPTIONS = (DisposedException, RuntimeException, UnoException)
 except ImportError:
     # Fallback for tests without PyUNO
-    UNO_DISPOSED_EXCEPTIONS = cast(Any, (Exception,))
+    UNO_DISPOSED_EXCEPTIONS = cast("Any", (Exception,))
 
 from plugin.framework.i18n import _
 from plugin.framework.async_stream import StreamQueueKind, run_blocking_in_thread, run_async_worker_with_drain
@@ -36,7 +34,6 @@ from plugin.framework.config import get_api_config, get_config, get_config_int, 
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.constants import CORE_DIRECTIVES
 from plugin.framework.queue_executor import llm_request_lane
-from plugin.framework.event_bus import global_event_bus
 from plugin.doc.document_helpers import get_document_context_for_chat, is_calc, is_draw
 from plugin.agent_backend import get_backend
 from plugin.agent_backend.registry import normalize_backend_id
@@ -453,7 +450,6 @@ class SendHandlersMixin:
             history_text = get_control_text(self.response_control) or ""
 
         def run_search():
-            from plugin.main import get_tools
             doc_type = "calc" if is_calc(model) else "draw" if is_draw(model) else "writer"
             try:
                 # If librarian mode, clear active_run_librarian and run librarian
