@@ -147,6 +147,10 @@ Configure the MCP endpoint URL (default port **8765**):
 }
 ```
 
+Use the URL from **MCP Server Status** (includes the `/mcp` path). Enable **MCP Server** in Settings.
+
+**Important for integrators:** MCP exposes **core** document tools plus `delegate_to_specialized_writer_toolset`. The MCP `tools/list` does not change with the delegate call. The current design delegates to a separate inner agent with a **special toolset and a clear task** (shapes, web research, etc.). That is simpler than giving the outer MCP model dozens of LO APIs to juggle over a session. The internal agent stack is required for the **background grammar checker**. See [docs/mcp-protocol.md](docs/mcp-protocol.md) — *MCP architecture for developers*.
+
 - **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the sidebar.
 - **Targeting**: Clients target a document via the `**X-Document-URL**` header.
 - **Hybrid AI Orchestrator Model**: This exposes the entire toolset to external agents while maintaining the document as the single source of truth.

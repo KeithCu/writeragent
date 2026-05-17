@@ -28,7 +28,6 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module
-from importlib.util import find_spec
 from types import BuiltinFunctionType, FunctionType, ModuleType
 from typing import Any
 
@@ -1719,30 +1718,41 @@ class LocalPythonExecutor(PythonExecutor):
             self.max_print_outputs_length = DEFAULT_MAX_LEN_OUTPUT
         self.additional_authorized_imports = additional_authorized_imports
         self.authorized_imports = list(set(BASE_BUILTIN_MODULES) | set(self.additional_authorized_imports))
-        self._check_authorized_imports_are_installed()
+        # WriterAgent vendored change (2026-05): upstream HuggingFace smolagents calls
+        # _check_authorized_imports_are_installed() here, which runs find_spec() on every
+        # whitelisted top-level module at executor construction ("Non-installed authorized
+        # modules: …"). We disabled that pre-flight probe (see commented-out call and method
+        # below—kept for upstream diff reference). Import policy is whitelist-only:
+        # evaluate_import → check_import_authorized → import_module at the line that imports.
+        # If a whitelisted package is missing, the user gets a normal ModuleNotFoundError
+        # wrapped as InterpreterError when their code actually imports it—not at init.
+        # self._check_authorized_imports_are_installed()
         self.static_tools = None
         self.additional_functions = additional_functions or {}
         self.timeout_seconds = timeout_seconds
 
-    def _check_authorized_imports_are_installed(self):
-        """
-        Check that all authorized imports are installed on the system.
-
-        Handles wildcard imports ("*") and partial star-pattern imports (e.g., "os.*").
-
-        Raises:
-            InterpreterError: If any of the authorized modules are not installed.
-        """
-        missing_modules = [
-            base_module
-            for imp in self.authorized_imports
-            if imp != "*" and find_spec(base_module := imp.split(".")[0]) is None
-        ]
-        if missing_modules:
-            raise InterpreterError(
-                f"Non-installed authorized modules: {', '.join(missing_modules)}. "
-                f"Please install these modules or remove them from the authorized imports list."
-            )
+    # --- WriterAgent: upstream pre-flight install check (disabled; kept for patch reference) ---
+    # def _check_authorized_imports_are_installed(self):
+    #     """
+    #     Check that all authorized imports are installed on the system.
+    #
+    #     Handles wildcard imports ("*") and partial star-pattern imports (e.g., "os.*").
+    #
+    #     Raises:
+    #         InterpreterError: If any of the authorized modules are not installed.
+    #     """
+    #     from importlib.util import find_spec
+    #
+    #     missing_modules = [
+    #         base_module
+    #         for imp in self.authorized_imports
+    #         if imp != "*" and find_spec(base_module := imp.split(".")[0]) is None
+    #     ]
+    #     if missing_modules:
+    #         raise InterpreterError(
+    #             f"Non-installed authorized modules: {', '.join(missing_modules)}. "
+    #             f"Please install these modules or remove them from the authorized imports list."
+    #         )
 
     def __call__(self, code_action: str) -> CodeOutput:
         output, is_final_answer = evaluate_python_code(

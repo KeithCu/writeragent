@@ -42,6 +42,19 @@ def test_execute_request_injects_data():
     assert r["result"] == 10
 
 
+def test_blocked_import_os():
+    r = _execute_request("import os\nresult = 1", None)
+    assert r["status"] == "error"
+    assert "not allowed" in r.get("message", "").lower() or "Import" in r.get("message", "")
+
+
+def test_blocked_import_not_on_allowlist():
+    pytest.importorskip("requests")
+    r = _execute_request("import requests\nresult = 1", None)
+    assert r["status"] == "error"
+    assert "not allowed" in r.get("message", "").lower() or "Import" in r.get("message", "")
+
+
 def test_harness_main_loop_integration():
     """Harness reads one JSON line and writes one response (subprocess smoke)."""
     harness = __import__("plugin.scripting.worker_harness", fromlist=["main"])

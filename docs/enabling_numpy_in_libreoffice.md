@@ -33,7 +33,7 @@ Rather than creating or bootstrapping a Python environment internally, the exten
 Instead of importing `numpy` inside the LibreOffice Python instance, we never mix memory. We shell out to the `python` executable located *inside* the user's venv.
 
 1. **Persistent worker process**: [`PythonWorkerManager`](plugin/scripting/python_worker_manager.py) spawns the venv `python` once and keeps it alive.
-2. **Fresh namespace per execute**: [`worker_harness.py`](plugin/scripting/worker_harness.py) runs each request in a new `globals()` dict — no variables carry over between `run_venv_python_script` / `=PYTHON()` calls (Writer vs Calc, or successive chat turns).
+2. **Fresh sandbox per execute**: [`worker_harness.py`](plugin/scripting/worker_harness.py) → [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py) runs each request in a new [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py) — no variables carry over between `run_venv_python_script` / `=PYTHON()` calls (Writer vs Calc, or successive chat turns).
 3. **JSON line protocol**: One request per line on stdin, one response per line on stdout (tool RPC from venv → LO is **not** wired yet; see [§7](#7-future-venv--libreoffice-tool-rpc-deferred)).
 
 **Pros**: Completely sidesteps ABI issues. NumPy will not crash LibreOffice. Supports any Python version the user installs in their venv. Reusing the process avoids spawn overhead on every call.
@@ -90,7 +90,7 @@ A single setting in **Settings → Python** (UI label; implementation lives in `
 
 If the path is empty, the Python execution feature is disabled. No automatic venv creation — the user brings their own. This is the simplest initial approach and avoids all the ABI/pip bootstrapping complexity from Strategies 1–2 above.
 
-**Shipped today:** the chat tool **`run_venv_python_script`** (`plugin/calc/venv_python.py`) and Calc **`=PYTHON()`** both go through a **single path**: [`run_code_in_user_venv`](plugin/scripting/run_venv_code.py) → [`PythonWorkerManager`](plugin/scripting/python_worker_manager.py) → [`worker_harness.py`](plugin/scripting/worker_harness.py) in the configured venv (or **`sys.executable`** when **`scripting.python_venv_path`** is empty). Each call gets a **clean namespace**; the child process stays warm. Assign JSON-serializable output to **`result`**. There is no UNO API inside the child process today (future: §7).
+**Shipped today:** the chat tool **`run_venv_python_script`** (`plugin/calc/venv_python.py`) and Calc **`=PYTHON()`** both go through a **single path**: [`run_code_in_user_venv`](plugin/scripting/run_venv_code.py) → [`PythonWorkerManager`](plugin/scripting/python_worker_manager.py) → [`worker_harness.py`](plugin/scripting/worker_harness.py) → [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py) (`LocalPythonExecutor` + fixed `VENV_AUTHORIZED_IMPORTS`) in the configured venv (or **`sys.executable`** when **`scripting.python_venv_path`** is empty). Each call gets a **fresh executor**; the child process stays warm. Assign JSON-serializable output to **`result`**. There is no UNO API inside the child process today (future: §7).
 
 **In-process (separate path):** [`execute_python_script`](plugin/calc/python_executor.py) runs in LibreOffice with `LocalPythonExecutor` (stdlib sandbox, `lp()` / `set_range` helpers). It also starts **fresh on every call** — no per-document variable cache.
 
@@ -118,8 +118,8 @@ If the path is empty, the Python execution feature is disabled. No automatic ven
 │                     ┌──────────▼───────────────────────┐ │
 │                     │  PythonWorkerManager             │ │
 │                     │  warm venv process               │ │
-│                     │  worker_harness: fresh globals   │ │
-│                     │  per request (JSON lines)        │ │
+│                     │  worker_harness → venv_sandbox   │ │
+│                     │  (LocalPythonExecutor / request) │ │
 │                     └──────────┬───────────────────────┘ │
 │                                │                         │
 │                     ┌──────────▼───────────────────────┐ │
@@ -137,16 +137,13 @@ If the path is empty, the Python execution feature is disabled. No automatic ven
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Why subprocess-only (no in-process execution)
+### Why subprocess + venv (not LO embedded Python for NumPy)
 
-The codebase contains `plugin/contrib/smolagents/local_python_executor.py` — a full AST-walking restricted Python interpreter with whitelisted builtins, dunder blocking, import restrictions, operation/iteration limits, and timeouts. It might seem like a natural fast-path for simple math code. However, **it cannot be used here** because of Python version mismatch:
+LibreOffice ships its own embedded Python (often 3.8–3.11). The user's venv is typically newer (3.12+). Running user/LLM scripts **in-process** on LO's interpreter would mix ABIs (NumPy crash) and parse/execute against the wrong Python version.
 
-- LibreOffice ships its own embedded Python (often 3.8–3.11 depending on build/platform).
-- The user's venv will typically use a newer system Python (3.12, 3.13, 3.14+).
-- `ast.parse()` inside LO's Python would reject syntax valid in newer Python versions (e.g. `match` statements from 3.10, `type` aliases from 3.12, PEP 695 generics from 3.12+).
-- Even without syntax differences, stdlib module behavior varies between minor versions (e.g. `statistics.fmean` added in 3.8, `math.cbrt` in 3.11, `itertools.batched` in 3.12). Code tested against the user's Python version would silently break or produce wrong results in LO's older runtime.
+**Shipped approach:** always shell out to the venv for `run_venv_python_script` / `=PYTHON()`, and run [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py) **inside that child** via [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py). `ast.parse()` and imports use the **venv's** Python, while the fixed `VENV_AUTHORIZED_IMPORTS` whitelist blocks `os`, `requests`, etc. Subprocess isolation remains the hard boundary for C extensions.
 
-The `LocalPythonExecutor` remains valuable for its original purpose — executing smolagents-generated code in the tool-calling loop — where the code is LLM-generated against LO's own Python. But for user-facing "run a script" functionality, **all execution goes through the user's venv subprocess**. This guarantees version consistency, full library access, and complete memory isolation from LibreOffice.
+**Separate in-process path:** [`execute_python_script`](plugin/calc/python_executor.py) still uses `LocalPythonExecutor` in LO's embedded Python (stdlib-only, `lp()` helpers) for light Calc edits without a venv.
 
 ---
 
@@ -307,7 +304,7 @@ def main():
         ...
 ```
 
-The **shipped** harness uses full `exec()` in the venv (not `LocalPythonExecutor`), so numpy/pandas and modern syntax work unchanged. See the source file for serialization of numpy/pandas results.
+The **shipped** harness uses vendored [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py) via [`plugin/scripting/venv_sandbox.py`](plugin/scripting/venv_sandbox.py): fixed `VENV_AUTHORIZED_IMPORTS` whitelist only (no `find_spec` pre-check at init; missing packages fail when code imports them). Fresh executor per request; numpy/pandas serialization unchanged.
 
 #### Subprocess management (`plugin/scripting/python_worker_manager.py`) — **implemented**
 
@@ -397,7 +394,7 @@ Because the worker harness uses `LocalPythonExecutor`, we **do not need a separa
 | Runaway execution | Configurable timeout (default 30s, we set 120s) |
 | Library whitelist | Only `additional_authorized_imports` + `BASE_BUILTIN_MODULES` can be imported |
 
-The **import whitelist is the primary control surface**: `numpy`, `pandas`, `scipy`, etc. are explicitly listed in `DEFAULT_AUTHORIZED_IMPORTS` in the worker harness. Everything not on the list (including `os`, `subprocess`, `pathlib`, `socket`) is blocked by the executor before it can run.
+The **import whitelist is the primary control surface**: `numpy`, `pandas`, `scipy`, etc. are listed in `VENV_AUTHORIZED_IMPORTS` in [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py). Everything not on the list (including `os`, `subprocess`, `pathlib`, `socket`) is blocked by the executor when code imports it. WriterAgent removed upstream's `find_spec` pre-check at executor init (see vendored comment in `local_python_executor.py`).
 
 > **Note:** The restricted executor is not a perfect sandbox (Python is too dynamic for language-level sandboxing to be 100% airtight). The subprocess boundary provides the true isolation — even if someone finds an escape path in the AST walker, they're in a separate process with no access to LibreOffice's memory or UNO objects.
 
@@ -406,8 +403,9 @@ The **import whitelist is the primary control surface**: `numpy`, `pandas`, `sci
 | Layer | Behavior |
 |-------|----------|
 | **`PythonWorkerManager`** | One subprocess per resolved venv `python` executable; respawns on crash/timeout. |
-| **`worker_harness.py`** | On each `{"id", "code", "data"?}` line, builds a **new** namespace, runs code, returns `result` (or error). |
-| **Isolation** | Automatic — no `reset` command, no LLM flag, no chat-Clear hook. Writer → Calc → next call never sees prior globals. |
+| **`worker_harness.py`** | JSON line loop; delegates to `venv_sandbox.run_sandboxed_code`. |
+| **`venv_sandbox.py`** | New `LocalPythonExecutor` per request; `send_tools({})` for `sum`/`len`; inject `data`; return serialized `result`. |
+| **Isolation** | Automatic — no `reset` command, no LLM flag, no chat-Clear hook. Writer → Calc → next call never sees prior executor state. |
 | **Trade-off** | Faster than spawn-per-call; no notebook-style `df` reuse across tool invocations unless the LLM re-reads data or passes `data` / `data_range`. |
 
 **Future (optional):** opt-in session persistence (e.g. same chat session ID reuses one namespace) would be an explicit product decision, not the default.
@@ -1001,7 +999,7 @@ IDL: `string python( [in] string code, [in] any data );` in [`extension/idl/XPro
 ### How it runs (implementation)
 
 - **Out-of-process**: `=PYTHON()` uses the same warm worker as `run_venv_python_script` (Strategy 3). NumPy/Pandas stay in the venv; LibreOffice’s embedded interpreter is not used for formula evaluation.
-- **Full Python in the venv**: Not sandboxed by `LocalPythonExecutor`. Isolation is the **process boundary** plus a **fresh namespace per evaluation**.
+- **Sandboxed in the venv**: [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py) runs vendored `LocalPythonExecutor` with a fixed import whitelist (`VENV_AUTHORIZED_IMPORTS`). Isolation is **subprocess** + **fresh executor per evaluation**.
 - **No cross-cell persistence**: Variables from one `=PYTHON` cell are **not** visible in another (by design).
 - **In-process chat tool**: [`execute_python_script`](../plugin/calc/python_executor.py) is separate — stdlib sandbox, `lp()` helpers, fresh state per call; not used by `=PYTHON()`.
 
@@ -1252,7 +1250,8 @@ Moved into [§8 — The `=PYTHON()` Calc Function](#8-the-python-calc-function) 
 
 **Done**
 
-- [`plugin/scripting/worker_harness.py`](plugin/scripting/worker_harness.py) — long-lived worker loop; `exec()` in a **new namespace per request**; numpy/pandas result serialization.
+- [`plugin/scripting/worker_harness.py`](plugin/scripting/worker_harness.py) + [`plugin/scripting/venv_sandbox.py`](plugin/scripting/venv_sandbox.py) — long-lived worker loop; **LocalPythonExecutor** with fixed whitelist per request; numpy/pandas result serialization.
+- [`plugin/contrib/smolagents/local_python_executor.py`](plugin/contrib/smolagents/local_python_executor.py) — WriterAgent vendored change: removed upstream `_check_authorized_imports_are_installed()` (see comment in `__init__`).
 - [`plugin/scripting/python_worker_manager.py`](plugin/scripting/python_worker_manager.py) — singleton per venv executable; stdin/stdout JSON; restart on failure.
 - [`plugin/scripting/run_venv_code.py`](plugin/scripting/run_venv_code.py) — **only** entry for venv execution (removed temp-file spawn and `VenvInteractiveRunner`).
 - [`plugin/calc/python_executor.py`](plugin/calc/python_executor.py) — in-process tool creates a **new** `PythonExecutor` per call; removed document URL cache and `reset` parameter.
@@ -1261,6 +1260,5 @@ Moved into [§8 — The `=PYTHON()` Calc Function](#8-the-python-calc-function) 
 
 - **Tool RPC (§7):** bidirectional harness ↔ `PythonWorkerManager` so `writeragent_api` works inside one execute.
 - **Optional session persistence:** opt-in reuse of namespace within one chat session (not default).
-- **Harness safety mode:** optional `LocalPythonExecutor` in the venv child for stricter import blocking (trade-off vs full numpy ergonomics).
 - **Worker idle shutdown:** terminate venv process after N minutes idle to free memory.
 - **Formula `timeout_sec`:** parity with the LLM tool for `=PYTHON()`.
