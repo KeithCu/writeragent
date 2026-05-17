@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -314,37 +314,85 @@ msgstr ""
 "Malli toistaa samaa osaa (päättymätön silmukka). Yritä uudelleen tai käytä "
 "toista mallia."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Syötä API-avain ladataksesi malleja)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Yhteys epäonnistui)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Syötä muokkausohjeet!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Syöte"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Muokkaa valintaa (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Laajenna valintaa (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Laajenna valintaa"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Muokkaa valintaa"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Lisää LaTeX-yhtälö"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Syötä LaTeX-yhtälökoodi muunnettavaksi ja lisättäväksi kaavana:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Lisää lohkona (keskitetty kappale)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Lisää"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Peruuta"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Virhe"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Tämä komento on käytettävissä vain Writer-asiakirjoissa."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Tuntematon muunnosvirhe"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX-muunnosvirhe"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"LaTeX-koodin muuntaminen StarMath-muotoon epäonnistui:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "Odottamaton virhe LaTeX-lisäyksen aikana."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -376,10 +424,6 @@ msgid "OK"
 msgstr "OK"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Peruuta"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Kopioi"
 
@@ -394,21 +438,6 @@ msgstr "Kopioi URL-osoite"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Virhe: Työkalupakki ei käytettävissä"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Asetukset"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Virhe"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "Asetusten avaaminen epäonnistui: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -620,6 +649,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "Vaihdetaan asiakirjatilaan..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Asetukset"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Asetusten avaaminen epäonnistui: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Venv-tarkistus epäonnistui"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Syötä API-avain ladataksesi malleja)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Yhteys epäonnistui)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Koko:"
@@ -631,6 +685,64 @@ msgstr "Korkeus:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Leveys:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Suorita Python-skripti"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Kirjoita Python-koodi, joka suoritetaan käyttäjän virtuaaliympäristössä.\n"
+"Sijoita tulos 'result'-muuttujaan."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Suorita"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Tuloksen lisääminen Calc-tiedostoon epäonnistui: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Tiedot"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Tuloksen lisäämistä Draw- tai Impress-tiedostoihin ei vielä tueta. Pull-"
+"pyynnöt ovat tervetulleita!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Onnistui"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skripti suoritettiin onnistuneesti, mutta se ei palauttanut tulosta eikä "
+"tuottanut tulostetta."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Asiakirjatyyppiä ei tueta tuloksen lisäämistä varten."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Tuloste"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Tuntematon virhe"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Suoritusvirhe"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -735,6 +847,14 @@ msgstr "Suorita Draw-testit"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Arvioinnin koontinäyttö"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Suorita Python-skripti..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Lisää LaTeX-yhtälö..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -911,14 +1031,6 @@ msgstr "Teksti/chat-malli:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Aikakatkaisu (s):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Käännä kehote"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Käännä kielestä (esim. es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1143,6 +1255,25 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "MCP-portti"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Python-virtuaaliympäristön polku"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Jos asetettu, suorittaa työkalut kyseisessä virtuaaliympäristössä (bin/"
+"python tai Scripts/python.exe). Jos tyhjä, run_venv_python_script käyttää "
+"tämän prosessin sys.executable-polkua (perus-stdlib); käytä "
+"virtuaaliympäristöä, jos tarvitset numpya tai pandasia."
+
+msgid "Test"
+msgstr "Testi"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-asiakirjatyökalut (mukaan lukien siirtyminen ja haku)"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -314,37 +314,85 @@ msgstr ""
 "Mudel kordab sama osa (lõputu tsükkel). Proovige uuesti või kasutage teist "
 "mudelit."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Sisestage API-võti mudelite laadimiseks)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Ühendus nurjus)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Palun sisestage redigeerimisjuhised!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Sisend"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: valiku redigeerimine (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: valiku laiendamine (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: valiku laiendamine"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: valiku redigeerimine"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Lisa LaTeX-valem"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Sisestage LaTeX-i valemi kood teisendamiseks ja lisamiseks:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Lisa plokina (keskendatud lõik)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Lisa"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Loobu"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Viga"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "See käsk on saadaval ainult Writeri dokumentides."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Tundmatu teisendusviga"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX-i teisendusviga"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"LaTeX-i teisendamine StarMath-vormingusse ebaõnnestus:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "LaTeX-i lisamisel ilmnes ootamatu viga."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -376,10 +424,6 @@ msgid "OK"
 msgstr "OK"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Loobu"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Kopeeri"
 
@@ -394,21 +438,6 @@ msgstr "Kopeeri URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Viga: tööriistakomplekt pole saadaval"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Sätted"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Viga"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "Seadete avamine ebaõnnestus: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -619,6 +648,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "Lülitumine dokumendirežiimile..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Sätted"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Seadete avamine ebaõnnestus: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv on korras"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Venv-i kontrollimine ebaõnnestus"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Sisestage API-võti mudelite laadimiseks)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Ühendus nurjus)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Suurus:"
@@ -630,6 +684,63 @@ msgstr "Kõrgus:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Laius:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Käivita Pythoni skript"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Sisesta Pythoni kood, mida kasutaja virtuaalkeskkonnas käivitada.\n"
+"Omista tulemus muutujale 'result'."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Käivita"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Tulemuse sisestamine Calc-i ebaõnnestus: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Teave"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Tulemuse sisestamine Draw/Impressi pole veel toetatud. PR-id on teretulnud!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Edu"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skript käivitati edukalt, kuid see ei tagastanud tulemust ega väljastanud "
+"midagi."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Toetamata dokumenditüüp tulemuse sisestamiseks."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Väljund"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Tundmatu viga"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Täitmisviga"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -734,6 +845,14 @@ msgstr "Käivita Draw-testid"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Hindamise töölaud"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Käivita Pythoni skript..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Lisa LaTeX-valem..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -910,14 +1029,6 @@ msgstr "Teksti-/vestlusmudel:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Ajalõpp (s):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Tõlgi viip"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Tõlgi keelest (nt es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1140,6 +1251,24 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "MCP-port"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Pythoni venv-rada"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Kui määratud, käivitab tööriistad selles venv-is (bin/python või Scripts/"
+"python.exe). Kui tühi, kasutab run_venv_python_script selle protsessi "
+"sys.executable'i (põhiline stdlib); kasuta venv-i numpy/pandas jaoks."
+
+msgid "Test"
+msgstr "Test"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writeri dokumenditööriistad (sh navigeerimine ja otsing)"

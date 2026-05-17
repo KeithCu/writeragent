@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -317,37 +317,86 @@ msgstr ""
 "Modelis atkārto vienu un to pašu fragmentu (bezgalīga cilpa). Mēģiniet "
 "vēlreiz vai izmantojiet citu modeli."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Ievadiet API atslēgu, lai ielādētu modeļus)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Savienojuma kļūda)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Lūdzu, ievadiet rediģēšanas instrukcijas!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Ievade"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Rediģēt atlasi (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Paplašināt atlasi (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Paplašināt atlasi"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediģēt atlasi"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Ievietot LaTeX formulu"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr ""
+"Ievadiet LaTeX formulas kodu, lai to konvertētu un ievietotu kā formulu:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Ievietot kā atsevišķu bloku (centrēta rindkopa)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Ievietot"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Atcelt"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Kļūda"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Šī komanda ir pieejama tikai Writer dokumentos."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Nezināma konvertēšanas kļūda"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX konvertēšanas kļūda"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Neizdevās konvertēt LaTeX uz StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "LaTeX ievietošanas laikā radās neparedzēta kļūda."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -379,10 +428,6 @@ msgid "OK"
 msgstr "Labi"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Atcelt"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Kopēt"
 
@@ -397,21 +442,6 @@ msgstr "Kopēt URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Kļūda: rīkkopa nav pieejama"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Iestatījumi"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Kļūda"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "Neizdevās atvērt iestatījumus: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -626,6 +656,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "Pārslēdzas uz dokumenta režīmu..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Iestatījumi"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Neizdevās atvērt iestatījumus: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Venv pārbaude neizdevās"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Ievadiet API atslēgu, lai ielādētu modeļus)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Savienojuma kļūda)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Izmērs:"
@@ -637,6 +692,64 @@ msgstr "Augstums:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Platums:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Izpildīt Python skriptu"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Ievadiet Python kodu, ko izpildīt lietotāja virtuālajā vidē.\n"
+"Piešķiriet rezultātu mainīgajam 'result'."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Izpildīt"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Neizdevās ievietot rezultātu Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Informācija"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Rezultātu ievietošana Draw/Impress vēl netiek atbalstīta. PR ir laipni "
+"gaidīti!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Veiksmīgi"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skripts tika veiksmīgi izpildīts, taču neatgrieza rezultātu un neizvadīja "
+"datus."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Neatbalstīts dokumenta tips rezultāta ievietošanai."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Izvade"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Nezināma kļūda"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Izpildes kļūda"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -741,6 +854,14 @@ msgstr "Palaist Draw testus"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Novērtēšanas informācijas panelis"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Palaist Python skriptu..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Ievietot LaTeX formulu..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -917,14 +1038,6 @@ msgstr "Teksta/tērzēšanas modelis:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Noildze (s):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Tulkot uzvedni"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Tulkot no (piem., es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1148,6 +1261,24 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "MCP ports"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Python venv ceļš"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Ja iestatīts, palaiž rīkus šajā venv (bin/python vai Scripts/python.exe). Ja "
+"tukšs, run_venv_python_script izmanto šī procesa sys.executable (pamata "
+"stdlib); izmantojiet venv priekš numpy/pandas."
+
+msgid "Test"
+msgstr "Tests"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer dokumentu rīki (tostarp navigācija un meklēšana)"

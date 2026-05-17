@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -320,37 +320,86 @@ msgstr ""
 "Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau "
 "gunakan model yang berbeda."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Masukkan Kunci API untuk memuat model)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Koneksi gagal)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Harap masukkan instruksi penyuntingan!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Masukan"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Sunting Pilihan (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Perluas Pilihan (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Perluas Pilihan"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Sunting Pilihan"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Sisipkan Matematika LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr ""
+"Masukkan kode matematika LaTeX untuk dikonversi dan disisipkan sebagai rumus:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Sisipkan sebagai blok tampilan (paragraf rata tengah)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Sisipkan"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Batal"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Galat"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Perintah ini hanya tersedia di dokumen Writer."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Kesalahan konversi tidak dikenal"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "Kesalahan Konversi LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Gagal mengonversi LaTeX ke StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "Terjadi kesalahan yang tidak terduga saat penyisipan LaTeX."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -382,10 +431,6 @@ msgid "OK"
 msgstr "OK"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Batal"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Salin"
 
@@ -400,21 +445,6 @@ msgstr "Salin URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Galat: Toolkit tidak tersedia"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Pengaturan"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Galat"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "Gagal membuka Pengaturan: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -624,6 +654,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "Beralih ke mode dokumen..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Pengaturan"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Gagal membuka Pengaturan: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Pemeriksaan Venv gagal"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Masukkan Kunci API untuk memuat model)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Koneksi gagal)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Ukuran:"
@@ -635,6 +690,62 @@ msgstr "Tinggi:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Lebar:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Jalankan Skrip Python"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Masukkan kode Python untuk dijalankan di lingkungan virtual pengguna.\n"
+"Tetapkan hasilnya ke variabel 'result'."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Jalankan"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Gagal menyisipkan hasil ke Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Info"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "Penyisipan hasil ke Draw/Impress belum didukung. PR diterima!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Berhasil"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Skrip berhasil dijalankan, tetapi tidak mengembalikan hasil dan tidak "
+"menghasilkan output."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Tipe dokumen tidak didukung untuk penyisipan hasil."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Output"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Kesalahan tidak dikenal"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Kesalahan Eksekusi"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -739,6 +850,14 @@ msgstr "Jalankan tes Draw"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Dasbor Evaluasi"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Jalankan Skrip Python..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Sisipkan Matematika LaTeX..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -915,14 +1034,6 @@ msgstr "Model Teks/Obrolan:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Batas Waktu (dtk):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Terjemahkan Perintah"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Terjemahkan dari (contoh: es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1143,6 +1254,24 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "Port MCP"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Jalur venv Python"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Jika diatur, menjalankan alat di venv tersebut (bin/python atau Scripts/"
+"python.exe). Jika kosong, run_venv_python_script menggunakan sys.executable "
+"proses ini (stdlib dasar); gunakan venv untuk numpy/pandas."
+
+msgid "Test"
+msgstr "Uji"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Alat dokumen Writer (termasuk navigasi dan pencarian)"

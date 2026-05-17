@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -294,37 +294,85 @@ msgid ""
 "different model."
 msgstr "模型正在重复相同的块（无限循环）。请重试或使用其他模型。"
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(输入 API 密钥以加载模型)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(连接失败)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "请输入编辑指令！"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "输入"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: 编辑选区 (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 扩展选区 (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 扩展选区"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：编辑选区"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "插入 LaTeX 公式"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "输入 LaTeX 数学代码以转换并插入为公式："
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "作为显示块插入（居中段落）"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "插入"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "取消"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "错误"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "此命令仅在 Writer 文档中可用。"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "未知转换错误"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX 转换错误"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"无法将 LaTeX 转换为 StarMath：\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "插入 LaTeX 时发生意外错误。"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -356,10 +404,6 @@ msgid "OK"
 msgstr "确定"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "取消"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "复制"
 
@@ -374,21 +418,6 @@ msgstr "复制 URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "错误：工具包不可用"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "设置"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "错误"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "打开设置失败：{0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -587,6 +616,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "正在切换到文档模式..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "设置"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "打开设置失败：{0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "虚拟环境正常"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "虚拟环境检查失败"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(输入 API 密钥以加载模型)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(连接失败)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "大小："
@@ -598,6 +652,60 @@ msgstr "高度："
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "宽度："
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "运行 Python 脚本"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"输入要在用户虚拟环境中执行的 Python 代码。\n"
+"将结果赋值给 'result' 变量。"
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "运行"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "无法将结果插入到 Calc：%s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "信息"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "暂不支持将结果插入到 Draw/Impress。欢迎提交 PR！"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "成功"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr "脚本执行成功，但未返回结果且未产生输出。"
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "不支持此文档类型的结果插入。"
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "输出"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "未知错误"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "执行错误"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -702,6 +810,14 @@ msgstr "运行 Draw 测试"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "评估仪表板"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "运行 Python 脚本..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "插入 LaTeX 公式..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -878,14 +994,6 @@ msgstr "文本/聊天模型："
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "超时 (秒)："
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "翻译提示"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "翻译自 (例如 es)："
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1096,6 +1204,24 @@ msgstr "仅限本地主机，无认证。通过 stdio 的访问始终启用。"
 
 msgid "MCP Port"
 msgstr "MCP 端口"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Python 虚拟环境路径"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"如果设置，则在指定的虚拟环境（bin/python 或 Scripts/python.exe）中运行工具。"
+"如果为空，run_venv_python_script 将使用当前进程的 sys.executable（基础标准"
+"库）；若需使用 numpy/pandas，请配置虚拟环境。"
+
+msgid "Test"
+msgstr "测试"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 文档工具（包括导航和搜索）"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -318,37 +318,87 @@ msgstr ""
 "El model repeteix el mateix fragment (bucle infinit). Torneu-ho a provar o "
 "utilitzeu un model diferent."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Introduïu la clau de l'API per carregar els models)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Ha fallat la connexió)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Si us plau, introduïu les instruccions d'edició!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Entrada"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Edita la selecció (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Amplia la selecció (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Amplia la selecció"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Edita la selecció"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Insereix matemàtiques LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr ""
+"Introduïu el codi matemàtic LaTeX per convertir-lo i inserir-lo com a "
+"fórmula:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Insereix com a bloc de visualització (paràgraf centrat)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Insereix"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Cancel·la"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Error"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Aquesta ordre només està disponible en documents del Writer."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Error de conversió desconegut"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "Error de conversió LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Ha fallat la conversió de LaTeX a StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "S'ha produït un error inesperat durant la inserció de LaTeX."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -380,10 +430,6 @@ msgid "OK"
 msgstr "D'acord"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Cancel·la"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Copia"
 
@@ -398,21 +444,6 @@ msgstr "Copia l'URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Error: el joc d'eines no està disponible"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Configuració"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Error"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "No s'ha pogut obrir la configuració: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -627,6 +658,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "S'està canviant al mode de document..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Configuració"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "No s'ha pogut obrir la configuració: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "La comprovació de l'entorn virtual (venv) ha fallat"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Introduïu la clau de l'API per carregar els models)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Ha fallat la connexió)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Mida:"
@@ -638,6 +694,64 @@ msgstr "Alçada:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Amplada:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Executa l'script de Python"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Introduïu el codi Python a executar a l'entorn virtual de l'usuari.\n"
+"Assigneu el resultat a la variable 'result'."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Executa"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Ha fallat la inserció del resultat al Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Informació"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"La inserció de resultats al Draw/Impress encara no està implementada. Les "
+"contribucions són benvingudes!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Èxit"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"L'script s'ha executat correctament, però no ha retornat cap resultat ni ha "
+"produït cap sortida."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Tipus de document no compatible per a la inserció de resultats."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Sortida"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Error desconegut"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Error d'execució"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -742,6 +856,14 @@ msgstr "Executa les proves de Draw"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Tauler d'avaluació"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Executa l'script de Python..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Insereix matemàtiques LaTeX..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -918,14 +1040,6 @@ msgstr "Model de text/xat:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Temps d'espera (s):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Tradueix l'indicador"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Tradueix des de (p. ex. es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1151,6 +1265,24 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "Port MCP"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Camí del venv de Python"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Si s'estableix, executa les eines en aquest venv (bin/python o Scripts/"
+"python.exe). Si està buit, run_venv_python_script utilitza el sys.executable "
+"d'aquest procés (stdlib bàsic); utilitzeu un venv per a numpy/pandas."
+
+msgid "Test"
+msgstr "Prova"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Eines de document del Writer (incloent-hi la navegació i la cerca)"

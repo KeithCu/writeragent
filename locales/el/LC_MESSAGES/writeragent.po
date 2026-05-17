@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -328,37 +328,87 @@ msgstr ""
 "Το μοντέλο επαναλαμβάνει το ίδιο τμήμα (άπειρος βρόχος). Προσπαθήστε ξανά ή "
 "χρησιμοποιήστε ένα διαφορετικό μοντέλο."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Εισαγάγετε το κλειδί API για τη φόρτωση μοντέλων)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Αποτυχία σύνδεσης)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Παρακαλώ εισάγετε οδηγίες επεξεργασίας!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Είσοδος"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Επεξεργασία επιλογής (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Επέκταση επιλογής (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Επέκταση επιλογής"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Επεξεργασία επιλογής"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Εισαγωγή μαθηματικού τύπου LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr ""
+"Εισαγάγετε κώδικα μαθηματικού τύπου LaTeX για μετατροπή και εισαγωγή ως "
+"τύπου:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Εισαγωγή ως μπλοκ εμφάνισης (στοιχισμένη παράγραφος)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Εισαγωγή"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Άκυρο"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Σφάλμα"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Αυτή η εντολή είναι διαθέσιμη μόνο σε έγγραφα του Writer."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Άγνωστο σφάλμα μετατροπής"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "Σφάλμα μετατροπής LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Αποτυχία μετατροπής LaTeX σε StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "Παρουσιάστηκε μη αναμενόμενο σφάλμα κατά την εισαγωγή LaTeX."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -390,10 +440,6 @@ msgid "OK"
 msgstr "OK"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Άκυρο"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Αντιγραφή"
 
@@ -408,21 +454,6 @@ msgstr "Αντιγραφή URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Σφάλμα: Το εργαλειοθήκη δεν είναι διαθέσιμο"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Ρυθμίσεις"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Σφάλμα"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "Αποτυχία ανοίγματος των Ρυθμίσεων: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -636,6 +667,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "Μετάβαση σε λειτουργία εγγράφου..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Ρυθμίσεις"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Αποτυχία ανοίγματος των Ρυθμίσεων: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Ο έλεγχος του Venv απέτυχε"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Εισαγάγετε το κλειδί API για τη φόρτωση μοντέλων)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Αποτυχία σύνδεσης)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Μέγεθος:"
@@ -647,6 +703,64 @@ msgstr "Ύψος:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Πλάτος:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Εκτέλεση σεναρίου Python"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Εισαγάγετε κώδικα Python για εκτέλεση στο εικονικό περιβάλλον χρήστη.\n"
+"Αναθέστε το αποτέλεσμα στη μεταβλητή 'result'."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Εκτέλεση"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Αποτυχία εισαγωγής αποτελέσματος στο Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Πληροφορίες"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Η εισαγωγή αποτελέσματος στο Draw/Impress δεν υποστηρίζεται ακόμα. Οι "
+"προτάσεις (PRs) είναι ευπρόσδεκτες!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Επιτυχία"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Το σενάριο εκτελέστηκε με επιτυχία, αλλά δεν επέστρεψε αποτέλεσμα και δεν "
+"παρήγαγε έξοδο."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Μη υποστηριζόμενος τύπος εγγράφου για την εισαγωγή αποτελέσματος."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Έξοδος"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Άγνωστο σφάλμα"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Σφάλμα εκτέλεσης"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -751,6 +865,14 @@ msgstr "Εκτέλεση δοκιμών Draw"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Πίνακας ελέγχου αξιολόγησης"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Εκτέλεση σεναρίου Python..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Εισαγωγή μαθηματικού τύπου LaTeX..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -927,14 +1049,6 @@ msgstr "Μοντέλο κειμένου/συνομιλίας:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Χρονικό όριο (s):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Μετάφραση προτροπής"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Μετάφραση από (π.χ. es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1164,6 +1278,25 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "Θύρα MCP"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Διαδρομή venv Python"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Αν οριστεί, εκτελεί εργαλεία σε αυτό το venv (bin/python ή Scripts/"
+"python.exe). Αν είναι κενό, το run_venv_python_script χρησιμοποιεί το "
+"sys.executable αυτής της διεργασίας (βασική stdlib)· χρησιμοποιήστε ένα venv "
+"για numpy/pandas."
+
+msgid "Test"
+msgstr "Δοκιμή"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr ""

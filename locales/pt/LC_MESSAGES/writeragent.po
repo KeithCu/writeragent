@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Portuguese <LL@li.org>\n"
@@ -319,37 +319,85 @@ msgstr ""
 "O modelo está repetindo o mesmo trecho (loop infinito). Tente novamente ou "
 "use um modelo diferente."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(Insira a chave de API para carregar modelos)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(Falha na conexão)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "Por favor, insira as instruções de edição!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "Entrada"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: Editar seleção (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Estender seleção (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Estender seleção"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Editar seleção"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "Inserir fórmula LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "Introduza o código LaTeX para converter e inserir como fórmula:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "Inserir como bloco de visualização (parágrafo centrado)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "Inserir"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "Erro"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "Este comando só está disponível em documentos do Writer."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "Erro de conversão desconhecido"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "Erro de conversão LaTeX"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"Falha ao converter LaTeX para StarMath:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "Ocorreu um erro inesperado durante a inserção de LaTeX."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -381,10 +429,6 @@ msgid "OK"
 msgstr "OK"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "Cancelar"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "Copiar"
 
@@ -399,21 +443,6 @@ msgstr "Copiar URL"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "Erro: Kit de ferramentas indisponível"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "Configurações"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "Erro"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "Falha ao abrir as Configurações: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -628,6 +657,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "A mudar para o modo de documento..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "Configurações"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "Falha ao abrir as Configurações: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Verificação de Venv falhou"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(Insira a chave de API para carregar modelos)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(Falha na conexão)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "Tamanho:"
@@ -639,6 +693,64 @@ msgstr "Altura:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Largura:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Executar Script Python"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"Insira o código Python para executar no ambiente virtual do usuário.\n"
+"Atribua o resultado à variável 'result'."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "Executar"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Falha ao inserir resultado no Calc: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Informações"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"A inserção de resultados no Draw/Impress ainda não é suportada. Pull "
+"requests são bem-vindos!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "Sucesso"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr ""
+"Script executado com sucesso, mas não retornou nenhum resultado e não "
+"produziu saída."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "Tipo de documento não suportado para inserção de resultado."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "Saída"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "Erro desconhecido"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "Erro de execução"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -743,6 +855,14 @@ msgstr "Executar testes do Draw"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "Painel de avaliação"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Executar script Python..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "Inserir fórmula LaTeX..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -919,14 +1039,6 @@ msgstr "Modelo de texto/chat:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "Tempo limite (s):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "Traduzir prompt"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "Traduzir de (ex: es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1150,6 +1262,24 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "Porta MCP"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Caminho do venv do Python"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"Se definido, executa ferramentas nesse venv (bin/python ou Scripts/"
+"python.exe). Se vazio, run_venv_python_script usa o sys.executable deste "
+"processo (stdlib básica); use um venv para numpy/pandas."
+
+msgid "Test"
+msgstr "Testar"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Ferramentas de documento do Writer (incluindo navegação e pesquisa)"

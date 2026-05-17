@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -315,37 +315,85 @@ msgstr ""
 "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델"
 "을 사용하세요."
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(API 키를 입력하여 모델 불러오기)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(연결 실패)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "편집 지침을 입력하십시오!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "입력"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: 선택 영역 편집 (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 선택 영역 확장 (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: 선택 영역 확장"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: 선택 영역 편집"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "LaTeX 수식 삽입"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "변환하여 수식으로 삽입할 LaTeX 수식 코드를 입력하세요:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "디스플레이 블록으로 삽입 (가운데 정렬 단락)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "삽입"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "취소"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "오류"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "이 명령은 Writer 문서에서만 사용할 수 있습니다."
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "알 수 없는 변환 오류"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX 변환 오류"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"LaTeX를 StarMath로 변환하지 못했습니다:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "LaTeX 삽입 중 예기치 않은 오류가 발생했습니다."
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -377,10 +425,6 @@ msgid "OK"
 msgstr "확인"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "취소"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "복사"
 
@@ -395,21 +439,6 @@ msgstr "URL 복사"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "오류: 툴킷을 사용할 수 없음"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "설정"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "오류"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "설정을 여는 데 실패했습니다: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -623,6 +652,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "문서 모드로 전환 중..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "설정"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "설정을 여는 데 실패했습니다: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "가상 환경(Venv) 정상"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "가상 환경(Venv) 확인 실패"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(API 키를 입력하여 모델 불러오기)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(연결 실패)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "크기:"
@@ -634,6 +688,61 @@ msgstr "높이:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "너비:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "Python 스크립트 실행"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"사용자 가상 환경에서 실행할 Python 코드를 입력하세요.\n"
+"결과를 'result' 변수에 할당하세요."
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "실행"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Calc에 결과를 삽입하지 못했습니다: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "정보"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Draw/Impress에 대한 결과 삽입은 아직 지원되지 않습니다. PR을 환영합니다!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "성공"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr "스크립트가 성공적으로 실행되었으나, 반환된 결과나 출력값이 없습니다."
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "결과 삽입을 지원하지 않는 문서 형식입니다."
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "출력"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "알 수 없는 오류"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "실행 오류"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -738,6 +847,14 @@ msgstr "Draw 테스트 실행"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "평가 대시보드"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "Python 스크립트 실행..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "LaTeX 수식 삽입..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -914,14 +1031,6 @@ msgstr "텍스트/채팅 모델:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "시간 제한 (초):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "프롬프트 번역"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "번역 언어 (예: es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1138,6 +1247,25 @@ msgstr "로컬호스트 전용, 인증 없음. stdio를 통한 액세스는 항�
 
 msgid "MCP Port"
 msgstr "MCP 포트"
+
+msgid "Python"
+msgstr "Python"
+
+msgid "Python venv path"
+msgstr "Python 가상 환경(venv) 경로"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"설정 시 해당 가상 환경(bin/python 또는 Scripts/python.exe)에서 도구를 실행합"
+"니다. 비어 있으면 run_venv_python_script는 현재 프로세스의 sys.executable(기"
+"본 표준 라이브러리)을 사용합니다. numpy/pandas를 사용하려면 가상 환경을 지정"
+"하세요."
+
+msgid "Test"
+msgstr "테스트"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer 문서 도구 (탐색 및 검색 포함)"

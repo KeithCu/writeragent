@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 13:13-0400\n"
+"POT-Creation-Date: 2026-05-16 20:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -316,37 +316,85 @@ msgstr ""
 "মডেলটি একই অংশ বারবার পুনরাবৃত্তি করছে (ইনফিনিট লুপ)। আবার চেষ্টা করুন অথবা অন্য "
 "একটি মডেল ব্যবহার করুন।"
 
-#: plugin/framework/config.py
-msgid "(Enter API Key to load models)"
-msgstr "(মডেল লোড করতে API কী লিখুন)"
-
-#: plugin/framework/config.py
-msgid "(Connection failed)"
-msgstr "(সংযোগ ব্যর্থ হয়েছে)"
-
-#: plugin/calc/legacy.py plugin/writer/legacy.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
 msgid "Please enter edit instructions!"
 msgstr "অনুগ্রহ করে সম্পাদনার নির্দেশাবলী লিখুন!"
 
-#: plugin/calc/legacy.py plugin/writer/legacy.py plugin/xdl_strings.py
+#: plugin/calc/editselection.py plugin/writer/editselection.py
+#: plugin/xdl_strings.py
 msgid "Input"
 msgstr "ইনপুট"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Edit Selection (Calc)"
 msgstr "WriterAgent: নির্বাচন সম্পাদনা করুন (Calc)"
 
-#: plugin/calc/legacy.py
+#: plugin/calc/editselection.py
 msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: নির্বাচন প্রসারিত করুন (Calc)"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: নির্বাচন প্রসারিত করুন"
 
-#: plugin/writer/legacy.py plugin/chatbot/selection.py
+#: plugin/writer/editselection.py plugin/chatbot/selection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: নির্বাচন সম্পাদনা করুন"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert LaTeX Math"
+msgstr "LaTeX গণিত সন্নিবেশ করুন"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Enter LaTeX math code to convert and insert as formula:"
+msgstr "রূপান্তর এবং সূত্র হিসেবে সন্নিবেশ করার জন্য LaTeX গণিত কোড লিখুন:"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert as display block (centered paragraph)"
+msgstr "ডিসপ্লে ব্লক হিসেবে সন্নিবেশ করুন (কেন্দ্রস্থিত অনুচ্ছেদ)"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Insert"
+msgstr "সন্নিবেশ করুন"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/dialogs.py
+#: plugin/scripting/python_runner.py
+msgid "Cancel"
+msgstr "বাতিল"
+
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner.py
+#: plugin/main.py
+msgid "Error"
+msgstr "ত্রুটি"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "This command is only available in Writer documents."
+msgstr "এই কমান্ডটি শুধুমাত্র Writer নথিতে উপলব্ধ।"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Unknown conversion error"
+msgstr "অজানা রূপান্তর ত্রুটি"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "LaTeX Conversion Error"
+msgstr "LaTeX রূপান্তর ত্রুটি"
+
+#: plugin/writer/math/latex_dialog.py
+#, python-brace-format
+msgid ""
+"Failed to convert LaTeX to StarMath:\n"
+"\n"
+"{0}"
+msgstr ""
+"LaTeX থেকে StarMath-এ রূপান্তর ব্যর্থ হয়েছে:\n"
+"\n"
+"{0}"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "An unexpected error occurred during LaTeX insertion."
+msgstr "LaTeX সন্নিবেশের সময় একটি অপ্রত্যাশিত ত্রুটি ঘটেছে।"
 
 #: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
 msgid "Ready"
@@ -378,10 +426,6 @@ msgid "OK"
 msgstr "ঠিক আছে"
 
 #: plugin/chatbot/dialogs.py
-msgid "Cancel"
-msgstr "বাতিল"
-
-#: plugin/chatbot/dialogs.py
 msgid "Copy"
 msgstr "কপি করুন"
 
@@ -396,21 +440,6 @@ msgstr "URL কপি করুন"
 #: plugin/chatbot/tool_loop.py
 msgid "Error: Toolkit unavailable"
 msgstr "ত্রুটি: টুলকিট উপলব্ধ নেই"
-
-#: plugin/chatbot/legacy_ui.py plugin/main.py plugin/xdl_strings.py
-msgid "Settings"
-msgstr "সেটিংস"
-
-#: plugin/chatbot/legacy_ui.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/main.py
-msgid "Error"
-msgstr "ত্রুটি"
-
-#: plugin/chatbot/legacy_ui.py
-#, python-brace-format
-msgid "Failed to open Settings: {0}"
-msgstr "সেটিংস খুলতে ব্যর্থ: {0}"
 
 #: plugin/chatbot/panel.py
 msgid "Accept"
@@ -621,6 +650,31 @@ msgstr ""
 msgid "Switching to document mode..."
 msgstr "ডকুমেন্ট মোডে স্যুইচ করা হচ্ছে..."
 
+#: plugin/chatbot/dialog_views.py plugin/main.py plugin/xdl_strings.py
+msgid "Settings"
+msgstr "সেটিংস"
+
+#: plugin/chatbot/dialog_views.py
+#, python-brace-format
+msgid "Failed to open Settings: {0}"
+msgstr "সেটিংস খুলতে ব্যর্থ: {0}"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv ঠিক আছে"
+
+#: plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Venv পরীক্ষা ব্যর্থ হয়েছে"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Enter API Key to load models)"
+msgstr "(মডেল লোড করতে API কী লিখুন)"
+
+#: plugin/chatbot/config_ui_helpers.py
+msgid "(Connection failed)"
+msgstr "(সংযোগ ব্যর্থ হয়েছে)"
+
 #: plugin/chatbot/panel_factory.py
 msgid "Size:"
 msgstr "আকার:"
@@ -632,6 +686,60 @@ msgstr "উচ্চতা:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "প্রস্থ:"
+
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script"
+msgstr "পাইথন স্ক্রিপ্ট চালান"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Enter Python code to execute in the user virtual environment.\n"
+"Assign the result to the 'result' variable."
+msgstr ""
+"ব্যবহারকারীর ভার্চুয়াল এনভায়রনমেন্টে কার্যকর করার জন্য পাইথন কোড লিখুন।\n"
+"ফলাফলটি 'result' ভেরিয়েবলে অ্যাসাইন করুন।"
+
+#: plugin/scripting/python_runner.py
+msgid "Run"
+msgstr "চালান"
+
+#: plugin/scripting/python_runner.py
+#, python-format
+msgid "Failed to insert result into Calc: %s"
+msgstr "Calc-এ ফলাফল সন্নিবেশ করতে ব্যর্থ: %s"
+
+#: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "তথ্য"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "Draw/Impress-এ ফলাফল সন্নিবেশ করা এখনও সমর্থিত নয়। PR স্বাগত!"
+
+#: plugin/scripting/python_runner.py
+msgid "Success"
+msgstr "সফল"
+
+#: plugin/scripting/python_runner.py
+msgid ""
+"Script executed successfully, but returned no result and produced no output."
+msgstr "স্ক্রিপ্ট সফলভাবে কার্যকর হয়েছে, কিন্তু কোনো ফলাফল বা আউটপুট প্রদান করেনি।"
+
+#: plugin/scripting/python_runner.py
+msgid "Unsupported document type for result insertion."
+msgstr "ফলাফল সন্নিবেশের জন্য অসমর্থিত নথির ধরন।"
+
+#: plugin/scripting/python_runner.py
+msgid "Output"
+msgstr "আউটপুট"
+
+#: plugin/scripting/python_runner.py
+msgid "Unknown error"
+msgstr "অজানা ত্রুটি"
+
+#: plugin/scripting/python_runner.py
+msgid "Execution Error"
+msgstr "এক্সিকিউশন ত্রুটি"
 
 #: plugin/tests/framework/test_i18n.py
 msgid "ThisIsAnUntranslatedString999"
@@ -736,6 +844,14 @@ msgstr "Draw পরীক্ষা চালান"
 #: plugin/main.py
 msgid "Evaluation Dashboard"
 msgstr "মূল্যায়ন ড্যাশবোর্ড"
+
+#: plugin/main.py
+msgid "Run Python Script..."
+msgstr "পাইথন স্ক্রিপ্ট চালান..."
+
+#: plugin/main.py
+msgid "Insert LaTeX Math..."
+msgstr "LaTeX গণিত সন্নিবেশ করুন..."
 
 #: plugin/main.py
 msgid "Dispatch Error"
@@ -912,14 +1028,6 @@ msgstr "টেক্সট/চ্যাট মডেল:"
 #: plugin/xdl_strings.py
 msgid "Timeout (s):"
 msgstr "সময়সীমা (সেকেন্ড):"
-
-#: plugin/xdl_strings.py
-msgid "Translate Prompt"
-msgstr "প্রম্পট অনুবাদ করুন"
-
-#: plugin/xdl_strings.py
-msgid "Translate from (e.g. es):"
-msgstr "অনুবাদ করুন (যেমন: es):"
 
 #: plugin/xdl_strings.py
 msgid "Use AI Horde for Image Generation"
@@ -1137,6 +1245,24 @@ msgstr ""
 
 msgid "MCP Port"
 msgstr "MCP পোর্ট"
+
+msgid "Python"
+msgstr "পাইথন"
+
+msgid "Python venv path"
+msgstr "পাইথন venv পাথ"
+
+msgid ""
+"If set, runs tools in that venv (bin/python or Scripts/python.exe). If "
+"empty, run_venv_python_script uses this process's sys.executable (basic "
+"stdlib); use a venv for numpy/pandas."
+msgstr ""
+"যদি সেট করা থাকে, তবে সেই venv-এ টুলগুলি চালায় (bin/python বা Scripts/"
+"python.exe)। খালি থাকলে, run_venv_python_script এই প্রসেসের sys.executable "
+"(বেসিক stdlib) ব্যবহার করে; numpy/pandas-এর জন্য একটি venv ব্যবহার করুন।"
+
+msgid "Test"
+msgstr "পরীক্ষা"
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer ডকুমেন্ট টুলস (নেভিগেশন এবং অনুসন্ধান সহ)"

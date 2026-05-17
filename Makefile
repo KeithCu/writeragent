@@ -222,7 +222,7 @@ release:
 	@echo "Building stripped bundle for verification..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --strip --output build/test-stripped.oxt
 	@echo "Running tests against stripped bundle..."
-	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=plugin/tests/scripts --ignore=plugin/tests/test_merge_module_yaml_into_pot.py --ignore=plugin/tests/framework/test_logging.py --ignore=plugin/tests/writer/locale/test_grammar_linguistic_xcu.py plugin/tests
+	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=plugin/tests/scripts --ignore=plugin/tests/test_merge_module_yaml_into_pot.py --ignore=plugin/tests/framework/test_logging.py --ignore=plugin/tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=plugin/tests/scripting/test_generate_tool_proxies.py plugin/tests
 	cd build/bundle && PYTHONPATH=. $(LO_PYTHON) -m plugin.testing_runner
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
