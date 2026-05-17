@@ -7,6 +7,12 @@ import socket
 from unittest.mock import MagicMock
 
 from plugin.mcp import McpModule
+from plugin.mcp.server import mcp_endpoint_url
+
+
+def test_mcp_endpoint_url_helper():
+    assert mcp_endpoint_url("localhost", 8765) == "http://localhost:8765/mcp"
+    assert mcp_endpoint_url("127.0.0.1", 9000, use_ssl=True) == "https://127.0.0.1:9000/mcp"
 
 
 def get_free_port():
@@ -175,3 +181,12 @@ def test_mcp_resources(mcp_server):
         result = data["result"]
         assert "resources" in result
         assert isinstance(result["resources"], list)
+
+
+def test_root_info_includes_mcp_endpoint(mcp_server):
+    """GET / advertises the streamable-HTTP MCP endpoint when MCP routes are registered."""
+    req = urllib.request.Request(f"{mcp_server}/", method="GET")
+    with urllib.request.urlopen(req, timeout=5) as response:
+        assert response.getcode() == 200
+        data = json.loads(response.read().decode("utf-8"))
+        assert data.get("mcp_endpoint") == f"{mcp_server}/mcp"

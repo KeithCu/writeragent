@@ -974,9 +974,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     # _run_web_research is provided by SendHandlersMixin.
 
-    def _get_mcp_url(self) -> str | None:
-        return None
-
     @property
     def _sm_state(self) -> Any:
         return self.sidebar_state.tool_loop

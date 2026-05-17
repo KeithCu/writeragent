@@ -9,7 +9,7 @@ config:
     default: false
     widget: checkbox
     label: Enable MCP Server
-    helper: Localhost only, no auth. Access via stdio is always enabled.
+    helper: Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable HTTP).
     public: true
   mcp_port:
     type: int

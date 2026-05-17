@@ -30,7 +30,7 @@ except ImportError:
 from plugin.framework.i18n import _
 from plugin.framework.async_stream import StreamQueueKind, run_blocking_in_thread, run_async_worker_with_drain
 from plugin.framework.errors import safe_json_loads, format_error_payload, AgentParsingError, ConfigError, NetworkError
-from plugin.framework.config import get_api_config, get_config, get_config_int, as_bool
+from plugin.framework.config import get_api_config, get_config, get_config_int, get_config_int_safe, as_bool
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.constants import CORE_DIRECTIVES
 from plugin.framework.queue_executor import llm_request_lane
@@ -557,15 +557,14 @@ class SendHandlersMixin:
         self._run_unified_worker_drain_loop(q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required)
 
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
-        """Construct the local MCP server URL from config."""
+        """Construct the local MCP streamable-HTTP endpoint URL from config."""
         try:
+            from plugin.mcp.server import mcp_endpoint_url
 
-
-            port = get_config(self.ctx, "mcp.mcp_port") or 8765
-            host = get_config(self.ctx, "mcp.host") or "localhost"
-            use_ssl = get_config(self.ctx, "mcp.use_ssl")
-            scheme = "https" if use_ssl else "http"
-            return f"{scheme}://{host}:{port}"
+            port = get_config_int_safe(self.ctx, "mcp.mcp_port", 8765)
+            host = str(get_config(self.ctx, "mcp.host") or "localhost")
+            use_ssl = bool(get_config(self.ctx, "mcp.use_ssl"))
+            return mcp_endpoint_url(host, port, use_ssl)
         except (ValueError, TypeError) as e:
             log.debug("Failed to read MCP config: %s", e)
             return None

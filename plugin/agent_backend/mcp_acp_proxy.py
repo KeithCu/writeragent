@@ -31,8 +31,9 @@ log = logging.getLogger(__name__)
 
 _LOG = "MCPACP"
 
-# Default MCP server URL
-_DEFAULT_MCP_URL = "http://localhost:8765/mcp"
+from plugin.mcp.server import mcp_endpoint_url
+
+_DEFAULT_MCP_URL = mcp_endpoint_url("localhost", 8765)
 
 
 class MCPACPProxy(AgentBackend):
@@ -55,15 +56,16 @@ class MCPACPProxy(AgentBackend):
     def _load_config(self):
         """Read MCP server URL from WriterAgent config."""
         try:
-            from plugin.framework.config import get_config
+            from plugin.framework.config import get_config, get_config_int_safe
 
             path = str(get_config(self._ctx, "agent_backend.path") or "").strip()
             if path and path.startswith("http"):
                 self._mcp_url = path
             else:
-                # Try to get MCP URL from http config
-                mcp_port = get_config(self._ctx, "mcp.mcp_port") or 8765
-                self._mcp_url = f"http://localhost:{mcp_port}/mcp"
+                mcp_port = get_config_int_safe(self._ctx, "mcp.mcp_port", 8765)
+                mcp_host = str(get_config(self._ctx, "mcp.host") or "localhost")
+                use_ssl = bool(get_config(self._ctx, "mcp.use_ssl"))
+                self._mcp_url = mcp_endpoint_url(mcp_host, mcp_port, use_ssl)
         except Exception as e:
             log.warning(f"Failed to load config: {e}")
             self._mcp_url = _DEFAULT_MCP_URL

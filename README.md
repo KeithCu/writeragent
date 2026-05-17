@@ -133,8 +133,19 @@ One of the unique challenges of building an AI assistant for a rich word process
 
 Enable integration with [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol) for advanced AI workflows.
 
-When enabled in **WriterAgent > Settings**, an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, Claude Desktop, etc.).
+When enabled in **WriterAgent > Settings**, an HTTP server runs on localhost and exposes the same Writer/Calc/Draw tools to external AI clients (Cursor, LM Studio, Claude Desktop, etc.).
 
+Configure the MCP endpoint URL (default port **8765**):
+
+```json
+{
+  "mcpServers": {
+    "writeragent": {
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
 
 - **Real-time Sidebar Monitoring**: All MCP activity (requests and tool results) is logged in real-time in the sidebar.
 - **Targeting**: Clients target a document via the `**X-Document-URL**` header.

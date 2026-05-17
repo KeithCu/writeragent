@@ -21,6 +21,7 @@ import threading
 from typing import Any, cast
 
 from plugin.framework.module_base import ModuleBase
+from plugin.mcp.server import mcp_endpoint_url
 
 log = logging.getLogger("writeragent.http")
 
@@ -253,11 +254,19 @@ class McpModule(ModuleBase):
             msgbox(ctx, "WriterAgent", _("MCP server stopped"))
         else:
             log.info("Starting MCP server via toggle")
-            self._start_server(self._services)
+            cfg = self._services.config.proxy_for(self.name)
+            if not cfg.get("mcp_enabled"):
+                cfg.set("mcp_enabled", True)
+            elif not self._mcp_routes_registered:
+                self._register_mcp_routes(self._services)
+                self._start_server(self._services)
+            else:
+                self._start_server(self._services)
             b2 = self._bound_http_server()
             if b2 and b2.is_running():
                 status = b2.get_status()
-                msgbox(ctx, "WriterAgent", _("MCP server started") + "\n{0}".format(status.get("url", "")))
+                mcp_url = status.get("mcp_url", status.get("url", ""))
+                msgbox(ctx, "WriterAgent", _("MCP server started") + "\n{0}".format(mcp_url))
             else:
                 msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check ~/writeragent.log"))
 
@@ -278,7 +287,7 @@ class McpModule(ModuleBase):
             msgbox(ctx, "WriterAgent", _("MCP server is not running"))
             return
 
-        url = status.get("url", "?")
+        url = status.get("mcp_url", status.get("url", "?"))
         routes = status.get("routes", 0)
         msg = _("MCP server running") + "\n" + _("Routes: {0}").format(routes)
 
@@ -318,12 +327,19 @@ class McpModule(ModuleBase):
 
         return (200, {"status": "healthy", "server": "WriterAgent", "version": EXTENSION_VERSION})
 
+    def _mcp_endpoint_from_config(self):
+        cfg = self._services.config.proxy_for(self.name)
+        return mcp_endpoint_url(cfg.get("host") or "localhost", cfg.get("port") or cfg.get("mcp_port") or 8765, bool(cfg.get("use_ssl")))
+
     def _handle_info(self, body, headers, query):
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
         from plugin.version import EXTENSION_VERSION
 
         routes = self._registry.list_routes()
-        return (200, {"name": "WriterAgent", "version": EXTENSION_VERSION, "description": "WriterAgent HTTP server", "routes": ["%s %s" % (m, p) for m, p in sorted(routes)]})
+        info = {"name": "WriterAgent", "version": EXTENSION_VERSION, "description": "WriterAgent HTTP server", "routes": ["%s %s" % (m, p) for m, p in sorted(routes)]}
+        if self._mcp_routes_registered:
+            info["mcp_endpoint"] = self._mcp_endpoint_from_config()
+        return (200, info)
 
     def _handle_config_get(self, body, headers, query):
         """GET /api/config — read config values.

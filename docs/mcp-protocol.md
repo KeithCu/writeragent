@@ -3,7 +3,7 @@
 ## What Is This?
 
 MCP (Model Context Protocol) is a standard for exposing tool sets to external AI clients
-(Claude Desktop, Cursor, custom scripts, etc.) over HTTP. The `libreoffice-mcp-extension/`
+(Claude Desktop, Cursor, LM Studio, custom scripts, etc.) over HTTP. The `libreoffice-mcp-extension/`
 directory in this repo is an existing standalone extension that implements a similar HTTP API
 for LibreOffice.
 
@@ -11,6 +11,28 @@ WriterAgent now includes an **MCP HTTP server** built in: users who install Writ
 use it as an embedded AI editing tool (the sidebar) **and** as a source of document tools
 for external AI clients. This document describes what was implemented, how it works, and
 what to consider doing next.
+
+---
+
+## Current HTTP MCP (2026)
+
+**Enable:** Settings → **Enable MCP Server** (`mcp.mcp_enabled`, default off). Default port **8765** (`mcp.mcp_port`).
+
+**Client URL:** `http://localhost:8765/mcp` (streamable HTTP / JSON-RPC 2.0). External clients must include the `/mcp` path (not the server base URL alone).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/mcp` | JSON-RPC: `initialize`, `tools/list`, `tools/call`, … |
+| `GET` | `/mcp` | SSE keepalive only (not full legacy MCP) |
+| `POST` | `/sse`, `/messages` | Same JSON-RPC as `/mcp` |
+| `GET` | `/health` | Liveness |
+| `GET` | `/` | Server info; includes `mcp_endpoint` when MCP is enabled |
+
+**Code:** [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py), [`plugin/mcp/server.py`](../plugin/mcp/server.py) (`mcp_endpoint_url`).
+
+**Document targeting:** `X-Document-URL` header on MCP requests (see below).
+
+> **Historical note:** Sections below that describe `GET /tools`, `POST /tools/{name}`, and `core/mcp_server.py` refer to an older REST-style API. The live server uses JSON-RPC on `/mcp` only.
 
 ---
 

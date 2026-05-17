@@ -27,11 +27,16 @@ import socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
-
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger("writeragent.framework.http_server")
+
+
+def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
+    """Full streamable-HTTP MCP URL for external clients (LM Studio, Cursor, etc.)."""
+    scheme = "https" if use_ssl else "http"
+    return f"{scheme}://{host}:{port}/mcp"
 
 
 class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
@@ -205,4 +210,14 @@ class HttpServer:
 
     def get_status(self):
         scheme = "https" if self.use_ssl else "http"
-        return {"running": self._running, "host": self.host, "port": self.port, "ssl": self.use_ssl, "url": "%s://%s:%s" % (scheme, self.host, self.port), "routes": self.route_registry.route_count, "thread_alive": (self._thread.is_alive() if self._thread else False)}
+        base_url = "%s://%s:%s" % (scheme, self.host, self.port)
+        return {
+            "running": self._running,
+            "host": self.host,
+            "port": self.port,
+            "ssl": self.use_ssl,
+            "url": base_url,
+            "mcp_url": mcp_endpoint_url(self.host, self.port, self.use_ssl),
+            "routes": self.route_registry.route_count,
+            "thread_alive": (self._thread.is_alive() if self._thread else False),
+        }
