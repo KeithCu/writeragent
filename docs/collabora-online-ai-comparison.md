@@ -1,9 +1,9 @@
 # Architectural Analysis & Dev Guide: Collabora Online AI vs. WriterAgent
 
 > [!NOTE]
-> **Source Repository Location**: `/home/keithcu/Desktop/collaboffice`
+> **Source Repository Location**: `~/Desktop/collaboffice`
 
-This document provides a comparative analysis of the AI features and underlying architectures between **Collabora Online's Server-Driven AI** (implemented in `coolwsd` under `wsd/AIChatSession`) and **WriterAgent's Client-Side Plugin Architecture**. It identifies features to consider adopting and provides concrete, copy-pasteable PyUNO Python implementations of these features.
+This document compares **Collabora Online's server-driven AI** (`coolwsd` / `wsd/AIChatSession`) with **WriterAgent's in-process Python plugin**. It maps feature parity, lists Collabora patterns worth adopting, and provides PyUNO reference sketches for gaps. Production code for several areas already lives under `plugin/` — see the parity table before implementing from scratch.
 
 ---
 
@@ -11,22 +11,19 @@ This document provides a comparative analysis of the AI features and underlying 
 
 ```mermaid
 graph TD
-    subgraph Collabora Online (Server-Driven)
+    subgraph CollaboraOnline [Collabora Online Server-Driven]
         A[Browser Client / Sidebar UI] <-->|WebSockets: aichat, aichatapprove| B[coolwsd C++ Daemon]
         B -->|Async HTTP| C[External LLM API]
         B <-->|Kit Protocol| D[ChildSession C++ Kit]
         D <-->|C++ LOKit API| E[LibreOffice Core Engine]
     end
 
-    subgraph WriterAgent (Client-Side Plugin)
+    subgraph WriterAgentPlugin [WriterAgent Client-Side Plugin]
         F[LibreOffice UI / Python Sidebar Panel] <-->|Direct Method Calls| G[WriterAgent Python Core]
         G -->|Async Background Thread| H[LlmClient Python HTTP]
         H <-->|HTTPS| I[External LLM API]
         G <-->|Direct PyUNO Bridge| J[Local LibreOffice In-Process DOM]
     end
-    
-    style B fill:#f9f,stroke:#333,stroke-width:2px
-    style G fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
 ### Key Differences at a Glance
@@ -34,619 +31,495 @@ graph TD
 | Architectural Dimension | Collabora Online AI (`coolwsd` + `coolkit`) | WriterAgent (Python Sidebar Plugin) |
 | :--- | :--- | :--- |
 | **Orchestration Location** | **Server-side** inside the C++ `coolwsd` daemon (`AIChatSession.cpp`). | **Client-side** directly inside the user's LibreOffice instance. |
-| **Document Interaction Bridge** | **Protocol Serialization**: Messages are serialized to protocol text (`extractdocumentstructure`, `transformdocumentstructure`) and sent down via IPC sockets to jail-sandboxed child processes (`ChildSession.cpp`) to run LOKit APIs. | **In-Process Object Bridge**: Direct, high-speed Python-to-C++ interaction using the **PyUNO bridge**, accessing the rich UNO service graph directly. |
-| **Tool Calling Loop (FSM)** | Driven by a multi-round loop inside C++ using `Poco::JSON` and asynchronous HTTP clients (`http::Session`). | Driven by Python FSM threads using standard library threading/queues and custom MCP configurations. |
-| **User Approvals** | Managed via WebSocket messages: server pushes an `aichatapproval:` frame containing a summary, client responds with `aichatapprove:` containing `action="approve\|reject"`. | Managed locally using modal/non-modal UNO settings dialogs and FSM UI hooks. |
-| **Security & Jailing** | Uses isolated child processes (`coolkit` mount namespaces) to jail documents, preventing malicious or broken actions from affecting other users. | Relies on the host operating system's standard permissions for the LibreOffice application. |
+| **Document Interaction Bridge** | **Protocol Serialization**: Messages are serialized to protocol text (`extractdocumentstructure`, `transformdocumentstructure`) and sent down via IPC sockets to jail-sandboxed child processes (`ChildSession.cpp`) to run LOKit APIs. | **In-Process Object Bridge**: Direct Python-to-C++ interaction using the **PyUNO bridge**. |
+| **Tool Calling Loop (FSM)** | Multi-round loop in C++ (`Poco::JSON`, `http::Session`); default **5** tool rounds (`toolRoundsRemaining`). | Python FSM in [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py); configurable via `chat_max_tool_rounds`. |
+| **User Approvals** | WebSocket `aichatapproval:` / `aichatapprove:` frames. | [`show_approval_dialog`](../plugin/chatbot/dialogs.py) + send handlers; today mainly web-research HITL. |
+| **Security & Jailing** | Isolated `coolkit` child processes per document. | Host OS permissions for the local LibreOffice process. |
 
 ---
 
-## Features We Should Consider Adopting
+## WriterAgent Parity at a Glance
 
-Collabora Online has implemented several robust, structured AI interactions. Since WriterAgent runs in-process with a full PyUNO bridge, we can implement these features **more efficiently and natively** without the overhead of WebSocket serialization.
+Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`wsd/AIChatSession.cpp`). This table maps each capability to WriterAgent status and code.
+
+| Collabora capability | Status | WriterAgent location | Collabora source |
+| :--- | :--- | :--- | :--- |
+| `generate_image` | **Implemented** | [`plugin/writer/images/`](../plugin/writer/images/), [image-generation.md](image-generation.md) | `AIChatSession.cpp` — terminal tool, ends loop |
+| `extract_document_structure` | **Partial** | [`get_document_tree`](../plugin/writer/outline.py), [`plugin/draw/tree.py`](../plugin/draw/tree.py) | Kit `extractdocumentstructure`; optional `filter=` |
+| `transform_document_structure` | **Gap** | Atomic Draw tools under [`plugin/draw/`](../plugin/draw/) | `DocumentToolDescriptions.hpp`, `.uno:TransformDocumentStructure` |
+| `extract_link_targets` | **Partial** | Bookmarks / tree locators in [`plugin/writer/tree.py`](../plugin/writer/tree.py) | LOKit `extractRequest` / `extractlinktargets` |
+| `list_calc_functions` | **Gap** | — (planned; see roadmap) | `.uno:CalcFunctionList` |
+| `evaluate_formula` | **Gap** | — | `.uno:EvaluateFormula` |
+| `set_cell_formula` | **Partial** | [`write_formula_range`](../plugin/calc/cells.py) | Approval + `.uno:GoToCell` / `.uno:EnterString` batch |
+| Formula diagnosis | **Partial** | [`detect_and_explain_errors`](../plugin/calc/errors.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
+| `fetch_models` | **Implemented** | [`plugin/framework/client/model_fetcher.py`](../plugin/framework/client/model_fetcher.py) | `wsd/FileServer.cpp` `/fetch-models` |
+| SSRF / endpoint validation | **Implemented** | `model_fetcher.py`, [`llm_client.py`](../plugin/framework/client/llm_client.py) | `KIT_HOST_ALLOWLIST` env regex |
+| Undo grouping | **Partial** | [`WriterCompoundUndo`](../plugin/doc/document_helpers.py) | LOKit batch dispatches; chat/tools not fully grouped |
+| Approval / HITL tiers | **Partial** | [`dialogs.py`](../plugin/chatbot/dialogs.py), [`send_handlers.py`](../plugin/chatbot/send_handlers.py) | Inspect vs mutate tool tiers in `executeToolCall` |
+| Tool-round cap | **Implemented** | `chat_max_tool_rounds` in tool loop | Default 5 rounds in `AIChatSession.hpp` |
+| Tool progress UI | **Partial** | [`StreamQueueKind`](../plugin/framework/async_stream.py) | `aichatprogress:` WebSocket frames |
+| `cell://` chat links | **Gap** | — | `Control.AIChatSidebar.ts` markdown post-process |
+
+---
+
+## Features to Consider Adopting (1–9)
+
+Collabora Online has implemented several robust, structured AI interactions. Since WriterAgent runs in-process with a full PyUNO bridge, we can implement gaps **more efficiently and natively** without WebSocket serialization.
 
 ### 1. Spreadsheet Function Discovery (`list_calc_functions`)
-*   **The Feature**: The LLM needs to know what Calc functions are available in the current sheet to prevent it from hallucinating non-existent formulas or using incorrect localized function names.
-*   **Collabora's Path**: Sends `.uno:CalcFunctionList` down to LOKit and parses the returned JSON string.
-*   **WriterAgent Path**: Query `com.sun.star.sheet.FunctionDescriptions` natively via PyUNO to build a robust, dynamic function signature list for the LLM!
+
+*   **The Feature**: The LLM needs to know what Calc functions are available to prevent hallucinating formulas or using incorrect localized names.
+*   **Collabora's Path**: `commandvalues command=.uno:CalcFunctionList` via kit (`AIChatSession.cpp`).
+*   **WriterAgent Path**: Query `com.sun.star.sheet.FunctionDescriptions` via PyUNO (see appendix A). Target module: new `plugin/calc/formulas.py`.
 
 ### 2. Calc Formula Pre-evaluation (`evaluate_formula`)
-*   **The Feature**: Evaluates a spreadsheet formula *before* writing it to the document, returning the result to the LLM. This prevents broken formulas (`#VALUE!`, `#NAME?`) from entering the sheet during multi-step tasks.
-*   **Collabora's Path**: Dispatches `.uno:EvaluateFormula?cell=C5&formula==SUM(A1:B2)` and catches the result.
-*   **WriterAgent Path**: Write a clean Python utility that sets a formula on a temporary hidden sheet or cell, reads the evaluated type/result, and immediately undoes or clears the cell!
+
+*   **The Feature**: Evaluates a formula *before* writing it, returning result or error to the LLM.
+*   **Collabora's Path**: `.uno:EvaluateFormula?cell=…&formula=…`.
+*   **WriterAgent Path**: Temporary hidden sheet pattern (appendix B); pair with `write_formula_range` and approval flow (feature 10).
 
 ### 3. Structured Slide Transformations (`transform_document_structure`)
-*   **The Feature**: Instead of sending ad-hoc commands, the LLM generates a single unified JSON transaction mapping slides to slide indices, slide layout IDs, and content shapes (e.g. `ChangeLayoutByName: "AUTOLAYOUT_TITLE_CONTENT"`, `SetText.1: "bullet 1\nbullet 2"`).
-*   **Collabora's Path**: Parses the JSON transformation in `AIChatSession.cpp`, prepares placeholder assets, and pushes the layout change.
-*   **WriterAgent Path**: Build a highly stable Impress Slide Transformation Tool that processes slide addition, deletion, rearrangement, layout setting, and text formatting in a single, atomic operation.
+
+*   **The Feature**: Single JSON transaction for slide navigation, layout, text, bullets, UNO formatting, and `GenerateImage.N`.
+*   **Collabora's Path**: `DocumentToolDescriptions.hpp` + kit `transformdocumentstructure` + `AIChatSession.cpp`.
+*   **WriterAgent Path**: Unified transform engine (appendix C summarizes schema; full spec in upstream header). See roadmap P2.
 
 ### 4. Progressive Slide Layout & Image Sequencing
-*   **The Feature**: When generating complex slide layouts containing AI-generated images, presentation structures are modified *instantly* with placeholder graphics (e.g. gray boxes or spinners) so that layout editing remains ultra-responsive. The actual image generation tasks are queued and processed asynchronously in the background. As each image finishes downloading, the placeholder is hot-swapped for the final asset without locking up the user interface.
-*   **Collabora's Path**: Scans the transformation schema for `GenerateImage` requests, places loading placeholders, applies the main slide structure, queues generations via their server-side worker, and pushes a patch transform as each finishes.
-*   **WriterAgent Path**: Execute layout modifications and insert named placeholder shapes immediately, then hand off image generation tasks to background worker threads, replacing each shape's graphic target on the main thread as they complete.
+
+*   **The Feature**: Placeholders applied immediately; `GenerateImage` completions hot-swapped asynchronously.
+*   **Collabora's Path**: `processTransformImageGenerations` in `AIChatSession.cpp`.
+*   **WriterAgent Path**: Placeholder shapes + [`run_in_background`](../plugin/framework/worker_pool.py) + main-thread drain via [`async_stream`](../plugin/framework/async_stream.py) (appendix D). WriterAgent already has [`generate_image`](../plugin/writer/images/image_tools.py) for sidebar/chat.
 
 ### 5. Dynamic Link Target Mapping (`extract_link_targets`)
-*   **The Feature**: Allows the LLM to inspect the active document and compile a dictionary of anchor targets (such as sections, tables, text frames, images, headings, and bookmarks) formatted as standard target addresses (e.g. `Heading1|outline`). This lets the AI create exact document hyperlinks or build a custom table of contents.
-*   **Collabora's Path**: Invokes `_docManager->getLOKit()->extractRequest(...)` which generates a JSON-serialized list of targets.
-*   **WriterAgent Path**: Query local DOM collections (`getBookmarks()`, `getTextTables()`, etc.) directly via PyUNO and compile a mapping natively.
+
+*   **The Feature**: Dictionary of anchor targets (`Name|table`, `Heading|outline`, etc.) for hyperlinks and TOC.
+*   **Collabora's Path**: LOKit `extractRequest` / kit `extractlinktargets`.
+*   **WriterAgent Path**: PyUNO enumeration (appendix E); extend categories to match Collabora (OLE, drawing objects, images).
 
 ### 6. Document Outline / Structure Extraction (`extract_document_structure`)
-*   **The Feature**: The LLM needs a unified structured view of the entire document tree to understand where text, headings, sections, worksheets, or slides are positioned prior to performing complex transformations.
-*   **Collabora's Path**: Calls `extractDocumentStructureRequest(...)` in the Kit child session and returns a stringified JSON layout.
-*   **WriterAgent Path**: Build a lightweight Python inspector that queries document elements (e.g. paragraph enumeration for Writer, sheets for Calc, slides and shape types for Impress) to output a clean, standard JSON outline.
 
-### 7. Transactional Undo Context Grouping (`XUndoManager` Integration)
-*   **The Feature**: When the LLM performs a sequence of multiple actions (like batch cell editing, slide insertions, or styled text generation), these actions should not flood the user's Undo history as separate, primitive actions. They must be grouped into a single, labeled transaction.
-*   **Collabora's Path**: Implicitly grouped via LOKit core dispatches or single postUnoCommand execution.
-*   **WriterAgent Path**: Access the document's `XUndoManager` natively and wrap the entire LLM tool execution logic in an entry/exit context. This ensures that the user can undo the entire AI operation cleanly with a single "Ctrl+Z"!
+*   **The Feature**: Unified structural JSON before complex edits; optional **filters** (`contentcontrol`, `charts`, `docprops`, `slides`).
+*   **Collabora's Path**: Kit `extractdocumentstructure` (`wsd/protocol.txt`).
+*   **WriterAgent Path**: Prefer existing **`get_document_tree`** (appendix F); add `filter=` parameter for parity.
+
+### 7. Transactional Undo Context Grouping (`XUndoManager`)
+
+*   **The Feature**: Batch LLM edits collapse to one Ctrl+Z step.
+*   **Collabora's Path**: Implicit via LOKit / single transform dispatch.
+*   **WriterAgent Path**: Use production **`WriterCompoundUndo`** (appendix G); extend to full chat/tool loop (not only edit-selection today).
 
 ### 8. Dynamic AI Model Discovery (`fetch_models`)
-*   **The Feature**: The plugin dynamically queries the available AI models directly from the user's active API provider. This populates selection dropdowns with newly released models automatically without requiring hardcoded static arrays in the extension.
-*   **Collabora's Path**: Exposes a `/fetch-models` endpoint that proxies queries directly to standard `/v1/models` LLM endpoints.
-*   **WriterAgent Path**: Implement a standard `LlmClient` request to query the configured provider's `/v1/models` route in Python and populate the settings UI dropdown list dynamically.
+
+*   **The Feature**: Populate model dropdowns from provider `/v1/models`.
+*   **Collabora's Path**: File server `/fetch-models`.
+*   **WriterAgent Path**: **Already implemented** in [`model_fetcher.py`](../plugin/framework/client/model_fetcher.py) (appendix H is a reference sketch only).
 
 ### 9. Host Allowlisting & Security Safeguards (SSRF Protection)
-*   **The Feature**: Restricts custom AI model server URLs to approved, verified domains or corporate proxies to protect against Server-Side Request Forgery (SSRF) and data exfiltration inside locked enterprise environments.
-*   **Collabora's Path**: Checks custom provider base URLs against a `KIT_HOST_ALLOWLIST` regex environment variable before dispatching HTTP calls.
-*   **WriterAgent Path**: Add domain validation logic in our settings manager or HTTP client before querying external models, restricting calls strictly to trusted platforms (OpenAI, Anthropic, Groq) or corporate gateways.
+
+*   **The Feature**: Restrict custom API URLs to trusted hosts in enterprise deployments.
+*   **Collabora's Path**: `KIT_HOST_ALLOWLIST` regex before HTTP.
+*   **WriterAgent Path**: **Already implemented** — `ipaddress` checks and endpoint validation in `model_fetcher.py` / `llm_client.py` (appendix I is a minimal sketch).
+
+---
+
+## Additional Collabora Patterns (10–21)
+
+### 10. Batch Formula Commit with Approval (`set_cell_formula`)
+
+*   **Collabora**: Batch `{cell, formula}` array; `aichatapproval` summary; on approve runs `.uno:GoToCell` then `.uno:EnterString` per pair (`AIChatSession::handleApprove`).
+*   **WriterAgent**: Extend `write_formula_range` or add `set_cell_formula` tool; wrap in `WriterCompoundUndo`; reuse `show_approval_dialog`. System prompt: always `evaluate_formula` first.
+*   **Priority**: P0 (see roadmap).
+
+### 11. Formula Dependency Diagnosis (`.uno:FormulaDepChain`)
+
+*   **Collabora**: `Control.AIChatSidebar.ts` — `fetchFormulaDependencyChain`, `diagnoseFormulaError`, entry `helpfixformulaerror` / formula error menu.
+*   **WriterAgent**: Complement `detect_and_explain_errors` with UNO dependency JSON → structured user message (appendix K).
+*   **Priority**: P0.
+
+### 12. Rich Impress Slide DSL (`EditTextObject`, extended `SlideCommands`)
+
+Collabora's transform schema (`wsd/DocumentToolDescriptions.hpp`) is much larger than a minimal `SetText` / `ChangeLayoutByName` handler.
+
+| Command group | Examples |
+| :--- | :--- |
+| Navigation | `JumpToSlide`, `JumpToSlideByName` |
+| Slide management | `InsertMasterSlide`, `DeleteSlide`, `DuplicateSlide`, `MoveSlide`, `RenameSlide` |
+| Layout | `ChangeLayoutByName`, `ChangeLayout` (numeric id) |
+| Text | `SetText.N`, `EditTextObject.N` with nested `SelectText`, `InsertText`, `UnoCommand` |
+| Images | `GenerateImage.N` (placeholder + async completion) |
+| Objects | `MarkObject`, `UnMarkObject` |
+| Document-level | Top-level `UnoCommand` (e.g. change tracking) |
+
+WriterAgent today uses **atomic** Draw tools ([`plugin/draw/`](../plugin/draw/)). A unified engine should port the schema incrementally (roadmap P2).
+
+### 13. Writer/Calc Content Controls
+
+*   **Collabora**: `ContentControls.ByIndex.N`, `ByTag`, `ByAlias` in transforms; extract with `filter=contentcontrol`.
+*   **WriterAgent**: **Gap** — no content-control tools. PyUNO exploration depends on LO version (`XContentControls` / form fields). See appendix L.
+
+### 14. Filtered Structure Extraction
+
+*   **Collabora**: `extract_document_structure` optional `filter` per `wsd/protocol.txt`.
+*   **WriterAgent**: Extend `get_document_tree` or add `get_document_structure(filter=…)` tool.
+
+### 15. Inspect vs Mutate Approval Tiers
+
+| Tier | Collabora tools (no approval) | Collabora tools (approval required) |
+| :--- | :--- | :--- |
+| Read-only | `list_calc_functions`, `evaluate_formula`, `extract_link_targets` | — |
+| Sensitive read | — | `extract_document_structure` |
+| Mutate | — | `transform_document_structure`, `set_cell_formula` |
+
+WriterAgent mapping: `ToolBase.is_mutation` + optional `requires_approval` → `show_approval_dialog` in tool loop.
+
+### 16. Navigation-Only Transform Fast Path
+
+*   **Collabora**: `SlideCommands` containing **only** `JumpToSlide` / `JumpToSlideByName` skip approval (`AIChatSession::executeToolCall`, `navigationOnly`).
+*   **WriterAgent**: Pattern for preview/navigation that never opens undo context.
+
+### 17. Tool-Loop Guardrails
+
+*   **Collabora**: `toolRoundsRemaining` default **5**; parallel `tool_calls` from one assistant message executed **sequentially**; `generate_image` **terminates** the loop.
+*   **WriterAgent**: `chat_max_tool_rounds` in config; review sequential vs parallel execution in [`tool_loop.py`](../plugin/chatbot/tool_loop.py).
+
+### 18. Tool Progress Streaming (`aichatprogress`)
+
+*   **Collabora**: Server pushes `{requestId, toolName, status}` during long kit operations.
+*   **WriterAgent**: Map to `StreamQueueKind` / sidebar status updates in [`async_stream.py`](../plugin/framework/async_stream.py).
+
+### 19. Rejection Recovery Messages
+
+*   **Collabora**: Tool-specific JSON `error` strings on user reject so the model retries correctly (`AIChatSession::handleApprove`).
+*   **WriterAgent**: Document standard rejection payloads per tool name in tool-loop results.
+
+### 20. Doc-Type System Prompts + Selection Gating
+
+*   **Collabora**: Spreadsheet prompts (US formula syntax, `cell://` links, evaluate-before-commit); Impress layout/bullet rules from `DocumentToolDescriptions.hpp`; skip full extract when user message already contains selection markdown.
+*   **WriterAgent**: Extend [`plugin/framework/constants.py`](../plugin/framework/constants.py) and send handlers for doc-type modules.
+
+### 21. Calc Chat UX: Clickable `cell://` References
+
+*   **Collabora**: Renders `[B2](cell://B2)` as clickable spans → `navigateToCell`.
+*   **WriterAgent**: Sidebar markdown post-processor + optional `navigate_to_cell` tool (appendix M). **Priority**: P1.
 
 ---
 
 ## Bits of Code to Use (Python PyUNO Adaptations)
 
-Here is how to translate Collabora Online's C++ LOKit commands into **native Python PyUNO code** that you can integrate directly into your specialized toolsets.
+Reference sketches for **gaps** or patterns not yet wrapped as tools. Snippets marked **not yet in plugin** are design targets — check the parity table for production code.
 
-### A. Dynamic Calc Function Catalog (`list_calc_functions`)
-
-Instead of parsing string-based JSON lists, we can build a dynamic catalog by accessing the LibreOffice Service Manager's `FunctionDescriptions` registry.
+### A. Dynamic Calc Function Catalog (`list_calc_functions`) — not yet in plugin
 
 ```python
 def get_calc_function_catalog(ctx) -> list[dict[str, Any]]:
-    """Queries LibreOffice Calc function descriptions and returns a structured list.
-    
-    This is highly useful for LLM system prompts to prevent hallucinating functions
-    or utilizing incorrect locales.
-    """
-    smgr = ctx.ctx.ServiceManager
-    # Access the function descriptions service
+    """Queries Calc function descriptions for LLM system prompts."""
+    smgr = ctx.getServiceManager()  # or ctx component from tool context
     func_descr_service = smgr.createInstanceWithContext(
-        "com.sun.star.sheet.FunctionDescriptions", ctx.ctx
+        "com.sun.star.sheet.FunctionDescriptions", ctx
     )
-    
     catalog = []
-    
-    # FunctionDescriptions implements XIndexAccess to list all available formulas
     for i in range(func_descr_service.getCount()):
         try:
-            # Each element is a PropertyValue sequence representing com.sun.star.sheet.FunctionDescription
             props = func_descr_service.getByIndex(i)
-            func_data = {}
-            for prop in props:
-                func_data[prop.Name] = prop.Value
-            
-            # Extract key metadata
-            name = func_data.get("Name", "")
-            description = func_data.get("Description", "")
-            category = func_data.get("Category", 0)  # Numeric category ID
-            arguments = func_data.get("Arguments", ())  # Tuple of com.sun.star.sheet.FunctionArgument info
-            
-            arg_list = []
-            for arg in arguments:
-                arg_list.append({
-                    "name": arg.Name,
-                    "description": arg.Description,
-                    "optional": arg.IsOptional
-                })
-            
+            func_data = {prop.Name: prop.Value for prop in props}
+            arguments = func_data.get("Arguments", ())
+            arg_list = [
+                {"name": a.Name, "description": a.Description, "optional": a.IsOptional}
+                for a in arguments
+            ]
             catalog.append({
-                "name": name,
-                "description": description,
-                "category_id": category,
-                "arguments": arg_list
+                "name": func_data.get("Name", ""),
+                "description": func_data.get("Description", ""),
+                "category_id": func_data.get("Category", 0),
+                "arguments": arg_list,
             })
-        except Exception as e:
+        except Exception:
             continue
-            
     return catalog
 ```
 
-### B. Formula Pre-evaluation (`evaluate_formula`)
-
-To evaluate a formula string in Calc without modifying the user's undo stack or mutating their visual workspace, we can execute the formula on a temporary, hidden worksheet.
+### B. Formula Pre-evaluation (`evaluate_formula`) — not yet in plugin
 
 ```python
 import datetime
+import logging
+
+log = logging.getLogger(__name__)
 
 def evaluate_calc_formula(ctx, formula_string: str) -> dict[str, Any]:
-    """Evaluates a Calc formula without mutating the document.
-    
-    Returns the result value, result type, or error information.
-    """
+    """Evaluate a Calc formula on a temporary sheet; remove sheet before return."""
     if not formula_string.startswith("="):
         formula_string = "=" + formula_string
-        
     doc = ctx.doc
     sheets = doc.getSheets()
-    sheet_names = sheets.getElementNames()
-    
-    # 1. Create a unique temporary sheet name
     temp_sheet_name = f"__wa_eval_{int(datetime.datetime.now().timestamp())}__"
-    
     try:
-        # 2. Insert sheet at the very end
-        sheets.insertNewByName(temp_sheet_name, len(sheet_names))
-        temp_sheet = sheets.getByName(temp_sheet_name)
-        
-        # 3. Target cell A1 on our evaluation sheet
-        cell = temp_sheet.getCellByPosition(0, 0) # position A1
-        
-        # 4. Set formula (Calc evaluates this immediately in-memory)
+        sheets.insertNewByName(temp_sheet_name, sheets.getCount())
+        cell = sheets.getByName(temp_sheet_name).getCellByPosition(0, 0)
         cell.setFormula(formula_string)
-        
-        # 5. Extract results
-        result_type = cell.getType() # com.sun.star.table.CellContentType
-        formula_result = None
         error_code = cell.Error
-        
-        from com.sun.star.table.CellContentType import VALUE, TEXT
-        
         if error_code != 0:
-            return {
-                "status": "error",
-                "error_code": error_code,
-                "message": f"Formula evaluation error code: {error_code}"
-            }
-            
+            return {"status": "error", "error_code": error_code}
+        from com.sun.star.table.CellContentType import VALUE, TEXT
+        result_type = cell.getType()
         if result_type == VALUE:
-            formula_result = cell.getValue()
+            result = cell.getValue()
         elif result_type == TEXT:
-            formula_result = cell.getString()
+            result = cell.getString()
         else:
-            # Reading formula result if it evaluates as a complex formula content
-            formula_result = cell.getString() # fallback to formatted string
-            
-        return {
-            "status": "ok",
-            "formula": formula_string,
-            "result": formula_result,
-            "result_type": str(result_type)
-        }
-        
+            result = cell.getString()
+        return {"status": "ok", "formula": formula_string, "result": result, "result_type": str(result_type)}
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Failed to evaluate formula: {e}"
-        }
+        return {"status": "error", "message": str(e)}
     finally:
-        # 6. Cleanup temporary evaluation sheet (removes all traces from document)
         try:
             if sheets.hasByName(temp_sheet_name):
                 sheets.removeByName(temp_sheet_name)
         except Exception as cleanup_err:
-            log.error(f"Failed to cleanup evaluation sheet: {cleanup_err}")
+            log.error("Failed to cleanup evaluation sheet: %s", cleanup_err)
 ```
 
-### C. Unified Slide layout engine (`transform_document_structure`)
+### C. Unified Slide Transform (`transform_document_structure`) — not yet in plugin
 
-Porting Collabora's structured slide modifications to Python allows the LLM to design presentations easily. In PyUNO, we set a slide's layout ID directly on the `DrawPage` via its `Layout` property.
+**Canonical schema**: Collabora `wsd/DocumentToolDescriptions.hpp` (`TRANSFORM_PARAM_DESCRIPTION`). WriterAgent should not fork a partial copy in this doc — link to upstream and implement a parser incrementally.
 
-#### Layout IDs Map (LibreOffice Core Constants)
+**Command groups** (summary): navigation; slide insert/delete/duplicate/move/rename; layout by name or id; `SetText.N`; `EditTextObject.N` with nested UNO (`.uno:Bold`, `.uno:DefaultBullet`, font/color); `GenerateImage.N`; top-level document `UnoCommand`.
+
+**Minimal PyUNO example** (layout + text only):
+
 ```python
 IMPRESS_LAYOUTS = {
-    "AUTOLAYOUT_TITLE": 0,                   # Title + Subtitle
-    "AUTOLAYOUT_TITLE_CONTENT": 1,           # Title + 1 Content area (default)
-    "AUTOLAYOUT_TITLE_2CONTENT": 3,          # Title + 2 Columns
-    "AUTOLAYOUT_TITLE_CONTENT_2CONTENT": 12, # Title + 1 Content Left, 2 stacked Right
-    "AUTOLAYOUT_TITLE_CONTENT_OVER_CONTENT": 14,# Title + 2 Vertical Content Blocks
-    "AUTOLAYOUT_TITLE_2CONTENT_CONTENT": 15, # Title + 2 stacked Left, 1 Content Right
-    "AUTOLAYOUT_TITLE_2CONTENT_OVER_CONTENT": 16,# Title + 2 Columns over 1 Row
-    "AUTOLAYOUT_TITLE_4CONTENT": 18,         # Title + 4 Content areas (2x2 Grid)
-    "AUTOLAYOUT_TITLE_ONLY": 19,             # Title only
-    "AUTOLAYOUT_NONE": 20,                   # Blank Slide
-    "AUTOLAYOUT_ONLY_TEXT": 32,              # 1 Centered text block, no title
-    "AUTOLAYOUT_TITLE_6CONTENT": 34,         # Title + 6 Content areas (3x2 Grid)
+    "AUTOLAYOUT_TITLE": 0,
+    "AUTOLAYOUT_TITLE_CONTENT": 1,
+    "AUTOLAYOUT_TITLE_2CONTENT": 3,
+    "AUTOLAYOUT_TITLE_ONLY": 19,
+    "AUTOLAYOUT_NONE": 20,
+    # … see DocumentToolDescriptions.hpp for full list
 }
-```
 
-#### Structured Transformation Handler
-```python
-def apply_slide_transformations(ctx, slide_commands: list[dict[str, Any]]) -> dict[str, Any]:
-    """Applies a sequence of high-level slide transformation commands.
-    
-    Commands:
-      - {"JumpToSlide": index}
-      - {"ChangeLayoutByName": name}
-      - {"SetText.N": "text"}
-      - {"InsertSlide": index}
-    """
+def apply_slide_commands(ctx, slide_commands: list[dict[str, Any]]) -> dict[str, Any]:
+    from plugin.doc.document_helpers import WriterCompoundUndo
     doc = ctx.doc
-    draw_pages = doc.getDrawPages()
-    current_slide_idx = 0
-    
-    def get_current_slide():
-        return draw_pages.getByIndex(current_slide_idx)
-        
-    changes_made = 0
-    
-    for cmd in slide_commands:
-        try:
-            # 1. Slide Navigation
+    pages = doc.getDrawPages()
+    current = 0
+    undo = WriterCompoundUndo(doc, "WriterAgent: Slide transform")
+    try:
+        for cmd in slide_commands:
             if "JumpToSlide" in cmd:
                 val = cmd["JumpToSlide"]
-                if val == "last":
-                    current_slide_idx = draw_pages.getCount() - 1
-                else:
-                    current_slide_idx = max(0, min(int(val), draw_pages.getCount() - 1))
-                    
-            # 2. Slide Insertion
-            elif "InsertSlide" in cmd:
-                idx = int(cmd["InsertSlide"])
-                draw_pages.insertNewByIndex(idx)
-                current_slide_idx = idx
-                changes_made += 1
-                
-            # 3. Layout Transformations
+                current = pages.getCount() - 1 if val == "last" else max(0, min(int(val), pages.getCount() - 1))
             elif "ChangeLayoutByName" in cmd:
-                layout_name = cmd["ChangeLayoutByName"]
-                layout_id = IMPRESS_LAYOUTS.get(layout_name)
-                if layout_id is not None:
-                    slide = get_current_slide()
-                    slide.Layout = layout_id
-                    changes_made += 1
-                    
-            # 4. Text Placement
-            else:
-                # Handle SetText.N where N is the placeholder shape index
-                for key, text_val in cmd.items():
-                    if key.startswith("SetText."):
-                        placeholder_idx = int(key.split(".")[1])
-                        slide = get_current_slide()
-                        
-                        # Find placeholder shape by its Index or Layout shape position
-                        # In PyUNO, we iterate through shapes looking for placeholders
-                        shape_count = slide.getCount()
-                        matched_placeholder = None
-                        current_ph_idx = 0
-                        
-                        for s_idx in range(shape_count):
-                            shape = slide.getByIndex(s_idx)
-                            if shape.supportsService("com.sun.star.drawing.TextShape"):
-                                # Check if shape is a placeholder
-                                if getattr(shape, "IsPlaceholder", False):
-                                    if current_ph_idx == placeholder_idx:
-                                        matched_placeholder = shape
-                                        break
-                                    current_ph_idx += 1
-                                    
-                        if matched_placeholder:
-                            matched_placeholder.setString(str(text_val))
-                            changes_made += 1
-                            
-        except Exception as e:
-            return {"status": "error", "message": f"Failed executing {cmd}: {e}"}
-            
-    return {"status": "ok", "commands_executed": len(slide_commands), "changes_made": changes_made}
+                lid = IMPRESS_LAYOUTS.get(cmd["ChangeLayoutByName"])
+                if lid is not None:
+                    pages.getByIndex(current).Layout = lid
+            elif any(k.startswith("SetText.") for k in cmd):
+                # Placeholder iteration — see full schema for EditTextObject
+                pass
+        return {"status": "ok"}
+    finally:
+        undo.close()
 ```
 
 ### D. Progressive Image Generation & Placement
 
-For presenting a dynamic UI where AI images generation shouldn't freeze LibreOffice:
-1. Insert a loading graphic shape instantly in Python.
-2. Spin up a background thread to fetch the real image from the AI provider.
-3. Use the asynchronous stream dispatcher in `writeragent` to replace the placeholder's graphic.
+WriterAgent already implements image generation ([`image_tools.py`](../plugin/writer/images/image_tools.py), [image-generation.md](image-generation.md)). For Impress **transform** placeholders:
 
-```python
-import tempfile
-import urllib.request
+1. Insert loading graphic shape on main thread.
+2. Fetch image in background via `run_in_background`.
+3. Replace graphic on main thread through `run_async_worker_with_drain` / toolkit queue (never touch UNO from worker threads).
 
-def replace_placeholder_with_ai_image(ctx, shape_name: str, prompt: str):
-    """Asynchronously generates an AI image and replaces a target shape's graphic."""
-    
-    # 1. Locate shape in main thread
-    slide = ctx.doc.getCurrentController().getCurrentPage()
-    target_shape = None
-    for i in range(slide.getCount()):
-        shape = slide.getByIndex(i)
-        if shape.Name == shape_name:
-            target_shape = shape
-            break
-            
-    if not target_shape:
-        return
-        
-    # 2. Run API fetch inside a background worker thread
-    def bg_worker():
-        try:
-            # Request image from AI model (e.g. DALL-E / local stable diffusion)
-            # For demo purposes, writing to a temp png file:
-            temp_path = tempfile.mktemp(suffix=".png")
-            
-            # Query LLM image client (pseudo-code)
-            image_url = query_ai_image_model(prompt)
-            urllib.request.urlretrieve(image_url, temp_path)
-            
-            # 3. Schedule graphic replacement on VCL Main thread
-            def main_thread_update():
-                try:
-                    # Load the local temp file URL into LibreOffice GraphicProvider
-                    graphic_provider = ctx.ctx.ServiceManager.createInstanceWithContext(
-                        "com.sun.star.graphic.GraphicProvider", ctx.ctx
-                    )
-                    from com.sun.star.beans import PropertyValue
-                    prop = PropertyValue()
-                    prop.Name = "URL"
-                    prop.Value = f"file://{temp_path}"
-                    
-                    graphic = graphic_provider.queryGraphic((prop,))
-                    target_shape.Graphic = graphic
-                except Exception as ex:
-                    log.error(f"VCL Thread graphic update failed: {ex}")
-                    
-            # Dispatch to main thread (using writeragent's async_stream loop queue)
-            ctx.main_thread_queue.put(main_thread_update)
-            
-        except Exception as e:
-            log.error(f"Background image generation failed: {e}")
-            
-    # Launch worker thread
-    ctx.run_in_background(bg_worker)
-```
+Avoid `tempfile.mktemp()` — use `tempfile.NamedTemporaryFile(delete=False)` per project security rules.
 
-### E. Dynamic Link Target Mapping (`extract_link_targets`)
+### E. Dynamic Link Target Mapping (`extract_link_targets`) — partial in plugin
 
-This PyUNO adaptation dynamically retrieves valid link targets across various categories in Writer documents.
+PyUNO sketch for unified `name|type` addresses (extend WriterAgent bookmark/tree tooling):
 
 ```python
 def get_document_link_targets(ctx) -> dict[str, list[str]]:
-    """Gathers all linkable target addresses from the current document.
-    
-    Returns a dictionary grouping targets by type, matching target formats
-    like 'BookmarkName|bookmark' or 'TableName|table'.
-    """
     doc = ctx.doc
-    targets = {
-        "bookmarks": [],
-        "tables": [],
-        "frames": [],
-        "sections": [],
-        "headings": []
+    targets: dict[str, list[str]] = {
+        "bookmarks": [], "tables": [], "frames": [], "sections": [], "headings": [],
     }
-    
-    # 1. Gather Bookmarks
     if hasattr(doc, "getBookmarks"):
-        bookmarks = doc.getBookmarks()
-        for name in bookmarks.getElementNames():
+        for name in doc.getBookmarks().getElementNames():
             targets["bookmarks"].append(f"{name}|bookmark")
-            
-    # 2. Gather Tables
     if hasattr(doc, "getTextTables"):
-        tables = doc.getTextTables()
-        for name in tables.getElementNames():
+        for name in doc.getTextTables().getElementNames():
             targets["tables"].append(f"{name}|table")
-            
-    # 3. Gather Text Frames
-    if hasattr(doc, "getTextFrames"):
-        frames = doc.getTextFrames()
-        for name in frames.getElementNames():
-            targets["frames"].append(f"{name}|frame")
-            
-    # 4. Gather Sections
-    if hasattr(doc, "getTextSections"):
-        sections = doc.getTextSections()
-        for name in sections.getElementNames():
-            targets["sections"].append(f"{name}|section")
-            
-    # 5. Gather Headings / Outline
-    if hasattr(doc, "getParagraphs") or hasattr(doc, "getText"):
-        # Iterate paragraphs to find Heading styles
-        try:
-            paragraphs = doc.getText().createEnumeration()
-            while paragraphs.hasMoreElements():
-                para = paragraphs.nextElement()
-                style_name = para.getPropertyValue("ParaStyleName")
-                if style_name and style_name.startswith("Heading"):
-                    text_content = para.getString().strip()
-                    if text_content:
-                        # Standard format is 'HeadingText|outline'
-                        targets["headings"].append(f"{text_content}|outline")
-        except Exception:
-            pass
-            
+    # … frames, sections, heading enumeration (outline)
     return targets
 ```
 
-### F. Dynamic Document Structure / Outline (`extract_document_structure`)
+### F. Document Structure / Outline (`extract_document_structure`)
 
-A unified structure inspector returning a JSON-compatible tree representation of the active document.
+**Production path**: use tool **`get_document_tree`** — [`plugin/writer/outline.py`](../plugin/writer/outline.py), [`plugin/writer/tree.py`](../plugin/writer/tree.py), Draw variant in [`plugin/draw/tree.py`](../plugin/draw/tree.py).
+
+**Gap**: optional `filter=` (`contentcontrol`, `charts`, `slides`, …) as in Collabora `wsd/protocol.txt`. Extension sketch:
 
 ```python
-def get_generic_document_structure(ctx) -> dict[str, Any]:
-    """Inspects the active document and returns a structured outline.
-    
-    Supports Writer (Headings/Tables), Calc (Worksheets), and Impress (Slides/Shapes).
-    """
-    doc = ctx.doc
-    doc_type = "unknown"
-    
-    # Identify document type by checking supported services
-    if hasattr(doc, "supportsService"):
-        if doc.supportsService("com.sun.star.text.TextDocument"):
-            doc_type = "writer"
-        elif doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
-            doc_type = "calc"
-        elif doc.supportsService("com.sun.star.presentation.PresentationDocument"):
-            doc_type = "impress"
-            
-    structure = {
-        "document_type": doc_type,
-        "outline": []
-    }
-    
-    # 1. Writer: Extracts outline headings
-    if doc_type == "writer":
-        try:
-            enum = doc.getText().createEnumeration()
-            while enum.hasMoreElements():
-                item = enum.nextElement()
-                if item.supportsService("com.sun.star.text.Paragraph"):
-                    style = item.getPropertyValue("ParaStyleName")
-                    if style and style.startswith("Heading"):
-                        structure["outline"].append({
-                            "type": "heading",
-                            "level": style.replace("Heading ", ""),
-                            "text": item.getString().strip()
-                        })
-        except Exception as e:
-            structure["error"] = str(e)
-            
-    # 2. Calc: Extracts worksheet names
-    elif doc_type == "calc":
-        try:
-            sheets = doc.getSheets()
-            for name in sheets.getElementNames():
-                structure["outline"].append({
-                    "type": "sheet",
-                    "name": name
-                })
-        except Exception as e:
-            structure["error"] = str(e)
-            
-    # 3. Impress: Extracts slides and their textual shape summaries
-    elif doc_type == "impress":
-        try:
-            pages = doc.getDrawPages()
-            for idx in range(pages.getCount()):
-                page = pages.getByIndex(idx)
-                slide_info = {
-                    "slide_index": idx,
-                    "slide_name": page.Name,
-                    "shapes": []
-                }
-                for s_idx in range(page.getCount()):
-                    shape = page.getByIndex(s_idx)
-                    shape_info = {
-                        "name": shape.Name,
-                        "type": shape.ShapeType
-                    }
-                    if hasattr(shape, "getString"):
-                        text = shape.getString().strip()
-                        if text:
-                            shape_info["text_content"] = text
-                    slide_info["shapes"].append(shape_info)
-                structure["outline"].append(slide_info)
-        except Exception as e:
-            structure["error"] = str(e)
-            
-    return structure
+def get_document_structure(ctx, filter: str | None = None) -> dict[str, Any]:
+    if filter == "slides":
+        return draw_tree_svc.get_page_tree(ctx.doc)
+    if filter == "contentcontrol":
+        return _enumerate_content_controls(ctx.doc)  # LO-version-specific
+    return tree_svc.get_document_tree(ctx.doc, content_strategy="first_lines", depth=1)
 ```
 
-### G. Transactional Undo Context Grouping (`XUndoManager`)
+### G. Transactional Undo Context Grouping — implemented
 
-Wraps multiple PyUNO operations into a single named block on the undo stack, enabling smooth single-step rollback.
+Use production **`WriterCompoundUndo`** in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py):
 
 ```python
-import contextlib
+from plugin.doc.document_helpers import WriterCompoundUndo
 
-@contextlib.contextmanager
-def ai_undo_context(ctx, context_name: str):
-    """Context manager to group PyUNO operations into a single Undo action.
-    
-    Usage:
-        with ai_undo_context(ctx, "AI Slide Design"):
-            # Insert shapes, set styles...
-    """
-    doc = ctx.doc
-    undo_manager = None
-    entered = False
-    
-    # XUndoManager is exposed directly on modern document models
-    if hasattr(doc, "getUndoManager"):
-        try:
-            undo_manager = doc.getUndoManager()
-            if undo_manager:
-                undo_manager.enterUndoContext(context_name)
-                entered = True
-        except Exception as e:
-            log.warning(f"Could not enter undo context: {e}")
-            
+def run_ai_batch(ctx, title: str, fn):
+    undo = WriterCompoundUndo(ctx.doc, title)
     try:
-        yield
-    except Exception as err:
-        # If there's an exception, the undo context is still cleanly left
-        raise err
+        return fn()
     finally:
-        if undo_manager and entered:
-            try:
-                undo_manager.leaveUndoContext()
-            except Exception as e:
-                log.error(f"Could not leave undo context: {e}")
+        undo.close()
 ```
 
-### H. Dynamic AI Model Discovery (`fetch_models`)
+Used today for edit-selection / extend-selection; **not yet** wrapped around full chat tool batches ([`panel.py`](../plugin/chatbot/panel.py) notes future work).
 
-Fetches the list of standard OpenAI-compatible models directly from the provider at runtime.
+### H. Dynamic AI Model Discovery — implemented (reference sketch)
+
+Production: [`plugin/framework/client/model_fetcher.py`](../plugin/framework/client/model_fetcher.py) — `fetch_models_for_endpoint`, caching, provider presets, `endpoint_url_suitable_for_v1_models_fetch`.
+
+The standalone `urllib` example below is **obsolete** for new code:
 
 ```python
-import urllib.request
-import json
-
-def fetch_provider_models(api_key: str, base_url: str = "https://api.openai.com") -> list[str]:
-    """Queries an OpenAI-compatible /v1/models endpoint and returns a list of model IDs.
-    
-    This avoids static hardcoding in settings or UI dialogs.
-    """
-    if base_url.endswith("/"):
-        base_url = base_url[:-1]
-    url = f"{base_url}/v1/models"
-    
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", f"Bearer {api_key}")
-    req.add_header("Content-Type", "application/json")
-    
-    try:
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            models = [item["id"] for item in data.get("data", [])]
-            # Optional: sort and filter models to only show chat-compatible models
-            return sorted(models)
-    except Exception as e:
-        log.error(f"Failed to fetch dynamic models list: {e}")
-        return []
+# Reference only — use model_fetcher.fetch_models_for_endpoint(ctx, base_url) instead.
 ```
 
-### I. Endpoint Allowlisting (SSRF Safeguards)
+### I. Endpoint Allowlisting — implemented (reference sketch)
 
-Verifies that custom API URLs configured by users conform to authorized corporate domains or standard provider gateways.
+Production: host validation via `ipaddress` and URL parsing in `model_fetcher.py` / `llm_client.py` (supports localhost, corporate gateways, OpenRouter, etc.). The strict regex-only sample is narrower than WriterAgent's actual behavior.
+
+### J. Approved Formula Batch Write — not yet in plugin
+
+Collabora's approved commit path uses formula bar semantics:
+
+```python
+from plugin.doc.document_helpers import WriterCompoundUndo
+
+def apply_approved_formulas(ctx, pairs: list[tuple[str, str]]) -> None:
+    """pairs: [(cell_address, formula), ...] e.g. ('Sheet1.C5', '=SUM(A1:B2')"""
+    doc = ctx.doc
+    frame = doc.getCurrentController().getFrame()
+    dispatcher = ctx.getServiceManager().createInstanceWithContext(
+        "com.sun.star.frame.DispatchHelper", ctx
+    )
+    undo = WriterCompoundUndo(doc, "WriterAgent: Set formulas")
+    try:
+        for cell, formula in pairs:
+            # .uno:GoToCell then .uno:EnterString — matches Collabora AIChatSession::handleApprove
+            dispatcher.executeDispatch(frame, ".uno:GoToCell", "", 0, (PropertyValue("ToPoint", 0, cell, 0),))
+            dispatcher.executeDispatch(frame, ".uno:EnterString", "", 0, (PropertyValue("StringName", 0, formula, 0),))
+    finally:
+        undo.close()
+```
+
+### K. FormulaDepChain Dispatch — not yet in plugin
+
+```python
+def fetch_formula_dep_chain(ctx) -> Any:
+    """Dispatch .uno:FormulaDepChain; return command values JSON for prompt building."""
+    frame = ctx.doc.getCurrentController().getFrame()
+    # Pattern: DispatchHelper or controller.queryDispatch + listener for result
+    # Collabora: browser commandvalues command=.uno:FormulaDepChain
+    ...
+
+def build_formula_diagnosis_prompt(dep_chain: dict, cell_address: str, formula: str) -> str:
+    return (
+        f"Analyze this Calc formula error.\n"
+        f"Cell: {cell_address}\nFormula: {formula}\n"
+        f"Dependency chain: {dep_chain}\n"
+        "Suggest a fix using evaluate_formula before set_cell_formula."
+    )
+```
+
+Wire to contextual "Fix with AI" from Calc error UI (Collabora: `helpfixformulaerror`).
+
+### L. Content Control Discovery — not yet in plugin
+
+```python
+def list_content_controls(doc) -> list[dict[str, Any]]:
+    """Enumerate content controls for extract filter=contentcontrol.
+    API varies by LibreOffice version — probe XContentControls / SDT support."""
+    controls = []
+    # TODO: document-specific UNO enumeration when implementing P3 roadmap item
+    return controls
+```
+
+### M. `cell://` Link Renderer — not yet in plugin
+
+UI-layer hook in chat markdown pipeline (not UNO):
 
 ```python
 import re
-from urllib.parse import urlparse
 
-# Strict regex matching standard secure LLM API providers and trusted domains
-AUTHORIZED_LLM_HOSTS = r"^(api\.openai\.com|api\.anthropic\.com|api\.groq\.com|api\.mistral\.ai|api\.together\.xyz)$"
+_CELL_LINK = re.compile(r'\[([^\]]+)\]\(cell://([A-Z]{1,3}\d{1,7})\)', re.I)
 
-def is_authorized_ai_endpoint(target_url: str) -> bool:
-    """SSRF & security safeguard: checks if an AI API host is in the trust allowlist."""
-    try:
-        parsed = urlparse(target_url)
-        host = parsed.hostname
-        if not host:
-            return False
-            
-        # Match standard providers
-        if re.match(AUTHORIZED_LLM_HOSTS, host):
-            return True
-            
-        # Optional: Add local intranet gateway allowance if supported
-        # if host == "internal-llm.my-company.com": return True
-        
-        return False
-    except Exception:
-        return False
-```
+def render_calc_cell_refs(markdown: str) -> str:
+    """Replace [B2](cell://B2) with UI-specific clickable tokens for sidebar HTML."""
+    return _CELL_LINK.sub(r'<span data-cell-ref="\2">\1</span>', markdown)
+
+def navigate_to_cell(ctx, address: str) -> None:
+    frame = ctx.doc.getCurrentController().getFrame()
+    # .uno:GoToCell with ToPoint=address
+    ...
 ```
 
 ---
 
+## Adoption Roadmap
+
+Prioritized for WriterAgent impact vs effort. Each item lists Collabora reference and target module.
+
+### P0 — Calc reliability (high impact, medium effort)
+
+1. **`list_calc_functions`** — `FunctionDescriptions` tool → `plugin/calc/formulas.py`. Collabora: `AIChatSession.cpp` + `.uno:CalcFunctionList`.
+2. **`evaluate_formula`** — temp-sheet utility (appendix B) → same module; document evaluate-before-`set_cell_formula` in system prompt.
+3. **`FormulaDepChain` diagnosis** — appendix K + Calc error UI entry → complement [`plugin/calc/errors.py`](../plugin/calc/errors.py).
+
+### P1 — Chat UX parity (medium impact, low–medium effort)
+
+4. **`cell://` clickable refs** — appendix M → [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py) markdown renderer.
+5. **Inspect-vs-mutate approval tiers** — `requires_approval` on tools → [`tool_loop.py`](../plugin/chatbot/tool_loop.py), [`dialogs.py`](../plugin/chatbot/dialogs.py).
+6. **Tool progress messages** — long UNO ops → [`async_stream.py`](../plugin/framework/async_stream.py) status lines.
+
+### P2 — Impress power user (high impact, high effort)
+
+7. **Unified `transform_document_structure`** — port `DocumentToolDescriptions.hpp` incrementally: navigation → layout/`SetText` → `EditTextObject` → `GenerateImage` placeholders → new `plugin/draw/transform.py` (or similar).
+
+### P3 — Writer forms (medium impact, medium effort)
+
+8. **Content control extract + transform** — filter `contentcontrol`; appendix L.
+
+### P4 — Polish (lower urgency)
+
+9. Navigation-only fast path (feature 16); rejection JSON templates (feature 19); selection-gated extract (feature 20); expand link-target categories to match Collabora (OLE, images, drawing objects).
+
+---
+
+## Source Index
+
+| Topic | Collabora Online | WriterAgent |
+| :--- | :--- | :--- |
+| Tool definitions | `wsd/AIChatSession.cpp` — `buildToolDefinitions` | [`plugin/framework/tool.py`](../plugin/framework/tool.py) |
+| Transform schema | `wsd/DocumentToolDescriptions.hpp` | (gap — roadmap P2) |
+| Kit / LOKit handlers | `kit/ChildSession.cpp` — `extractlinktargets`, `extractdocumentstructure`, `transformdocumentstructure` | PyUNO direct (no kit IPC) |
+| Browser AI sidebar | `browser/src/control/Control.AIChatSidebar.ts` | [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py) |
+| WebSocket protocol | `wsd/ClientSession.cpp`, `browser/.../CanvasTileLayer.js` — `aichat`, `aichatprogress`, `aichatapproval` | In-process queues / dialogs |
+| Model list HTTP | `wsd/FileServer.cpp` — `/fetch-models` | [`model_fetcher.py`](../plugin/framework/client/model_fetcher.py) |
+| Batch document HTTP | `wsd/SpecialBrokers.cpp` — extract/transform brokers | MCP / scripting RPC (optional) |
+| Calc formula UI | `FormulaErrorHelpSection.ts`, `helpfixformulaerror` | (gap — roadmap P0) |
+| Image generation | `generate_image` in `AIChatSession.cpp` | [`plugin/writer/images/`](../plugin/writer/images/) |
+| Undo grouping | LOKit / single transform | [`WriterCompoundUndo`](../plugin/doc/document_helpers.py) |
+| Config / prompts | Inline in `AIChatSession::handleAction` | [`constants.py`](../plugin/framework/constants.py), send handlers |
+
+---
+
 > [!NOTE]
-> Since WriterAgent has direct object access via PyUNO, we do not require the massive C++ client/server routing architecture, WebSocket decoders, or system jails that Collabora relies upon. These Python equivalents are highly optimized, simpler, and run directly inside the user's LibreOffice thread environment.
+> WriterAgent does not need Collabora's WebSocket routing, kit jails, or LOKit protocol serialization. Prefer **existing plugin modules** (parity table) over copy-pasting sketches; use appendices for gaps and roadmap ordering.

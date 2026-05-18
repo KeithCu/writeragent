@@ -42,7 +42,7 @@ The **`insert_cell_html`** tool ([`plugin/calc/cells.py`](../plugin/calc/cells.p
 | **Cells** | ✅ Implemented | `cells.py`: `read_cell_range`, `write_formula_range`, `set_style`, `insert_cell_html` ([`rich_html.py`](../plugin/calc/rich_html.py)), merge/sort/delete helpers | Basic range + style + **HTML → rich text in one cell** ([§ Rich HTML in a single cell](#rich-html-in-a-single-cell)) |
 | **Ranges** | ✅ Implemented | `cells.py`: Get/SetRangeValues, Get/SetRangeFormulas | — |
 | **Sheets** | ✅ Implemented | `sheets.py`, `sheet_filter.py`: ListSheets, CreateSheet, SwitchSheet, GetSheetSummary, `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter` | Basic sheet ops + AutoFilter |
-| **Formulas** | ✅ Implemented | `formulas.py`: Get/SetFormula, EvaluateFormula, ListFormulaDependencies | — |
+| **Formulas** | ⚠️ Partial | `cells.py` (`write_formula_range`); Collabora-style `list_calc_functions` / `evaluate_formula` / `FormulaDepChain` — planned — see [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md) roadmap P0 | — |
 | **Charts** | ✅ Implemented | `charts.py`: ListCharts, Create/Edit/DeleteChart (shared with Writer) | Medium-fat API (`create_chart`) |
 | **Named Ranges** | ✅ Implemented | `named_ranges.py`: ListNamedRanges, Create/Edit/DeleteNamedRange | — |
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
