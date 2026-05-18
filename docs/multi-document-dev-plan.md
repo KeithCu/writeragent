@@ -368,7 +368,9 @@ flowchart LR
 
 ---
 
-### Phase 1 — Config-expanded directories
+### Phase 1 — Config-expanded directories — **deferred (low priority)**
+
+> **Status (2026-05-17):** Deferred. Phase 0 (same-folder / two-tier workspace) is sufficient for now. Revisit when users need folders outside the active document’s parent (e.g. shared project drive). A draft implementation plan exists in `.cursor/plans/` but is not scheduled.
 
 **Goal:** User-configured extra roots beyond same-folder listing.
 
@@ -530,10 +532,3 @@ Per [AGENTS.md](../AGENTS.md): matching `test_*.py` names; run `make test` befor
 
 ---
 
-## Changelog
-
-| Date | Phase / change | PR / notes |
-| ---- | -------------- | ---------- |
-| *(TBD)* | Plan refresh: Phase 0 = full two-tier delegation; phases renumbered 0–6; data contracts, threading, edge cases | — |
-
----
