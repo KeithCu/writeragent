@@ -21,6 +21,7 @@ from plugin.contrib.smolagents.local_python_executor import InterpreterError, Lo
 
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
 VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
+    "platform",
     "numpy",
     "numpy.*",
     "pandas",

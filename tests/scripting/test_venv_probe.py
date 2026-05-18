@@ -9,22 +9,19 @@
 from __future__ import annotations
 
 import stat
-import subprocess
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from plugin.scripting.python_worker_manager import PythonWorkerManager
 from plugin.scripting.venv_probe import probe_venv_path, resolve_libreoffice_python, resolve_venv_python, run_venv_self_check
 
 
-def _fake_completed(returncode: int, stdout: str = "", stderr: str = ""):
-    class R:
-        pass
-
-    r = R()
-    r.returncode = returncode
-    r.stdout = stdout
-    r.stderr = stderr
-    return r
+@pytest.fixture(autouse=True)
+def _shutdown_python_workers():
+    yield
+    PythonWorkerManager.shutdown_all()
 
 
 def test_resolve_venv_python_finds_posix_python(tmp_path):
@@ -99,27 +96,31 @@ def test_run_venv_self_check_success():
     assert "OK" in msg or "ok" in msg.lower()
 
 
-def test_run_venv_self_check_subprocess_error():
-    with patch("plugin.scripting.venv_probe.subprocess.run", side_effect=OSError("boom")):
+def test_run_venv_self_check_worker_start_error():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.side_effect = OSError("boom")
+    with patch("plugin.scripting.venv_probe.PythonWorkerManager.get", return_value=mock_mgr):
         ok, msg = run_venv_self_check("/fake/python", timeout=1.0)
     assert ok is False
     assert "boom" in msg
 
 
-def test_run_venv_self_check_bad_exit():
-    fake = _fake_completed(1, stdout="", stderr="nope")
-    with patch("plugin.scripting.venv_probe.subprocess.run", return_value=fake):
+def test_run_venv_self_check_worker_error_response():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {"status": "error", "message": "nope"}
+    with patch("plugin.scripting.venv_probe.PythonWorkerManager.get", return_value=mock_mgr):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is False
-    assert "1" in msg
     assert "nope" in msg
 
 
 def test_run_venv_self_check_timeout():
-    with patch(
-        "plugin.scripting.venv_probe.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd="x", timeout=1.0),
-    ):
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "error",
+        "message": "Python worker failed: Command timed out after 1 seconds",
+    }
+    with patch("plugin.scripting.venv_probe.PythonWorkerManager.get", return_value=mock_mgr):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is False
     assert "Timed out" in msg
