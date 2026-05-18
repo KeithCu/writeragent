@@ -315,7 +315,6 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 ## Contributing
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
-[Good First Issues](https://github.com/KeithCu/writeragent/labels/good%20first%20issue)
 [Discussions](https://github.com/KeithCu/writeragent/discussions)
 
 > DeepWiki provides excellent analysis of the codebase, including visual dependency graphs
