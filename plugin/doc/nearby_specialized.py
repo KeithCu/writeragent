@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
 from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.doc.nearby import open_document_for_read, resolve_path_or_name
+from plugin.doc.nearby import close_workspace_document, open_document_for_read, resolve_path_or_name
 
 log = logging.getLogger(__name__)
 
@@ -137,11 +137,15 @@ class DelegateReadDocument(ToolBase):
                 return self._tool_error(url_or_err or "Could not resolve file", details={"path_or_name": path_or_name})
 
             target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
-            model, doc_type, err = open_document_for_read(ctx.ctx, target)
+            model, doc_type, err, opened_for_workspace = open_document_for_read(ctx.ctx, target)
             if model is None or doc_type is None:
                 return self._tool_error(err or "Open failed", details={"path": path})
 
-            result = run_inner_read_agent(ctx, model, doc_type, str(task))
+            try:
+                result = run_inner_read_agent(ctx, model, doc_type, str(task))
+            finally:
+                close_workspace_document(model, opened_for_workspace=opened_for_workspace)
+
             if isinstance(result, dict) and result.get("status") == "error":
                 return result
             if isinstance(result, dict) and "result" in result:

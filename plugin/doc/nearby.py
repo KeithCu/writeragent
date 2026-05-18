@@ -385,8 +385,13 @@ def _document_type_to_string(doc_type: DocumentType) -> str:
     return "unknown"
 
 
-def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str | None, str | None]:
-    """Open or reuse a document hidden+read-only. Returns (model, doc_type, error_message)."""
+def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str | None, str | None, bool]:
+    """Open or reuse a document hidden+read-only.
+
+    Returns (model, doc_type, error_message, opened_for_workspace). The last flag is True only
+    when this call loaded a new hidden document; callers must pass it to
+    :func:`close_workspace_document` after the read finishes. Reused desktop documents are not closed.
+    """
     from plugin.framework.uno_context import get_desktop
 
     path: str | None = None
@@ -399,14 +404,14 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         path = _normalize_path(raw)
         url = _path_to_file_url(path)
     else:
-        return None, None, f"Invalid path or URL: {raw!r}"
+        return None, None, f"Invalid path or URL: {raw!r}", False
 
     if not path or not url:
-        return None, None, "Could not resolve path"
+        return None, None, "Could not resolve path", False
 
     existing, existing_type = resolve_document_by_url(ctx, url)
     if existing is not None:
-        return existing, existing_type or _document_type_to_string(get_document_type(existing)), None
+        return existing, existing_type or _document_type_to_string(get_document_type(existing)), None, False
 
     try:
         desktop = get_desktop(ctx)
@@ -416,11 +421,27 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         )
         model = desktop.loadComponentFromURL(url, "_default", 0, load_props)
         if model is None:
-            return None, None, f"Failed to open {path}"
+            return None, None, f"Failed to open {path}", False
         doc_type = _document_type_to_string(get_document_type(model))
         if doc_type == "unknown":
-            return None, None, f"Unsupported document type for {path}"
-        return model, doc_type, None
+            return None, None, f"Unsupported document type for {path}", False
+        return model, doc_type, None, True
     except Exception as e:
         log.exception("open_document_for_read failed for %s", path)
-        return None, None, f"Failed to open {path}: {e}"
+        return None, None, f"Failed to open {path}: {e}", False
+
+
+def close_workspace_document(model: Any, *, opened_for_workspace: bool) -> None:
+    """Close a sibling document opened by :func:`open_document_for_read` for workspace read.
+
+    Bugfix: without this, repeated delegate_read_document calls leave hidden LO components open.
+    Only closes when *opened_for_workspace* is True (not when reusing a user-visible open doc).
+    """
+    if not opened_for_workspace or model is None:
+        return
+    try:
+        close_fn = getattr(model, "close", None)
+        if callable(close_fn):
+            close_fn(True)
+    except Exception:
+        log.exception("Failed to close workspace read document")

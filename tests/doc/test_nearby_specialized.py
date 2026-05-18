@@ -157,6 +157,7 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
 
 
 @patch("plugin.doc.nearby_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
+@patch("plugin.doc.nearby_specialized.close_workspace_document")
 @patch("plugin.doc.nearby_specialized.open_document_for_read")
 @patch("plugin.doc.nearby_specialized.resolve_path_or_name")
 @patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
@@ -164,10 +165,12 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
     mock_main,
     mock_resolve,
     mock_open,
+    mock_close,
     mock_inner,
 ):
+    opened_model = MagicMock()
     mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
-    mock_open.return_value = (MagicMock(), "calc", None)
+    mock_open.return_value = (opened_model, "calc", None, True)
 
     r = ToolRegistry(services={})
     r.register(DelegateReadDocument())
@@ -181,4 +184,61 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
     assert result["status"] == "ok"
     assert result["result"] == "42"
     mock_inner.assert_called_once()
+    mock_close.assert_called_once_with(opened_model, opened_for_workspace=True)
     assert not isinstance(tool, DelegateToSpecializedBase)
+
+
+@patch("plugin.doc.nearby_specialized.run_inner_read_agent", return_value={"status": "error", "message": "inner failed"})
+@patch("plugin.doc.nearby_specialized.close_workspace_document")
+@patch("plugin.doc.nearby_specialized.open_document_for_read")
+@patch("plugin.doc.nearby_specialized.resolve_path_or_name")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_closes_after_inner_error(
+    mock_main,
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    opened_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (opened_model, "calc", None, True)
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+
+    result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+    assert result["status"] == "error"
+    mock_close.assert_called_once_with(opened_model, opened_for_workspace=True)
+
+
+@patch("plugin.doc.nearby_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.nearby_specialized.close_workspace_document")
+@patch("plugin.doc.nearby_specialized.open_document_for_read")
+@patch("plugin.doc.nearby_specialized.resolve_path_or_name")
+@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+def test_delegate_read_document_skips_close_when_reusing_open_doc(
+    mock_main,
+    mock_resolve,
+    mock_open,
+    mock_close,
+    mock_inner,
+):
+    reused_model = MagicMock()
+    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
+    mock_open.return_value = (reused_model, "calc", None, False)
+
+    r = ToolRegistry(services={})
+    r.register(DelegateReadDocument())
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+
+    result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
+    assert result["status"] == "ok"
+    mock_close.assert_called_once_with(reused_model, opened_for_workspace=False)

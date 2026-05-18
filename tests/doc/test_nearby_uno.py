@@ -82,10 +82,11 @@ def test_list_nearby_excludes_active():
 
 @native_test
 def test_open_document_for_read_hidden_readonly():
-    model, doc_type, err = open_document_for_read(_test_ctx, _budget_path)
+    model, doc_type, err, opened_for_workspace = open_document_for_read(_test_ctx, _budget_path)
     assert err is None
     assert doc_type == "calc"
     assert model is not None
+    assert opened_for_workspace is True
     try:
         sheet = model.Sheets.getByIndex(0)
         val = sheet.getCellByPosition(1, 1).getValue()
@@ -100,7 +101,7 @@ def test_open_document_for_read_hidden_readonly():
 @native_test
 def test_inner_read_cell_range_on_opened_sibling():
     """Outer workspace path opens sibling; inner uses read_cell_range (no live LLM)."""
-    model, doc_type, err = open_document_for_read(_test_ctx, _budget_path)
+    model, doc_type, err, _opened = open_document_for_read(_test_ctx, _budget_path)
     assert err is None and doc_type == "calc"
     try:
         tctx = ToolContext(model, _test_ctx, "calc", get_services(), "test", read_only_target=True)
