@@ -19,7 +19,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 ## MVP (Phase 0) — **shipped**
 
-**Status:** Phase 0 is implemented in-tree (2026-05-17). Automated tests: [`test_nearby.py`](../plugin/tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../plugin/tests/doc/test_nearby_specialized.py), [`test_nearby_uno.py`](../plugin/tests/doc/test_nearby_uno.py). Manual Calc acceptance (#1) still recommended before calling the feature “done” in production.
+**Status:** Phase 0 is implemented in-tree (2026-05-17). Automated tests: [`test_nearby.py`](../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py), [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py). Manual Calc acceptance (#1) still recommended before calling the feature “done” in production.
 
 **Phase 0** provides same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `workspace` to the existing delegate enum — no new core tools on main.
 
@@ -238,8 +238,8 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
 **Phase 0 tests (implemented):**
 
-- [`test_nearby_specialized.py`](../plugin/tests/doc/test_nearby_specialized.py): mock inner agent (no live LLM); `workspace` on all three delegates; `USE_SUB_AGENT=False` error; `READ_ONLY_TARGET` guard; outer workspace tool surface; `delegate_read_document` is not a delegate gateway recurse.
-- [`test_nearby_uno.py`](../plugin/tests/doc/test_nearby_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
+- [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py): mock inner agent (no live LLM); `workspace` on all three delegates; `USE_SUB_AGENT=False` error; `READ_ONLY_TARGET` guard; outer workspace tool surface; `delegate_read_document` is not a delegate gateway recurse.
+- [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
 - `stop_checker` is copied from parent to inner `ToolContext` in `run_inner_read_agent`.
 
 See [streaming-and-threading.md](streaming-and-threading.md).
@@ -364,13 +364,15 @@ flowchart LR
 **Done when:**
 
 - [ ] Calc acceptance scenario #1 (Q4 budget) passes manually (recommended before release notes).
-- [x] `make test` / pytest green: [`test_nearby.py`](../plugin/tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../plugin/tests/doc/test_nearby_specialized.py).
-- [x] UNO: hidden open, list excludes self, sibling read via `read_cell_range` — [`test_nearby_uno.py`](../plugin/tests/doc/test_nearby_uno.py).
+- [x] `make test` / pytest green: [`test_nearby.py`](../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py).
+- [x] UNO: hidden open, list excludes self, sibling read via `read_cell_range` — [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py).
 - [ ] Active window focus unchanged after cross-file read (manual check).
 
 ---
 
-### Phase 1 — Config-expanded directories
+### Phase 1 — Config-expanded directories — **deferred (low priority)**
+
+> **Status (2026-05-17):** Deferred. Phase 0 (same-folder / two-tier workspace) is sufficient for now. Revisit when users need folders outside the active document’s parent (e.g. shared project drive). A draft implementation plan exists in `.cursor/plans/` but is not scheduled.
 
 **Goal:** User-configured extra roots beyond same-folder listing.
 
@@ -499,8 +501,8 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 | Domain enum markers | [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py) (`ToolWriterWorkspaceBase`), [`plugin/calc/base.py`](../plugin/calc/base.py), [`plugin/draw/base.py`](../plugin/draw/base.py) |
 | Delegate gateway + workspace guard | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
 | `read_only_target` + registry guard | [`plugin/framework/tool.py`](../plugin/framework/tool.py) |
-| Unit tests | [`plugin/tests/doc/test_nearby.py`](../plugin/tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../plugin/tests/doc/test_nearby_specialized.py) |
-| UNO tests | [`plugin/tests/doc/test_nearby_uno.py`](../plugin/tests/doc/test_nearby_uno.py) |
+| Unit tests | [`plugin/tests/doc/test_nearby.py`](../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py) |
+| UNO tests | [`plugin/tests/doc/test_nearby_uno.py`](../tests/doc/test_nearby_uno.py) |
 
 ### Later phases
 
@@ -518,8 +520,8 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 
 | Phase | Unit | UNO / integration |
 | ----- | ---- | ----------------- |
-| **0** | [`test_nearby.py`](../plugin/tests/doc/test_nearby.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_nearby_uno.py`](../plugin/tests/doc/test_nearby_uno.py): hidden+read-only open; list; sibling `read_cell_range` |
-| **0** | [`test_nearby_specialized.py`](../plugin/tests/doc/test_nearby_specialized.py): `workspace` on all delegates; mock inner; read-only guard; no gateway recurse | — |
+| **0** | [`test_nearby.py`](../tests/doc/test_nearby.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py): hidden+read-only open; list; sibling `read_cell_range` |
+| **0** | [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py): `workspace` on all delegates; mock inner; read-only guard; no gateway recurse | — |
 | **1** | Config merge, dedupe | — |
 | **2** | Prompt snapshot / max length | — |
 | **3** | — | Cache, close-on-idle, Writer/Calc/Draw samples; `ToolContext.doc` isolation |
@@ -547,7 +549,7 @@ Per [AGENTS.md](../AGENTS.md): matching `test_*.py` names; run `make test` befor
 
 | Date | Phase / change | PR / notes |
 | ---- | -------------- | ---------- |
-| 2026-05-17 | **Phase 0 shipped:** `nearby.py`, `nearby_tools.py`, `nearby_specialized.py`; `workspace` on Writer/Calc/Draw delegates; two-tier smol (outer list/delegate_read, inner `READ_TOOLS_BY_DOC_TYPE`); `ToolContext.read_only_target` + `READ_ONLY_TARGET`; untitled → Work path then open-docs fallback; tests in `plugin/tests/doc/test_nearby*.py` | — |
+| 2026-05-17 | **Phase 0 shipped:** `nearby.py`, `nearby_tools.py`, `nearby_specialized.py`; `workspace` on Writer/Calc/Draw delegates; two-tier smol (outer list/delegate_read, inner `READ_TOOLS_BY_DOC_TYPE`); `ToolContext.read_only_target` + `READ_ONLY_TARGET`; untitled → Work path then open-docs fallback; tests in `tests/doc/test_nearby*.py` | — |
 | *(prior)* | Plan refresh: Phase 0 = full two-tier delegation; phases renumbered 0–6; data contracts, threading, edge cases | — |
 
 ---

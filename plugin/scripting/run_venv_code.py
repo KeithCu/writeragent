@@ -15,27 +15,10 @@ from typing import Any, Dict
 
 from plugin.framework.config import get_config_str
 from plugin.scripting.python_worker_manager import PythonWorkerManager
+from plugin.scripting.subprocess_env import scrub_subprocess_env
 from plugin.scripting.venv_probe import resolve_libreoffice_python, resolve_venv_python
 
 log = logging.getLogger(__name__)
-
-_BLOCKED_ENV_SUBSTR = ("KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL")
-
-
-def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
-    """Drop likely-secret vars from the environment passed to venv Python."""
-    if not base:
-        return {}
-    out: dict[str, str] = {}
-    for k, v in base.items():
-        ku = k.upper()
-        if any(s in ku for s in _BLOCKED_ENV_SUBSTR):
-            continue
-        out[k] = v
-    out.setdefault("PYTHONIOENCODING", "utf-8")
-    out.setdefault("PYTHONUTF8", "1")
-    out.setdefault("PYTHONDONTWRITEBYTECODE", "1")
-    return out
 
 
 def run_code_in_user_venv(

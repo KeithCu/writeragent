@@ -5,14 +5,16 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Resolve a venv directory to its python executable and run a trivial subprocess check."""
+"""Resolve a venv directory to its python executable and run a warm-worker self-check."""
 
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
+
+from plugin.scripting.python_worker_manager import PythonWorkerManager
+from plugin.scripting.subprocess_env import scrub_subprocess_env
 
 
 def resolve_libreoffice_python() -> Optional[str]:
@@ -43,90 +45,91 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     return None
 
 
-def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, str]:
-    """Run a diagnostic script; return (success, user-facing message)."""
-    # Diagnostic script to gather version and package info.
-    # We use newlines instead of semicolons because compound statements (for/try)
-    # cannot be semicolon-separated in a single line.
-    script = (
-        "import sys, json\n"
-        "res = {'v': sys.version.split()[0]}\n"
-        "pkgs = {}\n"
-        "for p in ['numpy', 'pandas', 'scipy', 'sklearn', 'matplotlib']:\n"
-        "    try:\n"
-        "        m = __import__(p)\n"
-        "        v = getattr(m, '__version__', 'present')\n"
-        "        pkgs[p] = str(v)\n"
-        "    except ImportError:\n"
-        "        pkgs[p] = None\n"
-        "res['p'] = pkgs\n"
-        "print(json.dumps(res))"
-    )
+_DIAGNOSTIC_SCRIPT = (
+    "import platform\n"
+    "res = {'v': platform.python_version()}\n"
+    "pkgs = {}\n"
+    "try:\n"
+    "    import numpy\n"
+    "    pkgs['numpy'] = 'present'\n"
+    "except ImportError:\n"
+    "    pkgs['numpy'] = None\n"
+    "try:\n"
+    "    import pandas\n"
+    "    pkgs['pandas'] = 'present'\n"
+    "except ImportError:\n"
+    "    pkgs['pandas'] = None\n"
+    "try:\n"
+    "    import scipy\n"
+    "    pkgs['scipy'] = 'present'\n"
+    "except ImportError:\n"
+    "    pkgs['scipy'] = None\n"
+    "try:\n"
+    "    import sklearn\n"
+    "    pkgs['sklearn'] = 'present'\n"
+    "except ImportError:\n"
+    "    pkgs['sklearn'] = None\n"
+    "try:\n"
+    "    import matplotlib\n"
+    "    pkgs['matplotlib'] = 'present'\n"
+    "except ImportError:\n"
+    "    pkgs['matplotlib'] = None\n"
+    "res['p'] = pkgs\n"
+    "result = res"
+)
 
+
+def _format_self_check_success(data: dict[str, Any]) -> str:
+    version = data.get("v", "unknown")
+    packages = data.get("p", {})
+    if not isinstance(packages, dict):
+        packages = {}
+
+    msg_lines = [f"Python {version} responds OK."]
+
+    found = []
+    missing = []
+    requested = ["numpy", "pandas"]
+    others = [p for p in packages if p not in requested]
+
+    for p in requested + others:
+        ver = packages.get(p)
+        if ver:
+            found.append(f"{p} ({ver})" if ver != "present" else p)
+        else:
+            missing.append(p)
+
+    if found:
+        msg_lines.append(f"Packages: {', '.join(found)}")
+    if missing:
+        msg_lines.append(f"Missing: {', '.join(missing)}")
+
+    return "\n".join(msg_lines)
+
+
+def run_venv_self_check(python_exe: str, timeout: float = 10.0) -> Tuple[bool, str]:
+    """Run a diagnostic script via the warm worker; return (success, user-facing message)."""
+    timeout_sec = max(1, int(timeout))
     try:
-        proc = subprocess.run(
-            [python_exe, "-c", script],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return False, "Timed out waiting for Python (check venv and try again)."
+        manager = PythonWorkerManager.get(python_exe, scrub_subprocess_env(dict(os.environ)))
+        response = manager.execute(_DIAGNOSTIC_SCRIPT, timeout_sec=timeout_sec)
     except OSError as e:
         return False, f"Could not run Python: {e}"
 
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip()
-        tail = err[:400] + ("…" if len(err) > 400 else "")
-        msg = f"Python exited with code {proc.returncode}."
-        if tail:
-            msg = f"{msg}\n{tail}"
+    if response.get("status") != "ok":
+        msg = str(response.get("message", "Unknown error"))
+        if "timed out" in msg.lower() or "timeout" in msg.lower():
+            return False, "Timed out waiting for Python (check venv and try again)."
         return False, msg
 
-    out = (proc.stdout or "").strip()
-    # Find the last line that looks like JSON in case there's noise (e.g. from imports)
-    json_line = ""
-    for line in out.splitlines():
-        if line.strip().startswith('{"v":'):
-            json_line = line.strip()
-            break
-    if not json_line and out.strip().startswith('{'):
-        json_line = out.strip().splitlines()[-1]
-
-    if not json_line:
-        return False, f"Unexpected output from test run: {out!r}"
+    data = response.get("result")
+    if not isinstance(data, dict):
+        return False, f"Unexpected output from test run: {data!r}"
 
     try:
-        import json
-
-        data = json.loads(json_line)
-        version = data.get("v", "unknown")
-        packages = data.get("p", {})
-
-        msg_lines = [f"Python {version} responds OK."]
-
-        found = []
-        missing = []
-        # Specifically highlight requested ones first
-        requested = ["numpy", "pandas"]
-        others = [p for p in packages if p not in requested]
-
-        for p in requested + others:
-            ver = packages.get(p)
-            if ver:
-                found.append(f"{p} ({ver})" if ver != "present" else p)
-            else:
-                missing.append(p)
-
-        if found:
-            msg_lines.append(f"Packages: {', '.join(found)}")
-        if missing:
-            msg_lines.append(f"Missing: {', '.join(missing)}")
-
-        return True, "\n".join(msg_lines)
+        return True, _format_self_check_success(data)
     except Exception as e:
-        return False, f"Failed to parse diagnostic output: {e}\nRaw output: {out!r}"
+        return False, f"Failed to parse diagnostic output: {e}\nRaw output: {data!r}"
 
 
 def probe_venv_path(venv_dir: str, timeout: float = 10.0) -> Tuple[bool, str]:

@@ -237,12 +237,12 @@ def run_all_tests(ctx: Any) -> str:
     from plugin.framework.constants import get_plugin_dir
     import importlib.util
 
-    tests_root = os.path.join(get_plugin_dir(), "tests")
+    tests_root = os.path.join(os.path.dirname(get_plugin_dir()), "tests")
 
     if os.path.isdir(tests_root):
         # Discover and run all test modules recursively in the tests directory.
         # UNO tests are identified by the _uno.py suffix or being in the legacy uno/ dir.
-        from plugin.tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
+        from tests.testing_utils import NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS
 
         _MISSING = object()
 

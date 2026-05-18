@@ -7,8 +7,8 @@
 
 > [!IMPORTANT]
 > **Tests:** New features and bugfixes **must** include tests.
-> - **Unit:** `plugin/tests/`, **pytest** when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file to maintain consistent naming and visible coverage.**
-> - **UNO / LibreOffice:** `plugin/tests/uno/` or `_uno.py` suffix via **`testing_runner.py`** (no pytest)—use **`@native_test`**, **`@setup`**, **`@teardown`**; test functions take **`ctx`**. **Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).**
+> - **Unit:** `tests/`, **pytest** when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file to maintain consistent naming and visible coverage.**
+> - **UNO / LibreOffice:** `tests/uno/` or `_uno.py` suffix via **`testing_runner.py`** (no pytest)—use **`@native_test`**, **`@setup`**, **`@teardown`**; test functions take **`ctx`**. **Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).**
 > - Run **`make test`** before you consider the work done.
 
 > [!IMPORTANT]
@@ -105,7 +105,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 ### Sidebar / chat / streaming
 
-- Resolve document with **`frame.getController().getModel()`** first (same window as sidebar), then desktop fallback—sidebar query focus breaks desktop-only resolution ([`SendButtonListener._get_document_model`](plugin/chatbot/panel.py), tests in [`plugin/tests/test_send_button_listener_document_model.py`](plugin/tests/test_send_button_listener_document_model.py)).
+- Resolve document with **`frame.getController().getModel()`** first (same window as sidebar), then desktop fallback—sidebar query focus breaks desktop-only resolution ([`SendButtonListener._get_document_model`](plugin/chatbot/panel.py), tests in [`tests/test_send_button_listener_document_model.py`](tests/test_send_button_listener_document_model.py)).
 - **`setVisible(True)`** after `createContainerWindow()` for the panel.
 - **Menu chat:** no tool-calling; same doc-detection idea as sidebar.
 - **Stop** on main chat path: assistant may get `"No response."` for strict role alternation (e.g. Mistral); UI still shows stopped.
@@ -131,7 +131,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 - **In-place specialized mode:** `USE_SUB_AGENT` / `active_domain` / [`ToolCallingMixin._refresh_active_tools_for_session`](plugin/chatbot/tool_loop.py)—[`plugin/framework/constants.py`](plugin/framework/constants.py).
 - **HTML / content:** [`format_support.py`](plugin/writer/format_support.py)—prefer **plain-text** `apply_document_content` to preserve character formatting; **`safe_json_loads`** repair/LaTeX clash recovery in [`plugin/framework/errors.py`](plugin/framework/errors.py). Math segments: [`html_math_segment.py`](plugin/writer/html_math_segment.py), [`math_formula_insert.py`](plugin/writer/math_formula_insert.py).
 - **Outline API:** `get_document_tree`, `get_heading_children` in [`outline.py`](plugin/writer/outline.py)—legacy names like `get_document_outline` are obsolete.
-- **Grammar proofreader:** [`plugin/writer/locale/ai_grammar_proofreader.py`](plugin/writer/locale/ai_grammar_proofreader.py), [`grammar_proofread_locale.py`](plugin/writer/locale/grammar_proofread_locale.py) (`GRAMMAR_REGISTRY_LOCALE_TAGS`, UNO `Locale` bridging, Unicode terminals, abbrev/Thai chunking, `looks_complete_sentence`, worker caps/prompt, `parse_grammar_json`), [`grammar_proofread_text.py`](plugin/writer/locale/grammar_proofread_text.py) (BreakIterator split, offsets, sentence scheduling), [`grammar_proofread_cache.py`](plugin/writer/locale/grammar_proofread_cache.py) (LRU; document-embedded mode uses `get_persistence(ctx, doc_id)`), [`grammar_persistence.py`](plugin/writer/locale/grammar_persistence.py) (`DocumentPersistence` in-file storage), [`grammar_work_queue.py`](plugin/writer/locale/grammar_work_queue.py) (`GrammarWorkItem`, batch dedup, enqueue supersede / stale helpers, sequential LLM worker + queue). Service **`__init__(self, ctx, *args)`** required—LibreOffice uses `createInstanceWithArgumentsAndContext`. Keep top-level imports minimal. XCU/locale parity: [`grammar_proofread_locale.py`](plugin/writer/locale/grammar_proofread_locale.py), [`plugin/tests/writer/locale/test_grammar_linguistic_xcu.py`](plugin/tests/writer/locale/test_grammar_linguistic_xcu.py). Queue/cache semantics: [`docs/realtime-grammar-checker-plan.md`](docs/realtime-grammar-checker-plan.md).
+- **Grammar proofreader:** [`plugin/writer/locale/ai_grammar_proofreader.py`](plugin/writer/locale/ai_grammar_proofreader.py), [`grammar_proofread_locale.py`](plugin/writer/locale/grammar_proofread_locale.py) (`GRAMMAR_REGISTRY_LOCALE_TAGS`, UNO `Locale` bridging, Unicode terminals, abbrev/Thai chunking, `looks_complete_sentence`, worker caps/prompt, `parse_grammar_json`), [`grammar_proofread_text.py`](plugin/writer/locale/grammar_proofread_text.py) (BreakIterator split, offsets, sentence scheduling), [`grammar_proofread_cache.py`](plugin/writer/locale/grammar_proofread_cache.py) (LRU; document-embedded mode uses `get_persistence(ctx, doc_id)`), [`grammar_persistence.py`](plugin/writer/locale/grammar_persistence.py) (`DocumentPersistence` in-file storage), [`grammar_work_queue.py`](plugin/writer/locale/grammar_work_queue.py) (`GrammarWorkItem`, batch dedup, enqueue supersede / stale helpers, sequential LLM worker + queue). Service **`__init__(self, ctx, *args)`** required—LibreOffice uses `createInstanceWithArgumentsAndContext`. Keep top-level imports minimal. XCU/locale parity: [`grammar_proofread_locale.py`](plugin/writer/locale/grammar_proofread_locale.py), [`tests/writer/locale/test_grammar_linguistic_xcu.py`](tests/writer/locale/test_grammar_linguistic_xcu.py). Queue/cache semantics: [`docs/realtime-grammar-checker-plan.md`](docs/realtime-grammar-checker-plan.md).
 - **Calc JSON schemas (Gemini/OpenRouter):** no union types—use **`"type": "array"` + `items`**; normalize a single string to a one-element list in execute.
 - **Calc specialized** (pivot, conditional formatting, filters, forms, …): [`docs/calc-specialized-toolsets.md`](docs/calc-specialized-toolsets.md)—future pivot ideas also at top of [`plugin/calc/pivot.py`](plugin/calc/pivot.py).
 
@@ -159,7 +159,7 @@ UNO helpers are split: [`uno_context.py`](plugin/framework/uno_context.py), [`do
 
 ### Tests and debug menus
 
-- **`$(LO_PYTHON) -m plugin.testing_runner`:** [`plugin/testing_runner.py`](plugin/testing_runner.py) snapshots [`NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS`](plugin/tests/testing_utils.py) between UNO modules. Real PyUNO loaded → **`setup_uno_mocks()`** must not replace **`uno`** with **`MagicMock`**.
+- **`$(LO_PYTHON) -m plugin.testing_runner`:** [`plugin/testing_runner.py`](plugin/testing_runner.py) snapshots [`NATIVE_TEST_SYS_MODULE_SNAPSHOT_KEYS`](tests/testing_utils.py) between UNO modules. Real PyUNO loaded → **`setup_uno_mocks()`** must not replace **`uno`** with **`MagicMock`**.
 - **Debug menu suites** ([`plugin/main.py`](plugin/main.py) `_run_test_suite`): run **`run_module_suite` on the UI thread**—do not wrap in **`run_blocking_in_thread`** (UNO tools need main thread).
 
 ---
