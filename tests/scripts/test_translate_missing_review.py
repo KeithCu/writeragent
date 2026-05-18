@@ -11,7 +11,11 @@ from pathlib import Path
 import polib
 import pytest
 
-ROOT = Path(__file__).resolve().parents[3]
+_resolved = Path(__file__).resolve()
+if "plugin" in _resolved.parts:
+    ROOT = _resolved.parents[3]
+else:
+    ROOT = _resolved.parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))

@@ -8,7 +8,11 @@ import json
 import sys
 from pathlib import Path
 
-_REPO = Path(__file__).resolve().parents[3]
+_resolved = Path(__file__).resolve()
+if "plugin" in _resolved.parts:
+    _REPO = _resolved.parents[3]
+else:
+    _REPO = _resolved.parents[2]
 _PO = _REPO / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))

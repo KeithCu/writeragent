@@ -61,6 +61,7 @@ ALWAYS_INCLUDE_PLUGIN = [
 RELEASE_INCLUDE_PLUGIN = [
     "plugin/testing_runner.py",
     "plugin/tests/",
+    "tests/",
 ]
 
 ALWAYS_INCLUDE_ROOT = [
@@ -102,8 +103,10 @@ BUNDLE_DIR = "build/bundle"
 
 
 def should_exclude(path, with_tests=False):
-    # When with_tests, allow plugin/tests/; otherwise exclude it (smaller default build)
+    # When with_tests, allow tests/ at root and plugin/tests/; otherwise exclude them
     path_norm = path.replace("\\", "/")
+    if path_norm.startswith("tests/") or path_norm == "tests":
+        return not with_tests
     if path_norm.startswith("plugin/tests/") or path_norm == "plugin/tests":
         return not with_tests
     # gettext source/template only; runtime loads .mo (see plugin/framework/i18n.py)
@@ -286,6 +289,7 @@ def strip_production_code(bundle_path, dry_run=False):
             if (
                 rel_path == "plugin/testing_runner.py"
                 or rel_path.startswith("plugin/tests/")
+                or rel_path.startswith("tests/")
                 or rel_path == "plugin/contrib/smolagents/monitoring.py"
             ):
                 continue

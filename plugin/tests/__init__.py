@@ -1,2 +1,4 @@
-# WriterAgent test suite (plugin.tests).
-# All test modules live here so they can be run from the UNO context and via pytest.
+import os
+
+# Dynamically point package search path to the repository root tests directory
+__path__ = [os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tests")]

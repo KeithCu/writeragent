@@ -112,7 +112,7 @@ help:
 	@echo "================================="
 	@echo ""
 	@echo "Build:"
-	@echo "  make build                  Build .oxt with plugin/tests (runs ty + ruff, then gettext/UI steps)"
+	@echo "  make build                  Build .oxt with tests (runs ty + ruff, then gettext/UI steps)"
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
 	@echo "  make release                Full verification: test source, build stripped bundle with tests, test bundle, build final .oxt, then register (unopkg; no LO start)"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no plugin/contrib/audio, no Record button)"
@@ -222,7 +222,7 @@ release:
 	@echo "Building stripped bundle for verification..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --strip --output build/test-stripped.oxt
 	@echo "Running tests against stripped bundle..."
-	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=plugin/tests/scripts --ignore=plugin/tests/test_merge_module_yaml_into_pot.py --ignore=plugin/tests/framework/test_logging.py --ignore=plugin/tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=plugin/tests/scripting/test_generate_tool_proxies.py plugin/tests
+	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=tests/scripts --ignore=tests/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py tests
 	cd build/bundle && PYTHONPATH=. $(LO_PYTHON) -m plugin.testing_runner
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
@@ -232,7 +232,7 @@ openrouter-catalog:
 	$(PYTHON) -m ruff format plugin/framework/default_models.py
 
 release-build: auto-translate vendor manifest openrouter-catalog compile-translations
-	@echo "Building $(EXTENSION_NAME).oxt (release, bundle without plugin/tests)..."
+	@echo "Building $(EXTENSION_NAME).oxt (release, bundle without tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 
@@ -424,7 +424,7 @@ typecheck: manifest
 	@$(MAKE) pyright-run
 
 test-run:
-	$(PYTHON) -m pytest plugin/tests
+	$(PYTHON) -m pytest tests
 	$(LO_PYTHON) -m plugin.testing_runner
 
 test:

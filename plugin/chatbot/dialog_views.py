@@ -506,7 +506,7 @@ class EvalRunListener(BaseActionListener):
             self.is_running = False
 
     def run_suite(self):
-        from plugin.tests.eval_runner import run_benchmark_suite
+        from tests.eval_runner import run_benchmark_suite
         toolkit = get_toolkit(self.ctx)
         
         model_name = self.dialog.getControl("models").getText()
