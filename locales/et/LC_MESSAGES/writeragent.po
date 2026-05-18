@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-17 14:01-0400\n"
+"POT-Creation-Date: 2026-05-18 18:32-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -16,6 +16,14 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Workspace reads require sub-agent delegation (USE_SUB_AGENT). Enable sub-"
+"agents in configuration."
+msgstr ""
+"Tööruumi lugemised nõuavad alamagendi delegeerimist (USE_SUB_AGENT). Luba "
+"alamagendid konfiguratsioonis."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
@@ -742,18 +750,6 @@ msgstr "Tundmatu viga"
 msgid "Execution Error"
 msgstr "Täitmisviga"
 
-#: plugin/tests/framework/test_i18n.py
-msgid "ThisIsAnUntranslatedString999"
-msgstr "ThisIsAnUntranslatedString999"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Built-in"
-msgstr "Sisseehitatud"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Backend"
-msgstr "Taustsüsteem"
-
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr "Peata MCP-server"
@@ -1052,6 +1048,12 @@ msgstr "WriterAgenti hindamise töölaud"
 
 msgid "Agent backends"
 msgstr "Agendi taustsüsteemid"
+
+msgid "Backend"
+msgstr "Taustsüsteem"
+
+msgid "Built-in"
+msgstr "Sisseehitatud"
 
 msgid "Hermes"
 msgstr "Hermes"

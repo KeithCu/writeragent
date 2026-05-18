@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-17 14:01-0400\n"
+"POT-Creation-Date: 2026-05-18 18:32-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -16,6 +16,14 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Workspace reads require sub-agent delegation (USE_SUB_AGENT). Enable sub-"
+"agents in configuration."
+msgstr ""
+"Οι αναγνώσεις του χώρου εργασίας απαιτούν ανάθεση σε υπο-πράκτορα "
+"(USE_SUB_AGENT). Ενεργοποιήστε τους υπο-πράκτορες στις ρυθμίσεις."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
@@ -762,18 +770,6 @@ msgstr "Άγνωστο σφάλμα"
 msgid "Execution Error"
 msgstr "Σφάλμα εκτέλεσης"
 
-#: plugin/tests/framework/test_i18n.py
-msgid "ThisIsAnUntranslatedString999"
-msgstr "ThisIsAnUntranslatedString999"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Built-in"
-msgstr "Ενσωματωμένο"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Backend"
-msgstr "Backend"
-
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr "Διακοπή διακομιστή MCP"
@@ -1072,6 +1068,12 @@ msgstr "Πίνακας αξιολόγησης WriterAgent"
 
 msgid "Agent backends"
 msgstr "Backend πράκτορα"
+
+msgid "Backend"
+msgstr "Backend"
+
+msgid "Built-in"
+msgstr "Ενσωματωμένο"
 
 msgid "Hermes"
 msgstr "Hermes"

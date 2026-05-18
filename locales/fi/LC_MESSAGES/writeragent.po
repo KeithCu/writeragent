@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-17 14:01-0400\n"
+"POT-Creation-Date: 2026-05-18 18:32-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -16,6 +16,14 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Workspace reads require sub-agent delegation (USE_SUB_AGENT). Enable sub-"
+"agents in configuration."
+msgstr ""
+"Työtilan lukeminen edellyttää aliedustajan valtuutusta (USE_SUB_AGENT). Ota "
+"aliedustajat käyttöön asetuksista."
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
@@ -744,18 +752,6 @@ msgstr "Tuntematon virhe"
 msgid "Execution Error"
 msgstr "Suoritusvirhe"
 
-#: plugin/tests/framework/test_i18n.py
-msgid "ThisIsAnUntranslatedString999"
-msgstr "ThisIsAnUntranslatedString999"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Built-in"
-msgstr "Sisäänrakennettu"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Backend"
-msgstr "Taustajärjestelmä"
-
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr "Pysäytä MCP-palvelin"
@@ -1054,6 +1050,12 @@ msgstr "WriterAgent-arviointikojelauta"
 
 msgid "Agent backends"
 msgstr "Agenttien taustajärjestelmät"
+
+msgid "Backend"
+msgstr "Taustajärjestelmä"
+
+msgid "Built-in"
+msgstr "Sisäänrakennettu"
 
 msgid "Hermes"
 msgstr "Hermes"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-17 14:01-0400\n"
+"POT-Creation-Date: 2026-05-18 18:32-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -16,6 +16,14 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/specialized_base.py
+msgid ""
+"Workspace reads require sub-agent delegation (USE_SUB_AGENT). Enable sub-"
+"agents in configuration."
+msgstr ""
+"ওয়ার্কস্পেস রিড-এর জন্য সাব-এজেন্ট ডেলিগেশন (USE_SUB_AGENT) প্রয়োজন। কনফিগারেশনে "
+"সাব-এজেন্ট সক্রিয় করুন।"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
@@ -741,18 +749,6 @@ msgstr "অজানা ত্রুটি"
 msgid "Execution Error"
 msgstr "এক্সিকিউশন ত্রুটি"
 
-#: plugin/tests/framework/test_i18n.py
-msgid "ThisIsAnUntranslatedString999"
-msgstr "ThisIsAnUntranslatedString999"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Built-in"
-msgstr "বিল্ট-ইন"
-
-#: plugin/tests/framework/test_i18n.py
-msgid "Backend"
-msgstr "ব্যাকএন্ড"
-
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
 msgstr "MCP সার্ভার বন্ধ করুন"
@@ -1051,6 +1047,12 @@ msgstr "WriterAgent মূল্যায়ন ড্যাশবোর্ড"
 
 msgid "Agent backends"
 msgstr "এজেন্ট ব্যাকএন্ড"
+
+msgid "Backend"
+msgstr "ব্যাকএন্ড"
+
+msgid "Built-in"
+msgstr "বিল্ট-ইন"
 
 msgid "Hermes"
 msgstr "হার্মিস"
