@@ -75,7 +75,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **34 Locales**: Automated AI-driven translation and review pipeline. [Localization Pipeline](docs/localization.md).
 - **Multilingual Grammar**: An optional feature that uses the LLM to identify and correct the underlying text language when typing in multiple languages, before running the grammar checker.
 
-### 🐍 Local Python Execution (in version 0.7.7.11)
+### 🐍 Local Python Execution (in version 0.8.0)
 
 - **Execute Python**: Use your own virtual environment (running any version of Python) to access libraries like `numpy`, `pandas`, etc.
 - **Enable it**: Set path in **Settings → Python**. Exposed to LLMs in Writer, Calc, and Draw / Impress.
