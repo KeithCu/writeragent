@@ -44,6 +44,13 @@ class ToolDrawWebResearchBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the drawing or presentation."
 
 
+class ToolDrawWorkspaceBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "workspace"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Read other files in the same folder as this drawing via workspace delegation."
+    )
+
+
 class ToolDrawChartBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the drawing or presentation."

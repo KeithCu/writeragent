@@ -17,14 +17,16 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 ---
 
-## MVP (Phase 0)
+## MVP (Phase 0) — **shipped**
 
-**Phase 0** ships same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `workspace` to the existing delegate enum — no new core tools on main.
+**Status:** Phase 0 is implemented in-tree (2026-05-17). Automated tests: [`test_nearby.py`](../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py), [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py). Manual Calc acceptance (#1) still recommended before calling the feature “done” in production.
+
+**Phase 0** provides same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `workspace` to the existing delegate enum — no new core tools on main.
 
 **User flow:** one `delegate_to_specialized_*_toolset(domain="workspace", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
 
-- Same folder as the active saved document only (no config dirs, no recursion).
-- Skip untitled docs with no filesystem path (see [Edge cases](#edge-cases-and-failure-modes)).
+- Same folder as the active saved document’s **parent directory** (no config dirs, no recursion).
+- **Untitled** active doc: list from LibreOffice profile **Work** folder ([`get_work_directory`](../plugin/doc/nearby.py) via `com.sun.star.util.thePathSettings`); if that path is missing, fall back to other **open** LO file URLs only (see [Edge cases](#edge-cases-and-failure-modes)).
 - Later phases add config directories, prompt injection, UI, headless, and polish — see [Phased implementation](#phased-implementation).
 
 ---
@@ -193,11 +195,11 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 **Implementation note:** Same **gateway** pattern as `delegate_*(domain="shapes")`, but workspace adds a **nested** inner smol run via `delegate_read_document` (not a single-level domain like `python`’s tools). Infrastructure: [`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py), [`build_toolcalling_agent`](../plugin/chatbot/smol_agent.py) — see [writer-specialized-toolsets.md](writer-specialized-toolsets.md) and [smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md).
 
-### Handoff mechanism (implementation sketch)
+### Handoff mechanism (implemented)
 
-- Outer `delegate_read_document(path_or_name, task)`: dedicated code path — **not** recursive `DelegateToSpecializedBase.execute`.
-- Open if needed; build `ToolContext(doc=opened_model, read_only_target=True, …)`.
-- Run inner `ToolCallingAgent` with **explicit read allowlist** by `doc_type` (e.g. `registry.get_tools(doc=opened, names=READ_TOOLS_BY_DOC_TYPE[doc_type])`) — not `active_domain="workspace"` on the opened doc.
+- [`DelegateReadDocument`](../plugin/doc/nearby_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name via [`resolve_path_or_name`](../plugin/doc/nearby.py), opens via [`open_document_for_read`](../plugin/doc/nearby.py) on the main thread (`execute_on_main_thread`).
+- [`run_inner_read_agent`](../plugin/doc/nearby_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `specialized_workflow_finished`.
+- Outer workspace sub-agent is still launched by [`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py) with `active_domain="workspace"` (tools from [`nearby_tools.py`](../plugin/doc/nearby_tools.py) + `DelegateReadDocument`).
 - Inner ends with `specialized_workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
 
 ---
@@ -212,17 +214,17 @@ Workspace is **cross-app**: active Writer may read a Calc `.ods` budget. Registe
 | `delegate_read_document` | `specialized` | `workspace` | Spawns inner smol; outer only |
 | Inner read tools | — | — | **Not** a separate domain on main registry; allowlist inside `delegate_read_document` |
 
-Gateway enum discovery: subclasses of doc/writer/calc/draw specialized bases with `specialized_domain = "workspace"` (see [`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py) domain scan).
+Gateway enum discovery: marker subclasses with `specialized_domain = "workspace"` on each app base — `ToolWriterWorkspaceBase`, `ToolCalcWorkspaceBase`, `ToolDrawWorkspaceBase` in [`writer/specialized_base.py`](../plugin/writer/specialized_base.py), [`calc/base.py`](../plugin/calc/base.py), [`draw/base.py`](../plugin/draw/base.py). Tools register once in [`plugin/doc/__init__.py`](../plugin/doc/__init__.py) via `auto_discover(nearby_tools, nearby_specialized)`.
 
 ---
 
 ## Read-only enforcement
 
-Schema omission alone is insufficient; enforce at execution time for Phase 0.
+Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
-1. **`ToolContext` flag** — e.g. `read_only_target: bool` or `target_doc_role: "active" | "workspace_read"`.
-2. **Inner allowlist** — fixed read tool names per `doc_type`; never pass full `active_domain=workspace` tools against the opened model.
-3. **Defense in depth** — mutation tools (`is_mutation`, `apply_*`, `write_*`) check `ctx.read_only_target` and return `_tool_error` if set.
+1. **`ToolContext.read_only_target`** — set on the inner agent’s context in [`run_inner_read_agent`](../plugin/doc/nearby_specialized.py).
+2. **Inner allowlist** — `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../plugin/doc/nearby_specialized.py); inner uses `registry.get_tools(..., names=allowlist)` — not `active_domain="workspace"` on the opened model.
+3. **Defense in depth** — [`ToolRegistry.execute`](../plugin/framework/tool.py) returns `READ_ONLY_TARGET` when `ctx.read_only_target` and `tool.detects_mutation()`.
 
 ---
 
@@ -234,12 +236,11 @@ Schema omission alone is insufficient; enforce at execution time for Phase 0.
 | Outer smol | Worker ([`DelegateToSpecializedBase.is_async`](../plugin/doc/specialized_base.py)) | List/open via `execute_on_main_thread` or async open tool |
 | Inner smol | Same worker as outer | Read tools via `SmolToolAdapter(..., main_thread_sync=True)` → [`execute_on_main_thread`](../plugin/chatbot/smol_agent.py) |
 
-**Phase 0 tests must cover:**
+**Phase 0 tests (implemented):**
 
-- Mock inner agent (no live LLM).
-- Re-entrant `execute_on_main_thread` when outer spawns inner from worker thread.
-- `stop_checker` propagated main → outer → inner.
-- `delegate_read_document` does not recurse through full delegate gateway.
+- [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py): mock inner agent (no live LLM); `workspace` on all three delegates; `USE_SUB_AGENT=False` error; `READ_ONLY_TARGET` guard; outer workspace tool surface; `delegate_read_document` is not a delegate gateway recurse.
+- [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
+- `stop_checker` is copied from parent to inner `ToolContext` in `run_inner_read_agent`.
 
 See [streaming-and-threading.md](streaming-and-threading.md).
 
@@ -258,7 +259,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 | --------------- | ----------------------- |
 | **Writer** | `get_document_content` ([`content.py`](../plugin/writer/content.py)), `get_document_tree` ([`outline.py`](../plugin/writer/outline.py)), `search_in_document` |
 | **Calc** | `get_sheet_summary` ([`sheets.py`](../plugin/calc/sheets.py)), `read_cell_range` ([`cells.py`](../plugin/calc/cells.py)) |
-| **Draw / Impress** | `list_pages`, draw summary / shape read tools as needed |
+| **Draw / Impress** | `list_pages` ([`shapes.py`](../plugin/draw/shapes.py)), `get_draw_tree` ([`tree.py`](../plugin/draw/tree.py)) — see `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../plugin/doc/nearby_specialized.py) |
 
 **Calc example:** User has `Q4_Report.odt` open → main delegates workspace → outer opens `Budget_2026.ods` → inner `get_sheet_summary` + `read_cell_range` → main `apply_document_content` on active doc.
 
@@ -270,7 +271,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 
 | Case | Behavior |
 | ---- | -------- |
-| **Untitled / unsaved active doc** | **Default:** list other **open** LO documents only (URLs from desktop); if none, clear tool error. Alternative (stricter): disable workspace with message “save document first.” |
+| **Untitled / unsaved active doc** | **Implemented:** [`resolve_listing_directory`](../plugin/doc/nearby.py) uses LO profile **Work** path (`thePathSettings` → `Work`); if no directory, list other **open** LO documents only; if none, tool error with a clear message. |
 | **Active file in directory listing** | Exclude self from `list_nearby_files`. |
 | **Permission denied / I/O error** | Tool error with `details.path`. |
 | **File modified on disk after open** | Phase 0: no cache; re-open on next delegate if needed. Phase 6 may add mtime-keyed metadata. |
@@ -287,7 +288,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 | ------- | ---- |
 | **Sidebar chat** | Primary target for workspace delegation. |
 | **Menu “Chat with Document”** | No tool-calling today ([AGENTS.md](../AGENTS.md)) — workspace **not** supported until menu gains tools. |
-| **`USE_SUB_AGENT = False`** | In-place domain switch on main — workspace domain **requires** sub-agent path; document as unsupported when `USE_SUB_AGENT` is off. |
+| **`USE_SUB_AGENT = False`** | [`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py) returns `WORKSPACE_REQUIRES_SUB_AGENT` for `domain="workspace"` (no in-place domain switch). |
 | **Librarian mode** | No workspace reads until document mode (`switch_mode` / `switch_to_document_mode`). |
 | **Extend / Edit selection** | Single-doc selection path; out of scope unless explicitly wired. |
 | **Hermes ACP** | Defer; same registry tools if host exposes delegate gateway later. |
@@ -302,10 +303,10 @@ Record decisions here as we learn.
 | - | -------- | ----- |
 | 1 | **Catalog in main system prompt?** | Option A: inject `[NEARBY FILES]` every turn. Option B: outer calls `list_*` when needed (**default for Phase 0**). Option C: hybrid when ≤N files or user mentions another doc. Revisit in Phase 2. |
 | 2 | **Main vs sub-agent for multi-file tasks** | **Decision: two-tier delegation in Phase 0** — main only `delegate_*(domain="workspace", …)`; outer orchestrates; inner reads per file. Same **gateway** as `domain="shapes"`; unique **nested** inner smol via `delegate_read_document`. |
-| 3 | **Untitled / unsaved active doc** | See [Edge cases](#edge-cases-and-failure-modes) — pick one default and test it. |
+| 3 | **Untitled / unsaved active doc** | **Decision (Phase 0):** saved parent dir → else **Work** path → else open-docs-only list. Unit-tested (`test_get_work_directory`, `test_resolve_listing_directory_work_fallback`). |
 | 4 | **Write-back to nearby files** | **Out of scope:** siblings read-only; writes on active doc only. |
 | 5 | **Final naming** | `workspace_*` vs `nearby_*` vs `project_*` — align UI, config, prompts when chosen. |
-| 6 | **Inner allowlist** | Static name list per `doc_type` vs filter `tier="core"` read tools — prefer **static list** for predictable schemas. |
+| 6 | **Inner allowlist** | **Decision (Phase 0):** static `READ_TOOLS_BY_DOC_TYPE` in [`nearby_specialized.py`](../plugin/doc/nearby_specialized.py). |
 | 7 | **Max files per list** | Cap (e.g. 100) — document in `list_nearby_files` result. |
 
 ---
@@ -329,42 +330,43 @@ flowchart LR
     P0 --> P5
 ```
 
-### Phase 0 — Same-directory MVP (two-tier delegation)
+### Phase 0 — Same-directory MVP (two-tier delegation) — **shipped**
 
-**Goal:** End-to-end cross-file read from the active document’s parent directory.
+**Goal:** End-to-end cross-file read from the active document’s parent directory (or Work / open-docs fallbacks).
 
 **Main (unchanged wire shape):**
 
 - `delegate_to_specialized_{writer|calc|draw}_toolset(domain="workspace", task="…")` only.
 - No `list_nearby_files`, no read tools, no new core tools on main.
-- **`USE_SUB_AGENT` must be on** for workspace.
+- Delegate gateway descriptions mention `domain=workspace` (Writer/Calc/Draw).
+- **`USE_SUB_AGENT` must be on** for workspace (`WORKSPACE_REQUIRES_SUB_AGENT` otherwise).
 
 **Outer sub-agent (`specialized_domain="workspace"`):**
 
-- `list_nearby_files` — parent dir of active doc; `NEARBY_FILE_EXTENSIONS`; newest first; exclude active path; optional `filter` substring.
-- `delegate_read_document(path_or_name, task)` — open hidden+read-only (or reuse open); spawn inner; return extracted data.
-- `specialized_workflow_finished` / final answer to main.
+- [`ListNearbyFiles`](../plugin/doc/nearby_tools.py) → [`list_nearby_files`](../plugin/doc/nearby.py): `NEARBY_FILE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
+- [`DelegateReadDocument`](../plugin/doc/nearby_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
+- `specialized_workflow_finished` / final answer to main (same as other specialized domains).
 
 **Inner sub-agent (per opened file):**
 
-- Allowlisted production read tools for that file’s `doc_type` only.
-- `ToolContext.doc` = opened model; [read-only enforcement](#read-only-enforcement).
-- One inner run per file; discarded after return.
+- `READ_TOOLS_BY_DOC_TYPE` allowlist; [`run_inner_read_agent`](../plugin/doc/nearby_specialized.py).
+- `ToolContext.doc` = opened model; `read_only_target=True` — see [read-only enforcement](#read-only-enforcement).
+- One inner run per `delegate_read_document` call; discarded after return.
 
 **Library ([`plugin/doc/nearby.py`](../plugin/doc/nearby.py)):**
 
-- `get_document_directory`, `list_nearby_files`, `open_document_for_read`, `FileEntry` — used by outer tools, not exposed on main.
+- `FileEntry`, `NEARBY_FILE_EXTENSIONS`, `get_document_directory`, `get_work_directory`, `resolve_listing_directory`, `list_nearby_files`, `resolve_path_or_name`, `open_document_for_read`, `guess_doc_type_from_path`.
 
-**Implementation modules:** [`nearby_tools.py`](../plugin/doc/nearby_tools.py), [`nearby_specialized.py`](../plugin/doc/nearby_specialized.py) (outer + inner wiring, TBD), [`module.yaml`](../plugin/doc/module.yaml).
+**Module wiring:** [`plugin/doc/__init__.py`](../plugin/doc/__init__.py) `auto_discover` for `nearby_tools` and `nearby_specialized`. No new keys in [`module.yaml`](../plugin/doc/module.yaml).
 
 **Out of scope Phase 0:** config directories, `[NEARBY FILES]` prompt injection, `@` UI, headless, metadata cache, write-back to siblings.
 
 **Done when:**
 
-- [ ] Calc acceptance scenario #1 (Q4 budget) passes manually.
-- [ ] `make test` green: `test_nearby.py`, mock outer→inner, `test_nearby_specialized.py` (workspace on all delegates).
-- [ ] One UNO test: outer → inner → `read_cell_range`.
-- [ ] Active window focus unchanged after cross-file read.
+- [ ] Calc acceptance scenario #1 (Q4 budget) passes manually (recommended before release notes).
+- [x] `make test` / pytest green: [`test_nearby.py`](../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py).
+- [x] UNO: hidden open, list excludes self, sibling read via `read_cell_range` — [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py).
+- [ ] Active window focus unchanged after cross-file read (manual check).
 
 ---
 
@@ -486,20 +488,31 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 
 ---
 
-## Files and entry points (planned)
+## Files and entry points
+
+### Phase 0 (shipped)
 
 | Area | Path |
 | ---- | ---- |
 | Catalog + hidden open | [`plugin/doc/nearby.py`](../plugin/doc/nearby.py) |
-| Tools | [`plugin/doc/nearby_tools.py`](../plugin/doc/nearby_tools.py) |
-| Delegation (outer + inner) | [`plugin/doc/nearby_specialized.py`](../plugin/doc/nearby_specialized.py) (TBD) |
-| Module registration | [`plugin/doc/module.yaml`](../plugin/doc/module.yaml) |
-| Config keys | [`plugin/framework/config.py`](../plugin/framework/config.py), [`manifest_registry.py`](../scripts/manifest_registry.py) |
+| Outer tools | [`plugin/doc/nearby_tools.py`](../plugin/doc/nearby_tools.py) — `list_nearby_files` |
+| Inner + `delegate_read_document` | [`plugin/doc/nearby_specialized.py`](../plugin/doc/nearby_specialized.py) |
+| Module `auto_discover` | [`plugin/doc/__init__.py`](../plugin/doc/__init__.py) |
+| Domain enum markers | [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py) (`ToolWriterWorkspaceBase`), [`plugin/calc/base.py`](../plugin/calc/base.py), [`plugin/draw/base.py`](../plugin/draw/base.py) |
+| Delegate gateway + workspace guard | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
+| `read_only_target` + registry guard | [`plugin/framework/tool.py`](../plugin/framework/tool.py) |
+| Unit tests | [`plugin/tests/doc/test_nearby.py`](../tests/doc/test_nearby.py), [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py) |
+| UNO tests | [`plugin/tests/doc/test_nearby_uno.py`](../tests/doc/test_nearby_uno.py) |
+
+### Later phases
+
+| Area | Path |
+| ---- | ---- |
+| Config keys (Phase 1+) | [`plugin/framework/config.py`](../plugin/framework/config.py), [`manifest_registry.py`](../scripts/manifest_registry.py) |
 | Document path / URL | [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py) |
-| Chat context / prompts | [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/framework/constants.py`](../plugin/framework/constants.py) |
+| Chat context / prompts (Phase 2) | [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/framework/constants.py`](../plugin/framework/constants.py) |
 | Tool loop | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py) |
-| Delegate gateway | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
-| MCP | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) |
+| MCP (Phase 6) | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) |
 
 ---
 
@@ -507,8 +520,8 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 
 | Phase | Unit | UNO / integration |
 | ----- | ---- | ----------------- |
-| **0** | `plugin/tests/doc/test_nearby.py`: scandir, extensions, sort, exclude self, skip untitled | `test_nearby_uno.py`: hidden open; mock outer→inner; **one** UNO outer→inner→`read_cell_range` |
-| **0** | `test_nearby_specialized.py` (or `test_specialized_*`): `workspace` on Writer/Calc/Draw delegates | — |
+| **0** | [`test_nearby.py`](../tests/doc/test_nearby.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_nearby_uno.py`](../tests/doc/test_nearby_uno.py): hidden+read-only open; list; sibling `read_cell_range` |
+| **0** | [`test_nearby_specialized.py`](../tests/doc/test_nearby_specialized.py): `workspace` on all delegates; mock inner; read-only guard; no gateway recurse | — |
 | **1** | Config merge, dedupe | — |
 | **2** | Prompt snapshot / max length | — |
 | **3** | — | Cache, close-on-idle, Writer/Calc/Draw samples; `ToolContext.doc` isolation |
@@ -532,3 +545,11 @@ Per [AGENTS.md](../AGENTS.md): matching `test_*.py` names; run `make test` befor
 
 ---
 
+## Changelog
+
+| Date | Phase / change | PR / notes |
+| ---- | -------------- | ---------- |
+| 2026-05-17 | **Phase 0 shipped:** `nearby.py`, `nearby_tools.py`, `nearby_specialized.py`; `workspace` on Writer/Calc/Draw delegates; two-tier smol (outer list/delegate_read, inner `READ_TOOLS_BY_DOC_TYPE`); `ToolContext.read_only_target` + `READ_ONLY_TARGET`; untitled → Work path then open-docs fallback; tests in `tests/doc/test_nearby*.py` | — |
+| *(prior)* | Plan refresh: Phase 0 = full two-tier delegation; phases renumbered 0–6; data contracts, threading, edge cases | — |
+
+---

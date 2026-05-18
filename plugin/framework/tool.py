@@ -141,6 +141,7 @@ class ToolContext:
         approval_callback: Optional callable for human-in-the-loop approval.
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
         set_active_domain_callback: Optional callable to update the active domain.
+        read_only_target: When True, mutation tools are rejected (workspace sibling reads).
     """
 
     doc: Any
@@ -157,10 +158,11 @@ class ToolContext:
     set_active_domain_callback: Callable[[str | None], None] | None
     active_domain: str | None
     python_tool_domain: str | None
+    read_only_target: bool
 
-    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain")
+    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target")
 
-    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, active_domain=None, python_tool_domain=None):
+    def __init__(self, doc, ctx, doc_type, services, caller="", active_page_index=None, status_callback=None, append_thinking_callback=None, stop_checker=None, approval_callback=None, chat_append_callback=None, set_active_domain_callback=None, active_domain=None, python_tool_domain=None, read_only_target=False):
         self.doc = doc
         self.ctx = ctx
         self.doc_type = doc_type
@@ -175,6 +177,7 @@ class ToolContext:
         self.set_active_domain_callback = set_active_domain_callback
         self.active_domain = active_domain
         self.python_tool_domain = python_tool_domain
+        self.read_only_target = read_only_target
 
 
 class ToolBase(ABC):
@@ -698,6 +701,15 @@ class ToolRegistry:
             ok, err = tool.validate(doc_type=ctx.doc_type, **kwargs)
             if not ok:
                 return {"status": "error", "code": "VALIDATION_ERROR", "message": err, "details": common_details}
+
+            if getattr(ctx, "read_only_target", False) and tool.detects_mutation():
+                return format_error_payload(
+                    ToolExecutionError(
+                        "This document is open for read-only workspace access; writes are not allowed.",
+                        code="READ_ONLY_TARGET",
+                        details=common_details,
+                    )
+                )
 
             # Emit executing event
             bus = self._services.get("events") if hasattr(self, "_services") and self._services else None

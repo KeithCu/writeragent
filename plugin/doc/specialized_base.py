@@ -81,6 +81,12 @@ class DelegateToSpecializedBase(ToolBase):
             tool = WebResearchTool()
             return tool.execute(ctx, query=task)
 
+        if domain == "workspace" and not USE_SUB_AGENT:
+            return self._tool_error(
+                _("Workspace reads require sub-agent delegation (USE_SUB_AGENT). Enable sub-agents in configuration."),
+                code="WORKSPACE_REQUIRES_SUB_AGENT",
+            )
+
         if not USE_SUB_AGENT:
             # Tell the main LLM loop to switch tools for the next round
             callback = getattr(ctx, "set_active_domain_callback", None)

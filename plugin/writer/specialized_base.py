@@ -64,7 +64,8 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
         "embedded objects, shapes, indexes, "
         "bookmarks, track changes (tracking), footnotes/endnotes (domain=footnotes), "
         "form templates and controls (domain=forms), "
-        "or in-document image work (domain=images: generate, list, insert, replace images, etc.)."
+        "or in-document image work (domain=images: generate, list, insert, replace images, etc.). "
+        "For cross-file reads in the same folder, use domain=workspace."
     )
 
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -181,6 +182,13 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "web_research"
     specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the document."
+
+
+class ToolWriterWorkspaceBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "workspace"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Read other files in the same folder as this document via workspace delegation."
+    )
 
 
 class SpecializedWorkflowFinished(ToolBase):
