@@ -103,3 +103,35 @@ def test_manager_two_calls_same_process():
     r3 = mgr.execute("result = prev")
     assert r3["status"] == "error"
     PythonWorkerManager.shutdown_all()
+
+
+def test_automatic_imports_math():
+    r = _execute_request("result = math.sqrt(16)", None)
+    assert r["status"] == "ok"
+    assert r["result"] == 4.0
+
+
+def test_automatic_imports_numpy():
+    pytest.importorskip("numpy")
+    r = _execute_request("result = float(np.sum([1, 2, 3]))", None)
+    assert r["status"] == "ok"
+    assert r["result"] == 6.0
+
+
+def test_automatic_imports_sympy():
+    pytest.importorskip("sympy")
+    r = _execute_request("result = str(sp.Symbol('x'))", None)
+    assert r["status"] == "ok"
+    assert r["result"] == "x"
+
+
+def test_automatic_imports_already_imported():
+    r = _execute_request("import math as my_math\nresult = my_math.sqrt(16)", None)
+    assert r["status"] == "ok"
+    assert r["result"] == 4.0
+
+
+def test_automatic_imports_explicit():
+    r = _execute_request("import math\nresult = math.sqrt(25)", None)
+    assert r["status"] == "ok"
+    assert r["result"] == 5.0

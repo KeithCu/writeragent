@@ -126,7 +126,9 @@ CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the f
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
 - Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no sheet data is needed, e.g. `=PYTHON("result = 2**10")`).
-Note: this code executes in an isolated sandbox with no direct access to LibreOffice data, so it must be passed in."""
+Note: this code executes in an isolated sandbox with no direct access to LibreOffice data, so it must be passed in.
+Note: `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and `math` are automatically imported. DO NOT IMPORT Numpy, pandas, sympy or math.
+- Example: `=PYTHON("result = np.sum(data)"; A1:A10)`."""
 
 MEMORY_GUIDANCE = """MEMORY:
 You have a persistent file-backed memory tool.
@@ -400,3 +402,11 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     if additional_instructions and str(additional_instructions).strip():
         return base + "\n\n" + str(additional_instructions).strip()
     return base
+
+
+AUTO_IMPORTS: dict[str, str] = {
+    "numpy": "import numpy as np",
+    "pandas": "import pandas as pd",
+    "sympy": "import sympy as sp",
+    "math": "import math",
+}

@@ -71,12 +71,16 @@ _PARAMETERS_NON_CALC = {
 
 _DESCRIPTION_CALC = (
     "Run Python code. Set `result` to a JSON-serializable return value. "
+    "Note: common libraries like `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and standard library `math` "
+    "are automatically imported. "
     "Optional data_range (e.g. B1:B10) injects cell values as `data` (flat list for one row/column). "
     "Alternatively pass `data` directly after read_cell_range. Optional timeout_sec (default 120, max 600)."
 )
 
 _DESCRIPTION_NON_CALC = (
     "Run Python code in the configured venv. Set `result` to a JSON-serializable return value. "
+    "Note: common libraries like `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and standard library `math` "
+    "are automatically imported. "
     "Use document tools to read or change the file; this tool does not inject spreadsheet `data`. "
     "Optional timeout_sec (default 120, max 600)."
 )
