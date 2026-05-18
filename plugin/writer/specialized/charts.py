@@ -22,17 +22,25 @@ tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only mo
 
 import logging
 from plugin.framework.tool import ToolBaseDummy
-from plugin.calc.charts import ListCharts as CalcListCharts
-from plugin.calc.charts import GetChartInfo as CalcGetChartInfo
-from plugin.calc.charts import CreateChart as CalcCreateChart
-from plugin.calc.charts import EditChart as CalcEditChart
-from plugin.calc.charts import DeleteChart as CalcDeleteChart
+from plugin.calc.charts import (
+    ListCharts as CalcListCharts,
+    GetChartInfo as CalcGetChartInfo,
+    CreateChart as CalcCreateChart,
+    EditChart as CalcEditChart,
+    DeleteChart as CalcDeleteChart,
+    ManageCharts as CalcManageCharts,
+)
 
 log = logging.getLogger("writeragent.writer")
 
 # Union services: Writer wrappers share tool names with Calc; last registration wins,
 # so both must be listed or spreadsheets fail ToolRegistry.execute compatibility.
-_ALL_CHART_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+_ALL_CHART_DOCS = [
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+    "com.sun.star.drawing.DrawingDocument",
+    "com.sun.star.presentation.PresentationDocument",
+]
 
 
 class ListCharts(CalcListCharts, ToolBaseDummy):  # type: ignore[misc]  # dual base: Calc tool + registry skip marker
@@ -53,3 +61,8 @@ class EditChart(CalcEditChart, ToolBaseDummy):  # type: ignore[misc]
 
 class DeleteChart(CalcDeleteChart, ToolBaseDummy):  # type: ignore[misc]
     uno_services = _ALL_CHART_DOCS
+
+
+class ManageCharts(CalcManageCharts, ToolBaseDummy):  # type: ignore[misc]
+    uno_services = _ALL_CHART_DOCS
+

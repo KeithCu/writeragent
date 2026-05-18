@@ -66,11 +66,11 @@ def test_charts_creation_and_listing():
     assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
 
     # 2. Create chart
-    res_create = _execute_calc_tool("create_chart", {"data_range": "A1:B6", "chart_type": "bar"})
+    res_create = _execute_calc_tool("manage_charts", {"action": "create", "data_range": "A1:B6", "chart_type": "bar"})
     assert res_create.get("status") == "ok", f"create_chart failed: {res_create}"
 
     # 3. List charts
-    res_list = _execute_calc_tool("list_charts", {})
+    res_list = _execute_calc_tool("manage_charts", {"action": "list"})
     assert res_list.get("status") == "ok", f"list_charts failed: {res_list}"
     charts = res_list.get("charts", [])
     assert len(charts) == 1, f"Expected 1 chart, found {len(charts)}"
@@ -88,22 +88,22 @@ def test_charts_creation_and_listing():
     assert found_chart_shape, "com.sun.star.drawing.OLE2Shape not found on DrawPage"
 
     # 5. Get chart info
-    res_info = _execute_calc_tool("get_chart_info", {"chart_name": chart_name})
+    res_info = _execute_calc_tool("manage_charts", {"action": "get_info", "chart_name": chart_name})
     assert res_info.get("status") == "ok", f"get_chart_info failed: {res_info}"
     assert res_info.get("name") == chart_name, "Chart info name mismatch"
 
     # 6. Edit chart
-    res_edit = _execute_calc_tool("edit_chart", {"chart_name": chart_name, "title": "Monthly Sales"})
+    res_edit = _execute_calc_tool("manage_charts", {"action": "edit", "chart_name": chart_name, "title": "Monthly Sales"})
     assert res_edit.get("status") == "ok", f"edit_chart failed: {res_edit}"
 
     # Verify title change
-    res_info_after_edit = _execute_calc_tool("get_chart_info", {"chart_name": chart_name})
+    res_info_after_edit = _execute_calc_tool("manage_charts", {"action": "get_info", "chart_name": chart_name})
     assert res_info_after_edit.get("title") == "Monthly Sales", f"Chart title not updated: {res_info_after_edit}"
 
     # 7. Delete chart
-    res_delete = _execute_calc_tool("delete_chart", {"chart_name": chart_name})
+    res_delete = _execute_calc_tool("manage_charts", {"action": "delete", "chart_name": chart_name})
     assert res_delete.get("status") == "ok", f"delete_chart failed: {res_delete}"
 
     # Verify deletion
-    res_list_after_delete = _execute_calc_tool("list_charts", {})
+    res_list_after_delete = _execute_calc_tool("manage_charts", {"action": "list"})
     assert len(res_list_after_delete.get("charts", [])) == 0, "Chart not deleted"

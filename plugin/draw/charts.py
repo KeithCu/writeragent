@@ -17,34 +17,47 @@
 """Draw charting tools leveraging shared chart implementation."""
 
 import logging
+from plugin.framework.tool import ToolBaseDummy
 from plugin.draw.base import ToolDrawChartBase
-from plugin.calc.charts import ListCharts as CalcListCharts, GetChartInfo as CalcGetChartInfo, CreateChart as CalcCreateChart, EditChart as CalcEditChart, DeleteChart as CalcDeleteChart
+from plugin.calc.charts import (
+    ListCharts as CalcListCharts,
+    GetChartInfo as CalcGetChartInfo,
+    CreateChart as CalcCreateChart,
+    EditChart as CalcEditChart,
+    DeleteChart as CalcDeleteChart,
+    ManageCharts as CalcManageCharts,
+)
 
 log = logging.getLogger("writeragent.draw")
 
-_ALL_CHART_DOCS = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
+_ALL_CHART_DOCS = [
+    "com.sun.star.drawing.DrawingDocument",
+    "com.sun.star.presentation.PresentationDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+    "com.sun.star.text.TextDocument",
+]
 
 
-class ListCharts(CalcListCharts, ToolDrawChartBase):
-    name = "list_charts"
+class ListCharts(CalcListCharts, ToolBaseDummy):  # type: ignore[misc]
     uno_services = _ALL_CHART_DOCS
 
 
-class GetChartInfo(CalcGetChartInfo, ToolDrawChartBase):
-    name = "get_chart_info"
+class GetChartInfo(CalcGetChartInfo, ToolBaseDummy):  # type: ignore[misc]
     uno_services = _ALL_CHART_DOCS
 
 
-class CreateChart(CalcCreateChart, ToolDrawChartBase):
-    name = "create_chart"
+class CreateChart(CalcCreateChart, ToolBaseDummy):  # type: ignore[misc]
     uno_services = _ALL_CHART_DOCS
 
 
-class EditChart(CalcEditChart, ToolDrawChartBase):
-    name = "edit_chart"
+class EditChart(CalcEditChart, ToolBaseDummy):  # type: ignore[misc]
     uno_services = _ALL_CHART_DOCS
 
 
-class DeleteChart(CalcDeleteChart, ToolDrawChartBase):
-    name = "delete_chart"
+class DeleteChart(CalcDeleteChart, ToolBaseDummy):  # type: ignore[misc]
     uno_services = _ALL_CHART_DOCS
+
+
+class ManageCharts(CalcManageCharts, ToolDrawChartBase):
+    uno_services = _ALL_CHART_DOCS
+

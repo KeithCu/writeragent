@@ -24,7 +24,7 @@ Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties
 import logging
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.calc.bridge import CalcBridge
 import uno
 
@@ -111,6 +111,7 @@ def _chart_document_from_host(host: Any):
     except Exception as e:
         logger.debug("_chart_document_from_host getEmbeddedObject failed: %s", e)
 
+
     # 2. Try Model/Component properties (Standard for Shapes)
     try:
         m = getattr(host, "Model", None)
@@ -191,79 +192,202 @@ CHART_PROPERTIES = {
     "has_legend": {"type": "boolean"},
     "subtitle": {"type": "string"},
     "position": {"type": "string", "description": "Cell address (Calc) or anchoring position (Writer/Draw)."},
+    "bg_color": {"type": "string", "description": "Chart area background color (hex: #FF0000 or name: green)."},
+    "colors": {"type": "array", "items": {"type": "string"}, "description": "List of hex/named colors to apply to each data series."},
 }
+
+
+def _parse_color(color_str):
+    if not color_str:
+        return None
+
+    # Strip, lowercase, and remove internal spaces/underscores/hyphens for flexible naming
+    color_str = color_str.strip().lower()
+
+    # Standard CSS / X11 color map
+    color_names = {
+        "black": 0x000000, "silver": 0xC0C0C0, "gray": 0x808080, "white": 0xFFFFFF,
+        "maroon": 0x800000, "red": 0xFF0000, "purple": 0x800080, "fuchsia": 0xFF00FF,
+        "green": 0x008000, "lime": 0x00FF00, "olive": 0x808000, "yellow": 0xFFFF00,
+        "navy": 0x000080, "blue": 0x0000FF, "teal": 0x008080, "aqua": 0x00FFFF,
+        "cyan": 0x00FFFF, "magenta": 0xFF00FF, "orange": 0xFFA500, "pink": 0xFFC0CB,
+        "gold": 0xFFD700, "brown": 0xA52A2A, "violet": 0xEE82EE, "indigo": 0x4B0082,
+        "turquoise": 0x40E0D0, "lavender": 0xE6E6FA, "beige": 0xF5F5DC, "salmon": 0xFA8072,
+        "olive drab": 0x6B8E23, "olivedrab": 0x6B8E23, "dark green": 0x006400, "darkgreen": 0x006400,
+        "dark red": 0x8B0000, "darkred": 0x8B0000, "dark blue": 0x00008B, "darkblue": 0x00008B,
+        "light blue": 0xADD8E6, "lightblue": 0xADD8E6, "light green": 0x90EE90, "lightgreen": 0x90EE90,
+    }
+
+    # Check map
+    norm_name = color_str.replace(" ", "").replace("_", "").replace("-", "")
+    for name, val in color_names.items():
+        if name.replace(" ", "") == norm_name:
+            return val
+
+    # Check RGB(a) format
+    import re
+    rgb_match = re.match(r"^rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*[\d\.]+\s*)?\)$", color_str)
+    if rgb_match:
+        try:
+            r = int(rgb_match.group(1))
+            g = int(rgb_match.group(2))
+            b = int(rgb_match.group(3))
+            if 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255:
+                return (r << 16) | (g << 8) | b
+        except ValueError:
+            pass
+
+    # Check hex format
+    hex_str = color_str.lstrip("#")
+
+    # Handle shorthand hex like "f00" or "#f00"
+    if len(hex_str) == 3:
+        hex_str = "".join(c * 2 for c in hex_str)
+
+    if len(hex_str) == 6:
+        try:
+            return int(hex_str, 16)
+        except ValueError:
+            return None
+
+    return None
+
 
 
 def _apply_chart_styling(chart_doc, **kwargs):
     """Apply enhanced styling properties to a chart document."""
+    logger.info("Applying chart styling with kwargs: %s", {k: v for k, v in kwargs.items() if k not in ["data_range"]})
     diagram = chart_doc.getDiagram()
     if not diagram:
+        logger.warning("No diagram found on chart document.")
         return
 
     # 1. 3D Mode
     is_3d = kwargs.get("is_3d")
     if is_3d is not None and hasattr(diagram, "Dim3D"):
         diagram.Dim3D = is_3d
+        logger.debug("Set diagram 3D mode: %s", is_3d)
 
     # 2. Stacking
     stacked = kwargs.get("stacked")
     if stacked is not None and hasattr(diagram, "Stacked"):
         diagram.Stacked = stacked
+        logger.debug("Set diagram stacked mode: %s", stacked)
 
     percent = kwargs.get("percent")
     if percent is not None and hasattr(diagram, "Percent"):
         diagram.Percent = percent
+        logger.debug("Set diagram percent stacked: %s", percent)
 
     # 3. Bar/Column Orientation
     chart_type = kwargs.get("chart_type")
     if chart_type in ["bar", "column"] and hasattr(diagram, "Vertical"):
         diagram.Vertical = chart_type == "bar"
+        logger.debug("Set diagram orientation: vertical=%s", diagram.Vertical)
 
     # 4. Titles
     title = kwargs.get("title")
     if title is not None:
         chart_doc.HasMainTitle = True
         chart_doc.getTitle().String = title
+        logger.debug("Set chart main title: '%s'", title)
 
     subtitle = kwargs.get("subtitle")
     if subtitle is not None:
         chart_doc.HasSubTitle = True
         chart_doc.getSubTitle().String = subtitle
+        logger.debug("Set chart subtitle: '%s'", subtitle)
 
     x_axis_title = kwargs.get("x_axis_title")
     if x_axis_title is not None and hasattr(diagram, "HasXAxisTitle"):
         diagram.HasXAxisTitle = True
         try:
             _axis_title_shape_string(diagram.getXAxisTitle(), x_axis_title)
+            logger.debug("Set X axis title: '%s'", x_axis_title)
         except Exception:
-            logger.debug("Setting X axis title failed", exc_info=True)
+            logger.exception("Setting X axis title failed")
 
     y_axis_title = kwargs.get("y_axis_title")
     if y_axis_title is not None and hasattr(diagram, "HasYAxisTitle"):
         diagram.HasYAxisTitle = True
         try:
             _axis_title_shape_string(diagram.getYAxisTitle(), y_axis_title)
+            logger.debug("Set Y axis title: '%s'", y_axis_title)
         except Exception:
-            logger.debug("Setting Y axis title failed", exc_info=True)
+            logger.exception("Setting Y axis title failed")
 
     # 5. Legend
     has_legend = kwargs.get("has_legend")
     if has_legend is not None:
         chart_doc.HasLegend = has_legend
+        logger.debug("Set chart legend visibility: %s", has_legend)
 
     legend_pos = kwargs.get("legend_position")
     if legend_pos and chart_doc.HasLegend:
         try:
             pos_map = {
+                "none": None,
                 "top": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.TOP"),
                 "bottom": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.BOTTOM"),
                 "left": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.LEFT"),
                 "right": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.RIGHT"),
             }
             if legend_pos in pos_map:
-                chart_doc.getLegend().Alignment = pos_map[legend_pos]
+                if legend_pos == "none":
+                    chart_doc.HasLegend = False
+                else:
+                    chart_doc.getLegend().Alignment = pos_map[legend_pos]
+                logger.debug("Set legend position: %s", legend_pos)
         except (ImportError, AttributeError):
-            logger.debug("ChartLegendAlignment enum not available")
+            logger.exception("ChartLegendAlignment enum not available")
+
+    # 6. Background Color
+    bg_color = kwargs.get("bg_color")
+    if bg_color:
+        parsed_bg = _parse_color(bg_color)
+        if parsed_bg is not None:
+            try:
+                bg = chart_doc.getPageBackground()
+                bg.setPropertyValue("FillStyle", uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"))
+                bg.setPropertyValue("FillColor", parsed_bg)
+                logger.info("Set chart background color: %s (RGB %d)", bg_color, parsed_bg)
+            except Exception:
+                logger.exception("Failed to set chart background color")
+        else:
+            logger.warning("Invalid bg_color ignored: '%s'", bg_color)
+
+    # 7. Series Colors (one color per series/bar in the chart)
+    colors = kwargs.get("colors")
+    if colors:
+        parsed_colors = []
+        for c in colors:
+            parsed = _parse_color(c)
+            if parsed is not None:
+                parsed_colors.append(parsed)
+
+        if parsed_colors:
+            try:
+                diag = chart_doc.getFirstDiagram()
+                if diag:
+                    coords = diag.getCoordinateSystems()
+                    series_count = 0
+                    for coord in coords:
+                        ctypes = coord.getChartTypes()
+                        for ctype in ctypes:
+                            series_list = ctype.getDataSeries()
+                            for idx, s in enumerate(series_list):
+                                color_val = parsed_colors[idx % len(parsed_colors)]
+                                for prop in ["Color", "FillColor", "LineColor"]:
+                                    if s.getPropertySetInfo().hasPropertyByName(prop):
+                                        s.setPropertyValue(prop, color_val)
+                                logger.info("Set data series %d color to RGB %d", idx, color_val)
+                                series_count += 1
+                    logger.info("Successfully styled %d chart data series with colors %s", series_count, colors)
+                else:
+                    logger.warning("Could not retrieve first diagram using getFirstDiagram")
+            except Exception:
+                logger.exception("Failed to set data series colors")
+
 
 
 def _resolve_chart(doc, chart_name):
@@ -299,7 +423,7 @@ def _resolve_chart(doc, chart_name):
     return None
 
 
-class ListCharts(ToolBase):
+class ListCharts(ToolBaseDummy):
     """List all charts on a sheet, document, or slide."""
 
     name = "list_charts"
@@ -360,7 +484,7 @@ class ListCharts(ToolBase):
         return entry
 
 
-class GetChartInfo(ToolBase):
+class GetChartInfo(ToolBaseDummy):
     """Get detailed info about a chart."""
 
     name = "get_chart_info"
@@ -422,7 +546,7 @@ class GetChartInfo(ToolBase):
         return info
 
 
-class CreateChart(ToolBase):
+class CreateChart(ToolBaseDummy):
     """Create a new chart."""
 
     name = "create_chart"
@@ -683,7 +807,7 @@ class CreateChart(ToolBase):
         return {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "chart_name": name}
 
 
-class EditChart(ToolBase):
+class EditChart(ToolBaseDummy):
     """Modify chart properties."""
 
     name = "edit_chart"
@@ -717,7 +841,7 @@ class EditChart(ToolBase):
         return {"status": "ok", "chart_name": chart_name, "message": "Chart updated."}
 
 
-class DeleteChart(ToolBase):
+class DeleteChart(ToolBaseDummy):
     """Delete a chart."""
 
     name = "delete_chart"
@@ -765,3 +889,119 @@ class DeleteChart(ToolBase):
             return self._tool_error(f"Chart '{chart_name}' not found.")
 
         return {"status": "ok", "deleted": chart_name}
+
+
+class ManageCharts(ToolBase):
+    """Manage charts: list all charts, get chart details, create a chart, edit chart properties, or delete a chart in the current context."""
+
+    name = "manage_charts"
+    intent = "edit"
+    description = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["list", "get_info", "create", "edit", "delete"],
+                "description": "The action to perform on the charts."
+            },
+            "chart_name": {
+                "type": "string",
+                "description": "The name of the chart (required for get_info, edit, delete)."
+            },
+            "data_range": {
+                "type": "string",
+                "description": "Cell range for chart data (Calc only, required for create, e.g. 'A1:B10')."
+            },
+            "chart_type": {
+                "type": "string",
+                "enum": ["bar", "pie", "column", "line", "scatter", "area", "donut", "net", "stock", "bubble"],
+                "description": "Type of chart to create or update to (required for create)."
+            },
+            "title": {
+                "type": "string",
+                "description": "Chart title."
+            },
+            "subtitle": {
+                "type": "string",
+                "description": "Chart subtitle."
+            },
+            "is_3d": {
+                "type": "boolean",
+                "description": "Enable 3D mode."
+            },
+            "stacked": {
+                "type": "boolean",
+                "description": "Stacked data series."
+            },
+            "percent": {
+                "type": "boolean",
+                "description": "Percentage stacked."
+            },
+            "x_axis_title": {
+                "type": "string",
+                "description": "Title for X axis."
+            },
+            "y_axis_title": {
+                "type": "string",
+                "description": "Title for Y axis."
+            },
+            "legend_position": {
+                "type": "string",
+                "enum": ["none", "top", "bottom", "left", "right"],
+                "description": "Legend position."
+            },
+            "has_legend": {
+                "type": "boolean",
+                "description": "Whether the chart has a legend."
+            },
+            "position": {
+                "type": "string",
+                "description": "Cell address (Calc) or anchoring position (Writer/Draw)."
+            },
+            "bg_color": {
+                "type": "string",
+                "description": "Chart area background color (hex: #FF0000 or name: green)."
+            },
+            "colors": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of hex/named colors to apply to each data series."
+            }
+        },
+        "required": ["action"]
+    }
+    uno_services = [
+        "com.sun.star.sheet.SpreadsheetDocument",
+        "com.sun.star.text.TextDocument",
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument"
+    ]
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        action = kwargs.get("action")
+        if not action:
+            raise ToolExecutionError("Action parameter is required.")
+
+        if action == "list":
+            return ListCharts().execute(ctx, **kwargs)
+        elif action == "get_info":
+            if "chart_name" not in kwargs:
+                return self._tool_error("chart_name parameter is required for action='get_info'.")
+            return GetChartInfo().execute(ctx, **kwargs)
+        elif action == "create":
+            if "chart_type" not in kwargs:
+                return self._tool_error("chart_type parameter is required for action='create'.")
+            return CreateChart().execute(ctx, **kwargs)
+        elif action == "edit":
+            if "chart_name" not in kwargs:
+                return self._tool_error("chart_name parameter is required for action='edit'.")
+            return EditChart().execute(ctx, **kwargs)
+        elif action == "delete":
+            if "chart_name" not in kwargs:
+                return self._tool_error("chart_name parameter is required for action='delete'.")
+            return DeleteChart().execute(ctx, **kwargs)
+        else:
+            return self._tool_error(f"Unsupported action: '{action}'")
+

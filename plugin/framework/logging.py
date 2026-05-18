@@ -443,3 +443,40 @@ def start_watchdog_thread(ctx, status_control=None):
             return
         _watchdog_started = True
     run_in_background(_watchdog_loop, status_control, name="watchdog", daemon=True)
+
+
+# Custom LogRecord Factory for PyUNO safety in Python 3.12+
+_log_record_factory_installed = False
+
+def _install_safe_log_record_factory():
+    """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
+    when logging a single PyUNO proxy object."""
+    global _log_record_factory_installed
+    if _log_record_factory_installed:
+        return
+    _log_record_factory_installed = True
+
+    _original_factory = logging.getLogRecordFactory()
+
+    def safe_logRecordFactory(*args, **kwargs):
+        # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
+        # args is at index 5.
+        if len(args) > 5:
+            log_args = args[5]
+            if isinstance(log_args, tuple):
+                if any(type(x).__name__ == "pyuno" for x in log_args):
+                    new_args = list(args)
+                    new_args[5] = tuple(str(x) if type(x).__name__ == "pyuno" else x for x in log_args)
+                    args = tuple(new_args)
+        if "args" in kwargs:
+            log_args = kwargs["args"]
+            if isinstance(log_args, tuple):
+                if any(type(x).__name__ == "pyuno" for x in log_args):
+                    kwargs["args"] = tuple(str(x) if type(x).__name__ == "pyuno" else x for x in log_args)
+        return _original_factory(*args, **kwargs)
+
+    logging.setLogRecordFactory(safe_logRecordFactory)
+
+
+_install_safe_log_record_factory()
+

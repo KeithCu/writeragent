@@ -31,6 +31,18 @@ The **`insert_cell_html`** tool ([`plugin/calc/cells.py`](../plugin/calc/cells.p
 - **Use when**: The model needs **mixed character formatting in one cell**; plain **`write_formula_range` / `set_string`** cannot express that.
 - **Limits**: **One cell** per call; **no** embedded images/OLE; math-in-HTML is not a goal for Calc. Callers must supply a **valid UNO component context** on `ToolContext.ctx` (in-process tests and the sidebar pass this; a `None` context can break `get_desktop` in some embed scenarios).
 
+### Experimental Consolidated Chart Tool (`manage_charts`)
+
+To reduce LLM tool-calling context overhead and prevent tool selection dilution, the five individual chart tools (`list_charts`, `get_chart_info`, `create_chart`, `edit_chart`, `delete_chart`) have been consolidated into a single **experimental** unified tool: **`manage_charts`** ([`plugin/calc/charts.py`](../plugin/calc/charts.py)):
+
+- **Tiers and Visibility**:
+  - **Calc**: Registered as a **core** tier tool (`manage_charts` is directly available in the main chatbot sidebar).
+  - **Draw/Impress**: Registered as a **specialized** tier tool inside the specialized `charts` domain.
+  - **Writer**: Registered as a **specialized/dummy** tool (hidden from the main chatbot sidebar).
+- **Style and Color Support**: Supports arbitrary background color (`bg_color`) and data series color styling (`colors` array or single `color` / `series_color` string). Colors are parsed dynamically and can be CSS/X11 names (e.g., `green`, `darkgreen`, `yellow`), hex values with or without the `#` prefix (e.g., `#0f0`, `#00FF00`, `00ff00`), or functional RGB/RGBA syntax (e.g., `rgba(255, 0, 0, 0.5)`).
+- **Mechanism**: The unified tool accepts a mandatory `action` parameter (`"list"`, `"get_info"`, `"create"`, `"edit"`, `"delete"`) and routes execution to the underlying individual chart tool classes.
+- **Developer Ergonomics**: The underlying individual tools still inherit from `ToolBaseDummy`. If a developer wants to switch back to fine-grained independent tools, they simply swap their base class from `ToolBaseDummy` back to `ToolBase` (or `ToolDrawChartBase`), and the registry will auto-discover and expose them immediately.
+
 ---
 
 ## 3. Implementation status and roadmap
@@ -43,7 +55,7 @@ The **`insert_cell_html`** tool ([`plugin/calc/cells.py`](../plugin/calc/cells.p
 | **Ranges** | ✅ Implemented | `cells.py`: Get/SetRangeValues, Get/SetRangeFormulas | — |
 | **Sheets** | ✅ Implemented | `sheets.py`, `sheet_filter.py`: ListSheets, CreateSheet, SwitchSheet, GetSheetSummary, `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter` | Basic sheet ops + AutoFilter |
 | **Formulas** | ⚠️ Partial | `cells.py` (`write_formula_range`); Collabora-style `list_calc_functions` / `evaluate_formula` / `FormulaDepChain` — planned — see [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md) roadmap P0 | — |
-| **Charts** | ✅ Implemented | `charts.py`: ListCharts, Create/Edit/DeleteChart (shared with Writer) | Medium-fat API (`create_chart`) |
+| **Charts** | ✅ Implemented | `charts.py`: `manage_charts` (unified experimental tool; shared with Writer and Draw) | Consolidated "Fat API" containing `list`, `get_info`, `create`, `edit`, `delete` actions |
 | **Named Ranges** | ✅ Implemented | `named_ranges.py`: ListNamedRanges, Create/Edit/DeleteNamedRange | — |
 | **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
 | **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../plugin/calc/conditional.py): `add_conditional_format`, `list_conditional_formats`, `remove_conditional_formats` — [UNO / roadmap](calc-conditional-formatting.md) | Specialized tier |

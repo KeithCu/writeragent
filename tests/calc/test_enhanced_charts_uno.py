@@ -52,7 +52,8 @@ def test_calc_enhanced_chart():
     _execute(_calc_doc, "write_formula_range", {"range_name": "A1:B3", "formula_or_values": [["A", 1], ["B", 2], ["C", 3]]})
     
     # 2. Create 3D Stacked Chart
-    res = _execute(_calc_doc, "create_chart", {
+    res = _execute(_calc_doc, "manage_charts", {
+        "action": "create",
         "data_range": "A1:B3",
         "chart_type": "column",
         "is_3d": True,
@@ -66,7 +67,7 @@ def test_calc_enhanced_chart():
     chart_name = res.get("chart_name")
     
     # 3. Verify Info
-    info = _execute(_calc_doc, "get_chart_info", {"chart_name": chart_name})
+    info = _execute(_calc_doc, "manage_charts", {"action": "get_info", "chart_name": chart_name})
     assert info.get("status") == "ok"
     assert info.get("is_3d") is True
     assert info.get("stacked") is True
@@ -75,7 +76,8 @@ def test_calc_enhanced_chart():
     assert info.get("y_axis_title") == "Y Axis"
     
     # 4. Edit properties
-    edit_res = _execute(_calc_doc, "edit_chart", {
+    edit_res = _execute(_calc_doc, "manage_charts", {
+        "action": "edit",
         "chart_name": chart_name,
         "is_3d": False,
         "legend_position": "top",
@@ -83,23 +85,53 @@ def test_calc_enhanced_chart():
     })
     assert edit_res.get("status") == "ok"
     
-    info2 = _execute(_calc_doc, "get_chart_info", {"chart_name": chart_name})
+    info2 = _execute(_calc_doc, "manage_charts", {"action": "get_info", "chart_name": chart_name})
     assert info2.get("is_3d") is False
     assert info2.get("y_axis_title") == "New Y"
+
+
+@native_test
+def test_calc_chart_colors():
+    # 1. Setup data
+    _execute(_calc_doc, "write_formula_range", {"range_name": "A1:B3", "formula_or_values": [["A", 1], ["B", 2], ["C", 3]]})
+
+    # 2. Create Chart with custom/arbitrary colors (RGB and hex)
+    res = _execute(_calc_doc, "manage_charts", {
+        "action": "create",
+        "data_range": "A1:B3",
+        "chart_type": "column",
+        "bg_color": "rgba(255, 0, 0, 0.5)",  # Red background via functional rgb
+        "colors": ["#00FF00", "blue"]  # green and blue series
+    })
+    assert res.get("status") == "ok", f"Create with colors failed: {res}"
+    chart_name = res.get("chart_name")
+
+    # 3. Edit chart with another color (e.g. shorthand hex and CSS name)
+    edit_res = _execute(_calc_doc, "manage_charts", {
+        "action": "edit",
+        "chart_name": chart_name,
+        "bg_color": "yellow",
+        "colors": ["#0f0"]
+    })
+    assert edit_res.get("status") == "ok", f"Edit with colors failed: {edit_res}"
+
+
+
 
 
 @unittest.skip("Disabled as per user request: internal test causing problems")
 @native_test
 def test_writer_chart_polymorphic():
     # 1. Create in Writer
-    res = _execute(_writer_doc, "create_chart", {
+    res = _execute(_writer_doc, "manage_charts", {
+        "action": "create",
         "chart_type": "pie",
         "title": "Writer Pie"
     }, domain="writer")
     assert res.get("status") == "ok", f"Writer create failed: {res}"
     name = res.get("chart_name")
 
-    probe = _execute(_writer_doc, "get_chart_info", {"chart_name": name}, domain="writer")
+    probe = _execute(_writer_doc, "manage_charts", {"action": "get_info", "chart_name": name}, domain="writer")
     if probe.get("status") != "ok":
         raise unittest.SkipTest(
             "Writer chart embed not available in this LibreOffice runtime "
@@ -107,7 +139,7 @@ def test_writer_chart_polymorphic():
         )
 
     # 2. List in Writer
-    list_res = _execute(_writer_doc, "list_charts", {}, domain="writer")
+    list_res = _execute(_writer_doc, "manage_charts", {"action": "list"}, domain="writer")
     assert list_res.get("status") == "ok", f"list_charts failed: {list_res}"
     names = [c["name"] for c in list_res.get("charts", [])]
     assert name in names, (
@@ -115,7 +147,7 @@ def test_writer_chart_polymorphic():
     )
     
     # 3. Info
-    info = _execute(_writer_doc, "get_chart_info", {"chart_name": name}, domain="writer")
+    info = _execute(_writer_doc, "manage_charts", {"action": "get_info", "chart_name": name}, domain="writer")
     assert info.get("title") == "Writer Pie"
     assert "PieDiagram" in info.get("diagram_type", "")
 
@@ -124,7 +156,8 @@ def test_writer_chart_polymorphic():
 @native_test
 def test_draw_chart_polymorphic():
     # 1. Create in Draw
-    res = _execute(_draw_doc, "create_chart", {
+    res = _execute(_draw_doc, "manage_charts", {
+        "action": "create",
         "chart_type": "line",
         "title": "Slide Chart",
         "is_3d": True
@@ -133,13 +166,13 @@ def test_draw_chart_polymorphic():
     name = res.get("chart_name")
     
     # 2. Info
-    info = _execute(_draw_doc, "get_chart_info", {"chart_name": name}, domain="draw")
+    info = _execute(_draw_doc, "manage_charts", {"action": "get_info", "chart_name": name}, domain="draw")
     assert info.get("is_3d") is True
     assert info.get("title") == "Slide Chart"
     
     # 3. Delete
-    del_res = _execute(_draw_doc, "delete_chart", {"chart_name": name}, domain="draw")
+    del_res = _execute(_draw_doc, "manage_charts", {"action": "delete", "chart_name": name}, domain="draw")
     assert del_res.get("status") == "ok"
     
-    list_res = _execute(_draw_doc, "list_charts", {}, domain="draw")
+    list_res = _execute(_draw_doc, "manage_charts", {"action": "list"}, domain="draw")
     assert len(list_res.get("charts", [])) == 0
