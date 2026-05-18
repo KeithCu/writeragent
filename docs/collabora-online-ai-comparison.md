@@ -48,8 +48,8 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 | `extract_document_structure` | **Partial** | [`get_document_tree`](../plugin/writer/outline.py), [`plugin/draw/tree.py`](../plugin/draw/tree.py) | Kit `extractdocumentstructure`; optional `filter=` |
 | `transform_document_structure` | **Gap** | Atomic Draw tools under [`plugin/draw/`](../plugin/draw/) | `DocumentToolDescriptions.hpp`, `.uno:TransformDocumentStructure` |
 | `extract_link_targets` | **Partial** | Bookmarks / tree locators in [`plugin/writer/tree.py`](../plugin/writer/tree.py) | LOKit `extractRequest` / `extractlinktargets` |
-| `list_calc_functions` | **Gap** | — (planned; see roadmap) | `.uno:CalcFunctionList` |
-| `evaluate_formula` | **Gap** | — | `.uno:EvaluateFormula` |
+| `list_calc_functions` | **Implemented** | [`plugin/calc/formulas.py`](../plugin/calc/formulas.py) | `.uno:CalcFunctionList` |
+| `evaluate_formula` | **Implemented** | [`plugin/calc/formulas.py`](../plugin/calc/formulas.py) (moved to specialized `errors` tier to avoid chatbot context pollution, allowing LLMs to try it in planning flows) | `.uno:EvaluateFormula` |
 | `set_cell_formula` | **Partial** | [`write_formula_range`](../plugin/calc/cells.py) | Approval + `.uno:GoToCell` / `.uno:EnterString` batch |
 | Formula diagnosis | **Partial** | [`detect_and_explain_errors`](../plugin/calc/errors.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
 | `fetch_models` | **Implemented** | [`plugin/framework/client/model_fetcher.py`](../plugin/framework/client/model_fetcher.py) | `wsd/FileServer.cpp` `/fetch-models` |
@@ -70,13 +70,13 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 
 *   **The Feature**: The LLM needs to know what Calc functions are available to prevent hallucinating formulas or using incorrect localized names.
 *   **Collabora's Path**: `commandvalues command=.uno:CalcFunctionList` via kit (`AIChatSession.cpp`).
-*   **WriterAgent Path**: Query `com.sun.star.sheet.FunctionDescriptions` via PyUNO (see appendix A). Target module: new `plugin/calc/formulas.py`.
+*   **WriterAgent Path**: **Implemented** in [`plugin/calc/formulas.py`](../plugin/calc/formulas.py). Uses PyUNO `com.sun.star.sheet.FunctionDescriptions` with case-insensitive partial substring searching (searching both function names and descriptions) to avoid context bloat.
 
 ### 2. Calc Formula Pre-evaluation (`evaluate_formula`)
 
 *   **The Feature**: Evaluates a formula *before* writing it, returning result or error to the LLM.
 *   **Collabora's Path**: `.uno:EvaluateFormula?cell=…&formula=…`.
-*   **WriterAgent Path**: Temporary hidden sheet pattern (appendix B); pair with `write_formula_range` and approval flow (feature 10).
+*   **WriterAgent Path**: **Implemented** in [`plugin/calc/formulas.py`](../plugin/calc/formulas.py). Putting it in the main chatbot context wasn't ideal because standard evaluation is already covered by writing to cell and reading the error (making a pre-eval tool redundant). We enabled it inside the **specialized `errors` tier** if LLMs want to try it in specialized planning contexts. Uses our advanced side-effect-free **Sheet-Copy Pattern** to duplicate the active sheet, evaluate relative formulas at the target cell context address (resolving relative cell dependencies against live duplicated cell values perfectly), and cleanly delete the copied sheet.
 
 ### 3. Structured Slide Transformations (`transform_document_structure`)
 
@@ -208,7 +208,7 @@ WriterAgent mapping: `ToolBase.is_mutation` + optional `requires_approval` → `
 
 Reference sketches for **gaps** or patterns not yet wrapped as tools. Snippets marked **not yet in plugin** are design targets — check the parity table for production code.
 
-### A. Dynamic Calc Function Catalog (`list_calc_functions`) — not yet in plugin
+### A. Dynamic Calc Function Catalog (`list_calc_functions`) — Implemented in plugin
 
 ```python
 def get_calc_function_catalog(ctx) -> list[dict[str, Any]]:
@@ -238,7 +238,7 @@ def get_calc_function_catalog(ctx) -> list[dict[str, Any]]:
     return catalog
 ```
 
-### B. Formula Pre-evaluation (`evaluate_formula`) — not yet in plugin
+### B. Formula Pre-evaluation (`evaluate_formula`) — Implemented in plugin
 
 ```python
 import datetime
@@ -479,8 +479,8 @@ Prioritized for WriterAgent impact vs effort. Each item lists Collabora referenc
 
 ### P0 — Calc reliability (high impact, medium effort)
 
-1. **`list_calc_functions`** — `FunctionDescriptions` tool → `plugin/calc/formulas.py`. Collabora: `AIChatSession.cpp` + `.uno:CalcFunctionList`.
-2. **`evaluate_formula`** — temp-sheet utility (appendix B) → same module; document evaluate-before-`set_cell_formula` in system prompt.
+1. **`list_calc_functions`** — **Implemented** in [`plugin/calc/formulas.py`](../plugin/calc/formulas.py).
+2. **`evaluate_formula`** — **Implemented** in [`plugin/calc/formulas.py`](../plugin/calc/formulas.py) using the side-effect-free Sheet-Copy Pattern.
 3. **`FormulaDepChain` diagnosis** — appendix K + Calc error UI entry → complement [`plugin/calc/errors.py`](../plugin/calc/errors.py).
 
 ### P1 — Chat UX parity (medium impact, low–medium effort)

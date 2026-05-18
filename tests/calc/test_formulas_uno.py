@@ -147,3 +147,64 @@ def test_cross_sheet_formula():
     # Wait for formula recalculation or force if necessary.
     # Usually in LibreOffice UNO it computes immediately, but we can verify formula strings safely.
     assert cell.getValue() == 200.0, f"Cross-sheet formula did not compute to 200.0, got {cell.getValue()}"
+
+
+@native_test
+def test_list_calc_functions():
+    # Test listing all functions (no filter)
+    res = _execute_calc_tool("list_calc_functions", {})
+    assert res.get("status") == "ok", f"list_calc_functions failed: {res}"
+    functions = res.get("functions", [])
+    assert len(functions) > 100, f"Expected many functions, got {len(functions)}"
+
+    # Test filtering by name
+    res_filter = _execute_calc_tool("list_calc_functions", {"filter": "SUM"})
+    assert res_filter.get("status") == "ok", f"list_calc_functions with filter failed: {res_filter}"
+    filtered_funcs = res_filter.get("functions", [])
+    assert len(filtered_funcs) > 0, "No functions returned for filter 'SUM'"
+    for f in filtered_funcs:
+        assert "SUM" in f["name"].upper() or "SUM" in f["description"].upper(), f"Function {f['name']} does not contain 'SUM'"
+
+    # Test filtering by description (e.g. 'hyperbolic')
+    res_desc = _execute_calc_tool("list_calc_functions", {"filter": "hyperbolic"})
+    assert res_desc.get("status") == "ok", f"list_calc_functions with description filter failed: {res_desc}"
+    desc_funcs = res_desc.get("functions", [])
+    assert len(desc_funcs) > 0, "No functions returned for description filter 'hyperbolic'"
+    for f in desc_funcs:
+        assert "HYPERBOLIC" in f["name"].upper() or "HYPERBOLIC" in f["description"].upper(), f"Function {f['name']} does not contain 'hyperbolic'"
+
+
+@native_test
+def test_evaluate_formula():
+    from plugin.calc.formulas import EvaluateFormula
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(_test_doc, _test_ctx, "calc", {}, "test")
+    eval_tool = EvaluateFormula()
+
+    # Simple valid formula evaluation
+    res = eval_tool.execute(tctx, formula="=2+3")
+    assert res.get("status") == "ok", f"evaluate_formula failed: {res}"
+    assert res.get("result") == 5.0, f"Expected 5.0, got {res.get('result')}"
+    assert res.get("result_type") == "formula", f"Expected formula type, got {res.get('result_type')}"
+
+    # Text formula evaluation
+    res_text = eval_tool.execute(tctx, formula='=CONCATENATE("Hello"; " "; "World")')
+    assert res_text.get("status") == "ok", f"evaluate_formula text failed: {res_text}"
+    assert res_text.get("result") == "Hello World", f"Expected 'Hello World', got {res_text.get('result')}"
+
+    # Relative formula evaluation utilizing copied sheet cell values
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    active_sheet.getCellByPosition(0, 0).setValue(10.0) # A1
+    active_sheet.getCellByPosition(1, 0).setValue(20.0) # B1
+
+    res_rel = eval_tool.execute(tctx, formula="=A1+B1", cell="C1")
+    assert res_rel.get("status") == "ok", f"evaluate_formula relative failed: {res_rel}"
+    assert res_rel.get("result") == 30.0, f"Expected 30.0, got {res_rel.get('result')}"
+
+    # Error formula evaluation (e.g. division by zero)
+    res_err = eval_tool.execute(tctx, formula="=1/0")
+    assert res_err.get("status") == "error", f"Expected error status, got {res_err}"
+    assert "error_code" in res_err, f"Expected error_code in response: {res_err}"
+    assert "#DIV/0!" in res_err.get("message", ""), f"Expected division by zero message, got {res_err.get('message')}"
+
