@@ -1,8 +1,8 @@
 # Multi-Document Support — Development Plan
 
-> **Terminology:** This doc uses **workspace** as a placeholder for “the set of files the agent can see and read.” The final product term is **TBD** (alternatives: project folder, document set, nearby files, etc.). Code and config keys may use `workspace_`* until we settle naming.
+> **Terminology:** This doc uses **workspace** as a placeholder for “the set of files the agent can see and read.” The final product term is **TBD** (alternatives: project folder, document set, nearby files, etc.). Code and config keys may use `workspace_*` until we settle naming.
 
-> **Living document:** Update this file as phases ship, decisions get made, or scope changes. Link PRs and topic docs from the [Deep dives](#related-docs) section.
+> **Living document:** Update this file as phases ship, decisions get made, or scope changes. Link PRs and topic docs from [Related docs](#related-docs) and the [Changelog](#changelog).
 
 ---
 
@@ -17,47 +17,92 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 ---
 
-## MVP
+## MVP (Phase 0)
 
-**Phase 0 is intentionally minimal:** Just one API — list files in the same directory as the document you are chatting with.
+**Phase 0** ships same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `workspace` to the existing delegate enum — no new core tools on main.
 
-- `list_nearby_files() -> list[FileEntry]` — files in current doc's parent directory only (LO-relevant extensions, newest first)
-- Skip untitled docs with no file path
-- No recursion, no subdirectories, no other directories
+**User flow:** one `delegate_to_specialized_*_toolset(domain="workspace", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
 
-This alone covers the most common “files next to my report” scenarios with zero complexity. All other features (sub-agents, config directories, UI) come **after** this proves the basic need.
+- Same folder as the active saved document only (no config dirs, no recursion).
+- Skip untitled docs with no filesystem path (see [Edge cases](#edge-cases-and-failure-modes)).
+- Later phases add config directories, prompt injection, UI, headless, and polish — see [Phased implementation](#phased-implementation).
 
 ---
 
 ## Design principles
 
-
-| Principle                                | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Same read tools, not main’s schema**   | The **inner** sub-agent calls the same production read tools as today (`get_document_content`, `get_document_tree`, `search_in_document`, `get_sheet_summary`, `read_cell_range`, Draw read tools, …) via `ToolRegistry.execute` — not a parallel extractor. Main chat does **not** register those specialized-tier tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. Additions for multi-doc: **discovery** (`list_nearby_files` on the outer agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model). |
-| **Read-only on other files**             | Mutation tools (`apply_document_content`, `write_formula_range`, `set_style`, shape edits, …) apply to the **active** document only. Nearby / workspace documents are opened **read-only**; write APIs are **not** exposed against those files in MVP (and likely never for the default path — see [Open questions](#open-questions) #4).                                                                                                                              |
-| **Writer + Calc + Draw**                 | Calc is first-class (budget → table). Draw/Impress: `list_pages` + shape/text tools where applicable.                                                                                                                                                                                                                                                                                                                                                                  |
-| **Active doc unchanged**                 | Cross-doc reads must not steal focus or mutate the user’s window; hidden open in the **same** LO process for MVP.                                                                                                                                                                                                                                                                                                                                                      |
-| **Fresh contexts when tool sets change** | **Main chat** keeps one OpenAI-style history; don’t swap its wire tool schema mid-thread. **Sub-agents** are ephemeral task runs (see Two-tier section): they get focused tool context for the job, return a result, and are discarded — not a second chat transcript. We can change APIs in code anytime; new main session or new sub-agent run picks up the new shape.                                                                                                 |
-| **Two-tier delegation (preferred)**      | Outer picks the file; **inner** gets read tools for **that** doc type (Calc vs Writer vs Draw). We often don’t know which tool set we need until we know which file we opened. See [Two-tier sub-agent model](#two-tier-sub-agent-model-preferred).                                                                                                                                                                                                                    |
-| **Headless later**                       | Target: headless / separate process for large files by default; **defer** until in-process hidden path is solid.                                                                                                                                                                                                                                                                                                                                                       |
-
+| Principle | Detail |
+| --------- | ------ |
+| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_document_content`, `get_document_tree`, `search_in_document`, `get_sheet_summary`, `read_cell_range`, Draw read tools, …) via `ToolRegistry.execute` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the workspace domain. |
+| **Read-only on other files** | Mutation tools apply to the **active** document only. Sibling files are opened **read-only**; write APIs are **not** exposed on those models in Phase 0 (see [Read-only enforcement](#read-only-enforcement) and [Open questions](#open-questions) #4). |
+| **Writer + Calc + Draw** | Calc is first-class (budget → table). Draw/Impress: `list_pages` + shape/text tools where applicable. |
+| **Active doc unchanged** | Cross-doc reads must not steal focus or mutate the user’s window; hidden open in the **same** LO process for Phase 0. |
+| **Fresh contexts when tool sets change** | **Main chat** keeps one OpenAI-style history; don’t swap its wire tool schema mid-thread. **Sub-agents** are ephemeral task runs: focused tool context, compact result, smol runtime torn down afterward. |
+| **Two-tier delegation** | Outer picks the file; **inner** gets read tools for **that** `doc_type`. See [Two-tier sub-agent model](#two-tier-sub-agent-model). |
+| **Headless later** | Target: headless / separate process for large files by default; **defer** until in-process hidden path is solid (Phase 4). |
 
 ---
 
-## Architecture (target state)
+## Data contracts
 
-**Preferred:** main agent → **outer** workspace sub-agent → **inner** read-only sub-agent(s) → back to main for writes on the active doc only.
+### `FileEntry`
+
+Listing tools return a consistent shape (TypedDict or dataclass in `plugin/doc/nearby.py`):
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `path` | `str` | Absolute local path |
+| `name` | `str` | Basename |
+| `url` | `str` | `file:///…` for LO + MCP parity |
+| `modified` | `float` | mtime; used for newest-first sort |
+| `size_bytes` | `int` | Optional; used in Phase 3+ large-file heuristic |
+| `doc_type_guess` | `"writer"` \| `"calc"` \| `"draw"` \| `"unknown"` | From extension |
+| `is_open` | `bool` | Desktop already has this URL |
+
+**Exclude** the active document’s path from `list_nearby_files` results (do not offer “read self as sibling”).
+
+### Extension allowlist
+
+Single constant `NEARBY_FILE_EXTENSIONS` in [`plugin/doc/nearby.py`](../plugin/doc/nearby.py), referenced by tests:
+
+**Include:** `.odt`, `.ott`, `.ods`, `.ots`, `.odp`, `.otp`, `.odg`, `.fodt`, `.fods`, `.fodp`
+
+**Exclude by convention:** LibreOffice lock/temp files (`~$*`), `*.tmp`, `*.bak`, and non-LO extensions.
+
+### `open_document_for_read(path | url) -> (model, doc_type)`
+
+```mermaid
+flowchart LR
+    pathIn[path_or_name] --> abs[abspath]
+    abs --> url[file URL]
+    url --> resolve[resolve_document_by_url]
+    resolve -->|hit| model[use open component]
+    resolve -->|miss| load["loadComponentFromURL Hidden + ReadOnly"]
+```
+
+- [`resolve_document_by_url`](../plugin/doc/document_helpers.py) scans **already open** components only — it does **not** open closed files.
+- New load props: **`Hidden=True`** and **`ReadOnly=True`** (today [`plugin/writer/format.py`](../plugin/writer/format.py) uses `Hidden` only for temp docs).
+- If a sibling is already open **editable** in another window, reuse that component via URL match; inner agent still gets a **read-only allowlist** (schema enforcement, not LO mode alone).
+
+### Fuzzy name matching (Phase 0)
+
+MVP: basename **substring** filter on `list_nearby_files(filter=…)` plus **newest-first** bias when multiple matches (e.g. `Budget_2026.ods` vs `Budget_2025.ods`). No Levenshtein required for Phase 0.
+
+---
+
+## Architecture
+
+**Phase 0 path:** main agent → **outer** workspace sub-agent → **inner** read-only sub-agent(s) → back to main for writes on the active doc only.
 
 ```mermaid
 flowchart TD
     UserMsg["User: grab Q4 from budget"]
     MainAgent["Main agent — active doc only"]
-    Delegate["delegate workspace task"]
+    Delegate["delegate_to_specialized_*_toolset domain=workspace"]
     Outer["Outer sub-agent — orchestration"]
     ListOpen["list_nearby_files, open hidden ReadOnly"]
     Inner["Inner sub-agent — one opened file"]
-    ReadTools["Existing read tools only: get_document_tree, read_cell_range, get_document_content, ..."]
+    ReadTools["Existing read tools: get_document_tree, read_cell_range, get_document_content, ..."]
     MoreFiles{"More files needed?"}
     OuterReturn["Return extracted facts to main"]
     WriteActive["apply_document_content / write_formula_range on active doc"]
@@ -72,134 +117,180 @@ flowchart TD
     MainAgent --> WriteActive
 ```
 
+**Document resolution today:** sidebar uses `frame.getController().getModel()` ([`SendButtonListener._get_document_model`](../plugin/chatbot/panel.py)); MCP uses `X-Document-URL` + [`resolve_document_by_url`](../plugin/doc/document_helpers.py). Nearby reads add: filesystem path → file URL → match open component or `loadComponentFromURL`.
 
-
-**Simpler fallback (Phase 0 only):** main agent calls `list_nearby_files` + a one-shot read facade without nested sub-agents — acceptable for plumbing tests only; long-term we prefer delegation so the main agent’s tool list does not change shape across turns.
-
-**Document resolution today:** sidebar uses `frame.getController().getModel()` (`[SendButtonListener._get_document_model](../plugin/chatbot/panel.py)`); MCP uses `X-Document-URL` + `[resolve_document_by_url](../plugin/doc/document_helpers.py)`. Nearby reads add: filesystem path → file URL → open or match open component.
-
-**Threading:** synchronous UNO on main thread (`[ToolBase.execute_safe](../plugin/framework/tool.py)`); gateway tools that open files should be `is_async=True` if open can block.
+See [Threading / nested delegation](#threading--nested-delegation) for UNO thread rules.
 
 ---
 
 ## Tool API contract (in-process parity, read-only elsewhere)
 
-**Main chat today:** sidebar chat exposes **core**-tier tools for the active doc (read + write on `ToolContext.doc`, frame-bound via the sidebar) plus one **`delegate_to_specialized_{writer|calc|draw}_toolset`** gateway per app. That delegate’s `domain` parameter is an enum of available specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent when `USE_SUB_AGENT` is on ([`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py)).
+**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_specialized_{writer|calc|draw}_toolset`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent when `USE_SUB_AGENT` is on ([`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py)).
 
 **Multi-document extension:**
 
+| Scope | APIs |
+| ----- | ---- |
+| **Active document** | Unchanged for **main** — same **core** read/write tools on `ToolContext.doc`, plus delegate gateway with **`workspace`** in the domain enum. |
+| **Other files (workspace)** | **Same read tools** as in-process chat, invoked on a temporarily opened model (`Hidden` + `ReadOnly`). **Outer** exposes `list_nearby_files` and `delegate_read_document`. **No write tools** on sibling models unless we add a deliberate later feature. |
 
-| Scope                                | APIs                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Active document**                  | Unchanged for **main** — same **core** read/write tools on `ToolContext.doc` as today, plus the existing delegate gateway (add `workspace` to its domain enum when shipped).                                                                                                                                                                                                                                                               |
-| **Other files (nearby / workspace)** | **Same read tools** as above, invoked against a temporarily opened model (`Hidden` + `ReadOnly`). Plus small **gateway** tools to list files and select which path to open. **No write tools** on those models — no `apply_document_content`, `write_formula_range`, `set_style`, etc. on sibling files unless we explicitly add a later, separate “write nearby” feature. |
+Implementation uses two nested smol runs (outer, then inner per file). Both call `ToolRegistry.execute` — no duplicate tool bodies.
 
+Headless / out-of-process readers (Phase 4), when added, expose the **same logical read API** to the **inner** sub-agent; only the transport to LO changes.
 
-**Preferred implementation:** two nested delegations (see next section). Phase 0 may use a one-shot facade temporarily; both paths call `ToolRegistry.execute` — no duplicate tool bodies.
-
-Headless / out-of-process readers (Phase 5), when added, should expose the **same logical read API** to the **inner** sub-agent; only the transport to LO changes.
+**Phase 0 prompt:** Short description on the **delegate** gateway only — e.g. “Read other files in the same folder as this document via workspace delegation.”
 
 ---
 
-## Two-tier sub-agent model (preferred)
+## Two-tier sub-agent model
 
-Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more inners) — same delegation pattern as shapes/python today. Sub-agents are **not** part of the user’s main chat history: each run gets task + tool context, does reactive tool work, and returns a compact result; the smol runtime is torn down afterward. The main agent keeps **the same wire tool list it has today** — **no new tools on main** beyond adding `workspace` to the existing `delegate_to_specialized_*_toolset` domain enum. Rationale: [Why two tiers](#why-two-tiers).
+Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more inners). Sub-agents are **not** part of the user’s main chat history. The main agent keeps **the same wire tool list it has today** — **no new tools on main** beyond adding `workspace` to the delegate domain enum. Rationale: [Why two tiers](#why-two-tiers).
 
 ### Roles
 
+| Layer | Responsibility | Tool surface |
+| ----- | -------------- | ------------ |
+| **Main agent** | User intent; edits **active** doc only. | **Core** tools on active `ToolContext.doc` + `delegate_to_specialized_{writer\|calc\|draw}_toolset` (domain enum includes **`workspace`**). No specialized-tier tools on main’s wire schema. |
+| **Outer sub-agent** | Natural-language **task** from main. Lists nearby files, resolves names, calls **inner** per file, aggregates. | `list_nearby_files`, `delegate_read_document(path, task)`, `specialized_workflow_finished` / final answer. **No** `apply_*` / `write_*`. |
+| **Inner sub-agent** | One run per opened file; `doc_type` known. | **Read tools for that type only** — Writer inner never sees `read_cell_range`; Calc inner never sees `get_document_tree`. Same production schemas; **no writes.** |
 
-| Layer                                                   | Responsibility                                                                                                                                                       | Tool surface                                                                                                                                                                                                                                              |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Main agent**                                          | User intent; edits **active** doc only (`apply_document_content`, `write_formula_range`, `set_style`, …).                                                            | **Core** tools on active `ToolContext.doc` + `delegate_to_specialized_{writer|calc|draw}_toolset` (domain enum includes shapes, python, …; add **`workspace`** for multi-doc). No specialized-tier tools on main’s wire schema.                                                                                          |
-| **Outer sub-agent** ("workspace" / nearby orchestrator) | Receives a natural-language **task** from main. **Lists** nearby files, **resolves** fuzzy names, calls **inner** once per file that must be read, aggregates answers. | `list_nearby_files` (and later config-expanded list), `delegate_read_document(path, task)` per file (opens hidden/read-only, runs inner, collects result). `final_answer` / tool return to main. **No** `apply_*` / `write_*` on any model.                                                                              |
-| **Inner sub-agent** (“document reader”)                 | One **ephemeral** run per opened file; `doc_type` known (`writer` / `calc` / `draw`). Reads that model only; returns extracted data to **outer**.                   | **Read tools for that type only** — Writer inner never sees `read_cell_range`; Calc inner never sees `get_document_tree`. Same production schemas as today; **no writes.** Each file = **new** inner run (fresh tool allowlist + task context; discarded after return).                                                    |
-
-
-### Reference scenario (how it might run)
-
-This is the **intended** handling for a typical request — exact tool names TBD, but the **roles** should work like this:
+### Reference scenario
 
 **User (on active report or sheet):** “Get Q4 numbers and put them in a table.”
 
+| Step | Who | What happens |
+| ---- | --- | ------------ |
+| 1 | **Main** | Parses intent: read Q4 from a budget file; write table on **active** doc. Does **not** open siblings. |
+| 2 | **Main** | `delegate_*(domain="workspace", task="Find Q4 numbers in the budget spreadsheet and return structured data")`. |
+| 3 | **Outer** | `list_nearby_files(filter="budget")` → match candidates; newest-first bias. |
+| 4 | **Outer** | `delegate_read_document(path, task)` — hidden read-only open → **inner** (e.g. “extract Q4 revenue”). |
+| 5 | **Inner** | On Calc model: `get_sheet_summary` → `read_cell_range`. On Writer budget: `search_in_document` / `get_document_content`. Returns to **outer**; inner discarded. |
+| 6 | **Outer** | Repeat step 4 if needed; aggregate; **final_answer** to main. |
+| 7 | **Main** | `write_formula_range`, `apply_document_content`, etc. on **active** doc only. |
 
-| Step | Who                 | What happens                                                                                                                                                                                                                                                                                                          |
-| ---- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | **Main agent**      | Parses intent: (a) **read** Q4 figures from somewhere — user said “budget” or context implies a budget file; (b) **write** a table on the **active** doc. Does **not** open sibling files itself.                                                                                                                     |
-| 2    | **Main agent**      | One delegate call, task string carries what main already knows, e.g. `delegate_*(domain="workspace", task="Find Q4 numbers in the budget spreadsheet and return them as structured data")`. Main may say “budget” even if the user only said “Q4 numbers” — from chat context, `[DOCUMENT CONTENT]`, or a prior turn. |
-| 3    | **Outer sub-agent** | `list_nearby_files` (optional filter `"budget"`) → fuzzy match candidates (e.g. `Budget_2026.ods`, `Budget_2025.ods`; newest-first bias).                                                                                                                                                                              |
-| 4    | **Outer sub-agent** | For the file(s) to read: `delegate_read_document(path, task)` — open **hidden, read-only**, spawn **inner** with a focused task (e.g. “extract Q4 revenue from this spreadsheet”). One inner run per file; outer keeps orchestration, not the read tool schema.                                                         |
-| 5    | **Inner sub-agent** | On that opened Calc model only: `get_sheet_summary` → `read_cell_range` (Writer budgets: `search_in_document` / `get_document_content`). Returns extracted numbers to **outer**; inner context is discarded.                                                                                                          |
-| 6    | **Outer sub-agent** | Need another year or file? Repeat step 4 (e.g. inner on `Budget_2025.ods` with its own task). Aggregate all inner results, then **final_answer** to main: e.g. “2024 Q4: …; 2025 Q4: …” (structured JSON OK).                                                                                                        |
-| 7    | **Main agent**      | Receives tool result only — no nearby-file read tools on main. Uses normal **active-doc write** tools: `write_formula_range`, `apply_document_content`, `insert_cell_html`, etc., to build the table on the doc the user is looking at.                                                                               |
-
-
-**Important:** Main never needs the budget file’s full tool schema. It issues **one** workspace delegation with a focused read task, then does **insert/edit on the active document** with the returned payload.
-
-If the user never mentioned “budget,” outer still discovers it by listing + matching (“Q4”, “revenue”, newest `.ods`) — main’s delegate task can be vaguer (“find Q4 numbers in nearby spreadsheets”).
+**Important:** Main issues **one** workspace delegation, then edits the active document with the returned payload.
 
 ### Shorter control-flow checklist
 
 1. User: “Get Q4 numbers and put in a table.”
-2. **Main** → delegate workspace: “find Q4 numbers in [the] budget …”
-3. **Outer** → list → for each needed file: `delegate_read_document(path, task)` → **inner** reads that file → **outer** aggregates → returns figures to main.
+2. **Main** → delegate workspace with read task.
+3. **Outer** → list → `delegate_read_document` → **inner** per file → aggregate → return to main.
 4. **Main** → `write_*` / `apply_*` on **active** doc only.
-
-If the first file was wrong, **outer** repeats list/open/inner before step 4.
 
 ### Why two tiers
 
-**1. Within-session tool stability on main**  
-Imagine one long main thread where prior `tool_calls` referenced tools that are no longer on the wire schema. **Restart main chat = fine.** **Mid-session schema churn on main = avoid** until we’ve run lots of tests. Sub-agents avoid that: each outer/inner run is a **separate** smol task with its own tool allowlist and context; results fold back into main as a single tool result — no extra turns in the user’s transcript.
+**1. Within-session tool stability on main** — Sub-agents avoid mid-thread schema churn on main; results fold back as a single tool result.
 
-**2. Right tools only after we know the file**  
-Outer lists and opens; **then** we know whether inner needs Calc or Writer (or Draw) tools — e.g. budget `.ods` → `read_cell_range`; policy `.odt` → `get_document_tree` / `search_in_document`. We can’t pick the right inner allowlist until we’ve chosen a file. A single “read nearby” agent with every modality’s tools in one schema would be noisy; bolting that onto **main** would be worse. Inner = fresh context + **allowlist for `doc_type`**.
+**2. Right tools only after we know the file** — Inner allowlist depends on opened `doc_type` (`.ods` → Calc tools; `.odt` → Writer tools).
 
-**3. Outer vs inner split**  
+**3. Outer vs inner split** — Outer: discovery, open, multi-file loop, aggregate. Inner: one file, one modality.
 
-- **Outer:** file discovery, open read-only, “need another file?”, aggregate for main (file-type agnostic).  
-- **Inner:** one file, one modality, production read APIs only.
+**4. Multi-file orchestration** — Outer calls `delegate_read_document` separately per file before one return to main.
 
-Yes, two sub-agents is extra machinery — but it matches “we don’t know Writer vs Calc until we open the budget / brief.”
+**5. Main stays lean** — Users who never use workspace pay **zero** extra tool-schema cost on main.
 
-**4. Multi-file orchestration**  
-Outer lists once, then delegates to **inner** separately per file — e.g. “grab 2024 and 2025 numbers” → `delegate_read_document("Budget_2024.ods", "extract Q4 revenue")`, then `delegate_read_document("Budget_2025.ods", "extract Q4 revenue")` — each inner returns to outer; outer aggregates once for main.
+**6. Anti-pattern: read tools on main** — Pollutes the schema for everyone.
 
-**5. Main stays lean; conservative default**  
-Users who never use workspace features pay **zero** extra tool-schema cost; sub-agents load on demand. That matters for small local models and until multi-document flows are heavily dogfooded.
-
-**6. Anti-pattern: read tools on main**  
-Adding `list_nearby_files` and every read tool directly to main would work but **pollutes the schema for everyone**. Delegation scales better: discovery vs reading stay separated, and we reuse all existing read tools without duplicate extractors.
-
-**Implementation note:** Delegation infrastructure already exists — same pattern as Python’s `run_venv_python_script` (see open question #2). Exposing tools on main vs specialized is mostly base-class / registry wiring (`SpecializedDomainBase`, `ToolRegistry.filter()`, `run_sub_agent()`), not greenfield. Matches `[DelegateToSpecializedBase](../plugin/doc/specialized_base.py)` / web_research; keeps main to one delegate + compact result (`[smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md)`).
-
-**Not the reason:** freezing APIs for engineering convenience (we change them when we want; sub-agents restart clean).
+**Implementation note:** Same **gateway** pattern as `delegate_*(domain="shapes")`, but workspace adds a **nested** inner smol run via `delegate_read_document` (not a single-level domain like `python`’s tools). Infrastructure: [`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py), [`build_toolcalling_agent`](../plugin/chatbot/smol_agent.py) — see [writer-specialized-toolsets.md](writer-specialized-toolsets.md) and [smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md).
 
 ### Handoff mechanism (implementation sketch)
 
-- Outer tool `delegate_read_document(path_or_name, task)` (name TBD): open hidden if needed, build `ToolContext(doc=opened_model, …)`, run **inner** `ToolCallingAgent` / smol agent with `registry.get_tools(..., active_domain="nearby_read")` or explicit allowlist of read tool names.
-- Inner ends with `specialized_workflow_finished` / `final_answer` carrying extracted content.
-- Outer accumulates per-file results; final tool return is a single payload to main.
+- Outer `delegate_read_document(path_or_name, task)`: dedicated code path — **not** recursive `DelegateToSpecializedBase.execute`.
+- Open if needed; build `ToolContext(doc=opened_model, read_only_target=True, …)`.
+- Run inner `ToolCallingAgent` with **explicit read allowlist** by `doc_type` (e.g. `registry.get_tools(doc=opened, names=READ_TOOLS_BY_DOC_TYPE[doc_type])`) — not `active_domain="workspace"` on the opened doc.
+- Inner ends with `specialized_workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
+
+---
+
+## Registration (doc module)
+
+Workspace is **cross-app**: active Writer may read a Calc `.ods` budget. Register on [`plugin/doc/`](../plugin/doc/) with **`specialized_cross_cutting = True`** (same pattern as [`RunVenvPythonScript`](../plugin/calc/venv_python.py)) so **Writer, Calc, and Draw** delegate gateways all expose `domain="workspace"`.
+
+| Component | `tier` | `specialized_domain` | Notes |
+| --------- | ------ | -------------------- | ----- |
+| `list_nearby_files` | `specialized` | `workspace` | Outer agent only |
+| `delegate_read_document` | `specialized` | `workspace` | Spawns inner smol; outer only |
+| Inner read tools | — | — | **Not** a separate domain on main registry; allowlist inside `delegate_read_document` |
+
+Gateway enum discovery: subclasses of doc/writer/calc/draw specialized bases with `specialized_domain = "workspace"` (see [`DelegateToSpecializedBase`](../plugin/doc/specialized_base.py) domain scan).
+
+---
+
+## Read-only enforcement
+
+Schema omission alone is insufficient; enforce at execution time for Phase 0.
+
+1. **`ToolContext` flag** — e.g. `read_only_target: bool` or `target_doc_role: "active" | "workspace_read"`.
+2. **Inner allowlist** — fixed read tool names per `doc_type`; never pass full `active_domain=workspace` tools against the opened model.
+3. **Defense in depth** — mutation tools (`is_mutation`, `apply_*`, `write_*`) check `ctx.read_only_target` and return `_tool_error` if set.
+
+---
+
+## Threading / nested delegation
+
+| Layer | Thread | UNO |
+| ----- | ------ | --- |
+| Main tool loop | Main | Sync tools via `execute_safe` |
+| Outer smol | Worker ([`DelegateToSpecializedBase.is_async`](../plugin/doc/specialized_base.py)) | List/open via `execute_on_main_thread` or async open tool |
+| Inner smol | Same worker as outer | Read tools via `SmolToolAdapter(..., main_thread_sync=True)` → [`execute_on_main_thread`](../plugin/chatbot/smol_agent.py) |
+
+**Phase 0 tests must cover:**
+
+- Mock inner agent (no live LLM).
+- Re-entrant `execute_on_main_thread` when outer spawns inner from worker thread.
+- `stop_checker` propagated main → outer → inner.
+- `delegate_read_document` does not recurse through full delegate gateway.
+
+See [streaming-and-threading.md](streaming-and-threading.md).
 
 ---
 
 ## Reusing existing read tools (not new extractors)
 
-The **inner** sub-agent calls production read tools via `ToolRegistry.execute` — no duplicate implementations:
+The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 
-1. **Outer** resolves path / fuzzy name from catalog.
-2. **Outer** obtains UNO `model` (already open via `resolve_document_by_url`, else `loadComponentFromURL` with `Hidden` + `ReadOnly` — [pattern in `plugin/writer/format.py](../plugin/writer/format.py)`).
-3. **Inner** receives `ToolContext(doc=model, doc_type=…, ctx=…)`.
-4. **Inner** invokes read tools only, e.g.:
+1. **Outer** resolves path / name from catalog.
+2. **Outer** obtains UNO `model` via `open_document_for_read` (see [Data contracts](#data-contracts)).
+3. **Inner** receives `ToolContext(doc=model, doc_type=…, read_only_target=True, ctx=…)`.
+4. **Inner** invokes read tools only:
 
+| Source doc type | Typical inner allowlist |
+| --------------- | ----------------------- |
+| **Writer** | `get_document_content` ([`content.py`](../plugin/writer/content.py)), `get_document_tree` ([`outline.py`](../plugin/writer/outline.py)), `search_in_document` |
+| **Calc** | `get_sheet_summary` ([`sheets.py`](../plugin/calc/sheets.py)), `read_cell_range` ([`cells.py`](../plugin/calc/cells.py)) |
+| **Draw / Impress** | `list_pages`, draw summary / shape read tools as needed |
 
-| Source doc type    | Typical tools for inner agent (fixed allowlist per doc type)                                                                                                                              |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Writer**         | `get_document_content` (`[plugin/writer/content.py](../plugin/writer/content.py)`), `get_document_tree` (`[plugin/writer/outline.py](../plugin/writer/outline.py)`), `search_in_document` |
-| **Calc**           | `get_sheet_summary` (`[plugin/calc/sheets.py](../plugin/calc/sheets.py)`), `read_cell_range` (`[plugin/calc/cells.py](../plugin/calc/cells.py)`)                                          |
-| **Draw / Impress** | `list_pages`, draw summary / shape tools as needed                                                                                                                                        |
+**Calc example:** User has `Q4_Report.odt` open → main delegates workspace → outer opens `Budget_2026.ods` → inner `get_sheet_summary` + `read_cell_range` → main `apply_document_content` on active doc.
 
+**Large Writer docs:** Inner should prefer `get_document_tree` / `search_in_document` before full `get_document_content` (existing truncation limits apply).
 
-**Calc example (two-tier):** User has `Q4_Report.odt` open, says “put Q4 revenue from the budget into the table.” **Main** delegates workspace task → **outer** lists, opens `Budget_2026.ods` → **inner** runs `get_sheet_summary` + `read_cell_range` → **outer** returns “Q4 revenue: …” → **main** uses `apply_document_content` or `write_formula_range` on the active doc only.
+---
+
+## Edge cases and failure modes
+
+| Case | Behavior |
+| ---- | -------- |
+| **Untitled / unsaved active doc** | **Default:** list other **open** LO documents only (URLs from desktop); if none, clear tool error. Alternative (stricter): disable workspace with message “save document first.” |
+| **Active file in directory listing** | Exclude self from `list_nearby_files`. |
+| **Permission denied / I/O error** | Tool error with `details.path`. |
+| **File modified on disk after open** | Phase 0: no cache; re-open on next delegate if needed. Phase 6 may add mtime-keyed metadata. |
+| **Same path already open** | Reuse via `resolve_document_by_url`. |
+| **Non-file URL** (`google-docs:`, etc.) | `get_document_path` → `None`; treat like untitled. |
+| **Huge directory** | Cap list (e.g. 100 entries); set `truncated: true` in tool result. |
+| **Sensitive neighbors** | Phase 1+ optional exclude globs (`.*`, `*.pem`, …) in config. |
+
+---
+
+## Scope boundaries
+
+| Surface | Note |
+| ------- | ---- |
+| **Sidebar chat** | Primary target for workspace delegation. |
+| **Menu “Chat with Document”** | No tool-calling today ([AGENTS.md](../AGENTS.md)) — workspace **not** supported until menu gains tools. |
+| **`USE_SUB_AGENT = False`** | In-place domain switch on main — workspace domain **requires** sub-agent path; document as unsupported when `USE_SUB_AGENT` is off. |
+| **Librarian mode** | No workspace reads until document mode (`switch_mode` / `switch_to_document_mode`). |
+| **Extend / Edit selection** | Single-doc selection path; out of scope unless explicitly wired. |
+| **Hermes ACP** | Defer; same registry tools if host exposes delegate gateway later. |
 
 ---
 
@@ -207,116 +298,181 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute` �
 
 Record decisions here as we learn.
 
-
-| #   | Question                                         | Notes                                                                                                                                                                                                                                                                                                                                                            |
-| --- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Catalog in main system prompt?**               | Option A: inject `[NEARBY FILES]` (or similar) every turn — helps “budget” disambiguation, costs tokens. Option B: main agent only knows tools exist; calls `list_`* when needed — leaner context. Option C: hybrid — inject only when directory has ≤N files or user message mentions another doc. **Default lean toward B for MVP; revisit after dogfooding.** |
-| 2   | **Main agent vs sub-agent for multi-file tasks** | **Decision: two-tier delegation** — main only calls `delegate_to_specialized_*_toolset(domain="workspace", …)`; **outer** lists and orchestrates; **inner** runs read tools per opened file (one ephemeral run per file). Same pattern as Python (`run_venv_python_script` domain): main stays on core + delegate.                             |
-| 3   | **Untitled / unsaved active doc**                | No parent directory → list only other open LO documents, or disable nearby tools with clear error.                                                                                                                                                                                                                                                               |
-| 4   | **Write-back to nearby files**                   | **Out of scope for default design:** other files are read-only; writes stay on the active doc. If ever needed, would be a deliberate separate feature (non-read-only open + same write tools as in-process agent), not part of MVP.                                                                                                                              |
-| 5   | **Final naming**                                 | `workspace_`* vs `nearby_`* vs `project_*` — align UI, config, and prompts when term is chosen.                                                                                                                                                                                                                                                                  |
-
+| # | Question | Notes |
+| - | -------- | ----- |
+| 1 | **Catalog in main system prompt?** | Option A: inject `[NEARBY FILES]` every turn. Option B: outer calls `list_*` when needed (**default for Phase 0**). Option C: hybrid when ≤N files or user mentions another doc. Revisit in Phase 2. |
+| 2 | **Main vs sub-agent for multi-file tasks** | **Decision: two-tier delegation in Phase 0** — main only `delegate_*(domain="workspace", …)`; outer orchestrates; inner reads per file. Same **gateway** as `domain="shapes"`; unique **nested** inner smol via `delegate_read_document`. |
+| 3 | **Untitled / unsaved active doc** | See [Edge cases](#edge-cases-and-failure-modes) — pick one default and test it. |
+| 4 | **Write-back to nearby files** | **Out of scope:** siblings read-only; writes on active doc only. |
+| 5 | **Final naming** | `workspace_*` vs `nearby_*` vs `project_*` — align UI, config, prompts when chosen. |
+| 6 | **Inner allowlist** | Static name list per `doc_type` vs filter `tier="core"` read tools — prefer **static list** for predictable schemas. |
+| 7 | **Max files per list** | Cap (e.g. 100) — document in `list_nearby_files` result. |
 
 ---
 
 ## Phased implementation
 
-Phases are incremental; each should be shippable with tests (`make test`). Adjust phase numbers if we merge or split work.
+Phases are incremental; each shippable with `make test`. Phase dependency:
 
-### Phase 0 — Same-directory MVP
+```mermaid
+flowchart LR
+    P0[Phase0_two_tier_same_dir]
+    P1[Phase1_config_dirs]
+    P2[Phase2_prompt_optional]
+    P3[Phase3_open_hardening]
+    P4[Phase4_headless]
+    P5[Phase5_UI]
+    P0 --> P1
+    P0 --> P2
+    P0 --> P3
+    P3 --> P4
+    P0 --> P5
+```
 
-**Goal:** List files in the same directory as the current document.
+### Phase 0 — Same-directory MVP (two-tier delegation)
 
-**Scope:**
+**Goal:** End-to-end cross-file read from the active document’s parent directory.
 
-- New module `[plugin/doc/nearby.py](../plugin/doc/nearby.py)`:
-  - `get_document_directory(model) -> str | None` from `[get_document_path](../plugin/doc/document_helpers.py)`.
-  - `list_nearby_files() -> list[FileEntry]` — scandir current doc's directory only, LO-relevant extensions, **newest first**.
-- Expose on main agent (or via `delegate_to_specialized_*_toolset`) — single API, no sub-agents yet
-- **Tests:** `plugin/tests/doc/test_nearby.py` (pure Python)
+**Main (unchanged wire shape):**
 
-**Out of scope for Phase 0:** config directories, sub-agents, recursion, system prompt injection, `@` UI, headless process, reading file contents.
+- `delegate_to_specialized_{writer|calc|draw}_toolset(domain="workspace", task="…")` only.
+- No `list_nearby_files`, no read tools, no new core tools on main.
+- **`USE_SUB_AGENT` must be on** for workspace.
 
-**Prompt:** Short tool description only ("lists other files in the same folder as this document").
+**Outer sub-agent (`specialized_domain="workspace"`):**
+
+- `list_nearby_files` — parent dir of active doc; `NEARBY_FILE_EXTENSIONS`; newest first; exclude active path; optional `filter` substring.
+- `delegate_read_document(path_or_name, task)` — open hidden+read-only (or reuse open); spawn inner; return extracted data.
+- `specialized_workflow_finished` / final answer to main.
+
+**Inner sub-agent (per opened file):**
+
+- Allowlisted production read tools for that file’s `doc_type` only.
+- `ToolContext.doc` = opened model; [read-only enforcement](#read-only-enforcement).
+- One inner run per file; discarded after return.
+
+**Library ([`plugin/doc/nearby.py`](../plugin/doc/nearby.py)):**
+
+- `get_document_directory`, `list_nearby_files`, `open_document_for_read`, `FileEntry` — used by outer tools, not exposed on main.
+
+**Implementation modules:** [`nearby_tools.py`](../plugin/doc/nearby_tools.py), [`nearby_specialized.py`](../plugin/doc/nearby_specialized.py) (outer + inner wiring, TBD), [`module.yaml`](../plugin/doc/module.yaml).
+
+**Out of scope Phase 0:** config directories, `[NEARBY FILES]` prompt injection, `@` UI, headless, metadata cache, write-back to siblings.
+
+**Done when:**
+
+- [ ] Calc acceptance scenario #1 (Q4 budget) passes manually.
+- [ ] `make test` green: `test_nearby.py`, mock outer→inner, `test_nearby_specialized.py` (workspace on all delegates).
+- [ ] One UNO test: outer → inner → `read_cell_range`.
+- [ ] Active window focus unchanged after cross-file read.
 
 ---
 
-- Settings UI: simple text field for JSON array later; not required for first merge.
+### Phase 1 — Config-expanded directories
+
+**Goal:** User-configured extra roots beyond same-folder listing.
+
+- Config key: `workspace_extra_directories` (JSON array of absolute paths) — name TBD per open question #5.
+- `list_nearby_files` merges: active doc’s parent dir + configured dirs, deduped, newest-first.
+- Settings UI: text field in [`dialog_views.py`](../plugin/chatbot/dialog_views.py) / manifest registry (see [`config.py`](../plugin/framework/config.py)).
+- **Tests:** merge, dedupe, invalid path handling.
+
+**Done when:**
+
+- [ ] Config round-trip and listing merge covered by unit tests.
+- [ ] Optional exclude globs for sensitive filenames (see edge cases).
 
 ---
 
 ### Phase 2 — Prompt integration (optional / gated)
 
-**Goal:** If we want the model to see filenames without calling `list_`* first.
+**Goal:** Model may see filenames without calling `list_*` first.
 
-- Compact `[NEARBY FILES]` block in `[ChatSession.set_system_context](../plugin/chatbot/panel.py)` or via `[get_document_context_for_chat](../plugin/doc/document_helpers.py)` — cap count/chars (e.g. 50 files / 2000 chars).
-- Guidance blurb in `[plugin/framework/constants.py](../plugin/framework/constants.py)` templates (Writer / Calc / Draw), gated by config flag default **off**.
+- Compact `[NEARBY FILES]` in [`panel.py`](../plugin/chatbot/panel.py) or via [`get_document_context_for_chat`](../plugin/doc/document_helpers.py) — cap separately from 8k doc context (e.g. 50 files / 2000 chars); consider `chat_context_length` config.
+- Guidance in [`constants.py`](../plugin/framework/constants.py) templates, gated by config flag default **off**.
 - Re-evaluate open question #1 after measuring token use.
 
----
+**Done when:**
 
-### Phase 3 — Two-tier sub-agents (`workspace` domain)
-
-**Goal:** Cross-file reads via sub-agents; **main agent’s tool schema unchanged** across turns (see [Why two tiers](#why-two-tiers)).
-
-- **Main → outer:** `delegate_to_specialized_*_toolset(domain="workspace", task="...")` — follow `[DelegateToSpecializedBase](../plugin/doc/specialized_base.py)` + `[USE_SUB_AGENT](../plugin/framework/constants.py)`.
-- **Outer agent tools:** `list_nearby_files`, open/read-only helpers, `delegate_read_document(task)` (spawns inner), workflow finished / `final_answer` to main. **No write tools.**
-- **Inner agent tools:** allowlisted **existing read tools** for the opened doc’s `doc_type` only (`get_document_tree`, `read_cell_range`, `get_document_content`, `search_in_document`, `get_sheet_summary`, Draw read tools, …). Same schemas as in-process agent; **no writes.**
-- **Outer loop:** after each inner result, decide whether another file must be opened; aggregate; return one payload to main (e.g. “here are the Q4 numbers you asked for”).
-- **Main** applies results to **active** doc only (`apply_document_content`, `write_formula_range`, etc.).
-- Tests: mock inner agent; one UNO integration test outer → inner → read Calc range.
+- [ ] Prompt snapshot tests; flag off by default.
 
 ---
 
-### Phase 4 — Hidden open hardening
+### Phase 3 — Hidden open hardening
 
 **Goal:** Reliable in-process opens without disturbing the user.
 
 - Weakref cache of hidden models per path; close after read or idle timeout.
-- Size heuristic: small files in-process; document threshold for “large” (no headless yet — log/warn only).
-- UNO tests for Writer, Calc, Draw/Impress samples.
+- Size heuristic: small files in-process; threshold for “large” (log/warn only until Phase 4).
+- UNO tests: Writer, Calc, Draw/Impress samples.
+- Verify **`ToolContext.doc`** scoping between active and opened models (not `DocumentCache` — inactive in codebase).
+
+**Done when:**
+
+- [ ] UNO tests for cache lifecycle and multi-doc isolation.
 
 ---
 
-### Phase 5 — Headless / separate process (deferred)
+### Phase 4 — Headless / separate process (deferred)
 
 **Goal:** Large files do not block the UI LO instance.
 
 - Persistent or one-shot `soffice --headless` with separate user profile (`--env:UserInstallation=...`).
-- Worker script or UNO bridge; `[AsyncProcess](../plugin/framework/worker_pool.py)` for lifecycle.
-- **Default to headless for non-small docs** once stable; until then Phase 4 in-process only.
-- Fallback to in-process hidden open on failure.
+- Worker script or UNO bridge; [`AsyncProcess`](../plugin/framework/process_manager.py) for lifecycle.
+- Default to headless for non-small docs once stable; fallback to in-process hidden open on failure.
+- Inner sub-agent API unchanged; transport only.
+
+**Done when:**
+
+- [ ] Large-file scenario does not block main LO UI thread.
 
 ---
 
-### Phase 6 — UI: `@` mentions and pickers (deferred)
+### Phase 5 — UI: `@` mentions and pickers (deferred)
 
-**Goal:** Discoverability, not required for core behavior.
+**Goal:** Discoverability; not required for core behavior.
 
-- `[QueryKeyListener](../plugin/chatbot/panel.py)` / listeners: `@` triggers filtered list from catalog (`[ChatPanelDialog.xdl](../extension/WriterAgentDialogs/ChatPanelDialog.xdl)` — popup may be awkward; button + `FilePicker` is acceptable MVP UI).
+- [`QueryKeyListener`](../plugin/chatbot/panel.py): `@` triggers filtered list; button + `FilePicker` acceptable MVP.
 - Insert token or pass selected path into send pipeline.
-- See [chat-sidebar-implementation.md](chat-sidebar-implementation.md) for sidebar constraints.
+- See [chat-sidebar-implementation.md](chat-sidebar-implementation.md).
+
+**Done when:**
+
+- [ ] Manual UI checklist completed.
 
 ---
 
-### Phase 7 — Polish
+### Phase 6 — Polish
+
+**Goal:** Performance, MCP clarity, optional integrations.
 
 - Metadata cache (title, headings, sheet names) keyed by path + mtime — SQLite optional.
-- MCP: same tools; optional `X-Document-URL` unchanged for **active** doc, nearby reads via tool args only.
-- Recent LO documents list (`[RecentDocumentList](https://api.libreoffice.org/)` — if worth the coupling).
+- **MCP** (see below).
+- Recent LO documents list — if worth the coupling.
 - Drag-and-drop onto chat.
+
+**Done when:**
+
+- [ ] MCP cross-doc path documented and tested.
+
+#### MCP (Phase 6)
+
+- **Active document:** unchanged — `X-Document-URL` on [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py).
+- **Nearby reads:** path or `url` in tool args / delegate task; **do not** retarget `X-Document-URL` to sibling files.
+- **Tool surface:** same as sidebar — workspace via `delegate_to_specialized_*_toolset(domain="workspace", …)`, not dozens of new MCP tool names ([mcp-protocol.md](mcp-protocol.md) specialized-tier policy).
+- **Test:** [`test_mcp_server.py`](../plugin/tests/mcp/test_mcp_server.py) — workspace delegate with header pointing at active Writer doc.
 
 ---
 
 ## Calc-specific scenarios (acceptance checks)
 
-Use these to validate design and tests:
+Use these to validate design and tests (Phase 0 targets #1–#5):
 
 1. **Active Calc, read sibling Calc:** main delegates → outer lists/opens budget → inner `read_cell_range` → outer returns figures → main `write_formula_range` on active sheet.
 2. **Active Calc, read sibling Writer:** inner `get_document_content` on brief → main `insert_cell_html` / `write_formula_range`.
 3. **Active Writer, read sibling Calc:** inner `get_sheet_summary` + `read_cell_range` → main `apply_document_content`.
-4. **Multiple budgets:** **outer** `list_nearby_files(filter="budget")`, pick or disambiguate, optionally run inner twice before returning to main.
-5. **Formula semantics:** **main** respects Calc `;` separator rules (`[CALC_FORMULA_SYNTAX](../plugin/framework/constants.py)`) when writing to active sheet only.
+4. **Multiple budgets:** outer `list_nearby_files(filter="budget")`, disambiguate, optionally run inner twice before returning to main.
+5. **Formula semantics:** main respects Calc `;` separator rules ([`CALC_FORMULA_SYNTAX`](../plugin/framework/constants.py)) when writing active sheet only.
 
 ---
 
@@ -324,42 +480,41 @@ Use these to validate design and tests:
 
 1. **Outline-first:** `get_document_tree` on nearby `.odt` before full read for long docs.
 2. **Search:** `search_in_document` on nearby file for “Q4” instead of full HTML dump.
-3. **Draw/Impress:** Nearby `.odp` → `list_pages` + text extraction; insert into active Writer/Calc via existing apply/write tools.
+3. **Draw/Impress:** Nearby `.odp` → `list_pages` + text extraction; insert into active Writer/Calc via main write tools.
 
 ---
 
 ## Files and entry points (planned)
 
-
-| Area                   | Path                                                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Catalog + hidden open  | `plugin/doc/nearby.py` (or `workspace.py` — rename when term fixed)                                                                   |
-| Tools                  | `plugin/doc/nearby_tools.py` — registered from doc module init                                                                        |
-| Config                 | `plugin/doc/module.yaml`                                                                                                              |
-| Document path / URL    | `[plugin/doc/document_helpers.py](../plugin/doc/document_helpers.py)`                                                                 |
-| Chat context / prompts | `[plugin/chatbot/panel.py](../plugin/chatbot/panel.py)`, `[plugin/framework/constants.py](../plugin/framework/constants.py)`          |
-| Tool loop              | `[plugin/chatbot/tool_loop.py](../plugin/chatbot/tool_loop.py)`                                                                       |
-| Delegation             | `[plugin/doc/specialized_base.py](../plugin/doc/specialized_base.py)`, `plugin/doc/nearby_specialized.py` (outer + inner agents, TBD) |
-| MCP                    | `[plugin/mcp/mcp_protocol.py](../plugin/mcp/mcp_protocol.py)` — no change required for MVP                                            |
-
+| Area | Path |
+| ---- | ---- |
+| Catalog + hidden open | [`plugin/doc/nearby.py`](../plugin/doc/nearby.py) |
+| Tools | [`plugin/doc/nearby_tools.py`](../plugin/doc/nearby_tools.py) |
+| Delegation (outer + inner) | [`plugin/doc/nearby_specialized.py`](../plugin/doc/nearby_specialized.py) (TBD) |
+| Module registration | [`plugin/doc/module.yaml`](../plugin/doc/module.yaml) |
+| Config keys | [`plugin/framework/config.py`](../plugin/framework/config.py), [`manifest_registry.py`](../scripts/manifest_registry.py) |
+| Document path / URL | [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py) |
+| Chat context / prompts | [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/framework/constants.py`](../plugin/framework/constants.py) |
+| Tool loop | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py) |
+| Delegate gateway | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
+| MCP | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) |
 
 ---
 
 ## Test strategy
 
+| Phase | Unit | UNO / integration |
+| ----- | ---- | ----------------- |
+| **0** | `plugin/tests/doc/test_nearby.py`: scandir, extensions, sort, exclude self, skip untitled | `test_nearby_uno.py`: hidden open; mock outer→inner; **one** UNO outer→inner→`read_cell_range` |
+| **0** | `test_nearby_specialized.py` (or `test_specialized_*`): `workspace` on Writer/Calc/Draw delegates | — |
+| **1** | Config merge, dedupe | — |
+| **2** | Prompt snapshot / max length | — |
+| **3** | — | Cache, close-on-idle, Writer/Calc/Draw samples; `ToolContext.doc` isolation |
+| **4** | — | Optional subprocess mocks |
+| **5** | — | Manual UI checklist |
+| **6** | Metadata cache | MCP workspace delegate test |
 
-| Phase | Tests                                                              |
-| ----- | ------------------------------------------------------------------ |
-| 0     | `test_nearby.py`: listing, sort, fuzzy resolve, extension filter   |
-| 0     | `test_nearby_uno.py`: hidden open Writer + Calc, read via registry |
-| 1     | Config merge paths, dedupe                                         |
-| 2     | Prompt snapshot / max length                                       |
-| 3     | Mock sub-agent delegation; one integration test cross-doc          |
-| 4–5   | UNO + optional subprocess mocks                                    |
-| 6     | Manual UI checklist                                                |
-
-
-Per [AGENTS.md](../AGENTS.md): new logic in matching `test_*.py`; run `make test` before calling a phase done.
+Per [AGENTS.md](../AGENTS.md): matching `test_*.py` names; run `make test` before calling a phase done.
 
 ---
 
@@ -367,11 +522,18 @@ Per [AGENTS.md](../AGENTS.md): new logic in matching `test_*.py`; run `make test
 
 - [chat-sidebar-implementation.md](chat-sidebar-implementation.md) — frame-bound doc, send pipeline
 - [smol-main-chat-tool-architecture.md](smol-main-chat-tool-architecture.md) — sub-agents, tool loop
+- [writer-specialized-toolsets.md](writer-specialized-toolsets.md) — nested delegation, gateway pattern
+- [streaming-and-threading.md](streaming-and-threading.md) — main-thread UNO, queue drain
 - [calc-specialized-toolsets.md](calc-specialized-toolsets.md) — Calc tool surface
-- [mcp-protocol.md](mcp-protocol.md) — `X-Document-URL`, main-thread execute
-- [agent-search.md](agent-search.md) — external fetch pattern (contrast with nearby files)
+- [mcp-protocol.md](mcp-protocol.md) — `X-Document-URL`, MCP tool policy
+- [agent-search.md](agent-search.md) — external fetch (contrast with nearby files)
 
 ---
 
+## Changelog
 
+| Date | Phase / change | PR / notes |
+| ---- | -------------- | ---------- |
+| *(TBD)* | Plan refresh: Phase 0 = full two-tier delegation; phases renumbered 0–6; data contracts, threading, edge cases | — |
 
+---
