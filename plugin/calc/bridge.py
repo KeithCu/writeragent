@@ -24,7 +24,7 @@ plugin framework.
 
 import logging
 
-from plugin.calc.address_utils import index_to_column, column_to_index, parse_range_string
+from plugin.calc.address_utils import index_to_column, column_to_index, parse_range_string, parse_address
 
 logger = logging.getLogger("writeragent.calc")
 
@@ -65,6 +65,12 @@ class CalcBridge:
     def get_cell(self, sheet, col: int, row: int):
         """Return the cell object at *col*, *row* on *sheet*."""
         return sheet.getCellByPosition(col, row)
+
+    def get_cell_by_address(self, address: str):
+        """Return the cell object for *address*."""
+        col, row = parse_address(address)
+        sheet = self.get_active_sheet()
+        return self.get_cell(sheet, col, row)
 
     def get_cell_range(self, sheet, range_str: str):
         """Return a cell range object from a range string like ``A1:D10``."""

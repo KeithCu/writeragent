@@ -249,12 +249,6 @@ class CellManipulator:
         }
         return errors.get(error_code, f"Unknown error ({error_code})")
 
-    def _get_cell(self, address: str):
-        """Return the cell object for *address*."""
-        col, row = parse_address(address)
-        sheet = self.bridge.get_active_sheet()
-        return self.bridge.get_cell(sheet, col, row)
-
     def _apply_style_properties(self, obj, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color):
         """Apply common style properties to a cell or range object."""
         if bold is not None:
@@ -384,7 +378,7 @@ class CellManipulator:
             Description of the written value.
         """
         try:
-            cell = self._get_cell(address)
+            cell = self.bridge.get_cell_by_address(address)
 
             if formula.startswith("="):
                 cell.setFormula(formula)
@@ -444,7 +438,7 @@ class CellManipulator:
                     self._set_range_number_format(address_or_range, number_format)
                 logger.info("Range %s style updated.", address_or_range.upper())
             else:
-                cell = self._get_cell(address_or_range)
+                cell = self.bridge.get_cell_by_address(address_or_range)
                 self._apply_style_properties(cell, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
                 if number_format:
                     self._set_number_format(address_or_range, number_format)
@@ -470,7 +464,7 @@ class CellManipulator:
         cell_range.setPropertyValue("NumberFormat", format_id)
 
     def _set_number_format(self, address: str, format_str: str):
-        cell = self._get_cell(address)
+        cell = self.bridge.get_cell_by_address(address)
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
         locale = doc.getPropertyValue("CharLocale")

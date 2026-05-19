@@ -74,12 +74,6 @@ class CellInspector:
             logger.debug("_safe_prop exception for %s: %s", name, e)
             return default
 
-    def _get_cell(self, address: str):
-        """Return the cell object for *address*."""
-        col, row = parse_address(address)
-        sheet = self.bridge.get_active_sheet()
-        return self.bridge.get_cell(sheet, col, row)
-
     # ── Public API ─────────────────────────────────────────────────────
 
     def read_cell(self, address: str) -> dict:
@@ -92,7 +86,7 @@ class CellInspector:
             dict with keys: address, value, formula, type.
         """
         try:
-            cell = self._get_cell(address)
+            cell = self.bridge.get_cell_by_address(address)
             cell_type = cell.getType()
 
             if cell_type == EMPTY:
@@ -125,7 +119,7 @@ class CellInspector:
             italic, h_align, v_align, wrap_text.
         """
         try:
-            cell = self._get_cell(address)
+            cell = self.bridge.get_cell_by_address(address)
             cell_type = cell.getType()
 
             if cell_type == EMPTY:
