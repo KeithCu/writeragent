@@ -46,7 +46,7 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 | :--- | :--- | :--- | :--- |
 | `generate_image` | **Implemented** | [`plugin/writer/images/`](../plugin/writer/images/), [image-generation.md](image-generation.md) | `AIChatSession.cpp` — terminal tool, ends loop |
 | `extract_document_structure` | **Partial** | [`get_document_tree`](../plugin/writer/outline.py), [`plugin/draw/tree.py`](../plugin/draw/tree.py) | Kit `extractdocumentstructure`; optional `filter=` |
-| `transform_document_structure` | **Gap** | Atomic Draw tools under [`plugin/draw/`](../plugin/draw/) | `DocumentToolDescriptions.hpp`, `.uno:TransformDocumentStructure` |
+| `transform_document_structure` | **Partial (V1)** | [`plugin/draw/transform.py`](../plugin/draw/transform.py), [`transform_engine.py`](../plugin/draw/transform_engine.py), [`transform_schema.py`](../plugin/draw/transform_schema.py) — Impress `SlideCommands`; DSL: [DocumentToolDescriptions.hpp](https://github.com/CollaboraOnline/online/blob/master/wsd/DocumentToolDescriptions.hpp) | `DocumentToolDescriptions.hpp`, `.uno:TransformDocumentStructure` |
 | `extract_link_targets` | **Partial** | Bookmarks / tree locators in [`plugin/writer/tree.py`](../plugin/writer/tree.py) | LOKit `extractRequest` / `extractlinktargets` |
 | `list_calc_functions` | **Implemented** | [`plugin/calc/formulas.py`](../plugin/calc/formulas.py) | `.uno:CalcFunctionList` |
 | `evaluate_formula` | **Implemented** | [`plugin/calc/formulas.py`](../plugin/calc/formulas.py) (moved to specialized `errors` tier to avoid chatbot context pollution, allowing LLMs to try it in planning flows) | `.uno:EvaluateFormula` |
@@ -66,13 +66,13 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 
 Collabora Online has implemented several robust, structured AI interactions. Since WriterAgent runs in-process with a full PyUNO bridge, we can implement gaps **more efficiently and natively** without WebSocket serialization.
 
-### 1. Spreadsheet Function Discovery (`list_calc_functions`)
+### 1. Spreadsheet Function Discovery (`list_calc_functions`) - Implemented
 
 *   **The Feature**: The LLM needs to know what Calc functions are available to prevent hallucinating formulas or using incorrect localized names.
 *   **Collabora's Path**: `commandvalues command=.uno:CalcFunctionList` via kit (`AIChatSession.cpp`).
 *   **WriterAgent Path**: **Implemented** in [`plugin/calc/formulas.py`](../plugin/calc/formulas.py). Uses PyUNO `com.sun.star.sheet.FunctionDescriptions` with case-insensitive partial substring searching (searching both function names and descriptions) to avoid context bloat.
 
-### 2. Calc Formula Pre-evaluation (`evaluate_formula`)
+### 2. Calc Formula Pre-evaluation (`evaluate_formula`) - Implemented
 
 *   **The Feature**: Evaluates a formula *before* writing it, returning result or error to the LLM.
 *   **Collabora's Path**: `.uno:EvaluateFormula?cell=…&formula=…`.
@@ -214,9 +214,11 @@ Reference sketches for **gaps** or patterns not yet wrapped as tools. Snippets m
 ### B. Formula Pre-evaluation (`evaluate_formula`) — Implemented in plugin
 
 
-### C. Unified Slide Transform (`transform_document_structure`) — not yet in plugin
+### C. Unified Slide Transform (`transform_document_structure`) — partial in plugin
 
-**Canonical schema**: Collabora `wsd/DocumentToolDescriptions.hpp` (`TRANSFORM_PARAM_DESCRIPTION`). WriterAgent should not fork a partial copy in this doc — link to upstream and implement a parser incrementally.
+**Canonical schema**: Collabora [`wsd/DocumentToolDescriptions.hpp`](https://github.com/CollaboraOnline/online/blob/master/wsd/DocumentToolDescriptions.hpp) (`TRANSFORM_PARAM_DESCRIPTION`). WriterAgent embeds a summary in [`plugin/draw/transform_schema.py`](../plugin/draw/transform_schema.py) (`COLLABORA_TRANSFORM_DSL_URL`); execution is PyUNO in [`transform_engine.py`](../plugin/draw/transform_engine.py) (not `.uno:TransformDocumentStructure`, which is LOKit-only).
+
+**V1**: Impress `SlideCommands` (navigation, slide mgmt, layouts, `SetText`, `EditTextObject` / nested `UnoCommand`). **Deferred**: `GenerateImage`, `MarkObject`, content controls, user approval.
 
 **Command groups** (summary): navigation; slide insert/delete/duplicate/move/rename; layout by name or id; `SetText.N`; `EditTextObject.N` with nested UNO (`.uno:Bold`, `.uno:DefaultBullet`, font/color); `GenerateImage.N`; top-level document `UnoCommand`.
 

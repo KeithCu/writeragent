@@ -32,7 +32,7 @@ from plugin.framework.async_stream import StreamQueueKind, run_blocking_in_threa
 from plugin.framework.errors import safe_json_loads, format_error_payload, AgentParsingError, ConfigError, NetworkError
 from plugin.framework.config import get_api_config, get_config, get_config_int, get_config_int_safe, as_bool
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.constants import CORE_DIRECTIVES
+from plugin.framework.constants import get_core_directives
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.doc.document_helpers import get_document_context_for_chat, is_calc, is_draw
 from plugin.agent_backend import get_backend
@@ -337,7 +337,8 @@ class SendHandlersMixin:
                         f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )
 
-                lean_system_prompt = f"{CORE_DIRECTIVES}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
+                core_dirs = get_core_directives(model)
+                lean_system_prompt = f"{core_dirs}\n\nYou are currently interacting with a LibreOffice document.\n{mcp_instructions}\nPlease proceed with the user's request."
 
                 # Add optional instructions from settings
                 extra = str(get_config(self.ctx, "additional_instructions") or "").strip()

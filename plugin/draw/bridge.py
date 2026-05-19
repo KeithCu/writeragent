@@ -94,20 +94,104 @@ class DrawBridge:
         page = pages.getByIndex(index)
         pages.remove(page)
 
-    def duplicate_slide(self, index):
-        """Duplicates the slide at the specified index."""
-        # Note: LO API for duplicating pages is a bit involved
-        # For now, we can create a new page and copy shapes
-        old_page = self.get_pages().getByIndex(index)
-        new_page = self.create_slide(index + 1)
+    def duplicate_slide(self, index, switch=True):
+        """Duplicate the slide at index (new page after source with copied text geometry)."""
+        return self._duplicate_slide_fallback(index, switch)
 
-        # Copy shapes
+    def _duplicate_slide_fallback(self, index, switch=True):
+        """Fallback duplicate: new page + copy shape strings (does not move originals)."""
+        old_page = self.get_pages().getByIndex(index)
+        new_page = self.create_slide(index + 1, switch=False)
         for i in range(old_page.getCount()):
-            shape = old_page.getByIndex(i)
-            # This is a shallow copy, might need more for complex shapes
-            # But simple add works for many
-            new_page.add(shape)
+            old_shape = old_page.getByIndex(i)
+            try:
+                new_shape = self.doc.createInstance(old_shape.getShapeType())
+                new_page.add(new_shape)
+                if hasattr(old_shape, "getSize") and hasattr(new_shape, "setSize"):
+                    new_shape.setSize(old_shape.getSize())
+                if hasattr(old_shape, "getPosition") and hasattr(new_shape, "setPosition"):
+                    new_shape.setPosition(old_shape.getPosition())
+                if hasattr(old_shape, "getString") and hasattr(new_shape, "setString"):
+                    new_shape.setString(old_shape.getString())
+            except Exception as exc:
+                logger.debug("duplicate_slide fallback shape %s: %s", i, exc)
+        if switch:
+            self.set_current_page_index(index + 1)
         return new_page
+
+    def insert_slide_from_master(self, master_index=None, master_name=None, after_index=None, switch=True):
+        """Insert a slide after after_index (default: active), assign master, jump to new slide."""
+        pages = self.get_pages()
+        if after_index is None:
+            after_index = self.get_active_page_index()
+        insert_at = min(after_index + 1, pages.getCount())
+        new_page = pages.insertNewByIndex(insert_at)
+        master = self._resolve_master(master_index=master_index, master_name=master_name)
+        if master is not None:
+            try:
+                new_page.MasterPage = master
+            except Exception as exc:
+                logger.debug("insert_slide_from_master MasterPage: %s", exc)
+        if switch:
+            self.set_current_page_index(insert_at)
+        return new_page, insert_at
+
+    def _resolve_master(self, master_index=None, master_name=None):
+        if not hasattr(self.doc, "getMasterPages"):
+            return None
+        masters = self.doc.getMasterPages()
+        if master_name is not None:
+            for i in range(masters.getCount()):
+                m = masters.getByIndex(i)
+                if hasattr(m, "Name") and m.Name == master_name:
+                    return m
+            return None
+        if master_index is not None:
+            if 0 <= master_index < masters.getCount():
+                return masters.getByIndex(master_index)
+        return None
+
+    def move_slide(self, from_index, to_index):
+        """Move slide from_index to to_index."""
+        if from_index == to_index:
+            return True
+        pages = self.get_pages()
+        count = pages.getCount()
+        if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
+            return False
+        page = pages.getByIndex(from_index)
+        pages.remove(page)
+        try:
+            pages.insertByIndex(to_index, page)
+        except Exception:
+            # Some builds only expose insertNewByIndex; re-append at end as fallback.
+            try:
+                pages.insertNewByIndex(min(to_index, pages.getCount()))
+            except Exception as exc:
+                logger.debug("move_slide insert failed: %s", exc)
+                return False
+        return True
+
+    def rename_slide(self, index, name):
+        page = self.get_pages().getByIndex(index)
+        if hasattr(page, "Name"):
+            page.Name = name
+            return True
+        return False
+
+    def set_current_page_index(self, index):
+        pages = self.get_pages()
+        if index < 0 or index >= pages.getCount():
+            return False
+        page = pages.getByIndex(index)
+        controller = self.doc.getCurrentController()
+        if controller is not None and hasattr(controller, "setCurrentPage"):
+            try:
+                controller.setCurrentPage(page)
+                return True
+            except Exception as exc:
+                logger.debug("set_current_page_index failed: %s", exc)
+        return False
 
     def get_active_page_index(self):
         try:

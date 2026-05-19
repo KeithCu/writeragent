@@ -101,10 +101,30 @@ def should_prepend_dev_llm_system_prefix() -> bool:
 
 
 # General directives shared across all AI interfaces
-CORE_DIRECTIVES = """When asked to answer a question or create or explain something, assume the user wants the
+WRITER_CORE_DIRECTIVES = """When asked to answer a question or create or explain something, assume the user wants the
 information to be inserted into the document. Use the apply_document_content tool to insert content
 into LibreOffice so the user can edit it further.
-When asked to write about a topic you are not certain about, use delegate_to_specialized_writer_toolset(domain="web_research") first to find information."""
+When asked to write about a topic you are not certain about, use delegate_to_specialized_writer_toolset(domain="web_research") first to find information.
+When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python") first to find information."""
+
+CALC_CORE_DIRECTIVES = """When asked to write about a topic you are not certain about, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""
+
+DRAW_CORE_DIRECTIVES = """When asked to write about a topic you are not certain about, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information.
+When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python") first to find information."""
+
+CORE_DIRECTIVES = WRITER_CORE_DIRECTIVES
+
+
+def get_core_directives(model) -> str:
+    """Return the application-specific core directives dynamically based on document type."""
+    from plugin.doc.document_helpers import is_calc, is_draw
+    if is_calc(model):
+        return CALC_CORE_DIRECTIVES
+    elif is_draw(model):
+        return DRAW_CORE_DIRECTIVES
+    else:
+        return WRITER_CORE_DIRECTIVES
+
 
 TRANSLATION_RULES = "TRANSLATION: get_document_content(scope=full) -> translate -> apply_document_content(target='search', old_content=original, content=translated). Never refuse."
 
@@ -125,10 +145,12 @@ CALC_WORKFLOW = """WORKFLOW:
 CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
-- Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no sheet data is needed, e.g. `=PYTHON("result = 2**10")`).
+- Write `=PYTHON("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PYTHON("result = 2**10")`).
 Note: this code executes in an isolated sandbox with no direct access to LibreOffice data, so it must be passed in.
-Note: `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and `math` are automatically imported. DO NOT IMPORT Numpy, pandas, sympy or math.
-- Example: `=PYTHON("result = np.sum(data)"; A1:A10)`."""
+Note: `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and `math` are automatically imported. DO NOT IMPORT numpy, pandas, sympy or math.
+- Example: `=PYTHON("result = np.sum(data)"; A1:A10)`.
+
+"""
 
 MEMORY_GUIDANCE = """MEMORY:
 You have a persistent file-backed memory tool.
@@ -174,7 +196,7 @@ and a `task` string that fully specifies what the sub-agent must do. The sub-age
 DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Writer assistant who produces polished, professional documents with thoughtful use of color and formatting.
 Honor any stated memory preferences for color, etc.
 
-{CORE_DIRECTIVES}
+{{core_directives}}
 
 TOOLS:
 - apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
@@ -273,7 +295,7 @@ CHART:
 
 {{specialized_delegation}}
 
-When asked to make a spreadsheet about a topic you are not certain about, use delegate_to_specialized_calc_toolset(domain="web_research") first to find information."""
+{{core_directives}}"""
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
@@ -293,7 +315,7 @@ TOOLS:
 
 {specialized_delegation}
 
-When asked to make a document about a topic you are not certain about, use delegate_to_specialized_draw_toolset(domain="web_research") first to find information."""
+{core_directives}"""
 
 
 # We dynamically set these later when calling get_chat_system_prompt_for_document
@@ -309,8 +331,6 @@ def _get_specialized_domains_str(base_cls) -> str:
         domain = getattr(cls, "specialized_domain", None)
         desc = getattr(cls, "specialized_domain_description", None)
         if domain:
-            if base_cls.__name__ == "ToolCalcSpecialBase" and domain == "python":
-                continue
             if desc:
                 lines.append(f"- {domain}: {desc}")
             else:
@@ -359,6 +379,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         domains_str = _get_specialized_domains_str(ToolCalcSpecialBase)
         delegation = CALC_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        base = base.replace("{core_directives}", CALC_CORE_DIRECTIVES)
 
         global DEFAULT_CALC_CHAT_SYSTEM_PROMPT
         if not DEFAULT_CALC_CHAT_SYSTEM_PROMPT:
@@ -369,6 +390,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         domains_str = _get_specialized_domains_str(ToolDrawSpecialBase)
         delegation = DRAW_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        base = base.replace("{core_directives}", DRAW_CORE_DIRECTIVES)
 
         global DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
         if not DEFAULT_DRAW_CHAT_SYSTEM_PROMPT:
@@ -380,6 +402,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
         domains_str = _get_specialized_domains_str(ToolWriterSpecialBase)
         delegation = WRITER_SPECIALIZED_DELEGATION_TEMPLATE.format(domains=domains_str)
         base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
+        base = base.replace("{core_directives}", WRITER_CORE_DIRECTIVES)
 
         # update the static variable once it's lazily generated so tests and imports works
         global DEFAULT_CHAT_SYSTEM_PROMPT
@@ -404,6 +427,7 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     return base
 
 
+# Prepend these in venv_sandbox when the module is available and not already imported.
 AUTO_IMPORTS: dict[str, str] = {
     "numpy": "import numpy as np",
     "pandas": "import pandas as pd",

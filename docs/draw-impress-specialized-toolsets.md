@@ -54,8 +54,17 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `edit_chart` | `charts.py` | Drawing+Presentation | Modify a chart |
 | `delete_chart` | `charts.py` | Drawing+Presentation | Remove a chart |
 | `delegate_to_specialized_draw_toolset` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
+| `transform_document_structure` | `transform.py` | Drawing+Presentation | Collabora-compatible JSON `SlideCommands` batch (see below) |
 
 > ✅ **Fixed**: All applicable tools now correctly include both `DrawingDocument` and `PresentationDocument` in their `uno_services` declarations where appropriate. Tools marked "Impress only" correctly use `PresentationDocument` only.
+
+#### `transform_document_structure` (Collabora DSL)
+
+Batch Impress edits via one JSON payload: `{"Transforms": {"SlideCommands": [...]}}`. Canonical command reference: [Collabora `DocumentToolDescriptions.hpp`](https://github.com/CollaboraOnline/online/blob/master/wsd/DocumentToolDescriptions.hpp) (`TRANSFORM_PARAM_DESCRIPTION`). WriterAgent maps the same names in [`plugin/draw/transform_schema.py`](../plugin/draw/transform_schema.py) and applies them in-process via [`transform_engine.py`](../plugin/draw/transform_engine.py) (desktop LibreOffice has no `.uno:TransformDocumentStructure`).
+
+**Supported in V1:** navigation, slide insert/delete/duplicate/move/rename, `ChangeLayoutByName` / `ChangeLayout`, `SetText.N`, `EditTextObject.N` (with nested `UnoCommand`), top-level document `UnoCommand`.
+
+**Not yet:** `GenerateImage.N`, `MarkObject`, Writer/Calc `ContentControls`, user approval (`summary` parameter is accepted but ignored).
 
 **`add_slide` and the active slide:** After inserting a page, [`DrawBridge.create_slide`](plugin/draw/bridge.py) calls the document controller’s `setCurrentPage` on the new slide when the UNO interface supports it. LibreOffice’s `insertNewByIndex` alone does not reliably move the current page; activating the new slide keeps `create_shape` and other tools that default to `getCurrentPage()` aligned with what the user (and agent) expect.
 
