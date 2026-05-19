@@ -98,7 +98,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test test-run typecheck check-ext check-setup deploy \
+        log log-tail lo-log test test-run test-visible typecheck check-ext check-setup deploy \
         lo-start-log \
         writer calc draw impress \
         set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
@@ -151,6 +151,7 @@ help:
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run ty, mypy, pyright, bandit, then pytest + in-process LO tests"
 	@echo "  make test-run               Pytest + LO tests only (skip typecheck/bandit; for quick reruns)"
+	@echo "  make test-visible           Run LO chart tests visibly (with GUI window) to execute OLE event queue"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
 	@echo "  make check                  Quick gate: ty only (also used implicitly before fast workflows)"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
@@ -223,7 +224,7 @@ release:
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --strip --output build/test-stripped.oxt
 	@echo "Running tests against stripped bundle..."
 	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=tests/scripts --ignore=tests/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py tests
-	cd build/bundle && PYTHONPATH=. $(LO_PYTHON) -m plugin.testing_runner
+	cd build/bundle && PYTHONPATH=. $(LO_PYTHON) -m plugin.testing_runner --visible
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
 
@@ -426,6 +427,9 @@ typecheck: manifest
 test-run:
 	$(PYTHON) -m pytest tests
 	$(LO_PYTHON) -m plugin.testing_runner
+
+test-visible:
+	$(LO_PYTHON) -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno
 
 test:
 	@$(MAKE) typecheck

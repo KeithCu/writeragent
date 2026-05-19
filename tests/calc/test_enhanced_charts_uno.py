@@ -23,7 +23,8 @@ _draw_doc = None
 def setup_docs(ctx):
     global _calc_doc, _writer_doc, _draw_doc
     desktop = get_desktop(ctx)
-    props = (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True),)
+    from plugin.testing_runner import show_window
+    props = (uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=not show_window),)
 
     _calc_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, props)
     _writer_doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, props)
@@ -152,7 +153,9 @@ def test_writer_chart_polymorphic():
     assert "PieDiagram" in info.get("diagram_type", "")
 
 
-@unittest.skip("Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
+from plugin.testing_runner import show_window
+
+@unittest.skipIf(not show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
 @native_test
 def test_draw_chart_polymorphic():
     # 1. Create in Draw

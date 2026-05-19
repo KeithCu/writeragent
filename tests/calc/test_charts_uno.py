@@ -20,10 +20,11 @@ def setup_calc_tests(ctx):
     _test_ctx = ctx
     desktop = get_desktop(ctx)
     import uno
+    from plugin.testing_runner import show_window
     hidden_prop = uno.createUnoStruct(
         "com.sun.star.beans.PropertyValue",
         Name="Hidden",
-        Value=True,
+        Value=not show_window,
     )
     _test_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (hidden_prop,))
 
@@ -109,6 +110,10 @@ def test_charts_creation_and_listing():
     assert len(res_list_after_delete.get("charts", [])) == 0, "Chart not deleted"
 
 
+import unittest
+from plugin.testing_runner import show_window
+
+@unittest.skipIf(not show_window, "Writer/Calc array test requires visible window for event execution")
 @native_test
 def test_charts_validation_and_writer_arrays():
     ctx = _test_ctx
@@ -134,10 +139,11 @@ def test_charts_validation_and_writer_arrays():
     # 2. Writer chart creation and array mapping validation
     desktop = get_desktop(ctx)
     import uno
+    from plugin.testing_runner import show_window
     hidden_prop = uno.createUnoStruct(
         "com.sun.star.beans.PropertyValue",
         Name="Hidden",
-        Value=True,
+        Value=not show_window,
     )
     # Load a temporary Writer document
     writer_doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))

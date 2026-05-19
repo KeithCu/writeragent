@@ -243,19 +243,32 @@ Users and the LLM run Python from Calc via **`=PYTHON()`**. Same runner as **`ru
 
 ### Formula parameters
 
-IDL: `string python( [in] string code, [in] any data );` in [`extension/idl/XPromptFunction.idl`](../extension/idl/XPromptFunction.idl). Rebuild [`extension/XPromptFunction.rdb`](../extension/XPromptFunction.rdb) after IDL changes (`scripts/rebuild_xprompt_rdb.sh`).
+IDL: `any python( [in] string code, [in] any data );` in [`extension/idl/XPromptFunction.idl`](../extension/idl/XPromptFunction.idl). Rebuild [`extension/XPromptFunction.rdb`](../extension/XPromptFunction.rdb) after IDL changes (`scripts/rebuild_xprompt_rdb.sh`).
 
 | Arg | Name | Required | Role |
 |-----|------|----------|------|
-| 0 | `code` | Yes | Python source; assign cell value to **`result`** |
+| 0 | `code` | Yes | Python source; evaluated result is returned |
 | 1 | `data` | No | Optional range → variable **`data`** ([Data handoff](#data-handoff-and-shaping)) |
+
+### Return Types and Matrix (Array) Formulas
+
+Since the return type is declared as `any`, `=PYTHON()` functions as a union type:
+* **Scalar Return (Direct / No Spilling)**:
+  If your Python code evaluates to a single value (string, float, int, bool), `=PYTHON` returns it as a scalar. Calc simply displays it in the formula cell normally.
+* **Matrix Return (Array / Multi-Cell Spill)**:
+  If your Python code evaluates to a list/sequence (e.g. `[2, 3, 5, 7]`), it is formatted as a 2D tuple matrix of tuples. 
+  To spill this data across multiple adjacent cells:
+  1. Select the target range of cells (e.g. `B1:B10`).
+  2. Type your formula, e.g. `=PYTHON("[sp.prime(int(x)) for x in data]"; A1:A10)`.
+  3. Press **`Ctrl + Shift + Enter`** to enter it as a native **Matrix Formula**. Calc will spill the returned elements down the selected column!
 
 ### Usage
 
 ```text
-=PYTHON("result = 3 ** 8")
-=PYTHON("result = sum(data)", A1:A10)
-=PYTHON("import numpy as np; result = float(np.sum(data))", A1:C10)
+=PYTHON("3 ** 8")
+=PYTHON("np.mean(data)"; A1:A10)
+=PYTHON("[sp.prime(int(x)) for x in data]"; A1:A10)  (Enter as Matrix Formula via Ctrl+Shift+Enter)
+=PYTHON("import pandas as pd; df = pd.DataFrame(data); df[0].mean()"; A1:C10)
 ```
 
 ### How it runs

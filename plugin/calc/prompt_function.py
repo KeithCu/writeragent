@@ -198,7 +198,16 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
                     return f"Error: {size_err}"
             res = run_blocking_in_thread(self.ctx, run_code_in_user_venv, self.ctx, code, data=py_data)
             if res.get("status") == "ok":
-                return res.get("result")
+                result = res.get("result")
+                if isinstance(result, (list, tuple)):
+                    if not result:
+                        return ((),)
+                    first = result[0]
+                    if isinstance(first, (list, tuple)):
+                        return tuple(tuple(row) for row in result)
+                    else:
+                        return tuple((val,) for val in result)
+                return result
             else:
                 return f"Error: {res.get('message') or res.get('error')}"
         except Exception as e:

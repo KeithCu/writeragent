@@ -17,6 +17,10 @@ from typing import Any, Callable, Dict, List
 
 log = logging.getLogger(__name__)
 
+# Flag to run UNO chart tests with visible window rather than hidden
+show_window: bool = False
+
+
 
 def native_test(func):
     """Decorator to mark a function as a test in the native test runner.
@@ -248,7 +252,14 @@ def run_all_tests(ctx: Any) -> str:
         # Gather all candidates
         test_candidates = []
         import sys
-        filter_str = sys.argv[1] if len(sys.argv) > 1 else ""
+        filter_strs = []
+        for arg in sys.argv[1:]:
+            if arg in ("--visible", "--show-window"):
+                import plugin.testing_runner
+                plugin.testing_runner.show_window = True
+            else:
+                filter_strs.append(arg)
+
         for root, dirs, files in os.walk(tests_root):
             for filename in files:
                 if not filename.endswith(".py"):
@@ -262,7 +273,7 @@ def run_all_tests(ctx: Any) -> str:
                 is_uno_test = "_uno.py" in filename or "uno" in root.split(os.sep)
                 if is_uno_test:
                     full_path = os.path.join(root, filename)
-                    if not filter_str or filter_str in full_path or filter_str in filename:
+                    if not filter_strs or any(f in full_path or f in filename for f in filter_strs):
                         test_candidates.append(full_path)
 
         for module_path in sorted(test_candidates):

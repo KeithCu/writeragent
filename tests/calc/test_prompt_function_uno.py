@@ -67,3 +67,15 @@ def test_prompt_function_python_execution():
         mock_run.return_value = {"status": "error", "message": "Syntax error"}
         res = func.python("bad code")
         assert "Error: Syntax error" in res
+
+        # 1D array return matrix formatting
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
+        res = func.python("some code")
+        assert res == ((2,), (3,), (5,))
+
+        # 2D array return matrix formatting
+        mock_run.reset_mock()
+        mock_run.return_value = {"status": "ok", "result": [[2, 3], [5, 7]]}
+        res = func.python("some code")
+        assert res == ((2, 3), (5, 7))
