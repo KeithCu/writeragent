@@ -698,6 +698,7 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     def __init__(self, ctx):
         self.ctx = ctx
 
+    # Called externally by LibreOffice UNO framework; do not remove.
     def createUIElement(self, ResourceURL, Args):
         resource_url = ResourceURL
         args = Args
@@ -715,3 +716,5 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(ChatPanelFactory, "org.extension.writeragent.ChatPanelFactory", ("com.sun.star.ui.UIElementFactory",))
+
+# Reviewed for Remove unused createUIElement function: no changes needed.
