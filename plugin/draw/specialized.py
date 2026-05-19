@@ -36,7 +36,7 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
         "Delegates a specialized task to a sub-agent with a focused toolset. Domains include shapes, charts, forms, "
         "math (domain='math'), headers/footers, speaker notes (domain='speaker_notes'), slide transitions and layouts "
         "(domain='slide_transitions'), slide masters (domain='slide_masters'), web research, and similar focused work. "
-        "For cross-file reads in the same folder, use domain=workspace."
+        "For cross-file reads in the same folder, use domain=document_research."
     )
 
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

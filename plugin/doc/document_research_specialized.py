@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Inner read-only sub-agent for workspace cross-document reads."""
+"""Inner read-only sub-agent for document_research cross-document reads."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
 from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.doc.nearby import close_workspace_document, open_document_for_read, resolve_path_or_name
+from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     domain_tools = registry.get_tools(doc=opened_model, doc_type=doc_type, names=list(allowlist), exclude_tiers=())
     missing = allowlist - {t.name for t in domain_tools if t.name}
     if missing:
-        log.warning("Inner workspace agent missing tools: %s", sorted(missing))
+        log.warning("Inner document_research agent missing tools: %s", sorted(missing))
 
     finish_tools = registry.get_tools(names=["specialized_workflow_finished"], exclude_tiers=())
     tools_by_name = {t.name: t for t in domain_tools + finish_tools if t.name}
@@ -81,7 +81,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     def tool_call_handler(step):
         cb = parent_ctx.append_thinking_callback
         if cb:
-            cb(f"Workspace read tool: {step.name}\n")
+            cb(f"Document research read tool: {step.name}\n")
         sc = parent_ctx.status_callback
         if sc:
             sc(f"Read: {step.name}...")
@@ -91,7 +91,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         task,
         tool_call_handler=tool_call_handler,
         stop_message="Document read stopped by user.",
-        error_prefix="Workspace read agent failed",
+        error_prefix="Document research read agent failed",
     )
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans
@@ -99,15 +99,15 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
 
 
 class DelegateReadDocument(ToolBase):
-    """Outer workspace tool: open a sibling file and run the inner read-only sub-agent."""
+    """Outer document_research tool: open a sibling file and run the inner read-only sub-agent."""
 
     name = "delegate_read_document"
     description = (
         "Open a nearby file by path or basename (read-only, hidden) and run a read-only sub-agent "
-        "with production read tools for that file type. Returns extracted data to the workspace orchestrator."
+        "with production read tools for that file type. Returns extracted data to the document_research orchestrator."
     )
     tier = "specialized"
-    specialized_domain: ClassVar[str | None] = "workspace"
+    specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
     is_mutation = False
     long_running = True
@@ -137,14 +137,14 @@ class DelegateReadDocument(ToolBase):
                 return self._tool_error(url_or_err or "Could not resolve file", details={"path_or_name": path_or_name})
 
             target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
-            model, doc_type, err, opened_for_workspace = open_document_for_read(ctx.ctx, target)
+            model, doc_type, err, opened_for_document_research = open_document_for_read(ctx.ctx, target)
             if model is None or doc_type is None:
                 return self._tool_error(err or "Open failed", details={"path": path})
 
             try:
                 result = run_inner_read_agent(ctx, model, doc_type, str(task))
             finally:
-                close_workspace_document(model, opened_for_workspace=opened_for_workspace)
+                close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
             if isinstance(result, dict) and result.get("status") == "error":
                 return result

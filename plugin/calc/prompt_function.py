@@ -157,33 +157,16 @@ class _WorkerResultSession:
         self.next_index = 0
 
 
-def _get_or_create_worker_session(ctx, code: str, worker_data, res: dict):
-    """Reuse one successful list worker result for repeated add-in calls (matrix fill)."""
-    if res.get("status") != "ok":
-        return None
-    result = res.get("result")
-    if not isinstance(result, (list, tuple)):
-        return None
-    flat = [to_calc_compatible(v) for v in _flatten_result_values(result)]
-    sessions = getattr(_MATRIX_SCALAR_SESSIONS, "sessions", None)
-    if sessions is None:
-        _MATRIX_SCALAR_SESSIONS.sessions = {}
-        sessions = _MATRIX_SCALAR_SESSIONS.sessions
-    key = (_session_key(ctx, code), repr(worker_data))
-    state = sessions.get(key)
-    if not isinstance(state, _WorkerResultSession) or state.flat != tuple(flat):
-        state = _WorkerResultSession(result, flat)
-        sessions[key] = state
-    return state
-
-
 def _scalar_for_list_result(ctx, code: str, result, *, worker_data=None) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
     flat: list = [to_calc_compatible(v) for v in _flatten_result_values(result)]
     if not flat:
         return ""
     key = (_session_key(ctx, code), repr(worker_data))
-    sessions = getattr(_MATRIX_SCALAR_SESSIONS, "sessions", None) or {}
+    sessions = getattr(_MATRIX_SCALAR_SESSIONS, "sessions", None)
+    if sessions is None:
+        sessions = {}
+        _MATRIX_SCALAR_SESSIONS.sessions = sessions
     state = sessions.get(key)
     if not isinstance(state, _WorkerResultSession) or state.flat != tuple(flat):
         state = _WorkerResultSession(result, flat)
@@ -361,14 +344,16 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
                     return ret
             # Synchronous: =PYTHON() runs during Calc recalc; UI event pumping from
             # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
-            sessions = getattr(_MATRIX_SCALAR_SESSIONS, "sessions", None) or {}
+            sessions = getattr(_MATRIX_SCALAR_SESSIONS, "sessions", None)
+            if sessions is None:
+                sessions = {}
+                _MATRIX_SCALAR_SESSIONS.sessions = sessions
             cache_key = (_session_key(self.ctx, code), repr(worker_data))
             cached = sessions.get(cache_key)
             if isinstance(cached, _WorkerResultSession) and cached.next_index < len(cached.flat):
                 res = {"status": "ok", "result": cached.raw}
             else:
                 res = run_code_in_user_venv(self.ctx, code, data=worker_data)
-                _get_or_create_worker_session(self.ctx, code, worker_data, res)
             log.debug("PYTHON res from worker: %r", res)
             if res.get("status") == "ok":
                 result = res.get("result")

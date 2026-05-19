@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Same-folder file discovery and hidden read-only document open for workspace delegation."""
+"""Same-folder file discovery and hidden read-only document open for document_research delegation."""
 
 from __future__ import annotations
 
@@ -289,7 +289,7 @@ def list_nearby_files(
     filter: str | None = None,
     max_entries: int = _DEFAULT_MAX_ENTRIES,
 ) -> dict[str, Any]:
-    """List nearby office files for the outer workspace agent.
+    """List nearby office files for the outer document_research agent.
 
     Returns a dict with ``files``, ``truncated``, and optional ``listing_root``.
     """
@@ -388,9 +388,9 @@ def _document_type_to_string(doc_type: DocumentType) -> str:
 def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str | None, str | None, bool]:
     """Open or reuse a document hidden+read-only.
 
-    Returns (model, doc_type, error_message, opened_for_workspace). The last flag is True only
+    Returns (model, doc_type, error_message, opened_for_document_research). The last flag is True only
     when this call loaded a new hidden document; callers must pass it to
-    :func:`close_workspace_document` after the read finishes. Reused desktop documents are not closed.
+    :func:`close_document_research_document` after the read finishes. Reused desktop documents are not closed.
     """
     from plugin.framework.uno_context import get_desktop
 
@@ -431,17 +431,17 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         return None, None, f"Failed to open {path}: {e}", False
 
 
-def close_workspace_document(model: Any, *, opened_for_workspace: bool) -> None:
-    """Close a sibling document opened by :func:`open_document_for_read` for workspace read.
+def close_document_research_document(model: Any, *, opened_for_document_research: bool) -> None:
+    """Close a sibling document opened by :func:`open_document_for_read` for document_research read.
 
     Bugfix: without this, repeated delegate_read_document calls leave hidden LO components open.
-    Only closes when *opened_for_workspace* is True (not when reusing a user-visible open doc).
+    Only closes when *opened_for_document_research* is True (not when reusing a user-visible open doc).
     """
-    if not opened_for_workspace or model is None:
+    if not opened_for_document_research or model is None:
         return
     try:
         close_fn = getattr(model, "close", None)
         if callable(close_fn):
             close_fn(True)
     except Exception:
-        log.exception("Failed to close workspace read document")
+        log.exception("Failed to close document_research read document")

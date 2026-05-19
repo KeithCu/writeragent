@@ -141,7 +141,7 @@ class ToolContext:
         approval_callback: Optional callable for human-in-the-loop approval.
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
         set_active_domain_callback: Optional callable to update the active domain.
-        read_only_target: When True, mutation tools are rejected (workspace sibling reads).
+        read_only_target: When True, mutation tools are rejected (document_research sibling reads).
     """
 
     doc: Any
@@ -705,7 +705,7 @@ class ToolRegistry:
             if getattr(ctx, "read_only_target", False) and tool.detects_mutation():
                 return format_error_payload(
                     ToolExecutionError(
-                        "This document is open for read-only workspace access; writes are not allowed.",
+                        "This document is open for read-only document_research access; writes are not allowed.",
                         code="READ_ONLY_TARGET",
                         details=common_details,
                     )

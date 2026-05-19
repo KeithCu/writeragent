@@ -51,10 +51,10 @@ class ToolCalcWebResearchBase(ToolCalcSpecialBase):
     specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the spreadsheet."
 
 
-class ToolCalcWorkspaceBase(ToolCalcSpecialBase):
-    specialized_domain = "workspace"
+class ToolCalcDocumentResearchBase(ToolCalcSpecialBase):
+    specialized_domain = "document_research"
     specialized_domain_description: ClassVar[str | None] = (
-        "Read other files in the same folder as this spreadsheet via workspace delegation."
+        "Read other files in the same folder as this spreadsheet via document_research delegation."
     )
 
 

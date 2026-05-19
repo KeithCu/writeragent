@@ -44,10 +44,10 @@ class ToolDrawWebResearchBase(ToolDrawSpecialBase):
     specialized_domain_description: ClassVar[str | None] = "Search the web for information to help with the drawing or presentation."
 
 
-class ToolDrawWorkspaceBase(ToolDrawSpecialBase):
-    specialized_domain: ClassVar[str | None] = "workspace"
+class ToolDrawDocumentResearchBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "document_research"
     specialized_domain_description: ClassVar[str | None] = (
-        "Read other files in the same folder as this drawing via workspace delegation."
+        "Read other files in the same folder as this drawing via document_research delegation."
     )
 
 

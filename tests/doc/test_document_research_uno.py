@@ -1,6 +1,6 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
-"""UNO tests for workspace nearby file discovery and read-only open."""
+"""UNO tests for document_research nearby file discovery and read-only open."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import tempfile
 
 import uno
 
-from plugin.doc.nearby import list_nearby_files, open_document_for_read
+from plugin.doc.document_research import list_nearby_files, open_document_for_read
 from plugin.framework.tool import ToolContext
 from plugin.framework.uno_context import get_desktop
 from plugin.main import get_services, get_tools
@@ -82,11 +82,11 @@ def test_list_nearby_excludes_active():
 
 @native_test
 def test_open_document_for_read_hidden_readonly():
-    model, doc_type, err, opened_for_workspace = open_document_for_read(_test_ctx, _budget_path)
+    model, doc_type, err, opened_for_document_research = open_document_for_read(_test_ctx, _budget_path)
     assert err is None
     assert doc_type == "calc"
     assert model is not None
-    assert opened_for_workspace is True
+    assert opened_for_document_research is True
     try:
         sheet = model.Sheets.getByIndex(0)
         val = sheet.getCellByPosition(1, 1).getValue()
@@ -100,7 +100,7 @@ def test_open_document_for_read_hidden_readonly():
 
 @native_test
 def test_inner_read_cell_range_on_opened_sibling():
-    """Outer workspace path opens sibling; inner uses read_cell_range (no live LLM)."""
+    """Outer document_research path opens sibling; inner uses read_cell_range (no live LLM)."""
     model, doc_type, err, _opened = open_document_for_read(_test_ctx, _budget_path)
     assert err is None and doc_type == "calc"
     try:

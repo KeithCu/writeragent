@@ -1,6 +1,6 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
-"""Tests for workspace delegation and read-only enforcement."""
+"""Tests for document_research delegation and read-only enforcement."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from unittest.mock import MagicMock, patch
 
 from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.contrib.smolagents.memory import FinalAnswerStep
-from plugin.doc.nearby_specialized import DelegateReadDocument, run_inner_read_agent
+from plugin.doc.document_research_specialized import DelegateReadDocument, run_inner_read_agent
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
-from plugin.doc.nearby_tools import ListNearbyFiles
+from plugin.doc.document_research_tools import ListNearbyFiles
 
 
 class _MutatingTool(ToolBase):
@@ -27,31 +27,31 @@ class _MutatingTool(ToolBase):
         return {"status": "ok"}
 
 
-def _workspace_domains(gateway):
+def _document_research_domains(gateway):
     return gateway.parameters["properties"]["domain"]["enum"]
 
 
-def test_workspace_in_writer_delegate_enum():
+def test_document_research_in_writer_delegate_enum():
     gw = DelegateToSpecializedWriter()
-    assert "workspace" in _workspace_domains(gw)
+    assert "document_research" in _document_research_domains(gw)
 
 
-def test_workspace_in_calc_delegate_enum():
+def test_document_research_in_calc_delegate_enum():
     gw = DelegateToSpecializedCalc()
-    assert "workspace" in _workspace_domains(gw)
+    assert "document_research" in _document_research_domains(gw)
 
 
-def test_workspace_in_draw_delegate_enum():
+def test_document_research_in_draw_delegate_enum():
     gw = DelegateToSpecializedDraw()
-    assert "workspace" in _workspace_domains(gw)
+    assert "document_research" in _document_research_domains(gw)
 
 
-def test_workspace_tools_registered_with_cross_cutting():
+def test_document_research_tools_registered_with_cross_cutting():
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
     r.register(DelegateReadDocument())
     r.register(SpecializedWorkflowFinished())
-    tools = r.get_tools(doc=MagicMock(), active_domain="workspace", exclude_tiers=())
+    tools = r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())
     names = {t.name for t in tools}
     assert "list_nearby_files" in names
     assert "delegate_read_document" in names
@@ -59,15 +59,15 @@ def test_workspace_tools_registered_with_cross_cutting():
 
 
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", False)
-def test_workspace_requires_sub_agent_when_disabled():
+def test_document_research_requires_sub_agent_when_disabled():
     r = ToolRegistry(services={})
     r.register(DelegateToSpecializedWriter())
     gw = r.get("delegate_to_specialized_writer_toolset")
     ctx = MagicMock()
     ctx.services = {"tools": r}
-    result = gw.execute_safe(ctx, domain="workspace", task="read budget")
+    result = gw.execute_safe(ctx, domain="document_research", task="read budget")
     assert result["status"] == "error"
-    assert "WORKSPACE_REQUIRES_SUB_AGENT" in result.get("code", "") or "sub-agent" in result.get("message", "").lower()
+    assert "DOCUMENT_RESEARCH_REQUIRES_SUB_AGENT" in result.get("code", "") or "sub-agent" in result.get("message", "").lower()
 
 
 def test_read_only_target_blocks_mutation_in_registry():
@@ -89,7 +89,7 @@ def test_read_only_target_blocks_mutation_in_registry():
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-def test_workspace_outer_delegation_gets_workspace_tools(
+def test_document_research_outer_delegation_gets_document_research_tools(
     mock_llm,
     mock_smol_model,
     mock_agent_class,
@@ -115,7 +115,7 @@ def test_workspace_outer_delegation_gets_workspace_tools(
     ctx.stop_checker = lambda: False
 
     gw = r.get("delegate_to_specialized_writer_toolset")
-    result = gw.execute_safe(ctx, domain="workspace", task="Find Q4 in budget")
+    result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
     assert result["status"] == "ok"
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
@@ -123,8 +123,8 @@ def test_workspace_outer_delegation_gets_workspace_tools(
     assert "delegate_read_document" in names
 
 
-@patch("plugin.doc.nearby_specialized.build_toolcalling_agent")
-@patch("plugin.doc.nearby_specialized.SmolAgentExecutor")
+@patch("plugin.doc.document_research_specialized.build_toolcalling_agent")
+@patch("plugin.doc.document_research_specialized.SmolAgentExecutor")
 def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent):
     mock_agent = MagicMock()
     mock_build_agent.return_value = mock_agent
@@ -156,10 +156,10 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
     assert inner_ctx.read_only_target is True
 
 
-@patch("plugin.doc.nearby_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
-@patch("plugin.doc.nearby_specialized.close_workspace_document")
-@patch("plugin.doc.nearby_specialized.open_document_for_read")
-@patch("plugin.doc.nearby_specialized.resolve_path_or_name")
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
 @patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_does_not_use_delegate_gateway(
     mock_main,
@@ -184,14 +184,14 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
     assert result["status"] == "ok"
     assert result["result"] == "42"
     mock_inner.assert_called_once()
-    mock_close.assert_called_once_with(opened_model, opened_for_workspace=True)
+    mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
     assert not isinstance(tool, DelegateToSpecializedBase)
 
 
-@patch("plugin.doc.nearby_specialized.run_inner_read_agent", return_value={"status": "error", "message": "inner failed"})
-@patch("plugin.doc.nearby_specialized.close_workspace_document")
-@patch("plugin.doc.nearby_specialized.open_document_for_read")
-@patch("plugin.doc.nearby_specialized.resolve_path_or_name")
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "error", "message": "inner failed"})
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
 @patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_closes_after_inner_error(
     mock_main,
@@ -213,13 +213,13 @@ def test_delegate_read_document_closes_after_inner_error(
 
     result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
     assert result["status"] == "error"
-    mock_close.assert_called_once_with(opened_model, opened_for_workspace=True)
+    mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
 
 
-@patch("plugin.doc.nearby_specialized.run_inner_read_agent", return_value="42")
-@patch("plugin.doc.nearby_specialized.close_workspace_document")
-@patch("plugin.doc.nearby_specialized.open_document_for_read")
-@patch("plugin.doc.nearby_specialized.resolve_path_or_name")
+@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value="42")
+@patch("plugin.doc.document_research_specialized.close_document_research_document")
+@patch("plugin.doc.document_research_specialized.open_document_for_read")
+@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
 @patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_skips_close_when_reusing_open_doc(
     mock_main,
@@ -241,4 +241,4 @@ def test_delegate_read_document_skips_close_when_reusing_open_doc(
 
     result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
     assert result["status"] == "ok"
-    mock_close.assert_called_once_with(reused_model, opened_for_workspace=False)
+    mock_close.assert_called_once_with(reused_model, opened_for_document_research=False)

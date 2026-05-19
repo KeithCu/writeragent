@@ -1,6 +1,6 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
-"""Unit tests for plugin.doc.nearby."""
+"""Unit tests for plugin.doc.document_research."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.doc.nearby import (
+from plugin.doc.document_research import (
     NEARBY_FILE_EXTENSIONS,
-    close_workspace_document,
+    close_document_research_document,
     guess_doc_type_from_path,
     get_document_directory,
     get_work_directory,
@@ -36,7 +36,7 @@ def test_get_document_directory():
         with open(report, "wb"):
             pass
         model = MagicMock()
-        with patch("plugin.doc.nearby.get_document_path", return_value=report):
+        with patch("plugin.doc.document_research.get_document_path", return_value=report):
             assert get_document_directory(model) == tmp
 
 
@@ -58,9 +58,9 @@ def test_list_nearby_files_scandir_sort_exclude_self():
 
         model = MagicMock()
         ctx = MagicMock()
-        with patch("plugin.doc.nearby.get_document_path", return_value=active):
-            with patch("plugin.doc.nearby._collect_open_file_urls", return_value={}):
-                with patch("plugin.doc.nearby.resolve_listing_directory", return_value=tmp):
+        with patch("plugin.doc.document_research.get_document_path", return_value=active):
+            with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
+                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
                     result = list_nearby_files(ctx, model)
 
         assert result["status"] == "ok"
@@ -81,9 +81,9 @@ def test_list_nearby_files_filter():
                 pass
         model = MagicMock()
         ctx = MagicMock()
-        with patch("plugin.doc.nearby.get_document_path", return_value=None):
-            with patch("plugin.doc.nearby._collect_open_file_urls", return_value={}):
-                with patch("plugin.doc.nearby.resolve_listing_directory", return_value=tmp):
+        with patch("plugin.doc.document_research.get_document_path", return_value=None):
+            with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
+                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
                     result = list_nearby_files(ctx, model, filter="budget")
         assert result["status"] == "ok"
         assert [f["name"] for f in result["files"]] == ["Budget.ods"]
@@ -96,9 +96,9 @@ def test_list_nearby_truncated():
                 pass
         model = MagicMock()
         ctx = MagicMock()
-        with patch("plugin.doc.nearby.get_document_path", return_value=None):
-            with patch("plugin.doc.nearby._collect_open_file_urls", return_value={}):
-                with patch("plugin.doc.nearby.resolve_listing_directory", return_value=tmp):
+        with patch("plugin.doc.document_research.get_document_path", return_value=None):
+            with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
+                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=tmp):
                     result = list_nearby_files(ctx, model, max_entries=2)
         assert result["truncated"] is True
         assert len(result["files"]) == 2
@@ -116,8 +116,8 @@ def test_get_work_directory():
 def test_resolve_listing_directory_prefers_saved_parent():
     model = MagicMock()
     ctx = MagicMock()
-    with patch("plugin.doc.nearby.get_document_directory", return_value="/saved/parent"):
-        with patch("plugin.doc.nearby.get_work_directory") as work:
+    with patch("plugin.doc.document_research.get_document_directory", return_value="/saved/parent"):
+        with patch("plugin.doc.document_research.get_work_directory") as work:
             assert resolve_listing_directory(ctx, model) == "/saved/parent"
             work.assert_not_called()
 
@@ -125,8 +125,8 @@ def test_resolve_listing_directory_prefers_saved_parent():
 def test_resolve_listing_directory_work_fallback():
     model = MagicMock()
     ctx = MagicMock()
-    with patch("plugin.doc.nearby.get_document_directory", return_value=None):
-        with patch("plugin.doc.nearby.get_work_directory", return_value="/work/dir"):
+    with patch("plugin.doc.document_research.get_document_directory", return_value=None):
+        with patch("plugin.doc.document_research.get_work_directory", return_value="/work/dir"):
             assert resolve_listing_directory(ctx, model) == "/work/dir"
 
 
@@ -136,40 +136,40 @@ def test_nearby_extensions_constant():
     assert ".tmp" not in NEARBY_FILE_EXTENSIONS
 
 
-def test_close_workspace_document_skips_reused_open():
+def test_close_document_research_document_skips_reused_open():
     model = MagicMock()
-    close_workspace_document(model, opened_for_workspace=False)
+    close_document_research_document(model, opened_for_document_research=False)
     model.close.assert_not_called()
 
 
-def test_close_workspace_document_closes_temporary_open():
+def test_close_document_research_document_closes_temporary_open():
     model = MagicMock()
-    close_workspace_document(model, opened_for_workspace=True)
+    close_document_research_document(model, opened_for_document_research=True)
     model.close.assert_called_once_with(True)
 
 
-@patch("plugin.doc.nearby.resolve_document_by_url", return_value=(MagicMock(), "calc"))
-@patch("plugin.doc.nearby.os.path.isfile", return_value=True)
+@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(MagicMock(), "calc"))
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, mock_resolve):
-    model, doc_type, err, opened_for_workspace = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
+    model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
     assert err is None
     assert doc_type == "calc"
-    assert opened_for_workspace is False
+    assert opened_for_document_research is False
     mock_resolve.assert_called_once()
 
 
-@patch("plugin.doc.nearby.get_document_type")
+@patch("plugin.doc.document_research.get_document_type")
 @patch("plugin.framework.uno_context.get_desktop")
-@patch("plugin.doc.nearby.resolve_document_by_url", return_value=(None, None))
-@patch("plugin.doc.nearby.os.path.isfile", return_value=True)
+@patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
+@patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
     from plugin.doc.document_helpers import DocumentType
 
     opened_model = MagicMock()
     mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
     mock_dtype.return_value = DocumentType.CALC
-    model, doc_type, err, opened_for_workspace = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
+    model, doc_type, err, opened_for_document_research = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
     assert err is None
     assert doc_type == "calc"
     assert model is opened_model
-    assert opened_for_workspace is True
+    assert opened_for_document_research is True

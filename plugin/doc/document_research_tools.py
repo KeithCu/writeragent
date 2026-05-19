@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Workspace outer-agent tools: list nearby files in the same folder."""
+"""Document research outer-agent tools: list nearby files in the same folder."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.doc.nearby import list_nearby_files
+from plugin.doc.document_research import list_nearby_files
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class ListNearbyFiles(ToolBase):
         "Excludes the active file. Optional filter is a case-insensitive substring on the basename."
     )
     tier = "specialized"
-    specialized_domain: ClassVar[str | None] = "workspace"
+    specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
     is_mutation = False
     parameters = {

@@ -14,7 +14,7 @@ class CommonModule(ModuleBase):
     def initialize(self, services):
         self.services = services
 
-        from . import diagnostics, nearby_specialized, nearby_tools, print_doc, undo
+        from . import diagnostics, document_research_specialized, document_research_tools, print_doc, undo
 
-        for module in (diagnostics, nearby_tools, nearby_specialized, print_doc, undo):
+        for module in (diagnostics, document_research_tools, document_research_specialized, print_doc, undo):
             services.tools.auto_discover(module)

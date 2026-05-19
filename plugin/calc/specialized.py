@@ -35,7 +35,7 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     description = (
         "Delegates a specialized task to a sub-agent with a focused toolset. Use this for complex Calc operations "
         "(images, pivot tables, form controls on the active sheet, track changes via domain=tracking, etc.). "
-        "For cross-file reads in the same folder, use domain=workspace."
+        "For cross-file reads in the same folder, use domain=document_research."
     )
 
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
