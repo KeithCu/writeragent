@@ -698,6 +698,7 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
     def __init__(self, ctx):
         self.ctx = ctx
 
+    # Called externally by LibreOffice UNO framework; do not remove.
     def createUIElement(self, ResourceURL, Args):
         resource_url = ResourceURL
         args = Args
