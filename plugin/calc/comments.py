@@ -5,26 +5,13 @@
 
 """Calc cell annotation (comment) tools."""
 
-from plugin.framework.errors import UnoObjectError
 import logging
 
 from plugin.calc.base import ToolCalcCommentBase
 from plugin.calc.address_utils import index_to_column, parse_range_string
+from plugin.calc.calc_utils import resolve_sheet
 
 log = logging.getLogger("nelson.calc")
-
-
-def _resolve_sheet(doc, sheet_name=None):
-    """Return the target sheet (by name or active)."""
-    if sheet_name:
-        sheets = doc.getSheets()
-        if not sheets.hasByName(sheet_name):
-            raise UnoObjectError("Sheet not found: %s" % sheet_name)
-        return sheets.getByName(sheet_name)
-    controller = doc.getCurrentController()
-    if hasattr(controller, "getActiveSheet"):
-        return controller.getActiveSheet()
-    return doc.getSheets().getByIndex(0)
 
 
 def _cell_label(col, row):
@@ -47,7 +34,7 @@ class ListCellComments(ToolCalcCommentBase):
 
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
-        sheet = _resolve_sheet(doc, kwargs.get("sheet_name"))
+        sheet = resolve_sheet(doc, kwargs.get("sheet_name"))
         annotations = sheet.getAnnotations()
         comments = []
         for i in range(annotations.getCount()):
@@ -77,7 +64,7 @@ class AddCellComment(ToolCalcCommentBase):
             return self._tool_error("cell and text are required.")
 
         doc = ctx.doc
-        sheet = _resolve_sheet(doc, kwargs.get("sheet_name"))
+        sheet = resolve_sheet(doc, kwargs.get("sheet_name"))
         col, row = _parse_cell_ref(cell_ref)
         cell = sheet.getCellByPosition(col, row)
 
@@ -115,7 +102,7 @@ class DeleteCellComment(ToolCalcCommentBase):
             return self._tool_error("cell is required.")
 
         doc = ctx.doc
-        sheet = _resolve_sheet(doc, kwargs.get("sheet_name"))
+        sheet = resolve_sheet(doc, kwargs.get("sheet_name"))
         col, row = _parse_cell_ref(cell_ref)
 
         annotations = sheet.getAnnotations()

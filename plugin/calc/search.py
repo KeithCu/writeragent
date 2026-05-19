@@ -5,25 +5,12 @@
 
 """Calc search tools: search_in_spreadsheet, replace_in_spreadsheet."""
 
-from plugin.framework.errors import UnoObjectError
 import logging
 
 from plugin.calc.base import ToolCalcSearchBase
+from plugin.calc.calc_utils import resolve_sheet
 
 log = logging.getLogger("nelson.calc")
-
-
-def _resolve_sheet(doc, sheet_name=None):
-    """Return the target sheet (by name or active)."""
-    if sheet_name:
-        sheets = doc.getSheets()
-        if not sheets.hasByName(sheet_name):
-            raise UnoObjectError("Sheet not found: %s" % sheet_name)
-        return sheets.getByName(sheet_name)
-    controller = doc.getCurrentController()
-    if hasattr(controller, "getActiveSheet"):
-        return controller.getActiveSheet()
-    return doc.getSheets().getByIndex(0)
 
 
 def _cell_address_str(cell):
@@ -71,7 +58,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             sheets_obj = doc.getSheets()
             targets = [(sheets_obj.getByName(n), n) for n in sheets_obj.getElementNames()]
         else:
-            sheet = _resolve_sheet(doc, kwargs.get("sheet_name"))
+            sheet = resolve_sheet(doc, kwargs.get("sheet_name"))
             targets = [(sheet, sheet.getName())]
 
         for sheet, sname in targets:
@@ -132,7 +119,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             sheets_obj = doc.getSheets()
             targets = [sheets_obj.getByName(n) for n in sheets_obj.getElementNames()]
         else:
-            targets = [_resolve_sheet(doc, kwargs.get("sheet_name"))]
+            targets = [resolve_sheet(doc, kwargs.get("sheet_name"))]
 
         for sheet in targets:
             rd = sheet.createReplaceDescriptor()
