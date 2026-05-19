@@ -265,14 +265,23 @@ LibreOffice Calc operates strictly on double-precision floats (`double`/`float`)
   - Lists and tuples are recursively converted to tuples of these Calc-supported types.
 
 #### 2. Normal (Single-Cell) Formulas vs. Matrix (Array) Formulas
-Depending on the Python return structure and Calc's cell formula context:
+Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolean) per `=PYTHON()` evaluation. It cannot receive a Python list/tuple as a native array return (that yields `#VALUE!` even with **Ctrl+Shift+Enter**).
 
-* **Scalar Return (Normal Enter)**:
-  If the Python code evaluates to a scalar (e.g., `3 ** 8` or a string `str([2, 3, 5])`), `=PYTHON()` returns it directly. Typing the formula and hitting **Enter** works perfectly and displays the result directly in a single cell.
-* **Matrix Return (Spill / Multi-Cell)**:
-  If the Python code evaluates to a list or tuple (e.g., `[sp.prime(x) for x in range(1000, 1006)]`), it represents a matrix. 
-  - To display this array, you **must** use Calc's native **Matrix Formula** mechanism by highlighting the target cell range (e.g. `A1:A6`), typing the formula, and pressing **`Ctrl + Shift + Enter`** (instead of just Enter). This tells Calc to allocate a grid block and distribute the returned 2D sequence elements across the selected range.
-  - *Note:* If a 2D sequence is returned to a normal single-cell formula without `Ctrl + Shift + Enter`, Calc will display a `#VALUE!` error because a single non-matrix cell is forbidden from holding an array. To view a 1D list in a single cell, wrap it in `str(...)` inside Python to return it as a single string scalar.
+* **Scalar return (Enter)** — e.g. `=PYTHON("result = 3 ** 8")` or `=PYTHON("result = str([2, 3, 5])")`.
+* **Multi-cell list results** — use a **matrix formula** over the target range and pass a **per-row index** as the optional 2nd argument:
+
+  1. Select the output range (e.g. `A1:A6`).
+  2. Enter (one formula for the block):
+
+     ```text
+     =PYTHON("result = [sp.prime(x) for x in range(1000, 1006)]"; ROW()-1)
+     ```
+
+  3. Confirm with **Ctrl+Shift+Enter** (curly braces `{=…}` in each cell of the block is normal).
+
+  Each cell passes its row offset; `PYTHON` returns one prime per cell. Without the index argument, repeated evaluations in the same recalc pass return successive list elements (best-effort; prefer the `ROW()` form for reliability).
+
+* **Single cell, full list as text** — `=PYTHON("result = str([1, 2, 3])")` + Enter.
 
 ### Usage
 
@@ -280,7 +289,7 @@ Depending on the Python return structure and Calc's cell formula context:
 =PYTHON("3 ** 8")
 =PYTHON("str([sp.prime(x) for x in range(1000, 1006)])")   (Returns as single-cell string)
 =PYTHON("np.mean(data)"; A1:A10)
-=PYTHON("[sp.prime(int(x)) for x in data]"; A1:A10)  (Enter as Matrix Formula via Ctrl+Shift+Enter)
+=PYTHON("result = [sp.prime(int(x)) for x in data]"; ROW()-1)  (matrix over column; Ctrl+Shift+Enter)
 =PYTHON("import pandas as pd; df = pd.DataFrame(data); df[0].mean()"; A1:C10)
 ```
 
