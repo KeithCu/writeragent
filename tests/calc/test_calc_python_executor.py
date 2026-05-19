@@ -86,14 +86,14 @@ def test_tool_integration():
     tool = ExecutePythonScript()
     
     # First call
-    res1 = tool.execute(ctx, script="val = 42")
+    res1 = tool.execute(ctx, code="val = 42")
     assert res1["status"] == "ok"
     assert res1["result"] == 42
     
     # Second call: fresh environment (no val from first call)
     from plugin.framework.errors import WriterAgentException
     with pytest.raises(WriterAgentException):
-        tool.execute(ctx, script="val + 8")
+        tool.execute(ctx, code="val + 8")
 
 def test_formatting():
     """format_result stringifies custom objects; class must live in executor env (same snippet)."""
@@ -141,7 +141,24 @@ def test_target_range_tool():
         inst = MockManip.return_value
         inst.write_formula_range.return_value = "Success"
         
-        res = tool.execute(ctx, script="10 + 20", target_range="D1")
+        res = tool.execute(ctx, code="10 + 20", target_range="D1")
         assert res["result"] == 30
         assert res["write_status"] == "Success"
         inst.write_formula_range.assert_called_with("D1", 30)
+
+def test_data_range_injection():
+    from plugin.calc.python_executor import ExecutePythonScript
+    tool = ExecutePythonScript()
+    
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+    
+    with unittest.mock.patch('plugin.calc.python_executor.CellInspector') as MockInspector:
+        inst = MockInspector.return_value
+        inst.read_range.return_value = [[{"value": 10}, {"value": 20}, {"value": 30}]]
+        
+        # Test passing data_range which is a row (gets flattened to flat list)
+        code = "result = 0\nfor x in data:\n    result += x\nresult"
+        res = tool.execute(ctx, code=code, data_range="A1:C1")
+        assert res["result"] == 60
+        inst.read_range.assert_called_with("A1:C1")

@@ -105,16 +105,18 @@ class ExecutePythonScript(ToolBaseDummy):
     parameters = {
         "type": "object",
         "properties": {
-            "script": {"type": "string", "description": "The Python code to execute."},
+            "code": {"type": "string", "description": "The Python code to execute."},
+            "data_range": {"type": "string", "description": "Optional cell range; values are injected as data (flat list for one row or column)."},
             "target_range": {"type": "string", "description": "Optional: Cell range (e.g. 'A1') to write the script result to."},
         },
-        "required": ["script"],
+        "required": ["code"],
     }
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        script = kwargs.get("script", "")
+        code = kwargs.get("code", "")
+        data_range = kwargs.get("data_range")
         target_range = kwargs.get("target_range")
 
         doc_url = ctx.doc.getURL() or "untitled"
@@ -125,7 +127,20 @@ class ExecutePythonScript(ToolBaseDummy):
         inspector = CellInspector(bridge)
         executor.inject_helpers(bridge, manipulator, inspector)
 
-        result = executor.execute_with_return(script)
+        # Inject data if data_range is provided
+        if data_range:
+            try:
+                raw_data = inspector.read_range(data_range)
+                py_data = [[cell["value"] for cell in row] for row in raw_data]
+                if len(py_data) == 1:
+                    py_data = py_data[0]
+                elif all(len(row) == 1 for row in py_data):
+                    py_data = [row[0] for row in py_data]
+                executor.executor.send_variables({"data": py_data})
+            except Exception as e:
+                logger.error("Failed to inject data_range %s: %s", data_range, e)
+
+        result = executor.execute_with_return(code)
 
         write_status = ""
         if target_range and result is not None:

@@ -107,3 +107,142 @@ def test_charts_creation_and_listing():
     # Verify deletion
     res_list_after_delete = _execute_calc_tool("manage_charts", {"action": "list"})
     assert len(res_list_after_delete.get("charts", [])) == 0, "Chart not deleted"
+
+
+@native_test
+def test_charts_validation_and_writer_arrays():
+    ctx = _test_ctx
+    # 1. Calc validation checks
+    # Create chart with headers/rows should fail in Calc
+    res = _execute_calc_tool("manage_charts", {
+        "action": "create",
+        "chart_type": "bar",
+        "headers": ["Month", "Sales"],
+        "rows": [["Jan", 100], ["Feb", 150]]
+    })
+    assert res.get("status") == "error"
+    assert "data_range is required for Calc charts" in res.get("message", "")
+
+    # Create chart without data_range should fail in Calc
+    res = _execute_calc_tool("manage_charts", {
+        "action": "create",
+        "chart_type": "bar"
+    })
+    assert res.get("status") == "error"
+    assert "data_range is required for Calc charts" in res.get("message", "")
+
+    # 2. Writer chart creation and array mapping validation
+    desktop = get_desktop(ctx)
+    import uno
+    hidden_prop = uno.createUnoStruct(
+        "com.sun.star.beans.PropertyValue",
+        Name="Hidden",
+        Value=True,
+    )
+    # Load a temporary Writer document
+    writer_doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+    try:
+        from plugin.main import get_tools, get_services
+        from plugin.framework.tool import ToolContext
+        writer_ctx = ToolContext(writer_doc, ctx, "writer", get_services(), "test")
+
+        # Create chart with data_range should fail in Writer due to missing headers/rows
+        res_fail = get_tools().execute("manage_charts", writer_ctx, action="create", chart_type="bar", data_range="A1:B6")
+        assert res_fail.get("status") == "error"
+        assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "")
+
+        # Create chart without headers/rows should fail in Writer
+        res_fail2 = get_tools().execute("manage_charts", writer_ctx, action="create", chart_type="bar")
+        assert res_fail2.get("status") == "error"
+        assert "Both 'headers' and 'rows' are required" in res_fail2.get("message", "")
+
+        # Create chart with headers and rows should succeed in Writer
+        headers = ["Month", "Sales", "Expenses"]
+        rows = [["Jan", 100, 80], ["Feb", 150, 110], ["Mar", 200, 130]]
+        res_ok = get_tools().execute(
+            "manage_charts", writer_ctx,
+            action="create",
+            chart_type="column",
+            headers=headers,
+            rows=rows,
+            title="Writer Chart"
+        )
+        assert res_ok.get("status") == "ok", f"Writer chart creation failed: {res_ok}"
+        chart_name = res_ok.get("chart_name")
+        assert chart_name is not None
+
+        # Query OLE2Shape in Writer document and verify XChartDataArray
+        objects = writer_doc.getEmbeddedObjects()
+        assert objects.hasByName(chart_name), f"Chart '{chart_name}' not found in embedded objects"
+        
+        chart_obj = objects.getByName(chart_name)
+        # Extract the chart document
+        from plugin.calc.charts import _chart_document_from_host
+        chart_doc = _chart_document_from_host(chart_obj)
+        assert chart_doc is not None, "Failed to get chart document from Writer OLE shape"
+
+        chart_data = chart_doc.getData()
+        assert chart_data is not None
+        
+        # Verify that categories (RowDescriptions) and series names (ColumnDescriptions) were set correctly
+        row_descriptions = chart_data.getRowDescriptions()
+        col_descriptions = chart_data.getColumnDescriptions()
+        data_matrix = chart_data.getData()
+
+        assert row_descriptions == ("Jan", "Feb", "Mar"), f"Row descriptions mismatch: {row_descriptions}"
+        assert col_descriptions == ("Sales", "Expenses"), f"Column descriptions mismatch: {col_descriptions}"
+        assert data_matrix == ((100.0, 80.0), (150.0, 110.0), (200.0, 130.0)), f"Data matrix mismatch: {data_matrix}"
+
+        # Edit chart and update data arrays via edit_chart
+        new_headers = ["Month", "Revenue"]
+        new_rows = [["Q1", 500.0], ["Q2", 600.0]]
+        res_edit = get_tools().execute(
+            "manage_charts", writer_ctx,
+            action="edit",
+            chart_name=chart_name,
+            headers=new_headers,
+            rows=new_rows,
+            title="Updated Revenue Chart"
+        )
+        assert res_edit.get("status") == "ok", f"Writer chart edit failed: {res_edit}"
+
+        # Verify the updated data arrays
+        row_desc_updated = chart_data.getRowDescriptions()
+        col_desc_updated = chart_data.getColumnDescriptions()
+        data_matrix_updated = chart_data.getData()
+
+        assert row_desc_updated == ("Q1", "Q2"), f"Row descriptions mismatch after edit: {row_desc_updated}"
+        assert col_desc_updated == ("Revenue",), f"Column descriptions mismatch after edit: {col_desc_updated}"
+        assert data_matrix_updated == ((500.0,), (600.0,)), f"Data matrix mismatch after edit: {data_matrix_updated}"
+
+    finally:
+        writer_doc.close(True)
+
+
+@native_test
+def test_charts_schema_filtering():
+    from plugin.main import get_tools
+    
+    manage_charts_tool = get_tools().get("manage_charts")
+    assert manage_charts_tool is not None
+
+    # Test Calc filtering
+    calc_params = manage_charts_tool.get_parameters("calc")
+    assert calc_params is not None
+    assert "data_range" in calc_params["properties"]
+    assert "headers" not in calc_params["properties"]
+    assert "rows" not in calc_params["properties"]
+
+    # Test Writer filtering
+    writer_params = manage_charts_tool.get_parameters("writer")
+    assert writer_params is not None
+    assert "data_range" not in writer_params["properties"]
+    assert "headers" in writer_params["properties"]
+    assert "rows" in writer_params["properties"]
+
+    # Test Draw filtering
+    draw_params = manage_charts_tool.get_parameters("draw")
+    assert draw_params is not None
+    assert "data_range" not in draw_params["properties"]
+    assert "headers" in draw_params["properties"]
+    assert "rows" in draw_params["properties"]

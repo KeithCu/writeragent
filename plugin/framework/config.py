@@ -24,7 +24,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, cast
+from typing import Any, Dict
 
 from plugin.framework.constants import get_plugin_dir
 from plugin.framework.errors import ConfigError, safe_call

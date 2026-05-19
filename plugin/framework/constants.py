@@ -290,9 +290,6 @@ WRITE & FORMAT:
 - merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_style.
 - delete_structure: Remove rows or columns at specific positions.
 
-CHART:
-- create_chart: Create a chart from a data range (bar, column, line, pie, scatter).
-
 {{specialized_delegation}}
 
 {{core_directives}}"""

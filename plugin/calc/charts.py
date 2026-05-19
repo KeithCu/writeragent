@@ -182,6 +182,19 @@ def _process_events(ctx=None):
 # Shared parameters for Create and Edit
 CHART_PROPERTIES = {
     "data_range": {"type": "string", "description": "Cell range for chart data (Calc only, e.g. 'A1:B10')."},
+    "headers": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Category/series column headers (Writer/Draw only, e.g. ['Month', 'Sales', 'Expenses'])."
+    },
+    "rows": {
+        "type": "array",
+        "items": {
+            "type": "array",
+            "description": "Row containing category label as first element, followed by numeric values."
+        },
+        "description": "2D array of category labels and values (Writer/Draw only, e.g. [['Jan', 100, 80], ['Feb', 150, 110]])."
+    },
     "chart_type": {"type": "string", "enum": list(CHART_SERVICE_MAP.keys()), "description": "Type of chart to create."},
     "title": {"type": "string", "description": "Chart title."},
     "is_3d": {"type": "boolean", "description": "Enable 3D mode."},
@@ -328,10 +341,10 @@ def _apply_chart_styling(chart_doc, **kwargs):
         try:
             pos_map = {
                 "none": None,
-                "top": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.TOP"),
-                "bottom": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.BOTTOM"),
-                "left": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.LEFT"),
-                "right": uno.getConstantByName("com.sun.star.chart.ChartLegendAlignment.RIGHT"),
+                "top": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "TOP"),
+                "bottom": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "BOTTOM"),
+                "left": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "LEFT"),
+                "right": uno.Enum("com.sun.star.chart.ChartLegendAlignment", "RIGHT"),
             }
             if legend_pos in pos_map:
                 if legend_pos == "none":
@@ -388,6 +401,62 @@ def _apply_chart_styling(chart_doc, **kwargs):
                     logger.warning("Could not retrieve first diagram using getFirstDiagram")
             except Exception:
                 logger.exception("Failed to set data series colors")
+
+    # 8. Programmatic Data Arrays (Writer/Draw)
+    headers = kwargs.get("headers")
+    rows = kwargs.get("rows")
+    if headers and rows:
+        _apply_chart_data_arrays(chart_doc, headers, rows)
+
+
+def _apply_chart_data_arrays(chart_doc, headers, rows):
+    """Set chart data programmatically via XChartDataArray for Writer/Draw."""
+    if not headers or not rows:
+        return
+
+    try:
+        chart_data = chart_doc.getData()
+        if not chart_data:
+            logger.warning("No chart data object found on chart document.")
+            return
+
+        # 1. Process rows to extract categories (row descriptions) and numeric matrix values
+        row_desc = []
+        data_values = []
+        for r in rows:
+            if not r:
+                continue
+            row_desc.append(str(r[0]))
+            # Convert values to float; fallback to 0.0 if not numeric
+            vals = []
+            for v in r[1:]:
+                try:
+                    vals.append(float(v))
+                except (ValueError, TypeError):
+                    vals.append(0.0)
+            data_values.append(tuple(vals))
+
+        # 2. Process headers to extract series names (column descriptions)
+        col_desc = tuple(str(h) for h in headers[1:])
+
+        # Ensure all rows have the same number of data points
+        expected_len = len(col_desc)
+        final_values = []
+        for row_vals in data_values:
+            if len(row_vals) < expected_len:
+                row_vals = row_vals + (0.0,) * (expected_len - len(row_vals))
+            elif len(row_vals) > expected_len:
+                row_vals = row_vals[:expected_len]
+            final_values.append(row_vals)
+
+        # 3. Apply to chart_data
+        chart_data.setRowDescriptions(tuple(row_desc))
+        chart_data.setColumnDescriptions(col_desc)
+        chart_data.setData(tuple(final_values))
+        logger.info("Successfully applied chart data arrays: row_desc=%s, col_desc=%s, data=%s", row_desc, col_desc, final_values)
+
+    except Exception as e:
+        logger.exception("Failed to apply chart data arrays: %s", e)
 
 
 
@@ -557,8 +626,45 @@ class CreateChart(ToolBaseDummy):
     uno_services = ListCharts.uno_services
     is_mutation = True
 
+    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+        import copy
+        from typing import cast
+        params = copy.deepcopy(self.parameters)
+        if not params or "properties" not in params:
+            return params
+        properties = cast("dict[str, Any]", params["properties"])
+        if doc_type == "calc":
+            properties.pop("headers", None)
+            properties.pop("rows", None)
+            if "required" in params:
+                required = cast("list[Any]", params["required"])
+                if "data_range" not in required:
+                    required.append("data_range")
+        elif doc_type in ("writer", "draw"):
+            properties.pop("data_range", None)
+            if "required" in params:
+                required = cast("list[Any]", params["required"])
+                if "headers" not in required:
+                    required.append("headers")
+                if "rows" not in required:
+                    required.append("rows")
+        return params
+
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
+        is_calc = supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument")
+        
+        if is_calc:
+            if "headers" in kwargs or "rows" in kwargs:
+                return self._tool_error("Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.")
+            if not kwargs.get("data_range"):
+                return self._tool_error("data_range is required for Calc charts.")
+        else:
+            if "data_range" in kwargs:
+                return self._tool_error("Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.")
+            if not kwargs.get("headers") or not kwargs.get("rows"):
+                return self._tool_error("Both 'headers' and 'rows' are required to create a chart in Writer or Draw/Impress.")
+
         chart_type = kwargs["chart_type"]
         chart_service = CHART_SERVICE_MAP.get(chart_type, CHART_SERVICE_MAP["column"])
 
@@ -703,8 +809,7 @@ class CreateChart(ToolBaseDummy):
         # 4. Configure properties after insertion
         # Try to set name again if it failed before
         try:
-            if not chart_obj.Name:
-                chart_obj.Name = name
+            chart_obj.Name = name
         except Exception:
             pass
 
@@ -818,8 +923,31 @@ class EditChart(ToolBaseDummy):
     uno_services = ListCharts.uno_services
     is_mutation = True
 
+    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+        import copy
+        from typing import cast
+        params = copy.deepcopy(self.parameters)
+        if not params or "properties" not in params:
+            return params
+        properties = cast("dict[str, Any]", params["properties"])
+        if doc_type == "calc":
+            properties.pop("headers", None)
+            properties.pop("rows", None)
+        elif doc_type in ("writer", "draw"):
+            properties.pop("data_range", None)
+        return params
+
     def execute(self, ctx, **kwargs):
         doc = ctx.doc
+        is_calc = supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument")
+        
+        if is_calc:
+            if "headers" in kwargs or "rows" in kwargs:
+                return self._tool_error("Data arrays ('headers', 'rows') are not supported in Calc. Please use 'data_range' instead.")
+        else:
+            if "data_range" in kwargs:
+                return self._tool_error("Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.")
+
         chart_name = kwargs["chart_name"]
         chart_obj = _resolve_chart(doc, chart_name)
 
@@ -927,6 +1055,19 @@ class ManageCharts(ToolCalcChartBase):
                 "type": "string",
                 "description": "Cell range for chart data (Calc only, required for create, e.g. 'A1:B10')."
             },
+            "headers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses'])."
+            },
+            "rows": {
+                "type": "array",
+                "items": {
+                    "type": "array",
+                    "description": "Row containing category label as first element, followed by numeric values."
+                },
+                "description": "2D array of category labels and values (Writer/Draw only, required for create, e.g. [['Jan', 100, 80], ['Feb', 150, 110]])."
+            },
             "chart_type": {
                 "type": "string",
                 "enum": ["bar", "pie", "column", "line", "scatter", "area", "donut", "net", "stock", "bubble"],
@@ -992,6 +1133,20 @@ class ManageCharts(ToolCalcChartBase):
         "com.sun.star.presentation.PresentationDocument"
     ]
     is_mutation = True
+
+    def get_parameters(self, doc_type: str | None = None) -> dict | None:
+        import copy
+        from typing import cast
+        params = copy.deepcopy(self.parameters)
+        if not params or "properties" not in params:
+            return params
+        properties = cast("dict[str, Any]", params["properties"])
+        if doc_type == "calc":
+            properties.pop("headers", None)
+            properties.pop("rows", None)
+        elif doc_type in ("writer", "draw"):
+            properties.pop("data_range", None)
+        return params
 
     def execute(self, ctx, **kwargs):
         action = kwargs.get("action")

@@ -47,7 +47,6 @@ else:
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, safe_json_loads
 from plugin.calc import CalcError
-from plugin.calc.address_utils import parse_address
 
 logger = logging.getLogger("writeragent.calc")
 

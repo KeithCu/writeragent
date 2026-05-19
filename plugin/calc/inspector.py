@@ -24,7 +24,6 @@ import logging
 import re
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.calc.address_utils import parse_address
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA

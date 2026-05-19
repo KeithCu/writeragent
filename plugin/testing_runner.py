@@ -10,7 +10,6 @@
 # a JSON summary that external tools or agents can consume.
 
 import logging
-import sys
 import json
 import traceback
 import unittest
@@ -248,6 +247,8 @@ def run_all_tests(ctx: Any) -> str:
 
         # Gather all candidates
         test_candidates = []
+        import sys
+        filter_str = sys.argv[1] if len(sys.argv) > 1 else ""
         for root, dirs, files in os.walk(tests_root):
             for filename in files:
                 if not filename.endswith(".py"):
@@ -260,7 +261,9 @@ def run_all_tests(ctx: Any) -> str:
                 # These are now identified by the _uno suffix or being in the legacy uno/ dir.
                 is_uno_test = "_uno.py" in filename or "uno" in root.split(os.sep)
                 if is_uno_test:
-                    test_candidates.append(os.path.join(root, filename))
+                    full_path = os.path.join(root, filename)
+                    if not filter_str or filter_str in full_path or filter_str in filename:
+                        test_candidates.append(full_path)
 
         for module_path in sorted(test_candidates):
             filename = os.path.basename(module_path)
