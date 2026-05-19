@@ -517,6 +517,30 @@ class TestLibrarianSmol(unittest.TestCase):
         self.assertIn("nickname", line)
         self.assertIn("Bob", line)
 
+    def test_librarian_onboarding_tool_passes_existing_memory_to_instructions(self):
+        ctx = MagicMock()
+        ctx.ctx = MagicMock()
+        ctx.stop_checker.return_value = False
+
+        fa = FinalAnswerStep(output="Hello")
+
+        with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
+             patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+            mock_store = mock_store_class.return_value
+            mock_store.read.return_value = '{"favorite_color": "blue", "name": "Alice"}'
+            
+            mock_agent = mock_agent_class.return_value
+            mock_agent.run.return_value = [fa]
+
+            tool = LibrarianOnboardingTool()
+            res = tool.execute(ctx, query="hi")
+            
+            self.assertTrue(mock_agent_class.called)
+            kwargs = mock_agent_class.call_args.kwargs
+            self.assertIn("instructions", kwargs)
+            self.assertIn("[USER PROFILE / MEMORY]", kwargs["instructions"])
+            self.assertIn('{"favorite_color": "blue", "name": "Alice"}', kwargs["instructions"])
+
 
 # =============================================================================
 # Librarian handoff tests (from test_librarian_handoff.py)
