@@ -276,34 +276,34 @@ if __name__ == "__main__":
 
 def test_step_zero_matches_legacy_engine_block():
     q = "best pizza test"
-    a = web_search_engine_step_chat_text(q, 0, approval_required=False)
-    b = web_research_engine_chat_block(q, approval_required=False)
+    a = web_search_engine_step_chat_text(q, 0)
+    b = web_research_engine_chat_block(q)
     assert a == b
-    assert "[Web search]" in a
+    assert "Tool: web_search" in a
+    assert "best pizza test" in a
+    assert "[Web search]" not in a
     assert "[Additional web search]" not in a
 
 
-def test_step_one_is_additional_not_duplicate_full_header():
+def test_step_one_same_format_as_first():
     q = "refined query"
-    first = web_search_engine_step_chat_text(q, 0, approval_required=False)
-    second = web_search_engine_step_chat_text(q, 1, approval_required=False)
-    assert "[Additional web search]" in second
-    assert second.count("[Web search]") == 0
-    assert "[Web search]" in first
-    assert first != second
+    first = web_search_engine_step_chat_text(q, 0)
+    second = web_search_engine_step_chat_text(q, 1)
+    assert first == second
+    assert "Tool: web_search" in second
+    assert "[Additional web search]" not in second
+    assert "[Web search]" not in second
 
 
-def test_step_zero_approval_uses_approval_header():
+def test_web_research_engine_chat_block_ignores_legacy_approval_flag():
     q = "x"
-    t = web_search_engine_step_chat_text(q, 0, approval_required=True)
-    assert "approval" in t.lower() or "Approval" in t
+    assert web_research_engine_chat_block(q, approval_required=True) == web_search_engine_step_chat_text(q, 0)
+    assert "approval required" not in web_research_engine_chat_block(q, approval_required=True).lower()
 
 
 def test_step_index_negative_treated_as_first():
     q = "q"
-    assert web_search_engine_step_chat_text(q, -1, approval_required=False) == web_search_engine_step_chat_text(
-        q, 0, approval_required=False
-    )
+    assert web_search_engine_step_chat_text(q, -1) == web_search_engine_step_chat_text(q, 0)
 
 
 def test_norm_research_query_collapses_whitespace_and_case():

@@ -167,13 +167,14 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
                     if query_override is not None:
                         _apply_web_search_query_override(step, query_override)
                         q = query_override
-                elif not prompt_for_web_research and chat_append_callback:
+
+                if chat_append_callback:
                     q_norm = _norm_research_query(q)
                     query_norm = _norm_research_query(cast("str", query)) if query is not None else ""
                     if not (web_search_step_index == 0 and q_norm == query_norm):
                         from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
-                        chat_append_callback(web_search_engine_step_chat_text(q, web_search_step_index, approval_required=False))
+                        chat_append_callback(web_search_engine_step_chat_text(q, web_search_step_index))
 
                 web_search_step_index += 1
                 status_msg = f"Search: {q[:25]}"

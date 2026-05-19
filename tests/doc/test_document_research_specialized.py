@@ -7,7 +7,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.specialized import DelegateToSpecializedCalc
-from plugin.contrib.smolagents.memory import FinalAnswerStep
+from plugin.contrib.smolagents.memory import FinalAnswerStep, ToolCall
 from plugin.doc.document_research_specialized import DelegateReadDocument, run_inner_read_agent
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
@@ -121,6 +121,65 @@ def test_document_research_outer_delegation_gets_document_research_tools(
     names = {t.name for t in smol_tools}
     assert "list_nearby_files" in names
     assert "delegate_read_document" in names
+
+
+@patch(
+    "plugin.chatbot.smol_agent.get_config_int",
+    side_effect=_mock_get_config_int_for_sub_agent,
+)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True)
+@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
+@patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.doc.specialized_base.SmolAgentExecutor")
+def test_document_research_chat_append_on_delegate_read_document(
+    mock_executor_cls,
+    mock_llm,
+    mock_smol_model,
+    mock_agent_class,
+    mock_get_config,
+    _mock_get_config_int,
+):
+    captured: list[str] = []
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        if tool_call_handler:
+            tool_call_handler(
+                ToolCall(
+                    name="delegate_read_document",
+                    arguments={"path_or_name": "/tmp/Budget.ods", "task": "Q4"},
+                    id="test-call-1",
+                )
+            )
+        return "done"
+
+    mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
+
+    r = ToolRegistry(services={})
+    r.register(ListNearbyFiles())
+    r.register(DelegateReadDocument())
+    r.register(SpecializedWorkflowFinished())
+    r.register(DelegateToSpecializedWriter())
+
+    mock_get_config.return_value = {}
+    mock_agent_class.return_value = MagicMock()
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService = lambda svc: svc == "com.sun.star.text.TextDocument"
+    ctx.ctx = MagicMock()
+    ctx.services = {"tools": r}
+    ctx.stop_checker = lambda: False
+    ctx.chat_append_callback = captured.append
+
+    gw = r.get("delegate_to_specialized_writer_toolset")
+    result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
+    assert result["status"] == "ok"
+    assert len(captured) == 1
+    assert "Tool: delegate_read_document" in captured[0]
+    assert "Budget.ods" in captured[0]
+    assert "[Document research]" not in captured[0]
+    assert "delegate_read_document" in captured[0]
 
 
 @patch("plugin.doc.document_research_specialized.build_toolcalling_agent")

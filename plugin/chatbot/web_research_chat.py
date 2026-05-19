@@ -2,8 +2,7 @@
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
-# Shared text for web research in the chat response (multi-line) — same
-# formatting for approval and non-approval paths.
+# Shared text for web research search-engine steps in the chat response (all paths).
 
 from __future__ import annotations
 
@@ -15,34 +14,31 @@ def search_engine_preview_line(query_for_engine: str) -> str:
     return _("This search query '%s' will be sent to the search engine.") % (query_for_engine or "",)
 
 
-def web_search_engine_step_chat_text(query_for_engine: str, step_index: int, *, approval_required: bool) -> str:
-    """Chat text for each internal ``web_search`` step: full block on first step, compact on later steps."""
+def web_search_engine_step_chat_text(query_for_engine: str, step_index: int) -> str:
+    """Chat history for each internal web_search step (Tool: web_search + search-engine preview).
+
+    Appended from WebResearchTool.tool_call_handler after approval when prompt_for_web_research
+    is on (reject leaves chat unchanged). Approval UI: panel.begin_inline_web_approval.
+    """
     from plugin.framework.i18n import _
 
-    if step_index <= 0:
-        header = _("[Web search — approval required]") if approval_required else _("[Web search]")
-        block = "\n" + header + "\n"
-        block += _("Tool: %s") % "web_search" + "\n"
-        block += search_engine_preview_line(query_for_engine) + "\n\n"
-        return block
-
-    block = "\n" + _("[Additional web search]") + "\n"
-    block += _("Tool: %s") % "web_search" + "\n"
+    del step_index  # format does not vary by step index
+    block = "\n" + _("Tool: %s") % "web_search" + "\n"
     block += search_engine_preview_line(query_for_engine) + "\n\n"
     return block
 
 
-def web_research_engine_chat_block(query_for_engine: str, *, approval_required: bool) -> str:
-    """Block shown when the sub-agent is about to send a query to the search engine (first step)."""
-    return web_search_engine_step_chat_text(query_for_engine, 0, approval_required=approval_required)
+def web_research_engine_chat_block(query_for_engine: str, *, approval_required: bool = False) -> str:
+    """Same as web_search_engine_step_chat_text for step 0 (approval_required is legacy, ignored)."""
+    del approval_required
+    return web_search_engine_step_chat_text(query_for_engine, 0)
 
 
 def web_research_outer_chat_block(outer_query: str, history_text: str | None = None) -> str:
-    """Format the main model's ``web_research`` arguments (research request + optional history).
+    """Format the main model's web_research arguments (research request + optional history).
 
-    Chat UI no longer prepends this automatically; the response area shows internal
-    ``web_search`` step text from the sub-agent instead. Kept for callers that need
-    the same wording (e.g. tests, logging).
+    Chat UI no longer prepends this automatically; the response area shows internal web_search step
+    text from the sub-agent instead. Kept for callers that need the same wording (e.g. tests, logging).
     """
     from plugin.framework.i18n import _
 

@@ -17,7 +17,7 @@
 """Shared base class for gateway tools that delegate to specialized toolsets."""
 
 import logging
-from typing import cast, Type, ClassVar
+from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.tool import ToolBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT
@@ -27,6 +27,23 @@ from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
 log = logging.getLogger("writeragent.specialized")
+
+
+def _path_or_name_from_tool_arguments(arguments: Any) -> str:
+    if arguments is None:
+        return ""
+    if isinstance(arguments, dict):
+        return str(arguments.get("path_or_name", ""))
+    if isinstance(arguments, str):
+        try:
+            from plugin.framework.errors import safe_json_loads
+
+            data = safe_json_loads(arguments)
+            if isinstance(data, dict):
+                return str(data.get("path_or_name", ""))
+        except Exception:
+            pass
+    return ""
 
 
 class DelegateToSpecializedBase(ToolBase):
@@ -76,6 +93,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         status_callback = getattr(ctx, "status_callback", None)
         append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
+        chat_append_callback = getattr(ctx, "chat_append_callback", None)
 
         if domain == "web_research":
             from plugin.chatbot.web_research import WebResearchTool
@@ -149,7 +167,16 @@ class DelegateToSpecializedBase(ToolBase):
 
         executor = SmolAgentExecutor(ctx)
 
+        document_open_step_index = 0
+
         def tool_call_handler(step):
+            nonlocal document_open_step_index
+            if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
+                from plugin.chatbot.document_research_chat import document_open_step_chat_text
+
+                path_or_name = _path_or_name_from_tool_arguments(step.arguments)
+                chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
+                document_open_step_index += 1
             if append_thinking_callback:
                 append_thinking_callback(f"Running specialized tool: {step.name} with {step.arguments}\n")
             if status_callback:

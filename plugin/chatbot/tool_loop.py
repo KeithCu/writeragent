@@ -195,20 +195,27 @@ class ToolCallingMixin:
                 approval_cb: Any = None
                 chat_append_cb: Any = None
                 safe_args = args if isinstance(args, dict) else {}
+                _delegate_gateways = (
+                    "delegate_to_specialized_writer_toolset",
+                    "delegate_to_specialized_calc_toolset",
+                    "delegate_to_specialized_draw_toolset",
+                )
+                delegate_domain = str(safe_args.get("domain") or "") if name in _delegate_gateways else ""
                 # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
                 # they must receive the same HITL wiring as the outer web_research tool.
-                needs_web_research_ui = name == "web_research" or (name in ("delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset") and str(safe_args.get("domain") or "") == "web_research")
-                if needs_web_research_ui:
+                needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
+                needs_document_research_ui = delegate_domain == "document_research"
+                if needs_web_research_ui or needs_document_research_ui:
 
-                    def _web_append(text):
+                    def _sub_agent_chat_append(text):
                         aq = getattr(self, "_active_q", None)
                         if aq is not None:
                             aq.put((StreamQueueKind.CHUNK, text))
 
-                    chat_append_cb = _web_append
+                    chat_append_cb = _sub_agent_chat_append
 
                     try:
-                        if get_config_bool(ctx, "chatbot.prompt_for_web_research"):
+                        if needs_web_research_ui and get_config_bool(ctx, "chatbot.prompt_for_web_research"):
 
                             def _web_approval(query_for_engine, tool_name, args):
                                 q = getattr(self, "_active_q", None)
@@ -248,7 +255,7 @@ class ToolCallingMixin:
                     append_thinking_callback=append_thinking_callback,
                     stop_checker=stop_checker,
                     approval_callback=approval_cb,
-                    chat_append_callback=chat_append_cb if needs_web_research_ui else None,
+                    chat_append_callback=chat_append_cb if (needs_web_research_ui or needs_document_research_ui) else None,
                     set_active_domain_callback=set_active_domain,
                     active_domain=active_domain,
                     python_tool_domain=python_tool_domain,

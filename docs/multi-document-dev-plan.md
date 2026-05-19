@@ -444,6 +444,17 @@ flowchart LR
 
 - [ ] Manual UI checklist completed.
 
+#### Status surfacing in chat
+
+**Shipped (open-only):** When the outer `document_research` sub-agent calls `delegate_read_document`, the sidebar chat shows a short status block (`Tool: delegate_read_document` + open preview line — same shape as web research’s `Tool: web_search` + query preview). Formatting lives in [`document_research_chat.py`](../plugin/chatbot/document_research_chat.py); the outer delegate’s `tool_call_handler` in [`specialized_base.py`](../plugin/doc/specialized_base.py) appends via `chat_append_callback` (wired from [`tool_loop.py`](../plugin/chatbot/tool_loop.py) for `domain=document_research`). Status only — no HITL approval.
+
+**Deferred (not implemented):**
+
+- `list_nearby_files` preview blocks when the outer agent lists siblings.
+- Inner read-tool steps (`read_cell_range`, `get_document_content`, …) via `chat_append_callback` on the inner `ToolContext` in [`document_research_specialized.py`](../plugin/doc/document_research_specialized.py) — useful when step-by-step cross-doc read visibility is desired (similar to “Show search thinking” for web research).
+- Optional config gate (e.g. `chatbot.show_document_research_steps` or tie to an existing thinking toggle) if chat noise becomes an issue.
+- MCP parity: [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) `ToolContext` has no chat sink today; hosts would need a stream hook if they want the same status lines.
+
 ---
 
 ### Phase 6 — Polish
@@ -549,6 +560,7 @@ Per [AGENTS.md](../AGENTS.md): matching `test_*.py` names; run `make test` befor
 
 | Date | Phase / change | PR / notes |
 | ---- | -------------- | ---------- |
+| 2026-05-19 | **Chat status (open-only):** tool + preview blocks for `delegate_read_document` via `chat_append_callback` — [`document_research_chat.py`](../plugin/chatbot/document_research_chat.py), [`specialized_base.py`](../plugin/doc/specialized_base.py), [`tool_loop.py`](../plugin/chatbot/tool_loop.py) | — |
 | 2026-05-17 | **Phase 0 shipped:** `nearby.py`, `nearby_tools.py`, `nearby_specialized.py`; `document_research` on Writer/Calc/Draw delegates; two-tier smol (outer list/delegate_read, inner `READ_TOOLS_BY_DOC_TYPE`); `ToolContext.read_only_target` + `READ_ONLY_TARGET`; untitled → Work path then open-docs fallback; tests in `tests/doc/test_nearby*.py` | — |
 | *(prior)* | Plan refresh: Phase 0 = full two-tier delegation; phases renumbered 0–6; data contracts, threading, edge cases | — |
 

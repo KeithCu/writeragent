@@ -398,7 +398,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         as the source of truth for this overlay.
         """
         from plugin.framework.i18n import _
-        from plugin.chatbot.web_research_chat import web_research_engine_chat_block
 
         if event is None:
             log.warning("begin_inline_web_approval: no event")
@@ -466,22 +465,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             else:
                 log.exception("begin_inline_web_approval failed")
 
-        # Same block as non-approval path (see web_research_engine_chat_block), with approval header.
-        self._append_response(web_research_engine_chat_block(query or "", approval_required=True))
+        # Approval is inline (Accept / Change / Reject); no chat transcript for the pending query.
         self._set_status(_("Waiting for approval…"))
         log.info("Inline web approval: waiting for Accept, Change, or Reject")
 
     def _open_web_search_change_dialog(self):
         """Open edit dialog for the pending web_search query; OK continues with optional override."""
         from plugin.chatbot.dialogs import show_web_search_query_edit_dialog
-        from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
         initial = getattr(self, "_approval_query_for_engine", None) or ""
         text = show_web_search_query_edit_dialog(self.ctx, self.frame, initial)
         if text is None:
             return
         log.debug("_open_web_search_change_dialog: applying edited query len=%d", len(text))
-        self._append_response(web_search_engine_step_chat_text(text, 0, approval_required=False))
         self._finish_inline_web_approval(True, query_override=text)
 
     def _finish_inline_web_approval(self, approved, query_override=None):
