@@ -10,8 +10,9 @@ This document provides a comprehensive brain dump of the work performed to integ
   - For the endpoint provider, the image model is taken from config key `image_model`, with fallback to the text/chat model. See [core/config.py](core/config.py) `get_text_model()` and `get_api_config()`.
   - AI Horde: polling and UI non-blocking via `toolkit.processEvents()` in the informer; endpoint provider: single request/response.
   - Merges configuration defaults with tool-provided arguments.
-- **[plugin/writer/image_tools.py](../plugin/writer/image_tools.py)**: Image insertion and selection.
+- **[plugin/writer/images/image_tools.py](../plugin/writer/images/image_tools.py)**: Image insertion and selection.
   - **insert_image**: Injects images into Writer/Calc documents.
+  - **Link vs embed**: Stable user file paths are inserted as **links** (`.uno:InsertGraphic` with `AsLink=True`) so the ODT stays small. Images under the system temp directory or the `writeragent_images` download cache are **embedded** so generated/downloaded assets remain usable if temp files move.
   - **get_selected_image_base64**: Extracts the currently selected image as base64 for Img2Img.
   - **add_image_to_gallery**: Adds generated images to the LibreOffice Media Gallery (in this file).
 

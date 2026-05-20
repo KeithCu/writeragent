@@ -19,6 +19,7 @@
 import os
 import shutil
 import logging
+import tempfile
 import uno
 from pathlib import Path
 from typing import Any, cast
@@ -30,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 GALLERY_NAME = "writeragent_images"
 GALLERY_IMAGE_DIR = GALLERY_NAME
+# Shared with images.py download cache — paths under this dir are embedded, not linked.
+IMAGE_CACHE_DIR_NAME = "writeragent_images"
+
+_WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
+_DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 
 
 def get_type_doc(doc):
@@ -38,6 +44,140 @@ def get_type_doc(doc):
         if doc.supportsService(v):
             return k
     return "writer"
+
+
+def _image_cache_dir() -> str:
+    return os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
+
+
+def _path_under_dir(path: str, directory: str) -> bool:
+    try:
+        return os.path.commonpath([os.path.abspath(path), os.path.abspath(directory)]) == os.path.abspath(directory)
+    except ValueError:
+        return False
+
+
+def _should_link_image_path(img_path: str) -> bool:
+    """User file paths are linked; temp/cache/generated paths stay embedded."""
+    if not img_path or not os.path.isfile(img_path):
+        return False
+    abs_path = os.path.abspath(img_path)
+    if _path_under_dir(abs_path, tempfile.gettempdir()):
+        return False
+    if _path_under_dir(abs_path, _image_cache_dir()):
+        return False
+    return True
+
+
+def _file_url_for_path(img_path: str) -> str:
+    return uno.systemPathToFileUrl(os.path.abspath(img_path))
+
+
+def _mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
+    return int(width_mm) * 100, int(height_mm) * 100
+
+
+def _mm_to_px(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
+    # 1/100 mm -> px at 96 DPI: px = units * 96 / 2540
+    w_units, h_units = _mm_to_units(width_mm, height_mm)
+    return max(1, int(w_units * 96 / 2540)), max(1, int(h_units * 96 / 2540))
+
+
+def _apply_graphic_properties(graphic, *, width: int, height: int, title: str, description: str, anchor_type=AS_CHARACTER, inside: str = "writer"):
+    if inside in ("writer", "web"):
+        if hasattr(graphic, "AnchorType"):
+            graphic.AnchorType = anchor_type
+        elif hasattr(graphic, "setPropertyValue"):
+            graphic.setPropertyValue("AnchorType", anchor_type)
+    if hasattr(graphic, "Width"):
+        graphic.Width = width
+        graphic.Height = height
+    elif hasattr(graphic, "setSize"):
+        graphic.setSize(Size(width, height))
+    else:
+        graphic.setPropertyValue("Size", Size(width, height))
+    if hasattr(graphic, "Title"):
+        graphic.Title = title
+        graphic.Description = description
+    else:
+        if title:
+            graphic.setPropertyValue("Title", title)
+        if description:
+            graphic.setPropertyValue("Description", description)
+
+
+def _is_graphic_object(obj) -> bool:
+    if obj is None:
+        return False
+    if hasattr(obj, "Graphic") and obj.Graphic is not None:
+        return True
+    try:
+        if hasattr(obj, "getPropertyValue"):
+            g = obj.getPropertyValue("Graphic")
+            if g is not None:
+                return True
+    except Exception:
+        pass
+    try:
+        if hasattr(obj, "supportsService"):
+            return bool(
+                obj.supportsService(_WRITER_GRAPHIC_SERVICE)
+                or obj.supportsService("com.sun.star.text.GraphicObject")
+                or obj.supportsService(_DRAW_GRAPHIC_SERVICE)
+            )
+    except Exception:
+        pass
+    return False
+
+
+def _selection_graphic_object(model):
+    try:
+        selection = model.CurrentController.Selection
+        if not selection:
+            return None
+        if hasattr(selection, "getCount"):
+            if selection.getCount() != 1:
+                return None
+            obj = selection.getByIndex(0)
+        else:
+            obj = selection
+        return obj if _is_graphic_object(obj) else None
+    except Exception as e:
+        logger.debug("_selection_graphic_object error: %s", e)
+        return None
+
+
+def _dispatch_insert_linked_graphic(ctx, model, file_url):
+    """
+    Insert a linked image via .uno:InsertGraphic (LO 6.1+).
+    Setting GraphicURL directly embeds bytes; AsLink keeps the ODT small.
+    """
+    try:
+        ctx_any = cast("Any", ctx)
+        smgr = ctx_any.ServiceManager
+        dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx_any)
+        frame = model.getCurrentController().getFrame()
+        props = (
+            PropertyValue(Name="FileName", Value=file_url),
+            PropertyValue(Name="AsLink", Value=True),
+        )
+        dispatcher.executeDispatch(frame, ".uno:InsertGraphic", "", 0, props)
+        return _selection_graphic_object(model)
+    except Exception as e:
+        logger.debug("_dispatch_insert_linked_graphic failed: %s", e)
+        return None
+
+
+def _create_embedded_graphic(model, inside: str, file_url: str):
+    if inside in ("writer", "web"):
+        graphic = model.createInstance(_WRITER_GRAPHIC_SERVICE)
+    else:
+        graphic = model.createInstance(_DRAW_GRAPHIC_SERVICE)
+    if hasattr(graphic, "GraphicURL"):
+        graphic.GraphicURL = file_url
+    else:
+        graphic.setPropertyValue("GraphicURL", file_url)
+    return graphic
 
 
 def insert_image(ctx, model, img_path, width_px, height_px, title="", description="", add_to_gallery=True, add_frame=False):
@@ -52,47 +192,95 @@ def insert_image(ctx, model, img_path, width_px, height_px, title="", descriptio
     height_units = int(height_px * 26.46)
 
     if inside in ["writer", "web"]:
-        _insert_image_to_writer(model, img_path, width_units, height_units, title, description, add_frame)
+        _insert_image_to_writer(ctx, model, img_path, width_units, height_units, title, description, add_frame)
     else:
-        _insert_image_to_drawpage(model, inside, img_path, width_units, height_units, title, description)
+        _insert_image_to_drawpage(ctx, model, inside, img_path, width_units, height_units, title, description)
 
     if add_to_gallery:
         add_image_to_gallery(ctx, img_path, f"{title}\n\n{description}")
 
 
-def _insert_image_to_writer(model, img_path, width, height, title, description, add_frame):
+def insert_image_at_locator(ctx, model, img_path, width_mm=80, height_mm=80, title="", description="", text_cursor=None):
+    """
+    Insert at an optional Writer text cursor, or current view cursor / draw page.
+    width_mm, height_mm: display size in millimetres.
+    Returns the inserted graphic object, or None on failure.
+    """
+    inside = get_type_doc(model)
+    width_units, height_units = _mm_to_units(width_mm, height_mm)
+    width_px, height_px = _mm_to_px(width_mm, height_mm)
+
+    if inside in ("writer", "web"):
+        if text_cursor is not None:
+            _place_view_cursor_at_text_range(model, text_cursor)
+        if _should_link_image_path(img_path):
+            file_url = _file_url_for_path(img_path)
+            graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+            if graphic is None:
+                graphic = _insert_embedded_at_writer_cursor(model, img_path, width_units, height_units, title, description, text_cursor)
+            else:
+                _apply_graphic_properties(graphic, width=width_units, height=height_units, title=title, description=description, inside=inside)
+        else:
+            graphic = _insert_embedded_at_writer_cursor(model, img_path, width_units, height_units, title, description, text_cursor)
+        return graphic
+
+    _insert_image_to_drawpage(ctx, model, inside, img_path, width_units, height_units, title, description)
+    return _selection_graphic_object(model)
+
+
+def _place_view_cursor_at_text_range(model, text_cursor):
+    try:
+        vc = model.CurrentController.ViewCursor
+        vc.gotoRange(text_cursor.getStart(), False)
+    except Exception as e:
+        logger.debug("_place_view_cursor_at_text_range: %s", e)
+
+
+def _insert_embedded_at_writer_cursor(model, img_path, width, height, title, description, text_cursor=None):
     doc_text = model.getText()
-    image = model.createInstance("com.sun.star.text.GraphicObject")
-    image.GraphicURL = uno.systemPathToFileUrl(img_path)
-    image.AnchorType = AS_CHARACTER
-    image.Width = width
-    image.Height = height
-    image.Title = title
-    image.Description = description
+    file_url = _file_url_for_path(img_path)
+    image = _create_embedded_graphic(model, "writer", file_url)
+    _apply_graphic_properties(image, width=width, height=height, title=title, description=description, inside="writer")
+
+    if text_cursor is not None:
+        doc_text.insertTextContent(text_cursor, image, False)
+        return image
 
     view_cursor = model.CurrentController.ViewCursor
 
     def to_text_cursor(vc):
-        # LibreOffice's Text.insertTextContent expects a TextCursor tied to the
-        # document's text (not a ViewCursor from the controller).
         return doc_text.createTextCursorByRange(vc.getStart())
 
+    try:
+        tc = to_text_cursor(view_cursor)
+        doc_text.insertTextContent(tc, image, False)
+    except Exception as e:
+        logger.debug("_insert_embedded_at_writer_cursor fallback: %s", e)
+        view_cursor.jumpToStartOfPage()
+        tc = to_text_cursor(view_cursor)
+        doc_text.insertTextContent(tc, image, False)
+    return image
+
+
+def _insert_image_to_writer(ctx, model, img_path, width, height, title, description, add_frame):
     if add_frame:
-        _insert_frame(model, view_cursor, image, width, height, title)
-    else:
-        try:
-            text_cursor = to_text_cursor(view_cursor)
-            doc_text.insertTextContent(text_cursor, image, False)
-        except Exception as e:
-            # Fallback if cursor position is invalid (e.g. inside a field)
-            logger.debug("_insert_inline_image insertTextContent fallback: %s", e)
-            view_cursor.jumpToStartOfPage()
-            text_cursor = to_text_cursor(view_cursor)
-            doc_text.insertTextContent(text_cursor, image, False)
+        _insert_frame(ctx, model, img_path, width, height, title, description)
+        return
+
+    if _should_link_image_path(img_path):
+        file_url = _file_url_for_path(img_path)
+        graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+        if graphic is not None:
+            _apply_graphic_properties(graphic, width=width, height=height, title=title, description=description, inside="writer")
+            return
+        logger.debug("_insert_image_to_writer: linked dispatch failed, embedding fallback")
+
+    _insert_embedded_at_writer_cursor(model, img_path, width, height, title, description)
 
 
-def _insert_frame(model, cursor, image, width, height, title):
+def _insert_frame(ctx, model, img_path, width, height, title, description):
     doc_text = model.getText()
+    view_cursor = model.CurrentController.ViewCursor
     text_frame = model.createInstance("com.sun.star.text.TextFrame")
     frame_size = Size()
     frame_size.Height = height + 150  # Small padding for title
@@ -101,41 +289,162 @@ def _insert_frame(model, cursor, image, width, height, title):
     text_frame.setPropertyValue("AnchorType", AT_FRAME)
 
     try:
-        # `cursor` comes from the view layer; convert to a TextCursor.
-        text_cursor = doc_text.createTextCursorByRange(cursor.getStart())
+        text_cursor = doc_text.createTextCursorByRange(view_cursor.getStart())
         doc_text.insertTextContent(text_cursor, text_frame, False)
     except Exception as e:
         logger.debug("_insert_frame insertTextContent fallback: %s", e)
-        cursor.jumpToStartOfPage()
-        text_cursor = doc_text.createTextCursorByRange(cursor.getStart())
+        view_cursor.jumpToStartOfPage()
+        text_cursor = doc_text.createTextCursorByRange(view_cursor.getStart())
         doc_text.insertTextContent(text_cursor, text_frame, False)
 
     frame_text = text_frame.getText()
     frame_cursor = frame_text.createTextCursor()
+    _place_view_cursor_at_text_range(model, frame_cursor)
+
+    if _should_link_image_path(img_path):
+        file_url = _file_url_for_path(img_path)
+        graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+        if graphic is not None:
+            _apply_graphic_properties(graphic, width=width, height=height, title=title, description=description, inside="writer")
+            if title:
+                frame_text.insertString(frame_cursor, "\n" + title, False)
+            return
+        logger.debug("_insert_frame: linked dispatch failed, embedding fallback")
+
+    file_url = _file_url_for_path(img_path)
+    image = _create_embedded_graphic(model, "writer", file_url)
+    _apply_graphic_properties(image, width=width, height=height, title=title, description=description, inside="writer")
     text_frame.insertTextContent(frame_cursor, image, False)
     if title:
         frame_text.insertString(frame_cursor, "\n" + title, False)
 
 
-def _insert_image_to_drawpage(model, inside, img_path, width, height, title, description):
-    image = model.createInstance("com.sun.star.drawing.GraphicObjectShape")
-    image.GraphicURL = uno.systemPathToFileUrl(img_path)
-
+def _insert_image_to_drawpage(ctx, model, inside, img_path, width, height, title, description):
     ctrllr = model.CurrentController
     if inside == "calc":
         draw_page = ctrllr.ActiveSheet.DrawPage
     else:
         draw_page = ctrllr.CurrentPage
 
-    draw_page.add(image)  # LOSHD uses addTop, but add is standard
-    image.setSize(Size(width, height))
-    image.Title = title
-    image.Description = description
+    if _should_link_image_path(img_path):
+        file_url = _file_url_for_path(img_path)
+        graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+        if graphic is not None:
+            _apply_graphic_properties(graphic, width=width, height=height, title=title, description=description, inside=inside)
+            if inside != "calc":
+                pos = Point((draw_page.Width - width) // 2, (draw_page.Height - height) // 2)
+                if hasattr(graphic, "setPosition"):
+                    graphic.setPosition(pos)
+            return
+        logger.debug("_insert_image_to_drawpage: linked dispatch failed, embedding fallback")
 
-    # Center it roughly
+    image = _create_embedded_graphic(model, inside, _file_url_for_path(img_path))
+    _apply_graphic_properties(image, width=width, height=height, title=title, description=description, inside=inside)
+    draw_page.add(image)
     if inside != "calc":
         pos = Point((draw_page.Width - width) // 2, (draw_page.Height - height) // 2)
         image.setPosition(pos)
+
+
+def replace_graphic_source(ctx, model, graphic, img_path, width_units=None, height_units=None, title=None, description=None):
+    """
+    Replace an existing graphic's image source (by name), preserving object when possible.
+    User paths are re-linked; temp/cache paths update GraphicURL (embed).
+    """
+    inside = get_type_doc(model)
+    if width_units is None or height_units is None:
+        try:
+            if hasattr(graphic, "getSize"):
+                size = graphic.getSize()
+            else:
+                size = graphic.getPropertyValue("Size")
+            width_units = size.Width
+            height_units = size.Height
+        except Exception:
+            width_units, height_units = 8000, 8000
+
+    if _should_link_image_path(img_path):
+        file_url = _file_url_for_path(img_path)
+        is_calc = inside == "calc"
+        if inside in ("writer", "web"):
+            anchor = graphic.getAnchor()
+            if anchor is None:
+                return False
+            _place_view_cursor_at_text_range(model, anchor)
+            new_graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+            if new_graphic is not None:
+                model.getText().removeTextContent(graphic)
+            if new_graphic is None:
+                new_graphic = _create_embedded_graphic(model, "writer", file_url)
+                _apply_graphic_properties(
+                    new_graphic,
+                    width=width_units,
+                    height=height_units,
+                    title=title or "",
+                    description=description or "",
+                    inside=inside,
+                )
+                model.getText().insertTextContent(anchor, new_graphic, False)
+            else:
+                _apply_graphic_properties(
+                    new_graphic,
+                    width=width_units,
+                    height=height_units,
+                    title=title or "",
+                    description=description or "",
+                    inside=inside,
+                )
+        else:
+            ctrllr = model.CurrentController
+            draw_page = ctrllr.ActiveSheet.DrawPage if is_calc else ctrllr.CurrentPage
+            pos = graphic.getPosition()
+            draw_page.remove(graphic)
+            new_graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
+            if new_graphic is None:
+                new_graphic = _create_embedded_graphic(model, inside, file_url)
+                new_graphic.setPosition(pos)
+                _apply_graphic_properties(
+                    new_graphic,
+                    width=width_units,
+                    height=height_units,
+                    title=title or "",
+                    description=description or "",
+                    inside=inside,
+                )
+                draw_page.add(new_graphic)
+            else:
+                if hasattr(new_graphic, "setPosition"):
+                    new_graphic.setPosition(pos)
+                _apply_graphic_properties(
+                    new_graphic,
+                    width=width_units,
+                    height=height_units,
+                    title=title or "",
+                    description=description or "",
+                    inside=inside,
+                )
+        return True
+
+    file_url = _file_url_for_path(img_path)
+    if hasattr(graphic, "GraphicURL"):
+        graphic.GraphicURL = file_url
+    else:
+        graphic.setPropertyValue("GraphicURL", file_url)
+    if title is not None or description is not None:
+        _apply_graphic_properties(
+            graphic,
+            width=width_units,
+            height=height_units,
+            title=title or "",
+            description=description or "",
+            inside=inside,
+        )
+    elif width_units is not None and height_units is not None:
+        if hasattr(graphic, "setSize"):
+            graphic.setSize(Size(width_units, height_units))
+        else:
+            graphic.setPropertyValue("Size", Size(width_units, height_units))
+    return True
 
 
 def _get_selected_graphic_object(model):
@@ -144,20 +453,10 @@ def _get_selected_graphic_object(model):
     Writer: content is XTextContent (GraphicObject); Calc/Draw: content is XShape (GraphicObjectShape).
     Otherwise return (None, None).
     """
-    try:
-        selection = model.CurrentController.Selection
-        if not selection:
-            return None, None
-        if hasattr(selection, "getCount") and selection.getCount() != 1:
-            return None, None
-        obj = selection.getByIndex(0) if hasattr(selection, "getByIndex") else selection
-        if not (hasattr(obj, "Graphic") or (hasattr(obj, "getPropertyValue") and obj.getPropertyValue("Graphic"))):
-            return None, None
-        inside = get_type_doc(model)
-        return obj, inside
-    except Exception as e:
-        logger.debug("_get_selected_graphic_object error: %s", e)
+    obj = _selection_graphic_object(model)
+    if obj is None:
         return None, None
+    return obj, get_type_doc(model)
 
 
 def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", description="", add_to_gallery=True, add_frame=False):
@@ -168,43 +467,16 @@ def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", 
     obj, inside = _get_selected_graphic_object(model)
     if obj is None:
         return False
-    # Match insert_image: 1 px at 96 DPI ≈ 26.46 units (1/100 mm)
     width_units = int(width_px * 26.46)
     height_units = int(height_px * 26.46)
     try:
-        if inside in ["writer", "web"]:
-            # Writer: insert new image at anchor of old, then remove old
-            anchor = obj.getAnchor()
-            if anchor is None:
-                return False
-            new_image = model.createInstance("com.sun.star.text.GraphicObject")
-            new_image.GraphicURL = uno.systemPathToFileUrl(img_path)
-            new_image.AnchorType = AS_CHARACTER
-            new_image.Width = width_units
-            new_image.Height = height_units
-            new_image.Title = title
-            new_image.Description = description
-            model.getText().insertTextContent(anchor, new_image, False)
-            model.getText().removeTextContent(obj)
-        else:
-            # Calc/Draw: add new shape at same position/size, then remove old
-            ctrllr = model.CurrentController
-            draw_page = ctrllr.ActiveSheet.DrawPage if inside == "calc" else ctrllr.CurrentPage
-            pos = obj.getPosition()
-            obj.getSize()
-            new_image = model.createInstance("com.sun.star.drawing.GraphicObjectShape")
-            new_image.GraphicURL = uno.systemPathToFileUrl(img_path)
-            new_image.setPosition(pos)
-            new_image.setSize(Size(width_units, height_units))
-            new_image.Title = title
-            new_image.Description = description
-            draw_page.add(new_image)
-            draw_page.remove(obj)
-        if add_to_gallery:
-            add_image_to_gallery(ctx, img_path, f"{title}\n\n{description}")
-        return True
+        if replace_graphic_source(ctx, model, obj, img_path, width_units, height_units, title, description):
+            if add_to_gallery:
+                add_image_to_gallery(ctx, img_path, f"{title}\n\n{description}")
+            return True
+        return False
     except Exception as e:
-        logger.error(f"Replace image in place failed: {e}")
+        logger.error("Replace image in place failed: %s", e)
         return False
 
 
@@ -262,7 +534,6 @@ def get_selected_image_base64(model, ctx=None):
         # Export graphic to base64
         # We use a GraphicProvider to export as PNG/JPG
         import base64
-        import tempfile
 
         if ctx is None:
             ctx = uno.getComponentContext()
@@ -301,12 +572,6 @@ def add_image_to_gallery(ctx, img_path, title):
             theme = themes_list.insertNewByName(GALLERY_NAME)
 
         theme.insertURLByIndex(uno.systemPathToFileUrl(str(target_path)), -1)
-        # Update metadata of the last inserted item
-        # insertURLByIndex returns a boolean in some versions, or index.
-        # LO API says it's boolean for success.
         theme.update()
-        # Find the item we just added (usually at the end or start depending on sort)
-        # For simplicity, we'll just name it here if we can find a way to get the index.
-        # theme.getByIndex(theme.Count - 1).Title = title
     except Exception as e:
         logger.error(f"Failed to add to gallery: {e}")

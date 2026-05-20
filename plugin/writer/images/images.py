@@ -38,7 +38,15 @@ from .image_utils import ImageService
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
-from .image_tools import insert_image, replace_image_in_place, get_selected_image_base64, get_selected_image_dimensions_px
+from .image_tools import (
+    IMAGE_CACHE_DIR_NAME,
+    insert_image,
+    insert_image_at_locator,
+    replace_graphic_source,
+    replace_image_in_place,
+    get_selected_image_base64,
+    get_selected_image_dimensions_px,
+)
 
 log = logging.getLogger("writeragent.writer")
 
@@ -164,8 +172,8 @@ class GenerateImage(ToolWriterImageBase):
         return {"status": "ok", "message": msg}
 
 
-# Persistent cache directory for downloaded images.
-_IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "writeragent_images")
+# Persistent cache directory for downloaded images (embedded on insert, not linked).
+_IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
 
 
 # ------------------------------------------------------------------
@@ -513,8 +521,6 @@ class InsertImage(ToolWriterImageBase):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        import uno
-
         image_path = kwargs.get("image_path", "")
 
         width_mm = kwargs.get("width_mm", 80)
@@ -523,67 +529,30 @@ class InsertImage(ToolWriterImageBase):
         paragraph_index = kwargs.get("paragraph_index")
 
         doc = ctx.doc
-        is_calc = not hasattr(doc, "getGraphicObjects") and hasattr(doc, "getSheets")
 
-        # Auto-download URLs
         if image_path.startswith("http://") or image_path.startswith("https://"):
             image_path = _download_image_to_cache(image_path)
         if not os.path.isfile(image_path):
             return self._tool_error(f"File not found: {image_path}", code="FILE_NOT_FOUND", path=image_path)
 
-        # Convert to file:// URL
-        file_url = uno.systemPathToFileUrl(os.path.abspath(image_path))
+        text_cursor = None
+        doc_svc = getattr(ctx.services, "document", None)
+        if locator is not None and paragraph_index is None and doc_svc:
+            resolved = doc_svc.resolve_locator(doc, locator)
+            paragraph_index = resolved.get("para_index")
 
-        # Create graphic object
-        if is_calc:
-            graphic = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
-        else:
-            graphic = doc.createInstance("com.sun.star.text.TextGraphicObject")
-        graphic.setPropertyValue("GraphicURL", file_url)
+        if paragraph_index is not None and doc_svc:
+            target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
+            if target is None:
+                return self._tool_error(f"Paragraph {paragraph_index} not found.", code="PARAGRAPH_NOT_FOUND", paragraph_index=paragraph_index)
+            text_cursor = doc.getText().createTextCursorByRange(target.getEnd())
 
-        # Set size
-        from com.sun.star.awt import Size
+        graphic = insert_image_at_locator(ctx.ctx, doc, image_path, width_mm=width_mm, height_mm=height_mm, text_cursor=text_cursor)
+        if graphic is None:
+            return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
 
-        size = Size()
-        size.Width = int(width_mm) * 100
-        size.Height = int(height_mm) * 100
-        graphic.setPropertyValue("Size", size)
-
-        # Resolve insertion point and insert
-        if is_calc:
-            # For Calc, insert into the current sheet's draw page
-            sheet = doc.getCurrentController().getActiveSheet()
-            dp = sheet.getDrawPage()
-            dp.add(graphic)
-            # Center or place it in the view if possible, otherwise just at 0,0
-            # For now, we set a basic position
-            from com.sun.star.awt import Point
-
-            pos = Point()
-            pos.X = 1000
-            pos.Y = 1000
-            graphic.setPosition(pos)
-        else:
-            doc_text = doc.getText()
-            doc_svc = getattr(ctx.services, "document", None)
-
-            if locator is not None and paragraph_index is None and doc_svc:
-                resolved = doc_svc.resolve_locator(doc, locator)
-                paragraph_index = resolved.get("para_index")
-
-            if paragraph_index is not None and doc_svc:
-                target, _ = doc_svc.find_paragraph_element(doc, paragraph_index)
-                if target is None:
-                    return self._tool_error(f"Paragraph {paragraph_index} not found.", code="PARAGRAPH_NOT_FOUND", paragraph_index=paragraph_index)
-                cursor = doc_text.createTextCursorByRange(target.getEnd())
-            else:
-                # Insert at current cursor position (end of document)
-                cursor = doc_text.createTextCursor()
-                cursor.gotoEnd(False)
-
-            doc_text.insertTextContent(cursor, graphic, False)
-
-        return {"status": "ok", "image_name": graphic.getName(), "width_mm": width_mm, "height_mm": height_mm}
+        image_name = graphic.getName() if hasattr(graphic, "getName") else ""
+        return {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
 
 
 # ------------------------------------------------------------------
@@ -646,8 +615,6 @@ class ReplaceImage(ToolWriterImageBase):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        import uno
-
         image_name = kwargs.get("image_name", "")
         new_image_path = kwargs.get("new_image_path", "")
 
@@ -655,27 +622,21 @@ class ReplaceImage(ToolWriterImageBase):
         if not graphic:
             return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
 
-        # Auto-download URLs
         if new_image_path.startswith("http://") or new_image_path.startswith("https://"):
             new_image_path = _download_image_to_cache(new_image_path)
         if not os.path.isfile(new_image_path):
             return self._tool_error(f"File not found: {new_image_path}", code="FILE_NOT_FOUND", path=new_image_path)
 
-        file_url = uno.systemPathToFileUrl(os.path.abspath(new_image_path))
-
-        graphic.setPropertyValue("GraphicURL", file_url)
-
-        # Optionally update size
         width_mm = kwargs.get("width_mm")
         height_mm = kwargs.get("height_mm")
+        width_units = height_units = None
         if width_mm is not None or height_mm is not None:
-            from com.sun.star.awt import Size
-
             current = graphic.getPropertyValue("Size")
-            new_size = Size()
-            new_size.Width = int(width_mm * 100) if width_mm is not None else current.Width
-            new_size.Height = int(height_mm * 100) if height_mm is not None else current.Height
-            graphic.setPropertyValue("Size", new_size)
+            width_units = int(width_mm * 100) if width_mm is not None else current.Width
+            height_units = int(height_mm * 100) if height_mm is not None else current.Height
+
+        if not replace_graphic_source(ctx.ctx, ctx.doc, graphic, new_image_path, width_units=width_units, height_units=height_units):
+            return self._tool_error("Failed to replace image.", code="REPLACE_FAILED", image_name=image_name)
 
         return {"status": "ok", "image_name": image_name}
 
