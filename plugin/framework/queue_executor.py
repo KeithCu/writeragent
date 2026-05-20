@@ -24,6 +24,7 @@ import queue
 import threading
 import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Callable, cast, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -34,17 +35,71 @@ log = logging.getLogger("writeragent.framework.queue_executor")
 _AGENT_ACTIVE_LOCK = threading.Lock()
 _AGENT_ACTIVE_COUNT = 0
 _LLM_REQUEST_LOCK = threading.Lock()
+_current_send_cancellation: ContextVar["SendCancellation | None"] = ContextVar("current_send_cancellation", default=None)
+
+
+class SendCancelled(Exception):
+    """Raised when main-thread work is skipped because the user stopped the send."""
+
+
+class SendCancellation:
+    """Per-send cancellation: flag, registered HTTP clients, and optional hooks."""
+
+    __slots__ = ("_cancelled", "_clients_lock", "_clients", "_on_cancel_hooks")
+
+    def __init__(self) -> None:
+        self._cancelled = threading.Event()
+        self._clients_lock = threading.Lock()
+        self._clients: list[Any] = []
+        self._on_cancel_hooks: list[Callable[[], None]] = []
+
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def register_client(self, client: Any) -> None:
+        with self._clients_lock:
+            self._clients.append(client)
+
+    def register_on_cancel(self, hook: Callable[[], None]) -> None:
+        self._on_cancel_hooks.append(hook)
+
+    def cancel(self) -> None:
+        if self._cancelled.is_set():
+            return
+        self._cancelled.set()
+        with self._clients_lock:
+            clients = list(self._clients)
+        for client in clients:
+            stop = getattr(client, "stop", None)
+            if callable(stop):
+                try:
+                    stop()
+                except Exception:
+                    log.exception("SendCancellation: error stopping registered LlmClient")
+        for hook in self._on_cancel_hooks:
+            try:
+                hook()
+            except Exception:
+                log.exception("SendCancellation: error in on_cancel hook")
+        default_executor.cancel_pending_work()
+
+
+def get_current_send_cancellation() -> SendCancellation | None:
+    return _current_send_cancellation.get()
 
 
 @contextmanager
-def agent_session() -> Generator[None, None, None]:
-    """Mark a chat/agent session as active for its lifespan."""
+def agent_session() -> Generator[SendCancellation, None, None]:
+    """Mark a chat/agent session as active and expose a :class:`SendCancellation` scope."""
     global _AGENT_ACTIVE_COUNT
+    scope = SendCancellation()
+    token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
         _AGENT_ACTIVE_COUNT += 1
     try:
-        yield
+        yield scope
     finally:
+        _current_send_cancellation.reset(token)
         with _AGENT_ACTIVE_LOCK:
             _AGENT_ACTIVE_COUNT = max(0, _AGENT_ACTIVE_COUNT - 1)
 
@@ -74,8 +129,8 @@ class _WorkItem:
         self.kwargs = kwargs
         self.blocking = blocking
         self.event = threading.Event() if blocking else None
-        self.result = None
-        self.exception = None
+        self.result: Any = None
+        self.exception: BaseException | None = None
         self.cancelled = False
 
 
@@ -144,6 +199,9 @@ class QueueExecutor:
 
         if item.cancelled:
             log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
+            if item.blocking and item.event and not item.event.is_set():
+                item.exception = SendCancelled()
+                item.event.set()
         else:
             try:
                 item.result = item.fn(*item.args, **item.kwargs)
@@ -167,6 +225,20 @@ class QueueExecutor:
         except Exception as e:
             log.warning("_poke_main_thread addCallback failed: %s", e)
 
+    def cancel_pending_work(self) -> None:
+        """Mark queued main-thread work as cancelled and wake blocking waiters."""
+        pending: list[_WorkItem] = []
+        while True:
+            try:
+                pending.append(self._work_queue.get_nowait())
+            except queue.Empty:
+                break
+        for item in pending:
+            item.cancelled = True
+            if item.blocking and item.event and not item.event.is_set():
+                item.exception = SendCancelled()
+                item.event.set()
+
     def _enqueue_work(self, fn, args, kwargs, blocking=True):
         """Add work item to queue."""
         item_id = str(uuid.uuid4())
@@ -183,6 +255,9 @@ class QueueExecutor:
             # abandoned caller.
             item.cancelled = True
             raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
+
+        if item.cancelled and item.exception is not None:
+            raise item.exception
 
         if item.exception is not None:
             raise item.exception

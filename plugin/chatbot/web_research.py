@@ -116,7 +116,8 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         cache_max_age_days = get_config_int(ctx.ctx, "web_cache_validity_days")
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
 
-        smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx), max_tokens=max_tokens, status_callback=status_callback)
+        stop_checker = getattr(ctx, "stop_checker", None)
+        smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
 
 
         base_intro = "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query."

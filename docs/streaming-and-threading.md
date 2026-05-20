@@ -260,6 +260,17 @@ To handle both sync and async tools without freezing the UI, WriterAgent uses an
 4. **Next Round:** When `"next_tool"` finds an empty `pending_tools` list, all tools are finished. The loop increments the round counter and spawns a new LLM worker to send the results back to the model.
 
 This sequentializes tool execution while guaranteeing the UI never freezes during network-bound tool operations.
+
+### Stop / cancellation
+
+Each sidebar **Send** runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) `agent_session()`). **Stop** calls `scope.cancel()` once, which:
+
+- Sets the cancelled flag (drain loops and `stop_checker` / `stop_requested` on the panel).
+- Calls `stop()` on every **`LlmClient`** created during that send (main chat and smolagents sub-agents).
+- Cancels pending main-thread queue work and runs registered agent-backend `stop()` hooks.
+
+Sub-agents must not run long HTTP on the main thread; `delegate_read_document` opens/closes on the main thread only and runs the inner read agent on the async worker.
+
 # writeragent2 Threading Bug Fix: Why the "Background Thread" Was Actually Freezing/Crashing the UI
 
 You noticed that [writeragent2](file:///home/keithcu/Desktop/Python/writeragent/writeragent2) already contained a `threading.Thread` call in [panel_factory.py](file:///home/keithcu/Desktop/Python/writeragent/writeragent2/plugin/chatbot/panel_factory.py) with the comment `Run in background thread to avoid UI freeze`. It's understandable to wonder why we needed to introduce a complex queuing system if the work was already happening off the main thread.

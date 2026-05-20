@@ -322,6 +322,9 @@ class SendHandlersMixin:
 
         q: queue.Queue[Any] = queue.Queue()
         self._current_agent_backend = adapter
+        cancel_scope = getattr(self, "_send_cancellation", None)
+        if cancel_scope is not None and hasattr(adapter, "stop"):
+            cancel_scope.register_on_cancel(adapter.stop)
 
         def run_agent():
             try:

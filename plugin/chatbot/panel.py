@@ -317,7 +317,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.web_research_checkbox = web_research_checkbox
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
-        self.stop_requested = False
+        self._stop_requested_fallback = False
+        self._send_cancellation = None
         self._terminal_status = "Ready"
         self._send_busy = False
         self._in_librarian_mode = False
@@ -374,6 +375,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         import dataclasses
 
         self.sidebar_state = dataclasses.replace(self.sidebar_state, send=value)
+
+    @property
+    def stop_requested(self) -> bool:
+        scope = getattr(self, "_send_cancellation", None)
+        if scope is not None:
+            return scope.is_cancelled()
+        return self._stop_requested_fallback
+
+    @stop_requested.setter
+    def stop_requested(self, value: bool) -> None:
+        if value:
+            scope = getattr(self, "_send_cancellation", None)
+            if scope is not None:
+                scope.cancel()
+            else:
+                self._stop_requested_fallback = True
+        else:
+            self._stop_requested_fallback = False
 
     def sync_audio_slice(self):
         """Mirror :attr:`audio_recorder.state` into the composite (strategy A)."""
@@ -732,13 +751,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self.sync_audio_slice()
 
             case StartSendEffect():
-                self.stop_requested = False
+                self._stop_requested_fallback = False
                 self._terminal_status = "Ready"
                 try:
                     from plugin.framework.queue_executor import agent_session
 
-                    with agent_session():
-                        self._do_send()
+                    with agent_session() as cancel_scope:
+                        self._send_cancellation = cancel_scope
+                        try:
+                            self._do_send()
+                        finally:
+                            self._send_cancellation = None
                 except Exception as e:
                     doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
                     log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
@@ -754,20 +777,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             self._set_status(_(self._terminal_status))
 
             case StopSendEffect():
-                self.stop_requested = True
-                client = getattr(self, "client", None)
-                if client and hasattr(client, "stop"):
-                    try:
-                        client.stop()
-                    except Exception:
-                        log.exception("StopButton error stopping client")
-
-                adapter = getattr(self, "_current_agent_backend", None)
-                if adapter and hasattr(adapter, "stop"):
-                    try:
-                        adapter.stop()
-                    except Exception:
-                        log.exception("StopButton error stopping agent backend")
+                scope = getattr(self, "_send_cancellation", None)
+                if scope is not None:
+                    scope.cancel()
+                else:
+                    self.stop_requested = True
 
             case _:
                 log.debug("SendButtonListener: unhandled effect type %s", type(effect).__name__)

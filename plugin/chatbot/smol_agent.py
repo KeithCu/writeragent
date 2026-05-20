@@ -129,12 +129,13 @@ class WriterAgentSmolModel(Model):
     requests to WriterAgent's `LlmClient` (`core.api`).
     """
 
-    def __init__(self, llm_client, max_tokens=1024, status_callback=None, **kwargs):
+    def __init__(self, llm_client, max_tokens=1024, status_callback=None, stop_checker=None, **kwargs):
         super().__init__(**kwargs)
         self.api = llm_client
         self.max_tokens = max_tokens
         self.model_id = self.api.config.get("model")
         self._status_callback = status_callback
+        self._stop_checker = stop_checker
 
     def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
         completion_kwargs = self._prepare_completion_kwargs(messages=cast("list[ChatMessage | dict[str, Any]]", messages), stop_sequences=stop_sequences, tools_to_call_from=tools_to_call_from, **kwargs)
@@ -148,7 +149,15 @@ class WriterAgentSmolModel(Model):
         # smol prompt and on the wire. Some local backends select a different parser
         # path when OpenAI-style tools are present.
         tools = completion_kwargs.get("tools", None)
-        result = self.api.request_with_tools(msg_dicts, max_tokens=self.max_tokens, tools=tools, model=self.model_id, response_format=response_format, prepend_dev_build_system_prefix=False)
+        result = self.api.request_with_tools(
+            msg_dicts,
+            max_tokens=self.max_tokens,
+            tools=tools,
+            model=self.model_id,
+            response_format=response_format,
+            prepend_dev_build_system_prefix=False,
+            stop_checker=self._stop_checker,
+        )
 
         if self._status_callback:
             self._status_callback("Model responded, processing...")
@@ -273,5 +282,6 @@ def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, inst
     max_tokens = get_config_int(uno_ctx, "chat_max_tokens")
     max_steps = get_config_int(uno_ctx, "chat_max_tool_rounds")
 
-    smol_model = WriterAgentSmolModel(LlmClient(config, uno_ctx), max_tokens=max_tokens, status_callback=status_callback)
+    stop_checker = getattr(ctx, "stop_checker", None)
+    smol_model = WriterAgentSmolModel(LlmClient(config, uno_ctx), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
     return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)

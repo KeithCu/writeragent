@@ -124,14 +124,14 @@ class DelegateReadDocument(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import SendCancelled, execute_on_main_thread
 
         path_or_name = kwargs.get("path_or_name")
         task = kwargs.get("task")
         if not path_or_name or not task:
             return self._tool_error("path_or_name and task are required")
 
-        def _run() -> dict[str, Any]:
+        def _open_on_main() -> tuple[Any, ...] | dict[str, Any]:
             path, url_or_err = resolve_path_or_name(ctx.ctx, ctx.doc, str(path_or_name))
             if path is None:
                 return self._tool_error(url_or_err or "Could not resolve file", details={"path_or_name": path_or_name})
@@ -140,18 +140,34 @@ class DelegateReadDocument(ToolBase):
             model, doc_type, err, opened_for_document_research = open_document_for_read(ctx.ctx, target)
             if model is None or doc_type is None:
                 return self._tool_error(err or "Open failed", details={"path": path})
+            return (path, model, doc_type, opened_for_document_research)
 
+        try:
+            opened = execute_on_main_thread(_open_on_main)
+        except SendCancelled:
+            return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
+
+        if isinstance(opened, dict) and opened.get("status") == "error":
+            return opened
+
+        path, model, doc_type, opened_for_document_research = opened
+        try:
+            stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
+            if stop_checker is not None and stop_checker():
+                return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
+            result = run_inner_read_agent(ctx, model, doc_type, str(task))
+        finally:
             try:
-                result = run_inner_read_agent(ctx, model, doc_type, str(task))
-            finally:
-                close_document_research_document(model, opened_for_document_research=opened_for_document_research)
+                execute_on_main_thread(
+                    lambda: close_document_research_document(model, opened_for_document_research=opened_for_document_research)
+                )
+            except SendCancelled:
+                pass
 
-            if isinstance(result, dict) and result.get("status") == "error":
-                return result
-            if isinstance(result, dict) and "result" in result:
-                payload = result["result"]
-            else:
-                payload = result
-            return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}
-
-        return execute_on_main_thread(_run)
+        if isinstance(result, dict) and result.get("status") == "error":
+            return result
+        if isinstance(result, dict) and "result" in result:
+            payload = result["result"]
+        else:
+            payload = result
+        return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}

@@ -256,6 +256,15 @@ class LlmClient:
         self._ssl_fallback_hosts = set()
         self._last_llm_request_sent_monotonic = 0.0
         self._shims: dict[str, BaseProviderShim] = {}
+        scope = None
+        try:
+            from plugin.framework.queue_executor import get_current_send_cancellation
+
+            scope = get_current_send_cancellation()
+        except Exception:
+            log.debug("LlmClient: could not resolve send cancellation scope", exc_info=True)
+        if scope is not None:
+            scope.register_client(self)
 
     def _get_shim(self) -> BaseProviderShim:
         """Get the provider shim for this client."""
