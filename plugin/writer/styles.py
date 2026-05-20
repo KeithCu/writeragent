@@ -225,7 +225,7 @@ class ListStyles(ToolWriterStyleBase):
             if family == "CharacterStyles" and name == "Default Style":
                 entry["name"] = "No Character Style"
             try:
-                entry["parent_style"] = style.getPropertyValue("ParentStyle")
+                entry["parent_style"] = style.getParentStyle()
             except Exception:
                 pass
             styles.append(entry)
@@ -256,10 +256,16 @@ class GetStyleInfo(ToolWriterStyleBase):
         info = {"name": style_name, "family": family, "is_user_defined": style.isUserDefined(), "is_in_use": style.isInUse()}
 
         for prop_name in _FAMILY_PROPS.get(family, []):
-            try:
-                info[prop_name] = style.getPropertyValue(prop_name)
-            except Exception:
-                pass
+            if prop_name == "ParentStyle":
+                try:
+                    info["ParentStyle"] = style.getParentStyle()
+                except Exception:
+                    pass
+            else:
+                try:
+                    info[prop_name] = style.getPropertyValue(prop_name)
+                except Exception:
+                    pass
 
         return {"status": "ok", **info}
 
@@ -480,11 +486,15 @@ class CreateStyle(ToolWriterStyleBase):
                 return self._tool_error("Failed to create style instance for %s" % service)
 
             # Set parent style
-            if parent_style:
+            actual_parent = parent_style
+            if not actual_parent and service == "com.sun.star.style.ConditionalParagraphStyle":
+                actual_parent = "Standard"
+
+            if actual_parent:
                 try:
-                    new_style.setParentStyle(parent_style)
+                    new_style.setParentStyle(actual_parent)
                 except Exception as e:
-                    log.warning("Failed to set parent_style '%s' on new style: %s", parent_style, e)
+                    log.warning("Failed to set parent_style '%s' on new style: %s", actual_parent, e)
 
             # Apply properties
             if isinstance(property_updates, dict):
@@ -495,6 +505,9 @@ class CreateStyle(ToolWriterStyleBase):
                         new_style.setPropertyValue(prop_name, prop_val)
                     except Exception as e:
                         log.warning("Failed to set property %s on new style: %s", prop_name, e)
+
+            # Register style
+            style_family.insertByName(style_name, new_style)
 
             # Apply conditional rules
             if family == "ParagraphStyles" and conditional_rules:
@@ -507,10 +520,10 @@ class CreateStyle(ToolWriterStyleBase):
                     nv.Name = rule["context"]
                     nv.Value = rule["target_style"]
                     conditions.append(nv)
-                new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
-
-            # Register style
-            style_family.insertByName(style_name, new_style)
+                try:
+                    new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
+                except Exception as e:
+                    log.warning("Failed to set ParaStyleConditions on new style: %s", e)
 
         except Exception as e:
             log.exception("Failed to create style '%s' in %s", style_name, family)

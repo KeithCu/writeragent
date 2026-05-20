@@ -293,6 +293,26 @@ Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolea
 =PYTHON("import pandas as pd; df = pd.DataFrame(data); df[0].mean()"; A1:C10)
 ```
 
+### Sharing Code via Cell References
+
+Instead of typing Python code directly as a string literal inside the `=PYTHON()` formula, **you can pass a cell reference containing the code** (e.g., `=PYTHON(A1; B1:B10)`).
+
+Because the first parameter of `=PYTHON()` is defined in the IDL (`XPromptFunction.idl`) as `string code`, **the LibreOffice Calc formula engine automatically handles evaluation and type coercion of cell references out-of-the-box.** 
+
+No code changes or new APIs (such as `PythonCell()`) are required.
+
+#### Advantages of passing a cell reference for code:
+1. **Code Reusability / Single Source of Truth**: You can write a script once in cell `A1` and reference it in dozens of other cells (e.g., `=PYTHON(A1; B1:B10)`, `=PYTHON(A1; C1:C10)`). Updating the logic in `A1` recalculates all dependent cells automatically.
+2. **Clean Syntax (No Quote Doubling)**: Inside Calc formulas, double quotes must be doubled to escape them (e.g., `""result = ...""`). Putting code in a cell lets you write clean, standard Python syntax without escaping pain.
+3. **Multi-line Scripts**: The standard Calc cell editor supports multi-line text blocks (using `Alt+Enter` to insert newlines). This allows users to write readable, commented Python scripts of arbitrary length.
+4. **Dynamic Formulas**: You can use Calc formulas to construct Python code dynamically based on other spreadsheet variables! For example:
+   * Cell `A1`: `= "import numpy as np; result = np." & B1 & "(data)"`
+   * Changing `B1` from `"mean"` to `"std"` dynamically changes the script executed by `=PYTHON(A1; C1:C10)`.
+
+#### Gotchas & Design Invariants:
+* **Empty Code Cells**: If the referenced code cell evaluates to an empty string, our robust subprocess script runner gracefully detects the empty code block and returns a cell with the error message: `Error: No code provided.`
+* **Implicit Intersection**: If a user passes a multi-cell range as the first argument (e.g., `=PYTHON(A1:A2; B1:B10)`), Calc will perform implicit intersection using the active row/column. To ensure predictable behavior, users should always pass single cell references (like `A1`) or explicit absolute coordinates (like `$A$1`).
+
 ### How it runs
 
 Uses the same warm worker and fresh executor as the chat tool ([§2](#2-strategy-decision)). **`execute_python_script`** is separate and not used for formulas. Variables do **not** persist across cells.
@@ -342,17 +362,26 @@ flowchart LR
 
 ### Data handoff and shaping
 
-**`=PYTHON()`** and Calc **`run_venv_python_script`** inject range values as **`data`**.
+**Where does the `data` variable come from?**
+If you are editing your Python code in an IDE or reading it statically, referencing `data` (e.g., `data[0]`) might look like a `NameError` (an undefined variable). 
 
-| Range you pass | `data` in Python | Example |
-|----------------|------------------|---------|
-| Single cell `A1` | `[value]` | `sum(data)` |
-| One row `A1:E1` or column `A1:A10` | `[v1, v2, …]` flat | `sum(data)` |
-| Rectangle `A1:C5` (both dims > 1) | `[[row…], …]` row-major | `sum(sum(row) for row in data)` or NumPy |
+In the `=PYTHON()` environment, **`data` is a special variable injected dynamically into your script's execution namespace at runtime.** 
 
-Conversion: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells → `None`. Cap: `MAX_PYTHON_DATA_CELLS` (default 250 000).
+When you pass a range (or cell reference) as the second argument to `=PYTHON(code; range)`, the LibreOffice Add-In:
+1. Resolves the range inside Calc and reads all cell values.
+2. Formats these values into standard Python lists (flat or 2D).
+3. Injects this list into the sandbox's execution namespace under the variable name **`data`**.
+4. Runs your Python script. Because of this runtime injection, your script can immediately access `data` as a fully defined, local variable.
 
-**Pipeline:** Calc UNO range → `calc_addin_data_to_python` → JSON in worker request → `data` variable in fresh namespace.
+| Range you pass in Calc | Structure of `data` in Python | Example Usage in Script |
+|------------------------|-------------------------------|-------------------------|
+| **Single cell** (e.g., `B1`) | **`list` with 1 item**: `[value]` | `data[0] * 2` or `sp.prime(int(data[0]))` |
+| **Row or Column** (e.g., `B1:B10`) | **Flat 1D `list`**: `[v1, v2, …]` | `sum(data)` or `np.mean(data)` |
+| **2D Rectangle** (e.g., `B1:C5`) | **Nested 2D `list` (row-major)**: `[[r1c1, r1c2], [r2c1, r2c2], …]` | `pd.DataFrame(data)` or 2D numpy processing |
+
+Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped at `MAX_PYTHON_DATA_CELLS` (default 250 000).
+
+**Data Pipeline:** Calc UNO range -> `calc_addin_data_to_python` -> JSON worker request -> sandboxed `LocalPythonExecutor.send_variables({"data": ...})` -> script runs.
 
 **Gaps vs LibrePythonista (workarounds):** one range only (use multiple cells or chat `data_range`); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 

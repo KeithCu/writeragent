@@ -344,49 +344,6 @@ When refactoring, ensure these provider-specific behaviors are isolated:
 
 ---
 
-## 📚 Documentation Tasks
-
-### 8. **API Documentation** 📖
-**Files**: `docs/api/` (new directory)
-**Status**: Not started
-
-- [ ] Document all tool APIs with examples
-- [ ] Create UNO service reference guide
-- [ ] Add domain-specific documentation
-- [ ] Generate API reference from code
-- [ ] Add usage examples and best practices
-
-**Dependencies**: None
-**Blockers**: None
-
-### 9. **Developer Guide** 👨‍💻
-**Files**: `docs/development.md`
-**Status**: Partial
-
-- [ ] Document architecture overview
-- [ ] Add contribution guidelines
-- [ ] Create tool development guide
-- [ ] Add testing patterns
-- [ ] Document release process
-
-**Dependencies**: None
-**Blockers**: None
-
-### 10. **User Guide** 📚
-**Files**: `docs/user-guide.md`
-**Status**: Not started
-
-- [ ] Create getting started guide
-- [ ] Add feature tutorials
-- [ ] Document common workflows
-- [ ] Add troubleshooting section
-- [ ] Create FAQ
-
-**Dependencies**: None
-**Blockers**: None
-
----
-
 ## 🐛 Known Issues & Technical Debt
 
 ### 11. **Tool Registry Improvements** 🔧

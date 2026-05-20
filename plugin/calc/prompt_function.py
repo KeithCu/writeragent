@@ -335,7 +335,7 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
             worker_data = py_data
             if py_data is not None and _is_scalar_index_arg(py_data):
                 index_arg = py_data[0]
-                worker_data = None
+                # Keep worker_data = py_data instead of None so single cells are still passed as 'data' list
             elif py_data is not None:
                 size_err = check_python_data_size(py_data)
                 if size_err:

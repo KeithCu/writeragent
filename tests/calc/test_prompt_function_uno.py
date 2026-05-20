@@ -66,6 +66,16 @@ def test_prompt_function_python_execution():
             assert call_kw[0][1] == "result = sum(data)"
             assert call_kw[1]["data"] == [1.0, 2.0, 3.0]
 
+            # Single cell numeric data forwarded as data, not discarded as None
+            mock_run.reset_mock()
+            mock_run.return_value = {"status": "ok", "result": 7919}
+            res = func.python("result = sp.prime(int(data[0]))", 1000.0)
+            assert res == 7919.0
+            mock_run.assert_called_once()
+            call_kw = mock_run.call_args
+            assert call_kw[0][1] == "result = sp.prime(int(data[0]))"
+            assert call_kw[1]["data"] == [1000.0]
+
             # Error case
             mock_run.return_value = {"status": "error", "message": "Syntax error"}
             res = func.python("bad code")

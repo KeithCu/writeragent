@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.doc.document_research import list_nearby_files
@@ -52,9 +52,8 @@ class ListNearbyFiles(ToolBase):
         from plugin.framework.queue_executor import execute_on_main_thread
 
         filt = kwargs.get("filter")
-        file_kind = kwargs.get("file_kind") or "documents"
-        if file_kind not in ("documents", "images"):
-            return {"status": "error", "message": f"Invalid file_kind {file_kind!r}; use documents or images."}
+        file_kind_raw = kwargs.get("file_kind")
+        file_kind: Literal["documents", "images"] = "images" if file_kind_raw == "images" else "documents"
 
         def _run() -> dict[str, Any]:
             return list_nearby_files(ctx.ctx, ctx.doc, filter=filt, file_kind=file_kind)
