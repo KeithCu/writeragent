@@ -10,15 +10,6 @@ config:
     label: Enable AI grammar checker (Writer)
     helper: "When on, WriterAgent registers its AI grammar proofreader with Linguistic; checked text uses your API (Tools → Options → AI). Underlines appear shortly after you pause typing. Off by default."
 
-  grammar_proofreader_wait_timeout_ms:
-    type: int
-    default: 15000
-    min: 0
-    max: 60000
-    widget: number
-    label: Grammar check wait timeout (ms)
-    helper: "Reserved for possible future use. The proofreader returns immediately on cache miss (async); results appear on a later Writer pass once the sentence cache is filled."
-
   grammar_proofreader_model:
     type: string
     default: ""

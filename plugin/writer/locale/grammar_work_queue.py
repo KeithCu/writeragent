@@ -372,8 +372,14 @@ def _handle_grammar_check_effect(effect: Any, ec: GrammarEffectContext) -> gramm
             sys_prompt += " The input may contain partial sentences; prefer conservative grammar suggestions and avoid broad rewrites."
 
         from .grammar_persistence import get_persistence
+        from .grammar_proofread_cache import normalize_reason, ignored_rules_snapshot
         p = get_persistence(ec.ctx, first_item.doc_id)
-        ignored_reasons = p._ignored_rules if p else set()
+        ignored_reasons = set(p._ignored_rules) if p else set()
+        for r in ignored_rules_snapshot():
+            if r.startswith("wa_g_rule||"):
+                ignored_reasons.add(normalize_reason(r[11:]))
+            else:
+                ignored_reasons.add(normalize_reason(r))
         if ignored_reasons:
             sys_prompt += "\n\nIMPORTANT: The user has explicitly chosen to IGNORE the following rules/style issues in this document. DO NOT report any errors or suggestions that match or are highly similar to these:\n"
             for reason in sorted(ignored_reasons):
@@ -399,8 +405,14 @@ def _handle_grammar_check_effect(effect: Any, ec: GrammarEffectContext) -> gramm
             sys_prompt += " The input may be a partial sentence; prefer conservative grammar suggestions and avoid broad rewrites."
 
         from .grammar_persistence import get_persistence
+        from .grammar_proofread_cache import normalize_reason, ignored_rules_snapshot
         p = get_persistence(ec.ctx, item.doc_id)
-        ignored_reasons = p._ignored_rules if p else set()
+        ignored_reasons = set(p._ignored_rules) if p else set()
+        for r in ignored_rules_snapshot():
+            if r.startswith("wa_g_rule||"):
+                ignored_reasons.add(normalize_reason(r[11:]))
+            else:
+                ignored_reasons.add(normalize_reason(r))
         if ignored_reasons:
             sys_prompt += "\n\nIMPORTANT: The user has explicitly chosen to IGNORE the following rules/style issues in this document. DO NOT report any errors or suggestions that match or are highly similar to these:\n"
             for reason in sorted(ignored_reasons):
@@ -457,18 +469,21 @@ def _handle_process_grammar_results_effect(effect: Any, ec: GrammarEffectContext
             continue
         if idx < len(effect.results):
             errors = effect.results[idx]
+            from .grammar_proofread_cache import normalize_reason, ignored_rules_snapshot
             p = get_persistence(ec.ctx, item.doc_id)
-            ignored = p._ignored_rules if p else set()
+            ignored = set(p._ignored_rules) if p else set()
+            global_ignored = ignored_rules_snapshot()
             norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ec.ctx, effect.bcp47)
             
-            from .grammar_proofread_cache import normalize_reason
             filtered_errors = []
             for e in norm_errors:
                 rule_ident = e.rule_identifier
                 if rule_ident.startswith("wa_g_rule||"):
                     reason = rule_ident[11:]
-                    if normalize_reason(reason) in ignored:
+                    if normalize_reason(reason) in ignored or rule_ident in global_ignored:
                         continue
+                elif rule_ident in ignored or rule_ident in global_ignored:
+                    continue
                 filtered_errors.append(e)
 
             grammar_proofread_cache.cache_put_sentence(effect.bcp47, text, [asdict(e) for e in filtered_errors], ctx=ec.ctx, doc_id=item.doc_id)

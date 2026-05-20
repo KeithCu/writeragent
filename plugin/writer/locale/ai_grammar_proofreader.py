@@ -54,7 +54,7 @@ except ImportError:
 # INFO once when grammar is off (Writer still calls doProofreading); reset when enabled again.
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
-from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear, ignored_rules_snapshot
+from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
 from plugin.writer.locale.grammar_proofread_locale import (
     GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,  # noqa: F401 — module API for tests (`proofreader.GRAMMAR_*`)
     GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS,  # noqa: F401
@@ -99,10 +99,11 @@ def _proofreading_markup_type() -> int:
 
 def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, doc_id: str) -> tuple[Any, ...]:
     from .grammar_persistence import get_persistence
-    from .grammar_proofread_cache import normalize_reason
+    from .grammar_proofread_cache import normalize_reason, ignored_rules_snapshot
 
     p = get_persistence(ctx, doc_id)
-    ignored_reasons = p._ignored_rules if p else set()
+    ignored_reasons = set(p._ignored_rules) if p else set()
+    global_ignored = ignored_rules_snapshot()
 
     norms = []
     for d in cached:
@@ -112,11 +113,11 @@ def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, do
         if rule_ident.startswith("wa_g_rule||"):
             reason = rule_ident[11:]
             norm_reason = normalize_reason(reason)
-            if norm_reason in ignored_reasons:
+            if norm_reason in ignored_reasons or rule_ident in global_ignored:
                 continue
 
         # Fallback/Legacy rule_identifier check
-        elif rule_ident in ignored_reasons:
+        elif rule_ident in ignored_reasons or rule_ident in global_ignored:
             continue
 
         norms.append(
@@ -257,6 +258,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del args
         super().__init__()
         self.ctx = ctx
+        self._last_doc_id: str | None = None
         from plugin.framework.logging import init_logging
 
         init_logging(ctx)
@@ -363,6 +365,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return False
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
+        self._last_doc_id = aDocumentIdentifier
         if uno_mod is None:
             log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
             raise RuntimeError("uno not available")
@@ -430,6 +433,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
             model = get_active_document(self.ctx)
             doc_id = _model_runtime_uid(model) if model else None
+            if not doc_id:
+                doc_id = getattr(self, "_last_doc_id", None)
             p = get_persistence(self.ctx, doc_id) if doc_id else None
 
             if aRuleIdentifier.startswith("wa_g_rule||"):
@@ -461,6 +466,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
             model = get_active_document(self.ctx)
             doc_id = _model_runtime_uid(model) if model else None
+            if not doc_id:
+                doc_id = getattr(self, "_last_doc_id", None)
             p = get_persistence(self.ctx, doc_id) if doc_id else None
 
             if p:
