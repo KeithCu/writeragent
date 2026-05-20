@@ -38,6 +38,7 @@ from .image_utils import ImageService
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.doc.document_research import list_nearby_files
 from .image_tools import (
     IMAGE_CACHE_DIR_NAME,
     insert_image,
@@ -174,6 +175,43 @@ class GenerateImage(ToolWriterImageBase):
 
 # Persistent cache directory for downloaded images (embedded on insert, not linked).
 _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
+
+
+# ------------------------------------------------------------------
+# ListNearbyImageFiles
+# ------------------------------------------------------------------
+
+
+class ListNearbyImageFiles(ToolWriterImageBase):
+    """List image files in the active document's directory (images delegate only)."""
+
+    name = "list_nearby_image_files"
+    intent = "media"
+    description = (
+        "List image files (.png, .jpg, .jpeg, .gif, .webp, .bmp, .svg) in the same folder as the active document "
+        "(newest first). Excludes the active file. Use returned path with insert_image or replace_image. "
+        "Optional filter is a case-insensitive substring on the basename."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "filter": {"type": "string", "description": "Optional basename substring (e.g. 'logo')."},
+        },
+        "required": [],
+    }
+    uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation = False
+
+    def is_async(self) -> bool:
+        return True
+
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> typing.Any:
+        filt = kwargs.get("filter")
+
+        def _run() -> dict[str, typing.Any]:
+            return list_nearby_files(ctx.ctx, ctx.doc, filter=filt, file_kind="images")
+
+        return execute_on_main_thread(_run)
 
 
 # ------------------------------------------------------------------

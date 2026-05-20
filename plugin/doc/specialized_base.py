@@ -167,10 +167,15 @@ class DelegateToSpecializedBase(ToolBase):
             if domain == "document_research"
             else ""
         )
+        images_hint = (
+            " Discover local image files with list_nearby_image_files before insert_image when the user refers to a photo in the folder."
+            if domain == "images"
+            else ""
+        )
         instructions = (
             f"You are a specialized {self._agent_label} agent focused on the '{domain}' domain. "
             f"You have a focused set of tools to accomplish your task. Use them to fulfill the user's request."
-            f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}"
+            f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}{images_hint}"
         )
 
         agent = build_toolcalling_agent(ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=SPECIALIZED_EXAMPLES_BLOCK, status_callback=status_callback)

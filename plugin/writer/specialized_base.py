@@ -98,7 +98,9 @@ class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
 
 class ToolWriterImageBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
-    specialized_domain_description: ClassVar[str | None] = "In-document image operations: generate, list, insert, and replace images."
+    specialized_domain_description: ClassVar[str | None] = (
+        "In-document image operations (list_images) and nearby folder images (list_nearby_image_files); generate, insert, and replace."
+    )
     intent = "media"
 
 

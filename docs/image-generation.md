@@ -17,7 +17,8 @@ This document provides a comprehensive brain dump of the work performed to integ
   - **add_image_to_gallery**: Adds generated images to the LibreOffice Media Gallery (in this file).
 
 ### 2. Multi-modal Tools
-Integrated into [core/document_tools.py](core/document_tools.py) and available to the LLM:
+Integrated into [plugin/writer/images/images.py](../plugin/writer/images/images.py) and available via `delegate_to_specialized_*_toolset(domain="images")`:
+- **list_nearby_image_files**: Lists image files in the document folder (`.png`, `.jpg`, …); use with **insert_image** / **replace_image**. Distinct from **list_images**, which lists graphic objects already in the document.
 - **generate_image**: Creates a new image from a prompt, or edits the selected image (pass `source_image='selection'`). Replaces in place when editing. When provider is `endpoint`, the model used is updated in `image_model_lru` after success.
 
 ### 3. UI and Configuration
