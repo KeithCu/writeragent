@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.scripting.payload_codec import host_pack_data, is_f64_blob, wire_cell_count
+
 # Cap passed to venv subprocess (JSON size / eval time); ~500x500 sheet.
 MAX_PYTHON_DATA_CELLS = 250_000
 
@@ -103,8 +105,17 @@ def calc_addin_data_to_python(value: Any) -> list[Any] | list[list[Any]] | None:
     return normalize_python_data_shape(grid)
 
 
+def pack_calc_data_for_wire(py_data: list[Any] | list[list[Any]] | None) -> Any:
+    """Pack Calc ``data`` for the venv worker (json list or f64_blob when dense numeric)."""
+    if py_data is None:
+        return None
+    return host_pack_data(py_data)
+
+
 def count_cells(data: Any) -> int:
     """Return number of scalar cells in *data* for size guarding."""
+    if is_f64_blob(data):
+        return wire_cell_count(data)
     if data is None:
         return 0
     if not isinstance(data, (list, tuple)):

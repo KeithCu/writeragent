@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import ast
 import importlib
+import logging
 import sys
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+from plugin.scripting.payload_codec import child_pack_result, child_unpack_data, describe_wire_value, is_f64_blob
 from plugin.scripting.timeout_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
 
@@ -91,25 +95,30 @@ def _optional_module(name: str) -> Any | None:
 
 
 def serialize_result(obj: Any) -> Any:
-    """Convert numpy/pandas and containers to JSON-safe values."""
+    """Convert numpy/pandas and containers to JSON-safe values (f64_blob for large numeric arrays)."""
+    try:
+        return _serialize_result_impl(obj)
+    except Exception:
+        log.exception(
+            "venv_sandbox serialize_result failed for value %s",
+            describe_wire_value(obj),
+        )
+        raise
+
+
+def _serialize_result_impl(obj: Any) -> Any:
     np_mod = _optional_module("numpy")
     if np_mod is not None:
-        if isinstance(obj, np_mod.ndarray):
-            return obj.tolist()
-        if isinstance(obj, (np_mod.integer,)):
-            return int(obj)
-        if isinstance(obj, (np_mod.floating,)):
-            return float(obj)
-        if isinstance(obj, np_mod.bool_):
-            return bool(obj)
+        if isinstance(obj, (np_mod.ndarray, np_mod.integer, np_mod.floating, np_mod.bool_)):
+            return child_pack_result(obj)
     pd_mod = _optional_module("pandas")
     if pd_mod is not None:
         if isinstance(obj, pd_mod.DataFrame):
             return obj.to_dict(orient="records")
         if isinstance(obj, pd_mod.Series):
-            return obj.tolist()
+            return child_pack_result(obj.to_numpy())
     if isinstance(obj, (list, tuple)):
-        return [serialize_result(x) for x in obj]
+        return child_pack_result(obj)
     if isinstance(obj, dict):
         return {str(k): serialize_result(v) for k, v in obj.items()}
     return obj
@@ -137,13 +146,19 @@ def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int |
     # static_tools stays None and builtins like sum() are rejected.
     executor.send_tools({})
     if data is not None:
-        executor.send_variables({"data": data})
+        if is_f64_blob(data):
+            log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
+        unpacked = child_unpack_data(data)
+        executor.send_variables({"data": unpacked})
     try:
         code_output = executor(code)
         result = executor.state.get("result", code_output.output)
+        serialized = serialize_result(result)
+        if is_f64_blob(serialized):
+            log.debug("venv_sandbox worker result %s", describe_wire_value(serialized))
         return {
             "status": "ok",
-            "result": serialize_result(result),
+            "result": serialized,
             "stdout": code_output.logs or "",
         }
     except InterpreterError as e:

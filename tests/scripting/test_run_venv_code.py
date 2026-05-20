@@ -105,6 +105,38 @@ def test_manager_two_calls_same_process():
     PythonWorkerManager.shutdown_all()
 
 
+def test_f64_blob_data_round_trip_execute_request():
+    """Ingress f64_blob: child receives ndarray from frombuffer."""
+    np = pytest.importorskip("numpy")
+    grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
+    from plugin.calc.calc_addin_data import pack_calc_data_for_wire
+    from plugin.scripting.payload_codec import is_f64_blob
+
+    wire = pack_calc_data_for_wire(grid)
+    assert is_f64_blob(wire)
+    r = _execute_request("result = float(data.sum())", wire)
+    assert r["status"] == "ok"
+    assert r["result"] == pytest.approx(sum(r * 10 + c for r in range(4) for c in range(4)))
+
+
+def test_f64_blob_result_round_trip_harness():
+    np = pytest.importorskip("numpy")
+    r = _execute_request(
+        "import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)",
+        None,
+    )
+    assert r["status"] == "ok"
+    from plugin.scripting.payload_codec import is_f64_blob
+
+    assert is_f64_blob(r["result"])
+    from plugin.scripting.payload_codec import host_unpack_data
+
+    back = host_unpack_data(r["result"])
+    assert len(back) == 4
+    assert back[0][0] == pytest.approx(0.0)
+    assert back[3][3] == pytest.approx(15.0)
+
+
 def test_automatic_imports_math():
     r = _execute_request("result = math.sqrt(16)", None)
     assert r["status"] == "ok"

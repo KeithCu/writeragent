@@ -17,6 +17,7 @@
 import os
 import sys
 import threading
+from typing import Any
 
 # Ensure the extension's install directory is on sys.path
 # so that "plugin.xxx" imports work correctly.
@@ -51,7 +52,8 @@ from plugin.framework.config import get_config, get_api_config, get_config_int
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.client.errors import format_error_for_display
-from plugin.calc.calc_addin_data import calc_addin_data_to_python, check_python_data_size, count_cells
+from plugin.calc.calc_addin_data import calc_addin_data_to_python, check_python_data_size, count_cells, pack_calc_data_for_wire
+from plugin.scripting.payload_codec import host_unpack_data, is_f64_blob
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 
 import logging
@@ -63,8 +65,16 @@ log = logging.getLogger(__name__)
 _MATRIX_SCALAR_SESSIONS = threading.local()
 
 
+def _worker_result_for_calc(result: Any) -> Any:
+    """Expand f64_blob to nested lists for matrix/session flattening; pass scalars through."""
+    if is_f64_blob(result):
+        return host_unpack_data(result, as_nested_list=True)
+    return result
+
+
 def _flatten_result_values(result):
     """Row-major flattening for list / nested list worker results."""
+    result = _worker_result_for_calc(result)
     if not isinstance(result, (list, tuple)):
         return [result]
     if not result:
@@ -332,16 +342,16 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
             py_data = calc_addin_data_to_python(data)
             log.debug("PYTHON parsed py_data: %r", py_data)
             index_arg = None
-            worker_data = py_data
-            if py_data is not None and _is_scalar_index_arg(py_data):
+            if py_data is not None and _is_scalar_index_arg(py_data) and not is_f64_blob(py_data):
                 index_arg = py_data[0]
-                # Keep worker_data = py_data instead of None so single cells are still passed as 'data' list
-            elif py_data is not None:
+            if py_data is not None:
                 size_err = check_python_data_size(py_data)
                 if size_err:
                     ret = f"Error: {size_err}"
                     log.debug("PYTHON returning size error: %r", ret)
                     return ret
+                py_data = pack_calc_data_for_wire(py_data)
+            worker_data = py_data
             # Synchronous: =PYTHON() runs during Calc recalc; UI event pumping from
             # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
             sessions = getattr(_MATRIX_SCALAR_SESSIONS, "sessions", None)
@@ -356,7 +366,7 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
                 res = run_code_in_user_venv(self.ctx, code, data=worker_data)
             log.debug("PYTHON res from worker: %r", res)
             if res.get("status") == "ok":
-                result = res.get("result")
+                result = _worker_result_for_calc(res.get("result"))
                 log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
                 final_ret = finalize_python_return(self.ctx, code, result, index_arg=index_arg, worker_data=worker_data)
                 log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)

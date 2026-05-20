@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_addin_data import check_python_data_size, finalize_python_data, values_from_inspector_range
+from plugin.calc.calc_addin_data import check_python_data_size, finalize_python_data, pack_calc_data_for_wire, values_from_inspector_range
 from plugin.calc.inspector import CellInspector
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 
@@ -95,6 +95,7 @@ def _resolve_python_data(ctx: ToolContext, *, data_range: str | None, data: Any)
         size_err = check_python_data_size(py_data)
         if size_err:
             return None, size_err
+        py_data = pack_calc_data_for_wire(py_data)
     return py_data, None
 
 
