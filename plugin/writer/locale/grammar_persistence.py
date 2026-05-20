@@ -107,6 +107,11 @@ class GrammarPersistence(ABC):
         self.ctx = ctx
         self.base_path = base_path
         self._pruned = False
+        self._ignored_rules: set[str] = set()
+        self._lock = threading.Lock()
+
+    def _persist_to_udprops(self) -> None:
+        pass
 
     @abstractmethod
     def get(self, fp: str) -> list[dict[str, Any]] | None:
@@ -199,6 +204,7 @@ class DocumentPersistence(GrammarPersistence):
         self._lock = threading.Lock()
         self._memory_cache: dict[str, list[dict[str, Any]]] = {}
         self._session_accessed: set[str] = set()
+        self._ignored_rules: set[str] = set()
         self._model: Any = _find_model_by_runtime_uid(ctx, doc_id)
         self._doc_listener: Any = None
         self._teardown_done = False
@@ -266,6 +272,9 @@ class DocumentPersistence(GrammarPersistence):
                         if isinstance(compressed_errors, list):
                              self._memory_cache[str(fp)] = [grammar_proofread_json.decompress_error(e) for e in compressed_errors if isinstance(e, dict)]
                 
+                # Ignored rules
+                self._ignored_rules = set(data.get("ignored_rules", []))
+                
                 loaded_count = len(self._memory_cache)
             log.debug("[grammar] DocumentPersistence: loaded %s sentences from udprop (doc_id=%s, v=%s)", loaded_count, self._doc_id[:32] if self._doc_id else "", version)
         except Exception as e:
@@ -287,11 +296,13 @@ class DocumentPersistence(GrammarPersistence):
                             good_fps.append(fp)
                         else:
                              bad_map[fp] = [grammar_proofread_json.compress_error(e) for e in errs]
+                ignored_rules_list = list(self._ignored_rules)
             
             payload_dict = {
                 "version": GRAMMAR_CACHE_VERSION,
                 "good": good_fps,
                 "bad": bad_map,
+                "ignored_rules": ignored_rules_list,
             }
             payload = json.dumps(payload_dict)
             if len(payload) > 900_000:

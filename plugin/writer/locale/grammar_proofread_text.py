@@ -243,9 +243,8 @@ def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_id
     return rel
 
 
-def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ignored: set[str] | None = None, ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
+def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
-    ignored = ignored or set()
     slice_end = min(n_slice_end, len(full_text))
     slice_start = max(0, min(n_slice_start, slice_end))
     window = full_text[slice_start:slice_end]
@@ -297,11 +296,11 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
         if any(not (span[1] <= o[0] or span[0] >= o[1]) for o in used_spans):
             continue
         used_spans.append(span)
-        rule_id = f"wa_grammar_{idx}_{grammar_proofread_json.fingerprint_for_text(wrong)[:8]}"
-        if rule_id in ignored:
-            continue
-        sugg = (correct,) if correct else ()
+
         reason = it.get("reason", "")
+        rule_id = f"wa_g_rule||{reason}"
+
+        sugg = (correct,) if correct else ()
         typ = it.get("type", "grammar")
         short = f"({typ}) {reason}".strip() if reason else str(typ)
         full = reason or short

@@ -364,11 +364,20 @@ def _handle_grammar_check_effect(effect: Any, ec: GrammarEffectContext) -> gramm
 
     lang_name = grammar_proofread_locale.grammar_english_name_for_bcp47(effect.bcp47)
     if len(effect.chunk) > 1:
+        first_item, _ = effect.chunk[0]
         user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(effect.chunk))
         sys_prompt = grammar_proofread_locale.GRAMMAR_BATCH_SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name, bcp47=effect.bcp47)
         any_partial = any(item.partial_sentence or not grammar_proofread_locale.looks_complete_sentence(text) for item, text in effect.chunk)
         if any_partial:
             sys_prompt += " The input may contain partial sentences; prefer conservative grammar suggestions and avoid broad rewrites."
+
+        from .grammar_persistence import get_persistence
+        p = get_persistence(ec.ctx, first_item.doc_id)
+        ignored_reasons = p._ignored_rules if p else set()
+        if ignored_reasons:
+            sys_prompt += "\n\nIMPORTANT: The user has explicitly chosen to IGNORE the following rules/style issues in this document. DO NOT report any errors or suggestions that match or are highly similar to these:\n"
+            for reason in sorted(ignored_reasons):
+                sys_prompt += f"- {reason}\n"
 
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_content}]
 
@@ -388,6 +397,14 @@ def _handle_grammar_check_effect(effect: Any, ec: GrammarEffectContext) -> gramm
         sys_prompt = grammar_proofread_locale.GRAMMAR_SYSTEM_PROMPT_TEMPLATE.format(lang_name=lang_name, bcp47=effect.bcp47)
         if use_partial:
             sys_prompt += " The input may be a partial sentence; prefer conservative grammar suggestions and avoid broad rewrites."
+
+        from .grammar_persistence import get_persistence
+        p = get_persistence(ec.ctx, item.doc_id)
+        ignored_reasons = p._ignored_rules if p else set()
+        if ignored_reasons:
+            sys_prompt += "\n\nIMPORTANT: The user has explicitly chosen to IGNORE the following rules/style issues in this document. DO NOT report any errors or suggestions that match or are highly similar to these:\n"
+            for reason in sorted(ignored_reasons):
+                sys_prompt += f"- {reason}\n"
 
         grammar_obs("worker_llm_request_prepare", enqueue_seq=item.enqueue_seq, llm_text_len=len(text), llm_preview=slice_preview_debug(text, 96))
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": text}]
@@ -428,7 +445,8 @@ def _handle_requeue_individual_item_effect(effect: Any, ec: GrammarEffectContext
 
 def _handle_process_grammar_results_effect(effect: Any, ec: GrammarEffectContext) -> None:
     """Process results from the LLM, update cache, and emit status."""
-    ignored = grammar_proofread_cache.ignored_rules_snapshot()
+    from .grammar_persistence import get_persistence
+
     total_issues = 0
     chars_checked = 0
     n_written = 0
@@ -439,15 +457,28 @@ def _handle_process_grammar_results_effect(effect: Any, ec: GrammarEffectContext
             continue
         if idx < len(effect.results):
             errors = effect.results[idx]
-            norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ignored, ec.ctx, effect.bcp47)
-            grammar_proofread_cache.cache_put_sentence(effect.bcp47, text, [asdict(e) for e in norm_errors], ctx=ec.ctx, doc_id=item.doc_id)
+            p = get_persistence(ec.ctx, item.doc_id)
+            ignored = p._ignored_rules if p else set()
+            norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ec.ctx, effect.bcp47)
+            
+            from .grammar_proofread_cache import normalize_reason
+            filtered_errors = []
+            for e in norm_errors:
+                rule_ident = e.rule_identifier
+                if rule_ident.startswith("wa_g_rule||"):
+                    reason = rule_ident[11:]
+                    if normalize_reason(reason) in ignored:
+                        continue
+                filtered_errors.append(e)
+
+            grammar_proofread_cache.cache_put_sentence(effect.bcp47, text, [asdict(e) for e in filtered_errors], ctx=ec.ctx, doc_id=item.doc_id)
             if effect.original_bcp47 and effect.original_bcp47 != effect.bcp47:
                 log.debug("[grammar] Double caching for %s (detected %s)", effect.original_bcp47, effect.bcp47)
-                grammar_proofread_cache.cache_put_sentence(effect.original_bcp47, text, [asdict(e) for e in norm_errors], ctx=ec.ctx, doc_id=item.doc_id)
+                grammar_proofread_cache.cache_put_sentence(effect.original_bcp47, text, [asdict(e) for e in filtered_errors], ctx=ec.ctx, doc_id=item.doc_id)
             else:
                 log.debug("[grammar] No double caching: original=%s, detected=%s", effect.original_bcp47, effect.bcp47)
 
-            total_issues += len(norm_errors)
+            total_issues += len(filtered_errors)
             chars_checked += len(text)
             n_written += 1
             tstrip = text.strip()

@@ -10,6 +10,7 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 from __future__ import annotations
 
 import collections
+import re
 import threading
 from typing import Any
 
@@ -20,6 +21,23 @@ from . import grammar_proofread_json
 _CACHE_LOCK = threading.Lock()
 _ignored_rules: set[str] = set()
 MAX_CACHE_SIZE = 2048
+
+
+def normalize_reason(reason: str) -> str:
+    """Canonical/generalized representation of an error reason to group similar rules.
+
+    - Converts to lowercase.
+    - Strips punctuation and non-alphanumeric characters (keeping all word contents).
+    - Collapses spaces into a single-space separated canonical string.
+    """
+    if not reason:
+        return ""
+    s = reason.lower().strip()
+    # Strip non-alphanumeric characters (keeping word contents)
+    s = re.sub(r"[^a-z0-9\s]", "", s)
+    return " ".join(s.split())
+
+
 # Limit how many recent entries we scan for incomplete-sentence prefix
 # compaction on each cache_put_sentence. 10 is a good balance between
 # effectiveness (catches typical typing chains) and CPU (few memory touches).

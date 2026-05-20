@@ -97,13 +97,38 @@ def _proofreading_markup_type() -> int:
         return 4
 
 
-def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...]) -> tuple[Any, ...]:
-    ignored_now = ignored_rules_snapshot()
-    norms = [
-        NormalizedProofError(n_error_start=int(d["n_error_start"]), n_error_length=int(d["n_error_length"]), suggestions=tuple(d.get("suggestions") or ()), short_comment=str(d.get("short_comment", "")), full_comment=str(d.get("full_comment", "")), rule_identifier=str(d.get("rule_identifier", "")))
-        for d in cached
-        if str(d.get("rule_identifier", "")) not in ignored_now
-    ]
+def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, doc_id: str) -> tuple[Any, ...]:
+    from .grammar_persistence import get_persistence
+    from .grammar_proofread_cache import normalize_reason
+
+    p = get_persistence(ctx, doc_id)
+    ignored_reasons = p._ignored_rules if p else set()
+
+    norms = []
+    for d in cached:
+        rule_ident = str(d.get("rule_identifier", ""))
+        
+        # If it's one of our robust encoded rule identifiers, decode it!
+        if rule_ident.startswith("wa_g_rule||"):
+            reason = rule_ident[11:]
+            norm_reason = normalize_reason(reason)
+            if norm_reason in ignored_reasons:
+                continue
+
+        # Fallback/Legacy rule_identifier check
+        elif rule_ident in ignored_reasons:
+            continue
+
+        norms.append(
+            NormalizedProofError(
+                n_error_start=int(d["n_error_start"]),
+                n_error_length=int(d["n_error_length"]),
+                suggestions=tuple(d.get("suggestions") or ()),
+                short_comment=str(d.get("short_comment", "")),
+                full_comment=str(d.get("full_comment", "")),
+                rule_identifier=rule_ident
+            )
+        )
     return _errors_to_uno_tuple(norms)
 
 
@@ -371,7 +396,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             combined_errors, uncached_spans = self._process_cache_hits(aDocumentIdentifier, loc_key, work_spans)
 
             if combined_errors:
-                a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors))
+                a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
 
             if not uncached_spans:
                 _grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(work_spans), error_count=len(combined_errors))
@@ -396,14 +421,53 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
         try:
-            del aLocale  # locale-specific ignore not distinguished in cache yet
+            del aLocale
+            # Call legacy global fallback
             ignore_rule_add(str(aRuleIdentifier))
+
+            from plugin.framework.uno_context import get_active_document
+            from .grammar_persistence import get_persistence, _model_runtime_uid
+
+            model = get_active_document(self.ctx)
+            doc_id = _model_runtime_uid(model) if model else None
+            p = get_persistence(self.ctx, doc_id) if doc_id else None
+
+            if aRuleIdentifier.startswith("wa_g_rule||"):
+                reason = aRuleIdentifier[11:]
+                from .grammar_proofread_cache import normalize_reason
+                norm_reason = normalize_reason(reason)
+                if p:
+                    with p._lock:
+                        p._ignored_rules.add(norm_reason)
+                    p._persist_to_udprops()
+                    log.info("[grammar] ignoreRule added: '%s' (normalized: '%s') to doc_id=%s", reason, norm_reason, doc_id)
+            elif p:
+                # Fallback for legacy identifier
+                from .grammar_proofread_cache import normalize_reason
+                norm_reason = normalize_reason(aRuleIdentifier)
+                with p._lock:
+                    p._ignored_rules.add(norm_reason)
+                p._persist_to_udprops()
         except Exception as e:
             log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
 
     def resetIgnoreRules(self) -> None:
         try:
+            # Call legacy global fallback
             ignore_rules_clear()
+
+            from plugin.framework.uno_context import get_active_document
+            from .grammar_persistence import get_persistence, _model_runtime_uid
+
+            model = get_active_document(self.ctx)
+            doc_id = _model_runtime_uid(model) if model else None
+            p = get_persistence(self.ctx, doc_id) if doc_id else None
+
+            if p:
+                with p._lock:
+                    p._ignored_rules.clear()
+                p._persist_to_udprops()
+                log.info("[grammar] resetIgnoreRules cleared all ignored rules for doc_id=%s", doc_id)
         except Exception as e:
             log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
 
