@@ -135,3 +135,36 @@ def test_automatic_imports_explicit():
     r = _execute_request("import math\nresult = math.sqrt(25)", None)
     assert r["status"] == "ok"
     assert r["result"] == 5.0
+
+
+@patch("plugin.scripting.run_venv_code.configured_python_exec_timeout", return_value=10)
+@patch("plugin.scripting.run_venv_code.get_config_str", return_value="")
+@patch("plugin.scripting.run_venv_code.resolve_libreoffice_python", return_value=sys.executable)
+@patch("plugin.scripting.python_worker_manager.PythonWorkerManager.execute")
+def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mock_configured_timeout):
+    from plugin.scripting.run_venv_code import run_code_in_user_venv
+    ctx = MagicMock()
+
+    # Call with no timeout and verify it gets default timeout of 10s
+    run_code_in_user_venv(ctx, "result = 1")
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=10)
+
+    mock_execute.reset_mock()
+
+    # Call with a custom timeout in the allowed range (e.g. 100s) and verify it is allowed
+    run_code_in_user_venv(ctx, "result = 1", timeout_sec=100)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=100)
+
+    mock_execute.reset_mock()
+
+    # Call with a timeout exceeding 600s (e.g. 1000s) and verify it gets capped to 600s
+    run_code_in_user_venv(ctx, "result = 1", timeout_sec=1000)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=600)
+
+    mock_execute.reset_mock()
+
+    # Call with 0s timeout and verify it gets set to 1s floor
+    run_code_in_user_venv(ctx, "result = 1", timeout_sec=0)
+    mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=1)
+
+

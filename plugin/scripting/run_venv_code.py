@@ -16,6 +16,7 @@ from typing import Any, Dict
 from plugin.framework.config import get_config_str
 from plugin.scripting.python_worker_manager import PythonWorkerManager
 from plugin.scripting.subprocess_env import scrub_subprocess_env
+from plugin.scripting.timeout_limits import configured_python_exec_timeout, resolve_python_exec_timeout
 from plugin.scripting.venv_probe import resolve_libreoffice_python, resolve_venv_python
 
 log = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def run_code_in_user_venv(
     code: str,
     *,
     data: Any = None,
-    timeout_sec: int = 120,
+    timeout_sec: int | None = None,
     active_domain: str | None = None,
     python_tool_domain: str | None = None,
 ) -> Dict[str, Any]:
@@ -59,10 +60,8 @@ def run_code_in_user_venv(
             }
         log.debug("run_venv_code: using process interpreter %s (no venv path set)", exe)
 
-    if timeout_sec < 1:
-        timeout_sec = 1
-    if timeout_sec > 600:
-        timeout_sec = 600
+    configured = configured_python_exec_timeout(uno_ctx)
+    timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
     child_env = scrub_subprocess_env(dict(os.environ))
     manager = PythonWorkerManager.get(exe, child_env)

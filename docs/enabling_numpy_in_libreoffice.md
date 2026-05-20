@@ -62,6 +62,7 @@ Users can ask the AI to run Monte Carlo simulations, statistics, or other librar
 | Setting | Description | Example |
 |---------|-------------|---------|
 | `scripting.python_venv_path` | Absolute path to an existing venv directory | `~/.writeragent_venv` |
+| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PYTHON()`, and `run_venv_python_script` | `10` (default; range 1–600) |
 
 Module implementation: `plugin/scripting/` (no top-level `python/` package — avoids clashing with the stdlib name).
 
@@ -88,7 +89,7 @@ Both venv paths assign JSON-serializable output to **`result`**. NumPy arrays an
 | Writer / Draw chat, `domain=python` | No | Never — use document tools for content |
 | `=PYTHON(code, range)` | 2nd arg is the range | Yes |
 
-Optional **`timeout_sec`** on the LLM tool (default from worker manager: 120s).
+Wall-clock limit comes from **Settings → Python** (`scripting.python_exec_timeout`, default **10s**, max **600s**). It is not exposed on the LLM tool schema.
 
 ### Two-phase LLM workflow
 
@@ -175,10 +176,11 @@ plugin/
 | Key | Shipped | Role |
 |-----|---------|------|
 | `scripting.python_venv_path` | Yes | Absolute venv directory; empty → `sys.executable` |
+| `scripting.python_exec_timeout` | Yes | Wall-clock seconds per run (default **10**, clamp **1–600**); see [`timeout_limits.py`](plugin/scripting/timeout_limits.py) |
 
-Defined in [`plugin/scripting/module.yaml`](plugin/scripting/module.yaml) / settings UI (`scripting__python_venv_path` in [`plugin/chatbot/dialog_views.py`](plugin/chatbot/dialog_views.py)).
+Defined in [`plugin/scripting/module.yaml`](plugin/scripting/module.yaml) / Settings → Python (`scripting__python_venv_path`, `scripting__python_exec_timeout`).
 
-**Planned (not in settings yet):** `python_exec_enabled`, `python_exec_timeout` as first-class manifest keys — timeout is enforced in code (default **120s** in `PythonWorkerManager.execute`).
+**Planned (not in settings yet):** `python_exec_enabled` toggle.
 
 ### Worker protocol
 
@@ -211,7 +213,7 @@ Implementation: [`worker_harness.py`](plugin/scripting/worker_harness.py), [`pyt
 | **Subprocess isolation** | Separate interpreter, no shared memory with LO | ABI crashes, segfaults in C extensions, UNO corruption |
 | **Environment scrubbing** | Strip secret-like env vars from child | Credential exfiltration via generated code |
 | **User-provided venv** | Explicit opt-in | User controls installed packages |
-| **Timeout** | Wall clock per execute (default 120s) | Runaway computation |
+| **Timeout** | Wall clock per execute (`scripting.python_exec_timeout`, default 10s, max 600s) | Runaway computation |
 
 WriterAgent removed upstream’s `find_spec` import pre-check at executor init (see comment in vendored `local_python_executor.py`); missing packages fail when code imports them.
 
@@ -233,7 +235,7 @@ Tool: `run_venv_python_script` with `specialized_domain = "python"`. Registered 
 
 ### Tool schema (reference)
 
-See [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) — parameters `code`, optional `data` / `data_range` (Calc), `timeout_sec`; `long_running` / async execution.
+See [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) — parameters `code`, optional `data` / `data_range` (Calc); `long_running` / async execution.
 
 ---
 
@@ -385,7 +387,7 @@ Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data
 
 **Gaps vs LibrePythonista (workarounds):** one range only (use multiple cells or chat `data_range`); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 
-**Future formula parameters (not planned unless needed):** 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; `timeout_sec` on the formula (LLM tool has it today).
+**Future formula parameters (not planned unless needed):** 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; `timeout_sec` on the formula (today uses the same Settings value as the chat tool).
 
 ### Optional: Python edit dialog (deferred UX)
 
@@ -433,7 +435,7 @@ Tier 1 reuses existing `DialogProvider` / XDL patterns ([`plugin/chatbot/dialogs
 - **Matplotlib:** save figure to temp file; insert via existing image tools.
 - **Optional session persistence:** reuse one executor namespace within a chat session (opt-in).
 - **Worker idle shutdown:** terminate venv process after N minutes idle.
-- **Formula `timeout_sec`:** parity with LLM tool.
+- **Formula `timeout_sec`:** optional per-formula override (Settings remains the default).
 
 ---
 

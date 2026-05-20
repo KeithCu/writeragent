@@ -19,6 +19,7 @@ import sys
 from typing import Any
 
 from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+from plugin.scripting.timeout_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
 
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
@@ -114,8 +115,10 @@ def serialize_result(obj: Any) -> Any:
     return obj
 
 
-def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int = 120) -> dict[str, Any]:
+def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int | None = None) -> dict[str, Any]:
     """Run *code* in a fresh LocalPythonExecutor (new namespace per call)."""
+    if timeout_sec is None:
+        timeout_sec = python_exec_timeout_default()
     # Automatically prepend imports if they are available in the environment and not explicitly imported
     prepended_lines = []
     for module_name, import_stmt in AUTO_IMPORTS.items():

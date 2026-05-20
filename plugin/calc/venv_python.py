@@ -46,10 +46,6 @@ _PARAMETERS_CALC = {
             "items": {"type": "array", "items": {}},
             "description": "Optional 2D array of cell values as `data` (use data_range to read from the sheet instead).",
         },
-        "timeout_sec": {
-            "type": "integer",
-            "description": "Wall-clock timeout in seconds (1–600). Default 120.",
-        },
     },
     "required": ["code"],
 }
@@ -61,10 +57,6 @@ _PARAMETERS_NON_CALC = {
             "type": "string",
             "description": "Python / Numpy source. Set `result` to the return value (JSON-serializable).",
         },
-        "timeout_sec": {
-            "type": "integer",
-            "description": "Wall-clock timeout in seconds (1–600). Default 120.",
-        },
     },
     "required": ["code"],
 }
@@ -74,15 +66,14 @@ _DESCRIPTION_CALC = (
     "Note: common libraries like `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and standard library `math` "
     "are automatically imported. "
     "Optional data_range (e.g. B1:B10) injects cell values as `data` (flat list for one row/column). "
-    "Alternatively pass `data` directly after read_cell_range. Optional timeout_sec (default 120, max 600)."
+    "Alternatively pass `data` directly after read_cell_range."
 )
 
 _DESCRIPTION_NON_CALC = (
     "Run Python code in the configured venv. Set `result` to a JSON-serializable return value. "
     "Note: common libraries like `numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), and standard library `math` "
     "are automatically imported. "
-    "Use document tools to read or change the file; this tool does not inject spreadsheet `data`. "
-    "Optional timeout_sec (default 120, max 600)."
+    "Use document tools to read or change the file; this tool does not inject spreadsheet `data`."
 )
 
 
@@ -132,11 +123,8 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         code = str(kwargs.get("code", ""))
-        timeout_sec = kwargs.get("timeout_sec", 120)
-        try:
-            t = int(float(timeout_sec))
-        except (TypeError, ValueError):
-            t = 120
+        if kwargs.get("timeout_sec") is not None:
+            log.debug("run_venv_python_script: ignoring timeout_sec (user setting controls wall clock)")
 
         py_data = None
         if ctx.doc_type == "calc":
@@ -156,7 +144,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             ctx.ctx,
             code,
             data=py_data,
-            timeout_sec=t,
             active_domain=ctx.active_domain,
             python_tool_domain=ctx.python_tool_domain,
         )

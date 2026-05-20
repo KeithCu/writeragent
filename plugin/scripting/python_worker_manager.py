@@ -20,6 +20,8 @@ import time
 import uuid
 from typing import Any, IO
 
+from plugin.scripting.timeout_limits import python_exec_timeout_default
+
 log = logging.getLogger(__name__)
 
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker_harness.py")
@@ -54,8 +56,10 @@ class PythonWorkerManager:
                 mgr._terminate_worker()
             _instances.clear()
 
-    def execute(self, code: str, *, data: Any = None, timeout_sec: int = 120) -> dict[str, Any]:
+    def execute(self, code: str, *, data: Any = None, timeout_sec: int | None = None) -> dict[str, Any]:
         """Run *code* in the warm worker; state from prior calls is not visible."""
+        if timeout_sec is None:
+            timeout_sec = python_exec_timeout_default()
         request: dict[str, Any] = {"id": str(uuid.uuid4()), "code": code}
         if data is not None:
             request["data"] = data

@@ -81,3 +81,4 @@ def test_calc_schema_includes_data_range():
     props = py_schema["function"]["parameters"]["properties"]
     assert "data_range" in props
     assert "data" in props
+    assert "timeout_sec" not in props

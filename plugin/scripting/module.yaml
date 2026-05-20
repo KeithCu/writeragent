@@ -12,6 +12,15 @@ config:
     width: 200
     inline: true
 
+  python_exec_timeout:
+    type: int
+    default: 10
+    min: 1
+    max: 600
+    widget: number
+    label: Python script timeout (seconds)
+    helper: Wall-clock limit for Run Python Script, =PYTHON(), and run_venv_python_script.
+
   test_venv:
     type: string
     default: ""
