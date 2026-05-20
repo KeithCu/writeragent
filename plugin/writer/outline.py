@@ -25,19 +25,23 @@ import logging
 
 from plugin.framework.tool import ToolBase
 
+from .content import collect_document_stats
 from .specialized_base import ToolWriterStructuralBase
 
 log = logging.getLogger("writeragent.writer")
 
 
 class GetDocumentTree(ToolBase):
-    """Document heading tree with bookmarks and optional content. Use for outline or full tree."""
+    """Document heading tree with bookmarks, optional content, and document statistics."""
+
+    # FIXME: Consider renaming (e.g. get_document_overview) — tool returns tree + stats, not tree alone.
 
     name = "get_document_tree"
     intent = "navigate"
     tier = "core"
     description = (
-        "Get the document heading tree with bookmarks and content previews. "
+        "Get the document heading tree with bookmarks and content previews, plus document statistics. "
+        "The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. "
         'Use content_strategy="heading_only" for a simple outline (headings hierarchy). '
         "Creates _mcp_ bookmarks on headings for stable addressing. "
         "Strategies: heading_only, first_lines (default), full. "
@@ -53,7 +57,8 @@ class GetDocumentTree(ToolBase):
     def execute(self, ctx, **kwargs):
         tree_svc = ctx.services.writer_tree
         result = tree_svc.get_document_tree(ctx.doc, content_strategy=kwargs.get("content_strategy", "first_lines"), depth=kwargs.get("depth", 1))
-        return {"status": "ok", **result}
+        stats = collect_document_stats(ctx.doc, ctx.services.document)
+        return {**result, "stats": stats}
 
 
 class GetHeadingChildren(ToolWriterStructuralBase):

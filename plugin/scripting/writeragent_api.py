@@ -156,9 +156,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'cleanup_bookmarks',
                   'apply_style',
                   'delegate_to_specialized_writer_toolset',
                   'get_document_content',
-                  'get_document_stats',
                   'get_document_tree',
-                  'get_index_stats',
                   'get_page_objects',
                   'search_in_document']}
 
@@ -942,17 +940,9 @@ class _WriterProxy:
         """Get document (or selection/range) content."""
         return _rpc_call("get_document_content", scope=scope, max_chars=max_chars, start=start, end=end)
 
-    def get_document_stats(self) -> dict:
-        """Returns document statistics: character count, word count, paragraph count, page count, and heading count.."""
-        return _rpc_call("get_document_stats")
-
     def get_document_tree(self, *, content_strategy: str = "", depth: int = 0) -> dict:
-        """Get the document heading tree with bookmarks and content previews."""
+        """Get the document heading tree with bookmarks, content previews, and document statistics."""
         return _rpc_call("get_document_tree", content_strategy=content_strategy, depth=depth)
-
-    def get_index_stats(self) -> dict:
-        """Get search index statistics: paragraph count, unique stems, language, build time, and top 20 most frequent stems.."""
-        return _rpc_call("get_index_stats")
 
     def get_page_objects(self, *, page: int = 0, locator: str = "", paragraph_index: int = 0) -> dict:
         """Get images, tables, frames, and Draw shapes visible on a specific physical page."""

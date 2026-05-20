@@ -387,58 +387,6 @@ def _resolve_style_name(doc, style_name):
     return style_name
 
 
-class GetDocumentStats(ToolBase):
-    """Return basic statistics about the current Writer document."""
-
-    name = "get_document_stats"
-    description = "Returns document statistics: character count, word count, paragraph count, page count, and heading count."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.text.TextDocument"]
-    tier = "core"
-
-    def execute(self, ctx, **kwargs):
-        doc = ctx.doc
-        doc_svc = ctx.services.document
-
-        # Character and word count via full text.
-        try:
-            text_obj = doc.getText()
-            cursor = text_obj.createTextCursor()
-            cursor.gotoStart(False)
-            cursor.gotoEnd(True)
-            full_text = cursor.getString()
-            char_count = len(full_text)
-            word_count = len(full_text.split())
-        except Exception:
-            char_count = doc_svc.get_document_length(doc)
-            word_count = 0
-
-        # Paragraph count.
-        try:
-            para_ranges = doc_svc.get_paragraph_ranges(doc)
-            para_count = len(para_ranges)
-        except Exception:
-            para_count = 0
-
-        # Heading count from tree.
-        try:
-            tree = doc_svc.build_heading_tree(doc)
-            heading_count = _count_headings(tree)
-        except Exception:
-            heading_count = 0
-
-        # Page count (approximate via view cursor).
-        page_count = 0
-        try:
-            vc = doc.getCurrentController().getViewCursor()
-            vc.jumpToLastPage()
-            page_count = vc.getPage()
-        except Exception:
-            pass
-
-        return {"status": "ok", "character_count": char_count, "word_count": word_count, "paragraph_count": para_count, "page_count": page_count, "heading_count": heading_count}
-
-
 def _count_headings(nodes):
     """Recursively count heading nodes in a nested list."""
     count = 0
@@ -446,3 +394,45 @@ def _count_headings(nodes):
         count += 1
         count += _count_headings(node.get("children", []))
     return count
+
+
+def collect_document_stats(doc, doc_svc):
+    """Character/word/paragraph/page/heading counts for a Writer document."""
+    from plugin.doc.document_helpers import build_heading_tree
+
+    try:
+        text_obj = doc.getText()
+        cursor = text_obj.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        full_text = cursor.getString()
+        char_count = len(full_text)
+        word_count = len(full_text.split())
+    except Exception:
+        char_count = doc_svc.get_document_length(doc)
+        word_count = 0
+
+    try:
+        para_ranges = doc_svc.get_paragraph_ranges(doc)
+        para_count = len(para_ranges)
+    except Exception:
+        para_count = 0
+
+    try:
+        tree = build_heading_tree(doc)
+        heading_count = _count_headings(tree.get("children", []))
+    except Exception:
+        heading_count = 0
+
+    page_count = 0
+    try:
+        page_count = doc_svc.get_page_count(doc)
+    except Exception:
+        try:
+            vc = doc.getCurrentController().getViewCursor()
+            vc.jumpToLastPage()
+            page_count = vc.getPage()
+        except Exception:
+            pass
+
+    return {"character_count": char_count, "word_count": word_count, "paragraph_count": para_count, "page_count": page_count, "heading_count": heading_count}

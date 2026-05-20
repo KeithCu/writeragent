@@ -214,7 +214,8 @@ def _build_page_map(doc):
     return page_map
 
 
-class GetIndexStats(ToolBase):
+class GetIndexStats(ToolBaseDummy):
+    # Niche stem-index diagnostic; not exposed to LLM/MCP. Re-enable with ToolBase when needed.
     name = "get_index_stats"
     intent = "navigate"
     description = "Get search index statistics: paragraph count, unique stems, language, build time, and top 20 most frequent stems."

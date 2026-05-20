@@ -22,8 +22,9 @@ class TestWriterToolsSmoke(unittest.TestCase):
         writer_tools = {t.name for t in registry.get_tools(doc=doc)}
         # Core / navigation
         self.assertIn("get_document_tree", writer_tools)
+        self.assertNotIn("get_document_stats", writer_tools)
+        self.assertNotIn("get_index_stats", writer_tools)
         # Content (paragraph batch tools disabled via ToolBaseDummy)
-        self.assertIn("get_document_stats", writer_tools)
         for name in (
             "read_paragraphs",
             "insert_at_paragraph",
@@ -65,8 +66,10 @@ class TestWriterToolsSmoke(unittest.TestCase):
         doc = _WriterDocStub()
         schemas = registry.get_schemas("openai", doc=doc)
         names = {s["function"]["name"] for s in schemas}
-        for name in ("get_document_tree", "get_document_content", "get_document_stats"):
+        for name in ("get_document_tree", "get_document_content", "search_in_document"):
             self.assertIn(name, names, f"Schema missing for {name}")
+        self.assertNotIn("get_document_stats", names)
+        self.assertNotIn("get_index_stats", names)
         for s in schemas:
             self.assertIn("description", s["function"])
             self.assertIn("parameters", s["function"])

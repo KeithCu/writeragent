@@ -7,7 +7,7 @@ except ImportError:
 try:
     from plugin.testing_runner import setup, teardown, native_test
     from plugin.framework.uno_context import get_desktop
-    from plugin.writer.search import SearchInDocument, GetIndexStats
+    from plugin.writer.search import SearchInDocument
 except ImportError:
     setup, teardown, native_test = (lambda f: f), (lambda f: f), (lambda f: f)
 
@@ -148,16 +148,5 @@ def test_advanced_search_tool():
 
 @native_test
 def test_get_index_stats():
-    try:
-        import pytest
-        if _test_doc is None:
-            pytest.skip("Requires LibreOffice document from native runner")
-    except ImportError:
-        pass
-
-    tool = GetIndexStats()
-    ctx = MockContext(_test_doc, _test_ctx)
-
-    res = tool.execute(ctx)
-    assert res["status"] == "ok"
-    assert res["stems"] == 100
+    # get_index_stats tool currently not exposed to LLM/MCP API
+    return
