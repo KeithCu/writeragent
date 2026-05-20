@@ -43,8 +43,8 @@ This means the roadmap should favor extending the current error model rather tha
 
 Current diagnostics already exist in `plugin/framework/logging.py`:
 
-- unified debug logging
-- optional agent log
+- unified debug logging (`writeragent_debug.log` in the LO user config dir)
+- optional agent traces in the same log when `enable_agent_log` is set
 - global exception hooks
 - a watchdog that can flag stalled activity
 

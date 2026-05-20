@@ -1,10 +1,24 @@
 
 import unittest
 import json
-from plugin.framework.logging import SafeLogger, safe_log_exception
+import logging
+from logging.handlers import MemoryHandler
 from unittest.mock import MagicMock
-from plugin.framework.logging import LOG_REDACT_AUDIO_PLACEHOLDER, LOG_REDACT_IMAGE_PLACEHOLDER, redact_sensitive_payload_for_log
-from plugin.framework.logging import format_tool_call_for_display, format_tool_result_for_display, update_activity_state, _activity_state
+
+from plugin.framework.logging import (
+    LOG_REDACT_AUDIO_PLACEHOLDER,
+    LOG_REDACT_IMAGE_PLACEHOLDER,
+    SafeLogger,
+    _enable_agent_log,
+    agent_log,
+    format_tool_call_for_display,
+    format_tool_result_for_display,
+    redact_sensitive_payload_for_log,
+    safe_log_exception,
+    update_activity_state,
+    _activity_state,
+    log,
+)
 
 class TestLogRedaction(unittest.TestCase):
 
@@ -51,6 +65,51 @@ def test_update_activity_state():
     assert (_activity_state['round_num'] == 1)
     assert (_activity_state['tool_name'] == 'tool1')
     assert (_activity_state['last_activity'] > 0)
+
+
+class TestAgentLog(unittest.TestCase):
+
+    def setUp(self):
+        import plugin.framework.logging as logging_mod
+        self._saved_enable = logging_mod._enable_agent_log
+        for h in list(log.handlers):
+            log.removeHandler(h)
+
+    def tearDown(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._enable_agent_log = self._saved_enable
+        for h in list(log.handlers):
+            log.removeHandler(h)
+
+    def test_agent_log_writes_when_enabled(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._enable_agent_log = True
+        handler = MemoryHandler(capacity=10)
+        handler.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        log.setLevel(logging.DEBUG)
+        agent_log("test.py:1", "hello", data={"k": "v"}, hypothesis_id="H1")
+        handler.flush()
+        assert len(handler.buffer) == 1
+        record = handler.buffer[0]
+        assert "[Agent]" in record.getMessage()
+        payload = json.loads(record.getMessage().split("[Agent] ", 1)[1])
+        assert payload["location"] == "test.py:1"
+        assert payload["message"] == "hello"
+        assert payload["data"] == {"k": "v"}
+        assert payload["hypothesisId"] == "H1"
+
+    def test_agent_log_noop_when_disabled(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._enable_agent_log = False
+        handler = MemoryHandler(capacity=10)
+        handler.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        log.setLevel(logging.DEBUG)
+        agent_log("test.py:1", "hello")
+        handler.flush()
+        assert len(handler.buffer) == 0
+
 
 class TestLoggingErrorHandling():
 

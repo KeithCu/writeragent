@@ -6,7 +6,7 @@ This document summarizes the failure when the model uses **find_text + get_markd
 
 ## Observed in logs (agent run)
 
-In a run captured in `~/writeragent_agent_debug.log`, the model **never** called get_markdown(scope="range"). Flow: find_text("## Summary") → (112, 119); get_markdown(scope="full"); then apply_markdown(target="search", search="## Summary\n\nA legendary...", markdown="## Yhteenveto\n\n...") → **0 replacements**. After retrying find_text and find_text("## Skills", start=112) → (343, 349), the run hit MAX_TOOL_ROUNDS (5) and stopped. So the **immediate** failure was the search path (0 replacements), not the range path. If the model had used get_markdown(scope="range", start=112, end=343) and then apply_markdown(target="range", ...), the coordinate mismatch below would still apply and could produce wrong range content. Steering the model to **prefer** the range path for section replace (find_text → get_markdown(scope="range") → apply_markdown(target="range")) in the system prompt would avoid depending on search and would make fixing the range coordinates worthwhile.
+In a run captured in `writeragent_debug.log` (LO user config folder), the model **never** called get_markdown(scope="range"). Flow: find_text("## Summary") → (112, 119); get_markdown(scope="full"); then apply_markdown(target="search", search="## Summary\n\nA legendary...", markdown="## Yhteenveto\n\n...") → **0 replacements**. After retrying find_text and find_text("## Skills", start=112) → (343, 349), the run hit MAX_TOOL_ROUNDS (5) and stopped. So the **immediate** failure was the search path (0 replacements), not the range path. If the model had used get_markdown(scope="range", start=112, end=343) and then apply_markdown(target="range", ...), the coordinate mismatch below would still apply and could produce wrong range content. Steering the model to **prefer** the range path for section replace (find_text → get_markdown(scope="range") → apply_markdown(target="range")) in the system prompt would avoid depending on search and would make fixing the range coordinates worthwhile.
 
 ---
 
@@ -126,7 +126,7 @@ So the core bug is: **character offsets from find_text (cursor-based) don’t ma
 
 - **Range/selection handling:** markdown_support.py — `_range_to_markdown_via_temp_doc` (scope and trim; temp doc + storeToURL), `document_to_markdown` (range_start/range_end). Option A/F would be applied in `_range_to_markdown_via_temp_doc`; the old `_document_to_markdown_structural` has been removed.
 - **Cursor-based length/range:** core/document.py — `get_document_length`, `get_text_cursor_at_range`; markdown_support.py — `_find_text_ranges` (measure_cursor.gotoRange(found.getStart(), True)).
-- **Logs:** writeragent_chat_debug.log (e.g. under `~/.config/libreoffice/4/user/config/` or paths from clear_logs.sh) shows get_markdown(scope="range", start=112, end=340) returning "## ary\nA legendary...". Agent NDJSON: `~/writeragent_agent_debug.log` (see clear_logs.sh for all paths).
+- **Logs:** `writeragent_debug.log` in the LO user config dir (same folder as `writeragent.json`; see `scripts/clear_logs.sh` for known paths) shows get_markdown(scope="range", start=112, end=340) returning "## ary\nA legendary...". Agent traces (`[Agent]` JSON lines) appear in the same file when `enable_agent_log` is set.
 - **Issue summary:** SECTION_REPLACE_ISSUE.md (search path 0 replacements); this doc (range coordinate mismatch).
 
 ---

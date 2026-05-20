@@ -197,7 +197,7 @@ fi
 
 # ── Log symlinks ─────────────────────────────────────────────────────
 
-LOG_FILES="writeragent.log soffice-debug.log"
+LOG_FILES="writeragent_debug.log soffice-debug.log"
 for f in $LOG_FILES; do
     target="$HOME/$f"
     link="$PROJECT_ROOT/$f"

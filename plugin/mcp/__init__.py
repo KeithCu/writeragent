@@ -268,7 +268,7 @@ class McpModule(ModuleBase):
                 mcp_url = status.get("mcp_url", status.get("url", ""))
                 msgbox(ctx, "WriterAgent", _("MCP server started") + "\n{0}".format(mcp_url))
             else:
-                msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check ~/writeragent.log"))
+                msgbox(ctx, "WriterAgent", _("MCP server failed to start") + "\n" + _("Check writeragent_debug.log in your LibreOffice user config folder"))
 
     def _action_server_status(self):
         from plugin.chatbot.dialogs import msgbox, add_dialog_label, add_dialog_edit, add_dialog_button

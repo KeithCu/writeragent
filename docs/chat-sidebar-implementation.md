@@ -31,13 +31,7 @@
 
 ### Debug Logging
 
-Logging is in `chat_panel.py` (`_debug_log`, `_debug_log_paths`). Log files are written to (first that succeeds):
-
-- LibreOffice user config dir: `writeragent_chat_debug.log` (same folder as `writeragent.json`, e.g. `~/.config/libreoffice/4/user/` on Linux)
-- `~/writeragent_chat_debug.log`
-- `/tmp/writeragent_chat_debug.log`
-
-Log points: `createUIElement`, `getRealInterface`, `_getOrCreatePanelRootWindow` (dialog_url, before/after `createContainerWindow`), `_wireSendButton`, and any exception with traceback.
+All extension logging goes through `plugin/framework/logging.py` (`init_logging`). The single log file is **`writeragent_debug.log`** in the LibreOffice user config directory (same folder as `writeragent.json`, e.g. `~/.config/libreoffice/4/user/` on Linux). Use `log_level` in `writeragent.json` and standard `logging.getLogger(...)` calls; optional structured agent traces use `agent_log()` when `enable_agent_log` is set (same file).
 
 ### Key Files (Current)
 
@@ -182,38 +176,8 @@ graph TD
 ### Debugging Techniques Developed
 
 #### 1. Comprehensive Logging Strategy
-```python
-# Effective logging pattern used:
-def _debug_log(ctx, msg):
-    """Write to multiple locations for reliability"""
-    for path in _debug_log_paths(ctx):
-        try:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(msg + "\n")
-            return
-        except Exception:
-            continue
 
-def _debug_log_paths(ctx):
-    """Multiple fallback locations"""
-    paths = []
-    # User config directory (same as writeragent.json)
-    try:
-        path_settings = ctx.getServiceManager().createInstanceWithContext(
-            "com.sun.star.util.PathSettings", ctx)
-        user_config = getattr(path_settings, "UserConfig", "")
-        if user_config.startswith("file://"):
-            user_config = str(uno.fileUrlToSystemPath(user_config))
-        paths.append(os.path.join(user_config, "writeragent_chat_debug.log"))
-    except Exception:
-        pass
-    # Fallback locations
-    paths.extend([
-        os.path.expanduser("~/writeragent_chat_debug.log"),
-        "/tmp/writeragent_chat_debug.log"
-    ])
-    return paths
-```
+Use `init_logging(ctx)` at panel/bootstrap entry and `logging.getLogger(__name__).debug(...)` (or `log` from `plugin.framework.logging`). All messages land in `writeragent_debug.log` under the LO user config dir.
 
 #### 2. Lifecycle Tracing
 - Factory creation → Panel initialization → Property access → Window creation → Control creation
@@ -225,9 +189,7 @@ try:
     # Panel creation code
     self._create_panel()
 except Exception as e:
-    _debug_log(self.ctx, f"ERROR in panel creation: {e}")
-    import traceback
-    _debug_log(self.ctx, traceback.format_exc())
+    log.exception("ERROR in panel creation: %s", e)
     # Graceful fallback
     try:
         from main import MainJob

@@ -14,8 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Simple file logging for WriterAgent. Single debug log + optional agent log; paths set via init_logging(ctx).
+"""Simple file logging for WriterAgent. Single debug log in the LO user config dir (writeragent_debug.log).
 
+Paths are set via init_logging(ctx). No file logging when the config dir is unavailable.
 Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON).
 """
 
@@ -34,9 +35,8 @@ from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework import config
 
-# Globals set by init_logging(ctx); used by debug_log and agent_log so ctx is not passed at write time.
+# Globals set by init_logging(ctx); agent_log reads _enable_agent_log so ctx is not passed at write time.
 _debug_log_path = None
-_agent_log_path = None
 _enable_agent_log = False
 _log_level_numeric = 10  # Default to DEBUG
 _init_lock = threading.Lock()
@@ -52,9 +52,6 @@ _watchdog_interval_sec = 15
 _watchdog_threshold_sec = 30
 
 DEBUG_LOG_FILENAME = "writeragent_debug.log"
-AGENT_LOG_FILENAME = "writeragent_agent.log"
-FALLBACK_DEBUG = os.path.join(os.path.expanduser("~"), "writeragent_debug.log")
-FALLBACK_AGENT = os.path.join(os.path.expanduser("~"), "writeragent_agent.log")
 
 LOG_REDACT_AUDIO_PLACEHOLDER = "<audio base64 data truncated, length=%d>"
 LOG_REDACT_IMAGE_PLACEHOLDER = "<image base64 data truncated, length=%d>"
@@ -95,18 +92,16 @@ def redact_sensitive_payload_for_log(obj: Any) -> Any:
 
 
 def init_logging(ctx):
-    """Set global log paths and enable_agent_log from ctx. Idempotent; safe to call from any entry point."""
-    global _debug_log_path, _agent_log_path, _enable_agent_log
+    """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
+    global _debug_log_path, _enable_agent_log
     with _init_lock:
         first_init = _debug_log_path is None
-        _debug_log_path = FALLBACK_DEBUG
-        _agent_log_path = FALLBACK_AGENT
+        _debug_log_path = None
         _enable_agent_log = False
         try:
             udir = config.user_config_dir(ctx)
             if udir:
                 _debug_log_path = os.path.join(udir, DEBUG_LOG_FILENAME)
-                _agent_log_path = os.path.join(udir, AGENT_LOG_FILENAME)
                 _enable_agent_log = config.get_config_bool(ctx, "enable_agent_log")
         except (OSError, ImportError, ValueError, ConfigError):
             pass
@@ -119,49 +114,51 @@ def init_logging(ctx):
 
             logger = log
             logger.setLevel(numeric_level)
-            # Ensure unrelated loggers (e.g. logging.getLogger(__name__) inside
-            # UNO panel/tool modules) still reach the same debug log.
-            #
-            # We attach the handler to the root logger as well and then disable
-            # propagation from the "writeragent" logger to avoid duplicates.
 
-            has_matching_handler = False
-            for handler in list(logger.handlers):
-                if not isinstance(handler, logging.FileHandler):
-                    continue
-                if getattr(handler, "baseFilename", "") == _debug_log_path:
-                    has_matching_handler = True
-                    continue
-                try:
-                    logger.removeHandler(handler)
-                    handler.close()
-                except Exception:
-                    pass
+            if _debug_log_path:
+                # Ensure unrelated loggers (e.g. logging.getLogger(__name__) inside
+                # UNO panel/tool modules) still reach the same debug log.
+                #
+                # We attach the handler to the root logger as well and then disable
+                # propagation from the "writeragent" logger to avoid duplicates.
 
-            if not has_matching_handler:
-                handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
-                formatter = logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
-                handler.setFormatter(formatter)
-                logger.addHandler(handler)
+                has_matching_handler = False
+                for handler in list(logger.handlers):
+                    if not isinstance(handler, logging.FileHandler):
+                        continue
+                    if getattr(handler, "baseFilename", "") == _debug_log_path:
+                        has_matching_handler = True
+                        continue
+                    try:
+                        logger.removeHandler(handler)
+                        handler.close()
+                    except Exception:
+                        pass
 
-            # Attach the same debug file handler to root if needed.
-            root_logger = logging.getLogger()
-            root_logger.setLevel(numeric_level)
-            root_has_matching_handler = False
-            for rh in list(root_logger.handlers):
-                if not isinstance(rh, logging.FileHandler):
-                    continue
-                if getattr(rh, "baseFilename", "") == _debug_log_path:
-                    root_has_matching_handler = True
-                    continue
-            if not root_has_matching_handler:
-                root_handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
-                root_handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
-                root_logger.addHandler(root_handler)
+                if not has_matching_handler:
+                    handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
+                    formatter = logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
+                    handler.setFormatter(formatter)
+                    logger.addHandler(handler)
 
-            # Prevent double-logging for loggers under "writeragent.*" since
-            # they are handled by `logger` above.
-            logger.propagate = False
+                # Attach the same debug file handler to root if needed.
+                root_logger = logging.getLogger()
+                root_logger.setLevel(numeric_level)
+                root_has_matching_handler = False
+                for rh in list(root_logger.handlers):
+                    if not isinstance(rh, logging.FileHandler):
+                        continue
+                    if getattr(rh, "baseFilename", "") == _debug_log_path:
+                        root_has_matching_handler = True
+                        continue
+                if not root_has_matching_handler:
+                    root_handler = logging.FileHandler(_debug_log_path, encoding="utf-8")
+                    root_handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+                    root_logger.addHandler(root_handler)
+
+                # Prevent double-logging for loggers under "writeragent.*" since
+                # they are handled by `logger` above.
+                logger.propagate = False
         except OSError:
             pass
 
@@ -218,10 +215,6 @@ def _install_global_exception_hooks():
                 pass
 
         threading.excepthook = _writeragent_threading_excepthook
-
-
-def _get_agent_path():
-    return _agent_log_path if _agent_log_path else FALLBACK_AGENT
 
 
 class SafeLogger:
@@ -377,7 +370,7 @@ def format_tool_result_for_display(tool, result, args=None):
 
 
 def agent_log(location, message, data=None, hypothesis_id=None, run_id=None):
-    """Write one NDJSON line to agent log if enable_agent_log is True. Uses global path."""
+    """Write one structured agent trace line to writeragent_debug.log when enable_agent_log is True."""
     if not _enable_agent_log:
         return
     payload = {"location": location, "message": message, "timestamp": int(time.time() * 1000)}
@@ -387,12 +380,9 @@ def agent_log(location, message, data=None, hypothesis_id=None, run_id=None):
         payload["hypothesisId"] = hypothesis_id
     if run_id is not None:
         payload["runId"] = run_id
-    line = json.dumps(payload) + "\n"
-    path = _get_agent_path()
     try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line)
-    except OSError:
+        log.debug("[Agent] %s", json.dumps(payload, ensure_ascii=False))
+    except Exception:
         pass
 
 

@@ -10,8 +10,7 @@ T2 = time from stream end to "Tool loop round N+1: sending"
 
 Usage:
   python scripts/analyze_tool_call_timing.py [path/to/writeragent_debug.log]
-  If no path given, tries ~/.config/libreoffice/4/user/writeragent_debug.log
-  and ~/writeragent_debug.log.
+  If no path given, tries writeragent_debug.log under the LibreOffice user config dir.
 """
 
 import re
@@ -44,7 +43,6 @@ def find_log_path():
         Path.home() / ".config" / "libreoffice" / "4" / "user" / "writeragent_debug.log",
         Path.home() / ".config" / "libreoffice" / "24" / "user" / "config" / "writeragent_debug.log",
         Path.home() / ".config" / "libreoffice" / "24" / "user" / "writeragent_debug.log",
-        Path.home() / "writeragent_debug.log",
     ]
     for p in candidates:
         if p.exists():

@@ -34,7 +34,7 @@ for arg in "$@"; do
 done
 
 LOG_FILE="$HOME/soffice-debug.log"
-PLUGIN_LOG="$HOME/writeragent.log"
+PLUGIN_LOG="${HOME}/.config/libreoffice/4/user/writeragent_debug.log"
 
 if $FULL; then
     export SAL_LOG="+INFO+WARN+ERROR"

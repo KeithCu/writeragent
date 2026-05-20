@@ -255,7 +255,8 @@ register-built-oxt:
 	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
 	-unopkg remove org.extension.writeragent 2>/dev/null
 	unopkg add build/$(EXTENSION_NAME).oxt
-	@rm -f $(HOME_DIR)/writeragent.log
+	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
+	@rm -f $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
 	@echo "Registered org.extension.writeragent (start LibreOffice manually to load it)."
 
 manifest:
@@ -399,10 +400,10 @@ writer calc draw impress:
 	@$(if $(filter deploy repack-deploy,$(MAKECMDGOALS)),,@echo "Stand-alone 'make $@' is disabled. Use 'make deploy $@' to build and launch.")
 
 log:
-	@cat $(HOME_DIR)/writeragent.log 2>/dev/null || echo "No writeragent.log found"
+	@cat $(LO_CONF)/user/writeragent_debug.log 2>/dev/null || echo "No writeragent_debug.log found"
 
 log-tail:
-	@tail -f $(HOME_DIR)/writeragent.log
+	@tail -f $(LO_CONF)/user/writeragent_debug.log
 
 lo-log:
 	@cat $(HOME_DIR)/soffice-debug.log 2>/dev/null || echo "No soffice-debug.log found"

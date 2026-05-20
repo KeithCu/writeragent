@@ -29,7 +29,7 @@ if ($Help) {
 }
 
 $LogFile = Join-Path $env:USERPROFILE "soffice-debug.log"
-$PluginLog = Join-Path $env:USERPROFILE "log.txt"
+$PluginLog = Join-Path $env:APPDATA "LibreOffice\4\user\writeragent_debug.log"
 
 if ($Full) {
     $env:SAL_LOG = "+INFO+WARN+ERROR"
