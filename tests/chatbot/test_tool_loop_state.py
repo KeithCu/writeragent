@@ -194,6 +194,61 @@ def test_next_tool_malformed_arguments_and_missing_func():
     assert spawn_eff.func_args == {}  # Handled parsing failure
     assert spawn_eff.func_args_str == "invalid-json"
 
+def test_next_tool_delegate_gateway_shows_domain_and_task():
+    long_task = "Fix the chart legend and axis labels. " * 20
+    tool_calls = [
+        {
+            "id": "call_delegate",
+            "function": {
+                "name": "delegate_to_specialized_writer_toolset",
+                "arguments": '{"domain": "styles", "task": "' + long_task.replace('"', '\\"') + '"}',
+            },
+        }
+    ]
+    state = create_base_state(pending_tools=tool_calls)
+    tr = next_state(state, create_event(EventKind.NEXT_TOOL))
+    effects = tr.effects
+    append_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append")
+    status_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == "status")
+    assert "delegate (styles)" in append_eff.text
+    assert "Fix the chart legend" in append_eff.text
+    assert "..." in append_eff.text
+    assert "delegate_to_specialized_writer_toolset" not in append_eff.text
+    assert status_eff.text == "Running: delegate (styles)"
+
+
+def test_tool_result_delegate_gateway_shows_done():
+    state = create_base_state()
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="call_delegate",
+        func_name="delegate_to_specialized_writer_toolset",
+        func_args_str='{"domain": "styles", "task": "Update heading styles"}',
+        result='{"status": "ok", "message": "Specialized task complete. Normal toolset restored."}',
+        mutates_document=False,
+    )
+    tr = next_state(state, event)
+    append_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append" and "delegate" in e.text)
+    assert append_eff.text == "[delegate (styles): done]\n"
+    assert "Normal toolset restored" not in append_eff.text
+
+
+def test_tool_result_delegate_gateway_error():
+    state = create_base_state()
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="call_delegate",
+        func_name="delegate_to_specialized_calc_toolset",
+        func_args_str='{"domain": "charts", "task": "Add a chart"}',
+        result='{"status": "error", "message": "No specialized tools found for domain \'charts\'."}',
+        mutates_document=False,
+    )
+    tr = next_state(state, event)
+    append_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == "append" and "failed" in e.text)
+    assert append_eff.text.startswith("[delegate (charts) failed:")
+    assert "No specialized tools found" in append_eff.text
+
+
 def test_next_tool_when_stopped():
     # If is_stopped=True but empty pending_tools, it shouldn't update status
     state = create_base_state(is_stopped=True)

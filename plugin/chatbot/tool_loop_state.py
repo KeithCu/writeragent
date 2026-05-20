@@ -1,10 +1,66 @@
 import dataclasses
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, NamedTuple
+from typing import Any, Dict, List, Mapping, Optional, NamedTuple
 
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.state_machine import UIEffectKind
 from plugin.chatbot.memory import format_upsert_memory_chat_line
+
+# Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
+DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
+    {
+        "delegate_to_specialized_writer_toolset",
+        "delegate_to_specialized_calc_toolset",
+        "delegate_to_specialized_draw_toolset",
+    }
+)
+DELEGATE_TASK_CHAT_MAX = 120
+
+
+def is_delegate_gateway(func_name: str) -> bool:
+    return func_name in DELEGATE_GATEWAY_TOOL_NAMES
+
+
+def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
+    domain = func_args.get("domain")
+    if isinstance(domain, str) and domain.strip():
+        return domain.strip()
+    return "?"
+
+
+def delegate_status_label(func_args: Mapping[str, Any]) -> str:
+    return f"delegate ({domain_from_delegate_args(func_args)})"
+
+
+def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
+    one_line = task.replace("\n", " ").replace("\r", " ").strip()
+    if len(one_line) <= max_len:
+        return one_line
+    return one_line[: max_len - 3] + "..."
+
+
+def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
+    """One-line chat preview when a delegate gateway tool starts."""
+    domain = domain_from_delegate_args(func_args)
+    raw_task = func_args.get("task")
+    if raw_task is None:
+        task_preview = ""
+    elif isinstance(raw_task, str):
+        task_preview = _truncate_delegate_task(raw_task)
+    else:
+        task_preview = _truncate_delegate_task(str(raw_task))
+    if task_preview:
+        return f"[Running delegate ({domain}): {task_preview}]\n"
+    return f"[Running delegate ({domain})...]\n"
+
+
+def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
+    """Completion line for delegate gateway tools (domain shown; success is short)."""
+    domain = domain_from_delegate_args(func_args)
+    if result_data.get("status") == "error":
+        error_msg = result_data.get("message", "Unknown error")
+        return f"[delegate ({domain}) failed: {error_msg}]\n"
+    return f"[delegate ({domain}): done]\n"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -212,13 +268,18 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 if not isinstance(func_args, dict):
                     func_args = {}
 
-                effects.append(ToolLoopUIEffect(kind="status", text=f"Running: {func_name}"))
-                # web_research: chat shows internal DuckDuckGo `web_search` steps only (see
-                # web_research.py + web_research_chat.py), not a separate outer research banner.
-                if func_name == "upsert_memory":
+                if is_delegate_gateway(func_name):
+                    status_text = f"Running: {delegate_status_label(func_args)}"
+                    run_line = format_delegate_running_chat_line(func_args)
+                elif func_name == "upsert_memory":
+                    status_text = f"Running: {func_name}"
                     run_line = format_upsert_memory_chat_line(func_args)
                 else:
+                    status_text = f"Running: {func_name}"
                     run_line = f"[Running tool: {func_name}...]\n"
+                effects.append(ToolLoopUIEffect(kind="status", text=status_text))
+                # web_research: chat shows internal DuckDuckGo `web_search` steps only (see
+                # web_research.py + web_research_chat.py), not a separate outer research banner.
                 effects.append(ToolLoopUIEffect(kind="append", text=run_line))
                 effects.append(UpdateActivityStateEffect(action="tool_execute", round_num=state.round_num, tool_name=func_name))
 
@@ -246,13 +307,20 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
             effects.append(ToolLoopUIEffect(kind="debug", text=f"Tool result: {result}"))
 
+            func_args = safe_json_loads(func_args_str) if func_args_str else {}
+            if not isinstance(func_args, dict):
+                func_args = {}
+
             if result_data.get("status") == "error":
                 import json
 
                 error_msg = result_data.get("message", "Unknown error")
                 details = result_data.get("details", {})
 
-                detailed_text = f"[{func_name} failed: {error_msg}]\n"
+                if is_delegate_gateway(func_name):
+                    detailed_text = format_delegate_result_chat_line(func_args, result_data)
+                else:
+                    detailed_text = f"[{func_name} failed: {error_msg}]\n"
                 if details:
                     tb = details.pop("traceback", None)
                     if details:
@@ -264,7 +332,10 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 note = error_msg
             else:
                 note = result_data.get("message", result_data.get("status", "done"))
-                effects.append(ToolLoopUIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
+                if is_delegate_gateway(func_name):
+                    effects.append(ToolLoopUIEffect(kind="append", text=format_delegate_result_chat_line(func_args, result_data)))
+                else:
+                    effects.append(ToolLoopUIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
 
             if func_name == "apply_document_content" and isinstance(note, str) and note.strip().startswith("Replaced 0 occurrence"):
                 params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."

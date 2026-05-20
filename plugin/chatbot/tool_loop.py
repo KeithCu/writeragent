@@ -195,12 +195,9 @@ class ToolCallingMixin:
                 approval_cb: Any = None
                 chat_append_cb: Any = None
                 safe_args = args if isinstance(args, dict) else {}
-                _delegate_gateways = (
-                    "delegate_to_specialized_writer_toolset",
-                    "delegate_to_specialized_calc_toolset",
-                    "delegate_to_specialized_draw_toolset",
-                )
-                delegate_domain = str(safe_args.get("domain") or "") if name in _delegate_gateways else ""
+                from plugin.chatbot.tool_loop_state import DELEGATE_GATEWAY_TOOL_NAMES
+
+                delegate_domain = str(safe_args.get("domain") or "") if name in DELEGATE_GATEWAY_TOOL_NAMES else ""
                 # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
                 # they must receive the same HITL wiring as the outer web_research tool.
                 needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
