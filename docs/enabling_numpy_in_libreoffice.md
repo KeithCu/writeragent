@@ -12,7 +12,7 @@ For a short executive summary, see [WriterAgent architecture — Scientific Pyth
 4. [Architecture](#4-architecture)
 5. [Developer reference](#5-developer-reference)
 6. [The `=PYTHON()` Calc function](#6-the-python-calc-function) <!-- anchor: the-python-calc-function -->
-   - [Serialization optimization](#serialization-optimization-opportunities) — [benchmark results](#benchmark-results-2026-05), [wire into production](#wire-f64_blob-into-production-next-code-changes)
+   - [Serialization optimization](#serialization-optimization-opportunities) — [benchmark results](#benchmark-results-2026-05), [Tier 2 shipped](#tier-2-f64_blob-shipped), [future work](#future-work-serialization-performance), [building host natives (Cython)](#building-host-native-extensions-cython)
 7. [Deferred roadmap](#7-deferred-roadmap)
 8. [Implementation status](#8-implementation-status)
 
@@ -162,6 +162,7 @@ plugin/
 │   ├── python_worker_manager.py  # Warm subprocess, JSON protocol
 │   ├── worker_harness.py         # Stdin/stdout loop in venv
 │   ├── venv_sandbox.py           # LocalPythonExecutor + VENV_AUTHORIZED_IMPORTS
+│   ├── payload_codec.py          # f64_blob pack/unpack (host stdlib / child NumPy)
 │   ├── writeragent_api.py        # Generated stubs (RPC not wired)
 │   └── python_runner.py          # Settings dialog / manual run UI
 ├── calc/
@@ -191,7 +192,7 @@ Defined in [`plugin/scripting/module.yaml`](plugin/scripting/module.yaml) / Sett
 |-------|----------|---------|
 | `id` | Yes | Correlation id |
 | `code` | Yes | Python source |
-| `data` | No | Injected as variable `data` in a fresh namespace |
+| `data` | No | Injected as variable `data` in a fresh namespace (nested JSON lists or [`f64_blob`](#tier-2-f64_blob-shipped) envelope when dense numeric) |
 
 **Worker → host (stdout):**
 
@@ -384,7 +385,7 @@ When you pass a range (or cell reference) as the second argument to `=PYTHON(cod
 
 Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped at `MAX_PYTHON_DATA_CELLS` (default 250 000).
 
-**Data Pipeline:** Calc UNO range -> `calc_addin_data_to_python` -> JSON worker request -> sandboxed `LocalPythonExecutor.send_variables({"data": ...})` -> script runs.
+**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): JSON list or `f64_blob`) → JSON worker line → `child_unpack_data` (ndarray when blob) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → host `host_unpack_data` where lists are needed ([`prompt_function.py`](../plugin/calc/prompt_function.py)).
 
 **Gaps vs LibrePythonista (workarounds):** one range only (use multiple cells or chat `data_range`); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 
@@ -394,24 +395,23 @@ Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data
 
 The compute bridge is **asymmetric by design**: LibreOffice’s embedded Python (host) must stay ABI-safe and ships **without NumPy**; the user venv (child) may use NumPy, pandas, and other C extensions. Serialization is therefore the main lever for large-range performance — not importing NumPy into LibreOffice ([docs/vector-search-design.md](vector-search-design.md) §3, “NumPy tax”). The host can still ship **small vendored binaries** (a few MB, like [audio](audio-architecture.md) or future `sqlite-vec`) to pack/unpack payloads faster than pure stdlib, while the child keeps the heavy numeric stack in the user venv.
 
-Today every crossing uses **nested Python lists inside JSON text** on stdin/stdout. That is correct and debuggable, but for dense numeric grids the cost can dominate the actual NumPy work.
+Historically every crossing used **nested Python lists inside JSON text** on stdin/stdout. That remains the fallback; **Tier 2 `f64_blob` is now shipped** for dense numeric grids (see [below](#tier-2-f64_blob-shipped)).
 
-#### Recommended path (simple plan)
+#### What we implemented (Tier 2)
 
-**Best idea for now:** for **dense numeric** `data` and large numeric `result`, use a **stdlib binary envelope** inside the existing JSON line ([Tier 2](#tier-2--base64-binary-blob-inside-json-asymmetric-fast-path)) — not a new wire protocol, not vendored msgpack yet, not mmap yet.
+For **dense numeric** `data` and large numeric `result`, the bridge uses a **stdlib binary envelope** inside the existing JSON line ([Tier 2](#tier-2--base64-binary-blob-inside-json-asymmetric-fast-path)) — not a new wire protocol, not vendored msgpack, not mmap.
 
 | Piece | Approach |
 |-------|----------|
-| **Wire** | Still one JSON object per line on stdin/stdout ([`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py)); see **Tier 2** below |
-| **Heavy payload** | Tagged dict: `__wa_payload__: f64_blob`, `shape`, `dtype`, `b64` (row-major `float64` bytes; `None`/empty → NaN) |
-| **Host** | Pack with stdlib `array` + `base64` when the range is all-numeric (or policy allows coercion) |
-| **Child** | Unpack with `numpy.frombuffer` + `reshape` before `send_variables`; same envelope on egress instead of `ndarray.tolist()` |
-| **Codec module** | [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) — thresholds and `f64_blob` format documented in module docstring |
-| **Fallback** | Today’s nested lists for mixed types, text, dates, and small ranges |
+| **Wire** | One JSON object per line on stdin/stdout ([`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py)) |
+| **Heavy payload** | Tagged dict: `{"__wa_payload__": "f64_blob", "dtype": "float64", "shape": [...], "b64": "..."}` — row-major IEEE float64 bytes; `None`/empty → NaN |
+| **Host** | [`host_pack_data`](../plugin/scripting/payload_codec.py) / [`host_unpack_data`](../plugin/scripting/payload_codec.py) — stdlib `array` + `base64`; **no NumPy import** on the LO side |
+| **Child** | [`child_unpack_data`](../plugin/scripting/payload_codec.py) → `np.frombuffer` + `reshape` before `send_variables`; [`child_pack_result`](../plugin/scripting/payload_codec.py) on egress instead of `.tolist()` for large ndarrays |
+| **Threshold** | `BINARY_MIN_CELLS = 10` — **≥ 10 cells** and all cells numeric-coercible → blob; otherwise nested JSON lists |
+| **Fallback** | Mixed types, text, dates, formulas with strings, and grids **&lt; 10 cells** stay nested lists |
+| **Debug** | With agent/debug logging enabled, look for `payload_codec host_pack f64_blob` / `child_unpack f64_blob` / `below_threshold` in `writeragent_debug.log` |
 
-**Benchmarked** (outside LO, [`scripts/bench_serialization.py`](../scripts/bench_serialization.py)) — see [results](#benchmark-results-2026-05) below. Adopt **`f64_blob`** for production wiring; defer Tier 2b/3 unless real Calc workloads disagree.
-
-**Defer unless LO profiles prove insufficient:** vendored codecs (Tier 2b), temp-file mmap (Tier 3), payload cache (Tier 5). Tier 0 (scalars, two-phase tools, matrix `ROW()` index) stays complementary, not a substitute.
+**Benchmarked** outside LO ([`scripts/bench_serialization.py`](../scripts/bench_serialization.py)) — [results](#benchmark-results-2026-05). **Defer** Tier 2b (vendored msgpack), Tier 3 (mmap), Tier 5 (payload cache) unless real Calc profiles disagree. Tier 0 (scalars, two-phase tools, matrix `ROW()` index) stays complementary.
 
 #### Benchmark results (2026-05)
 
@@ -425,54 +425,56 @@ Asymmetric simulation: **host** = stdlib list pack + `json.dumps`; **child** = `
 | **10×10 ingress** | **~56%** of json | **~4.6×** | **~1.7×** |
 | **< 10 cells** | Blob often **larger** or similar on wire | Marginal | Often **json_list** wins — keep list fallback |
 
-**Conclusions:** `f64_blob` is the format NumPy reads fast (`frombuffer` dominates `np.array` on large dense grids). Wire size roughly halves for 10⁴ cells. Tiny grids should stay **json_list**. Host pack + `json.dumps` for blob is still cheaper than list+json at 10⁴ scale. **No msgpack/mmap needed** for the current 250 k cell cap based on these numbers.
+**Conclusions (why Tier 2 shipped):** `f64_blob` is what NumPy reads fast (`frombuffer` dominates `np.array` on large dense grids). Wire size roughly halves for 10⁴ cells. Grids **&lt; 10 cells** should stay **json_list** (blob often larger on wire). Host pack + `json.dumps` for blob is still cheaper than list+json at 10⁴ scale. **No msgpack/mmap** for the current 250 k cell cap based on these numbers — production uses stdlib Tier 2 only.
 
 Re-run: `python scripts/bench_serialization.py --direction both`
 
-#### Wire `f64_blob` into production (shipped)
+#### Tier 2 `f64_blob` (shipped)
 
-Codec, bench, and worker/Calc wiring use **`pack_calc_data_for_wire`** / **`child_unpack_data`** / **`child_pack_result`**. Reference implementation map:
+Production wiring (2026-05):
 
-| Step | File | Change |
-|------|------|--------|
-| 1 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | After building numeric grid, optional `host_pack_data(grid)` when all cells are numeric-coercible (or add `calc_grid_to_wire_data()` wrapper). Mixed/text ranges → unchanged nested lists. |
-| 2 | [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) | Pass packed `data` from `finalize_python_data` / range reads through `run_code_in_user_venv` (already opaque `Any`). |
-| 3 | [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | Same for `=PYTHON()` second arg: `worker_data = host_pack_data(py_data)` when appropriate. |
-| 4 | [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | Before `send_variables`: `data = child_unpack_data(data)` if `f64_blob` (inject **ndarray** into namespace; scripts using `np.mean(data)` work without `np.array(data)`). |
-| 5 | [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | Replace ndarray branch in `serialize_result` with `child_pack_result` from [`payload_codec.py`](../plugin/scripting/payload_codec.py). |
-| 6 | [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | On worker response: `host_unpack_data(result)` when expanding list results for matrix/session or multi-cell tools; scalars unchanged. |
-| 7 | [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) / chat consumers | LLM tool JSON: host unpack blob to lists only when the model needs full arrays; prefer scalar/summary `result` (Tier 0). |
-| 8 | Tests | Extend [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) or add integration test: round-trip `f64_blob` through harness subprocess. Keep [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py). |
+| Location | Role |
+|----------|------|
+| [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: pack/unpack, threshold, `describe_wire_value` for logs |
+| [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands blob envelopes |
+| [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | `=PYTHON()` ingress pack + `host_unpack_data` on large list results for matrix/session |
+| [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) | Chat tool ingress pack |
+| [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
+| [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
+| [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) | Harness integration with blob payloads |
 
-**Policy constant** (single source): `BINARY_MIN_CELLS = 10` in `payload_codec.py` — use `f64_blob` when total cell count is **≥ 10**.
+**Policy:** `BINARY_MIN_CELLS = 10` — numeric grids with **≥ 10 cells** use `f64_blob`; smaller or non-numeric grids use JSON nested lists.
 
-**Not in this pass:** Tier 2b vendored codecs, mmap (Tier 3), payload cache (Tier 5), tool RPC.
+**Still deferred:** Tier 2b vendored codecs, mmap (Tier 3), payload cache (Tier 5), venv tool RPC.
 
 #### Current pipeline and costs
 
 ```text
 Calc UNO range
-  → calc_addin_data_to_python (host: plain list / list[list])
-  → json.dumps(request)          (host: text line to child)
-  → json.loads(request)          (child: parse + materialize Python objects)
-  → send_variables({"data": ...}) (child: copy into fresh executor namespace)
+  → calc_addin_data_to_python (host: list / list[list])
+  → pack_calc_data_for_wire → host_pack_data (host: f64_blob or nested list)
+  → json.dumps(request)          (host: one JSON line; blob is base64 inside JSON)
+  → json.loads(request)          (child: parse envelope dict)
+  → child_unpack_data → ndarray  (child: frombuffer + reshape when f64_blob)
+  → send_variables({"data": ...}) (child: ndarray or list in fresh namespace)
   → user code (NumPy/pandas)
-  → serialize_result(result)     (child: ndarray → .tolist(), etc.)
+  → serialize_result → child_pack_result (child: f64_blob or list for large numeric result)
   → json.dumps(response)         (child: text line to host)
   → json.loads(response)         (host)
-  → finalize_python_return / LLM / write_formula_range (host: lists/tuples/scalars again)
+  → host_unpack_data where needed (host: blob → nested lists for Calc matrix / LLM)
+  → finalize_python_return / write_formula_range
 ```
 
-| Stage | Module | What happens | Typical cost for large numeric `data` |
-|-------|--------|--------------|--------------------------------------|
-| Range read | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Each cell → Python scalar in nested lists; cap [`MAX_PYTHON_DATA_CELLS`](../plugin/calc/calc_addin_data.py) (250 000) | O(cells) Python object allocations |
-| Host encode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `json.dumps(request, default=str)` + newline | O(cells) JSON text; floats as decimal strings |
-| Child decode | [`worker_harness.py`](../plugin/scripting/worker_harness.py) | `json.loads(line)` | Second copy of every value as Python objects |
-| Inject `data` | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `executor.send_variables({"data": data})` | Namespace copy; then `np.array(data)` if user converts |
-| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `ndarray` → `.tolist()`, DataFrame → `to_dict(orient="records")` | C array → Python list → JSON text (triple materialization) |
-| Calc return | [`prompt_function.py`](../plugin/calc/prompt_function.py) | `to_calc_compatible` (e.g. `int` → `float`); matrix formulas cache flattened list in [`_WorkerResultSession`](../plugin/calc/prompt_function.py) | One worker call per list result block, then per-cell scalar emission |
+| Stage | Module | What happens | Large dense numeric `data` (shipped path) |
+|-------|--------|--------------|-------------------------------------------|
+| Range read | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Cell scalars in nested lists; cap 250 000 cells | O(cells) once at read |
+| Host pack | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | `array` + base64 envelope when ≥10 numeric cells | One pass; wire ~half size vs JSON list (bench) |
+| Host encode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `json.dumps` of request dict | Smaller line for blob; still O(cells) base64 |
+| Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | ~13× faster materialize vs `np.array(list)` at 10⁶ cells (bench) |
+| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame still `to_dict(orient="records")` | Large ndarray egress as blob, not `.tolist()` |
+| Calc return | [`prompt_function.py`](../plugin/calc/prompt_function.py) | `host_unpack_data` when expanding matrix results | Lists only where Calc needs per-cell scalars |
 
-**Not used on this path today:** pickle, msgpack, mmap, shared memory. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) in vendored smolagents supports typed envelopes (`__type__: ndarray` + `dtype`) but the venv worker does not call it — only [`serialize_result`](../plugin/scripting/venv_sandbox.py).
+**Not used:** pickle, msgpack, mmap, shared memory. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
 **Fresh namespace every call** ([§2](#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PYTHON()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([§7](#7-deferred-roadmap)).
 
@@ -504,7 +506,7 @@ Extend request/response objects with a tagged shape, e.g. `{"__wa_payload__": "n
 
 Best when: you need dtype/shape preserved but payloads are still moderate; stepping stone before binary wire.
 
-**Tier 2 — Base64 binary blob inside JSON (asymmetric fast path)**
+**Tier 2 — Base64 binary blob inside JSON (asymmetric fast path)** — **shipped** in [`payload_codec.py`](../plugin/scripting/payload_codec.py)
 
 Host (stdlib only) packs a dense numeric block:
 
@@ -537,20 +539,185 @@ If stdlib `json` + `array` + base64 is still too slow on the **LibreOffice host*
 | **msgpack** or **cbor2** | Small C extension per platform; compact binary for `data` / `result` blobs | `packb` grid metadata + float bytes; one line still `base64(pack(...))` or length-prefixed frame | `unpackb` → `np.frombuffer` (NumPy already in venv) |
 | **orjson** | Fast JSON only | Faster `json.dumps`/`loads` if wire stays JSON | Optional; child can keep stdlib `json` |
 | **lz4** (bind via **lz4** wheel or stdlib **zlib**) | Compress large blobs before base64 or temp file | Shrink stdin payload when JSON/text dominates | Decompress then `frombuffer` |
-| **Custom `vec_pack` .so** | Smallest if scope is fixed: row-major `float64`/`float32` + optional mask for `None` | C loop over UNO cell array during `calc_addin_data` — avoids million Py float objects | N/A (child only decodes bytes) |
+| **Custom `vec_pack` (Cython)** | Smallest if scope is fixed: row-major `float64`/`float32` + optional mask for `None` | Fast pack over buffer after Python UNO read — see [Building host natives](#building-host-native-extensions-cython) | N/A (child only decodes bytes) |
 | **pyarrow** | Usually **too large** for this tier | Defer unless benchmarks justify multi‑MB per arch | User venv may already have Arrow |
 
 **Packaging pattern (reuse audio):**
 
-- Wheels or prebuilt libs under `vendor/` or `plugin/vendor/` (see [`plugin/main.py`](../plugin/main.py) `sys.path` injection).
+- **Native extensions** (msgpack, orjson, custom Cython): prebuilt wheels under **`plugin/contrib/…`** (e.g. [`plugin/contrib/audio/`](../plugin/contrib/audio/)), with `sys.path` injection like [`panel_factory.py`](../plugin/chatbot/panel_factory.py) — **not** the pure-Python [`vendor/`](../vendor/) tree from [`make vendor`](../Makefile).
 - **Python version + arch matrix** — prune unused ABI tags in the OXT like [audio-architecture.md](audio-architecture.md) (March 2026 binary pruning).
-- **Linux** may still need a system package for some natives (audio’s PortAudio case); document graceful degrade to Tier 2 stdlib path.
+- **Linux** may still need a system package for some natives (audio’s PortAudio case); always **graceful degrade** to Tier 2 stdlib [`payload_codec.py`](../plugin/scripting/payload_codec.py) on `ImportError`.
 
 **Asymmetric benefit:** host uses vendored **pack** only; child uses **NumPy + optional msgpack** from the user venv without vendoring NumPy into LibreOffice. Worst case: host packs binary, child decodes with `np.frombuffer` — still faster than JSON lists on **both** sides.
 
 **Not a substitute for Tier 3:** mmap/temp files help when payload size exceeds practical stdin; a 1 MB msgpack wheel does not remove the need for mmap at 250 k-cell scale if the line itself is the bottleneck.
 
 Best when: profiles show host `json.dumps` or list construction dominates; you accept OXT size + release matrix cost for a bounded codec (target **≤ few MB** extra per platform set, not NumPy-scale).
+
+For a **custom Cython** host module (not NumPy), see [Building host native extensions (Cython)](#building-host-native-extensions-cython) below.
+
+#### Building host native extensions (Cython)
+
+**Status: not shipped** — reference for a future `writeragent_vec` (or similar) module. **Never vendor NumPy** into LibreOffice; the user **venv** remains where full NumPy/pandas live ([§2](#2-strategy-decision)). A small Cython extension only accelerates **host-side pack** (and optionally other tight loops) inside the embedded interpreter.
+
+##### Policy summary
+
+| Do | Don’t |
+|----|--------|
+| Ship **tagged `.so` / `.pyd`** per ABI in `plugin/contrib/vec_pack/` (mirror audio) | Import NumPy/pandas/scipy in-process in LO |
+| **Fallback** to stdlib `f64_blob` on `ImportError` | Link against LibreOffice or call UNO from C |
+| Build matrix with **cibuildwheel + CI** | Expect one Arch laptop to produce Windows/macOS wheels |
+| Profile in LO before adding OXT weight | Ship pyarrow-scale stacks |
+
+##### How audio does it (model to copy)
+
+Audio does **not** compile C in this repo for release. [`scripts/update_audio_contrib.py`](../scripts/update_audio_contrib.py) **downloads prebuilt wheels** from PyPI and copies artifacts into [`plugin/contrib/audio/`](../plugin/contrib/audio/):
+
+- **Python tags:** 3.11–3.14 (`PYTHON_VERSIONS` in the script; 3.9/3.10 and free-threaded `314t` pruned per [audio-architecture.md](audio-architecture.md))
+- **Platforms:** `win_amd64`, `win_arm64`, macOS x86_64/arm64/universal2, `manylinux2014` / `musllinux_1_1` x86_64 and aarch64 (`PLATFORMS` in the script)
+- **Tagged binaries** sit **flat** in one directory, e.g. `_cffi_backend.cpython-312-x86_64-linux-gnu.so` (~**28** files for cffi today)
+- **Runtime:** [`panel_factory.py`](../plugin/chatbot/panel_factory.py) prepends `plugin/contrib/audio` to `sys.path`; Python imports the module whose tag matches **LO’s** `sys.version` and platform
+
+[`vendor/`](../vendor/) + [`requirements-vendor.txt`](../requirements-vendor.txt) (`make vendor`) is for **pure-Python** deps (snowballstemmer, etc.) — a different path from contrib natives.
+
+##### Custom Cython: you become the wheel publisher
+
+For **your** module (e.g. `writeragent_vec`), PyPI will not have wheels unless **you** build them. Two equivalent maintainer workflows:
+
+| Approach | Workflow | OXT contents |
+|----------|----------|--------------|
+| **A — cibuildwheel (recommended)** | CI builds wheels on tag; extract into contrib | Flat tagged `.so` / `.pyd` in `plugin/contrib/vec_pack/` |
+| **B — pip download your wheels** | Publish to GitHub Releases / PyPI; [`update_vec_contrib.py`](../scripts/update_audio_contrib.py) mirrors audio’s download script | Same |
+
+You do **not** need every developer machine to compile the full matrix.
+
+##### Supported ABI matrix (match audio)
+
+| Dimension | Values ([`update_audio_contrib.py`](../scripts/update_audio_contrib.py)) |
+|-----------|-------------------------------------------------------------------------------|
+| CPython | 3.11, 3.12, 3.13, 3.14 |
+| Windows | `win_amd64`, `win_arm64` |
+| macOS | `macosx_10_9_x86_64`, `macosx_11_0_arm64`, `macosx_10_9_universal2` |
+| Linux glibc | `manylinux2014_x86_64`, `manylinux2014_aarch64` |
+| Linux musl | `musllinux_1_1_x86_64`, `musllinux_1_1_aarch64` |
+
+A Cython package with the same policy ships on the order of **~28** native artifacts (one per ABI), not one universal binary.
+
+**What you cannot do on a single machine:** produce the full matrix natively. Typical split:
+
+1. **Local smoke test** — one ABI matching **LibreOffice’s** embedded `python` on your box.
+2. **Linux manylinux + musl** — `cibuildwheel --platform linux` (uses **Docker** on Arch/Linux).
+3. **Windows + macOS** — GitHub Actions (`windows-latest`, `macos-*`) or other CI; not practical to cross-build all of those on Arch alone.
+
+**Rough maintainer effort (first time):** package + `pyproject.toml` / `cibuildwheel.toml` (~half day); CI workflow + `update_vec_contrib.py` (~1 day); first green matrix + strip/prune (~1 day); rebuild when bumping supported Python range.
+
+##### Recommended project layout (future)
+
+```text
+native/writeragent_vec/
+  pyproject.toml              # setuptools + Cython
+  src/writeragent_vec/
+    __init__.py
+    pack.pyx                  # coerce + row-major float64 pack
+  tests/                      # pytest vs host_pack_f64_blob
+scripts/update_vec_contrib.py # extract wheels → plugin/contrib/vec_pack/
+plugin/contrib/vec_pack/        # git-tracked .so/.pyd like audio
+```
+
+Wire into [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) or [`payload_codec.py`](../plugin/scripting/payload_codec.py) with `try: import writeragent_vec` and stdlib fallback.
+
+##### Build pipeline (cibuildwheel)
+
+1. Pin ABI to the table above (`pyproject.toml` + `[tool.cibuildwheel]` or GitHub Actions matrix).
+2. On release tag: `pip install cibuildwheel && cibuildwheel native/writeragent_vec` → `wheelhouse/`.
+3. `update_vec_contrib.py`: unzip wheels; copy `writeragent_vec/*.so` (+ `__init__.py` once) into `plugin/contrib/vec_pack/`.
+4. **Strip** with `llvm-strip` (reuse `strip_binary` from [`update_audio_contrib.py`](../scripts/update_audio_contrib.py)).
+5. Optional: prune musl tags if you only target glibc LO builds; optional `NO_VEC_PACK=1` in [`build_oxt.py`](../scripts/build_oxt.py) (parallel to `NO_RECORDING`).
+
+##### On Arch Linux (local dev and Linux wheels)
+
+**Packages:**
+
+```bash
+sudo pacman -S base-devel gcc llvm docker   # docker or podman for cibuildwheel linux
+uv sync --group dev
+uv pip install cython build cibuildwheel
+```
+
+**Discover LibreOffice’s embedded Python** (build and test against this ABI, not only `/usr/bin/python`):
+
+```bash
+/usr/lib/libreoffice/program/python -c "import sys; print(sys.version); print(sys.implementation.cache_tag)"
+```
+
+**Dev install for local smoke tests** (once `native/writeragent_vec` exists):
+
+```bash
+cd native/writeragent_vec
+/usr/lib/libreoffice/program/python -m pip install --user cython build   # if pip available on LO python
+/usr/lib/libreoffice/program/python -m pip install -e .
+```
+
+**Linux wheel matrix from Arch** (glibc manylinux + musl; requires Docker):
+
+```bash
+cd native/writeragent_vec
+uv run cibuildwheel --platform linux
+```
+
+Distro LibreOffice on glibc Arch typically needs **`manylinux2014_*`** tags. **Musl** wheels matter only for musl-linked LO builds (some minimal/Flatpak-style layouts).
+
+**Not from Arch alone:** `win_*` and `macosx_*` wheels — add `.github/workflows/build-vec-wheels.yml` (or similar) on tag push.
+
+##### Runtime integration (LO host)
+
+```python
+_vec_dir = os.path.join(ext_root, "plugin", "contrib", "vec_pack")
+if _vec_dir not in sys.path:
+    sys.path.insert(0, _vec_dir)
+try:
+    import writeragent_vec as _wv
+except ImportError:
+    _wv = None  # unknown LO Python minor or arch → stdlib payload_codec
+```
+
+Log `sys.version`, `sys.platform`, and import success at debug level once per session when diagnosing missing tags.
+
+##### UNO boundary (important)
+
+A Cython extension **must not** link against LibreOffice or call UNO from C. PyUNO stays in Python.
+
+```mermaid
+flowchart TB
+  subgraph py_host [Python_in_LO]
+    UNO[getDataArray_or_cell_loop]
+    Bridge[pass_buffer_to_native]
+  end
+  subgraph native [writeragent_vec.so]
+    Pack[pack_f64_row_major]
+  end
+  UNO -->|"memoryview_array_or_flat_list"| Bridge --> Pack
+```
+
+- **Python:** one UNO read ([`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py) or `getDataArray`) — still required.
+- **Cython:** fast **coerce + pack** (row-major `float64`, `None`/empty → NaN) over a contiguous buffer — replaces the hot loop in [`host_pack_f64_blob`](../plugin/scripting/payload_codec.py).
+- **Wire:** unchanged Tier 2 `f64_blob` envelope (or Tier 2b msgpack later); **venv** child still uses `np.frombuffer`.
+
+##### Cython vs plain C vs prebuilt PyPI codecs
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **Cython** | Fast to write numeric loops; same wheel matrix as any C ext | You build/publish all ABIs |
+| **Plain C API module** | Minimal runtime | More boilerplate; same ABI matrix |
+| **Vendored orjson/msgpack** | Wheels exist on PyPI; download like audio cffi | Does not remove UNO→Python cell loop; different bottleneck |
+| **NumPy in LO** | — | **Rejected** — ABI + size ([§1](#1-the-problem-abi-and-embedded-python)) |
+
+##### Verification before shipping in OXT
+
+1. Unit tests: `writeragent_vec` output matches [`host_pack_f64_blob`](../plugin/scripting/payload_codec.py) for sample grids.
+2. [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — optional `native_vec` row when import succeeds (planned `--candidates` extension).
+3. LO profile legs A–B ([Future work — Priority 1](#priority-1--profile-inside-libreoffice-gate-for-everything-else)) on 100×100+ numeric ranges.
+4. Cold import cost in LO (extension startup) — compare to audio’s cffi load.
 
 **Tier 3 — Host-managed temp file + mmap (large payloads)**
 
@@ -580,13 +747,14 @@ Large **egress** arrays: same tiers as ingress (binary envelope or temp file + h
 
 Optional ([§7](#7-deferred-roadmap)): host sends `data_id` + hash of range contents instead of full `data` when unchanged since last execute; worker keeps a bounded LRU of decoded arrays **inside the warm process** (not in user namespace). Requires explicit opt-in and invalidation on sheet edit/recalc.
 
-#### Things to try first (benchmark checklist)
+#### Benchmark checklist (regression / future tiers)
 
-Validate the [recommended path](#recommended-path-simple-plan) with before/after runs. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 10 000 cells; compares JSON lists vs [`f64_blob`](../plugin/scripting/payload_codec.py) (`np.frombuffer` + `reshape`). Implementation: [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py).
+Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering Tier 2b/3. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 10 000 cells; compares JSON lists vs `f64_blob` (`np.frombuffer` + `reshape`). Production policy matches bench defaults (`BINARY_MIN_CELLS = 10`).
 
 ```bash
 python scripts/bench_serialization.py --direction both
 python scripts/bench_serialization.py --child-only   # isolate np.array vs frombuffer
+# Planned: --candidates for orjson/msgpack/zlib vs f64_blob (see Tier 2b table)
 ```
 
 Checklist (same legs the script runs):
@@ -603,18 +771,107 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 
 #### Recommendation summary
 
-**Ship Tier 2 `f64_blob`** (ingress + egress for dense numeric arrays); keep **JSON nested lists** for <10 cells, mixed types, and scalars. Benchmarks ([above](#benchmark-results-2026-05)) support wiring [`payload_codec.py`](../plugin/scripting/payload_codec.py) into the table in [Wire f64_blob into production](#wire-f64_blob-into-production-next-code-changes).
+**Tier 2 `f64_blob` is shipped** (ingress + egress for dense numeric arrays). Keep **JSON nested lists** for &lt;10 cells, mixed types, and scalars. Benchmarks ([above](#benchmark-results-2026-05)) justified the threshold and format; no Tier 2b/3 needed at current caps.
 
 | Situation | Prefer |
 |-----------|--------|
-| Dense numeric `data` / large numeric `result` | **`f64_blob` envelope in JSON** (Tier 2) — primary optimization |
-| Small ranges, mixed types, formulas with strings/`None` | **Today’s JSON lists** (no envelope) |
+| Dense numeric `data` / large numeric `result` (≥10 cells) | **`f64_blob` envelope in JSON** (Tier 2, shipped) |
+| Small ranges, mixed types, formulas with strings/`None` | **JSON nested lists** (no envelope) |
 | LLM chat with huge outputs | **Tier 0** summaries + **tool RPC** / `write_formula_range` (Tier 4), not giant `result` JSON |
-| Host still slow after Tier 2 | **Tier 2b** vendored msgpack/orjson (few MB OXT, audio-style wheels) |
+| Host still slow after Tier 2 in LO profiles | **Tier 2b** vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** (Tier 3) + optional **payload cache** (Tier 5) |
-| **Implementation order** | **Tier 2 (stdlib envelope)** → measure → Tier 0 prompts → Tier 2b / Tier 3 / Tier 5 only if needed |
+| **Next optimizations** | See [Future work — serialization performance](#future-work-serialization-performance) (profile in LO first, then Tier 0 → host paths → defer 2b/3) |
 
 **Vendoring policy:** avoid NumPy/pandas in the OXT; **do** consider a few MB of focused binaries only if Tier 2 stdlib is insufficient after measurement. Keep pack/unpack logic in **`plugin/scripting/`** (host + [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py)).
+
+#### Future work — serialization performance
+
+Tier 2 fixed the **child** hot path (`frombuffer` vs `np.array(list)`). Remaining cost is mostly **host work** (UNO read → Python objects → pack), **extra crossings** (same range sent every recalc), and **downstream consumers** that force blob → nested lists. Do not add Tier 2b/3 OXT weight until **LibreOffice profiles** show serialization dominates compute.
+
+**Suggested next sprint:** (1) LO profile → (2) Tier 0 product/prompt fixes → (3) host opaque blob or single-pass UNO→bytes **only if** step 1 points there.
+
+##### Priority 1 — Profile inside LibreOffice (gate for everything else)
+
+[`scripts/bench_serialization.py`](../scripts/bench_serialization.py) is asymmetric and **skips** the production step that still costs most on the host: **UNO range read → one Python object per cell** in [`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py), then [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py).
+
+Add timing (debug menu, `testing_runner`, or temporary logs) on realistic sheets:
+
+| Leg | What to measure |
+|-----|-----------------|
+| A | `calc_addin_data_to_python` only |
+| B | A + `pack_calc_data_for_wire` |
+| C | B + `json.dumps` + worker round-trip |
+| D | Response + `host_unpack_data` (matrix `=PYTHON()` is often hot here) |
+
+**Stop rule:** If NumPy compute dominates, serialization work has low ROI. If **read + host pack + JSON line** dominates, pursue host optimizations below. If **host_unpack → nested lists** dominates on matrix formulas, fix egress pass-through before msgpack/mmap.
+
+Possible deliverable: minimal LO harness (debug menu or UNO test) that prints legs A–D for one `=PYTHON()` call on a large numeric range.
+
+##### Priority 2 — Tier 0: less data on the wire (best ROI, no protocol change)
+
+Often beats another codec — product, prompts, and formula patterns:
+
+| Area | Action |
+|------|--------|
+| **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_formula_range`”, not 10⁵-element lists in `result`. |
+| **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/prompt_function.py); avoid N recalcs each resending the same `data`. |
+| **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
+
+See [Tier 0](#tier-0--keep-json-reduce-crossings-no-protocol-change) and [§3 two-phase workflow](#two-phase-llm-workflow).
+
+##### Priority 3 — Host: pack closer to UNO cells (code, if profiling says read/pack hurts)
+
+**Today:** every cell → Py scalar in nested lists → second scan for `f64_blob`.
+
+**Idea:** one pass **UNO → row-major bytes** during range read, or a **Cython pack** over a buffer after the Python UNO read — see [Building host native extensions (Cython)](#building-host-native-extensions-cython). Avoids a million heap floats before base64. Child path unchanged (`frombuffer`).
+
+##### Priority 4 — Host: opaque `f64_blob` pass-through (if egress/unpack hot)
+
+[`host_unpack_f64_blob`](../plugin/scripting/payload_codec.py) expands blobs to nested lists for Calc matrix/session paths. If leg D dominates:
+
+- Keep **`f64_blob` opaque** through more of the pipeline; decode to lists only when emitting per-cell UNO values, or  
+- Insert via **`write_formula_range`** from host after one decode (pairs with [Tier 4](#tier-4--return-path-and-downstream-consumers) and future **tool RPC**).
+
+Larger architectural slice than “faster JSON.”
+
+##### Priority 5 — Smaller wire and pandas egress (experiments)
+
+| Idea | Notes |
+|------|--------|
+| **`float32` envelope** | Optional `dtype` in wire dict; ~half bytes when precision allows; policy + round-trip tests. |
+| **Pandas egress** | Large `DataFrame` still `to_dict(orient="records")` in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py); route numeric blocks through `child_pack_result` / blob where possible. |
+
+##### Priority 6 — Tier 5: worker payload cache (same range, many recalcs)
+
+Fresh namespace per call stays ([§2](#2-strategy-decision)); the **warm worker** can still hold a bounded LRU of decoded arrays keyed by `data_id` + range content hash — host sends id instead of 250 k cells when unchanged since last execute. High impact for repeated `=PYTHON(code; B1:Z1000)` on recalc; needs invalidation on sheet edit/recalc. See [Tier 5](#tier-5--session--payload-cache-product--protocol).
+
+##### Priority 7 — Defer unless LO profiles disagree with bench
+
+| Tier | Invest when |
+|------|-------------|
+| **2b** — orjson / msgpack on host | Whole-line `json.dumps` / `json.loads` dominates after Priority 1 |
+| **3** — mmap temp file | Payloads near [`MAX_PYTHON_DATA_CELLS`](../plugin/calc/calc_addin_data.py) (250 k); stdin size or base64 RAM spikes |
+| **Tool RPC** ([§7](#venv--libreoffice-tool-rpc)) | Sheet output should not round-trip huge `result` through JSON at all |
+
+Bench at ≤10 k cells in [`bench_serialization.py`](../scripts/bench_serialization.py) did **not** justify 2b/3 at current caps; production stays stdlib Tier 2 until LO says otherwise.
+
+##### Remaining pipeline costs (reference)
+
+Even with Tier 2 shipped, these stages still exist:
+
+```text
+UNO read → Py list per cell → host_pack (array+base64) → json.dumps(line)
+  → json.loads → frombuffer → … compute …
+  → child_pack_result → json.dumps → host_unpack → nested lists (Calc matrix)
+```
+
+| Bottleneck | Future lever |
+|------------|--------------|
+| Per-cell Py objects at read | Priority 3 (Cython pack / UNO→bytes) — [Building host natives](#building-host-native-extensions-cython) |
+| Base64 in JSON line | float32, Tier 3 mmap, or 2b binary frame |
+| Same range every recalc | Priority 2 (ROW index), Priority 6 (cache) |
+| Giant `result` in chat | Priority 2 (Tier 0), tool RPC |
+| DataFrame `.to_dict` | Priority 5 |
 
 ### Optional: Python edit dialog (deferred UX)
 
@@ -656,6 +913,10 @@ Tier 1 reuses existing `DialogProvider` / XDL patterns ([`plugin/chatbot/dialogs
 | host → worker | `execute` | Run code (today) |
 | host → worker | `tool_result` | Answer `tool_call` |
 
+### Serialization performance (see §6)
+
+Prioritized future work (LO profiling gate, Tier 0 crossings, host pack/unpack, cache, deferred 2b/3): [Future work — serialization performance](#future-work-serialization-performance). **Cython / multi-platform native builds:** [Building host native extensions (Cython)](#building-host-native-extensions-cython) (cibuildwheel, Arch, audio parity matrix).
+
 ### Other enhancements
 
 - **OooDev / ScriptForge:** optional venv install for UNO-from-Python; or keep compute-in-venv + document-via-tools (recommended).
@@ -663,32 +924,27 @@ Tier 1 reuses existing `DialogProvider` / XDL patterns ([`plugin/chatbot/dialogs
 - **Optional session persistence:** reuse one executor namespace within a chat session (opt-in).
 - **Worker idle shutdown:** terminate venv process after N minutes idle.
 - **Formula `timeout_sec`:** optional per-formula override (Settings remains the default).
+- **LO serialization profiler:** debug-menu or UNO test harness for legs A–D ([Priority 1](#priority-1--profile-inside-libreoffice-gate-for-everything-else)).
 
 ---
 
 ## 8. Implementation status
 
-**Done (2026-05)**
+### Shipped (venv bridge + Tier 2 serialization, 2026-05)
 
-- [`plugin/scripting/payload_codec.py`](plugin/scripting/payload_codec.py) — `f64_blob` wire format; host pack (stdlib) / child `frombuffer`; threshold ≥10 cells.
-- [`scripts/bench_serialization.py`](scripts/bench_serialization.py) — asymmetric ingress/egress bench (see [Benchmark results](#benchmark-results-2026-05)).
-- [`tests/scripting/test_payload_codec.py`](tests/scripting/test_payload_codec.py) — codec round-trip and threshold tests.
-- [`plugin/scripting/worker_harness.py`](plugin/scripting/worker_harness.py) + [`venv_sandbox.py`](plugin/scripting/venv_sandbox.py) — warm loop; `LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS` per request; numpy/pandas serialization (**lists + `.tolist()` until codec wired in**).
-- [`plugin/scripting/python_worker_manager.py`](plugin/scripting/python_worker_manager.py) — singleton per venv executable; JSON stdin/stdout; restart on failure.
-- [`plugin/scripting/run_venv_code.py`](plugin/scripting/run_venv_code.py) — single venv entry (removed temp-file spawn / `VenvInteractiveRunner`).
-- [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) — `run_venv_python_script` tool; Calc `=PYTHON()` via same path.
-- [`plugin/calc/python_executor.py`](plugin/calc/python_executor.py) — in-process tool; new executor per call.
-- [`plugin/contrib/smolagents/local_python_executor.py`](plugin/contrib/smolagents/local_python_executor.py) — vendored; WriterAgent removed upstream `find_spec` pre-check at init.
+| Component | Status |
+|-----------|--------|
+| Warm worker + JSON line protocol | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`run_venv_code.py`](../plugin/scripting/run_venv_code.py) |
+| AST sandbox per request | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
+| `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`prompt_function.py`](../plugin/calc/prompt_function.py) |
+| **Tier 2 `f64_blob`** | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — host pack/unpack (stdlib); child `frombuffer`; **≥10 cells** + all numeric-coercible |
+| Calc ingress | [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) |
+| Bench + tests | [`scripts/bench_serialization.py`](../scripts/bench_serialization.py), [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py), [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) |
 
-**Done (codec wiring, 2026-05)**
+See [What we implemented](#what-we-implemented-tier-2), [Benchmark results](#benchmark-results-2026-05), and [Tier 2 shipped](#tier-2-f64_blob-shipped) for behavior and numbers.
 
-- [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) — Calc/chat ingress; [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) `child_unpack_data` / `child_pack_result`; [`prompt_function.py`](../plugin/calc/prompt_function.py) + [`venv_python.py`](../plugin/calc/venv_python.py).
+### Not shipped / deferred
 
-**Consider later**
-
-- Tool RPC ([§7](#7-deferred-roadmap)).
-- Tier 2b msgpack / Tier 3 mmap (not needed per bench at ≤10 k cells).
-- Optional session persistence.
-- Worker idle shutdown.
-- `timeout_sec` on `=PYTHON()`.
-- Tier 1 Python edit dialog for long `=PYTHON` formulas.
+- **Serialization next steps** — [Future work](#future-work-serialization-performance): LO profile first, Tier 0, opaque blob, float32, pandas egress, worker cache; Tier 2b codecs; optional [Cython `vec_pack`](#building-host-native-extensions-cython) (not started).
+- Venv ↔ LO **tool RPC** ([§7](#7-deferred-roadmap)) — [`writeragent_api.py`](../plugin/scripting/writeragent_api.py) stubs only.
+- Managed venv (Strategy 2), session persistence, worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
