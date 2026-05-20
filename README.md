@@ -81,7 +81,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Enable it**: Set path in **Settings → Python**. Exposed to LLMs in Writer, Calc, and Draw / Impress.
 - **Agentic Analysis**: The AI can run computations and return structured results (as JSON) to update your document.
 - **New Calc Formula**: Use `=PYTHON("result = 3 ** 8")` or pass a range: `=PYTHON("result = sum(data)", A1:A10)`. The **`data`** variable is a special list containing the cell values, dynamically injected into your Python script's execution namespace at runtime (flat 1D list for rows/columns, 2D list for rectangles—see [Data Handoff Guide](docs/enabling_numpy_in_libreoffice.md#data-handoff-and-shaping)).
-- **Shared Code Cells (and upcoming bugfix)**: You can store your code in a cell (e.g., `A1`) and reference it across multiple formulas (e.g., `=PYTHON($A$1; B1)`). *(Feature will be enabled in 0.8.3.)*
+- **Shared Code Cell**: You can store your code in a cell (e.g., `A1`) and reference it across multiple formulas (e.g., `=PYTHON($A$1; B1)`). *(in version 0.8.3.)*
 - **Safety & Isolation**: Code runs safely in a separate process and is evaluated by a [custom AST-based executor](plugin/contrib/smolagents/local_python_executor.py) (adapted from [Hugging Face smolagents](https://github.com/huggingface/smolagents)) that acts as a secure sandbox which blocks dangerous modules (like `os`, `subprocess`, or `sys`) and functions (like `eval` or `exec`), ensuring that the AI can only perform safe, mathematical, and data-processing tasks. 0.2 ms overhead for small data exchanges.
 
 
