@@ -95,6 +95,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 | **Spreadsheet Dashboard** | ![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png) |
 | **Math Expressions** | ![Math Expressions](Showcase/Math.png) |
 | **Sonnet diagram of an Arch Linux deity** | ![Sonnet 4.6 Visual](Showcase/Sonnet46ArchDiagram.jpg) |
+| **Python in LibreOffice** | ![Python in LibreOffice](Showcase/PythonLibreOffice.png) |
 
 ---
 
