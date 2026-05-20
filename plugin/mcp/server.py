@@ -29,6 +29,7 @@ from typing import Any, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
+from plugin.mcp.cors import send_cors_headers
 
 log = logging.getLogger("writeragent.framework.http_server")
 
@@ -61,7 +62,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self._send_cors_headers()
+        send_cors_headers(self, preflight=True)
         self.end_headers()
 
     def _dispatch(self, method):
@@ -120,21 +121,10 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, status, data):
         self.send_response(status)
-        self._send_cors_headers()
+        send_cors_headers(self, preflight=False)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
-
-    def _send_cors_headers(self):
-        origin = self.headers.get("Origin")
-        if origin:
-            import re
-
-            if re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", origin):
-                self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, X-Document-URL")
-        self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)

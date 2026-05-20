@@ -32,6 +32,23 @@ what to consider doing next.
 
 **Document targeting:** `X-Document-URL` header on MCP requests (see below).
 
+### OPTIONS `/mcp` (CORS preflight)
+
+Browser and streamable-HTTP MCP clients send **`OPTIONS /mcp`** before `POST /mcp`. The server responds with **HTTP 204** and an **empty body** — that is correct; integrators must not expect JSON on preflight.
+
+CORS must allow every header the client names in `Access-Control-Request-Headers`, including **`mcp-protocol-version`** (and often `Content-Type`, `Mcp-Session-Id`, `X-Document-URL`). Implementation: [`plugin/mcp/cors.py`](../plugin/mcp/cors.py), used from [`plugin/mcp/server.py`](../plugin/mcp/server.py) and [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py).
+
+Verify preflight from a shell:
+
+```bash
+curl -i -X OPTIONS 'http://localhost:8765/mcp' \
+  -H 'Origin: http://localhost:3000' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type, mcp-protocol-version'
+```
+
+Expect `204`, `Access-Control-Allow-Headers` containing `mcp-protocol-version`, and (for allowed origins) `Access-Control-Allow-Origin` reflecting the `Origin` value.
+
 > **Historical note:** Sections below that describe `GET /tools`, `POST /tools/{name}`, and `core/mcp_server.py` refer to an older REST-style API. The live server uses JSON-RPC on `/mcp` only.
 
 ---

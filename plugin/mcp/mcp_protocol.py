@@ -30,6 +30,7 @@ import uuid
 
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, safe_json_loads
+from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.mcp_state import MCPState, MCPStateStr, EventKind, MCPEvent, ParseRequestEffect, ResolveDocumentEffect, ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
 
 log = logging.getLogger("writeragent.mcp.protocol")
@@ -124,14 +125,14 @@ class MCPProtocolHandler:
         handler.send_response(200)
         handler.send_header("Content-Type", "text/event-stream")
         handler.send_header("Cache-Control", "no-cache")
-        self._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
         handler.end_headers()
         self._run_sse_keepalive_loop(handler)
 
     def handle_mcp_delete(self, handler):
         """DELETE /mcp — session termination."""
         handler.send_response(200)
-        self._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
         handler.end_headers()
 
     def handle_sse_stream(self, handler):
@@ -142,7 +143,7 @@ class MCPProtocolHandler:
             handler.send_header("Cache-Control", "no-cache")
             handler.send_header("Connection", "keep-alive")
             handler.send_header("X-Accel-Buffering", "no")
-            self._send_cors_headers(handler)
+            send_cors_headers(handler, preflight=False)
             handler.end_headers()
             log.info("[SSE] GET stream opened")
             self._run_sse_keepalive_loop(handler)
@@ -198,13 +199,13 @@ class MCPProtocolHandler:
         result = self._process_jsonrpc(msg, document_url=document_url)
         if result is None:
             handler.send_response(202)
-            self._send_cors_headers(handler)
+            send_cors_headers(handler, preflight=False)
             handler.end_headers()
             return
 
         status, response = result
         handler.send_response(status)
-        self._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
         out = json.dumps(response, ensure_ascii=False, default=str)
@@ -287,7 +288,7 @@ class MCPProtocolHandler:
                 self._send_json(handler, 200, responses)
             else:
                 handler.send_response(202)
-                self._send_cors_headers(handler)
+                send_cors_headers(handler, preflight=False)
                 handler.end_headers()
             return
 
@@ -295,7 +296,7 @@ class MCPProtocolHandler:
         result = self._process_jsonrpc(msg, document_url=document_url)
         if result is None:
             handler.send_response(202)
-            self._send_cors_headers(handler)
+            send_cors_headers(handler, preflight=False)
             if _mcp_session_id:
                 handler.send_header("Mcp-Session-Id", _mcp_session_id)
             handler.end_headers()
@@ -306,7 +307,7 @@ class MCPProtocolHandler:
             _mcp_session_id = str(uuid.uuid4())
 
         handler.send_response(status)
-        self._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
         handler.send_header("Content-Type", "application/json")
         if _mcp_session_id:
             handler.send_header("Mcp-Session-Id", _mcp_session_id)
@@ -649,18 +650,7 @@ class MCPProtocolHandler:
     def _send_json(self, handler, status, data):
         """Send a JSON response via an HTTP handler."""
         handler.send_response(status)
-        self._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
         handler.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
-
-    def _send_cors_headers(self, handler):
-        origin = handler.headers.get("Origin")
-        if origin:
-            import re
-
-            if re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$", origin):
-                handler.send_header("Access-Control-Allow-Origin", origin)
-        handler.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
-        handler.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")

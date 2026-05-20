@@ -93,9 +93,8 @@ def test_handle_mcp_post_invalid_json():
         assert response_data.get("code") == "PARSE_ERROR"
 
 def test_send_cors_headers_allowed():
-    """Test _send_cors_headers allows safe origins."""
-    services = MagicMock()
-    mcp_protocol = MCPProtocolHandler(services)
+    """Test shared CORS helper allows safe origins on MCP POST responses."""
+    from plugin.mcp.cors import send_cors_headers
 
     safe_origins = [
         "http://localhost",
@@ -111,16 +110,18 @@ def test_send_cors_headers_allowed():
 
     for origin in safe_origins:
         handler = MockHandler({"Origin": origin})
-        mcp_protocol._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
 
         headers_dict = dict(handler.sent_headers)
         assert "Access-Control-Allow-Origin" in headers_dict
         assert headers_dict["Access-Control-Allow-Origin"] == origin
+        allow = headers_dict["Access-Control-Allow-Headers"].lower()
+        assert "x-document-url" in allow
+        assert "mcp-protocol-version" in allow
 
 def test_send_cors_headers_rejected():
-    """Test _send_cors_headers rejects unsafe origins."""
-    services = MagicMock()
-    mcp_protocol = MCPProtocolHandler(services)
+    """Test shared CORS helper rejects unsafe origins."""
+    from plugin.mcp.cors import send_cors_headers
 
     unsafe_origins = [
         "http://localhost.attacker.com",
@@ -131,7 +132,7 @@ def test_send_cors_headers_rejected():
 
     for origin in unsafe_origins:
         handler = MockHandler({"Origin": origin})
-        mcp_protocol._send_cors_headers(handler)
+        send_cors_headers(handler, preflight=False)
 
         headers_dict = dict(handler.sent_headers)
         assert "Access-Control-Allow-Origin" not in headers_dict
