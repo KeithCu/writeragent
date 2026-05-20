@@ -17,15 +17,51 @@
 """Writer style inspection tools."""
 
 import logging
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    import uno
+    from com.sun.star.beans import PropertyValue, NamedValue
+else:
+    try:
+        import uno
+        from com.sun.star.beans import PropertyValue, NamedValue
+    except ImportError:
+        # Mocks for testing outside LO
+        class _UnoMock:
+            @staticmethod
+            def systemPathToFileUrl(path: str) -> str:
+                return path
+        uno = _UnoMock()
+
+        class PropertyValue:
+            def __init__(self, Name: Any = None, Value: Any = None, **kwargs: Any):
+                self.Name = Name
+                self.Value = Value
+
+        class NamedValue:
+            def __init__(self, Name: Any = None, Value: Any = None, **kwargs: Any):
+                self.Name = Name
+                self.Value = Value
 
 from plugin.framework.tool import ToolBase as FrameworkToolBase
-from .specialized_base import ToolWriterStyleBase as ToolBase
+from .specialized_base import ToolWriterStyleBase
 from .target_resolver import resolve_target_cursor
 
 
 log = logging.getLogger("writeragent.writer")
 
 _STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
+
+_CONDITIONAL_CONTEXTS = [
+    "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
+    "Header", "Footer", "OutlineLevel1", "OutlineLevel2", "OutlineLevel3",
+    "OutlineLevel4", "OutlineLevel5", "OutlineLevel6", "OutlineLevel7",
+    "OutlineLevel8", "OutlineLevel9", "OutlineLevel10",
+    "NumberingLevel1", "NumberingLevel2", "NumberingLevel3", "NumberingLevel4",
+    "NumberingLevel5", "NumberingLevel6", "NumberingLevel7", "NumberingLevel8",
+    "NumberingLevel9", "NumberingLevel10"
+]
 
 _KNOWN_CHARACTER_PROPERTIES = {
     "CharColor": {"type": "string", "description": "Main text color (hex string like '#FF0000' or '#0055A4')."},
@@ -88,7 +124,7 @@ def _parse_color(val):
     return val
 
 
-class ListStyles(ToolBase):
+class ListStyles(ToolWriterStyleBase):
     """List available styles in a given family."""
 
     name = "list_styles"
@@ -197,7 +233,7 @@ class ListStyles(ToolBase):
         return {"status": "ok", "family": family, "styles": styles, "count": len(styles)}
 
 
-class GetStyleInfo(ToolBase):
+class GetStyleInfo(ToolWriterStyleBase):
     """Get detailed properties of a named style."""
 
     name = "get_style_info"
@@ -289,7 +325,7 @@ class ApplyStyle(FrameworkToolBase):
         return {"status": "ok", "style_name": style_name, "family": family}
 
 
-class UpdateStyle(ToolBase):
+class UpdateStyle(ToolWriterStyleBase):
     """Update properties of an existing paragraph or character style."""
 
     name = "update_style"
@@ -299,20 +335,22 @@ class UpdateStyle(ToolBase):
         "Provide 'family' (ParagraphStyles or CharacterStyles), 'style_name', and "
         "'property_updates': a dictionary of UNO property names to values "
         "(e.g. {'CharColor': '#FF0000', 'CharWeight': 150}). "
-        "Colors can be provided as hex strings or integers."
+        "Colors can be provided as hex strings or integers. "
+        "You can also update the 'parent_style' separately."
     )
     parameters = {
         "type": "object",
         "properties": {
             "style_name": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
             "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": "Style family. Default: ParagraphStyles."},
+            "parent_style": {"type": "string", "description": "Name of the style to inherit from."},
             "property_updates": {
                 "type": "object",
                 "description": "Dictionary of UNO property names to values (keys are listed in the schema).",
                 "properties": _ALL_KNOWN_PROPERTIES,
             },
         },
-        "required": ["style_name", "property_updates"],
+        "required": ["style_name"],
     }
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
@@ -323,9 +361,8 @@ class UpdateStyle(ToolBase):
             return self._tool_error("style_name is required.")
 
         family = kwargs.get("family", "ParagraphStyles")
+        parent_style = kwargs.get("parent_style")
         property_updates = kwargs.get("property_updates", {})
-        if not isinstance(property_updates, dict) or not property_updates:
-            return self._tool_error("property_updates must be a non-empty dictionary.")
 
         doc = ctx.doc
         style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
@@ -340,16 +377,25 @@ class UpdateStyle(ToolBase):
         applied = {}
         failed = {}
 
-        for prop_name, prop_val in property_updates.items():
-            # Handle color conversions
-            if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
-                prop_val = _parse_color(prop_val)
-
+        if parent_style is not None:
             try:
-                style.setPropertyValue(prop_name, prop_val)
-                applied[prop_name] = prop_val
+                style.setParentStyle(parent_style)
+                applied["ParentStyle"] = parent_style
             except Exception as e:
-                failed[prop_name] = str(e)
+                log.warning("Failed to set ParentStyle on %s: %s", style_name, e)
+                failed["ParentStyle"] = str(e)
+
+        if isinstance(property_updates, dict):
+            for prop_name, prop_val in property_updates.items():
+                # Handle color conversions
+                if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
+                    prop_val = _parse_color(prop_val)
+
+                try:
+                    style.setPropertyValue(prop_name, prop_val)
+                    applied[prop_name] = prop_val
+                except Exception as e:
+                    failed[prop_name] = str(e)
 
         result = {"status": "ok", "style_name": style_name, "family": family}
         if applied:
@@ -358,6 +404,173 @@ class UpdateStyle(ToolBase):
             result["failed_properties"] = failed
             if not applied:
                 result["status"] = "error"
-                result["message"] = "Failed to apply any properties."
+                result["message"] = "Failed to apply any updates."
 
         return result
+
+
+class CreateStyle(ToolWriterStyleBase):
+    """Create a new paragraph or character style."""
+
+    name = "create_style"
+    intent = "edit"
+    description = (
+        "Create a new paragraph or character style with optional inheritance "
+        "and property settings. For paragraph styles, you can also define "
+        "conditional rules mapping contexts (like Table or Header) to other styles."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "style_name": {"type": "string", "description": "Name of the new style."},
+            "family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": "Style family. Default: ParagraphStyles."},
+            "parent_style": {"type": "string", "description": "Name of the style to inherit from (e.g. 'Standard', 'Default Paragraph Style')."},
+            "property_updates": {
+                "type": "object",
+                "description": "Initial properties to set on the style.",
+                "properties": _ALL_KNOWN_PROPERTIES,
+            },
+            "conditional_rules": {
+                "type": "array",
+                "description": "Optional conditional rules (ParagraphStyles only).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "context": {"type": "string", "enum": _CONDITIONAL_CONTEXTS, "description": "Context where the rule applies."},
+                        "target_style": {"type": "string", "description": "Name of the style to apply in this context."},
+                    },
+                    "required": ["context", "target_style"],
+                },
+            },
+        },
+        "required": ["style_name"],
+    }
+    uno_services = ["com.sun.star.text.TextDocument"]
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        style_name = (kwargs.get("style_name") or "").strip()
+        if not style_name:
+            return self._tool_error("style_name is required.")
+
+        family = kwargs.get("family", "ParagraphStyles")
+        parent_style = kwargs.get("parent_style")
+        property_updates = kwargs.get("property_updates", {})
+        conditional_rules = kwargs.get("conditional_rules")
+
+        doc = ctx.doc
+        style_families = doc.getStyleFamilies()
+        if not style_families.hasByName(family):
+            return self._tool_error("Document does not support style family: %s" % family)
+
+        style_family = style_families.getByName(family)
+        if style_family.hasByName(style_name):
+            return self._tool_error("Style '%s' already exists in %s." % (style_name, family))
+
+        try:
+            # Service choice: ConditionalParagraphStyle vs ParagraphStyle vs CharacterStyle
+            service = "com.sun.star.style.ParagraphStyle"
+            if family == "ParagraphStyles" and conditional_rules:
+                service = "com.sun.star.style.ConditionalParagraphStyle"
+            elif family == "CharacterStyles":
+                service = "com.sun.star.style.CharacterStyle"
+
+            new_style = doc.createInstance(service)
+            if not new_style:
+                return self._tool_error("Failed to create style instance for %s" % service)
+
+            # Set parent style
+            if parent_style:
+                try:
+                    new_style.setParentStyle(parent_style)
+                except Exception as e:
+                    log.warning("Failed to set parent_style '%s' on new style: %s", parent_style, e)
+
+            # Apply properties
+            if isinstance(property_updates, dict):
+                for prop_name, prop_val in property_updates.items():
+                    if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
+                        prop_val = _parse_color(prop_val)
+                    try:
+                        new_style.setPropertyValue(prop_name, prop_val)
+                    except Exception as e:
+                        log.warning("Failed to set property %s on new style: %s", prop_name, e)
+
+            # Apply conditional rules
+            if family == "ParagraphStyles" and conditional_rules:
+                conditions = []
+                for rule in cast("list[dict[str, str]]", conditional_rules):
+                    try:
+                        nv = cast("Any", uno.createUnoStruct("com.sun.star.beans.NamedValue"))
+                    except Exception:
+                        nv = cast("Any", NamedValue())
+                    nv.Name = rule["context"]
+                    nv.Value = rule["target_style"]
+                    conditions.append(nv)
+                new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
+
+            # Register style
+            style_family.insertByName(style_name, new_style)
+
+        except Exception as e:
+            log.exception("Failed to create style '%s' in %s", style_name, family)
+            msg = getattr(e, "Message", str(e))
+            return self._tool_error("Failed to create style: %s" % msg)
+
+        return {"status": "ok", "style_name": style_name, "family": family, "service": service}
+
+
+class ImportStyles(ToolWriterStyleBase):
+    """Import styles from an external document or template."""
+
+    name = "import_styles"
+    intent = "edit"
+    description = (
+        "Import styles from an external document or template (.odt, .ott). "
+        "Specify which style types to load (paragraph, page, etc.) and "
+        "whether to overwrite existing styles with the same name."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string", "description": "Absolute path to the source document."},
+            "overwrite": {"type": "boolean", "default": True, "description": "Overwrite existing styles with same name."},
+            "load_paragraph_styles": {"type": "boolean", "default": True, "description": "Import paragraph and character styles."},
+            "load_page_styles": {"type": "boolean", "default": False, "description": "Import page styles."},
+            "load_frame_styles": {"type": "boolean", "default": False, "description": "Import frame styles."},
+            "load_numbering_styles": {"type": "boolean", "default": False, "description": "Import numbering/list styles."},
+        },
+        "required": ["file_path"],
+    }
+    uno_services = ["com.sun.star.text.TextDocument"]
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs):
+        file_path = kwargs.get("file_path")
+        if not file_path:
+            return self._tool_error("file_path is required.")
+
+        overwrite = kwargs.get("overwrite", True)
+        load_text = kwargs.get("load_paragraph_styles", True)
+        load_page = kwargs.get("load_page_styles", False)
+        load_frame = kwargs.get("load_frame_styles", False)
+        load_num = kwargs.get("load_numbering_styles", False)
+
+        try:
+            url = uno.systemPathToFileUrl(file_path)
+
+            opts = (
+                PropertyValue(Name="OverwriteStyles", Value=overwrite),
+                PropertyValue(Name="LoadTextStyles", Value=load_text),
+                PropertyValue(Name="LoadPageStyles", Value=load_page),
+                PropertyValue(Name="LoadFrameStyles", Value=load_frame),
+                PropertyValue(Name="LoadNumberingStyles", Value=load_num),
+            )
+
+            # The document object implements XStyleLoader
+            ctx.doc.loadStylesFromURL(url, opts)
+
+        except Exception as e:
+            return self._tool_error("Failed to import styles from %s: %s" % (file_path, e))
+
+        return {"status": "ok", "file_path": file_path, "overwrite": overwrite}

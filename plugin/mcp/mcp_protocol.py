@@ -311,7 +311,7 @@ class MCPProtocolHandler:
         if _mcp_session_id:
             handler.send_header("Mcp-Session-Id", _mcp_session_id)
         handler.end_headers()
-        out = json.dumps(response, ensure_ascii=False, default=str)
+        out = json.dumps(response, ensure_ascii=False, default=str, indent=2)
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
         handler.wfile.write(out.encode("utf-8"))
 

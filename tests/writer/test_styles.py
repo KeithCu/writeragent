@@ -15,12 +15,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import pytest
 from unittest.mock import MagicMock, patch
-from plugin.writer.styles import ListStyles, GetStyleInfo, ApplyStyle
+from plugin.writer.styles import ListStyles, GetStyleInfo, ApplyStyle, CreateStyle, ImportStyles, UpdateStyle
 from plugin.tests.testing_utils import TestingFactory
 
 @pytest.fixture
 def mock_ctx():
     return TestingFactory.create_context(doc_type="writer")
+
+@pytest.fixture
+def mock_doc(mock_ctx):
+    return mock_ctx.doc
 
 def create_mock_style(name, display_name=None, is_in_use=False, is_user_defined=False, is_physical=True, is_hidden=False, category=None):
     style = MagicMock()
@@ -184,3 +188,88 @@ def test_apply_default_character_style(mock_resolve, mock_ctx):
     assert res["style_name"] == "No Character Style"
     assert res["family"] == "CharacterStyles"
     cursor.setPropertyValue.assert_called_once_with("CharStyleName", "")
+
+def test_update_style_with_parent(mock_ctx):
+    families = mock_ctx.doc.getStyleFamilies()
+    style_family = MagicMock()
+    families.getByName.return_value = style_family
+    families.hasByName.return_value = True
+    
+    style = MagicMock()
+    style_family.hasByName.return_value = True
+    style_family.getByName.return_value = style
+    
+    tool = UpdateStyle()
+    res = tool.execute(mock_ctx, style_name="MyStyle", parent_style="Standard", property_updates={"CharWeight": 150})
+    
+    assert res["status"] == "ok"
+    style.setParentStyle.assert_called_once_with("Standard")
+    style.setPropertyValue.assert_called_once_with("CharWeight", 150)
+
+def test_create_style_standard(mock_ctx):
+    families = mock_ctx.doc.getStyleFamilies()
+    style_family = MagicMock()
+    families.getByName.return_value = style_family
+    families.hasByName.side_effect = lambda n: n == "ParagraphStyles"
+    style_family.hasByName.return_value = False # Style doesn't exist
+    
+    new_style = MagicMock()
+    mock_ctx.doc.createInstance.return_value = new_style
+    
+    tool = CreateStyle()
+    res = tool.execute(mock_ctx, style_name="NewStyle", parent_style="Standard", property_updates={"CharColor": "#FF0000"})
+    
+    assert res["status"] == "ok"
+    assert res["service"] == "com.sun.star.style.ParagraphStyle"
+    new_style.setParentStyle.assert_called_once_with("Standard")
+    new_style.setPropertyValue.assert_any_call("CharColor", 0xFF0000)
+    style_family.insertByName.assert_called_once_with("NewStyle", new_style)
+
+@patch("plugin.writer.styles.NamedValue")
+def test_create_style_conditional(mock_nv, mock_ctx):
+    families = mock_ctx.doc.getStyleFamilies()
+    style_family = MagicMock()
+    families.getByName.return_value = style_family
+    families.hasByName.return_value = True
+    style_family.hasByName.return_value = False
+    
+    new_style = MagicMock()
+    mock_ctx.doc.createInstance.return_value = new_style
+    
+    # Mock NamedValue instance
+    nv_instance = MagicMock()
+    mock_nv.return_value = nv_instance
+    
+    tool = CreateStyle()
+    rules = [{"context": "Table", "target_style": "Heading 1"}]
+    res = tool.execute(mock_ctx, style_name="CondStyle", conditional_rules=rules)
+    
+    assert res["status"] == "ok"
+    assert res["service"] == "com.sun.star.style.ConditionalParagraphStyle"
+    
+    # Check if ParaStyleConditions was set
+    # It should be a tuple of NamedValue objects
+    args, kwargs = new_style.setPropertyValue.call_args_list[-1]
+    assert args[0] == "ParaStyleConditions"
+    assert isinstance(args[1], tuple)
+    assert args[1][0] == nv_instance
+    assert nv_instance.Name == "Table"
+    assert nv_instance.Value == "Heading 1"
+
+@patch("plugin.writer.styles.uno")
+@patch("plugin.writer.styles.PropertyValue")
+def test_import_styles(mock_pv, mock_uno, mock_ctx):
+    mock_uno.systemPathToFileUrl.return_value = "file:///path/to/doc.ott"
+    
+    # Mock PropertyValue instance
+    pv_instance = MagicMock()
+    mock_pv.return_value = pv_instance
+    
+    tool = ImportStyles()
+    res = tool.execute(mock_ctx, file_path="/path/to/doc.ott", overwrite=True)
+    
+    assert res["status"] == "ok"
+    mock_ctx.doc.loadStylesFromURL.assert_called_once()
+    args, kwargs = mock_ctx.doc.loadStylesFromURL.call_args
+    assert args[0] == "file:///path/to/doc.ott"
+    assert isinstance(args[1], tuple)

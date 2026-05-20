@@ -79,14 +79,26 @@ If the LLM needs a style outside of this injected "shortlist", it can rely on th
 
 WriterAgent also provides tools for the LLM to inspect and modify existing document styles directly.
 
-### The `update_style` Tool
+### The `create_style` Tool
 
-The LLM can call the `update_style` tool to dynamically change properties of any style within the document. This gives the AI the ability to fine-tune the look and feel of the document template based on user requests (e.g., "Change the heading color to match my company branding").
+The LLM can create new styles from scratch, allowing for document-wide consistent formatting updates. This tool supports standard Paragraph and Character styles, as well as **Conditional Paragraph Styles**.
 
 **Tool Parameters:**
-* `style_name`: The name of the style to modify (e.g., "Heading 1", "Source Text").
-* `family`: The style family (`ParagraphStyles` or `CharacterStyles`).
-* `property_updates`: A dictionary of LibreOffice UNO API properties to update (schema lists supported keys).
+* `style_name`: The name of the new style.
+* `family`: `ParagraphStyles` or `CharacterStyles`.
+* `parent_style`: (Optional) The style to inherit from.
+* `property_updates`: Initial font, margin, and color settings.
+* `conditional_rules`: (Optional, ParagraphStyles only) Map contexts like `Table` or `Header` to other styles.
+
+### The `import_styles` Tool
+
+If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency.
+
+**Tool Parameters:**
+* `file_path`: Absolute path to the template.
+* `overwrite`: Whether to replace existing styles.
+* `load_paragraph_styles`: (Default: True) Import text styles.
+* `load_page_styles`: Import page layouts.
 
 ### Setting Colors and Properties
 
