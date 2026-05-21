@@ -30,7 +30,7 @@ def test_resolve_grep_candidates_budget_filter():
                 ],
                 "truncated": False,
             }
-            candidates, truncated, err = resolve_grep_candidates(ctx, model, file_subset="budget", max_files=10)
+            candidates, truncated, err = resolve_grep_candidates(ctx, model, file_subset="budget")
 
         assert err is None
         assert truncated is False
@@ -42,7 +42,7 @@ def test_resolve_grep_candidates_single_absolute_path():
     with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as f:
         path = f.name
     try:
-        candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=path, max_files=5)
+        candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=path)
         assert err is None
         assert truncated is False
         assert len(candidates) == 1
@@ -51,7 +51,7 @@ def test_resolve_grep_candidates_single_absolute_path():
         os.unlink(path)
 
 
-def test_resolve_grep_candidates_max_files_truncated():
+def test_resolve_grep_candidates_listing_truncated_flag():
     with tempfile.TemporaryDirectory() as tmp:
         files = []
         for i in range(3):
@@ -71,12 +71,12 @@ def test_resolve_grep_candidates_max_files_truncated():
             )
 
         with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
-            mock_list.return_value = {"status": "ok", "files": files, "truncated": False}
-            candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset="budget", max_files=1)
+            mock_list.return_value = {"status": "ok", "files": files, "truncated": True}
+            candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset="budget")
 
         assert err is None
         assert truncated is True
-        assert len(candidates) == 1
+        assert len(candidates) == 3
 
 
 def test_resolve_grep_candidates_open_files_first():
@@ -91,7 +91,7 @@ def test_resolve_grep_candidates_open_files_first():
             ],
             "truncated": False,
         }
-        candidates, _, _ = resolve_grep_candidates(MagicMock(), MagicMock(), max_files=10)
+        candidates, _, _ = resolve_grep_candidates(MagicMock(), MagicMock())
 
     assert candidates[0]["path"] == open_f
 
@@ -147,15 +147,13 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
         None,
     )
 
-    result = grep_nearby_files(
-        MagicMock(),
-        MagicMock(),
-        MagicMock(),
-        "x",
-        max_files=10,
-        max_results_per_file=5,
-        max_total_results=1,
-    )
+    with patch("plugin.doc.document_research_grep.DEFAULT_GREP_MAX_TOTAL_RESULTS", 1):
+        result = grep_nearby_files(
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            "x",
+        )
 
     assert result["stopped_early"] is True
     assert result["files_scanned"] == 1

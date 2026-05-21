@@ -219,7 +219,7 @@ def test_append_body_text_block_single_paragraph():
     body_text.insertControlCharacter.assert_not_called()
 
 
-def test_import_ipynb_to_writer_logs(caplog, tmp_path, monkeypatch):
+def test_import_ipynb_to_writer_logs(tmp_path, monkeypatch):
     ipynb = tmp_path / "tiny.ipynb"
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}',
@@ -236,15 +236,23 @@ def test_import_ipynb_to_writer_logs(caplog, tmp_path, monkeypatch):
     doc.createInstance.side_effect = lambda service: MagicMock()
     monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
 
-    with caplog.at_level("DEBUG", logger="writeragent.notebook"):
-        stats = import_ipynb_to_writer(doc, str(ipynb))
+    log_messages: list[str] = []
+
+    def _capture(msg, *args):
+        log_messages.append(msg % args if args else msg)
+
+    monkeypatch.setattr("plugin.notebook.writer_importer.log.info", _capture)
+    monkeypatch.setattr("plugin.notebook.writer_importer.log.debug", _capture)
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
 
     assert stats["cells"] == 1
     assert stats["markdown"] == 1
     body_text.insertTextContent.assert_not_called()
-    assert "notebook import start" in caplog.text
-    assert "notebook import complete" in caplog.text
-    assert "cell start index=0" in caplog.text
+    log_text = "\n".join(log_messages)
+    assert "notebook import start" in log_text
+    assert "notebook import complete" in log_text
+    assert "cell start index=0" in log_text
 
 
 def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):

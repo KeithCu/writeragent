@@ -40,6 +40,9 @@ class DummyChatbotPanel(SendHandlersMixin):
     def _get_doc_type_str(self, model):
         return "Writer"
 
+    def resolve_stop_checker(self):
+        return lambda: self.stop_requested
+
 
 def test_do_send_direct_image():
     panel = DummyChatbotPanel()

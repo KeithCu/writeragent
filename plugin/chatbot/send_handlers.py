@@ -62,7 +62,9 @@ def _agent_backend_label(adapter: Any, backend_id: str) -> str:
 class SendHandlerHost(Protocol):
     ctx: Any
     client: "LlmClient | None"
-    stop_requested: bool
+
+    @property
+    def stop_requested(self) -> bool: ...
 
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
     _in_librarian_mode: bool

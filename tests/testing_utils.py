@@ -112,6 +112,22 @@ def setup_uno_mocks():
 
     setattr(sys.modules["com.sun.star.awt"], "XCallback", MockXCallback)
 
+    awt_mod = sys.modules.get("com.sun.star.awt")
+    if awt_mod is not None and not hasattr(awt_mod, "Size"):
+
+        class MockSize:
+            def __init__(self, width=0, height=0):
+                self.Width = width
+                self.Height = height
+
+        class MockPoint:
+            def __init__(self, x=0, y=0):
+                self.X = x
+                self.Y = y
+
+        setattr(awt_mod, "Size", MockSize)
+        setattr(awt_mod, "Point", MockPoint)
+
     class MockXTextListener(object):
         pass
 
@@ -162,6 +178,17 @@ def setup_uno_mocks():
 
     setattr(sys.modules["com.sun.star.frame"], "XDispatchProvider", MockXDispatchProvider)
     setattr(sys.modules["com.sun.star.frame"], "DispatchDescriptor", MockBase)
+
+    # Fresh shells replace conftest MagicMock beans; image_tools imports PropertyValue at load time.
+    beans_mod = sys.modules.get("com.sun.star.beans")
+    if beans_mod is not None and not hasattr(beans_mod, "PropertyValue"):
+
+        class MockPropertyValue:
+            def __init__(self, Name=None, Value=None):
+                self.Name = Name
+                self.Value = Value
+
+        setattr(beans_mod, "PropertyValue", MockPropertyValue)
 
 class ElementStub:
     def __init__(self, text, outline_level=0, services=None):

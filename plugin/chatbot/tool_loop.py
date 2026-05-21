@@ -86,7 +86,9 @@ class ToolLoopHost(Protocol):
     model_selector: Any
     image_model_selector: Any
     audio_wav_path: str | None
-    stop_requested: bool
+
+    @property
+    def stop_requested(self) -> bool: ...
 
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
 

@@ -176,9 +176,8 @@ def _safe_set_property(obj: Any, name: str, value: Any) -> bool:
 
 def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
     try:
-        ctx_any = cast("Any", ctx)
-        smgr = ctx_any.ServiceManager
-        gp = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
+        smgr = ctx.ServiceManager
+        gp = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx)
         if gp is None:
             return None
         props = (PropertyValue(Name="URL", Value=file_url),)
@@ -244,7 +243,7 @@ def insert_image(ctx, model, img_path, width_px, height_px, title="", descriptio
         add_image_to_gallery(ctx, img_path, f"{title}\n\n{description}")
 
 
-def insert_image_at_locator(ctx, model, img_path, width_mm=80, height_mm=80, title="", description="", text_cursor=None):
+def insert_image_at_locator(ctx, model, img_path, width_mm: int | float = 80, height_mm: int | float = 80, title="", description="", text_cursor=None):
     """
     Insert at an optional Writer text cursor, or current view cursor / draw page.
     width_mm, height_mm: display size in millimetres.

@@ -73,8 +73,22 @@ star = _create_mock_module("com.sun.star")
 sys.modules["com.sun.star"].__path__ = []  # Make it act as a package
 
 awt = _create_mock_module("com.sun.star.awt")
-setattr(awt, "Point", MockBase)
-setattr(awt, "Size", MockBase)
+
+
+class MockSize:
+    def __init__(self, width=0, height=0):
+        self.Width = width
+        self.Height = height
+
+
+class MockPoint:
+    def __init__(self, x=0, y=0):
+        self.X = x
+        self.Y = y
+
+
+setattr(awt, "Point", MockPoint)
+setattr(awt, "Size", MockSize)
 setattr(awt, "FontWeight", MockBase)
 setattr(awt, "FontSlant", MockBase)
 

@@ -43,10 +43,12 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.client = MagicMock()
         self.audio_wav_path = None
         self.stop_requested = False
-
         self.responses = []
         self.statuses = []
         self._terminal_status = None
+
+    def resolve_stop_checker(self):
+        return lambda: self.stop_requested
 
     def _append_response(self, text):
         self.responses.append(text)

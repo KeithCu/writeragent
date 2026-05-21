@@ -128,6 +128,9 @@ class TestWriterImageCursorConversion(unittest.TestCase):
 
     def test_insert_image_to_writer_linked_uses_dispatch(self):
         image_instance = MagicMock(name="linked_graphic")
+        psi = MagicMock()
+        psi.hasPropertyByName.return_value = True
+        image_instance.getPropertySetInfo.return_value = psi
         model, doc_text, _, _ = self._make_writer_model(image_instance)
         ctx = MagicMock()
 
@@ -146,8 +149,8 @@ class TestWriterImageCursorConversion(unittest.TestCase):
 
         dispatch.assert_called_once()
         doc_text.insertTextContent.assert_not_called()
-        self.assertEqual(image_instance.Width, 10)
-        self.assertEqual(image_instance.Height, 20)
+        image_instance.setPropertyValue.assert_any_call("Width", 10)
+        image_instance.setPropertyValue.assert_any_call("Height", 20)
 
     def test_dispatch_insert_linked_graphic_passes_as_link(self):
         ctx = MagicMock()
@@ -251,14 +254,18 @@ class TestWriterImageCursorConversion(unittest.TestCase):
 
 class TestReplaceGraphicSource(unittest.TestCase):
     def test_embed_path_sets_graphic_url(self):
-        graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue"])
+        graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue", "getPropertySetInfo"])
         graphic.getPropertyValue.return_value = MagicMock(Width=5000, Height=4000)
+        psi = MagicMock()
+        psi.hasPropertyByName.return_value = True
+        graphic.getPropertySetInfo.return_value = psi
         model = MagicMock()
         model.supportsService.return_value = True
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
-            ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
+            with patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"):
+                ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
 
         self.assertTrue(ok)
         graphic.setPropertyValue.assert_any_call("GraphicURL", "file:////tmp/new.png")
