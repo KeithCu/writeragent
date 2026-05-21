@@ -6,13 +6,16 @@ from __future__ import annotations
 
 import os
 import tempfile
+import unittest
 
 import uno
 
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.uno_context import get_desktop
 from plugin.main import get_services
-from plugin.testing_runner import native_test, setup, teardown
+from plugin.testing_runner import native_test, setup, show_window, teardown
+
+_SKIP_HEADLESS = "grep_nearby_files processEventsToIdle hangs in headless testing_runner (document_research_grep.py)"
 
 _test_ctx = None
 _temp_dir = None
@@ -22,7 +25,7 @@ _writer_path = None
 
 
 def _hidden_prop():
-    return uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
+    return uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=not show_window)
 
 
 @setup
@@ -96,6 +99,7 @@ def _desktop_component_count(ctx) -> int:
     return n
 
 
+@unittest.skipIf(not show_window, _SKIP_HEADLESS)
 @native_test
 def test_grep_budget_calc_hit_excludes_notes_from_subset():
     before = _desktop_component_count(_test_ctx)
@@ -122,6 +126,7 @@ def test_grep_budget_calc_hit_excludes_notes_from_subset():
     assert after == before
 
 
+@unittest.skipIf(not show_window, _SKIP_HEADLESS)
 @native_test
 def test_grep_writer_paragraph_snippet():
     before = _desktop_component_count(_test_ctx)

@@ -151,7 +151,7 @@ help:
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run ty, mypy, pyright, bandit, then pytest + in-process LO tests"
 	@echo "  make test-run               Pytest + LO tests only (skip typecheck/bandit; for quick reruns)"
-	@echo "  make test-visible           Run LO chart tests visibly (with GUI window) to execute OLE event queue"
+	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make typecheck              Run ty, then mypy, then pyright (same scope as each single target)"
 	@echo "  make check                  Quick gate: ty only (also used implicitly before fast workflows)"
 	@echo "  make fix-uno                Fix uno import in .venv (adds system UNO paths to .pth)"
@@ -434,7 +434,7 @@ test-run:
 	$(LO_PYTHON) -m plugin.testing_runner
 
 test-visible:
-	$(LO_PYTHON) -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno
+	$(LO_PYTHON) -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno
 
 test:
 	@$(MAKE) typecheck
