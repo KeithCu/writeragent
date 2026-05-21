@@ -29,6 +29,9 @@ log = logging.getLogger(__name__)
 PAYLOAD_F64_BLOB = "f64_blob"
 """Dense numeric payload: host packs with stdlib; child unpacks with NumPy frombuffer."""
 
+PAYLOAD_COLUMN_GRID = "column_grid"
+"""Mixed type columns: host packs numeric columns as f64_blob and string columns as json_list."""
+
 # --- When to use binary envelope (default: at least 10 cells) -----------------------
 
 BINARY_MIN_CELLS = 10
@@ -226,6 +229,96 @@ def host_pack_f64_blob(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
     return envelope
 
 
+def host_pack_column_grid(grid: list[list[Any]]) -> dict[str, Any]:
+    """Pack a 2D mixed grid column-by-column to optimize numeric columns (LibreOffice host).
+    
+    This splits a 2D grid of mixed text/numbers into individual columns. Numeric-only columns 
+    are serialized using the fast binary `f64_blob` envelope, while mixed/text columns stay as 
+    regular JSON lists. Reconstructed in the child namespace to a standard nested list of lists.
+    
+    NOTE TO DEVELOPERS FOR STRATEGY 2 (SQLite database option):
+    ----------------------------------------------------------
+    An alternative optimization strategy for mixed-type grids (Strategy 2) is to use local 
+    SQLite temp files instead of parsing/re-assembling individual columns over the JSON line pipe.
+    
+    Why it could be better:
+      1. Zero JSON parsing/base64 overhead on stdout/stdin lines.
+      2. Native, high-performance database C-engine (sqlite3) handles cell coercions and types 
+         (INTEGER, REAL, TEXT, NULL) in a fraction of a millisecond.
+      3. No non-stdlib dependency on the LibreOffice host (sqlite3 is bundled in Python's stdlib!).
+      
+    How to implement Strategy 2:
+      1. On the LO host:
+         ```python
+         import tempfile, sqlite3
+         fd, db_path = tempfile.mkstemp(suffix=".db")
+         conn = sqlite3.connect(db_path)
+         cur = conn.cursor()
+         # Create a table calc_data with columns dynamically typed or simple TEXT/REAL
+         cur.execute("CREATE TABLE calc_data (col_0, col_1, ...)")
+         cur.executemany("INSERT INTO calc_data VALUES (?, ?, ...)", grid)
+         conn.commit()
+         conn.close()
+         ```
+      2. Pass `"__wa_payload__": "sqlite_db"` and `"path": db_path` over the JSON pipe.
+      3. In the child (venv):
+         ```python
+         import sqlite3
+         conn = sqlite3.connect(db_path)
+         # Reconstruct list of lists or DataFrame directly:
+         cur = conn.cursor()
+         cur.execute("SELECT * FROM calc_data")
+         grid = [list(r) for r in cur.fetchall()]
+         ```
+      4. Ensure database cleanup on worker request completion or process shutdown/timeout.
+      
+    How to performance test Strategy 2:
+      1. Measure round-trip time for grids ranging from 1,000 to 250,000 cells.
+      2. Profiler checklist:
+         - Time spent writing the SQLite DB on host (Leg A) vs. list transposition in Strategy 1.
+         - String payload size / base64 decode time vs. file I/O latency.
+         - Child reconstruction time (rebuilding nested lists from SQL cursor vs transposing lists).
+      3. Measure disk write overhead vs base64 pipe serialization on slow drives vs RAM disks.
+    """
+    nrows = len(grid)
+    ncols = max((len(r) for r in grid), default=0)
+    
+    columns_payload = []
+    for c in range(ncols):
+        col_cells = []
+        for r in range(nrows):
+            if c < len(grid[r]):
+                col_cells.append(grid[r][c])
+            else:
+                col_cells.append(None)
+                
+        # If the column has cells, and is purely numeric-coercible, pack it as binary
+        if is_numeric_grid(col_cells):
+            shape, buf = flatten_numeric_grid(col_cells)
+            columns_payload.append({
+                "type": PAYLOAD_F64_BLOB,
+                "dtype": "float64",
+                "shape": list(shape),
+                "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
+            })
+        else:
+            columns_payload.append({
+                "type": "json_list",
+                "data": grid_from_nested_list(col_cells),
+            })
+            
+    log.debug(
+        "payload_codec host_pack column_grid ingress shape=%s columns=%s",
+        [nrows, ncols],
+        len(columns_payload),
+    )
+    return {
+        "__wa_payload__": PAYLOAD_COLUMN_GRID,
+        "shape": [nrows, ncols],
+        "columns": columns_payload,
+    }
+
+
 def host_pack_data(
     grid: list[Any] | list[list[Any]],
     *,
@@ -235,6 +328,17 @@ def host_pack_data(
     """Pack ``data`` for worker request field (list or f64_blob dict)."""
     try:
         if not is_numeric_grid(grid):
+            # It's a mixed grid. Let's see if we can pack it column-wise!
+            # It must be a 2D list of lists, having length > 1 and max length of inner lists > 1
+            if (
+                grid 
+                and isinstance(grid[0], (list, tuple)) 
+                and len(grid) > 1 
+                and max((len(r) for r in grid), default=0) > 1
+            ):
+                shape = (len(grid), max((len(r) for r in grid), default=0))
+                if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
+                    return host_pack_column_grid(grid)
             out = grid_from_nested_list(grid)
             log.debug(
                 "payload_codec host_pack json_list (non_numeric_grid) %s",
@@ -297,6 +401,10 @@ def is_f64_blob(obj: Any) -> bool:
     return isinstance(obj, dict) and obj.get("__wa_payload__") == PAYLOAD_F64_BLOB
 
 
+def is_column_grid(obj: Any) -> bool:
+    return isinstance(obj, dict) and obj.get("__wa_payload__") == PAYLOAD_COLUMN_GRID
+
+
 def child_unpack_f64_blob(envelope: dict[str, Any]) -> Any:
     """NumPy ndarray view over blob bytes — fast path for dense numeric ingress."""
     import numpy as np
@@ -320,11 +428,54 @@ def child_unpack_f64_blob(envelope: dict[str, Any]) -> Any:
         raise
 
 
+def child_unpack_column_grid(envelope: dict[str, Any]) -> list[list[Any]]:
+    """Decode column_grid envelope in child and reconstruct 2D nested list."""
+    try:
+        nrows, ncols = envelope["shape"]
+        columns_payload = envelope["columns"]
+        
+        # 1. Decode each column to its 1D list
+        decoded_columns = []
+        for col_payload in columns_payload:
+            if col_payload["type"] == PAYLOAD_F64_BLOB:
+                import numpy as np
+                raw = base64.b64decode(col_payload["b64"])
+                dtype = np.dtype(col_payload.get("dtype", "float64"))
+                arr = np.frombuffer(raw, dtype=dtype)
+                col_list = [None if np.isnan(x) else x for x in arr]
+                decoded_columns.append(col_list)
+            else:
+                decoded_columns.append(col_payload["data"])
+                
+        # 2. Reconstruct row-major nested list
+        grid = []
+        for r in range(nrows):
+            row = []
+            for c in range(ncols):
+                row.append(decoded_columns[c][r])
+            grid.append(row)
+            
+        log.debug(
+            "payload_codec child_unpack column_grid reconstructed shape=[%s, %s]",
+            nrows,
+            ncols,
+        )
+        return grid
+    except Exception:
+        log.exception(
+            "payload_codec child_unpack column_grid failed for envelope %s",
+            describe_wire_value(envelope),
+        )
+        raise
+
+
 def child_unpack_data(wire: Any) -> Any:
     """Materialize worker ``data`` in venv (ndarray from blob, or np.array from numeric list)."""
     try:
         if is_f64_blob(wire):
             return child_unpack_f64_blob(wire)
+        if is_column_grid(wire):
+            return child_unpack_column_grid(wire)
         if isinstance(wire, (list, tuple)):
             grid: list[Any] | list[list[Any]]
             if wire and isinstance(wire[0], (list, tuple)):

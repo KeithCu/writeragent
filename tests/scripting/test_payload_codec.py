@@ -134,3 +134,66 @@ def test_child_list_path_array():
     wire = host_pack_data([1.0, 2.0, 3.0], force="never")
     arr = child_unpack_data(wire)
     assert list(arr) == pytest.approx([1.0, 2.0, 3.0])
+
+
+def test_host_pack_column_grid_mixed():
+    """Verify that a 2D mixed grid is packed column-wise with both binary and JSON columns."""
+    grid = [
+        [1.0, "apple", 10.0],
+        [2.0, "banana", 20.0],
+        [3.0, "cherry", 30.0],
+        [4.0, "date", 40.0]
+    ]
+    # Use force="always" to trigger it regardless of threshold
+    wire = host_pack_data(grid, force="always")
+    assert isinstance(wire, dict)
+    assert wire["__wa_payload__"] == payload_codec.PAYLOAD_COLUMN_GRID
+    assert wire["shape"] == [4, 3]
+    assert len(wire["columns"]) == 3
+    
+    # Col 0 (numeric) should be f64_blob
+    assert wire["columns"][0]["type"] == PAYLOAD_F64_BLOB
+    # Col 1 (text) should be json_list
+    assert wire["columns"][1]["type"] == "json_list"
+    assert wire["columns"][1]["data"] == ["apple", "banana", "cherry", "date"]
+    # Col 2 (numeric) should be f64_blob
+    assert wire["columns"][2]["type"] == PAYLOAD_F64_BLOB
+
+
+def test_round_trip_column_grid():
+    """Verify that column_grid payload round-trips correctly and reconstructs exact values."""
+    pytest.importorskip("numpy")
+    grid = [
+        [1.5, "apple", 10.1],
+        [2.5, "banana", 20.2],
+        [3.5, "cherry", None],
+        [4.5, "", 40.4]
+    ]
+    wire = host_pack_data(grid, force="always")
+    reconstructed = child_unpack_data(wire)
+    
+    assert isinstance(reconstructed, list)
+    assert len(reconstructed) == 4
+    assert reconstructed[0] == [1.5, "apple", 10.1]
+    assert reconstructed[1] == [2.5, "banana", 20.2]
+    # None/empty cells should round-trip correctly
+    assert reconstructed[2] == [3.5, "cherry", None]
+    assert reconstructed[3] == [4.5, "", 40.4]
+
+
+def test_column_grid_non_2d_fallback():
+    """Verify that non-2D mixed grids or small mixed grids fallback correctly to standard lists."""
+    # 1D mixed grid
+    grid_1d = [1.0, "apple", 3.0]
+    wire_1d = host_pack_data(grid_1d, force="always")
+    assert isinstance(wire_1d, list)
+    assert wire_1d == [1.0, "apple", 3.0]
+    
+    # 2D mixed grid but with force="never"
+    grid_2d = [
+        [1.0, "apple"],
+        [2.0, "banana"]
+    ]
+    wire_2d = host_pack_data(grid_2d, force="never")
+    assert isinstance(wire_2d, list)
+    assert wire_2d == [[1.0, "apple"], [2.0, "banana"]]
