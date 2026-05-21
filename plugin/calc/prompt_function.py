@@ -53,7 +53,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.async_stream import run_blocking_in_thread
 from plugin.framework.client.errors import format_error_for_display
 from plugin.calc.calc_addin_data import calc_addin_data_to_python, check_python_data_size, count_cells, pack_calc_data_for_wire
-from plugin.scripting.payload_codec import host_unpack_data, is_f64_blob
+from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 
 import logging
@@ -66,8 +66,8 @@ _MATRIX_SCALAR_SESSIONS = threading.local()
 
 
 def _worker_result_for_calc(result: Any) -> Any:
-    """Expand f64_blob to nested lists for matrix/session flattening; pass scalars through."""
-    if is_f64_blob(result):
+    """Expand split_grid to nested lists for matrix/session flattening; pass scalars through."""
+    if is_split_grid(result):
         return host_unpack_data(result, as_nested_list=True)
     return result
 
@@ -342,7 +342,7 @@ class PromptFunction(unohelper.Base, _XPromptFunctionBase):  # pyright: ignore[r
             py_data = calc_addin_data_to_python(data)
             log.debug("PYTHON parsed py_data: %r", py_data)
             index_arg = None
-            if py_data is not None and _is_scalar_index_arg(py_data) and not is_f64_blob(py_data):
+            if py_data is not None and _is_scalar_index_arg(py_data) and not is_split_grid(py_data):
                 index_arg = py_data[0]
             if py_data is not None:
                 size_err = check_python_data_size(py_data)

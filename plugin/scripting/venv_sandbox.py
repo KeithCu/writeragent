@@ -22,7 +22,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
-from plugin.scripting.payload_codec import child_pack_result, child_unpack_data, describe_wire_value, is_f64_blob
+from plugin.scripting.payload_codec import child_pack_result, child_unpack_data, describe_wire_value, is_split_grid
 from plugin.scripting.timeout_limits import python_exec_timeout_default
 from plugin.framework.constants import AUTO_IMPORTS
 
@@ -95,7 +95,7 @@ def _optional_module(name: str) -> Any | None:
 
 
 def serialize_result(obj: Any) -> Any:
-    """Convert numpy/pandas and containers to JSON-safe values (f64_blob for large numeric arrays)."""
+    """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays)."""
     try:
         return _serialize_result_impl(obj)
     except Exception:
@@ -146,7 +146,7 @@ def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int |
     # static_tools stays None and builtins like sum() are rejected.
     executor.send_tools({})
     if data is not None:
-        if is_f64_blob(data):
+        if is_split_grid(data):
             log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
         unpacked = child_unpack_data(data)
         executor.send_variables({"data": unpacked})
@@ -154,7 +154,7 @@ def run_sandboxed_code(code: str, data: Any | None = None, *, timeout_sec: int |
         code_output = executor(code)
         result = executor.state.get("result", code_output.output)
         serialized = serialize_result(result)
-        if is_f64_blob(serialized):
+        if is_split_grid(serialized):
             log.debug("venv_sandbox worker result %s", describe_wire_value(serialized))
         return {
             "status": "ok",

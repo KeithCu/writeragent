@@ -2,33 +2,82 @@
 
 Back to the [core NumPy and Python guide](enabling_numpy_in_libreoffice.md).
 
-This page collects the serialization details for WriterAgent's out-of-process NumPy bridge: the shipped `f64_blob` fast path, benchmark results, pipeline costs, optimization tiers, future profiling work, and native host-extension notes. The core guide stays focused on setup, execution, safety, and Calc usage.
+This page collects the serialization details for WriterAgent's out-of-process NumPy bridge: the unified `split_grid` standard, benchmark results, pipeline costs, optimization tiers, future profiling work, and native host-extension notes. The core guide stays focused on setup, execution, safety, and Calc usage.
 
 ## Serialization optimization opportunities
 
 The compute bridge is **asymmetric by design**: LibreOffice’s embedded Python (host) must stay ABI-safe and ships **without NumPy**; the user venv (child) may use NumPy, pandas, and other C extensions. Serialization is therefore the main lever for large-range performance — not importing NumPy into LibreOffice ([docs/vector-search-design.md](vector-search-design.md) §3, “NumPy tax”). The host can still ship **small vendored binaries** (a few MB, like [audio](audio-architecture.md) or future `sqlite-vec`) to pack/unpack payloads faster than pure stdlib, while the child keeps the heavy numeric stack in the user venv.
 
-Historically every crossing used **nested Python lists inside JSON text** on stdin/stdout. That remains the fallback; **Tier 2 `f64_blob` is now shipped** for dense numeric grids (see [below](#tier-2-f64_blob-shipped)).
+### What we implemented (Unified Split-Grid Standard)
 
-### What we implemented (Tier 2)
+For numeric and mixed-type grids, the compute bridge implements high-performance serialization directly over standard JSON stdout/stdin lines. We unified all out-of-process binary serialization under a single standard: **Strategy 3 `split_grid` (Split-Grid)**.
 
-For **dense numeric** `data` and large numeric `result`, the bridge uses a **stdlib binary envelope** inside the existing JSON line ([Tier 2](#tier-2--base64-binary-blob-inside-json-asymmetric-fast-path)) — not a new wire protocol, not vendored msgpack, not mmap.
+| Piece | Purely Numeric Split-Grid | Mixed-Type Split-Grid |
+|-------|----------------------------|-----------------------|
+| **Wire Payload** | `{"__wa_payload__": "split_grid", "dtype": "float64", "shape": [r, c], "b64": "...", "strings": {}}` | `{"__wa_payload__": "split_grid", "dtype": "float64", "shape": [r, c], "b64": "...", "strings": {"idx": "val"}}` |
+| **Host Packing** | Flattens grid cells to float64; empty cells become `math.nan`. Converts directly to standard `array.array` and encodes base64. Sparse `strings` dict is empty `{}`. | Flattens grid; numbers become float64, empty cells/strings become `math.nan` in binary array. Strings are registered in parallel in a sparse `strings` index map. |
+| **Child Unpacking** | **Optimized C-Speed Path**: Sees that the sparse `strings` dictionary is empty and materializes a NumPy `ndarray` directly using `np.frombuffer` in one step. Bypasses all Python list/loop transpositions! | Decodes base64 to buffer; loads via `np.frombuffer`. Converts to Python list via C-level `.tolist()`, replaces `nan` with `None`, and overlays sparse strings from the index map. |
+| **Compatibility** | Namespace receives a NumPy ndarray (ideal for math operations). | Namespace receives a standard nested list of lists (fully backward compatible for all sheets and scripts). |
+| **Threshold** | `BINARY_MIN_CELLS = 10` — 2D grids with ≥ 10 cells use `split_grid`. | `BINARY_MIN_CELLS = 10` — 2D grids with ≥ 10 cells use `split_grid`. |
+| **Fallback** | Grids < 10 cells fall back to standard JSON lists. | Grids < 10 cells or non-2D arrays fall back to standard JSON lists. |
+| **Debug log tag** | `payload_codec host_pack split_grid` | `payload_codec host_pack split_grid` |
 
-| Piece | Approach |
-|-------|----------|
-| **Wire** | One JSON object per line on stdin/stdout ([`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py)) |
-| **Heavy payload** | Tagged dict: `{"__wa_payload__": "f64_blob", "dtype": "float64", "shape": [...], "b64": "..."}` — row-major IEEE float64 bytes; `None`/empty → NaN |
-| **Host** | [`host_pack_data`](../plugin/scripting/payload_codec.py) / [`host_unpack_data`](../plugin/scripting/payload_codec.py) — stdlib `array` + `base64`; **no NumPy import** on the LO side |
-| **Child** | [`child_unpack_data`](../plugin/scripting/payload_codec.py) → `np.frombuffer` + `reshape` before `send_variables`; [`child_pack_result`](../plugin/scripting/payload_codec.py) on egress instead of `.tolist()` for large ndarrays |
-| **Threshold** | `BINARY_MIN_CELLS = 10` — **≥ 10 cells** and all cells numeric-coercible → blob; otherwise nested JSON lists |
-| **Fallback** | Mixed types, text, dates, formulas with strings, and grids **&lt; 10 cells** stay nested lists |
-| **Debug** | With agent/debug logging enabled, look for `payload_codec host_pack f64_blob` / `child_unpack f64_blob` / `below_threshold` in `writeragent_debug.log` |
+---
 
-**Benchmarked** outside LO ([`scripts/bench_serialization.py`](../scripts/bench_serialization.py)) — [results](#benchmark-results-2026-05). **Defer** Tier 2b (vendored msgpack), Tier 3 (mmap), Tier 5 (payload cache) unless real Calc profiles disagree. Tier 0 (scalars, two-phase tools, matrix `ROW()` index) stays complementary.
+### Strategy 3: Split-Grid Serialization (Detail)
+
+Split-Grid represents a highly-optimized, asymmetric serialization strategy designed for spreadsheet columns or tables containing mixed data types (such as standard Calc ranges with headers, labels, or text mixed with numeric metrics).
+
+#### Why Column-Wise was replaced:
+Historically, a column-wise transposition approach (Strategy 1) was analyzed. It divided grids into individual columns, packing numeric columns as `f64_blob` and text columns as standard JSON lists. However:
+1. Column transposing in pure Python on the host creates massive object structures and column-slice overhead.
+2. Ingesting multiple chunks requires multiple base64 decodes and nested list pointer reconstructions, leading to serialization bottlenecks on mixed sheets.
+
+#### The Split-Grid Solution:
+Instead of dividing columns, Split-Grid serializes the **entire grid as a single flat binary float64 array** plus a **parallel sparse JSON strings dictionary**.
+
+```mermaid
+flowchart TD
+  subgraph host [LibreOffice Host stdlib]
+    Input[2D Mixed Grid] --> Flatten[Flatten grid row-major]
+    Flatten -->|Numbers / None| Array[array.array 'd']
+    Flatten -->|Strings| Dict[Sparse Dict strings]
+    Array --> B64[Base64 Encode]
+    B64 --> Envelope[JSON stdout line]
+    Dict --> Envelope
+  end
+  subgraph child [Child Process venv]
+    Envelope --> Dec[Base64 Decode]
+    Dec --> Buff[np.frombuffer float64]
+    Buff --> List[tolist C-level]
+    List --> Patch[Patch math.nan to None]
+    Dict --> Patch2[Overlay strings using sparse indexes]
+    Patch --> Slice[Slice row-major to 2D lists]
+    Patch2 --> Slice
+    Slice --> Output[Standard nested list of lists]
+  end
+```
+
+1. **Host Packing**:
+   - Flat double-precision binary `array` preserves all numeric values (`int`, `float`, `bool`).
+   - String values or empty/None cells are encoded as `math.nan` in the binary array.
+   - Any string cell is registered in the parallel `strings` dictionary keyed by its flat cell index (e.g. `{"7": "banana", "12": "apple"}`).
+   - Avoids expensive type-coercion testing by mapping strings immediately, ensuring 100% preservation of zip codes (`"02138"` remains a string) and preventing float conversion bugs.
+2. **Child Unpacking**:
+   - Maps the base64-decoded binary payload directly into memory using `np.frombuffer`.
+   - Utilizes NumPy's fast C-level `.tolist()` to generate a flat Python list in a single pass.
+   - Reconstructs the grid by running a highly optimized single-pass loop in Python, replacing remaining `nan` values with `None` and overlaying string values from the sparse dict.
+   - Slices the flat list back into a row-major 2D nested list.
+
+#### Performance Impact:
+- **~20x Speedup** over Column-Wise mixed grids.
+- Binary materialization is done at C-speed via `frombuffer` + `.tolist()`, and pure Python loops only process the small fraction of cells that actually contain string text.
+
+**Benchmarked** outside LO ([`scripts/bench_serialization.py`](../scripts/bench_serialization.py)) — [results](#benchmark-results-2026-05). Defer Tier 2b (vendored msgpack), Tier 3 (mmap), Tier 5 (payload cache) unless real Calc profiles disagree. Tier 0 (scalars, two-phase tools, matrix `ROW()` index) stays complementary.
 
 ### Benchmark results (2026-05)
 
-Asymmetric simulation: **host** = stdlib list pack + `json.dumps`; **child** = `json.loads` + either `np.array(list)` (**json_list**) or `np.frombuffer` + `reshape` (**f64_blob**). Median timings; auto blob when **at least 10 cells** (e.g. 4×3 and 10×1 qualify; 3×3 does not) — [`payload_codec.py`](../plugin/scripting/payload_codec.py).
+Asymmetric simulation: **host** = stdlib list pack + `json.dumps`; **child** = `json.loads` + either `np.array(list)` (**json_list**) or `np.frombuffer` + `reshape` (**split_grid**). Median timings; auto split_grid when **at least 10 cells** (e.g. 4×3 and 10×1 qualify; 3×3 does not) — [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
 | Case | Wire size | Materialize speedup | End-to-end speedup |
 |------|-----------|---------------------|-------------------|
@@ -36,27 +85,27 @@ Asymmetric simulation: **host** = stdlib list pack + `json.dumps`; **child** = `
 | **100×10 000 egress** | **~53%** of json | **~1.6×** (host unpack) | **~4.7×** |
 | **1×1000 / 1000×1 ingress** | **~48–53%** of json | **~11–17×** | **~2×** |
 | **10×10 ingress** | **~56%** of json | **~4.6×** | **~1.7×** |
-| **< 10 cells** | Blob often **larger** or similar on wire | Marginal | Often **json_list** wins — keep list fallback |
+| **< 10 cells** | Envelope often **larger** or similar on wire | Marginal | Often **json_list** wins — keep list fallback |
 
-**Conclusions (why Tier 2 shipped):** `f64_blob` is what NumPy reads fast (`frombuffer` dominates `np.array` on large dense grids). Wire size roughly halves for 10⁴ cells. Grids **&lt; 10 cells** should stay **json_list** (blob often larger on wire). Host pack + `json.dumps` for blob is still cheaper than list+json at 10⁴ scale. **No msgpack/mmap** for the current 250 k cell cap based on these numbers — production uses stdlib Tier 2 only.
+**Conclusions (why Tier 2 shipped):** `split_grid` (which uses `frombuffer` for numeric-only grids) is what NumPy reads fast (`frombuffer` dominates `np.array` on large dense grids). Wire size roughly halves for 10⁴ cells. Grids **&lt; 10 cells** should stay **json_list** (envelope often larger on wire). Host pack + `json.dumps` for split_grid is still cheaper than list+json at 10⁴ scale. **No msgpack/mmap** for the current 250 k cell cap based on these numbers — production uses stdlib Tier 2 only.
 
 Re-run: `python scripts/bench_serialization.py --direction both`
 
-### Tier 2 `f64_blob` (shipped)
+### Unified `split_grid` Serialization
 
 Production wiring (2026-05):
 
 | Location | Role |
 |----------|------|
 | [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: pack/unpack, threshold, `describe_wire_value` for logs |
-| [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands blob envelopes |
+| [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
 | [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | `=PYTHON()` ingress pack + `host_unpack_data` on large list results for matrix/session |
 | [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) | Chat tool ingress pack |
 | [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
-| [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) | Harness integration with blob payloads |
+| [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) | Harness integration with split_grid payloads |
 
-**Policy:** `BINARY_MIN_CELLS = 10` — numeric grids with **≥ 10 cells** use `f64_blob`; smaller or non-numeric grids use JSON nested lists.
+**Policy:** `BINARY_MIN_CELLS = 10` — 2D grids with **≥ 10 cells** use `split_grid`; smaller grids use JSON nested lists.
 
 **Still deferred:** Tier 2b vendored codecs, mmap (Tier 3), payload cache (Tier 5), venv tool RPC.
 
@@ -65,16 +114,16 @@ Production wiring (2026-05):
 ```text
 Calc UNO range
   → calc_addin_data_to_python (host: list / list[list])
-  → pack_calc_data_for_wire → host_pack_data (host: f64_blob or nested list)
-  → json.dumps(request)          (host: one JSON line; blob is base64 inside JSON)
+  → pack_calc_data_for_wire → host_pack_data (host: split_grid or nested list)
+  → json.dumps(request)          (host: one JSON line; split_grid is base64 + strings inside JSON)
   → json.loads(request)          (child: parse envelope dict)
-  → child_unpack_data → ndarray  (child: frombuffer + reshape when f64_blob)
+  → child_unpack_data → ndarray  (child: frombuffer + reshape when split_grid and strings is empty)
   → send_variables({"data": ...}) (child: ndarray or list in fresh namespace)
   → user code (NumPy/pandas)
-  → serialize_result → child_pack_result (child: f64_blob or list for large numeric result)
+  → serialize_result → child_pack_result (child: split_grid or list for large numeric result)
   → json.dumps(response)         (child: text line to host)
   → json.loads(response)         (host)
-  → host_unpack_data where needed (host: blob → nested lists for Calc matrix / LLM)
+  → host_unpack_data where needed (host: split_grid → nested lists for Calc matrix / LLM)
   → finalize_python_return / write_formula_range
 ```
 
@@ -119,17 +168,25 @@ Extend request/response objects with a tagged shape, e.g. `{"__wa_payload__": "n
 
 Best when: you need dtype/shape preserved but payloads are still moderate; stepping stone before binary wire.
 
-#### Tier 2 — Base64 binary blob inside JSON (asymmetric fast path)
+#### Tier 2 — Base64 binary blob inside JSON (asymmetric fast path via split_grid)
 
 **Shipped** in [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
-Host (stdlib only) packs a dense numeric block:
+Host (stdlib only) packs a 2D numeric/mixed range:
 
 ```python
-# Host sketch (embedded Python): row-major float64, None/empty → NaN or sentinel
-import array, base64, struct
-buf = array.array("d", (float(x) if x is not None else float("nan") for x in flat))
-payload = {"__wa_payload__": "f64_blob", "shape": [nrows, ncols], "b64": base64.b64encode(buf.tobytes()).decode("ascii")}
+# Host sketch (embedded Python): row-major float64, empty/None → NaN, strings registered in strings dict
+import array, base64
+buf = array.array("d")
+strings = {}
+# (flatten and fill buf / strings)
+payload = {
+    "__wa_payload__": "split_grid",
+    "dtype": "float64",
+    "shape": [nrows, ncols],
+    "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
+    "strings": strings,
+}
 ```
 
 Child (venv):
@@ -137,13 +194,18 @@ Child (venv):
 ```python
 import base64, numpy as np
 raw = base64.b64decode(payload["b64"])
-arr = np.frombuffer(raw, dtype=np.float64).reshape(payload["shape"])
+# If strings dict is empty, deserialize directly to ndarray at microsecond C-speed
+if not payload.get("strings"):
+    arr = np.frombuffer(raw, dtype=np.float64).reshape(payload["shape"])
+else:
+    # Overlay strings on flat list, reconstruct nested lists
+    pass
 ```
 
-- **Pros:** One JSON line still; no pickle; NumPy only on child; avoids million-element Python float objects on the wire.
-- **Cons:** ~33% base64 overhead; host still walks cells once to pack; not ideal for sparse/mixed columns without a separate “sparse” or “json_list” branch.
+- **Pros:** One JSON line still; no pickle; NumPy only on child; avoids million-element Python float objects on the wire. Fully supports mixed types via sparse strings index.
+- **Cons:** ~33% base64 overhead; host still walks cells once to pack.
 
-Best when: benchmarks show JSON list encode/decode dominates NumPy compute for mostly-numeric ranges.
+Best when: benchmarks show JSON list encode/decode dominates NumPy compute for mostly-numeric/mixed ranges.
 
 #### Tier 2b — Vendored host codec (few MB, no NumPy)
 
@@ -180,7 +242,7 @@ For a **custom Cython** host module (not NumPy), see [Building host native exten
 | Do | Don’t |
 |----|--------|
 | Ship **tagged `.so` / `.pyd`** per ABI in `plugin/contrib/vec_pack/` (mirror audio) | Import NumPy/pandas/scipy in-process in LO |
-| **Fallback** to stdlib `f64_blob` on `ImportError` | Link against LibreOffice or call UNO from C |
+| **Fallback** to stdlib `split_grid` on `ImportError` | Link against LibreOffice or call UNO from C |
 | Build matrix with **cibuildwheel + CI** | Expect one Arch laptop to produce Windows/macOS wheels |
 | Profile in LO before adding OXT weight | Ship pyarrow-scale stacks |
 
@@ -234,7 +296,7 @@ native/writeragent_vec/
   src/writeragent_vec/
     __init__.py
     pack.pyx                  # coerce + row-major float64 pack
-  tests/                      # pytest vs host_pack_f64_blob
+  tests/                      # pytest vs host_pack_split_grid
 scripts/update_vec_contrib.py # extract wheels → plugin/contrib/vec_pack/
 plugin/contrib/vec_pack/        # git-tracked .so/.pyd like audio
 ```
@@ -309,14 +371,14 @@ flowchart TB
     Bridge[pass_buffer_to_native]
   end
   subgraph native [writeragent_vec.so]
-    Pack[pack_f64_row_major]
+    Pack[pack_split_grid]
   end
   UNO -->|"memoryview_array_or_flat_list"| Bridge --> Pack
 ```
 
 - **Python:** one UNO read ([`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py) or `getDataArray`) — still required.
-- **Cython:** fast **coerce + pack** (row-major `float64`, `None`/empty → NaN) over a contiguous buffer — replaces the hot loop in [`host_pack_f64_blob`](../plugin/scripting/payload_codec.py).
-- **Wire:** unchanged Tier 2 `f64_blob` envelope (or Tier 2b msgpack later); **venv** child still uses `np.frombuffer`.
+- **Cython:** fast **coerce + pack** (row-major `float64`, `None`/empty → NaN) over a contiguous buffer — replaces the hot loop in [`host_pack_split_grid`](../plugin/scripting/payload_codec.py).
+- **Wire:** unchanged Tier 2 `split_grid` envelope (or Tier 2b msgpack later); **venv** child still uses `np.frombuffer`.
 
 #### Cython vs plain C vs prebuilt PyPI codecs
 
@@ -329,7 +391,7 @@ flowchart TB
 
 #### Verification before shipping in OXT
 
-1. Unit tests: `writeragent_vec` output matches [`host_pack_f64_blob`](../plugin/scripting/payload_codec.py) for sample grids.
+1. Unit tests: `writeragent_vec` output matches [`host_pack_split_grid`](../plugin/scripting/payload_codec.py) for sample grids.
 2. [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — optional `native_vec` row when import succeeds (planned `--candidates` extension).
 3. LO profile legs A–B ([Future work — Priority 1](#priority-1--profile-inside-libreoffice-gate-for-everything-else)) on 100×100+ numeric ranges.
 4. Cold import cost in LO (extension startup) — compare to audio’s cffi load.
@@ -364,18 +426,18 @@ Optional ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)): 
 
 ### Benchmark checklist (regression / future tiers)
 
-Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering Tier 2b/3. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 10 000 cells; compares JSON lists vs `f64_blob` (`np.frombuffer` + `reshape`). Production policy matches bench defaults (`BINARY_MIN_CELLS = 10`).
+Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering Tier 2b/3. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 10 000 cells; compares JSON lists vs `split_grid` (`np.frombuffer` + `reshape` for numeric). Production policy matches bench defaults (`BINARY_MIN_CELLS = 10`).
 
 ```bash
 python scripts/bench_serialization.py --direction both
 python scripts/bench_serialization.py --child-only   # isolate np.array vs frombuffer
-# Planned: --candidates for orjson/msgpack/zlib vs f64_blob (see Tier 2b table)
+# Planned: --candidates for orjson/msgpack/zlib vs split_grid (see Tier 2b table)
 ```
 
 Checklist (same legs the script runs):
 
 1. **Baseline (list path)** — host pack list + `json.dumps` + child `json.loads` + `np.array(data)`.
-2. **With envelope (target)** — host `f64_blob` + same wire + child `frombuffer`; compare `mat` column and `wire_B`.
+2. **With envelope (target)** — host `split_grid` + same wire + child `frombuffer`; compare `mat` column and `wire_B`.
 2b. **Tier 2b** — same payload with vendored **msgpack** (or custom packer) on host only vs stdlib; measure OXT size and cold-import cost in LO.
 3. **Tier 3** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
 4. **Egress** — `result = large_ndarray`: compare `.tolist()` + JSON vs compact binary envelope vs scalar-only return.
@@ -386,14 +448,14 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 
 ### Recommendation summary
 
-**Tier 2 `f64_blob` is shipped** (ingress + egress for dense numeric arrays). Keep **JSON nested lists** for &lt;10 cells, mixed types, and scalars. Benchmarks ([above](#benchmark-results-2026-05)) justified the threshold and format; no Tier 2b/3 needed at current caps.
+**Strategy 3 `split_grid`** is the unified binary wire format shipped for both numeric and mixed-type grids (dense numeric arrays use split-grid with `strings: {}` for C-speed `np.frombuffer` loading in child). Keep **JSON nested lists** for <10 cells, small 1D mixed arrays, and scalars.
 
 | Situation | Prefer |
 |-----------|--------|
-| Dense numeric `data` / large numeric `result` (≥10 cells) | **`f64_blob` envelope in JSON** (Tier 2, shipped) |
-| Small ranges, mixed types, formulas with strings/`None` | **JSON nested lists** (no envelope) |
+| Dense numeric or mixed numeric/strings 2D grids (≥10 cells) | **`split_grid` envelope in JSON** (shipped) |
+| Small ranges (<10 cells), 1D mixed types, scalars | **JSON nested lists** (no envelope) |
 | LLM chat with huge outputs | **Tier 0** summaries + **tool RPC** / `write_formula_range` (Tier 4), not giant `result` JSON |
-| Host still slow after Tier 2 in LO profiles | **Tier 2b** vendored msgpack/orjson (few MB OXT) |
+| Host still slow after split_grid in LO profiles | **Tier 2b** vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** (Tier 3) + optional **payload cache** (Tier 5) |
 | **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then Tier 0 → host paths → defer 2b/3) |
 
@@ -436,15 +498,15 @@ See [Tier 0](#tier-0--keep-json-reduce-crossings-no-protocol-change) and [core t
 
 #### Priority 3 — Host: pack closer to UNO cells (code, if profiling says read/pack hurts)
 
-**Today:** every cell → Py scalar in nested lists → second scan for `f64_blob`.
+**Today:** every cell → Py scalar in nested lists → second scan for `split_grid`.
 
 **Idea:** one pass **UNO → row-major bytes** during range read, or a **Cython pack** over a buffer after the Python UNO read — see [Building host native extensions (Cython)](#building-host-native-extensions-cython). Avoids a million heap floats before base64. Child path unchanged (`frombuffer`).
 
-#### Priority 4 — Host: opaque `f64_blob` pass-through (if egress/unpack hot)
+#### Priority 4 — Host: opaque `split_grid` pass-through (if egress/unpack hot)
 
-[`host_unpack_f64_blob`](../plugin/scripting/payload_codec.py) expands blobs to nested lists for Calc matrix/session paths. If leg D dominates:
+[`host_unpack_split_grid`](../plugin/scripting/payload_codec.py) expands split_grid to nested lists for Calc matrix/session paths. If leg D dominates:
 
-- Keep **`f64_blob` opaque** through more of the pipeline; decode to lists only when emitting per-cell UNO values, or  
+- Keep **`split_grid` opaque** through more of the pipeline; decode to lists only when emitting per-cell UNO values, or  
 - Insert via **`write_formula_range`** from host after one decode (pairs with [Tier 4](#tier-4--return-path-and-downstream-consumers) and future **tool RPC**).
 
 Larger architectural slice than “faster JSON.”

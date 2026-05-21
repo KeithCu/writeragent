@@ -7,10 +7,11 @@
 # (at your option) any later version.
 """Wire codec for Calc/chat data crossing the LO host (plain Python) and venv (NumPy).
 
-Large dense numeric grids use ``f64_blob``: row-major IEEE float64 bytes (base64 in JSON).
-NumPy ingests that via ``frombuffer`` + ``reshape`` — a view over decoded bytes, not
-per-element Python floats from a JSON list (which forces ``np.array(list)`` to parse
-every number from heap objects).
+Large 2D grids (numeric or mixed numeric-text) use Strategy 3 ``split_grid``: the entire
+grid is serialized as a single contiguous double-precision flat float64 array (base64-encoded)
+plus a parallel sparse JSON strings dictionary. When the strings dictionary is empty,
+NumPy in the child process ingests that via C-speed ``frombuffer`` + ``reshape`` — a direct
+memory view over decoded bytes without any Python list/loop transpositions.
 
 Adjust thresholds below if product policy changes; bench and production share this module.
 """
@@ -26,16 +27,13 @@ log = logging.getLogger(__name__)
 
 # --- Wire kind (JSON-safe dict tag) -----------------------------------------------
 
-PAYLOAD_F64_BLOB = "f64_blob"
-"""Dense numeric payload: host packs with stdlib; child unpacks with NumPy frombuffer."""
-
-PAYLOAD_COLUMN_GRID = "column_grid"
-"""Mixed type columns: host packs numeric columns as f64_blob and string columns as json_list."""
+PAYLOAD_SPLIT_GRID = "split_grid"
+"""Unified 2D grids: dense numeric flat float64 array and sparse strings dictionary."""
 
 # --- When to use binary envelope (default: at least 10 cells) -----------------------
 
 BINARY_MIN_CELLS = 10
-"""Use f64_blob when total cell count is at least this (10+ cells)."""
+"""Use split_grid when total cell count is at least this (10+ cells)."""
 
 MAX_BENCH_CELLS = 10_000
 """Upper cap for benchmark grids (production may use calc_addin MAX_PYTHON_DATA_CELLS)."""
@@ -45,11 +43,12 @@ ForceBinary = Literal["auto", "always", "never"]
 
 def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     """Short summary for debug logs (avoids dumping huge arrays or base64)."""
-    if is_f64_blob(obj):
+    if is_split_grid(obj):
         b64 = obj.get("b64") or ""
+        strings = obj.get("strings") or {}
         return (
-            f"f64_blob shape={obj.get('shape')} dtype={obj.get('dtype')} "
-            f"cells={wire_cell_count(obj)} b64_chars={len(b64)}"
+            f"split_grid shape={obj.get('shape')} cells={wire_cell_count(obj)} "
+            f"strings={len(strings)} b64_chars={len(b64)}"
         )
     if obj is None:
         return "None"
@@ -85,7 +84,7 @@ def should_use_binary_envelope(
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
 ) -> bool:
-    """Return True if policy says pack numeric data as f64_blob instead of JSON lists."""
+    """Return True if policy says pack data as split_grid instead of JSON lists."""
     if force == "always":
         return True
     if force == "never":
@@ -101,7 +100,7 @@ def binary_envelope_skip_reason(
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
 ) -> str | None:
-    """Human-readable reason f64_blob was not used; None if blob would be used."""
+    """Human-readable reason split_grid was not used; None if envelope would be used."""
     if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
         return None
     if force == "never":
@@ -111,7 +110,7 @@ def binary_envelope_skip_reason(
 
 
 def is_numeric_coercible(value: Any) -> bool:
-    """True if value can become float64 in f64_blob (None/empty -> NaN)."""
+    """True if value can become float64 in split_grid (None/empty -> NaN)."""
     if value is None:
         return True
     if isinstance(value, (bool, int, float)):
@@ -129,7 +128,7 @@ def is_numeric_coercible(value: Any) -> bool:
 
 
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
-    """True when every cell is numeric-coercible (safe for f64_blob pack)."""
+    """True when every cell is numeric-coercible (safe for numeric-only split_grid fast-path)."""
     if not grid:
         return True
     if isinstance(grid[0], (list, tuple)):
@@ -145,8 +144,8 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
 
 
 def wire_cell_count(data: Any) -> int:
-    """Cell count for size limits; works on lists or f64_blob envelopes."""
-    if is_f64_blob(data):
+    """Cell count for size limits; works on lists or split_grid envelopes."""
+    if is_split_grid(data):
         return cell_count(tuple(int(x) for x in data["shape"]))
     if data is None:
         return 0
@@ -211,30 +210,12 @@ def _cell_for_json(value: Any) -> Any:
     return value
 
 
-def host_pack_f64_blob(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
-    """Build f64_blob envelope from numeric grid (LibreOffice host — no NumPy)."""
-    shape, buf = flatten_numeric_grid(grid)
-    envelope = {
-        "__wa_payload__": PAYLOAD_F64_BLOB,
-        "dtype": "float64",
-        "shape": list(shape),
-        "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
-    }
-    log.debug(
-        "payload_codec host_pack f64_blob ingress shape=%s cells=%s b64_chars=%s",
-        shape,
-        cell_count(shape),
-        len(envelope["b64"]),
-    )
-    return envelope
-
-
-def host_pack_column_grid(grid: list[list[Any]]) -> dict[str, Any]:
-    """Pack a 2D mixed grid column-by-column to optimize numeric columns (LibreOffice host).
+def host_pack_split_grid(grid: list[list[Any]]) -> dict[str, Any]:
+    """Pack a 2D mixed grid using Strategy 3: Split-Grid Serialization.
     
-    This splits a 2D grid of mixed text/numbers into individual columns. Numeric-only columns 
-    are serialized using the fast binary `f64_blob` envelope, while mixed/text columns stay as 
-    regular JSON lists. Reconstructed in the child namespace to a standard nested list of lists.
+    The entire grid is flattened into a single contiguous double-precision float array
+    where all numbers are preserved, and empty cells or non-numeric strings are replaced with NaN.
+    A separate sparse dictionary mapping flat cell indexes to their string value is passed in parallel.
     
     NOTE TO DEVELOPERS FOR STRATEGY 2 (SQLite database option):
     ----------------------------------------------------------
@@ -278,45 +259,51 @@ def host_pack_column_grid(grid: list[list[Any]]) -> dict[str, Any]:
          - Time spent writing the SQLite DB on host (Leg A) vs. list transposition in Strategy 1.
          - String payload size / base64 decode time vs. file I/O latency.
          - Child reconstruction time (rebuilding nested lists from SQL cursor vs transposing lists).
-      3. Measure disk write overhead vs base64 pipe serialization on slow drives vs RAM disks.
+         - Measure disk write overhead vs base64 pipe serialization on slow drives vs RAM disks.
     """
     nrows = len(grid)
     ncols = max((len(r) for r in grid), default=0)
     
-    columns_payload = []
-    for c in range(ncols):
-        col_cells = []
-        for r in range(nrows):
-            if c < len(grid[r]):
-                col_cells.append(grid[r][c])
+    buf = array.array("d")
+    strings = {}
+    
+    idx = 0
+    for r in range(nrows):
+        row = grid[r]
+        row_len = len(row)
+        for c in range(ncols):
+            val = row[c] if c < row_len else None
+            if val is None:
+                buf.append(math.nan)
+            elif isinstance(val, bool):
+                buf.append(float(int(val)))
+            elif isinstance(val, (int, float)):
+                buf.append(float(val))
+            elif isinstance(val, str):
+                buf.append(math.nan)
+                strings[str(idx)] = val
             else:
-                col_cells.append(None)
-                
-        # If the column has cells, and is purely numeric-coercible, pack it as binary
-        if is_numeric_grid(col_cells):
-            shape, buf = flatten_numeric_grid(col_cells)
-            columns_payload.append({
-                "type": PAYLOAD_F64_BLOB,
-                "dtype": "float64",
-                "shape": list(shape),
-                "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
-            })
-        else:
-            columns_payload.append({
-                "type": "json_list",
-                "data": grid_from_nested_list(col_cells),
-            })
+                # Any other object, serialize as string to be safe
+                buf.append(math.nan)
+                strings[str(idx)] = str(val)
+            idx += 1
             
-    log.debug(
-        "payload_codec host_pack column_grid ingress shape=%s columns=%s",
-        [nrows, ncols],
-        len(columns_payload),
-    )
-    return {
-        "__wa_payload__": PAYLOAD_COLUMN_GRID,
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": "float64",
         "shape": [nrows, ncols],
-        "columns": columns_payload,
+        "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
+        "strings": strings,
     }
+    
+    log.debug(
+        "payload_codec host_pack split_grid shape=%s cells=%s strings=%s b64_chars=%s",
+        [nrows, ncols],
+        idx,
+        len(strings),
+        len(envelope["b64"]),
+    )
+    return envelope
 
 
 def host_pack_data(
@@ -325,37 +312,15 @@ def host_pack_data(
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
 ) -> Any:
-    """Pack ``data`` for worker request field (list or f64_blob dict)."""
+    """Pack ``data`` for worker request field (list or split_grid dict)."""
     try:
-        if not is_numeric_grid(grid):
-            # It's a mixed grid. Let's see if we can pack it column-wise!
-            # It must be a 2D list of lists, having length > 1 and max length of inner lists > 1
-            if (
-                grid 
-                and isinstance(grid[0], (list, tuple)) 
-                and len(grid) > 1 
-                and max((len(r) for r in grid), default=0) > 1
-            ):
-                shape = (len(grid), max((len(r) for r in grid), default=0))
-                if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-                    return host_pack_column_grid(grid)
-            out = grid_from_nested_list(grid)
-            log.debug(
-                "payload_codec host_pack json_list (non_numeric_grid) %s",
-                describe_wire_value(out),
-            )
-            return out
-        shape, _ = flatten_numeric_grid(grid)
-        if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-            return host_pack_f64_blob(grid)
+        if grid and isinstance(grid[0], (list, tuple)):
+            grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
+            if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
+                return host_pack_split_grid(grid)
         out = grid_from_nested_list(grid)
-        skip = binary_envelope_skip_reason(shape, min_cells=min_cells, force=force)
         log.debug(
-            "payload_codec host_pack json_list (below_threshold shape=%s cells=%s force=%s reason=%s) %s",
-            shape,
-            cell_count(shape),
-            force,
-            skip,
+            "payload_codec host_pack json_list %s",
             describe_wire_value(out),
         )
         return out
@@ -367,115 +332,110 @@ def host_pack_data(
         raise
 
 
-def host_unpack_f64_blob(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
-    """Decode f64_blob on host (stdlib). Optionally expand to nested lists for Calc tools."""
+def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
+    """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists."""
     raw = base64.b64decode(envelope["b64"])
     buf = array.array("d")
     buf.frombytes(raw)
-    shape = tuple(int(x) for x in envelope["shape"])
+    shape = envelope["shape"]
     if len(shape) == 1:
-        flat = [_cell_for_json(x) for x in buf]
-        return flat
-    nrows, ncols = shape[0], shape[1]
-    if not as_nested_list:
-        return list(buf)
-    rows: list[list[Any]] = []
-    idx = 0
-    for _ in range(nrows):
-        row = []
-        for _ in range(ncols):
-            row.append(_cell_for_json(buf[idx]))
-            idx += 1
-        rows.append(row)
+        nrows = shape[0]
+        ncols = 1
+        is_1d = True
+    else:
+        nrows, ncols = shape[0], shape[1]
+        is_1d = False
+    
+    strings = envelope.get("strings", {})
+    
+    flat_list = []
+    for i in range(len(buf)):
+        val = buf[i]
+        str_idx = str(i)
+        if str_idx in strings:
+            flat_list.append(strings[str_idx])
+        elif math.isnan(val):
+            flat_list.append(None)
+        else:
+            flat_list.append(val)
+            
+    if not as_nested_list or is_1d:
+        return flat_list
+        
+    rows = []
+    for r in range(nrows):
+        rows.append(flat_list[r * ncols : (r + 1) * ncols])
     return rows
 
 
+
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
-    """Unpack worker ``data`` or ``result`` on host (list, scalar, or f64_blob)."""
-    if isinstance(wire, dict) and wire.get("__wa_payload__") == PAYLOAD_F64_BLOB:
-        return host_unpack_f64_blob(wire, as_nested_list=as_nested_list)
+    """Unpack worker ``data`` or ``result`` on host (list, scalar, or split_grid)."""
+    if is_split_grid(wire):
+        return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
     return wire
 
 
-def is_f64_blob(obj: Any) -> bool:
-    return isinstance(obj, dict) and obj.get("__wa_payload__") == PAYLOAD_F64_BLOB
+def is_split_grid(obj: Any) -> bool:
+    return isinstance(obj, dict) and obj.get("__wa_payload__") == PAYLOAD_SPLIT_GRID
 
 
-def is_column_grid(obj: Any) -> bool:
-    return isinstance(obj, dict) and obj.get("__wa_payload__") == PAYLOAD_COLUMN_GRID
-
-
-def child_unpack_f64_blob(envelope: dict[str, Any]) -> Any:
-    """NumPy ndarray view over blob bytes — fast path for dense numeric ingress."""
-    import numpy as np
-
-    try:
-        raw = base64.b64decode(envelope["b64"])
-        dtype = np.dtype(envelope.get("dtype", "float64"))
-        shape = tuple(int(x) for x in envelope["shape"])
-        arr = np.frombuffer(raw, dtype=dtype).reshape(shape)
-        log.debug(
-            "payload_codec child_unpack f64_blob -> ndarray shape=%s dtype=%s",
-            arr.shape,
-            arr.dtype,
-        )
-        return arr
-    except Exception:
-        log.exception(
-            "payload_codec child_unpack f64_blob failed for envelope %s",
-            describe_wire_value(envelope),
-        )
-        raise
-
-
-def child_unpack_column_grid(envelope: dict[str, Any]) -> list[list[Any]]:
-    """Decode column_grid envelope in child and reconstruct 2D nested list."""
+def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
+    """Decode split_grid envelope in child. Returns ndarray if purely numeric, else nested lists."""
     try:
         nrows, ncols = envelope["shape"]
-        columns_payload = envelope["columns"]
+        import numpy as np
+        import math
         
-        # 1. Decode each column to its 1D list
-        decoded_columns = []
-        for col_payload in columns_payload:
-            if col_payload["type"] == PAYLOAD_F64_BLOB:
-                import numpy as np
-                raw = base64.b64decode(col_payload["b64"])
-                dtype = np.dtype(col_payload.get("dtype", "float64"))
-                arr = np.frombuffer(raw, dtype=dtype)
-                col_list = [None if np.isnan(x) else x for x in arr]
-                decoded_columns.append(col_list)
-            else:
-                decoded_columns.append(col_payload["data"])
+        raw = base64.b64decode(envelope["b64"])
+        dtype = np.dtype(envelope.get("dtype", "float64"))
+        
+        strings = envelope.get("strings", {})
+        if not strings:
+            # OPTIMIZATION: Purely numeric grid!
+            # Materialize directly via np.frombuffer at microsecond C-speed, bypassing Python loops!
+            arr = np.frombuffer(raw, dtype=dtype).reshape((nrows, ncols))
+            log.debug(
+                "payload_codec child_unpack split_grid optimized -> ndarray shape=%s",
+                arr.shape,
+            )
+            return arr
+            
+        arr = np.frombuffer(raw, dtype=dtype)
+        flat_list = arr.tolist()
+        
+        for i in range(len(flat_list)):
+            val = flat_list[i]
+            str_idx = str(i)
+            if str_idx in strings:
+                flat_list[i] = strings[str_idx]
+            elif math.isnan(val):
+                flat_list[i] = None
                 
-        # 2. Reconstruct row-major nested list
         grid = []
         for r in range(nrows):
-            row = []
-            for c in range(ncols):
-                row.append(decoded_columns[c][r])
-            grid.append(row)
+            grid.append(flat_list[r * ncols : (r + 1) * ncols])
             
         log.debug(
-            "payload_codec child_unpack column_grid reconstructed shape=[%s, %s]",
+            "payload_codec child_unpack split_grid reconstructed shape=[%s, %s] strings=%s",
             nrows,
             ncols,
+            len(strings),
         )
         return grid
     except Exception:
         log.exception(
-            "payload_codec child_unpack column_grid failed for envelope %s",
+            "payload_codec child_unpack split_grid failed for envelope %s",
             describe_wire_value(envelope),
         )
         raise
 
 
 def child_unpack_data(wire: Any) -> Any:
-    """Materialize worker ``data`` in venv (ndarray from blob, or np.array from numeric list)."""
+    """Materialize worker ``data`` in venv (ndarray/list from split_grid, or np.array from numeric list)."""
     try:
-        if is_f64_blob(wire):
-            return child_unpack_f64_blob(wire)
-        if is_column_grid(wire):
-            return child_unpack_column_grid(wire)
+        if is_split_grid(wire):
+            return child_unpack_split_grid(wire)
         if isinstance(wire, (list, tuple)):
             grid: list[Any] | list[list[Any]]
             if wire and isinstance(wire[0], (list, tuple)):
@@ -501,8 +461,8 @@ def child_unpack_data(wire: Any) -> Any:
         raise
 
 
-def child_pack_f64_blob(arr: Any) -> dict[str, Any]:
-    """Pack ndarray as f64_blob for JSON wire (venv)."""
+def child_pack_split_grid(arr: Any) -> dict[str, Any]:
+    """Pack ndarray as split_grid for JSON wire (venv)."""
     import numpy as np
 
     try:
@@ -510,13 +470,14 @@ def child_pack_f64_blob(arr: Any) -> dict[str, Any]:
             arr = np.asarray(arr, dtype=np.float64)
         contiguous = np.ascontiguousarray(arr, dtype=np.float64)
         envelope = {
-            "__wa_payload__": PAYLOAD_F64_BLOB,
+            "__wa_payload__": PAYLOAD_SPLIT_GRID,
             "dtype": "float64",
             "shape": list(contiguous.shape),
             "b64": base64.b64encode(contiguous.tobytes()).decode("ascii"),
+            "strings": {},
         }
         log.debug(
-            "payload_codec child_pack f64_blob egress shape=%s cells=%s b64_chars=%s",
+            "payload_codec child_pack split_grid egress shape=%s cells=%s b64_chars=%s",
             contiguous.shape,
             contiguous.size,
             len(envelope["b64"]),
@@ -524,7 +485,7 @@ def child_pack_f64_blob(arr: Any) -> dict[str, Any]:
         return envelope
     except Exception:
         log.exception(
-            "payload_codec child_pack f64_blob failed for value %s",
+            "payload_codec child_pack split_grid failed for value %s",
             describe_wire_value(arr),
         )
         raise
@@ -536,14 +497,14 @@ def child_pack_result(
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
 ) -> Any:
-    """JSON-safe worker result: scalar/list as-is, ndarray as list or f64_blob."""
+    """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
     import numpy as np
 
     try:
         if isinstance(result, np.ndarray):
             shape = tuple(int(x) for x in result.shape)
             if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-                return child_pack_f64_blob(result)
+                return child_pack_split_grid(result)
             log.debug(
                 "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
                 shape,
@@ -560,10 +521,9 @@ def child_pack_result(
                 grid = [list(row) for row in result]
             else:
                 grid = list(result)
-            if is_numeric_grid(grid):
-                shape, _ = flatten_numeric_grid(grid)
-                if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-                    return host_pack_f64_blob(grid)
+            grid_shape = (len(grid), max((len(r) for r in grid), default=0))
+            if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
+                return host_pack_split_grid(grid)
             out = grid_from_nested_list(grid)
             log.debug("payload_codec child_pack json_list egress %s", describe_wire_value(out))
             return out
@@ -576,13 +536,4 @@ def child_pack_result(
         raise
 
 
-def child_materialize_list(wire: Any) -> Any:
-    """Baseline slow path: np.array after json.loads produced Python lists."""
-    import numpy as np
 
-    return np.array(wire, dtype=np.float64)
-
-
-def child_materialize_blob(envelope: dict[str, Any]) -> Any:
-    """Fast path: frombuffer + reshape (same as child_unpack_f64_blob)."""
-    return child_unpack_f64_blob(envelope)

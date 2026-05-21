@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # WriterAgent - benchmark asymmetric serialization (host stdlib vs child NumPy).
 # Run outside LibreOffice: python scripts/bench_serialization.py
-"""Compare JSON nested lists vs f64_blob for host→venv and venv→host paths.
+"""Compare JSON nested lists vs split_grid for host→venv and venv→host paths.
 
-See plugin/scripting/payload_codec.py for why f64_blob exists (NumPy frombuffer).
+See plugin/scripting/payload_codec.py for why split_grid exists (NumPy frombuffer).
 """
 from __future__ import annotations
 
@@ -24,8 +24,6 @@ from plugin.scripting.payload_codec import (  # noqa: E402
     MAX_BENCH_CELLS,
     ForceBinary,
     cell_count,
-    child_materialize_blob,
-    child_materialize_list,
     child_pack_result,
     child_unpack_data,
     host_pack_data,
@@ -34,7 +32,18 @@ from plugin.scripting.payload_codec import (  # noqa: E402
 )
 
 Direction = Literal["ingress", "egress", "both"]
-PathName = Literal["list", "blob"]
+PathName = Literal["list", "split_grid"]
+
+
+def child_materialize_list(wire: Any) -> Any:
+    """Baseline slow path: np.array after json.loads produced Python lists."""
+    import numpy as np
+    return np.array(wire, dtype=np.float64)
+
+
+def child_materialize_split_grid(wire: Any) -> Any:
+    """Production split_grid path decoded at C-speed using child_unpack_data."""
+    return child_unpack_data(wire)
 
 
 @dataclass
@@ -43,7 +52,7 @@ class BenchRow:
     kind: str
     shape: str
     cells: int
-    wire_format: str  # json_list (slow mat) | f64_blob (fast mat)
+    wire_format: str  # json_list (slow mat) | split_grid (fast mat)
     host_pack_ms: float
     host_dump_ms: float
     peer_load_ms: float
@@ -51,10 +60,10 @@ class BenchRow:
     total_ms: float
     wire_bytes: int
     json_wire_bytes: int | None = None  # paired json_list size for comparison
-    wire_vs_json: str = ""  # e.g. "52% of json" on f64_blob rows
-    mat_faster_x: float | None = None  # json_list mat / f64_blob mat; >1 => blob faster
-    total_faster_x: float | None = None  # json_list total / f64_blob total; >1 => blob faster
-    faster_total: str = ""  # "f64_blob" | "json_list" | ""
+    wire_vs_json: str = ""  # e.g. "52% of json" on split_grid rows
+    mat_faster_x: float | None = None  # json_list mat / split_grid mat; >1 => split_grid faster
+    total_faster_x: float | None = None  # json_list total / split_grid total; >1 => split_grid faster
+    faster_total: str = ""  # "split_grid" | "json_list" | ""
 
 
 def _median(times: list[float]) -> float:
@@ -145,14 +154,14 @@ def run_ingress(
     min_cells: int,
     warmup: int,
     iters: int,
-    use_blob: bool,
+    use_split_grid: bool,
 ) -> tuple[dict[str, float], int]:
     wire_holder: dict[str, Any] = {}
 
     def pack_list() -> Any:
         return host_pack_data(grid, min_cells=min_cells, force="never")
 
-    def pack_blob() -> Any:
+    def pack_split_grid() -> Any:
         return host_pack_data(grid, min_cells=min_cells, force="always")
 
     def dump(data: Any) -> str:
@@ -166,11 +175,11 @@ def run_ingress(
     def mat_list(data: Any) -> Any:
         return child_materialize_list(data)
 
-    def mat_blob(data: Any) -> Any:
-        return child_materialize_blob(data)
+    def mat_split_grid(data: Any) -> Any:
+        return child_materialize_split_grid(data)
 
-    pack_fn = pack_blob if use_blob else pack_list
-    mat_fn = mat_blob if use_blob else mat_list
+    pack_fn = pack_split_grid if use_split_grid else pack_list
+    mat_fn = mat_split_grid if use_split_grid else mat_list
 
     parts = [
         ("host_pack", lambda: pack_fn()),
@@ -191,7 +200,7 @@ def run_egress(
     min_cells: int,
     warmup: int,
     iters: int,
-    use_blob: bool,
+    use_split_grid: bool,
 ) -> tuple[dict[str, float], int]:
     import numpy as np
 
@@ -208,7 +217,7 @@ def run_egress(
         r = kind_pack()
         return child_pack_result(r, min_cells=min_cells, force="never")
 
-    def pack_blob() -> Any:
+    def pack_split_grid() -> Any:
         r = kind_pack()
         return child_pack_result(r, min_cells=min_cells, force="always")
 
@@ -220,7 +229,7 @@ def run_egress(
     def load() -> Any:
         return json.loads(wire_holder["line"])["result"]
 
-    pack_fn = pack_blob if use_blob else pack_list
+    pack_fn = pack_split_grid if use_split_grid else pack_list
     parts = [
         ("child_pack", pack_fn),
         ("child_dump", lambda: dump(pack_fn())),
@@ -240,20 +249,20 @@ def run_child_only(
     iters: int,
 ) -> tuple[float, float, float]:
     data_list = host_pack_data(grid, min_cells=min_cells, force="never")
-    data_blob = host_pack_data(grid, min_cells=min_cells, force="always")
+    data_split_grid = host_pack_data(grid, min_cells=min_cells, force="always")
     line_list = json.dumps({"data": data_list}) + "\n"
-    line_blob = json.dumps({"data": data_blob}) + "\n"
+    line_split_grid = json.dumps({"data": data_split_grid}) + "\n"
 
     def mat_list() -> Any:
         return child_materialize_list(json.loads(line_list)["data"])
 
-    def mat_blob() -> Any:
-        return child_materialize_blob(json.loads(line_blob)["data"])
+    def mat_split_grid() -> Any:
+        return child_materialize_split_grid(json.loads(line_split_grid)["data"])
 
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
-    _, blob_ms = _bench(mat_blob, warmup=warmup, iters=iters)
-    speedup = list_ms / blob_ms if blob_ms > 0 else 0.0
-    return list_ms, blob_ms, speedup
+    _, split_grid_ms = _bench(mat_split_grid, warmup=warmup, iters=iters)
+    speedup = list_ms / split_grid_ms if split_grid_ms > 0 else 0.0
+    return list_ms, split_grid_ms, speedup
 
 
 def main() -> None:
@@ -263,14 +272,14 @@ def main() -> None:
         print("NumPy required for child-side benchmarks. Install numpy in this interpreter.")
         sys.exit(1)
 
-    p = argparse.ArgumentParser(description="Benchmark list+json vs f64_blob (host Python / child NumPy).")
+    p = argparse.ArgumentParser(description="Benchmark list+json vs split_grid (host Python / child NumPy).")
     p.add_argument("--direction", choices=("ingress", "egress", "both"), default="both")
     p.add_argument("--force-binary", choices=("auto", "always", "never"), default="auto")
     p.add_argument(
         "--min-cells",
         type=int,
         default=BINARY_MIN_CELLS,
-        help="Use f64_blob when cell count is at least this (default 10)",
+        help="Use split_grid when cell count is at least this (default 10)",
     )
     p.add_argument("--warmup", type=int, default=3)
     p.add_argument("--iters", type=int, default=15)
@@ -280,18 +289,18 @@ def main() -> None:
     force: ForceBinary = args.force_binary
 
     if args.child_only:
-        print("child_only: materialize ms — json_list (np.array) vs f64_blob (frombuffer)")
-        print(f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'f64_blob_ms':>14} {'mat_x':>8}")
+        print("child_only: materialize ms — json_list (np.array) vs split_grid (frombuffer)")
+        print(f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'split_grid_ms':>14} {'mat_x':>8}")
         for nrows, ncols, _ in grid_shapes():
             grid = make_grid(nrows, ncols)
-            list_ms, blob_ms, sp = run_child_only(
+            list_ms, split_grid_ms, sp = run_child_only(
                 grid,
                 min_cells=args.min_cells,
                 warmup=args.warmup,
                 iters=args.iters,
             )
-            print(f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} {blob_ms:>14.4f} {sp:>7.2f}x")
-        print("  mat_x = how many times faster f64_blob (frombuffer) is vs json_list (np.array).")
+            print(f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} {split_grid_ms:>14.4f} {sp:>7.2f}x")
+        print("  mat_x = how many times faster split_grid (frombuffer) is vs json_list (np.array).")
         return
 
     rows: list[BenchRow] = []
@@ -303,8 +312,8 @@ def main() -> None:
         cells = cell_count(shape if nrows != 1 or ncols != 1 else (1,))
 
         if args.direction in ("ingress", "both"):
-            for wire_format, use_blob in (("json_list", False), ("f64_blob", True)):
-                if force == "never" and use_blob:
+            for wire_format, use_split_grid in (("json_list", False), ("split_grid", True)):
+                if force == "never" and use_split_grid:
                     continue
                 t, wire_b = run_ingress(
                     grid,
@@ -313,7 +322,7 @@ def main() -> None:
                     min_cells=args.min_cells,
                     warmup=args.warmup,
                     iters=args.iters,
-                    use_blob=use_blob,
+                    use_split_grid=use_split_grid,
                 )
                 total = t["host_pack"] + t["host_dump"] + t["child_load"] + t["child_mat"]
                 rows.append(
@@ -333,8 +342,8 @@ def main() -> None:
                 )
 
         if args.direction in ("egress", "both"):
-            for wire_format, use_blob in (("json_list", False), ("f64_blob", True)):
-                if nrows == 1 and ncols == 1 and use_blob:
+            for wire_format, use_split_grid in (("json_list", False), ("split_grid", True)):
+                if nrows == 1 and ncols == 1 and use_split_grid:
                     continue
                 t, wire_b = run_egress(
                     nrows,
@@ -343,7 +352,7 @@ def main() -> None:
                     min_cells=args.min_cells,
                     warmup=args.warmup,
                     iters=args.iters,
-                    use_blob=use_blob,
+                    use_split_grid=use_split_grid,
                 )
                 total = t["child_pack"] + t["child_dump"] + t["host_load"] + t["host_mat"]
                 rows.append(
@@ -362,30 +371,30 @@ def main() -> None:
                     )
                 )
 
-    # Pair json_list vs f64_blob per shape for size and speed comparisons
+    # Pair json_list vs split_grid per shape for size and speed comparisons
     by_key: dict[tuple[str, str, str], dict[str, BenchRow]] = {}
     for r in rows:
         key = (r.direction, r.shape, r.kind)
         by_key.setdefault(key, {})[r.wire_format] = r
     for paths in by_key.values():
         json_r = paths.get("json_list")
-        blob_r = paths.get("f64_blob")
-        if json_r is None or blob_r is None:
+        split_grid_r = paths.get("split_grid")
+        if json_r is None or split_grid_r is None:
             continue
         json_b = json_r.wire_bytes
-        blob_b = blob_r.wire_bytes
+        split_grid_b = split_grid_r.wire_bytes
         json_r.json_wire_bytes = json_b
-        blob_r.json_wire_bytes = json_b
+        split_grid_r.json_wire_bytes = json_b
         if json_b > 0:
-            pct = 100.0 * blob_b / json_b
-            blob_r.wire_vs_json = f"{pct:.0f}% of json ({blob_b}/{json_b} B)"
+            pct = 100.0 * split_grid_b / json_b
+            split_grid_r.wire_vs_json = f"{pct:.0f}% of json ({split_grid_b}/{json_b} B)"
             json_r.wire_vs_json = "baseline (json)"
-        faster = blob_r if blob_r.total_ms < json_r.total_ms else json_r
-        if blob_r.materialize_ms > 0:
-            faster.mat_faster_x = json_r.materialize_ms / blob_r.materialize_ms
-        if blob_r.total_ms > 0:
-            faster.total_faster_x = json_r.total_ms / blob_r.total_ms
-        if blob_r.total_ms != json_r.total_ms:
+        faster = split_grid_r if split_grid_r.total_ms < json_r.total_ms else json_r
+        if split_grid_r.materialize_ms > 0:
+            faster.mat_faster_x = json_r.materialize_ms / split_grid_r.materialize_ms
+        if split_grid_r.total_ms > 0:
+            faster.total_faster_x = json_r.total_ms / split_grid_r.total_ms
+        if split_grid_r.total_ms != json_r.total_ms:
             faster.faster_total = faster.wire_format
 
     hdr = (
@@ -407,16 +416,16 @@ def main() -> None:
     print(
         "\nColumn guide:\n"
         "  wire_format   json_list = nested floats in JSON (slow materialize). "
-        "f64_blob = compact base64 float64 (fast materialize).\n"
+        "split_grid = compact base64 float64 with sparse strings (fast materialize).\n"
         "  wire_KiB      JSON line size on the wire for this row.\n"
-        "  vs_json_wire  On f64_blob rows: blob size vs paired json_list row "
+        "  vs_json_wire  On split_grid rows: split_grid size vs paired json_list row "
         "(same shape/direction). json_list row shows 'baseline (json)'.\n"
-        "  materialize   ingress: child np.array(list) vs frombuffer(blob). "
+        "  materialize   ingress: child np.array(list) vs frombuffer(split_grid). "
         "egress: host unpack to lists.\n"
         "  mat_x, total_x, e2e_faster  Shown only on the faster row of each pair "
         "(same values on both paths; slower row left blank).\n"
-        "  mat_x         Speedup factor (e.g. 4.74x): json_list materialize / f64_blob materialize.\n"
-        "  total_x       Speedup factor (e.g. 2.06x): json_list total_ms / f64_blob total_ms.\n"
+        "  mat_x         Speedup factor (e.g. 4.74x): json_list materialize / split_grid materialize.\n"
+        "  total_x       Speedup factor (e.g. 2.06x): json_list total_ms / split_grid total_ms.\n"
         "  e2e_faster    wire_format that won on total_ms for this shape."
     )
 

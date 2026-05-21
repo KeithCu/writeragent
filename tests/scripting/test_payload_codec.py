@@ -19,7 +19,7 @@ from plugin.scripting import payload_codec
 from plugin.scripting.payload_codec import (
     describe_wire_value,
     BINARY_MIN_CELLS,
-    PAYLOAD_F64_BLOB,
+    PAYLOAD_SPLIT_GRID,
     child_pack_result,
     child_unpack_data,
     host_pack_data,
@@ -55,11 +55,11 @@ def test_should_use_binary_threshold_min_cells():
     assert should_use_binary_envelope((3, 3), force="always") is True
 
 
-def test_host_pack_auto_uses_blob_for_4x3():
+def test_host_pack_auto_uses_split_grid_for_4x3():
     grid = [[1.0, 4.0, 5.0], [23.0, 4.0, 4.0], [5.0, 4.0, 4.0], [4.0, 5.0, 4.0]]
     wire = host_pack_data(grid, force="auto")
     assert isinstance(wire, dict)
-    assert wire["__wa_payload__"] == PAYLOAD_F64_BLOB
+    assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire["shape"] == [4, 3]
 
 
@@ -70,18 +70,19 @@ def test_host_pack_auto_uses_list_for_3x3():
     assert wire[0][0] == 1.0
 
 
-def test_host_pack_auto_uses_blob_for_4x4():
+def test_host_pack_auto_uses_split_grid_for_4x4():
     grid = [[float(i)] * 4 for i in range(4)]
     wire = host_pack_data(grid, force="auto")
     assert isinstance(wire, dict)
-    assert wire["__wa_payload__"] == PAYLOAD_F64_BLOB
+    assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire["shape"] == [4, 4]
 
 
-def test_round_trip_host_blob_child_ndarray():
+def test_round_trip_host_split_grid_child_ndarray():
     np = pytest.importorskip("numpy")
     grid = [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]]
     wire = host_pack_data(grid, force="always")
+    assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     arr = child_unpack_data(wire)
     assert isinstance(arr, np.ndarray)
     assert arr.shape == (4, 2)
@@ -89,10 +90,11 @@ def test_round_trip_host_blob_child_ndarray():
     assert arr[3, 1] == pytest.approx(8.0)
 
 
-def test_round_trip_child_blob_host_list():
+def test_round_trip_child_split_grid_host_list():
     np = pytest.importorskip("numpy")
     arr = np.arange(12, dtype=np.float64).reshape(3, 4)
     wire = child_pack_result(arr, force="always")
+    assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     back = host_unpack_data(wire, as_nested_list=True)
     assert len(back) == 3
     assert len(back[0]) == 4
@@ -100,11 +102,12 @@ def test_round_trip_child_blob_host_list():
     assert back[2][3] == pytest.approx(11.0)
 
 
-def test_none_becomes_nan_in_blob():
+def test_none_becomes_nan_in_split_grid():
     np = pytest.importorskip("numpy")
-    wire = host_pack_data([1.0, None, 3.0], force="always")
+    wire = host_pack_data([[1.0, None, 3.0]], force="always")
     arr = child_unpack_data(wire)
-    assert math.isnan(float(arr[1]))
+    assert arr.shape == (1, 3)
+    assert math.isnan(float(arr[0, 1]))
 
 
 def test_scalar_egress_stays_json():
@@ -117,14 +120,14 @@ def test_is_numeric_grid_rejects_text():
     assert is_numeric_grid([[1.0, 2.0], [3.0, 4.0]]) is True
 
 
-def test_describe_wire_value_f64_blob():
+def test_describe_wire_value_split_grid():
     wire = host_pack_data([[1.0] * 4 for _ in range(4)], force="always")
     desc = describe_wire_value(wire)
-    assert "f64_blob" in desc
+    assert "split_grid" in desc
     assert "shape=[4, 4]" in desc
 
 
-def test_wire_cell_count_blob():
+def test_wire_cell_count_split_grid():
     wire = host_pack_data([[1.0] * 4 for _ in range(4)], force="always")
     assert wire_cell_count(wire) == 16
 
@@ -136,8 +139,8 @@ def test_child_list_path_array():
     assert list(arr) == pytest.approx([1.0, 2.0, 3.0])
 
 
-def test_host_pack_column_grid_mixed():
-    """Verify that a 2D mixed grid is packed column-wise with both binary and JSON columns."""
+def test_host_pack_split_grid_mixed():
+    """Verify that a 2D mixed grid is packed using Split-Grid serialization."""
     grid = [
         [1.0, "apple", 10.0],
         [2.0, "banana", 20.0],
@@ -147,21 +150,19 @@ def test_host_pack_column_grid_mixed():
     # Use force="always" to trigger it regardless of threshold
     wire = host_pack_data(grid, force="always")
     assert isinstance(wire, dict)
-    assert wire["__wa_payload__"] == payload_codec.PAYLOAD_COLUMN_GRID
+    assert wire["__wa_payload__"] == payload_codec.PAYLOAD_SPLIT_GRID
     assert wire["shape"] == [4, 3]
-    assert len(wire["columns"]) == 3
-    
-    # Col 0 (numeric) should be f64_blob
-    assert wire["columns"][0]["type"] == PAYLOAD_F64_BLOB
-    # Col 1 (text) should be json_list
-    assert wire["columns"][1]["type"] == "json_list"
-    assert wire["columns"][1]["data"] == ["apple", "banana", "cherry", "date"]
-    # Col 2 (numeric) should be f64_blob
-    assert wire["columns"][2]["type"] == PAYLOAD_F64_BLOB
+    assert "strings" in wire
+    assert wire["strings"] == {
+        "1": "apple",
+        "4": "banana",
+        "7": "cherry",
+        "10": "date",
+    }
 
 
-def test_round_trip_column_grid():
-    """Verify that column_grid payload round-trips correctly and reconstructs exact values."""
+def test_round_trip_split_grid():
+    """Verify that split_grid payload round-trips correctly and reconstructs exact values."""
     pytest.importorskip("numpy")
     grid = [
         [1.5, "apple", 10.1],
@@ -181,7 +182,7 @@ def test_round_trip_column_grid():
     assert reconstructed[3] == [4.5, "", 40.4]
 
 
-def test_column_grid_non_2d_fallback():
+def test_split_grid_non_2d_fallback():
     """Verify that non-2D mixed grids or small mixed grids fallback correctly to standard lists."""
     # 1D mixed grid
     grid_1d = [1.0, "apple", 3.0]
@@ -197,3 +198,4 @@ def test_column_grid_non_2d_fallback():
     wire_2d = host_pack_data(grid_2d, force="never")
     assert isinstance(wire_2d, list)
     assert wire_2d == [[1.0, "apple"], [2.0, "banana"]]
+

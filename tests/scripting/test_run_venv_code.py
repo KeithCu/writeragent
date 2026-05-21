@@ -105,30 +105,30 @@ def test_manager_two_calls_same_process():
     PythonWorkerManager.shutdown_all()
 
 
-def test_f64_blob_data_round_trip_execute_request():
-    """Ingress f64_blob: child receives ndarray from frombuffer."""
+def test_split_grid_data_round_trip_execute_request():
+    """Ingress split_grid: child receives ndarray from frombuffer."""
     np = pytest.importorskip("numpy")
     grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
     from plugin.calc.calc_addin_data import pack_calc_data_for_wire
-    from plugin.scripting.payload_codec import is_f64_blob
+    from plugin.scripting.payload_codec import is_split_grid
 
     wire = pack_calc_data_for_wire(grid)
-    assert is_f64_blob(wire)
+    assert is_split_grid(wire)
     r = _execute_request("result = float(data.sum())", wire)
     assert r["status"] == "ok"
     assert r["result"] == pytest.approx(sum(r * 10 + c for r in range(4) for c in range(4)))
 
 
-def test_f64_blob_result_round_trip_harness():
+def test_split_grid_result_round_trip_harness():
     np = pytest.importorskip("numpy")
     r = _execute_request(
         "import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)",
         None,
     )
     assert r["status"] == "ok"
-    from plugin.scripting.payload_codec import is_f64_blob
+    from plugin.scripting.payload_codec import is_split_grid
 
-    assert is_f64_blob(r["result"])
+    assert is_split_grid(r["result"])
     from plugin.scripting.payload_codec import host_unpack_data
 
     back = host_unpack_data(r["result"])

@@ -163,7 +163,7 @@ plugin/
 │   ├── python_worker_manager.py  # Warm subprocess, JSON protocol
 │   ├── worker_harness.py         # Stdin/stdout loop in venv
 │   ├── venv_sandbox.py           # LocalPythonExecutor + VENV_AUTHORIZED_IMPORTS
-│   ├── payload_codec.py          # f64_blob pack/unpack (host stdlib / child NumPy)
+│   ├── payload_codec.py          # split_grid pack/unpack (host stdlib / child NumPy)
 │   ├── writeragent_api.py        # Generated stubs (RPC not wired)
 │   └── python_runner.py          # Settings dialog / manual run UI
 ├── calc/
@@ -200,7 +200,7 @@ Defined in [`plugin/scripting/module.yaml`](plugin/scripting/module.yaml) / Sett
 |-------|----------|---------|
 | `id` | Yes | Correlation id |
 | `code` | Yes | Python source |
-| `data` | No | Injected as variable `data` in a fresh namespace (nested JSON lists or [`f64_blob`](numpy-serialization.md#tier-2-f64_blob-shipped) envelope when dense numeric) |
+| `data` | No | Injected as variable `data` in a fresh namespace (nested JSON lists or [`split_grid`](numpy-serialization.md#strategy-3-split-grid-serialization-detail) envelope when dense numeric/mixed 2D) |
 
 **Worker → host (stdout):**
 
@@ -393,7 +393,7 @@ When you pass a range (or cell reference) as the second argument to `=PYTHON(cod
 
 Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped at `MAX_PYTHON_DATA_CELLS` (default 250 000).
 
-**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): JSON list or `f64_blob`; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → JSON worker line → `child_unpack_data` (ndarray when blob) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → host `host_unpack_data` where lists are needed ([`prompt_function.py`](../plugin/calc/prompt_function.py)).
+**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): JSON list or `split_grid`; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → JSON worker line → `child_unpack_data` (ndarray or list when split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → host `host_unpack_data` where lists are needed ([`prompt_function.py`](../plugin/calc/prompt_function.py)).
 
 **Gaps vs LibrePythonista (workarounds):** one range only (use multiple cells or chat `data_range`); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 
@@ -401,7 +401,7 @@ Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data
 
 ### NumPy serialization
 
-The worker protocol stays line-oriented JSON, but dense numeric payloads use a compact `f64_blob` envelope inside that JSON line. Numeric grids with at least 10 cells are packed as row-major float64 bytes on the LibreOffice host, base64-encoded, then decoded by the venv child with NumPy `frombuffer`; smaller or mixed-type payloads stay as nested JSON lists.
+The worker protocol stays line-oriented JSON, but dense numeric and mixed-type payloads use a unified `split_grid` envelope inside that JSON line. Grids with at least 10 cells are packed as row-major float64 bytes + sparse strings index on the LibreOffice host, base64-encoded, then decoded by the venv child (directly via NumPy `frombuffer` when numeric-only for maximum C-speed); smaller or non-2D payloads stay as nested JSON lists.
 
 This keeps LibreOffice's embedded Python NumPy-free while making large Calc ranges and ndarray results cheaper to move across the process boundary. All serialization details, benchmarks, optimization tiers, mmap/cache ideas, and native host-extension packaging notes live in [NumPy serialization](numpy-serialization.md).
 
@@ -570,7 +570,7 @@ There is **no** documented LibreOffice UNO API for “load this image in the bac
 | Warm worker + JSON line protocol | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`run_venv_code.py`](../plugin/scripting/run_venv_code.py) |
 | AST sandbox per request | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
 | `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`prompt_function.py`](../plugin/calc/prompt_function.py) |
-| **Tier 2 `f64_blob`** | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — host pack/unpack (stdlib); child `frombuffer`; **≥10 cells** + all numeric-coercible |
+| **Unified `split_grid`** | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — host pack/unpack (stdlib); child `frombuffer` + strings overlay; **≥10 cells** (numeric or mixed) |
 | Calc ingress | [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) |
 | Bench + tests | [`scripts/bench_serialization.py`](../scripts/bench_serialization.py), [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py), [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) |
 | Vendored **nbformat v4** reader | [`plugin/contrib/nbformat/`](../plugin/contrib/nbformat/), [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py) |
