@@ -9,10 +9,15 @@ from plugin.notebook.writer_importer import (
     _ImportStackCursor,
     _MAX_IMAGE_DECODE_BYTES,
     _MAX_IMPORT_TEXT_CHARS,
+    _STYLE_NOTEBOOK_IN,
     _append_body_text_block,
     _append_body_paragraph,
+    _cell_heading,
     _coerce_notebook_text,
+    _create_import_para_style,
     _decode_notebook_image,
+    _ensure_notebook_import_styles,
+    _format_in_prompt,
     _looks_like_html,
     _notebook_image_payload,
     _png_pixel_size,
@@ -147,6 +152,42 @@ def test_wrap_html_fragment_adds_body():
     assert "<html>" in wrapped and "<body>" in wrapped and "<p>Hi</p>" in wrapped
 
 
+def test_format_in_prompt_executed_and_unexecuted():
+    assert _format_in_prompt(1) == "[In [1]]"
+    assert _format_in_prompt(None) == "[In [ ]]"
+
+
+def test_cell_heading_includes_in_prompt():
+    assert _cell_heading(1, "code") == "[In [ ]]\tCell 2: Code"
+    assert "[In" not in _cell_heading(0, "markdown")
+
+
+def test_create_import_para_style_skips_existing():
+    doc = MagicMock()
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = True
+    assert _create_import_para_style(doc, para_styles, "WriterAgent Notebook In", parent_style="Text Body", property_updates={}) is True
+    doc.createInstance.assert_not_called()
+
+
+def test_ensure_notebook_import_styles_creates_and_resolves():
+    doc = MagicMock()
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = False
+    para_styles.getElementNames.return_value = ["Text Body", _STYLE_NOTEBOOK_IN]
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+    new_style = MagicMock()
+    doc.createInstance.return_value = new_style
+
+    in_style = _ensure_notebook_import_styles(doc)
+
+    assert doc.createInstance.call_count == 1
+    assert para_styles.insertByName.call_count == 1
+    assert in_style == _STYLE_NOTEBOOK_IN
+
+
 def test_resolve_para_style_case_insensitive():
     doc = MagicMock()
     para_styles = MagicMock()
@@ -211,21 +252,34 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
         '{"cell_type":"markdown","metadata":{},"source":"# Title"},'
-        '{"cell_type":"code","metadata":{},"source":"x=1","outputs":[]},'
+        '{"cell_type":"code","metadata":{},"source":"x=1","execution_count":1,"outputs":[]},'
         '{"cell_type":"markdown","metadata":{},"source":"more"},'
-        '{"cell_type":"code","metadata":{},"source":"y=2","outputs":[]}'
+        '{"cell_type":"code","metadata":{},"source":"y=2","execution_count":2,"outputs":[]}'
         "]}",
         encoding="utf-8",
     )
 
-    doc, body_text, _ = _writer_doc_mock()
+    doc, body_text, body_cursor = _writer_doc_mock()
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = False
+    para_styles.getElementNames.return_value = ["Text Body", _STYLE_NOTEBOOK_IN, "Heading 2", "Heading 3"]
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
 
     class FakeSize:
         def __init__(self, w, h):
             self.Width = w
             self.Height = h
 
-    doc.createInstance.side_effect = lambda service: MagicMock()
+    style_instance = MagicMock()
+
+    def create_instance(service):
+        if service == "com.sun.star.style.ParagraphStyle":
+            return style_instance
+        return MagicMock()
+
+    doc.createInstance.side_effect = create_instance
     monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
 
     stats = import_ipynb_to_writer(doc, str(ipynb))
@@ -233,8 +287,13 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
     assert stats["cells"] == 4
     assert stats["code"] == 2
     assert stats["shapes"] == 2
-    # Two code fields + no image outputs in this fixture
     assert body_text.insertTextContent.call_count == 2
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert "[In [1]]\tCell 2: Code" in inserted
+    assert "[In [2]]\tCell 4: Code" in inserted
+    style_names = [call.args[1] for call in body_cursor.setPropertyValue.call_args_list if call.args[0] == "ParaStyleName"]
+    assert _STYLE_NOTEBOOK_IN in style_names
+    assert "Heading 3" in style_names
 
 
 def test_import_ipynb_markdown_html_uses_insert_html(tmp_path, monkeypatch):

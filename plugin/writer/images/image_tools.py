@@ -83,27 +83,32 @@ def _mm_to_px(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
     return max(1, int(w_units * 96 / 2540)), max(1, int(h_units * 96 / 2540))
 
 
+def _safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
+    try:
+        method = getattr(obj, method_name, None)
+        if callable(method):
+            method(*args)
+            return True
+    except Exception as ex:
+        logger.debug("_safe_try_method %s failed: %s", method_name, ex)
+    return False
+
+
 def _apply_graphic_properties(graphic, *, width: int, height: int, title: str, description: str, anchor_type=AS_CHARACTER, inside: str = "writer"):
+    # Never use hasattr(graphic, "PropName") — PyUNO raises UnknownPropertyException.
     if inside in ("writer", "web"):
-        if hasattr(graphic, "AnchorType"):
-            graphic.AnchorType = anchor_type
-        elif hasattr(graphic, "setPropertyValue"):
-            graphic.setPropertyValue("AnchorType", anchor_type)
-    if hasattr(graphic, "Width"):
-        graphic.Width = width
-        graphic.Height = height
-    elif hasattr(graphic, "setSize"):
-        graphic.setSize(Size(width, height))
-    else:
-        graphic.setPropertyValue("Size", Size(width, height))
-    if hasattr(graphic, "Title"):
-        graphic.Title = title
-        graphic.Description = description
-    else:
-        if title:
-            graphic.setPropertyValue("Title", title)
-        if description:
-            graphic.setPropertyValue("Description", description)
+        _safe_set_property(graphic, "AnchorType", anchor_type)
+    size = Size(width, height)
+    if _has_uno_property(graphic, "Width") and _has_uno_property(graphic, "Height"):
+        _safe_set_property(graphic, "Width", width)
+        _safe_set_property(graphic, "Height", height)
+    elif not _safe_set_property(graphic, "Size", size):
+        if not _safe_try_method(graphic, "setSize", size):
+            logger.debug("_apply_graphic_properties: could not set size %dx%d", width, height)
+    if title:
+        _safe_set_property(graphic, "Title", title)
+    if description:
+        _safe_set_property(graphic, "Description", description)
 
 
 def _is_graphic_object(obj) -> bool:
@@ -393,14 +398,16 @@ def replace_graphic_source(ctx, model, graphic, img_path, width_units=None, heig
     inside = get_type_doc(model)
     if width_units is None or height_units is None:
         try:
-            if hasattr(graphic, "getSize"):
-                size = graphic.getSize()
-            else:
-                size = graphic.getPropertyValue("Size")
+            size = graphic.getSize()
             width_units = size.Width
             height_units = size.Height
         except Exception:
-            width_units, height_units = 8000, 8000
+            try:
+                size = graphic.getPropertyValue("Size")
+                width_units = size.Width
+                height_units = size.Height
+            except Exception:
+                width_units, height_units = 8000, 8000
 
     if _should_link_image_path(img_path):
         file_url = _file_url_for_path(img_path)
@@ -479,10 +486,9 @@ def replace_graphic_source(ctx, model, graphic, img_path, width_units=None, heig
             inside=inside,
         )
     elif width_units is not None and height_units is not None:
-        if hasattr(graphic, "setSize"):
-            graphic.setSize(Size(width_units, height_units))
-        else:
-            graphic.setPropertyValue("Size", Size(width_units, height_units))
+        sz = Size(width_units, height_units)
+        if not _safe_set_property(graphic, "Size", sz):
+            _safe_try_method(graphic, "setSize", sz)
     return True
 
 

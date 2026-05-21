@@ -51,10 +51,16 @@ _DEFAULT_IMAGE_HEIGHT_MM = 80
 _IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg"}
 
 # Writer paragraph styles (document locale usually provides these English names).
-_STYLE_CELL_HEADING = "Heading 2"
-_STYLE_SECTION_HEADING = "Heading 3"
+_STYLE_CELL_HEADING = "Heading 3"
+_STYLE_SECTION_HEADING = "Heading 4"
 _STYLE_OUTPUT = "Preformatted Text"
 _STYLE_BODY = "Text Body"
+
+# Auto-created on import for Jupyter-like [In [n]] gutter (1/100 mm margins).
+_STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
+_NOTEBOOK_IN_CHAR_HEIGHT = 9
+_NOTEBOOK_IN_MARGIN_TOP = 0
+_NOTEBOOK_IN_MARGIN_BOTTOM = 40
 
 _PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _HTML_TAG_RE = re.compile(r"<\s*[a-zA-Z]", re.DOTALL)
@@ -420,6 +426,98 @@ def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
     return None
 
 
+def _get_para_styles(doc: Any) -> Any | None:
+    try:
+        return doc.getStyleFamilies().getByName("ParagraphStyles")
+    except Exception:
+        log.debug("notebook import could not get ParagraphStyles", exc_info=True)
+        return None
+
+
+def _create_import_para_style(
+    doc: Any,
+    para_styles: Any,
+    style_name: str,
+    *,
+    parent_style: str,
+    property_updates: dict[str, Any],
+) -> bool:
+    """Register a paragraph style if missing. Returns True when the style exists afterward."""
+    if para_styles.hasByName(style_name):
+        return True
+    try:
+        new_style = doc.createInstance("com.sun.star.style.ParagraphStyle")
+        if new_style is None:
+            return False
+        resolved_parent = _resolve_para_style(doc, parent_style) or parent_style
+        try:
+            new_style.setParentStyle(resolved_parent)
+        except Exception:
+            log.debug("notebook import parent %r for %r failed", resolved_parent, style_name, exc_info=True)
+        for prop_name, prop_val in property_updates.items():
+            try:
+                new_style.setPropertyValue(prop_name, prop_val)
+            except Exception:
+                log.debug("notebook import could not set %s on %r", prop_name, style_name, exc_info=True)
+        para_styles.insertByName(style_name, new_style)
+        return True
+    except Exception:
+        log.debug("notebook import failed to create style %r", style_name, exc_info=True)
+        return False
+
+
+def _ensure_notebook_import_styles(doc: Any) -> str | None:
+    """Create notebook [In [n]] gutter style once per document; return resolved name."""
+    para_styles = _get_para_styles(doc)
+    if para_styles is None:
+        return None
+    parent_heading = _resolve_para_style(doc, _STYLE_CELL_HEADING) or "Heading 3"
+    
+    property_updates: dict[str, Any] = {
+        "ParaAdjust": 0,
+        "ParaLeftMargin": -1270,  # Out-dented by 1/2 inch (12.7 mm)
+        "ParaTopMargin": _NOTEBOOK_IN_MARGIN_TOP,
+        "ParaBottomMargin": _NOTEBOOK_IN_MARGIN_BOTTOM,
+    }
+    
+    try:
+        import uno
+        from typing import cast
+        ts = cast("Any", uno.createUnoStruct("com.sun.star.style.TabStop"))
+        ts.Position = 1270  # Shift text after tab to start exactly at the normal page margin (0 cm relative)
+        ts.Alignment = uno.getConstantByName("com.sun.star.style.TabAlign.LEFT")
+        ts.DecimalChar = 46
+        ts.FillChar = 32
+        property_updates["ParaTabStops"] = (ts,)
+    except Exception as e:
+        log.debug("notebook import could not create TabStop struct: %s", e)
+
+    _create_import_para_style(
+        doc,
+        para_styles,
+        _STYLE_NOTEBOOK_IN,
+        parent_style=parent_heading,
+        property_updates=property_updates,
+    )
+    return _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+
+
+def _format_in_prompt(execution_count: Any | None) -> str:
+    if execution_count is None:
+        return "[In [ ]]"
+    return f"[In [{execution_count}]]"
+
+
+def _append_in_prompt(
+    doc: Any,
+    execution_count: Any | None,
+    *,
+    in_style: str | None,
+    lead_break: bool,
+) -> None:
+    _append_body_paragraph(doc, _format_in_prompt(execution_count), in_style, lead_break=lead_break)
+
+
 def _looks_like_html(text: str) -> bool:
     return bool(_HTML_TAG_RE.search((text or "").strip()))
 
@@ -566,11 +664,10 @@ def _insert_code_input_in_flow(
     )
 
 
-def _cell_heading(idx: int, cell_type: str, execution_count: Any | None) -> str:
-    title = f"Cell {idx + 1}: {cell_type.capitalize()}"
-    if cell_type == "code" and execution_count is not None:
-        title += f"  [In [{execution_count}]]"
-    return title
+def _cell_heading(idx: int, cell_type: str, execution_count: Any | None = None) -> str:
+    if cell_type == "code":
+        return f"{_format_in_prompt(execution_count)}\tCell {idx + 1}: Code"
+    return f"Cell {idx + 1}: {cell_type.capitalize()}"
 
 
 def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[str, Any]:
@@ -599,7 +696,8 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         "controls": 0,
     }
 
-    _import_cells(doc, nb, stats, cell_count, run_t0, ctx=ctx)
+    notebook_in = _ensure_notebook_import_styles(doc)
+    _import_cells(doc, nb, stats, cell_count, run_t0, ctx=ctx, notebook_in=notebook_in)
     flush_ui_idle(ctx)
 
     stats["controls"] = stats["shapes"]
@@ -621,6 +719,8 @@ def _import_cells(
     cell_count: int,
     run_t0: float,
     ctx: Any | None = None,
+    *,
+    notebook_in: str | None = None,
 ) -> None:
     first_cell = True
     for idx, cell in enumerate(nb.cells):
@@ -642,14 +742,18 @@ def _import_cells(
 
         lead = not first_cell
         first_cell = False
-        _append_cell_heading(doc, _cell_heading(idx, cell_type, ec), lead_break=lead)
+
+        if cell_type == "code":
+            title = _cell_heading(idx, cell_type, ec)
+            _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
+        else:
+            _append_cell_heading(doc, _cell_heading(idx, cell_type), lead_break=lead)
 
         if cell_type == "markdown":
             stats["markdown"] += 1
             _append_markdown_cell(doc, source, lead_break=True)
         elif cell_type == "code":
             stats["code"] += 1
-            _append_section_heading(doc, "Code")
             _insert_code_input_in_flow(
                 doc,
                 name=f"nb_cell_{idx}_code",

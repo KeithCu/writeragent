@@ -483,16 +483,17 @@ For each cell in order, the importer appends to the **document body**:
 
 | Cell type | Structure in Writer |
 |-----------|-------------------|
-| **All cells** | **Heading 2** — `Cell N: Markdown` / `Cell N: Code [In [k]]` / `Cell N: Raw` |
+| **All cells** | **Heading 2** — `Cell N: Markdown` / `Cell N: Code` / `Cell N: Raw` |
+| **code (gutter)** | **`WriterAgent Notebook In`** — left-aligned `[In [k]]` or `[In [ ]]` when not executed (separate line before the cell heading, Jupyter-style breadcrumb) |
 | **markdown** | If source contains HTML tags (e.g. Colab badge `<a>…<img>…`): **HTML (StarWriter)** import via [`insert_html_at_cursor`](../plugin/writer/ops.py). Otherwise **Text Body** plain text (`# headings`, etc.) |
-| **code** | **Heading 3** “Code” → in-flow **TextField** (`nb_cell_{index}_code`, multiline) → optional **Heading 3** “Output” → preformatted stdout/stderr/errors → embedded **images** |
+| **code (body)** | **Heading 3** “Code” → in-flow **TextField** (`nb_cell_{index}_code`, multiline) → optional **Heading 3** “Output” → **Preformatted Text** stdout/stderr/errors → embedded **images** |
 | **raw** | **Text Body** — raw cell source |
 
 **Code fields (in-flow, not draw page):** Each code cell gets one `com.sun.star.form.component.TextField` inside a `ControlShape`, anchored **`AS_CHARACTER`**, inserted with `text.insertTextContent` at **document end** after the “Code” heading — same pattern as Writer [`CreateFormControl`](../plugin/writer/specialized/forms.py). Height scales with line count (capped); width ~140 mm (`_DEFAULT_WIDTH` in 1/100 mm).
 
 **Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from `execute_data` / `execute_result` go to **Preformatted Text**, **one paragraph per block** (internal newlines preserved — not one Writer paragraph per line).
 
-**Paragraph styles:** English names (`Heading 2`, `Text Body`, `Preformatted Text`) are resolved against the document’s **ParagraphStyles** (case-insensitive) before apply; missing styles fall back quietly (no traceback spam on localized templates).
+**Paragraph styles:** Built-in English names (`Heading 2`, `Text Body`, `Preformatted Text`, …) are resolved against the document’s **ParagraphStyles** (case-insensitive). On each import, **`WriterAgent Notebook In`** is created once if missing (left gutter for `[In [n]]` only). Missing or localized templates fall back quietly (no traceback spam).
 
 **Images:** For each `image/png` or `image/jpeg` in cell outputs, base64 is decoded to a temp file and inserted via [`insert_image_at_locator`](../plugin/writer/images/image_tools.py) (uses `PropertySetInfo` for `GraphicURL` — **never** `hasattr` on UNO properties, which raised `UnknownPropertyException`). Embedded only (not linked). Inserted in the **Output** section after any text output. PNG size from IHDR (width capped at 140 mm).
 

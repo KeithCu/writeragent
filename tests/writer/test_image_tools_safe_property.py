@@ -29,3 +29,37 @@ def test_create_embedded_graphic_uses_safe_set_not_hasattr(monkeypatch):
 
     result = image_tools._create_embedded_graphic(doc, "writer", "file:///tmp/x.png", ctx=MagicMock())
     assert result is graphic
+
+
+def test_apply_graphic_properties_skips_missing_title(monkeypatch):
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    monkeypatch.setattr(image_tools, "Size", FakeSize)
+
+    graphic = MagicMock()
+    psi = MagicMock()
+
+    def has_prop(name):
+        return name in ("AnchorType", "Width", "Height")
+
+    psi.hasPropertyByName.side_effect = has_prop
+    graphic.getPropertySetInfo.return_value = psi
+
+    image_tools._apply_graphic_properties(
+        graphic,
+        width=1000,
+        height=800,
+        title="Notebook output",
+        description="image/png",
+        inside="writer",
+    )
+
+    set_calls = [c[0][0] for c in graphic.setPropertyValue.call_args_list]
+    assert "AnchorType" in set_calls
+    assert "Width" in set_calls
+    assert "Height" in set_calls
+    assert "Title" not in set_calls
+    assert "Description" not in set_calls
