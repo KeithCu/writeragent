@@ -19,3 +19,14 @@ config:
     widget: number
     label: MCP Port
     public: true
+  cors_allowed_origins:
+    type: list
+    default: []
+    internal: true
+  cors_allowed_origin:
+    type: string
+    default: ""
+    widget: text
+    label: Additional CORS origin
+    helper: "Browser clients only (e.g. https://localai.local). Stored in mcp.cors_allowed_origins; add more entries in writeragent.json."
+    public: true

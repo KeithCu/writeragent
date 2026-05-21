@@ -50,7 +50,6 @@ class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 class GenericRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler that dispatches to registered routes."""
 
-    protocol_version = "HTTP/1.1"
     route_registry = None  # HttpRouteRegistry, set by HttpServer.start()
 
     def do_GET(self):

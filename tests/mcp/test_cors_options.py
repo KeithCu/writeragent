@@ -12,6 +12,7 @@ import urllib.request
 import pytest
 
 from plugin.mcp.cors import is_safe_origin, merge_allow_headers
+from plugin.mcp.cors_origins import set_extra_allowed_origins
 from plugin.mcp.mcp_protocol import MCP_PROTOCOL_VERSION
 
 
@@ -108,6 +109,25 @@ def test_options_mcp_expose_headers(mcp_server):
         expose = _expose_headers(response)
         assert "Mcp-Session-Id" in expose
         assert "Mcp-Protocol-Version" in expose
+
+
+def test_options_mcp_extra_allowed_origin(mcp_server):
+    set_extra_allowed_origins(["https://localai.local"])
+    try:
+        req = urllib.request.Request(
+            f"{mcp_server}/mcp",
+            method="OPTIONS",
+            headers={
+                "Origin": "https://localai.local",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            assert response.status == 204
+            assert response.headers.get("Access-Control-Allow-Origin") == "https://localai.local"
+    finally:
+        set_extra_allowed_origins([])
 
 
 def test_options_mcp_unsafe_origin_no_allow_origin(mcp_server):

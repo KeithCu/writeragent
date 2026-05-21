@@ -50,9 +50,22 @@ curl -i -X OPTIONS 'http://localhost:8765/mcp' \
 Expect:
 
 - Status **`204`**, empty body
-- **`Access-Control-Allow-Origin`** reflecting the `Origin` value (loopback hosts only: `localhost`, `127.0.0.1`, `[::1]`)
+- **`Access-Control-Allow-Origin`** reflecting the `Origin` value (loopback: `localhost`, `127.0.0.1`, `[::1]`, plus configured extras — see below)
 - **`Access-Control-Allow-Headers`** containing `Mcp-Protocol-Version` (any casing)
 - **`Access-Control-Expose-Headers`**: `Mcp-Session-Id, Mcp-Protocol-Version`
+
+### Extra browser origins (`mcp.cors_allowed_origins`)
+
+Browser MCP clients (e.g. LocalAI at `https://localai.local`) send a non-loopback `Origin`. By default WriterAgent **does not** reflect those origins, so the browser blocks `POST /mcp` after a successful OPTIONS preflight.
+
+- **Settings → MCP → Additional CORS origin (browser MCP):** edits the **first** entry (e.g. `https://localai.local`).
+- **Full list in `writeragent.json`:** JSON array `mcp.cors_allowed_origins` — add more origins manually:
+
+```json
+"mcp.cors_allowed_origins": ["https://localai.local", "https://other.local"]
+```
+
+Loopback origins do not need to be listed. Implementation: [`plugin/mcp/cors_origins.py`](../plugin/mcp/cors_origins.py).
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 
@@ -64,11 +77,116 @@ Expect:
 
 | Log line | Meaning |
 |----------|---------|
-| `[MCP-CORS] OPTIONS /mcp … safe=False` or `allow_origin=omit` | Browser Origin is not loopback — POST will be blocked client-side; server never sees POST. |
+| `[MCP-CORS] OPTIONS /mcp … safe=False` or `allow_origin=omit` | Origin not loopback and not in `mcp.cors_allowed_origins` — browser blocks POST; add origin in Settings or JSON. |
 | `[MCP-CORS] OPTIONS /mcp` only, **no** `[MCP-HTTP] POST /mcp` | Preflight reached server; **POST never arrived** (CORS or client config). |
 | `[MCP-HTTP] POST /mcp` but **no** `[MCP] <<< initialize` | POST hit HTTP layer then failed parsing, routing, or protocol version (see `rejected unsupported Mcp-Protocol-Version`). |
 | `[MCP-HTTP] POST /mcp` + `[MCP] <<< initialize` + `[MCP] >>> initialize -> 200` | Server side OK; failure is likely in the host app reading session headers or later JSON-RPC calls. |
 | `[MCP-HTTP] no route for POST /mcp` | Wrong path or MCP routes not registered (server started without `mcp_enabled`). |
+| `curl` / CLI POST **never returns**; py-spy shows worker in `readline` | Often HTTP-layer (see [HTTP/1.0 vs HTTP/1.1](#http10-vs-http11-curl-hangs-and-worker-threads)); not always the same thread as your `curl` socket. |
+
+### HTTP/1.0 vs HTTP/1.1 (curl hangs and worker threads)
+
+**Current behavior (minimal fix):** [`GenericRequestHandler`](../plugin/mcp/server.py) does **not** set `protocol_version`, so Python’s `BaseHTTPRequestHandler` advertises **HTTP/1.0**. That matches pre–CORS-logging behavior and avoids several HTTP/1.1 client quirks. OPTIONS still returns **`204`** with an empty body; status line may read `HTTP/1.0 204` — that is normal.
+
+This section is for **future** changes if you need HTTP/1.1 on the wire (some proxies, clients, or spec wording). It explains a regression seen in 2026 and how to debug similar hangs without expanding the default fix.
+
+#### What changed and why `curl` hung
+
+Commit `2418a7b9` added `protocol_version = "HTTP/1.1"` on the MCP HTTP handler. Shortly after, shell clients reported:
+
+```bash
+curl -X POST http://127.0.0.1:8765/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+hanging indefinitely. CORS (`OPTIONS`, `Access-Control-*`) was unrelated; the hang correlated with the HTTP version line only.
+
+Two separate HTTP/1.1 mechanisms matter:
+
+| Mechanism | What happens | Symptom if mishandled |
+|-----------|----------------|------------------------|
+| **`Expect: 100-continue`** | On POST, curl/libcurl often sends headers, waits for **`100 Continue`**, then sends the body. `parse_request()` must call `handle_expect_100()` before `do_POST` reads the body. | **Deadlock:** client waits for `100`, server waits for body bytes (or the reverse on older/bundled Python). |
+| **Keep-alive** | HTTP/1.1 defaults to persistent connections. After `OPTIONS` returns `204`, the worker may block in `handle_one_request` → `readline()` waiting for the **next** request on the same socket. | py-spy shows an “idle” worker in `readline`; that may be a **browser preflight** connection, not the `curl` POST. |
+
+Removing `protocol_version` restores HTTP/1.0 defaults: curl typically sends the full POST without `Expect: 100-continue`, and connections close after each response unless the client requests keep-alive explicitly.
+
+#### How to read py-spy stacks (do not over-interpret one thread)
+
+Example snapshot:
+
+- **MainThread** — idle (VCL event loop not inside UNO for this request).
+- **http-server** — `serve_forever` (listener).
+- **Thread-N (`process_request_thread`)** — `readline` in `handle_one_request` (waiting for the next request line on **that** socket).
+
+That pattern usually means “connection still open, no new request yet,” not “stuck inside `tools/list`.” Once POST is parsed, the worker should move to `do_POST` → [`handle_mcp_post`](../plugin/mcp/mcp_protocol.py) → `_read_body` → JSON-RPC. For `tools/list`, the worker may then block on [`QueueExecutor.execute`](../plugin/framework/queue_executor.py) (up to **10s** timeout when AsyncCallback is available), which looks like `_wait_for_result`, not `readline`.
+
+If POST never reaches the server, logs show **`[MCP-CORS] OPTIONS`** without **`[MCP-HTTP] POST /mcp`** (browser CORS) or curl blocks before any POST log (HTTP handshake / Expect deadlock).
+
+Quick confirmation from a shell:
+
+```bash
+# If this works but default curl hangs, suspect Expect / HTTP/1.1:
+curl -v -H 'Expect:' -X POST http://127.0.0.1:8765/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+(`Expect:` disables libcurl’s `100-continue` behavior.)
+
+#### Request path (where time is spent)
+
+```mermaid
+sequenceDiagram
+    participant Client as curl_or_browser
+    participant Worker as HTTP_worker_thread
+    participant Main as VCL_main_thread
+
+    Client->>Worker: TCP connect
+    Worker->>Worker: readline request line
+    Worker->>Worker: parse_request headers
+    alt Expect 100-continue
+        Worker->>Client: 100 Continue
+        Client->>Worker: request body
+    end
+    Worker->>Worker: do_POST handle_mcp_post
+    alt tools/list with AsyncCallback
+        Worker->>Main: queue get_active_document
+        Main-->>Worker: result or TimeoutError 10s
+    end
+    Worker->>Client: JSON-RPC response
+    Note over Worker: HTTP/1.1 keep-alive may wait on readline again
+```
+
+JSON-RPC and CORS logic live above this layer; fix transport first when the client never gets bytes back.
+
+#### Future options (if you re-enable HTTP/1.1)
+
+Pick **one** small change at a time; avoid combining socket timeouts, `tools/list` changes, and HTTP version in one patch.
+
+1. **Keep HTTP/1.0 (current default)** — Simplest; sufficient for localhost MCP, browsers, and `curl`. Document that `HTTP/1.0 204` on OPTIONS is success.
+
+2. **HTTP/1.1 + explicit `handle_expect_100` only** — In [`server.py`](../plugin/mcp/server.py), set `protocol_version = "HTTP/1.1"` and override:
+
+   ```python
+   def handle_expect_100(self):
+       self.send_response_only(100)
+       self.end_headers()
+       return True
+   ```
+
+   Stdlib already does this on modern Python; an explicit override helps if LibreOffice’s bundled runtime differs. **Do not** add this without re-testing `curl` and browser POST on that LO build.
+
+3. **Force `Connection: close`** — Set `self.close_connection = True` at the start of each handler (`_dispatch` / `do_OPTIONS`) so workers do not sit in `readline` after preflight. Does **not** fix Expect deadlock on POST; only reduces idle keep-alive threads.
+
+4. **Per-connection read timeout** — e.g. `get_request()` → `conn.settimeout(120)` on [`_ThreadedHTTPServer`](../plugin/mcp/server.py). Recovers stuck sockets eventually; does not fix handshake deadlocks; may surprise long SSE `GET /mcp` clients.
+
+5. **`tools/list` without blocking on active document** — Separate issue: if AsyncCallback is missing, `QueueExecutor.execute` runs UNO on the HTTP thread and can hang forever (no timeout). That is **not** fixed by HTTP version; would need a dedicated change in [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) (e.g. skip `get_active_document` when dispatch is unavailable). Only consider if py-spy shows the worker past `do_POST`, inside UNO, with MainThread idle.
+
+#### What we are not doing by default
+
+- Advertising HTTP/1.1 without verifying Expect handling on the **LibreOffice-shipped** Python.
+- Large worker-pool or `tools/list` refactors bundled with a transport tweak.
+- Mandatory integration tests for `100-continue` unless HTTP/1.1 is re-enabled permanently.
 
 > **Historical note:** Sections below that describe `GET /tools`, `POST /tools/{name}`, and `core/mcp_server.py` refer to an older REST-style API. The live server uses JSON-RPC on `/mcp` only.
 

@@ -18,6 +18,8 @@
 
 import re
 
+from plugin.mcp.cors_origins import is_extra_allowed_origin
+
 # Streamable-HTTP MCP clients preflight with Mcp-Protocol-Version; SSE may use Last-Event-ID.
 _BASE_ALLOW_HEADERS = (
     "Content-Type",
@@ -37,8 +39,12 @@ PREFLIGHT_MAX_AGE = "86400"
 
 
 def is_safe_origin(origin: str) -> bool:
-    """True when Origin is a localhost loopback URL (CORS reflection allowed)."""
-    return bool(_ORIGIN_RE.match(origin))
+    """True when Origin may receive Access-Control-Allow-Origin reflection."""
+    if not origin:
+        return False
+    if _ORIGIN_RE.match(origin):
+        return True
+    return is_extra_allowed_origin(origin)
 
 
 def merge_allow_headers(access_control_request_headers: str | None) -> str:

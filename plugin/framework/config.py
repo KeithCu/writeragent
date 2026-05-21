@@ -379,6 +379,14 @@ class WriterAgentConfig:
                     self._extra_config[k] = default_val if default_val is not None else v
             elif t == "boolean":
                 self._extra_config[k] = as_bool(v)
+            elif t == "list":
+                if isinstance(v, list):
+                    self._extra_config[k] = v
+                elif isinstance(v, str) and v.strip():
+                    self._extra_config[k] = [v.strip()]
+                else:
+                    default_val = _get_schema_default(k)
+                    self._extra_config[k] = default_val if isinstance(default_val, list) else []
 
         self.endpoint = normalize_endpoint_url(str(self.endpoint or ""), is_openwebui=self.is_openwebui)
 
