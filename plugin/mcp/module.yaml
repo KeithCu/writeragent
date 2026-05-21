@@ -19,14 +19,14 @@ config:
     widget: number
     label: MCP Port
     public: true
+  cors_allow_private_origins:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Allow CORS from local origins
+    helper: "Automatic for .local, .lan, .home.arpa, .internal, and LAN IPs in the browser Origin. For other hosts, add mcp.cors_allowed_origins in writeragent.json."
+    public: true
   cors_allowed_origins:
     type: list
     default: []
     internal: true
-  cors_allowed_origin:
-    type: string
-    default: ""
-    widget: text
-    label: Additional CORS origin
-    helper: "Browser clients only (e.g. https://localai.local). Stored in mcp.cors_allowed_origins; add more entries in writeragent.json."
-    public: true

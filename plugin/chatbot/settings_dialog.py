@@ -110,12 +110,7 @@ def _get_module_field_specs(ctx):
                 ctrl_id = f"{prefix}__{field_name}"
                 config_key = f"{m_name}.{field_name}"
 
-                if m_name == "mcp" and field_name == "cors_allowed_origin":
-                    from plugin.mcp.cors_origins import first_origin_for_ui, normalize_origins_list
-
-                    val = first_origin_for_ui(normalize_origins_list(get_config(ctx, "mcp.cors_allowed_origins")))
-                else:
-                    val = get_config(ctx, config_key)
+                val = get_config(ctx, config_key)
                 opts = schema.get("options", [])
 
                 # For select/combo with value/label options, use label for display so dropdown shows correctly
@@ -167,25 +162,14 @@ def apply_settings_result(ctx, result):
     
     current_endpoint = effective_endpoint or get_current_endpoint(ctx)
 
-    if "mcp__cors_allowed_origin" in result:
-        from plugin.mcp.cors_origins import MCP_CORS_ORIGINS_KEY, merge_ui_origin_into_list, normalize_origins_list
-
-        existing = normalize_origins_list(get_config(ctx, MCP_CORS_ORIGINS_KEY))
-        merged = merge_ui_origin_into_list(existing, result.get("mcp__cors_allowed_origin"))
-        set_config(ctx, MCP_CORS_ORIGINS_KEY, merged)
-
     # Apply most keys directly
-    _apply_skip = ("endpoint", "api_key", "use_aihorde", "mcp__cors_allowed_origin")
+    _apply_skip = ("endpoint", "api_key", "use_aihorde")
     for key, val in result.items():
         if key in _apply_skip or key not in field_specs_by_name:
             continue
             
         spec = field_specs_by_name[key]
         save_key = key.replace("__", ".")
-
-        # UI-only field; persisted via mcp.cors_allowed_origins list above.
-        if save_key == "mcp.cors_allowed_origin":
-            continue
 
         # Type conversion
         if key in int_field_names:

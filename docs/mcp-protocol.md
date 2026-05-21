@@ -54,18 +54,25 @@ Expect:
 - **`Access-Control-Allow-Headers`** containing `Mcp-Protocol-Version` (any casing)
 - **`Access-Control-Expose-Headers`**: `Mcp-Session-Id, Mcp-Protocol-Version`
 
-### Extra browser origins (`mcp.cors_allowed_origins`)
+### Browser CORS (local/private origins + optional list)
 
-Browser MCP clients (e.g. LocalAI at `https://localai.local`) send a non-loopback `Origin`. By default WriterAgent **does not** reflect those origins, so the browser blocks `POST /mcp` after a successful OPTIONS preflight.
+Browser MCP clients send an `Origin` header (e.g. `https://localai.local`). The server must reflect that exact origin in `Access-Control-Allow-Origin` (no wildcard patterns).
 
-- **Settings → MCP → Additional CORS origin (browser MCP):** edits the **first** entry (e.g. `https://localai.local`).
-- **Full list in `writeragent.json`:** JSON array `mcp.cors_allowed_origins` — add more origins manually:
+**Settings → MCP → Allow CORS from local/private browser origins** (`mcp.cors_allow_private_origins`, default **on**): automatically allows Origins whose host is:
+
+- A suffix: `.local`, `.lan`, `.home.arpa`, `.internal` (e.g. `https://localai.local`, `http://nas.lan:8080`)
+- A private or link-local IP in the Origin (e.g. `http://192.168.1.50:3000`)
+
+**Loopback** (`localhost`, `127.0.0.1`, `[::1]`) is always allowed without the checkbox.
+
+**Optional explicit list** — only for origins **not** covered above (e.g. public `https://app.company.com`). Edit `writeragent.json` (not the Settings dialog):
 
 ```json
-"mcp.cors_allowed_origins": ["https://localai.local", "https://other.local"]
+"mcp.cors_allow_private_origins": true,
+"mcp.cors_allowed_origins": ["https://tools.mycompany.com"]
 ```
 
-Loopback origins do not need to be listed. Implementation: [`plugin/mcp/cors_origins.py`](../plugin/mcp/cors_origins.py).
+Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_origins`. Implementation: [`plugin/mcp/cors.py`](../plugin/mcp/cors.py), [`plugin/mcp/cors_origins.py`](../plugin/mcp/cors_origins.py).
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 
@@ -77,7 +84,7 @@ Loopback origins do not need to be listed. Implementation: [`plugin/mcp/cors_ori
 
 | Log line | Meaning |
 |----------|---------|
-| `[MCP-CORS] OPTIONS /mcp … safe=False` or `allow_origin=omit` | Origin not loopback and not in `mcp.cors_allowed_origins` — browser blocks POST; add origin in Settings or JSON. |
+| `[MCP-CORS] OPTIONS /mcp … safe=False` or `allow_origin=omit` | Origin not allowed — enable `mcp.cors_allow_private_origins` or add host to `mcp.cors_allowed_origins` in `writeragent.json`. |
 | `[MCP-CORS] OPTIONS /mcp` only, **no** `[MCP-HTTP] POST /mcp` | Preflight reached server; **POST never arrived** (CORS or client config). |
 | `[MCP-HTTP] POST /mcp` but **no** `[MCP] <<< initialize` | POST hit HTTP layer then failed parsing, routing, or protocol version (see `rejected unsupported Mcp-Protocol-Version`). |
 | `[MCP-HTTP] POST /mcp` + `[MCP] <<< initialize` + `[MCP] >>> initialize -> 200` | Server side OK; failure is likely in the host app reading session headers or later JSON-RPC calls. |

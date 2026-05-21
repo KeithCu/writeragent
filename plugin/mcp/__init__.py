@@ -21,7 +21,7 @@ import threading
 from typing import Any, cast
 
 from plugin.framework.module_base import ModuleBase
-from plugin.mcp.cors_origins import reload_extra_allowed_origins_from_config
+from plugin.mcp.cors_origins import reload_cors_policy_from_config
 from plugin.mcp.server import mcp_endpoint_url
 
 log = logging.getLogger("writeragent.http")
@@ -85,7 +85,7 @@ class McpModule(ModuleBase):
             if mcp_enabled:
                 self._register_mcp_routes(services)
 
-            reload_extra_allowed_origins_from_config(services)
+            reload_cors_policy_from_config(services)
 
             if hasattr(services, "events"):
                 services.events.subscribe("config:changed", self._on_config_changed)
@@ -111,12 +111,13 @@ class McpModule(ModuleBase):
         if key and not key.startswith(prefix):
             return
         toggle_key = f"{prefix}mcp_enabled"
-        cors_key = f"{prefix}cors_allowed_origins"
-        # MCP lifecycle: toggle, CORS list, or bulk apply (Settings dialog does not pass key).
-        if key and key not in (toggle_key, cors_key, ""):
+        cors_list_key = f"{prefix}cors_allowed_origins"
+        cors_private_key = f"{prefix}cors_allow_private_origins"
+        # MCP lifecycle: toggle, CORS policy keys, or bulk apply (Settings OK).
+        if key and key not in (toggle_key, cors_list_key, cors_private_key, ""):
             return
 
-        reload_extra_allowed_origins_from_config(self._services)
+        reload_cors_policy_from_config(self._services)
 
         cfg = self._services.config.proxy_for(self.name)
         enabled = cfg.get("mcp_enabled")
@@ -136,7 +137,7 @@ class McpModule(ModuleBase):
         global _shared_http_server
         from plugin.mcp.server import HttpServer
 
-        reload_extra_allowed_origins_from_config(services)
+        reload_cors_policy_from_config(services)
 
         with self._srv_lock:
             bound = self._bound_http_server()

@@ -5,18 +5,22 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""CORS allowed-origin list: normalize, Settings UI merge, runtime cache."""
+"""CORS policy: normalize explicit origins list, private/local origin rules, runtime cache."""
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
 MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
-MCP_CORS_UI_FIELD = "mcp__cors_allowed_origin"
+
+_PRIVATE_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal")
 
 _extra_allowed_origins: frozenset[str] = frozenset()
+_allow_private_origins: bool = True
 
 
 def normalize_cors_origin(value: str | None) -> str | None:
@@ -53,29 +57,42 @@ def normalize_origins_list(value) -> list[str]:
     return out
 
 
-def merge_ui_origin_into_list(origins: list[str], ui_value: str | None) -> list[str]:
-    """Settings UI edits index 0 only; preserve origins[1:]."""
-    normalized = normalize_origins_list(origins)
-    tail = normalized[1:] if normalized else []
-    first = normalize_cors_origin(ui_value)
-    if first:
-        return [first, *tail]
-    return tail
-
-
-def first_origin_for_ui(origins: list[str]) -> str:
-    normalized = normalize_origins_list(origins)
-    return normalized[0] if normalized else ""
+def is_private_browser_origin(origin: str) -> bool:
+    """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
+    normalized = normalize_cors_origin(origin)
+    if not normalized:
+        return False
+    parsed = urlparse(normalized)
+    host = parsed.hostname
+    if not host:
+        return False
+    h = host.lower()
+    if h.endswith(_PRIVATE_SUFFIXES):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
 
 
 def set_extra_allowed_origins(origins) -> None:
-    """Update the in-process cache used by is_safe_origin (HTTP threads, no ctx)."""
+    """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""
     global _extra_allowed_origins
     _extra_allowed_origins = frozenset(normalize_origins_list(origins))
 
 
 def get_extra_allowed_origins() -> frozenset[str]:
     return _extra_allowed_origins
+
+
+def get_allow_private_origins() -> bool:
+    return _allow_private_origins
+
+
+def set_allow_private_origins(allow: bool) -> None:
+    global _allow_private_origins
+    _allow_private_origins = bool(allow)
 
 
 def is_extra_allowed_origin(origin: str) -> bool:
@@ -85,15 +102,24 @@ def is_extra_allowed_origin(origin: str) -> bool:
     return bool(normalized and normalized in _extra_allowed_origins)
 
 
-def reload_extra_allowed_origins_from_config(services) -> None:
-    """Read mcp.cors_allowed_origins from the config service and refresh the cache."""
+def reload_cors_policy_from_config(services) -> None:
+    """Refresh CORS caches from mcp config (explicit list + private-origin checkbox)."""
     try:
         cfg = services.config.proxy_for("mcp")
         raw = cfg.get("cors_allowed_origins")
+        allow_private = cfg.get("cors_allow_private_origins")
     except Exception as e:
-        log.warning("Could not load cors_allowed_origins: %s", e)
+        log.warning("Could not load MCP CORS config: %s", e)
         raw = []
+        allow_private = True
     origins = normalize_origins_list(raw)
     set_extra_allowed_origins(origins)
+    set_allow_private_origins(allow_private if allow_private is not None else True)
     if origins:
-        log.info("MCP CORS extra allowed origins: %s", ", ".join(origins))
+        log.info("MCP CORS explicit allowed origins: %s", ", ".join(origins))
+    log.debug("MCP CORS allow private/local browser origins: %s", _allow_private_origins)
+
+
+def reload_extra_allowed_origins_from_config(services) -> None:
+    """Backward-compatible alias for reload_cors_policy_from_config."""
+    reload_cors_policy_from_config(services)

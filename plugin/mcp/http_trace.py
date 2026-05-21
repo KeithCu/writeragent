@@ -10,7 +10,7 @@
 import logging
 
 from plugin.mcp.cors import is_safe_origin, merge_allow_headers
-from plugin.mcp.cors_origins import is_extra_allowed_origin
+from plugin.mcp.cors_origins import get_allow_private_origins, is_extra_allowed_origin, is_private_browser_origin
 
 log = logging.getLogger("writeragent.mcp.http")
 
@@ -46,13 +46,20 @@ def log_cors_preflight(handler, path: str) -> None:
     requested_headers = _header(handler, "Access-Control-Request-Headers")
     allow_origin = bool(origin and is_safe_origin(origin))
     extra = bool(origin and is_extra_allowed_origin(origin))
+    private = bool(
+        origin
+        and get_allow_private_origins()
+        and is_private_browser_origin(origin)
+        and not extra
+    )
     log.info(
-        "[MCP-CORS] OPTIONS %s from %s origin=%r safe=%s extra_allowed=%s request_method=%r request_headers=%r allow_origin=%s allow_headers=%r",
+        "[MCP-CORS] OPTIONS %s from %s origin=%r safe=%s explicit_list=%s private_rule=%s request_method=%r request_headers=%r allow_origin=%s allow_headers=%r",
         path,
         _client(handler),
         origin,
         allow_origin,
         extra,
+        private,
         requested_method,
         requested_headers,
         "reflect" if allow_origin else "omit",
@@ -61,7 +68,7 @@ def log_cors_preflight(handler, path: str) -> None:
     if origin and not allow_origin:
         log.warning(
             "[MCP-CORS] OPTIONS %s: Origin %r is not allowed — browser will block POST (no Access-Control-Allow-Origin). "
-            "Add it under mcp.cors_allowed_origins in Settings or writeragent.json.",
+            "Enable mcp.cors_allow_private_origins or add the origin to mcp.cors_allowed_origins in writeragent.json.",
             path,
             origin,
         )

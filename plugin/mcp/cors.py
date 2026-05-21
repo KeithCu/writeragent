@@ -18,7 +18,7 @@
 
 import re
 
-from plugin.mcp.cors_origins import is_extra_allowed_origin
+from plugin.mcp.cors_origins import get_allow_private_origins, is_extra_allowed_origin, is_private_browser_origin
 
 # Streamable-HTTP MCP clients preflight with Mcp-Protocol-Version; SSE may use Last-Event-ID.
 _BASE_ALLOW_HEADERS = (
@@ -44,7 +44,11 @@ def is_safe_origin(origin: str) -> bool:
         return False
     if _ORIGIN_RE.match(origin):
         return True
-    return is_extra_allowed_origin(origin)
+    if is_extra_allowed_origin(origin):
+        return True
+    if get_allow_private_origins() and is_private_browser_origin(origin):
+        return True
+    return False
 
 
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
