@@ -99,7 +99,7 @@ Production wiring (2026-05):
 |----------|------|
 | [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: pack/unpack, threshold, `describe_wire_value` for logs |
 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
-| [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | `=PYTHON()` ingress pack + `host_unpack_data` on large list results for matrix/session |
+| [`plugin/calc/python_function.py`](../plugin/calc/python_function.py) | `=PYTHON()` ingress pack + `host_unpack_data` on large list results for matrix/session |
 | [`plugin/calc/venv_python.py`](../plugin/calc/venv_python.py) | Chat tool ingress pack |
 | [`plugin/scripting/venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
@@ -134,7 +134,7 @@ Calc UNO range
 | Host encode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `json.dumps` of request dict | Smaller line for blob; still O(cells) base64 |
 | Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | ~13× faster materialize vs `np.array(list)` at 10⁶ cells (bench) |
 | Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame still `to_dict(orient="records")` | Large ndarray egress as blob, not `.tolist()` |
-| Calc return | [`prompt_function.py`](../plugin/calc/prompt_function.py) | `host_unpack_data` when expanding matrix results | Lists only where Calc needs per-cell scalars |
+| Calc return | [`python_function.py`](../plugin/calc/python_function.py) | `host_unpack_data` when expanding matrix results | Lists only where Calc needs per-cell scalars |
 
 **Not used:** pickle, msgpack, mmap, shared memory. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
@@ -154,7 +154,7 @@ Calc UNO range
 
 - Return **scalars or small summaries** from the venv (`result = float(np.mean(arr))`) instead of full arrays when the LLM only needs a number.
 - Use the **two-phase workflow**: compute in venv, insert via existing Calc tools with a compact payload — avoid shipping a 10⁵-element list through chat JSON twice.
-- For **matrix `=PYTHON()`**, prefer the `ROW()-1` index form so one worker run fills a session cache ([`finalize_python_return`](../plugin/calc/prompt_function.py)), not N full round-trips with the same `data`.
+- For **matrix `=PYTHON()`**, prefer the `ROW()-1` index form so one worker run fills a session cache ([`finalize_python_return`](../plugin/calc/python_function.py)), not N full round-trips with the same `data`.
 - Tighten ranges (`collapse`-style) in the sheet or strip `None` in Python before heavy work.
 
 Best when: mixed types (strings, blanks, dates), small ranges, or logic dominates runtime.
@@ -415,7 +415,7 @@ Best when: payload size makes JSON impractical and benchmarks show copy/parse co
 | Consumer | Needs | Implication |
 |----------|-------|-------------|
 | Chat / LLM | JSON-serializable `result` | Prefer summaries, small lists, or “wrote range X1:Y10 via tool” after RPC ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)) |
-| `=PYTHON()` scalar | Single double/string/bool | Large arrays already use session + index ([`prompt_function.py`](../plugin/calc/prompt_function.py)); returning a blob handle does not help per-cell bridge |
+| `=PYTHON()` scalar | Single double/string/bool | Large arrays already use session + index ([`python_function.py`](../plugin/calc/python_function.py)); returning a blob handle does not help per-cell bridge |
 | `write_formula_range` | Nested lists on host | Host must decode binary envelope → lists once, or RPC streams from host without round-tripping through venv JSON |
 
 Large **egress** arrays: same tiers as ingress (binary envelope or temp file + host reads into Calc), or skip egress entirely via tool RPC writing directly to the sheet.
@@ -491,7 +491,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_formula_range`”, not 10⁵-element lists in `result`. |
-| **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/prompt_function.py); avoid N recalcs each resending the same `data`. |
+| **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/python_function.py); avoid N recalcs each resending the same `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [Tier 0](#tier-0--keep-json-reduce-crossings-no-protocol-change) and [core two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).

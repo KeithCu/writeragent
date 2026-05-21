@@ -6,10 +6,22 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 from typing import Any
 
 import unohelper
+
+
+def ensure_addin_paths() -> None:
+    """Insert extension root and plugin/ on sys.path (idempotent)."""
+    calc_dir = os.path.dirname(os.path.abspath(__file__))
+    plugin_dir = os.path.dirname(calc_dir)
+    ext_root = os.path.dirname(plugin_dir)
+    for path in (ext_root, plugin_dir, calc_dir):
+        if path not in sys.path:
+            sys.path.insert(0, path)
 
 
 @dataclass(frozen=True)

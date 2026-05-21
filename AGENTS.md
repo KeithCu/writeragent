@@ -47,7 +47,7 @@
 - **Extend / Edit selection:** Writer uses `get_string_without_tracked_deletions()` for prompts; undo/session details in [`plugin/doc/document_helpers.py`](plugin/doc/document_helpers.py).
 - **Settings:** `writeragent.json` under the LibreOffice user profile—see **Config** in [Tips](#tips-and-sharp-edges); keys and validation in [`plugin/framework/config.py`](plugin/framework/config.py).
 - **Memory (experimental):** [`plugin/chatbot/memory.py`](plugin/chatbot/memory.py); `MEMORY_GUIDANCE` in [`plugin/framework/constants.py`](plugin/framework/constants.py)—full notes [docs/agent-memory-and-skills.md](docs/agent-memory-and-skills.md).
-- **Calc:** `=PROMPT()` — [`plugin/prompt_function.py`](plugin/prompt_function.py).
+- **Calc:** `=PROMPT()` — [`plugin/calc/prompt_addin.py`](plugin/calc/prompt_addin.py) / [`plugin/calc/prompt_function.py`](plugin/calc/prompt_function.py); `=PYTHON()` — [`plugin/calc/python_addin.py`](plugin/calc/python_addin.py) / [`plugin/calc/python_function.py`](plugin/calc/python_function.py).
 - **Eval / benchmarks:** [`scripts/prompt_optimization/README.md`](scripts/prompt_optimization/README.md), [`docs/eval-dev-plan.md`](docs/eval-dev-plan.md).
 
 **Python:** Dev/tooling **3.11–3.14** ([`pyproject.toml`](pyproject.toml)); **extension runtime** is whatever LibreOffice bundles (often older). **Shipped code under `plugin/` must not rely on stdlib newer than that runtime.**

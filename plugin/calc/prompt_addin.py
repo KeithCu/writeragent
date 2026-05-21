@@ -7,17 +7,19 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from plugin.calc._addin_path import ensure_addin_paths
+from plugin.calc.addin_common import ensure_addin_paths
+
+if TYPE_CHECKING:
+    from plugin.framework.client.llm_client import LlmClient
 
 ensure_addin_paths()
 
 import unohelper  # noqa: E402
 
 from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase  # noqa: E402
-from plugin.calc.calc_prompt_handlers import execute_prompt_addin  # noqa: E402
-from plugin.framework.client.llm_client import LlmClient  # noqa: E402
+from plugin.calc.prompt_function import execute_prompt_addin  # noqa: E402
 
 log = logging.getLogger(__name__)
 

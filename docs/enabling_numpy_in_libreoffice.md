@@ -77,7 +77,7 @@ Module implementation: `plugin/scripting/` (no top-level `python/` package — a
 | Entry | Module | Notes |
 |-------|--------|-------|
 | Chat tool **`run_venv_python_script`** | [`plugin/calc/venv_python.py`](plugin/calc/venv_python.py) | Specialized domain `python`; Writer/Calc/Draw when delegated |
-| Calc **`=PYTHON(code, data?)`** | [`plugin/calc/prompt_function.py`](plugin/calc/prompt_function.py) via add-in | Same runner as the chat tool |
+| Calc **`=PYTHON(code, data?)`** | [`plugin/calc/python_addin.py`](plugin/calc/python_addin.py) / [`plugin/calc/python_function.py`](plugin/calc/python_function.py) | Same runner as the chat tool |
 | Shared runner | [`plugin/scripting/run_venv_code.py`](plugin/scripting/run_venv_code.py) | Only entry for venv subprocess execution |
 | In-process **`execute_python_script`** | [`plugin/calc/python_executor.py`](plugin/calc/python_executor.py) | LO embedded Python, stdlib sandbox, `lp()` / `set_range` helpers; **not** used by `=PYTHON()` |
 
@@ -393,7 +393,7 @@ When you pass a range (or cell reference) as the second argument to `=PYTHON(cod
 
 Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped at `MAX_PYTHON_DATA_CELLS` (default 250 000).
 
-**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): JSON list or `split_grid`; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → JSON worker line → `child_unpack_data` (ndarray or list when split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → host `host_unpack_data` where lists are needed ([`prompt_function.py`](../plugin/calc/prompt_function.py)).
+**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): JSON list or `split_grid`; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → JSON worker line → `child_unpack_data` (ndarray or list when split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → host `host_unpack_data` where lists are needed ([`python_function.py`](../plugin/calc/python_function.py)).
 
 **Gaps vs LibrePythonista (workarounds):** one range only (use multiple cells or chat `data_range`); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 
@@ -569,7 +569,7 @@ There is **no** documented LibreOffice UNO API for “load this image in the bac
 |-----------|--------|
 | Warm worker + JSON line protocol | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py), [`worker_harness.py`](../plugin/scripting/worker_harness.py), [`run_venv_code.py`](../plugin/scripting/run_venv_code.py) |
 | AST sandbox per request | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
-| `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`prompt_function.py`](../plugin/calc/prompt_function.py) |
+| `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/venv_python.py), [`python_function.py`](../plugin/calc/python_function.py) |
 | **Unified `split_grid`** | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — host pack/unpack (stdlib); child `frombuffer` + strings overlay; **≥10 cells** (numeric or mixed) |
 | Calc ingress | [`pack_calc_data_for_wire`](../plugin/calc/calc_addin_data.py) |
 | Bench + tests | [`scripts/bench_serialization.py`](../scripts/bench_serialization.py), [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py), [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) |

@@ -56,13 +56,13 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### Overrides, bases, and variance
 
 - **`reportIncompatibleMethodOverride`**: Pyright checks **return types and container types** against **`types-unopy`** strictly. Examples: **`XDispatchProvider.queryDispatch`** returning **`None`** where the stub expects **`XDispatch`**, or **`queryDispatches`** returning a **list** where the stub expects a **tuple**. Runtime UNO often allows this; **fix** is either to match the stub shape or a **targeted `# pyright: ignore[reportIncompatibleMethodOverride]`** on that method (**`DispatchHandler`** in **`main.py`**).
-- **`reportGeneralTypeIssues`**: A **second base class** loaded from the Java/IDL bridge (e.g. **`XPromptFunction`** from **`org.extension.writeragent`**) is not always treated as a valid class base. **Fix**: stub base inheriting **`unohelper.Base`** for **`ImportError`** fallbacks, plus **`# pyright: ignore[reportGeneralTypeIssues]`** on the concrete class when the real IDL base is present (**`prompt_function.py`**).
+- **`reportGeneralTypeIssues`**: A **second base class** loaded from the Java/IDL bridge (e.g. **`XPromptFunction`** from **`org.extension.writeragent`**) is not always treated as a valid class base. **Fix**: stub base inheriting **`unohelper.Base`** for **`ImportError`** fallbacks, plus **`# pyright: ignore[reportGeneralTypeIssues]`** on the concrete class when the real IDL base is present (**`prompt_addin.py`** / **`python_addin.py`**).
 - **`reportIncompatibleVariableOverride`**: Multiple mixins declaring the **same attribute** (e.g. **`client`**) with types that Pyright considers **incompatible under invariance** (mutable **`Protocol`** fields vs concrete class). **`ty`** may not emit the same diagnostic; resolving it may require aligning annotations, widening a **`Protocol`** field, or structural refactors (**chatbot panel / mixins**).
 - **`list` invariance** (Pyright / strict typing): Passing **`list[ChatMessage]`** where an API is typed as **`list[ChatMessage | dict[...]]`** can fail in Pyright; **`ty`** may be looser. **Fix**: **`cast(...)`** or widen the target API type (**`smol_model`** paths).
 
 ### Config and JSON-shaped values
 
-- **`reportArgumentType`** on **`int(...)`**: **`get_config(ctx, key)`** is effectively **JSON-shaped** (**`Any`** / wide unions). Pyright rejects **`int(get_config(...))`** when the inferred type includes non-numeric shapes. **Fix**: use **`get_config_int` / `get_config_str`** with an explicit **`-> int`** (or **`str`**) helper signature (**`config.py`**, call sites such as **`prompt_function.py`**).
+- **`reportArgumentType`** on **`int(...)`**: **`get_config(ctx, key)`** is effectively **JSON-shaped** (**`Any`** / wide unions). Pyright rejects **`int(get_config(...))`** when the inferred type includes non-numeric shapes. **Fix**: use **`get_config_int` / `get_config_str`** with an explicit **`-> int`** (or **`str`**) helper signature (**`config.py`**, call sites such as **`prompt_function.py`** for `=PROMPT()`).
 
 ### `dict` payload widening
 

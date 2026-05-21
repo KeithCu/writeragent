@@ -39,7 +39,7 @@ def _cell_value(sheet, col, row):
 
 @native_test
 def test_finalize_python_return_helpers():
-    from plugin.calc.calc_python_helpers import finalize_python_return, is_scalar_index_arg as _is_scalar_index_arg
+    from plugin.calc.python_function import finalize_python_return, is_scalar_index_arg as _is_scalar_index_arg
 
     class _Ctx:
         pass
@@ -61,7 +61,7 @@ def test_python_matrix_via_index_argument():
     primes = [7919.0, 7927.0, 7933.0, 7937.0, 7949.0, 7951.0]
     func = PythonFunction(_test_ctx)
     code = "result = [sp.prime(x) for x in range(1000, 1006)]"
-    with unittest.mock.patch("plugin.calc.calc_python_handlers.run_code_in_user_venv") as mock_run:
+    with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [int(p) for p in primes]}
         for row, expected in enumerate(primes):
             res = func.python(code, row)
@@ -76,7 +76,7 @@ def test_python_matrix_via_session_counter():
 
     func = PythonFunction(_test_ctx)
     code = "result = [2, 3, 5]"
-    with unittest.mock.patch("plugin.calc.calc_python_handlers.run_code_in_user_venv") as mock_run:
+    with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
         assert func.python(code) == 2.0
         assert func.python(code) == 3.0

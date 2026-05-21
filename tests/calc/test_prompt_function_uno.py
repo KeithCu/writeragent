@@ -46,7 +46,7 @@ def test_python_addin_metadata():
 @native_test
 def test_python_addin_execution():
     from plugin.calc.python_addin import PythonFunction
-    from plugin.calc.calc_python_helpers import MATRIX_SCALAR_SESSIONS
+    from plugin.calc.python_function import MATRIX_SCALAR_SESSIONS
     import unittest.mock
 
     if hasattr(MATRIX_SCALAR_SESSIONS, "sessions"):
@@ -55,7 +55,7 @@ def test_python_addin_execution():
     func = PythonFunction(_ctx)
 
     try:
-        with unittest.mock.patch("plugin.calc.calc_python_handlers.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python_function.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "ok", "result": 42}
             res = func.python("result = 21 * 2")
             assert res == 42.0

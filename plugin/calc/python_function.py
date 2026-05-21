@@ -3,15 +3,21 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared helpers for =PYTHON() (Calc types, matrix session, return coercion)."""
+"""=PYTHON() execution and return helpers (venv worker); no LLM imports."""
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any
 
-from plugin.calc.calc_addin_data import count_cells
+from plugin.calc.calc_addin_data import calc_addin_data_to_python, check_python_data_size, count_cells, pack_calc_data_for_wire
+from plugin.framework.errors import format_error_payload
+from plugin.framework.i18n import _
 from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
+from plugin.scripting.run_venv_code import run_code_in_user_venv
+
+log = logging.getLogger(__name__)
 
 # Calc legacy add-in bridge accepts scalar double/string returns only. List results are
 # emitted one scalar per formula evaluation (matrix block or repeated recalc).
@@ -168,3 +174,56 @@ def finalize_python_return(
             return to_calc_compatible(flat[idx])
         return scalar_for_list_result(ctx, code, result, worker_data=worker_data)
     return to_calc_compatible(result)
+
+
+def _format_error_for_display(exc: BaseException) -> str:
+    """Cell-safe error text without importing ``plugin.framework.client`` (loads LLM stack)."""
+    err: Exception = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
+    payload = format_error_payload(err)
+    return _("Error: {0}").format(payload.get("message", str(exc)))
+
+
+def execute_python_addin(ctx: Any, code: str, data: Any = None) -> Any:
+    """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
+    log.debug("=== PYTHON(%r, data=%r) ===", code, data)
+    try:
+        py_data = calc_addin_data_to_python(data)
+        log.debug("PYTHON parsed py_data: %r", py_data)
+        index_arg = None
+        if py_data is not None and is_scalar_index_arg(py_data) and not is_split_grid(py_data):
+            index_arg = py_data[0]
+        if py_data is not None:
+            size_err = check_python_data_size(py_data)
+            if size_err:
+                ret = f"Error: {size_err}"
+                log.debug("PYTHON returning size error: %r", ret)
+                return ret
+            py_data = pack_calc_data_for_wire(py_data)
+        worker_data = py_data
+        # Synchronous: =PYTHON() runs during Calc recalc; UI event pumping from
+        # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
+        sessions = getattr(MATRIX_SCALAR_SESSIONS, "sessions", None)
+        if sessions is None:
+            sessions = {}
+            MATRIX_SCALAR_SESSIONS.sessions = sessions
+        cache_key = (session_key(ctx, code), repr(worker_data))
+        cached = sessions.get(cache_key)
+        if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
+            res = {"status": "ok", "result": cached.raw}
+        else:
+            res = run_code_in_user_venv(ctx, code, data=worker_data)
+        log.debug("PYTHON res from worker: %r", res)
+        if res.get("status") == "ok":
+            result = worker_result_for_calc(res.get("result"))
+            log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
+            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data)
+            log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
+            return final_ret
+        err_msg = f"Error: {res.get('message') or res.get('error')}"
+        log.debug("PYTHON returning worker error: %r", err_msg)
+        return err_msg
+    except Exception as e:
+        log.exception("PYTHON unexpected error during execution")
+        err_msg = _format_error_for_display(e)
+        log.debug("PYTHON returning exception wrapper: %r", err_msg)
+        return err_msg

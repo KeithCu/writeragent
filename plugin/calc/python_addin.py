@@ -9,14 +9,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.calc._addin_path import ensure_addin_paths
+from plugin.calc.addin_common import ensure_addin_paths
 
 ensure_addin_paths()
 
 import unohelper  # noqa: E402
 
 from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase  # noqa: E402
-from plugin.calc.calc_python_handlers import execute_python_addin  # noqa: E402
+from plugin.calc.python_function import execute_python_addin  # noqa: E402
 
 log = logging.getLogger(__name__)
 
