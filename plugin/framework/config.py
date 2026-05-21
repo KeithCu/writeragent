@@ -303,7 +303,7 @@ class WriterAgentConfig:
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
     # Persists the last code entered in the 'Run Python Script' dialog.
     last_python_script: str = (
-        "# Get primes 1000th through 1005th (sp is auto-imported)\n"
+        "# Get primes 1000th through 1005th (sp is auto-imported)\n\n"
         "prime_numbers = [sp.prime(i) for i in range(1000, 1006)]\n\n"
         "result = {\n"
         "    \"title\": \"Primes 1000th to 1005th\",\n"
