@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Rebuild extension/XPromptFunction.rdb from extension/idl/XPromptFunction.idl
+# Rebuild extension/XPromptFunction.rdb from Calc add-in IDL (python + prompt).
 # Requires LibreOffice SDK (libreoffice-fresh-sdk): unoidl-write
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IDL="$ROOT/extension/idl/XPromptFunction.idl"
+IDL_PYTHON="$ROOT/extension/idl/XPythonFunction.idl"
+IDL_PROMPT="$ROOT/extension/idl/XPromptFunction.idl"
 RDB="$ROOT/extension/XPromptFunction.rdb"
 SDK_HOME="${OO_SDK_HOME:-/usr/lib/libreoffice/sdk}"
 UNOIDLWRITE="${SDK_HOME}/bin/unoidl-write"
@@ -24,5 +25,5 @@ for f in "$URE_TYPES" "$OFFICE_TYPES"; do
 done
 
 rm -f "$RDB"
-"$UNOIDLWRITE" "$URE_TYPES" "$OFFICE_TYPES" "$IDL" "$RDB"
-echo "Wrote $RDB ($(wc -c <"$RDB") bytes)"
+"$UNOIDLWRITE" "$URE_TYPES" "$OFFICE_TYPES" "$IDL_PYTHON" "$IDL_PROMPT" "$RDB"
+echo "Wrote $RDB ($(wc -c <"$RDB") bytes) from XPythonFunction.idl + XPromptFunction.idl"
