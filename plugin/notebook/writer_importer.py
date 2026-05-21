@@ -9,16 +9,20 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
+import struct
+import tempfile
 import time
 from typing import Any
 
 from com.sun.star.awt import Point, Size
+from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.contrib.nbformat import read_ipynb
-from plugin.writer.specialized.forms import _get_form_draw_page
+from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -35,6 +39,10 @@ _SLOW_ADD_MS = 2000
 _MAX_IMPORT_TEXT_CHARS = 50_000
 _TRUNCATION_SUFFIX = "\n\n[… truncated for import …]"
 _MAX_OUTPUTS_PER_CELL = 200
+_MAX_IMAGE_DECODE_BYTES = 8 * 1024 * 1024
+_MAX_IMAGE_DISPLAY_WIDTH_MM = 140
+_DEFAULT_IMAGE_HEIGHT_MM = 80
+_IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg"}
 
 # Writer paragraph styles (document locale usually provides these English names).
 _STYLE_CELL_HEADING = "Heading 2"
@@ -42,7 +50,6 @@ _STYLE_SECTION_HEADING = "Heading 3"
 _STYLE_OUTPUT = "Preformatted Text"
 _STYLE_BODY = "Text Body"
 
-# PNG / GraphicObject import: full implementation kept in ''' ... ''' below (disabled for perf).
 _PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 
 
@@ -140,11 +147,8 @@ def format_output_text(output: Any) -> str:
     if output_type in ("execute_result", "display_data"):
         data = getattr(output, "data", None) or output.get("data", {})
         if isinstance(data, dict):
-            if "image/png" in data or "image/jpeg" in data:
-                '''
-                return "[image/png output — see graphic on draw page if inserted]"
-                '''
-                return "[image output omitted during import]"
+            if _notebook_image_payload(data) is not None:
+                return ""
             plain = _mime_plain(data)
             if plain:
                 return plain
@@ -176,73 +180,103 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int) -> str:
     return "\n\n".join(parts)
 
 
-'''
-# --- PNG output import (draw-page GraphicObject) — uncomment this block to re-enable ---
-import base64
-import tempfile
+def _notebook_image_payload(data: dict[str, Any]) -> tuple[str, str] | None:
+    """Return (mime, base64) for the first supported image bundle in a notebook output."""
+    for mime in ("image/png", "image/jpeg", "image/jpg"):
+        if mime in data:
+            b64 = _coerce_notebook_text(data[mime])
+            if b64.strip():
+                return mime, b64
+    return None
 
-import uno
 
-_MAX_PNG_DECODE_BYTES = 8 * 1024 * 1024
-_PNG_SHAPE_HEIGHT = 8000
+def _png_pixel_size(raw: bytes) -> tuple[int, int] | None:
+    if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    w, h = struct.unpack(">II", raw[16:24])
+    if w < 1 or h < 1:
+        return None
+    return w, h
 
 
-def _try_insert_png_on_draw_page(doc: Any, dp: Any, stack: _ImportStackCursor, b64_data: str) -> bool:
-    """Decode base64 PNG and place a graphic shape on the draw page."""
-    shapes_before = stack.shape_count
+def _display_size_units(raw: bytes, mime: str) -> tuple[int, int]:
+    """Map decoded image bytes to Writer size in 1/100 mm (capped width)."""
+    px_size = _png_pixel_size(raw) if mime == "image/png" else None
+    if px_size is not None:
+        px_w, px_h = px_size
+    else:
+        px_w, px_h = None, None
+    if px_w and px_h:
+        w_mm = px_w * 25.4 / 96
+        h_mm = px_h * 25.4 / 96
+        if w_mm > _MAX_IMAGE_DISPLAY_WIDTH_MM:
+            scale = _MAX_IMAGE_DISPLAY_WIDTH_MM / w_mm
+            w_mm = _MAX_IMAGE_DISPLAY_WIDTH_MM
+            h_mm = h_mm * scale
+        return _mm_to_units(w_mm, h_mm)
+    return _mm_to_units(_MAX_IMAGE_DISPLAY_WIDTH_MM, _DEFAULT_IMAGE_HEIGHT_MM)
+
+
+def _decode_notebook_image(b64_data: str) -> bytes | None:
     b64_data = _coerce_notebook_text(b64_data)
-    png_bytes = len(b64_data)
-    if png_bytes > _MAX_PNG_DECODE_BYTES:
+    if len(b64_data) > _MAX_IMAGE_DECODE_BYTES:
         log.warning(
-            "notebook import skip PNG decode size=%d max=%d",
-            png_bytes,
-            _MAX_PNG_DECODE_BYTES,
+            "notebook import skip image decode size=%d max=%d",
+            len(b64_data),
+            _MAX_IMAGE_DECODE_BYTES,
         )
-        return False
+        return None
     try:
-        raw = base64.b64decode(b64_data, validate=False)
+        return base64.b64decode(b64_data, validate=False)
     except Exception:
-        log.debug("PNG base64 decode failed", exc_info=True)
-        _log_shape_add(step="png", shapes_before=shapes_before, create_ms=0, add_ms=0, ok=False, png_bytes=png_bytes)
-        return False
+        log.debug("notebook image base64 decode failed", exc_info=True)
+        return None
+
+
+def _insert_image_in_flow(
+    doc: Any,
+    *,
+    raw: bytes,
+    mime: str,
+    images_before: int,
+) -> bool:
+    """Embed notebook image output in document flow at body end (TextGraphicObject)."""
+    suffix = _IMAGE_MIME_SUFFIX.get(mime, ".png")
     tmp_path = None
     t0 = time.monotonic()
     try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(raw)
             tmp_path = tmp.name
-        url = uno.systemPathToFileUrl(tmp_path)
-        graphic = doc.createInstance("com.sun.star.graphic.GraphicObject")
-        if graphic is None:
-            _log_shape_add(
-                step="png",
-                shapes_before=shapes_before,
-                create_ms=_mono_ms(t0),
-                add_ms=0,
-                ok=False,
-                png_bytes=len(raw),
-            )
-            return False
-        w, h = _DEFAULT_WIDTH, _PNG_SHAPE_HEIGHT
-        create_ms = _mono_ms(t0)
-        t1 = time.monotonic()
-        graphic.setPosition(stack.place(h))
-        graphic.setSize(Size(w, h))
-        graphic.GraphicURL = url
-        dp.add(graphic)
-        add_ms = _mono_ms(t1)
+        w_units, h_units = _display_size_units(raw, mime)
+        image = _create_embedded_graphic(doc, "writer", _file_url_for_path(tmp_path))
+        _apply_graphic_properties(
+            image,
+            width=w_units,
+            height=h_units,
+            title="Notebook output",
+            description=mime,
+            anchor_type=AS_CHARACTER,
+            inside="writer",
+        )
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        t_add = time.monotonic()
+        text.insertTextContent(cursor, image, False)
+        add_ms = _mono_ms(t_add)
         _log_shape_add(
-            step="png",
-            shape_h=h,
-            shapes_before=shapes_before,
-            create_ms=create_ms,
+            step="image",
+            text_chars=len(raw),
+            shape_h=h_units,
+            shapes_before=images_before,
+            create_ms=_mono_ms(t0),
             add_ms=add_ms,
-            png_bytes=len(raw),
         )
         return True
     except Exception:
-        log.exception("Failed to insert notebook PNG on draw page")
-        _log_shape_add(step="png", shapes_before=shapes_before, create_ms=_mono_ms(t0), add_ms=0, ok=False, png_bytes=png_bytes)
+        log.exception("Failed to insert notebook image in document flow")
+        _log_shape_add(step="image", shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=0, ok=False)
         return False
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -252,14 +286,19 @@ def _try_insert_png_on_draw_page(doc: Any, dp: Any, stack: _ImportStackCursor, b
                 pass
 
 
-def _import_png_outputs_on_draw_page(
-    doc: Any,
-    dp: Any,
-    stack: _ImportStackCursor,
-    outputs: list[Any],
-    cell_index: int,
-) -> int:
-    """Insert image/png outputs as GraphicObject shapes. Returns number of shapes added."""
+def _outputs_contain_image(outputs: list[Any]) -> bool:
+    for output in outputs or []:
+        output_type = getattr(output, "output_type", None) or output.get("output_type", "")
+        if output_type not in ("display_data", "execute_result"):
+            continue
+        data = getattr(output, "data", None) or output.get("data", {})
+        if isinstance(data, dict) and _notebook_image_payload(data) is not None:
+            return True
+    return False
+
+
+def _import_image_outputs_in_flow(doc: Any, outputs: list[Any], cell_index: int, *, images_before: int) -> int:
+    """Insert image/png/jpeg outputs in the document body. Returns number of images added."""
     added = 0
     out_list = outputs or []
     if len(out_list) > _MAX_OUTPUTS_PER_CELL:
@@ -269,13 +308,18 @@ def _import_png_outputs_on_draw_page(
         if output_type not in ("display_data", "execute_result"):
             continue
         data = getattr(output, "data", None) or output.get("data", {})
-        if not isinstance(data, dict) or "image/png" not in data:
+        if not isinstance(data, dict):
             continue
-        b64 = data["image/png"]
-        if isinstance(b64, str) and _try_insert_png_on_draw_page(doc, dp, stack, b64):
+        payload = _notebook_image_payload(data)
+        if payload is None:
+            continue
+        mime, b64 = payload
+        raw = _decode_notebook_image(b64)
+        if raw and _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=images_before + added):
             added += 1
+        else:
+            log.debug("notebook import cell=%d skip image mime=%s", cell_index, mime)
     return added
-'''
 
 
 def _log_shape_add(
@@ -364,18 +408,11 @@ def _append_body_text_block(
     *,
     lead_break: bool = True,
 ) -> None:
-    """Append multiple lines as separate paragraphs."""
+    """Append one paragraph; internal newlines stay in the same block."""
     display, _ = _prepare_display_text(block)
     if not display:
         return
-    lines = display.split("\n")
-    for i, line in enumerate(lines):
-        _append_body_paragraph(
-            doc,
-            line,
-            para_style,
-            lead_break=lead_break or i > 0,
-        )
+    _append_body_paragraph(doc, display, para_style, lead_break=lead_break)
 
 
 def _append_cell_heading(doc: Any, title: str, *, lead_break: bool) -> None:
@@ -386,16 +423,19 @@ def _append_section_heading(doc: Any, title: str) -> None:
     _append_body_paragraph(doc, title, _STYLE_SECTION_HEADING, lead_break=True)
 
 
-def _append_code_input_shape(
+def _insert_code_input_in_flow(
     doc: Any,
-    dp: Any,
-    stack: _ImportStackCursor,
     *,
     name: str,
     source: str,
+    controls_before: int,
 ) -> None:
-    """Editable code cell: single form TextField on the draw page (only shape per code cell)."""
-    shapes_before = stack.shape_count
+    """Editable code cell: form TextField anchored in document flow at body end.
+
+    Uses AS_CHARACTER + insertTextContent (same as forms.py Writer path). Without
+    AnchorType, dp.add() on the draw page left controls inside the first heading
+    and inflated page count (~1 soft page break per code cell).
+    """
     display, truncated = _prepare_display_text(_coerce_notebook_text(source))
     raw_chars = len(source or "")
 
@@ -420,12 +460,15 @@ def _append_code_input_shape(
     if shape is None:
         raise RuntimeError("Failed to create ControlShape")
     shape.setSize(Size(_DEFAULT_WIDTH, h))
-    shape.setPosition(stack.place(h))
     shape.Control = model
+    shape.setPropertyValue("AnchorType", AS_CHARACTER)
     create_ms += _mono_ms(t_shape)
 
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
     t_add = time.monotonic()
-    dp.add(shape)
+    text.insertTextContent(cursor, shape, False)
     add_ms = _mono_ms(t_add)
     _log_shape_add(
         step="code_field",
@@ -433,7 +476,7 @@ def _append_code_input_shape(
         text_chars=raw_chars,
         truncated=truncated,
         shape_h=h,
-        shapes_before=shapes_before,
+        shapes_before=controls_before,
         create_ms=create_ms,
         text_ms=text_ms,
         add_ms=add_ms,
@@ -448,7 +491,7 @@ def _cell_heading(idx: int, cell_type: str, execution_count: Any | None) -> str:
 
 
 def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[str, Any]:
-    """Read *path* (.ipynb): body text for markdown/raw/outputs; draw-page field for code only."""
+    """Read *path* (.ipynb): body text for markdown/raw/outputs; in-flow field for code."""
     run_t0 = time.monotonic()
     try:
         file_size = os.path.getsize(path)
@@ -461,38 +504,28 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     cell_count = len(nb.cells)
     log.info("notebook import read_ipynb cells=%d read_ms=%d", cell_count, _mono_ms(read_t0))
 
-    dp_t0 = time.monotonic()
-    dp = _get_form_draw_page(doc)
-    if dp is None:
-        raise RuntimeError("No draw page available for form controls.")
-    stack = _ImportStackCursor(dp)
-    log.debug(
-        "notebook import draw page ready seed_ms=%d shapes_on_page=%d",
-        _mono_ms(dp_t0),
-        stack.shape_count,
-    )
-
     stats = {
         "cells": 0,
         "markdown": 0,
         "code": 0,
         "raw": 0,
         "shapes": 0,
+        "images": 0,
         "outputs": 0,
         # Legacy key for dialog/tests
         "controls": 0,
     }
 
-    _import_cells(doc, dp, stack, nb, stats, cell_count, run_t0)
+    _import_cells(doc, nb, stats, cell_count, run_t0)
     flush_ui_idle(ctx)
 
     stats["controls"] = stats["shapes"]
     total_ms = _mono_ms(run_t0)
     log.info(
-        "notebook import complete stats=%s total_ms=%d shapes_final=%d avg_cell_ms=%d",
+        "notebook import complete stats=%s total_ms=%d controls=%d avg_cell_ms=%d",
         stats,
         total_ms,
-        stack.shape_count,
+        stats["shapes"],
         total_ms // max(1, stats["cells"]),
     )
     return stats
@@ -500,8 +533,6 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
 
 def _import_cells(
     doc: Any,
-    dp: Any,
-    stack: _ImportStackCursor,
     nb: Any,
     stats: dict[str, int],
     cell_count: int,
@@ -517,12 +548,12 @@ def _import_cells(
         ec = getattr(cell, "execution_count", None) if cell_type == "code" else None
 
         log.debug(
-            "notebook import cell start index=%d type=%s source_chars=%d output_count=%d shapes=%d",
+            "notebook import cell start index=%d type=%s source_chars=%d output_count=%d controls=%d",
             idx,
             cell_type,
             len(source),
             len(outputs),
-            stack.shape_count,
+            stats["shapes"],
         )
 
         lead = not first_cell
@@ -535,32 +566,31 @@ def _import_cells(
         elif cell_type == "code":
             stats["code"] += 1
             _append_section_heading(doc, "Code")
-            _append_code_input_shape(
+            _insert_code_input_in_flow(
                 doc,
-                dp,
-                stack,
                 name=f"nb_cell_{idx}_code",
                 source=source,
+                controls_before=stats["shapes"],
             )
             stats["shapes"] += 1
-            '''
-            stats["shapes"] += _import_png_outputs_on_draw_page(doc, dp, stack, outputs, idx)
-            '''
             out_text = _format_outputs_for_body(outputs, idx)
-            if out_text.strip():
-                stats["outputs"] += len([o for o in outputs if format_output_text(o).strip()])
+            if out_text.strip() or _outputs_contain_image(outputs):
                 _append_section_heading(doc, "Output")
-                _append_body_text_block(doc, out_text, _STYLE_OUTPUT, lead_break=True)
+                if out_text.strip():
+                    stats["outputs"] += len([o for o in outputs if format_output_text(o).strip()])
+                    _append_body_text_block(doc, out_text, _STYLE_OUTPUT, lead_break=True)
+                images_added = _import_image_outputs_in_flow(doc, outputs, idx, images_before=stats["images"])
+                stats["images"] += images_added
         else:
             stats["raw"] += 1
             _append_body_text_block(doc, source, _STYLE_BODY, lead_break=True)
 
-        log.debug("notebook import cell done index=%d cell_ms=%d shapes=%d", idx, _mono_ms(cell_t0), stack.shape_count)
+        log.debug("notebook import cell done index=%d cell_ms=%d controls=%d", idx, _mono_ms(cell_t0), stats["shapes"])
         if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == cell_count:
             log.info(
-                "notebook import progress cell=%d/%d shapes=%d elapsed_ms=%d",
+                "notebook import progress cell=%d/%d controls=%d elapsed_ms=%d",
                 idx + 1,
                 cell_count,
-                stack.shape_count,
+                stats["shapes"],
                 _mono_ms(run_t0),
             )

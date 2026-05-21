@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 from plugin.notebook.writer_importer import (
     _ImportStackCursor,
+    _MAX_IMAGE_DECODE_BYTES,
     _MAX_IMPORT_TEXT_CHARS,
+    _append_body_text_block,
     _coerce_notebook_text,
+    _decode_notebook_image,
+    _notebook_image_payload,
+    _png_pixel_size,
     _prepare_display_text,
     format_all_outputs,
     format_output_text,
@@ -46,9 +52,28 @@ def test_prepare_display_text_truncates():
     assert len(display) <= _MAX_IMPORT_TEXT_CHARS + 50
 
 
-def test_format_output_image_omitted():
+def test_format_output_image_empty_for_body():
     out = {"output_type": "display_data", "data": {"image/png": "abc"}}
-    assert "omitted" in format_output_text(out)
+    assert format_output_text(out) == ""
+
+
+def test_notebook_image_payload():
+    data = {"image/png": "abc", "text/plain": "hi"}
+    assert _notebook_image_payload(data) == ("image/png", "abc")
+
+
+def test_png_pixel_size_1x1():
+    # 1x1 PNG IHDR
+    raw = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+        b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    )
+    assert _png_pixel_size(raw) == (1, 1)
+
+
+def test_decode_notebook_image_rejects_oversize():
+    huge = "A" * (_MAX_IMAGE_DECODE_BYTES + 1)
+    assert _decode_notebook_image(huge) is None
 
 
 def test_format_output_plain_mime():
@@ -99,6 +124,23 @@ def test_import_stack_cursor_seeds_existing_shapes(monkeypatch):
     assert stack._max_bottom == 1500 + 400 + 100
 
 
+def _writer_doc_mock():
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    doc = MagicMock()
+    doc.getText.return_value = body_text
+    return doc, body_text, body_cursor
+
+
+def test_append_body_text_block_single_paragraph():
+    doc, body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+    _append_body_text_block(doc, "line1\nline2\nline3", "Preformatted Text", lead_break=False)
+    assert body_text.insertString.call_count == 1
+    body_text.insertControlCharacter.assert_not_called()
+
+
 def test_import_ipynb_to_writer_logs(caplog, tmp_path, monkeypatch):
     ipynb = tmp_path / "tiny.ipynb"
     ipynb.write_text(
@@ -106,39 +148,14 @@ def test_import_ipynb_to_writer_logs(caplog, tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    shapes: list[MagicMock] = []
-
-    class FakePoint:
-        def __init__(self, x, y):
-            self.X = x
-            self.Y = y
+    doc, body_text, _ = _writer_doc_mock()
 
     class FakeSize:
         def __init__(self, w, h):
             self.Width = w
             self.Height = h
 
-    dp = MagicMock()
-    dp.getCount.return_value = 0
-    dp.add.side_effect = lambda s: shapes.append(s)
-
-    doc = MagicMock()
-    doc.getDrawPage.return_value = dp
-    body_cursor = MagicMock()
-    body_text = MagicMock()
-    body_text.createTextCursor.return_value = body_cursor
-    doc.getText.return_value = body_text
-
-    def fake_create(service):
-        m = MagicMock()
-        m.getPosition.return_value = FakePoint(0, 0)
-        m.getSize.return_value = FakeSize(100, 100)
-        return m
-
-    doc.createInstance.side_effect = fake_create
-
-    monkeypatch.setattr("plugin.notebook.writer_importer._get_form_draw_page", lambda d: dp)
-    monkeypatch.setattr("plugin.notebook.writer_importer.Point", FakePoint)
+    doc.createInstance.side_effect = lambda service: MagicMock()
     monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
 
     with caplog.at_level("DEBUG", logger="writeragent.notebook"):
@@ -146,6 +163,76 @@ def test_import_ipynb_to_writer_logs(caplog, tmp_path, monkeypatch):
 
     assert stats["cells"] == 1
     assert stats["markdown"] == 1
+    body_text.insertTextContent.assert_not_called()
     assert "notebook import start" in caplog.text
     assert "notebook import complete" in caplog.text
     assert "cell start index=0" in caplog.text
+
+
+def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
+    ipynb = tmp_path / "mixed.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"markdown","metadata":{},"source":"# Title"},'
+        '{"cell_type":"code","metadata":{},"source":"x=1","outputs":[]},'
+        '{"cell_type":"markdown","metadata":{},"source":"more"},'
+        '{"cell_type":"code","metadata":{},"source":"y=2","outputs":[]}'
+        "]}",
+        encoding="utf-8",
+    )
+
+    doc, body_text, _ = _writer_doc_mock()
+
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    doc.createInstance.side_effect = lambda service: MagicMock()
+    monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+
+    assert stats["cells"] == 4
+    assert stats["code"] == 2
+    assert stats["shapes"] == 2
+    # Two code fields + no image outputs in this fixture
+    assert body_text.insertTextContent.call_count == 2
+
+
+def test_import_ipynb_inserts_image_output(tmp_path, monkeypatch):
+    # Minimal valid 1x1 PNG base64
+    png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    ipynb = tmp_path / "img.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"plot()","outputs":['
+        '{"output_type":"display_data","data":{"image/png":"' + png_b64 + '"}}'
+        "]}]}",
+        encoding="utf-8",
+    )
+
+    doc, body_text, _ = _writer_doc_mock()
+    insert_calls: list[Any] = []
+
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    doc.createInstance.side_effect = lambda service: MagicMock()
+    body_text.insertTextContent.side_effect = lambda cursor, content, absorb: insert_calls.append(content)
+    monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
+    monkeypatch.setattr(
+        "plugin.notebook.writer_importer._create_embedded_graphic",
+        lambda model, inside, url: MagicMock(),
+    )
+    monkeypatch.setattr("plugin.notebook.writer_importer._apply_graphic_properties", lambda *a, **k: None)
+    monkeypatch.setattr("plugin.notebook.writer_importer._file_url_for_path", lambda p: "file:///tmp/x.png")
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+
+    assert stats["code"] == 1
+    assert stats["images"] == 1
+    assert stats["shapes"] == 1
+    assert len(insert_calls) == 2  # code field + image

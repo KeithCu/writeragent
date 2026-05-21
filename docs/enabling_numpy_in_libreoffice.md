@@ -453,7 +453,7 @@ Prioritized future work (LO profiling gate, Tier 0 crossings, host pack/unpack, 
 | Shipped | Deferred |
 |---------|----------|
 | nbformat **v4** JSON read, `rejoin_lines`, `strip_transient` | Run buttons / kernel execution on imported cells |
-| **Writer import:** Tools → **Import Jupyter Notebook…** — [`plugin/notebook/writer_importer.py`](../plugin/notebook/writer_importer.py): markdown/raw/outputs as **body text** (Heading 2/3 + Preformatted); **one** code **TextField** per code cell on the draw page | Markdown rendered as HTML in body; notebook PNG insert (disabled during import perf work) |
+| **Writer import:** Tools → **Import Jupyter Notebook…** — [`plugin/notebook/writer_importer.py`](../plugin/notebook/writer_importer.py): markdown/raw/outputs as **body text** (Heading 2/3 + Preformatted); **one** in-flow code **TextField** per code cell; **PNG/JPEG** outputs embedded in the “Output” section via `TextGraphicObject` + [`image_tools.py`](../plugin/writer/images/image_tools.py) | Markdown rendered as HTML in body; batched background decode + main-thread insert (see below) |
 | Unit tests: [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py) | **nbformat v3** and older upgrade ([`nbformat/v4/convert.py`](https://github.com/jupyter/nbformat/blob/main/nbformat/v4/convert.py) in upstream) — revisit when users need legacy notebooks |
 | | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
 | | Notebook **kernel** (shared session in warm worker), Run buttons, export to `.ipynb` |
@@ -464,7 +464,9 @@ Prioritized future work (LO profiling gate, Tier 0 crossings, host pack/unpack, 
 
 #### Debugging import (slow or “frozen” UI)
 
-Import runs on LibreOffice’s **MainThread**. Large notebooks used to create many draw-page **ControlShapes** (slow layout); the importer now uses **one shape per code cell** and puts read-only content in the document body.
+Import runs on LibreOffice’s **MainThread**. Code fields are inserted in the **document flow** at the end of the body (same pattern as [`forms.py`](../plugin/writer/specialized/forms.py) Writer `CreateFormControl`), not stacked on the draw page. Read-only markdown, raw, and outputs use body text with headings.
+
+**Draw-page pitfall (fixed 2026-05):** An earlier path called `XDrawPage.add(ControlShape)` without `AnchorType=AT_PAGE`. Writer anchored every code field as-character inside the **first** cell heading, adding ~one soft page break per control (e.g. 144 code cells → ~184 pages). Re-enabling PNG import on the draw page must set `AT_PAGE` before `add` (see [`plugin/draw/shapes.py`](../plugin/draw/shapes.py) `_try_writer_anchor_shape_before_add`).
 
 **Log file:** `writeragent_debug.log` next to `writeragent.json` (e.g. `~/.config/libreoffice/4/user/` or `.../24/user/`). Set `"log_level": "DEBUG"` in `writeragent.json` (or **INFO** for progress lines only).
 
@@ -483,7 +485,22 @@ tail -f ~/.config/libreoffice/4/user/writeragent_debug.log
 | `notebook import slow UNO add` | Single add took ≥2s (WARNING) |
 | `notebook import complete` | Finished; success dialog should follow |
 
-**Performance (2026-05):** **~1 draw-page shape per code cell** (editable source); markdown, raw, and outputs go to Writer body text with headings. Stack cursor for O(1) positioning; 50k char truncation; output cap 200/cell; PNG draw-page insert kept in a `''' ... '''` block in `writer_importer.py` (disabled). No `lockControllers()` during bulk import. UI flushed after import and around `msgbox`.
+**Performance (2026-05):** **~1 in-flow control per code cell** (editable source); markdown, raw, and outputs go to Writer body text with headings (one paragraph per block, newlines preserved). **Images:** `image/png` and `image/jpeg` in cell outputs are decoded (max 8 MB base64), written to a temp file, and inserted as embedded `TextGraphicObject` in the Output section (width capped at 140 mm; PNG dimensions read from IHDR). 50k char truncation on text; output cap 200/cell. No `lockControllers()` during bulk import. UI flushed after import and around `msgbox`.
+
+#### LibreOffice image loading and “background” work
+
+Research summary (UNO / extension practice — there is **no** documented async “load image in background” API for Writer import):
+
+| Layer | What LO offers | WriterAgent implication |
+|-------|----------------|-------------------------|
+| **GraphicProvider** (`com.sun.star.graphic.GraphicProvider`, `queryGraphic`) | Synchronous load from URL into `XGraphic` ([LO Programming ch.8](https://flywire.github.io/lo-p/08-Graphic_Content.html)) | Same work happens when setting `GraphicURL` on `TextGraphicObject` — still on the thread that touches UNO |
+| **InsertGraphic dispatch** (`.uno:InsertGraphic`, `AsLink`) | UI command; can link user files ([`image_tools._dispatch_insert_linked_graphic`](../plugin/writer/images/image_tools.py)) | Not used for notebook embeds (temp decoded bytes must be embedded) |
+| **UNO threading** | UNO document APIs are **not** thread-safe; background threads that call UNO risk crashes/UI corruption ([`queue_executor.py`](../plugin/framework/queue_executor.py), Stack Overflow “Python UNO and Threads”) | Notebook import stays on **MainThread**; optional **worker** may only do CPU work (base64 decode, write temp files) then post results to main via `execute_on_main_thread` / `AsyncCallback` |
+| **UI responsiveness** | `XToolkit.processEventsToIdle()` between chunks | Already used in [`flush_ui_idle`](../plugin/notebook/writer_importer.py) every N cells; same pattern can batch image inserts |
+
+**Practical pattern for large notebooks (future):** (1) background thread: decode base64 → temp paths queue; (2) main thread: dequeue paths, `insertTextContent`, `processEventsToIdle` every *k* images. **Not implemented yet** — current import decodes and inserts synchronously on the main thread (acceptable for typical plot outputs; very large notebooks may still stutter).
+
+**Draw-page images:** Do **not** use `XDrawPage.add` without `AnchorType=AT_PAGE` ([`draw/shapes.py`](../plugin/draw/shapes.py)); the old draw-page notebook path caused controls/images to anchor inside the first heading and inflate page count.
 
 ### Other enhancements
 

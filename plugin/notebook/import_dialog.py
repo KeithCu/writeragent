@@ -109,12 +109,14 @@ def run_import_ipynb_dialog(uno_ctx: Any = None) -> None:
         _(
             "Imported notebook.\n"
             "Cells: {cells} (code: {code}, markdown: {markdown})\n"
-            "Code input fields on draw page: {shapes}"
+            "Code input fields in document: {shapes}\n"
+            "Output images: {images}"
         ).format(
             cells=stats["cells"],
             code=stats["code"],
             markdown=stats["markdown"],
             shapes=stats.get("shapes", stats.get("controls", 0)),
+            images=stats.get("images", 0),
         ),
     )
     flush_ui_idle(ctx)
