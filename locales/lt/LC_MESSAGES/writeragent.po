@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
-" sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
+"sub-agents in configuration."
 msgstr ""
 "Dokumento tyrimo skaitymams reikalingas sub-agento delegavimas "
 "(USE_SUB_AGENT). Įgalinkite sub-agentus konfigūracijoje."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Įrankio iškvietimas perjungtas į „{0}“. Veikiate specializuoto įrankių "
@@ -54,8 +54,7 @@ msgstr "Pirmiausia atidarykite „Writer“ dokumentą."
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
-msgstr ""
-"Užrašinės importavimas palaikomas tik „LibreOffice Writer“ programoje."
+msgstr "Užrašinės importavimas palaikomas tik „LibreOffice Writer“ programoje."
 
 #: plugin/notebook/import_dialog.py
 #, python-brace-format
@@ -135,8 +134,8 @@ msgid ""
 "Seems that «{}» has problems, double check it, create a new one or join "
 "Discord to ask for help"
 msgstr ""
-"Atrodo, kad «{}» turi problemų, patikrinkite dar kartą, sukurkite naują arba"
-" prisijunkite prie „Discord“, kad paprašytumėte pagalbos"
+"Atrodo, kad «{}» turi problemų, patikrinkite dar kartą, sukurkite naują arba "
+"prisijunkite prie „Discord“, kad paprašytumėte pagalbos"
 
 #: plugin/contrib/aihordeclient/__init__.py
 msgid "We hit an error, still: "
@@ -197,8 +196,7 @@ msgstr "Šis modelis užtrunka ilgiau nei jūsų dabartinė konfigūracija."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr "Pabandykite kitą modelį. {0} užtruktų ilgiau nei sukonfigūravote."
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -265,11 +263,10 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
-"AI: Galiu padėti su formulėmis, duomenų analize ir spalvingomis diagramomis."
-" Išbandykite!"
+"AI: Galiu padėti su formulėmis, duomenų analize ir spalvingomis diagramomis. "
+"Išbandykite!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -323,11 +320,9 @@ msgstr ""
 "Timeout) nuostatose."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) "
-"veikia?"
+"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) veikia?"
 
 #: plugin/framework/client/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -639,8 +634,7 @@ msgstr "[Agento posistemė „{0}“ nerasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agento posistemė „{0}“ nepasiekiama. Patikrinkite nuostatas (kelią, "
 "diegimą).]"
@@ -740,7 +734,8 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje aplinkoje.\n"
+"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje "
+"aplinkoje.\n"
 "Rezultatą priskirkite kintamajam „result“."
 
 #: plugin/scripting/python_runner.py
@@ -1113,11 +1108,11 @@ msgid "Path / URL"
 msgstr "Kelias / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., "
-"http://localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
+"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., http://"
+"localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
 
 msgid "Extra arguments"
 msgstr "Papildomi argumentai"
@@ -1208,8 +1203,8 @@ msgstr "Įjungti DI gramatikos tikrintuvą („Writer“)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Kai įjungta, „WriterAgent“ užregistruoja savo DI gramatikos tikrintuvą "
 "„Linguistic“ sistemoje; tikrinamam tekstui naudojamas jūsų API (Įrankiai → "
@@ -1244,8 +1239,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienu LLM užklausa siunčiamų sakinių skaičius (1–8). 1 (numatytoji reikšmė) "
-"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali"
-" viršyti žetonų limitus arba sukelti modelio klaidų."
+"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali "
+"viršyti žetonų limitus arba sukelti modelio klaidų."
 
 msgid "Detect and correct sentence language"
 msgstr "Aptikti ir taisyti sakinio kalbą"
@@ -1283,11 +1278,11 @@ msgid "Enable MCP Server"
 msgstr "Įgalinti MCP serverį"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja "
-"http://localhost:<port>/mcp (srautinis HTTP)."
+"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja http://"
+"localhost:<port>/mcp (srautinis HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP prievadas"
@@ -1315,8 +1310,8 @@ msgid ""
 "empty, run_venv_python_script uses this process's sys.executable (basic "
 "stdlib); use a venv for numpy/pandas."
 msgstr ""
-"Jei nustatyta, įrankiai vykdomi nurodytoje virtualiojoje aplinkoje "
-"(bin/python arba Scripts/python.exe). Jei tuščia, „run_venv_python_script“ "
+"Jei nustatyta, įrankiai vykdomi nurodytoje virtualiojoje aplinkoje (bin/"
+"python arba Scripts/python.exe). Jei tuščia, „run_venv_python_script“ "
 "naudoja šio proceso „sys.executable“ (pagrindinė standartinė biblioteka); "
 "naudokite virtualiąją aplinką, jei reikalingi „numpy“/„pandas“."
 

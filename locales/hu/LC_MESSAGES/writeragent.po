@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
-" sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
+"sub-agents in configuration."
 msgstr ""
 "A dokumentumkutatási olvasások alügynöki delegálást igényelnek "
 "(USE_SUB_AGENT). Engedélyezze az alügynököket a konfigurációban."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Az eszközhívás átváltva erre: „{0}”. Speciális eszközkészlet módban van. A "
@@ -127,8 +127,8 @@ msgid ""
 "You have made too many requests, please wait for them to finish, and try "
 "again later"
 msgstr ""
-"Túl sok kérést indítottál, kérjük, várd meg, amíg befejeződnek, majd próbáld"
-" meg újra később"
+"Túl sok kérést indítottál, kérjük, várd meg, amíg befejeződnek, majd próbáld "
+"meg újra később"
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
@@ -198,8 +198,7 @@ msgstr "Ez a modell több időt vesz igénybe, mint a jelenlegi beállítás."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Kérjük, próbáljon meg egy másik modellt. A(z) {0} több időt venne igénybe, "
 "mint amennyit beállított."
@@ -263,16 +262,15 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális"
-" formázással és színekkel. Próbáljon ki!"
+"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális "
+"formázással és színekkel. Próbáljon ki!"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
-"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon"
-" ki!"
+"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon "
+"ki!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -308,8 +306,7 @@ msgstr ""
 
 #: plugin/framework/client/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr ""
-"A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
+msgstr "A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -324,12 +321,11 @@ msgstr "HTTP-hiba {0}: {1}"
 #: plugin/framework/client/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése”"
-" (Request Timeout) értékét a Beállításokban."
+"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése” "
+"(Request Timeout) értékét a Beállításokban."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "A kapcsolat elutasítva. Fut a helyi MI-kiszolgálója (Ollama/LM Studio)?"
 
@@ -554,8 +550,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük,"
-" jelentse ezt!]"
+"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük, "
+"jelentse ezt!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -615,7 +611,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa be az EDITOR környezeti változót). Útvonal:\n"
+"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa "
+"be az EDITOR környezeti változót). Útvonal:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -644,8 +641,7 @@ msgstr "[A(z) „{0}” ügynök-háttérprogram nem található.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[A(z) „{0}” ügynök-háttérprogram nem érhető el. Ellenőrizze a beállításokat "
 "(elérési út, telepítés).]"
@@ -692,8 +688,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és"
-" a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
+"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és "
+"a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
 "menüpontot."
 
 #: plugin/chatbot/librarian.py
@@ -746,7 +742,8 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
+"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális "
+"környezetben.\n"
 "A végeredményt rendelje a „result” változóhoz."
 
 #: plugin/scripting/python_runner.py
@@ -1119,11 +1116,11 @@ msgid "Path / URL"
 msgstr "Útvonal / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. "
-"http://localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
+"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. http://"
+"localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
 
 msgid "Extra arguments"
 msgstr "Extra argumentumok"
@@ -1216,8 +1213,8 @@ msgstr "AI-nyelvhelyesség-ellenőrző engedélyezése (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Ha be van kapcsolva, a WriterAgent regisztrálja az AI-nyelvhelyesség-"
 "ellenőrzőjét a nyelvi eszközöknél; az ellenőrzött szöveg az Ön API-ját "
@@ -1291,8 +1288,8 @@ msgid "Enable MCP Server"
 msgstr "MCP-kiszolgáló engedélyezése"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
 "Csak localhost, nincs hitelesítés. A kliensek a http://localhost:<port>/mcp "
 "címet használják (streamelhető HTTP)."
@@ -1308,9 +1305,9 @@ msgid ""
 "browser Origin. For other hosts, add mcp.cors_allowed_origins in "
 "writeragent.json."
 msgstr ""
-"Automatikus a .local, .lan, .home.arpa, .internal és a LAN IP-címek esetén a"
-" böngésző Originjében. Más hosztokhoz adja hozzá az mcp.cors_allowed_origins"
-" beállítást a writeragent.json fájlban."
+"Automatikus a .local, .lan, .home.arpa, .internal és a LAN IP-címek esetén a "
+"böngésző Originjében. Más hosztokhoz adja hozzá az mcp.cors_allowed_origins "
+"beállítást a writeragent.json fájlban."
 
 msgid "Python"
 msgstr "Python"
@@ -1325,8 +1322,8 @@ msgid ""
 msgstr ""
 "Ha meg van adva, az eszközök ebben a venv-ben futnak (bin/python vagy "
 "Scripts/python.exe). Ha üres, a run_venv_python_script az aktuális folyamat "
-"sys.executable-jét használja (alapvető stdlib); használjon venv-et a "
-"numpy/pandas könyvtárakhoz."
+"sys.executable-jét használja (alapvető stdlib); használjon venv-et a numpy/"
+"pandas könyvtárakhoz."
 
 msgid "Test"
 msgstr "Teszt"

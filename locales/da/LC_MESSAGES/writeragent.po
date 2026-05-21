@@ -19,8 +19,8 @@ msgstr ""
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable"
-" sub-agents in configuration."
+"Document research reads require sub-agent delegation (USE_SUB_AGENT). Enable "
+"sub-agents in configuration."
 msgstr ""
 "Dokumentundersøgelseslæsninger kræver delegering af underagent "
 "(USE_SUB_AGENT). Aktivér underagenter i konfigurationen."
@@ -28,8 +28,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Værktøjskald skiftet til '{0}'. Du er i en specialiseret værktøjstilstand. "
@@ -117,8 +117,8 @@ msgid ""
 "The Horde is in maintenance mode, please try again later, if you have tried "
 "and the service does not respond for hours, please contact via Discord"
 msgstr ""
-"Horden er i vedligeholdelsestilstand, prøv venligst igen senere. Hvis du har"
-" prøvet, og tjenesten ikke svarer i flere timer, så kontakt os venligst via "
+"Horden er i vedligeholdelsestilstand, prøv venligst igen senere. Hvis du har "
+"prøvet, og tjenesten ikke svarer i flere timer, så kontakt os venligst via "
 "Discord"
 
 #: plugin/contrib/aihordeclient/__init__.py
@@ -200,8 +200,7 @@ msgstr "Denne model tager længere tid end din nuværende konfiguration."
 
 #: plugin/contrib/aihordeclient/__init__.py
 #, python-brace-format
-msgid ""
-"Please try another model. {0} would take more time than you configured."
+msgid "Please try another model. {0} would take more time than you configured."
 msgstr ""
 "Prøv venligst en anden model. {0} ville tage længere tid, end du har "
 "konfigureret."
@@ -270,8 +269,7 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
 msgstr ""
 "AI: Jeg kan hjælpe dig med formler, dataanalyse og farverige diagrammer. "
 "Prøv mig!"
@@ -326,8 +324,7 @@ msgstr ""
 "Anmodningen fik timeout. Prøv at øge 'Anmodnings-timeout' i Indstillinger."
 
 #: plugin/framework/client/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Forbindelse afvist. Kører din lokale AI-server (Ollama/LM Studio)?"
 
 #: plugin/framework/client/errors.py
@@ -551,8 +548,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst"
-" en fejlrapport!]"
+"[Intern fejl: Kunne ikke identificere dokumenttype for {0}. Indsend venligst "
+"en fejlrapport!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -641,8 +638,7 @@ msgstr "[Agent-backend '{0}' blev ikke fundet.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-backend '{0}' er ikke tilgængelig. Kontrollér Indstillinger (sti, "
 "installation).]"
@@ -813,8 +809,7 @@ msgstr "MCP-server kunne ikke starte"
 
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"Tjek writeragent_debug.log i din LibreOffice-brugerkonfigurationsmappe"
+msgstr "Tjek writeragent_debug.log i din LibreOffice-brugerkonfigurationsmappe"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -1114,11 +1109,11 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. "
-"http://localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (f.eks. aider) eller ACP-server-URL (f.eks. http://"
+"localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argumenter"
@@ -1209,8 +1204,8 @@ msgstr "Aktivér AI-grammatikkontrol (Writer)"
 
 msgid ""
 "When on, WriterAgent registers its AI grammar proofreader with Linguistic; "
-"checked text uses your API (Tools → Options → AI). Underlines appear shortly"
-" after you pause typing. Off by default."
+"checked text uses your API (Tools → Options → AI). Underlines appear shortly "
+"after you pause typing. Off by default."
 msgstr ""
 "Når aktiveret, registrerer WriterAgent sin AI-grammatikkontrol hos "
 "Linguistic; kontrolleret tekst bruger dit API (Funktioner → Indstillinger → "
@@ -1254,8 +1249,8 @@ msgid ""
 "automatically."
 msgstr ""
 "Når denne er slået til, beder den AI'en om at verificere sproget i hver "
-"sætning i forhold til dokumentets anvendte lokaliteter. Hvis det er forkert,"
-" opdateres sprogegenskaben automatisk."
+"sætning i forhold til dokumentets anvendte lokaliteter. Hvis det er forkert, "
+"opdateres sprogegenskaben automatisk."
 
 msgid "Enter key sends sidebar chat message"
 msgstr "Enter-tasten sender besked i sidepanel-chat"
@@ -1281,11 +1276,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivér MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Kun localhost, ingen godkendelse. Klienter bruger "
-"http://localhost:<port>/mcp (streambar HTTP)."
+"Kun localhost, ingen godkendelse. Klienter bruger http://localhost:<port>/"
+"mcp (streambar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -1299,8 +1294,8 @@ msgid ""
 "writeragent.json."
 msgstr ""
 "Automatisk for .local, .lan, .home.arpa, .internal og LAN-IP-adresser i "
-"browserens Origin. For andre værter skal mcp.cors_allowed_origins tilføjes i"
-" writeragent.json."
+"browserens Origin. For andre værter skal mcp.cors_allowed_origins tilføjes i "
+"writeragent.json."
 
 msgid "Python"
 msgstr "Python"
@@ -1326,8 +1321,7 @@ msgstr "Timeout for Python-script (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr ""
-"Tidsgrænse for Kør Python-script, =PYTHON() og run_venv_python_script."
+msgstr "Tidsgrænse for Kør Python-script, =PYTHON() og run_venv_python_script."
 
 msgid "Writer document tools (including navigation and search)"
 msgstr "Writer-dokumentværktøjer (inklusive navigation og søgning)"
