@@ -210,8 +210,8 @@ def _cell_for_json(value: Any) -> Any:
     return value
 
 
-def host_pack_split_grid(grid: list[list[Any]]) -> dict[str, Any]:
-    """Pack a 2D mixed grid using Strategy 3: Split-Grid Serialization.
+def host_pack_split_grid(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
+    """Pack a 1D flat list or 2D mixed grid using Strategy 3: Split-Grid Serialization.
     
     The entire grid is flattened into a single contiguous double-precision float array
     where all numbers are preserved, and empty cells or non-numeric strings are replaced with NaN.
@@ -260,19 +260,46 @@ def host_pack_split_grid(grid: list[list[Any]]) -> dict[str, Any]:
          - String payload size / base64 decode time vs. file I/O latency.
          - Child reconstruction time (rebuilding nested lists from SQL cursor vs transposing lists).
          - Measure disk write overhead vs base64 pipe serialization on slow drives vs RAM disks.
-    """
-    nrows = len(grid)
-    ncols = max((len(r) for r in grid), default=0)
-    
+     """
+    if not grid:
+        return {
+            "__wa_payload__": PAYLOAD_SPLIT_GRID,
+            "dtype": "float64",
+            "shape": [0],
+            "b64": "",
+            "strings": {},
+        }
+        
+    is_2d = isinstance(grid[0], (list, tuple))
     buf = array.array("d")
     strings = {}
     
-    idx = 0
-    for r in range(nrows):
-        row = grid[r]
-        row_len = len(row)
-        for c in range(ncols):
-            val = row[c] if c < row_len else None
+    if is_2d:
+        nrows = len(grid)
+        ncols = max((len(r) for r in grid), default=0)
+        idx = 0
+        for r in range(nrows):
+            row = grid[r]
+            row_len = len(row)
+            for c in range(ncols):
+                val = row[c] if c < row_len else None
+                if val is None:
+                    buf.append(math.nan)
+                elif isinstance(val, bool):
+                    buf.append(float(int(val)))
+                elif isinstance(val, (int, float)):
+                    buf.append(float(val))
+                elif isinstance(val, str):
+                    buf.append(math.nan)
+                    strings[str(idx)] = val
+                else:
+                    # Any other object, serialize as string to be safe
+                    buf.append(math.nan)
+                    strings[str(idx)] = str(val)
+                idx += 1
+        shape = [nrows, ncols]
+    else:
+        for idx, val in enumerate(grid):
             if val is None:
                 buf.append(math.nan)
             elif isinstance(val, bool):
@@ -283,23 +310,22 @@ def host_pack_split_grid(grid: list[list[Any]]) -> dict[str, Any]:
                 buf.append(math.nan)
                 strings[str(idx)] = val
             else:
-                # Any other object, serialize as string to be safe
                 buf.append(math.nan)
                 strings[str(idx)] = str(val)
-            idx += 1
-            
+        shape = [len(grid)]
+        
     envelope = {
         "__wa_payload__": PAYLOAD_SPLIT_GRID,
         "dtype": "float64",
-        "shape": [nrows, ncols],
+        "shape": shape,
         "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
         "strings": strings,
     }
     
     log.debug(
         "payload_codec host_pack split_grid shape=%s cells=%s strings=%s b64_chars=%s",
-        [nrows, ncols],
-        idx,
+        shape,
+        len(buf),
         len(strings),
         len(envelope["b64"]),
     )
@@ -314,8 +340,12 @@ def host_pack_data(
 ) -> Any:
     """Pack ``data`` for worker request field (list or split_grid dict)."""
     try:
-        if grid and isinstance(grid[0], (list, tuple)):
-            grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
+        if grid:
+            is_2d = isinstance(grid[0], (list, tuple))
+            if is_2d:
+                grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
+            else:
+                grid_shape = (len(grid),)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
                 return host_pack_split_grid(grid)
         out = grid_from_nested_list(grid)
@@ -381,9 +411,17 @@ def is_split_grid(obj: Any) -> bool:
 
 
 def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
-    """Decode split_grid envelope in child. Returns ndarray if purely numeric, else nested lists."""
+    """Decode split_grid envelope in child. Returns ndarray if purely numeric, else nested lists/lists."""
     try:
-        nrows, ncols = envelope["shape"]
+        shape = envelope["shape"]
+        if len(shape) == 1:
+            nrows = shape[0]
+            ncols = 1
+            is_1d = True
+        else:
+            nrows, ncols = shape[0], shape[1]
+            is_1d = False
+            
         import numpy as np
         import math
         
@@ -394,7 +432,10 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         if not strings:
             # OPTIMIZATION: Purely numeric grid!
             # Materialize directly via np.frombuffer at microsecond C-speed, bypassing Python loops!
-            arr = np.frombuffer(raw, dtype=dtype).reshape((nrows, ncols))
+            if is_1d:
+                arr = np.frombuffer(raw, dtype=dtype)
+            else:
+                arr = np.frombuffer(raw, dtype=dtype).reshape((nrows, ncols))
             log.debug(
                 "payload_codec child_unpack split_grid optimized -> ndarray shape=%s",
                 arr.shape,
@@ -412,6 +453,14 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
             elif math.isnan(val):
                 flat_list[i] = None
                 
+        if is_1d:
+            log.debug(
+                "payload_codec child_unpack split_grid reconstructed 1D list size=%s strings=%s",
+                len(flat_list),
+                len(strings),
+            )
+            return flat_list
+            
         grid = []
         for r in range(nrows):
             grid.append(flat_list[r * ncols : (r + 1) * ncols])
@@ -519,9 +568,10 @@ def child_pack_result(
         if isinstance(result, (list, tuple)):
             if result and isinstance(result[0], (list, tuple)):
                 grid = [list(row) for row in result]
+                grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
             else:
                 grid = list(result)
-            grid_shape = (len(grid), max((len(r) for r in grid), default=0))
+                grid_shape = (len(grid),)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
                 return host_pack_split_grid(grid)
             out = grid_from_nested_list(grid)

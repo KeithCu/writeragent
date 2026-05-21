@@ -183,10 +183,10 @@ def test_round_trip_split_grid():
 
 
 def test_split_grid_non_2d_fallback():
-    """Verify that non-2D mixed grids or small mixed grids fallback correctly to standard lists."""
-    # 1D mixed grid
+    """Verify that grids/lists fallback correctly when force="never"."""
+    # 1D mixed grid fallback
     grid_1d = [1.0, "apple", 3.0]
-    wire_1d = host_pack_data(grid_1d, force="always")
+    wire_1d = host_pack_data(grid_1d, force="never")
     assert isinstance(wire_1d, list)
     assert wire_1d == [1.0, "apple", 3.0]
     
@@ -198,4 +198,55 @@ def test_split_grid_non_2d_fallback():
     wire_2d = host_pack_data(grid_2d, force="never")
     assert isinstance(wire_2d, list)
     assert wire_2d == [[1.0, "apple"], [2.0, "banana"]]
+
+
+def test_round_trip_split_grid_1d():
+    """Verify that both numeric and mixed 1D flat lists round-trip flawlessly under split_grid."""
+    np = pytest.importorskip("numpy")
+    
+    # Numeric 1D flat list
+    grid_num_1d = [1.5, 2.5, 3.5, 4.5]
+    wire_num = host_pack_data(grid_num_1d, force="always")
+    assert isinstance(wire_num, dict)
+    assert wire_num["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    assert wire_num["shape"] == [4]
+    
+    # Unpack in child -> should be purely numeric ndarray
+    child_unpacked_num = child_unpack_data(wire_num)
+    assert isinstance(child_unpacked_num, np.ndarray)
+    assert child_unpacked_num.shape == (4,)
+    assert list(child_unpacked_num) == pytest.approx(grid_num_1d)
+    
+    # Pack result in child -> should pack 1D array as split_grid
+    wire_child_num = child_pack_result(child_unpacked_num, force="always")
+    assert wire_child_num["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    assert wire_child_num["shape"] == [4]
+    
+    # Unpack on host -> should return a flat list
+    host_unpacked_num = host_unpack_data(wire_child_num, as_nested_list=True)
+    assert isinstance(host_unpacked_num, list)
+    assert host_unpacked_num == pytest.approx(grid_num_1d)
+    
+    # Mixed 1D flat list
+    grid_mixed_1d = [1.5, "banana", None, 4.5]
+    wire_mixed = host_pack_data(grid_mixed_1d, force="always")
+    assert isinstance(wire_mixed, dict)
+    assert wire_mixed["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    assert wire_mixed["shape"] == [4]
+    assert wire_mixed["strings"] == {"1": "banana"}
+    
+    # Unpack in child -> reconstructed mixed list
+    child_unpacked_mixed = child_unpack_data(wire_mixed)
+    assert isinstance(child_unpacked_mixed, list)
+    assert child_unpacked_mixed == [1.5, "banana", None, 4.5]
+    
+    # Pack result in child -> pack 1D mixed list
+    wire_child_mixed = child_pack_result(child_unpacked_mixed, force="always")
+    assert wire_child_mixed["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    assert wire_child_mixed["shape"] == [4]
+    assert wire_child_mixed["strings"] == {"1": "banana"}
+    
+    # Unpack on host -> flat list
+    host_unpacked_mixed = host_unpack_data(wire_child_mixed, as_nested_list=True)
+    assert host_unpacked_mixed == [1.5, "banana", None, 4.5]
 
