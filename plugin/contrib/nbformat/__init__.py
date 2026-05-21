@@ -1,5 +1,8 @@
-# Vendored subset of jupyter/nbformat (BSD-3-Clause). See README.md in this directory.
 """Read Jupyter notebooks (.ipynb) as NotebookNode trees — nbformat v4 only."""
+
+# Copyright (c) IPython Development Team.
+# Distributed under the terms of the Modified BSD License.
+# WriterAgent: vendored subset — see README.md in this directory.
 
 from __future__ import annotations
 

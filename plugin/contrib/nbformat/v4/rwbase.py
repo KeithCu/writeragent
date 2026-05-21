@@ -1,22 +1,42 @@
+"""Base classes and utilities for readers and writers."""
+
 # Copyright (c) IPython Development Team.
 # Distributed under the terms of the Modified BSD License.
 
+# --- WriterAgent vendored from nbformat v5.10.4 ---
+# Disabled: v1/v2/v3, traitlets, fastjsonschema validation (see README.md)
 from __future__ import annotations
 
 
 def _is_json_mime(mime):
-    return mime == "application/json" or (mime.startswith("application/") and mime.endswith("+json"))
+    """Is a key a JSON mime-type that should be left alone?"""
+    return mime == "application/json" or (
+        mime.startswith("application/") and mime.endswith("+json")
+    )
 
 
 def _rejoin_mimebundle(data):
+    """Rejoin the multi-line string fields in a mimebundle (in-place)"""
     for key, value in list(data.items()):
-        if not _is_json_mime(key) and isinstance(value, list) and all(isinstance(line, str) for line in value):
+        if (
+            not _is_json_mime(key)
+            and isinstance(value, list)
+            and all(isinstance(line, str) for line in value)
+        ):
             data[key] = "".join(value)
     return data
 
 
 def rejoin_lines(nb):
-    """Rejoin multiline text split into string lists on disk (nbformat v4)."""
+    """rejoin multiline text into strings
+
+    For reversing effects of ``split_lines(nb)``.
+
+    This only rejoins lines that have been split, so if text objects were not split
+    they will pass through unchanged.
+
+    Used when reading JSON files that may have been passed through split_lines.
+    """
     for cell in nb.cells:
         if "source" in cell and isinstance(cell.source, list):
             cell.source = "".join(cell.source)
@@ -42,6 +62,7 @@ _non_text_split_mimes = {
 
 
 def _split_mimebundle(data):
+    """Split multi-line string fields in a mimebundle (in-place)"""
     for key, value in list(data.items()):
         if isinstance(value, str) and (key.startswith("text/") or key in _non_text_split_mimes):
             data[key] = value.splitlines(True)
@@ -49,7 +70,13 @@ def _split_mimebundle(data):
 
 
 def split_lines(nb):
-    """Split multiline strings for VCS-friendly JSON export (inverse of rejoin_lines)."""
+    """split likely multiline text into lists of strings
+
+    For file output more friendly to line-based VCS. ``rejoin_lines(nb)`` will
+    reverse the effects of ``split_lines(nb)``.
+
+    Used when writing JSON files.
+    """
     for cell in nb.cells:
         source = cell.get("source", None)
         if isinstance(source, str):
@@ -69,7 +96,10 @@ def split_lines(nb):
 
 
 def strip_transient(nb):
-    """Remove transient metadata not meant for on-disk storage."""
+    """Strip transient values that shouldn't be stored in files.
+
+    This should be called in *both* read and write.
+    """
     nb.metadata.pop("orig_nbformat", None)
     nb.metadata.pop("orig_nbformat_minor", None)
     nb.metadata.pop("signature", None)
@@ -79,16 +109,28 @@ def strip_transient(nb):
 
 
 class NotebookReader:
+    """A class for reading notebooks."""
+
     def reads(self, s, **kwargs):
-        raise NotImplementedError("reads must be implemented in a subclass")
+        """Read a notebook from a string."""
+        msg = "reads must be implemented in a subclass"
+        raise NotImplementedError(msg)
 
     def read(self, fp, **kwargs):
-        return self.reads(fp.read(), **kwargs)
+        """Read a notebook from a file like object"""
+        nbs = fp.read()
+        return self.reads(nbs, **kwargs)
 
 
 class NotebookWriter:
+    """A class for writing notebooks."""
+
     def writes(self, nb, **kwargs):
-        raise NotImplementedError("writes must be implemented in a subclass")
+        """Write a notebook to a string."""
+        msg = "writes must be implemented in a subclass"
+        raise NotImplementedError(msg)
 
     def write(self, nb, fp, **kwargs):
-        return fp.write(self.writes(nb, **kwargs))
+        """Write a notebook to a file like object"""
+        nbs = self.writes(nb, **kwargs)
+        return fp.write(nbs)

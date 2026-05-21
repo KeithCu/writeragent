@@ -1,49 +1,120 @@
+"""API for reading notebooks of different versions"""
+
 # Copyright (c) IPython Development Team.
 # Distributed under the terms of the Modified BSD License.
-# WriterAgent: v4-only reader (v3 upgrade deferred).
 
+# --- WriterAgent vendored from nbformat v5.10.4 ---
+# Disabled: v1/v2/v3, traitlets, fastjsonschema validation (see README.md)
 from __future__ import annotations
 
 import json
 
+# from .validator import ValidationError  # WriterAgent: fastjsonschema not shipped
+
 
 class NotJSONError(ValueError):
-    """Raised when input is not valid JSON."""
+    """An error raised when an object is not valid JSON."""
 
 
 class NBFormatError(ValueError):
-    """Raised for unsupported or invalid notebook format."""
+    """Specified major version is invalid or unsupported (WriterAgent; upstream: nbformat.__init__)."""
 
 
 def parse_json(s, **kwargs):
+    """Parse a JSON string into a dict."""
     try:
-        return json.loads(s, **kwargs)
+        nb_dict = json.loads(s, **kwargs)
     except ValueError as e:
         message = f"Notebook does not appear to be JSON: {s!r}"
+        # Limit the error message to 80 characters.  Display whatever JSON will fit.
         if len(message) > 80:
             message = message[:77] + "..."
         raise NotJSONError(message) from e
+    return nb_dict
+
+
+# High level API
 
 
 def get_version(nb):
+    """Get the version of a notebook.
+
+    Parameters
+    ----------
+    nb : dict
+        NotebookNode or dict containing notebook data.
+
+    Returns
+    -------
+    Tuple containing major (int) and minor (int) version numbers
+    """
     major = nb.get("nbformat", 1)
     minor = nb.get("nbformat_minor", 0)
     return (major, minor)
 
 
-def reads(s, **kwargs):
-    """Read a notebook JSON string into a NotebookNode (nbformat v4 only)."""
-    from .v4.nbjson import to_notebook
+# Upstream (nbformat/__init__.py + reader.py):
+# from . import v1, v2, v3, v4
+# versions = {1: v1, 2: v2, 3: v3, 4: v4}
 
+from . import v4  # noqa: E402
+
+versions = {4: v4}  # WriterAgent: v1–v3 not shipped
+
+
+def reads(s, **kwargs):
+    """Read a notebook from a json string and return the
+    NotebookNode object.
+
+    This function properly reads notebooks of any version.  No version
+    conversion is performed.
+
+    Parameters
+    ----------
+    s : unicode | bytes
+        The raw string or bytes object to read the notebook from.
+
+    Returns
+    -------
+    nb : NotebookNode
+        The notebook that was read.
+
+    Raises
+    ------
+    ValidationError
+        Notebook JSON for a given version is missing an expected key and cannot be read.
+    NBFormatError
+        Specified major version is invalid or unsupported.
+    """
     nb_dict = parse_json(s, **kwargs)
-    major, _minor = get_version(nb_dict)
-    if major != 4:
-        raise NBFormatError(
-            f"Unsupported nbformat version {major}; WriterAgent only supports v4 "
-            "(v3 and older upgrade deferred — see docs/enabling_numpy_in_libreoffice.md)."
-        )
-    return to_notebook(nb_dict, **kwargs)
+    (major, minor) = get_version(nb_dict)
+    if major in versions:
+        try:
+            return versions[major].to_notebook_json(nb_dict, minor=minor)
+        except AttributeError as e:
+            # Upstream: raise ValidationError(...) from None
+            msg = f"The notebook is invalid and is missing an expected key: {e}"
+            raise NBFormatError(msg) from None
+    raise NBFormatError(
+        f"Unsupported nbformat version {major}; WriterAgent only supports v4 "
+        "(v3 and older upgrade deferred — see docs/enabling_numpy_in_libreoffice.md)."
+    )
 
 
 def read(fp, **kwargs):
+    """Read a notebook from a file and return the NotebookNode object.
+
+    This function properly reads notebooks of any version.  No version
+    conversion is performed.
+
+    Parameters
+    ----------
+    fp : file
+        Any file-like object with a read method.
+
+    Returns
+    -------
+    nb : NotebookNode
+        The notebook that was read.
+    """
     return reads(fp.read(), **kwargs)
