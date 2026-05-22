@@ -122,6 +122,7 @@ The shared ReAct **system template** lives in [`toolcalling_agent_prompts.py`](.
 |-----|--------|-------------------------|
 | `librarian` | `LIBRARIAN_EXAMPLES` in `smol_examples.py` | `reply_to_user` |
 | `web_research` | `WEB_RESEARCH_EXAMPLES_BLOCK` | `final_answer` |
+| `writer:python`, `calc:python`, `draw:python`, … | `PYTHON_SPECIALIZED_EXAMPLES` | **`specialized_workflow_finished`** (after `run_venv_python_script`) |
 | Any other (`writer:shapes`, `document_research:calc`, …) | `DELEGATE_GENERIC_EXAMPLES_BLOCK` | **`specialized_workflow_finished`** |
 
 The delegate block reuses the web-research *shape* (two `web_search` steps) only to teach the ReAct JSON format; those tool names are not on the specialized tool list. The real task is the manager’s user message; domain behavior is in `instructions=` and `__TOOLS_LIST__`.

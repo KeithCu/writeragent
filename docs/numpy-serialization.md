@@ -15,8 +15,8 @@ For numeric and mixed-type grids, the compute bridge implements high-performance
 | Piece | Purely Numeric Split-Grid | Mixed-Type Split-Grid |
 |-------|----------------------------|-----------------------|
 | **Wire Payload** | `{"__wa_payload__": "split_grid", "dtype": "float64", "column_kinds": ["int", "int"], "shape": [r, c], "b64": "...", "strings": {}}` | `{"__wa_payload__": "split_grid", "dtype": "float64", "column_kinds": ["int", "float"], "shape": [r, c], "b64": "...", "strings": {"idx": "val"}}` |
-| **Host Packing** | Flattens grid cells to float64; empty cells become `math.nan`. Converts directly to standard `array.array` and encodes base64. Sparse `strings` dict is empty `{}`. | Flattens grid; numbers become float64, empty cells/strings become `math.nan` in binary array. Strings are registered in parallel in a sparse `strings` index map. |
-| **Child Unpacking** | **Optimized C-Speed Path**: Sees that the sparse `strings` dictionary is empty and materializes a NumPy `ndarray` directly using `np.frombuffer` in one step. Bypasses all Python list/loop transpositions! | Decodes base64 to buffer; loads via `np.frombuffer`. Converts to Python list via C-level `.tolist()`, replaces `nan` with `None`, and overlays sparse strings from the index map. |
+| **Host Packing** | Flattens grid cells to float64; empty cells become `math.nan`. Identifies per-column `column_kinds` (`int`/`float`). Converts directly to standard `array.array` and encodes base64. Sparse `strings` dict is empty `{}`. | Flattens grid; numbers become float64, empty cells/strings become `math.nan` in binary array. Strings are registered in parallel in a sparse `strings` index map. Identifies `column_kinds`. |
+| **Child Unpacking** | **Optimized C-Speed Path**: Sees that the sparse `strings` dictionary is empty and materializes a NumPy `ndarray` directly using `np.frombuffer` in one step. Restores `int64` types if `column_kinds` are all-int. Bypasses all Python list/loop transpositions! | Decodes base64 to buffer; loads via `np.frombuffer`. Converts to Python list via C-level `.tolist()`, replaces `nan` with `None`, restores `int` types using `column_kinds`, and overlays sparse strings from the index map. |
 | **Compatibility** | Namespace receives a NumPy ndarray (ideal for math operations). | Namespace receives a standard nested list of lists (fully backward compatible for all sheets and scripts). |
 | **Threshold** | `BINARY_MIN_CELLS = 10` — 2D grids with ≥ 10 cells use `split_grid`. | `BINARY_MIN_CELLS = 10` — 2D grids with ≥ 10 cells use `split_grid`. |
 | **Fallback** | Grids < 10 cells fall back to standard JSON lists. | Grids < 10 cells or non-2D arrays fall back to standard JSON lists. |
@@ -34,7 +34,7 @@ Historically, a column-wise transposition approach (Strategy 1) was analyzed. It
 2. Ingesting multiple chunks requires multiple base64 decodes and nested list pointer reconstructions, leading to serialization bottlenecks on mixed sheets.
 
 #### The Split-Grid Solution:
-Instead of dividing columns, Split-Grid serializes the **entire grid as a single flat binary float64 array** plus a **parallel sparse JSON strings dictionary**.
+Instead of dividing columns, Split-Grid serializes the **entire grid as a single flat binary float64 array** plus a **parallel sparse JSON strings dictionary** and **per-column type metadata**.
 
 ```mermaid
 flowchart TD
@@ -42,8 +42,10 @@ flowchart TD
     Input[2D Mixed Grid] --> Flatten[Flatten grid row-major]
     Flatten -->|Numbers / None| Array[array.array 'd']
     Flatten -->|Strings| Dict[Sparse Dict strings]
+    Flatten -->|Types| Kinds[Identify column_kinds int/float]
     Array --> B64[Base64 Encode]
-    B64 --> Envelope[JSON stdout line]
+    Kinds --> Envelope[JSON stdout line]
+    B64 --> Envelope
     Dict --> Envelope
   end
   subgraph child [Child Process venv]
@@ -51,9 +53,11 @@ flowchart TD
     Dec --> Buff[np.frombuffer float64]
     Buff --> List[tolist C-level]
     List --> Patch[Patch math.nan to None]
-    Dict --> Patch2[Overlay strings using sparse indexes]
+    Kinds --> Patch2[Restore int types using column_kinds]
+    Dict --> Patch3[Overlay strings using sparse indexes]
     Patch --> Slice[Slice row-major to 2D lists]
     Patch2 --> Slice
+    Patch3 --> Slice
     Slice --> Output[Standard nested list of lists]
   end
 ```
@@ -62,11 +66,12 @@ flowchart TD
    - Flat double-precision binary `array` preserves all numeric values (`int`, `float`, `bool`).
    - String values or empty/None cells are encoded as `math.nan` in the binary array.
    - Any string cell is registered in the parallel `strings` dictionary keyed by its flat cell index (e.g. `{"7": "banana", "12": "apple"}`).
+   - Per-column `column_kinds` (`int` or `float`) are identified to allow precise type restoration in the child.
    - Avoids expensive type-coercion testing by mapping strings immediately, ensuring 100% preservation of zip codes (`"02138"` remains a string) and preventing float conversion bugs.
 2. **Child Unpacking**:
    - Maps the base64-decoded binary payload directly into memory using `np.frombuffer`.
    - Utilizes NumPy's fast C-level `.tolist()` to generate a flat Python list in a single pass.
-   - Reconstructs the grid by running a highly optimized single-pass loop in Python, replacing remaining `nan` values with `None` and overlaying string values from the sparse dict.
+   - Reconstructs the grid by running a highly optimized single-pass loop in Python, replacing remaining `nan` values with `None`, restoring integer types using `column_kinds`, and overlaying string values from the sparse dict.
    - Slices the flat list back into a row-major 2D nested list.
 
 #### Performance Impact:
@@ -93,11 +98,13 @@ Re-run: `python scripts/bench_serialization.py --direction both`
 
 ### Unified `split_grid` Serialization
 
-Production wiring (2026-05):
+Production wiring (2026-05 refactor):
+
+The implementation was simplified in May 2026 to unify the 1D and 2D packing paths into a single robust iteration loop in `host_pack_split_grid`, removing several redundant helper functions while preserving the same high-performance wire format and C-speed materialization in the child process.
 
 | Location | Role |
 |----------|------|
-| [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: pack/unpack, threshold, `describe_wire_value` for logs |
+| [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: unified pack/unpack, threshold, `describe_wire_value` for logs |
 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
 | [`plugin/scripting/python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python_function.py`](../plugin/calc/python_function.py) | `=PYTHON()` ingress pack + matrix/session flattening (result already unpacked) |
@@ -181,10 +188,11 @@ Host (stdlib only) packs a 2D numeric/mixed range:
 import array, base64
 buf = array.array("d")
 strings = {}
-# (flatten and fill buf / strings)
+# (flatten and fill buf / strings; identify column_kinds)
 payload = {
     "__wa_payload__": "split_grid",
     "dtype": "float64",
+    "column_kinds": ["int", "float", ...],
     "shape": [nrows, ncols],
     "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
     "strings": strings,
@@ -199,8 +207,9 @@ raw = base64.b64decode(payload["b64"])
 # If strings dict is empty, deserialize directly to ndarray at microsecond C-speed
 if not payload.get("strings"):
     arr = np.frombuffer(raw, dtype=np.float64).reshape(payload["shape"])
+    # (restore int64 types using column_kinds)
 else:
-    # Overlay strings on flat list, reconstruct nested lists
+    # Overlay strings on flat list, restore int types, reconstruct nested lists
     pass
 ```
 

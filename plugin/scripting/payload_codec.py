@@ -50,13 +50,13 @@ def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[ColumnKind]
     is_2d = isinstance(grid[0], (list, tuple))
     if is_2d:
         ncols = max((len(r) for r in grid), default=0)
-        kinds = cast(list[ColumnKind], ["int"] * ncols)
+        kinds = cast("list[ColumnKind]", ["int"] * ncols)
         for row in grid:
             for c, val in enumerate(row):
                 if isinstance(val, float) or val is None:
                     kinds[c] = "float"
         return kinds
-    return cast(list[ColumnKind], ["float" if any(isinstance(val, float) or val is None for val in grid) else "int"])
+    return cast("list[ColumnKind]", ["float" if any(isinstance(val, float) or val is None for val in grid) else "int"])
 
 
 def _uniform_column_kind(kinds: list[ColumnKind]) -> ColumnKind | None:
@@ -71,8 +71,8 @@ def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[Colum
     """Per-column unpack kinds from wire ``column_kinds``."""
     kinds = envelope.get("column_kinds")
     if isinstance(kinds, list) and len(kinds) == ncols:
-        return cast(list[ColumnKind], ["int" if k == "int" else "float" for k in kinds])
-    return cast(list[ColumnKind], ["float"] * ncols)
+        return cast("list[ColumnKind]", ["int" if k == "int" else "float" for k in kinds])
+    return cast("list[ColumnKind]", ["float"] * ncols)
 
 
 def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> ColumnKind | None:
@@ -267,7 +267,7 @@ def host_pack_split_grid(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
 
     buf = array.array("d")
     strings: dict[str, str] = {}
-    column_kinds = cast(list[ColumnKind], ["int"] * (ncols if is_2d else 1))
+    column_kinds = cast("list[ColumnKind]", ["int"] * (ncols if is_2d else 1))
 
     idx = 0
     # Process rows (or single pseudo-row if 1D)
@@ -462,9 +462,9 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
             arr = np.asarray(arr)
         ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
         if np.issubdtype(arr.dtype, np.integer):
-            column_kinds = cast(list[ColumnKind], ["int"] * ncols)
+            column_kinds = cast("list[ColumnKind]", ["int"] * ncols)
         else:
-            column_kinds = cast(list[ColumnKind], ["float"] * ncols)
+            column_kinds = cast("list[ColumnKind]", ["float"] * ncols)
         wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
         envelope = {
             "__wa_payload__": PAYLOAD_SPLIT_GRID,
