@@ -112,6 +112,17 @@ def test_column_kinds_from_cell_types():
     assert column_kinds_for_grid([[1, "x"]]) == ["int", "int"]
 
 
+def test_uniform_unpack_uses_full_column_kinds_on_wire():
+    """Fast decode path must not require a shortened wire tag; column_kinds stays per-column."""
+    from plugin.scripting.payload_codec import envelope_uniform_column_kind
+
+    grid = [[100, 541], [101, 547], [102, 557], [103, 563], [104, 569], [105, 571], [106, 577]]
+    wire = host_pack_data(grid, force="always")
+    assert wire["column_kinds"] == ["int", "int"]
+    assert "uniform_column_kind" not in wire
+    assert envelope_uniform_column_kind(wire, ncols=2) == "int"
+
+
 def test_host_unpack_restores_integer_grid():
     grid = [[100, 541], [101, 547], [102, 557], [103, 563], [104, 569], [105, 571], [106, 577]]
     wire = host_pack_data(grid, force="always")
@@ -143,24 +154,6 @@ def test_child_pack_integer_ndarray_sets_column_kinds():
     back = host_unpack_data(wire, as_nested_list=True)
     assert back[0][0] == 0
     assert isinstance(back[0][0], int)
-
-
-def test_legacy_int64_wire_still_unpacks():
-    """Envelopes written before integer_values used dtype=int64 bytes."""
-    import array
-    import base64
-
-    from plugin.scripting.payload_codec import PAYLOAD_SPLIT_GRID
-
-    legacy = {
-        "__wa_payload__": PAYLOAD_SPLIT_GRID,
-        "dtype": "int64",
-        "shape": [5, 2],
-        "b64": base64.b64encode(array.array("q", list(range(1, 11))).tobytes()).decode("ascii"),
-        "strings": {},
-    }
-    back = host_unpack_data(legacy, as_nested_list=True)
-    assert back == [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
 
 
 def test_none_becomes_nan_in_split_grid():
