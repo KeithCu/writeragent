@@ -80,19 +80,30 @@ def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[ColumnKind]
     return kinds_1d
 
 
+def _uniform_column_kind(kinds: list[ColumnKind]) -> ColumnKind | None:
+    """Return the kind when every column matches; else None (mixed columns)."""
+    if not kinds:
+        return None
+    first = kinds[0]
+    if all(k == first for k in kinds):
+        return first
+    return None
+
+
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[ColumnKind]:
-    """Per-column unpack kinds; falls back for legacy integer_values / int64 wire."""
+    """Per-column unpack kinds from wire ``column_kinds``."""
     kinds = envelope.get("column_kinds")
     if isinstance(kinds, list) and len(kinds) == ncols:
         out: list[ColumnKind] = []
         for k in kinds:
             out.append("int" if k == "int" else "float")
         return out
-    if envelope.get("integer_values") or (
-        envelope.get("dtype") == "int64" and "column_kinds" not in envelope
-    ):
-        return ["int"] * ncols
     return ["float"] * ncols
+
+
+def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> ColumnKind | None:
+    """Decode-only: all-int or all-float fast path when ``column_kinds`` are uniform; None if mixed."""
+    return _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
 
 def _host_cell_from_float(val: float, *, column_kind: ColumnKind) -> Any:
@@ -103,10 +114,23 @@ def _host_cell_from_float(val: float, *, column_kind: ColumnKind) -> Any:
     return val
 
 
-def _apply_column_kinds_to_ndarray(arr: Any, column_kinds: list[ColumnKind], *, ncols: int, is_1d: bool) -> Any:
+def _apply_column_kinds_to_ndarray(
+    arr: Any,
+    column_kinds: list[ColumnKind],
+    *,
+    ncols: int,
+    is_1d: bool,
+    uniform: ColumnKind | None = None,
+) -> Any:
     """Cast float64 ndarray columns to int64 where pack declared int (NumPy trusts column metadata)."""
     import numpy as np
 
+    if uniform is None:
+        uniform = _uniform_column_kind(column_kinds)
+    if uniform == "int":
+        return arr.astype(np.int64)
+    if uniform == "float":
+        return arr
     if is_1d:
         if column_kinds[0] == "int":
             return arr.astype(np.int64)
@@ -450,11 +474,7 @@ def host_pack_data(
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists."""
     raw = base64.b64decode(envelope["b64"])
-    legacy_int64_wire = envelope.get("dtype") == "int64" and "column_kinds" not in envelope
-    if legacy_int64_wire:
-        buf = array.array("q")
-    else:
-        buf = array.array("d")
+    buf = array.array("d")
     buf.frombytes(raw)
     shape = envelope["shape"]
     if len(shape) == 1:
@@ -466,19 +486,25 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
         is_1d = False
 
     strings = envelope.get("strings", {})
-    column_kinds = envelope_column_kinds(envelope, ncols=ncols)
+    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
 
-    flat_list = []
-    for i in range(len(buf)):
-        val = buf[i]
-        str_idx = str(i)
-        col = 0 if is_1d else i % ncols
-        if str_idx in strings:
-            flat_list.append(strings[str_idx])
-        elif legacy_int64_wire:
-            flat_list.append(val)
+    flat_list: list[Any]
+    if not strings and uniform is not None:
+        if uniform == "int":
+            flat_list = [None if math.isnan(v) else int(v) for v in buf]
         else:
-            flat_list.append(_host_cell_from_float(val, column_kind=column_kinds[col]))
+            flat_list = [None if math.isnan(v) else v for v in buf]
+    else:
+        column_kinds = envelope_column_kinds(envelope, ncols=ncols)
+        flat_list = []
+        for i in range(len(buf)):
+            val = buf[i]
+            str_idx = str(i)
+            col = 0 if is_1d else i % ncols
+            if str_idx in strings:
+                flat_list.append(strings[str_idx])
+            else:
+                flat_list.append(_host_cell_from_float(val, column_kind=column_kinds[col]))
 
     if not as_nested_list or is_1d:
         return flat_list
@@ -517,39 +543,47 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         import math
         
         raw = base64.b64decode(envelope["b64"])
-        legacy_int64_wire = envelope.get("dtype") == "int64" and "column_kinds" not in envelope
-        wire_np_dtype = np.int64 if legacy_int64_wire else np.float64
+        uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
 
         strings = envelope.get("strings", {})
         if not strings:
             if is_1d:
-                arr = np.frombuffer(raw, dtype=wire_np_dtype)
+                arr = np.frombuffer(raw, dtype=np.float64)
             else:
-                arr = np.frombuffer(raw, dtype=wire_np_dtype).reshape((nrows, ncols))
-            if not legacy_int64_wire:
-                arr = _apply_column_kinds_to_ndarray(arr, column_kinds, ncols=ncols, is_1d=is_1d)
+                arr = np.frombuffer(raw, dtype=np.float64).reshape((nrows, ncols))
+            arr = _apply_column_kinds_to_ndarray(
+                arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
+            )
             log.debug(
-                "payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s column_kinds=%s",
+                "payload_codec child_unpack split_grid optimized -> ndarray shape=%s dtype=%s uniform=%s",
                 arr.shape,
                 arr.dtype,
-                column_kinds,
+                uniform,
             )
             return arr
 
-        arr = np.frombuffer(raw, dtype=wire_np_dtype)
+        arr = np.frombuffer(raw, dtype=np.float64)
         flat_list = arr.tolist()
 
-        for i in range(len(flat_list)):
-            val = flat_list[i]
-            str_idx = str(i)
-            col = 0 if is_1d else i % ncols
-            if str_idx in strings:
-                flat_list[i] = strings[str_idx]
-            elif math.isnan(val):
-                flat_list[i] = None
-            elif column_kinds[col] == "int":
-                flat_list[i] = int(val)
+        if uniform is not None and not strings:
+            for i in range(len(flat_list)):
+                val = flat_list[i]
+                if math.isnan(val):
+                    flat_list[i] = None
+                elif uniform == "int":
+                    flat_list[i] = int(val)
+        else:
+            for i in range(len(flat_list)):
+                val = flat_list[i]
+                str_idx = str(i)
+                col = 0 if is_1d else i % ncols
+                if str_idx in strings:
+                    flat_list[i] = strings[str_idx]
+                elif math.isnan(val):
+                    flat_list[i] = None
+                elif column_kinds[col] == "int":
+                    flat_list[i] = int(val)
 
         if is_1d:
             log.debug(
