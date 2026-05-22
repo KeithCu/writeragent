@@ -105,11 +105,10 @@ def _apply_column_kinds_to_ndarray(
     if is_1d:
         return arr.astype(np.int64) if column_kinds[0] == "int" else arr
 
-    out = arr.copy()
-    for c, kind in enumerate(column_kinds):
-        if kind == "int":
-            out[:, c] = out[:, c].astype(np.int64)
-    return out
+    # If it's a mixed 2D ndarray, it must remain float64 to hold float columns.
+    # Casting individual columns is a no-op (coerced back to float64 on assignment).
+    # We can just return the float64 array directly, saving a massive arr.copy() allocation!
+    return arr
 
 
 def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
@@ -236,7 +235,7 @@ def _cell_for_json(value: Any) -> Any:
 
 def _flatten_grid_to_components(
     grid: list[Any] | list[list[Any]]
-) -> tuple[array.array, dict[str, str], list[ColumnKind], list[int]]:
+) -> tuple[array.array, dict[int, str], list[ColumnKind], list[int]]:
     """Flatten 1D/2D grid to float64 array, strings dict, column kinds, and shape."""
     if not grid:
         return array.array("d"), {}, [], [0]
@@ -253,31 +252,64 @@ def _flatten_grid_to_components(
         shape = [ncols]
 
     buf = array.array("d")
-    strings: dict[str, str] = {}
+    strings: dict[int, str] = {}
     column_kinds = cast("list[ColumnKind]", ["int"] * (ncols if is_2d else 1))
+
+    # Pre-capture bound method to avoid repeated attribute lookups in the loop
+    buf_append = buf.append
+
+    # Optimization: Detect if grid is a regular/rectangular 2D grid once,
+    # enabling us to bypass coordinate range checks (c < row_len)
+    is_regular = True
+    if is_2d:
+        is_regular = all(len(row) == ncols for row in grid)
 
     idx = 0
     # Process rows (or single pseudo-row if 1D)
     rows = grid if is_2d else [grid]
-    for row in rows:
-        row_len = len(row)
-        for c in range(ncols):
-            val = row[c] if c < row_len else None
-            col_idx = c if is_2d else 0
 
-            if val is None:
-                buf.append(math.nan)
-                column_kinds[col_idx] = "float"
-            elif isinstance(val, (int, float)) and not isinstance(val, bool):
-                buf.append(float(val))
-                if isinstance(val, float):
+    if is_regular:
+        for row in rows:
+            for c, val in enumerate(row):
+                col_idx = c if is_2d else 0
+                if val is None:
+                    buf_append(math.nan)
                     column_kinds[col_idx] = "float"
-            elif isinstance(val, bool):
-                buf.append(float(val))
-            else:
-                buf.append(math.nan)
-                strings[str(idx)] = val if isinstance(val, str) else str(val)
-            idx += 1
+                elif val is True or val is False:
+                    buf_append(float(val))
+                else:
+                    t = type(val)
+                    if t is float:
+                        buf_append(cast(float, val))
+                        column_kinds[col_idx] = "float"
+                    elif t is int:
+                        buf_append(float(cast(int, val)))
+                    else:
+                        buf_append(math.nan)
+                        strings[idx] = cast(str, val) if t is str else str(val)
+                idx += 1
+    else:
+        for row in rows:
+            row_len = len(row)
+            for c in range(ncols):
+                val = row[c] if c < row_len else None
+                col_idx = c if is_2d else 0
+                if val is None:
+                    buf_append(math.nan)
+                    column_kinds[col_idx] = "float"
+                elif val is True or val is False:
+                    buf_append(float(val))
+                else:
+                    t = type(val)
+                    if t is float:
+                        buf_append(cast(float, val))
+                        column_kinds[col_idx] = "float"
+                    elif t is int:
+                        buf_append(float(cast(int, val)))
+                    else:
+                        buf_append(math.nan)
+                        strings[idx] = cast(str, val) if t is str else str(val)
+                idx += 1
 
     return buf, strings, column_kinds, shape
 
@@ -353,7 +385,9 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
 
-    strings = envelope.get("strings", {})
+    # Convert keys of strings to integers in case standard JSON/Base64 test harness sent stringified keys
+    raw_strings = envelope.get("strings", {})
+    strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
     uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
 
     flat_list: list[Any]
@@ -364,9 +398,10 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
             flat_list = [None if math.isnan(v) else v for v in buf]
     else:
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
+        col_is_int = [k == "int" for k in column_kinds]
         flat_list = [
-            strings[str(i)] if str(i) in strings else 
-            _host_cell_from_float(val, column_kind=column_kinds[0 if is_1d else i % ncols])
+            strings[i] if i in strings else 
+            (None if math.isnan(val) else (int(val) if col_is_int[0 if is_1d else i % ncols] else val))
             for i, val in enumerate(buf)
         ]
 
@@ -399,7 +434,8 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         raw = envelope["buffer"]
         uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-        strings = envelope.get("strings", {})
+        raw_strings = envelope.get("strings", {})
+        strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
 
         if not strings:
             arr = np.frombuffer(raw, dtype=np.float64)
@@ -414,15 +450,24 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # Path for mixed-type grids with strings
         flat_list = np.frombuffer(raw, dtype=np.float64).tolist()
 
-        for i, val in enumerate(flat_list):
-            str_idx = str(i)
-            if str_idx in strings:
-                flat_list[i] = strings[str_idx]
-            elif math.isnan(val):
-                flat_list[i] = None
-            else:
-                col = 0 if is_1d else i % ncols
-                if column_kinds[col] == "int":
+        # Split branch packing loops to completely bypass division/modulo arithmetic
+        # and integer checking when there are no integer columns.
+        col_is_int = [k == "int" for k in column_kinds]
+        any_int = any(col_is_int)
+
+        if not any_int:
+            for i, val in enumerate(flat_list):
+                if i in strings:
+                    flat_list[i] = strings[i]
+                elif math.isnan(val):
+                    flat_list[i] = None
+        else:
+            for i, val in enumerate(flat_list):
+                if i in strings:
+                    flat_list[i] = strings[i]
+                elif math.isnan(val):
+                    flat_list[i] = None
+                elif col_is_int[0 if is_1d else i % ncols]:
                     flat_list[i] = int(val)
 
         if is_1d:
