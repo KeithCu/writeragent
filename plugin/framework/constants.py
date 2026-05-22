@@ -104,6 +104,15 @@ def should_prepend_dev_llm_system_prefix() -> bool:
 DELEGATION_USER_FILE_DATA_HINT = "to use information from (my / our) personal or business documents"
 DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
 
+
+def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
+    """Writer/Draw: route computational math to the python specialized sub-agent (fast local venv)."""
+    return (
+        "For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), "
+        f'do not answer from memory—use {delegate_toolset}(domain="python") for fast local numeric computation.'
+    )
+
+
 # General directives shared across all AI interfaces
 WRITER_CORE_DIRECTIVES = f"""When asked to answer a question or create or explain something, assume the user wants the
 information to be inserted into the document. Use the apply_document_content tool to insert content
@@ -113,7 +122,8 @@ When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_writer_toolset(domain="web_research").
 
-When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python") first to find information."""
+{delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset")}
+When asked to make a script or run Python, use delegate_to_specialized_writer_toolset(domain="python")."""
 
 CALC_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
@@ -124,7 +134,9 @@ DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} 
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_draw_toolset(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_toolset(domain="web_research").
-When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python") first to find information."""
+
+{delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
+When asked to make a script or run Python, use delegate_to_specialized_draw_toolset(domain="python")."""
 
 CORE_DIRECTIVES = WRITER_CORE_DIRECTIVES
 
@@ -163,7 +175,8 @@ PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = f"Note: {PYTHON_VENV_AUTO_IMPORTS_ALIASES} 
 
 PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = (
     f"Note: {PYTHON_VENV_AUTO_IMPORTS_ALIASES} are automatically imported. "
-    "DO NOT IMPORT numpy, pandas, sympy, or math."
+    "DO NOT IMPORT numpy, pandas, sympy, or math. "
+    "Prefer np/sp/pd (and scipy when appropriate) over hand-rolled Python; you have access to a complete high-performance SciPy install."
 )
 
 

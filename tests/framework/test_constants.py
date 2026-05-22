@@ -92,6 +92,9 @@ def test_get_core_directives_writer():
     assert directives == WRITER_CORE_DIRECTIVES
     assert "delegate_to_specialized_writer_toolset" in directives
     assert 'domain="python"' in directives
+    assert "do not answer from memory" in directives
+    assert "fast local numeric" in directives
+    assert "numpy" not in directives.lower()
     assert "apply_document_content" in directives
     assert 'domain="document_research"' in directives
     assert "to use information from (my / our) personal or business documents" in directives
@@ -153,7 +156,13 @@ def test_get_core_directives_draw():
     assert directives == DRAW_CORE_DIRECTIVES
     assert "delegate_to_specialized_draw_toolset" in directives
     assert 'domain="python"' in directives
+    assert "do not answer from memory" in directives
+    assert "fast local numeric" in directives
     assert "apply_document_content" not in directives
+
+
+def test_calc_core_directives_no_math_python_delegation_line():
+    assert "do not answer from memory" not in CALC_CORE_DIRECTIVES
 
 
 def test_core_directives_prohibit_asking_user_to_paste():

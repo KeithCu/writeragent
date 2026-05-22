@@ -20,6 +20,7 @@ import time
 import uuid
 from typing import Any, IO
 
+from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.timeout_limits import python_exec_timeout_default
 
 log = logging.getLogger(__name__)
@@ -88,9 +89,12 @@ class PythonWorkerManager:
 
     def _normalize_response(self, response: dict[str, Any]) -> dict[str, Any]:
         if response.get("status") == "ok":
+            result = response.get("result")
+            if result is not None:
+                result = host_unpack_data(result, as_nested_list=True)
             return {
                 "status": "ok",
-                "result": response.get("result"),
+                "result": result,
                 "stdout": (response.get("stdout") or "").strip(),
                 "stderr": "",
             }

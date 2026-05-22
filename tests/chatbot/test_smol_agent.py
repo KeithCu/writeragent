@@ -162,6 +162,18 @@ class TestToolcallingPromptExamples(unittest.TestCase):
         self.assertIn("reply_to_user", block)
         self.assertNotIn("specialized_workflow_finished", block)
 
+    def test_get_examples_block_python_uses_sympy_venv_script(self):
+        from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
+
+        block = get_examples_block("calc:python")
+        self.assertEqual(block, PYTHON_SPECIALIZED_EXAMPLES)
+        self.assertIn("run_venv_python_script", block)
+        self.assertIn("sp.prime(100)", block)
+        self.assertIn("SciPy", block)
+        self.assertNotIn("import numpy", block)
+        self.assertNotIn("import math", block)
+        self.assertIn("specialized_workflow_finished", block)
+
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
         from plugin.contrib.smolagents.agents import ToolCallingAgent
         from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK

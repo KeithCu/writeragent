@@ -119,22 +119,50 @@ def test_split_grid_data_round_trip_execute_request():
     assert r["result"] == pytest.approx(sum(r * 10 + c for r in range(4) for c in range(4)))
 
 
-def test_split_grid_result_round_trip_harness():
-    np = pytest.importorskip("numpy")
-    r = _execute_request(
-        "import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)",
-        None,
-    )
+def test_normalize_response_unpacks_split_grid():
+    from plugin.scripting.payload_codec import host_pack_split_grid, is_split_grid
+
+    grid = [[float(r * 10 + c) for c in range(5)] for r in range(5)]
+    wire = host_pack_split_grid(grid)
+    assert is_split_grid(wire)
+    mgr = PythonWorkerManager(sys.executable, {"PATH": "/usr/bin:/bin"})
+    out = mgr._normalize_response({"status": "ok", "result": wire, "stdout": ""})
+    assert out["status"] == "ok"
+    assert not is_split_grid(out["result"])
+    assert len(out["result"]) == 5
+    assert out["result"][0][0] == pytest.approx(0.0)
+    assert out["result"][4][4] == pytest.approx(44.0)
+
+
+def test_split_grid_result_round_trip_manager():
+    """API responses unpack split_grid so LLM/UI never see wire envelopes."""
+    pytest.importorskip("numpy")
+    PythonWorkerManager.shutdown_all()
+    mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
+    r = mgr.execute("import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)")
     assert r["status"] == "ok"
     from plugin.scripting.payload_codec import is_split_grid
 
-    assert is_split_grid(r["result"])
-    from plugin.scripting.payload_codec import host_unpack_data
+    assert not is_split_grid(r["result"])
+    assert len(r["result"]) == 4
+    assert r["result"][0][0] == pytest.approx(0.0)
+    assert r["result"][3][3] == pytest.approx(15.0)
+    PythonWorkerManager.shutdown_all()
 
-    back = host_unpack_data(r["result"])
-    assert len(back) == 4
-    assert back[0][0] == pytest.approx(0.0)
-    assert back[3][3] == pytest.approx(15.0)
+
+def test_manager_unpacks_prime_tuple_list():
+    """List-of-tuples large enough for split_grid on wire must return nested lists to callers."""
+    pytest.importorskip("sympy")
+    PythonWorkerManager.shutdown_all()
+    mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
+    code = "result = [(i, int(sp.prime(i))) for i in range(100, 107)]"
+    r = mgr.execute(code)
+    assert r["status"] == "ok"
+    from plugin.scripting.payload_codec import is_split_grid
+
+    assert not is_split_grid(r["result"])
+    assert r["result"] == [[100, 541], [101, 547], [102, 557], [103, 563], [104, 569], [105, 571], [106, 577]]
+    PythonWorkerManager.shutdown_all()
 
 
 def test_automatic_imports_math():

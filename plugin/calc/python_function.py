@@ -14,7 +14,7 @@ from typing import Any
 from plugin.calc.calc_addin_data import calc_addin_data_to_python, check_python_data_size, count_cells, pack_calc_data_for_wire
 from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
-from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
+from plugin.scripting.payload_codec import is_split_grid
 from plugin.scripting.run_venv_code import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
@@ -24,16 +24,8 @@ log = logging.getLogger(__name__)
 MATRIX_SCALAR_SESSIONS = threading.local()
 
 
-def worker_result_for_calc(result: Any) -> Any:
-    """Expand split_grid to nested lists for matrix/session flattening; pass scalars through."""
-    if is_split_grid(result):
-        return host_unpack_data(result, as_nested_list=True)
-    return result
-
-
 def flatten_result_values(result: Any) -> list:
     """Row-major flattening for list / nested list worker results."""
-    result = worker_result_for_calc(result)
     if not isinstance(result, (list, tuple)):
         return [result]
     if not result:
@@ -214,7 +206,7 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None) -> Any:
             res = run_code_in_user_venv(ctx, code, data=worker_data)
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
-            result = worker_result_for_calc(res.get("result"))
+            result = res.get("result")
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data)
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
