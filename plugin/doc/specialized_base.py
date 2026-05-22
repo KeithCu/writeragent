@@ -22,8 +22,8 @@ from typing import Any, cast, Type, ClassVar
 from plugin.framework.tool import ToolBase
 from plugin.framework.constants import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, USE_SUB_AGENT, python_specialized_sub_agent_hint
 from plugin.framework.i18n import _
-from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
 from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
+from plugin.chatbot.smol_examples import get_examples_block
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
 log = logging.getLogger("writeragent.specialized")
@@ -180,7 +180,8 @@ class DelegateToSpecializedBase(ToolBase):
             f"{footnotes_hint}{shapes_canvas}{charts_hint}{calc_ctx}{document_research_hint}{images_hint}{python_hint}"
         )
 
-        agent = build_toolcalling_agent(ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=SPECIALIZED_EXAMPLES_BLOCK, status_callback=status_callback)
+        examples_key = f"{self._agent_label.lower()}:{domain}"
+        agent = build_toolcalling_agent(ctx, smol_tools, instructions=instructions, final_answer_tool_name="specialized_workflow_finished", examples_block=get_examples_block(examples_key), status_callback=status_callback)
 
         executor = SmolAgentExecutor(ctx)
 

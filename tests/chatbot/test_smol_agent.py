@@ -135,6 +135,49 @@ class TestToolcallingPromptExamples(unittest.TestCase):
         self.assertIn("Guangzhou", prompt)
         self.assertIn(DEFAULT_EXAMPLES_BLOCK.strip().split("\n")[0], prompt)
 
+    def test_system_prompt_no_image_transformer(self):
+        from plugin.contrib.smolagents.toolcalling_agent_prompts import SYSTEM_PROMPT_TEMPLATE
+
+        self.assertNotIn("image_transformer", SYSTEM_PROMPT_TEMPLATE)
+
+    def test_get_examples_block_delegate_uses_specialized_workflow_finished(self):
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        block = get_examples_block("writer:shapes")
+        self.assertIn("specialized_workflow_finished", block)
+        self.assertNotIn('"name": "final_answer"', block)
+        self.assertIn("web_search", block)
+
+    def test_get_examples_block_web_research_uses_final_answer(self):
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        block = get_examples_block("web_research")
+        self.assertIn('"name": "final_answer"', block)
+        self.assertNotIn("specialized_workflow_finished", block)
+
+    def test_get_examples_block_librarian_uses_reply_to_user(self):
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        block = get_examples_block("librarian")
+        self.assertIn("reply_to_user", block)
+        self.assertNotIn("specialized_workflow_finished", block)
+
+    def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
+        from plugin.contrib.smolagents.agents import ToolCallingAgent
+        from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK
+        from plugin.chatbot.smol_examples import get_examples_block
+
+        model = MagicMock()
+        agent = ToolCallingAgent(
+            tools=[],
+            model=model,
+            system_prompt_examples=get_examples_block("calc:charts"),
+            final_answer_tool_name="specialized_workflow_finished",
+        )
+        prompt = agent.initialize_system_prompt()
+        self.assertIn("specialized_workflow_finished", prompt)
+        self.assertEqual(get_examples_block("calc:charts"), DELEGATE_GENERIC_EXAMPLES_BLOCK)
+
 
 # =============================================================================
 # Smol model tests (from test_smol_model.py)

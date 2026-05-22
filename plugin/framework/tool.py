@@ -570,7 +570,7 @@ class ToolRegistry:
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
                     filtered_tools.append(t)
-                elif getattr(t, "is_final_answer_tool", False):
+                elif t.name == "specialized_workflow_finished":
                     filtered_tools.append(t)
                 # Dynamically include core tools required for this domain
                 elif getattr(t, "tier", None) == "core" and t.name in required_core:

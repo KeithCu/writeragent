@@ -55,7 +55,7 @@ class LibrarianOnboardingTool(ToolBase):
         try:
             from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolToolAdapter
             from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
-            from plugin.contrib.smolagents.toolcalling_agent_prompts import LIBRARIAN_EXAMPLES_BLOCK
+            from plugin.chatbot.smol_examples import get_examples_block
             from plugin.chatbot.memory import MemoryTool, MemoryStore
         except (ImportError, ValueError, TypeError) as e:
             return format_error_payload(ToolExecutionError(f"Failed to load dependencies: {e}"))
@@ -137,7 +137,7 @@ TOOLS FOR COMPLETION:
                 [SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"), SmolToolAdapter(SwitchToDocumentModeTool(), ctx, safe=False, inputs_style="librarian")],
                 instructions=instructions,
                 final_answer_tool_name="reply_to_user",
-                examples_block=LIBRARIAN_EXAMPLES_BLOCK,
+                examples_block=get_examples_block("librarian"),
                 status_callback=status_callback,
             )
 

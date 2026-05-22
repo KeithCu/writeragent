@@ -935,6 +935,8 @@ class ToolCallingAgent(MultiStepAgent):
         examples_block = (
             self.system_prompt_examples if self.system_prompt_examples is not None else DEFAULT_EXAMPLES_BLOCK
         )
+        if self.final_answer_tool_name != "final_answer":
+            examples_block = examples_block.replace("final_answer", self.final_answer_tool_name)
         return _render_toolcalling_system_prompt(
             template_str,
             tools=self.tools,

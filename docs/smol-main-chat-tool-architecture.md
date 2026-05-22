@@ -90,6 +90,7 @@ flowchart TB
 |---------|-----------|
 | Smol wire policy **send generated schemas** | [`plugin/framework/smol_model.py`](../plugin/framework/smol_model.py) — `WriterAgentSmolModel.generate` |
 | Smol agent construction | [`plugin/chatbot/smol_agent.py`](../plugin/chatbot/smol_agent.py) — `build_toolcalling_agent` |
+| Smol few-shot examples (Action/Observation) | [`plugin/chatbot/smol_examples.py`](../plugin/chatbot/smol_examples.py) — edit in place; refresh with [`scripts/generate_smol_examples.py`](../scripts/generate_smol_examples.py) |
 | `ToolBase` → smol `inputs` | [`plugin/framework/smol_tool_adapter.py`](../plugin/framework/smol_tool_adapter.py) |
 | Librarian | [`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py) |
 | Specialized delegation | [`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py) |
@@ -113,7 +114,29 @@ Keep this centralized in **`WriterAgentSmolModel`**. Do not add user-facing togg
 
 ---
 
-## 7. What is already unified (keep it that way)
+## 7. Few-shot example blocks
+
+The shared ReAct **system template** lives in [`toolcalling_agent_prompts.py`](../plugin/contrib/smolagents/toolcalling_agent_prompts.py). **Action/Observation demos** are selected by [`get_examples_block()`](../plugin/chatbot/smol_examples.py):
+
+| Key | Block | Finish tool in example |
+|-----|--------|-------------------------|
+| `librarian` | `LIBRARIAN_EXAMPLES` in `smol_examples.py` | `reply_to_user` |
+| `web_research` | `WEB_RESEARCH_EXAMPLES_BLOCK` | `final_answer` |
+| Any other (`writer:shapes`, `document_research:calc`, …) | `DELEGATE_GENERIC_EXAMPLES_BLOCK` | **`specialized_workflow_finished`** |
+
+The delegate block reuses the web-research *shape* (two `web_search` steps) only to teach the ReAct JSON format; those tool names are not on the specialized tool list. The real task is the manager’s user message; domain behavior is in `instructions=` and `__TOOLS_LIST__`.
+
+Refresh librarian copy only:
+
+```bash
+python scripts/generate_smol_examples.py
+```
+
+`ToolCallingAgent.initialize_system_prompt` also rewrites `final_answer` → `final_answer_tool_name` inside the examples block when they differ (belt-and-suspenders).
+
+---
+
+## 8. What is already unified (keep it that way)
 
 - Single smol HTTP entry: **`WriterAgentSmolModel`** only.
 - Shared **`build_toolcalling_agent`**, **`to_smol_inputs`**, **`SmolToolAdapter`**.
@@ -123,7 +146,7 @@ Do **not** merge **`tool_loop`** with **`ToolCallingAgent`** without a product d
 
 ---
 
-## 8. What stays separate (two idioms, shared plumbing)
+## 9. What stays separate (two idioms, shared plumbing)
 
 | Separate | Because |
 |----------|---------|
@@ -134,13 +157,13 @@ Do **not** merge **`tool_loop`** with **`ToolCallingAgent`** without a product d
 
 ---
 
-## 9. Wire tools for smol
+## 10. Wire tools for smol
 
 Shipped behavior: **`WriterAgentSmolModel`** passes **`completion_kwargs.get("tools")`** into **`LlmClient.request_with_tools`**. There is no JSON toggle; this is source-level policy.
 
 ---
 
-## 10. Anti-patterns
+## 11. Anti-patterns
 
 - Second smol HTTP path bypassing **`WriterAgentSmolModel`**.
 - Adding a user config flag or second HTTP path for smol wire tools before a concrete backend requires it.
@@ -149,7 +172,7 @@ Shipped behavior: **`WriterAgentSmolModel`** passes **`completion_kwargs.get("to
 
 ---
 
-## 11. Summary
+## 12. Summary
 
 - **Small:** **`WriterAgentSmolModel`** owns one smol HTTP policy; one **`LlmClient`**, shared adapters/factory, no parallel HTTP implementations.
 - **Robust:** preserves the known-good LocalAI request shape while keeping smol's ReAct parser.

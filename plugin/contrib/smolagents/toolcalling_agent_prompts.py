@@ -2,21 +2,16 @@
 """
 Default ToolCallingAgent prompt templates (bundled smolagents).
 
-Replaces the former toolcalling_agent.json for readability: real newlines in triple-quoted
-strings, same runtime strings as json.load produced. Loaded by ToolCallingAgent when
-prompt_templates is None.
-
-The system prompt shares one template; the few-shot block is swapped via __EXAMPLES_BLOCK__
-(see DEFAULT_EXAMPLES_BLOCK, LIBRARIAN_EXAMPLES_BLOCK, SPECIALIZED_EXAMPLES_BLOCK) or
-ToolCallingAgent(system_prompt_examples=...).
+WriterAgent uses only the system prompt and example blocks below. Unused upstream prompts
+are preserved in ``_UNUSED_TOOLCALLING_PROMPTS`` (triple-quoted archive). ``TOOLCALLING_PROMPT_TEMPLATES``
+uses empty strings for planning / managed_agent / final_answer so ``agents.py`` still loads.
 """
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
-DEFAULT_EXAMPLES_BLOCK = """Task: "Which city has the highest population , Guangzhou or Shanghai?"
+WEB_RESEARCH_EXAMPLES_BLOCK = """Task: "Which city has the highest population , Guangzhou or Shanghai?"
 
 Action:
 {
@@ -40,73 +35,52 @@ Action:
 }
 """
 
-LIBRARIAN_EXAMPLES_BLOCK = """Task: My name is Joe."
+# Shared by specialized delegate + document_research inner smol agents (web-style ReAct; finish = DONE tool).
+DELEGATE_GENERIC_EXAMPLES_BLOCK = """Task: "Which city has the highest population, Guangzhou or Shanghai?"
+
+The manager's real task is in the user message below; this example only shows the Action/Observation call format.
 
 Action:
 {
-  "name": "upsert_memory",
-  "arguments": {"key": "name", "content": "Joe"}
+    "name": "web_search",
+    "arguments": "Population Guangzhou"
 }
-Observation: {"status": "ok"}
+Observation: ['Guangzhou has a population of 15 million inhabitants as of 2021.']
+
 
 Action:
 {
-  "name": "reply_to_user",
-  "arguments": {"answer": "Hello, Joe! Would you like to learn more about WriterAgent?"}
+    "name": "web_search",
+    "arguments": "Population Shanghai"
 }
-Observation: {"status": "ok"}
-
-"""
-
-
-
-SPECIALIZED_EXAMPLES_BLOCK = """Task: "List the indexes in this document so we can plan edits."
+Observation: '26 million (2019)'
 
 Action:
 {
-  "name": "list_indexes",
-  "arguments": {}
-}
-Observation: {"indexes": [{"name": "Table of Contents", "type": "com.sun.star.text.ContentIndex"}]}
-
-Action:
-{
-  "name": "final_answer",
-  "arguments": "Found one content index (Table of Contents). Say if you want to refresh or edit entries."
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Shanghai has the larger population."}
 }
 """
+
+# Default few-shot when ToolCallingAgent gets system_prompt_examples=None (CLI harnesses).
+DEFAULT_EXAMPLES_BLOCK = WEB_RESEARCH_EXAMPLES_BLOCK
 
 SYSTEM_PROMPT_TEMPLATE = """You are an expert assistant who can solve any task using tool calls. You will be given a task to solve as best you can.
 To do so, you have been given access to some tools.
 
 The tool call you write is an action: after the tool is executed, you will get the result of the tool call as an "observation".
-This Action/Observation can repeat N times, you should take several steps when needed.
+This Action/Observation can repeat N times; take several steps when needed.
 
 You can use the result of the previous action as input for the next action.
-The observation will always be a string: it can represent a file, like "image_1.jpg".
-Then you can use it as input for the next action. You can do it for instance as follows:
+The observation will always be a string (often JSON from a tool).
 
-Observation: "image_1.jpg"
+To complete the task, call the finish tool (see below) with your result. It is the only way to end the run.
 
-Action:
-{
-  "name": "image_transformer",
-  "arguments": {"image": "image_1.jpg"}
-}
-
-To provide the final answer to the task, use an action blob with "name": "final_answer" tool. It is the only way to complete the task, else you will be stuck on a loop. So your final output should look like this:
-Action:
-{
-  "name": "final_answer",
-  "arguments": {"answer": "insert your final answer here"}
-}
-
-
-Here are a few examples using notional tools:
+Here are examples for tools like the ones you have (names and schemas match your tool list):
 ---
 __EXAMPLES_BLOCK__
 
-Above example were using notional tools that might not exist for you. You only have access to these tools:
+You only have access to these tools:
 __TOOLS_LIST__
 
 __MANAGED_AGENTS_BLOCK__
@@ -116,11 +90,13 @@ __CUSTOM_INSTRUCTIONS__
 Here are the rules you should always follow to solve your task:
 1. ALWAYS provide a tool call, else you will fail.
 2. Always use the right arguments for the tools. Never use variable names as the action arguments, use the value instead.
-3. Call a tool only when needed: do not call the search agent if you do not need information, try to solve the task yourself. If no tool call is needed, use {{final_answer_tool_name}} tool to return your answer.
+3. Call a tool only when needed: do not call extra lookup or research tools if you already have enough context. If you can answer from the task alone, use {{final_answer_tool_name}}.
 4. Never re-do a tool call that you previously did with the exact same parameters.
 
 Now Begin!"""
 
+# Upstream smolagents prompts — not used by WriterAgent (planning, managed agents, max-steps recovery).
+_UNUSED_TOOLCALLING_PROMPTS = '''
 
 PLANNING_INITIAL_PLAN = """You are a world expert at analyzing a situation to derive facts, and plan accordingly towards solving a task.
 Below I will present you a task. You will need to 1. build a survey of facts known or needed to solve the task, then 2. make a plan of action to solve the task.
@@ -265,3 +241,21 @@ def build_toolcalling_prompt_templates(examples_block: str) -> dict[str, Any]:
     out = copy.deepcopy(TOOLCALLING_PROMPT_TEMPLATES)
     out["system_prompt"] = SYSTEM_PROMPT_TEMPLATE.replace("__EXAMPLES_BLOCK__", examples_block)
     return out
+'''
+
+TOOLCALLING_PROMPT_TEMPLATES: dict[str, Any] = {
+    "system_prompt": SYSTEM_PROMPT_TEMPLATE,
+    "planning": {
+        "initial_plan": "",
+        "update_plan_pre_messages": "",
+        "update_plan_post_messages": "",
+    },
+    "managed_agent": {
+        "task": "",
+        "report": "",
+    },
+    "final_answer": {
+        "pre_messages": "",
+        "post_messages": "",
+    },
+}

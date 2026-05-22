@@ -13,7 +13,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
-from plugin.contrib.smolagents.toolcalling_agent_prompts import SPECIALIZED_EXAMPLES_BLOCK
+from plugin.chatbot.smol_examples import get_examples_block
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
 
@@ -74,7 +74,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         smol_tools,
         instructions=instructions,
         final_answer_tool_name="specialized_workflow_finished",
-        examples_block=SPECIALIZED_EXAMPLES_BLOCK,
+        examples_block=get_examples_block(f"document_research:{doc_type}"),
         status_callback=parent_ctx.status_callback,
     )
     executor = SmolAgentExecutor(inner_ctx)

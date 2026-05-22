@@ -132,11 +132,14 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
         )
         instructions = f"{base_intro}\n\n{budget_text}"
 
+        from plugin.chatbot.smol_examples import get_examples_block
+
         agent = WebResearchToolCallingAgent(
             tools=[DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days), VisitWebpageTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)],
             model=smol_model,
             max_steps=max_steps,
             instructions=instructions,
+            system_prompt_examples=get_examples_block("web_research"),
         )
 
         task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
