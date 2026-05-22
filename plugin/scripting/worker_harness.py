@@ -13,7 +13,6 @@ warm; only interpreter state is discarded between requests.
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 from typing import Any
@@ -37,79 +36,47 @@ def _serialize(obj: Any) -> Any:
 
 
 def main() -> None:
-    from plugin.scripting.payload_codec import SERIALIZATION
+    import pickle
+    import struct
 
-    serialization = SERIALIZATION
-    if "--serialization" in sys.argv:
+    stdin = sys.stdin.buffer
+    stdout = sys.stdout.buffer
+
+    while True:
+        header = stdin.read(4)
+        if not header or len(header) < 4:
+            break
+
+        size = struct.unpack("!I", header)[0]
+        payload = stdin.read(size)
+        if len(payload) < size:
+            break
+
+        req_id = ""
         try:
-            idx = sys.argv.index("--serialization")
-            if idx + 1 < len(sys.argv):
-                serialization = sys.argv[idx + 1]
-        except ValueError:
-            pass
+            request = pickle.loads(payload)
+            req_id = str(request.get("id", ""))
+            code = request.get("code")
+            if not isinstance(code, str) or not code.strip():
+                response: dict[str, Any] = {"status": "error", "message": "No code provided."}
+            else:
+                response = _execute_request(code, request.get("data"))
+        except pickle.UnpicklingError as e:
+            response = {"status": "error", "message": f"Invalid pickle request: {e}"}
+        except Exception as e:
+            response = {"status": "error", "message": str(e)}
 
-    if serialization == "pickle":
-        import pickle
-        import struct
+        response["id"] = req_id
+        try:
+            out_payload = pickle.dumps(response, protocol=5)
+        except Exception as e:
+            err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
+            out_payload = pickle.dumps(err_response, protocol=5)
 
-        stdin = sys.stdin.buffer
-        stdout = sys.stdout.buffer
+        stdout.write(struct.pack("!I", len(out_payload)))
+        stdout.write(out_payload)
+        stdout.flush()
 
-        while True:
-            header = stdin.read(4)
-            if not header or len(header) < 4:
-                break
-
-            size = struct.unpack("!I", header)[0]
-            payload = stdin.read(size)
-            if len(payload) < size:
-                break
-
-            req_id = ""
-            try:
-                request = pickle.loads(payload)
-                req_id = str(request.get("id", ""))
-                code = request.get("code")
-                if not isinstance(code, str) or not code.strip():
-                    response: dict[str, Any] = {"status": "error", "message": "No code provided."}
-                else:
-                    response = _execute_request(code, request.get("data"))
-            except pickle.UnpicklingError as e:
-                response = {"status": "error", "message": f"Invalid pickle request: {e}"}
-            except Exception as e:
-                response = {"status": "error", "message": str(e)}
-
-            response["id"] = req_id
-            try:
-                out_payload = pickle.dumps(response, protocol=5)
-            except Exception as e:
-                err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
-                out_payload = pickle.dumps(err_response, protocol=5)
-
-            stdout.write(struct.pack("!I", len(out_payload)))
-            stdout.write(out_payload)
-            stdout.flush()
-    else:
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            req_id = ""
-            try:
-                request = json.loads(line)
-                req_id = str(request.get("id", ""))
-                code = request.get("code")
-                if not isinstance(code, str) or not code.strip():
-                    response = {"status": "error", "message": "No code provided."}
-                else:
-                    response = _execute_request(code, request.get("data"))
-            except json.JSONDecodeError as e:
-                response = {"status": "error", "message": f"Invalid JSON request: {e}"}
-            except Exception as e:
-                response = {"status": "error", "message": str(e)}
-            response["id"] = req_id
-            sys.stdout.write(json.dumps(response, default=str) + "\n")
-            sys.stdout.flush()
 
 
 if __name__ == "__main__":

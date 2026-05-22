@@ -32,12 +32,126 @@ from plugin.scripting.payload_codec import (  # noqa: E402
     should_use_binary_envelope,
 )
 
-Direction = Literal["ingress", "egress", "both"]
-PathName = Literal["list", "split_grid", "pickle5"]
+import base64
+import math
+from plugin.scripting.payload_codec import (
+    PAYLOAD_SPLIT_GRID,
+    SPLIT_GRID_WIRE_DTYPE,
+    _flatten_grid_to_components,
+    envelope_uniform_column_kind,
+    envelope_column_kinds,
+    _host_cell_from_float,
+    _apply_column_kinds_to_ndarray,
+)
+
+def b64_host_pack_split_grid(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
+    if not grid:
+        return {
+            "__wa_payload__": PAYLOAD_SPLIT_GRID,
+            "dtype": SPLIT_GRID_WIRE_DTYPE,
+            "column_kinds": [],
+            "shape": [0],
+            "strings": {},
+            "b64": "",
+        }
+    buf, strings, column_kinds, shape = _flatten_grid_to_components(grid)
+    return {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": SPLIT_GRID_WIRE_DTYPE,
+        "column_kinds": column_kinds,
+        "shape": shape,
+        "strings": strings,
+        "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
+    }
+
+def b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[list[Any]]:
+    import array
+    b64_str = envelope.get("b64", "")
+    raw = base64.b64decode(b64_str.encode("ascii"))
+    buf = array.array("d")
+    buf.frombytes(raw)
+    shape = envelope["shape"]
+    is_1d = len(shape) == 1
+    nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
+    strings = envelope.get("strings", {})
+    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
+
+    flat_list: list[Any]
+    if not strings and uniform is not None:
+        if uniform == "int":
+            flat_list = [None if math.isnan(v) else int(v) for v in buf]
+        else:
+            flat_list = [None if math.isnan(v) else v for v in buf]
+    else:
+        column_kinds = envelope_column_kinds(envelope, ncols=ncols)
+        flat_list = [
+            strings[str(i)] if str(i) in strings else 
+            _host_cell_from_float(val, column_kind=column_kinds[0 if is_1d else i % ncols])
+            for i, val in enumerate(buf)
+        ]
+
+    if is_1d:
+        return flat_list
+    return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
+
+def b64_child_pack_split_grid(arr: Any) -> dict[str, Any]:
+    import numpy as np
+    if not isinstance(arr, np.ndarray):
+        arr = np.asarray(arr)
+    ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
+    if np.issubdtype(arr.dtype, np.integer):
+        column_kinds = ["int"] * ncols
+    else:
+        column_kinds = ["float"] * ncols
+    wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
+    return {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": SPLIT_GRID_WIRE_DTYPE,
+        "column_kinds": column_kinds,
+        "shape": list(wire_arr.shape),
+        "strings": {},
+        "b64": base64.b64encode(wire_arr.tobytes()).decode("ascii"),
+    }
+
+def b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
+    import numpy as np
+    shape = envelope["shape"]
+    is_1d = len(shape) == 1
+    nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
+    b64_str = envelope.get("b64", "")
+    raw = base64.b64decode(b64_str.encode("ascii"))
+    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
+    column_kinds = envelope_column_kinds(envelope, ncols=ncols)
+    strings = envelope.get("strings", {})
+
+    if not strings:
+        arr = np.frombuffer(raw, dtype=np.float64)
+        if not is_1d:
+            arr = arr.reshape((nrows, ncols))
+        return _apply_column_kinds_to_ndarray(
+            arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
+        )
+
+    flat_list = np.frombuffer(raw, dtype=np.float64).tolist()
+    for i, val in enumerate(flat_list):
+        str_idx = str(i)
+        if str_idx in strings:
+            flat_list[i] = strings[str_idx]
+        elif math.isnan(val):
+            flat_list[i] = None
+        else:
+            col = 0 if is_1d else i % ncols
+            if column_kinds[col] == "int":
+                flat_list[i] = int(val)
+
+    if is_1d:
+        return flat_list
+    return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
 def child_materialize_list(wire: Any) -> Any:
     """Baseline slow path: np.array after json.loads/pickle.loads produced Python lists."""
+
     import numpy as np
     return np.array(wire, dtype=np.float64)
 
@@ -161,7 +275,7 @@ def run_ingress(
 
     if wire_format == "pickle5":
         def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force="always", use_b64=False)
+            return host_pack_data(grid, min_cells=min_cells, force="always")
         def dump(data: Any) -> bytes:
             b = pickle.dumps({"id": "b", "data": data}, protocol=5)
             wire_holder["bytes"] = b
@@ -169,10 +283,10 @@ def run_ingress(
         def load() -> Any:
             return pickle.loads(wire_holder["bytes"])["data"]
         def mat(data: Any) -> Any:
-            return child_materialize_split_grid(data)
+            return child_unpack_data(data)
     elif wire_format == "split_grid":
         def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force="always", use_b64=True)
+            return b64_host_pack_split_grid(grid)
         def dump(data: Any) -> str:
             line = json.dumps({"id": "b", "data": data}, default=str) + "\n"
             wire_holder["line"] = line
@@ -180,7 +294,7 @@ def run_ingress(
         def load() -> Any:
             return json.loads(wire_holder["line"])["data"]
         def mat(data: Any) -> Any:
-            return child_materialize_split_grid(data)
+            return b64_child_unpack_split_grid(data)
     else:  # json_list
         def pack() -> Any:
             return host_pack_data(grid, min_cells=min_cells, force="never")
@@ -231,7 +345,7 @@ def run_egress(
     if wire_format == "pickle5":
         def pack() -> Any:
             r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force="always", use_b64=False)
+            return child_pack_result(r, min_cells=min_cells, force="always")
         def dump(res: Any) -> bytes:
             b = pickle.dumps({"id": "b", "result": res}, protocol=5)
             wire_holder["bytes"] = b
@@ -243,7 +357,9 @@ def run_egress(
     elif wire_format == "split_grid":
         def pack() -> Any:
             r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force="always", use_b64=True)
+            if isinstance(r, np.ndarray):
+                return b64_child_pack_split_grid(r)
+            return b64_host_pack_split_grid(r)
         def dump(res: Any) -> str:
             line = json.dumps({"id": "b", "result": res}, default=str) + "\n"
             wire_holder["line"] = line
@@ -251,7 +367,7 @@ def run_egress(
         def load() -> Any:
             return json.loads(wire_holder["line"])["result"]
         def mat(res: Any) -> Any:
-            return host_unpack_data(res, as_nested_list=True)
+            return b64_host_unpack_split_grid(res)
     else:  # json_list
         def pack() -> Any:
             r = kind_pack()
@@ -287,8 +403,8 @@ def run_child_only(
     iters: int,
 ) -> tuple[float, float, float, float, float]:
     data_list = host_pack_data(grid, min_cells=min_cells, force="never")
-    data_split_grid = host_pack_data(grid, min_cells=min_cells, force="always", use_b64=True)
-    data_pickle_split_grid = host_pack_data(grid, min_cells=min_cells, force="always", use_b64=False)
+    data_split_grid = b64_host_pack_split_grid(grid)
+    data_pickle_split_grid = host_pack_data(grid, min_cells=min_cells, force="always")
     line_list = json.dumps({"data": data_list}) + "\n"
     line_split_grid = json.dumps({"data": data_split_grid}) + "\n"
     bytes_pickle = pickle.dumps({"data": data_pickle_split_grid}, protocol=5)
@@ -297,10 +413,10 @@ def run_child_only(
         return child_materialize_list(json.loads(line_list)["data"])
 
     def mat_split_grid() -> Any:
-        return child_materialize_split_grid(json.loads(line_split_grid)["data"])
+        return b64_child_unpack_split_grid(json.loads(line_split_grid)["data"])
 
     def mat_pickle5() -> Any:
-        return child_materialize_split_grid(pickle.loads(bytes_pickle)["data"])
+        return child_unpack_data(pickle.loads(bytes_pickle)["data"])
 
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
     _, split_grid_ms = _bench(mat_split_grid, warmup=warmup, iters=iters)
@@ -309,6 +425,7 @@ def run_child_only(
     sp_split = list_ms / split_grid_ms if split_grid_ms > 0 else 0.0
     sp_pickle = list_ms / pickle5_ms if pickle5_ms > 0 else 0.0
     return list_ms, split_grid_ms, pickle5_ms, sp_split, sp_pickle
+
 
 
 def main() -> None:

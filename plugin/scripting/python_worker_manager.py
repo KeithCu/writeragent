@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 import pickle
 import struct
 import logging
@@ -22,39 +21,33 @@ import time
 import uuid
 from typing import Any, IO
 
-from plugin.scripting.payload_codec import host_unpack_data, SERIALIZATION
+from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.timeout_limits import python_exec_timeout_default
 
 log = logging.getLogger(__name__)
 
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worker_harness.py")
-_instances: dict[tuple[str, str], PythonWorkerManager] = {}
+_instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
 
 
 class PythonWorkerManager:
     """One warm child process per resolved Python executable path."""
 
-    def __init__(self, exe: str, env: dict[str, str], serialization: str | None = None) -> None:
-        from plugin.scripting.payload_codec import SERIALIZATION
+    def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
         self.env = dict(env)
-        self.serialization = serialization if serialization is not None else SERIALIZATION
         self._proc: subprocess.Popen[Any] | None = None
         self._io_lock = threading.Lock()
 
     @classmethod
-    def get(cls, exe: str, env: dict[str, str], serialization: str | None = None) -> PythonWorkerManager:
+    def get(cls, exe: str, env: dict[str, str]) -> PythonWorkerManager:
         """Return the singleton worker for *exe* (caller should pass a scrubbed env dict)."""
-        from plugin.scripting.payload_codec import SERIALIZATION
-        if serialization is None:
-            serialization = SERIALIZATION
         with _registry_lock:
-            key = (exe, serialization)
-            mgr = _instances.get(key)
+            mgr = _instances.get(exe)
             if mgr is None:
-                mgr = cls(exe, dict(env), serialization)
-                _instances[key] = mgr
+                mgr = cls(exe, dict(env))
+                _instances[exe] = mgr
             return mgr
 
     @classmethod
@@ -73,16 +66,8 @@ class PythonWorkerManager:
         if data is not None:
             request["data"] = data
 
-        header: bytes | None = None
-        payload: bytes | None = None
-        line: str | None = None
-
-        is_pickle = (self.serialization == "pickle")
-        if is_pickle:
-            payload = pickle.dumps(request, protocol=5)
-            header = struct.pack("!I", len(payload))
-        else:
-            line = json.dumps(request, default=str) + "\n"
+        payload = pickle.dumps(request, protocol=5)
+        header = struct.pack("!I", len(payload))
 
         with self._io_lock:
             for attempt in range(2):
@@ -91,27 +76,16 @@ class PythonWorkerManager:
                     assert self._proc is not None and self._proc.stdin is not None and self._proc.stdout is not None
                     stdin = self._proc.stdin
                     stdout = self._proc.stdout
-                    if is_pickle:
-                        assert header is not None and payload is not None
-                        stdin.write(header)
-                        stdin.write(payload)
-                    else:
-                        assert line is not None
-                        stdin.write(line)
+                    stdin.write(header)
+                    stdin.write(payload)
                     stdin.flush()
 
-                    if is_pickle:
-                        response_bytes = self._read_response_bytes(stdout, timeout_sec)
-                        if not response_bytes:
-                            raise RuntimeError("Worker closed stdout without a response")
-                        response = pickle.loads(response_bytes)
-                    else:
-                        response_line = self._read_response_line(stdout, timeout_sec)
-                        if not response_line:
-                            raise RuntimeError("Worker closed stdout without a response")
-                        response = json.loads(response_line)
+                    response_bytes = self._read_response_bytes(stdout, timeout_sec)
+                    if not response_bytes:
+                        raise RuntimeError("Worker closed stdout without a response")
+                    response = pickle.loads(response_bytes)
                     return self._normalize_response(response)
-                except (BrokenPipeError, json.JSONDecodeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired) as e:
+                except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired) as e:
                     log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                     self._terminate_worker()
                     if attempt == 1:
@@ -144,37 +118,18 @@ class PythonWorkerManager:
         if self._proc is not None and self._proc.poll() is None:
             return
         self._terminate_worker()
-        is_pickle = (self.serialization == "pickle")
         popen_kw: dict[str, Any] = {
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "env": self.env,
+            "text": False,
+            "bufsize": 0,
         }
-        if is_pickle:
-            popen_kw["text"] = False
-            popen_kw["bufsize"] = 0
-        else:
-            popen_kw["text"] = True
-            popen_kw["bufsize"] = 1
         if os.name != "nt":
             popen_kw["preexec_fn"] = os.setsid
-        self._proc = subprocess.Popen([self.exe, _HARNESS_PATH, "--serialization", self.serialization], **popen_kw)
-        log.debug("Started Python worker pid=%s exe=%s serialization=%s", self._proc.pid, self.exe, self.serialization)
-
-    def _read_response_line(self, stdout: IO[str], timeout_sec: int) -> str:
-        assert self._proc is not None
-        end = time.time() + timeout_sec
-        while time.time() < end:
-            remaining = end - time.time()
-            ready, _, _ = select.select([stdout], [], [], min(1.0, remaining))
-            if ready:
-                line = stdout.readline()
-                if line:
-                    return line
-            if self._proc.poll() is not None:
-                break
-        raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+        self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)
+        log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: int) -> bytes:
         assert self._proc is not None
@@ -227,3 +182,4 @@ class PythonWorkerManager:
                 proc.kill()
             except OSError:
                 pass
+

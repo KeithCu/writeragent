@@ -8,18 +8,18 @@ This page collects the serialization details for WriterAgent's out-of-process Nu
 
 The compute bridge is **asymmetric by design**: LibreOffice’s embedded Python (host) must stay ABI-safe and ships **without NumPy**; the user venv (child) may use NumPy, pandas, and other C extensions. Serialization is therefore the main lever for large-range performance — not importing NumPy into LibreOffice ([docs/vector-search-design.md](vector-search-design.md) §3, “NumPy tax”). The host can still ship **small vendored binaries** (a few MB, like [audio](audio-architecture.md) or future `sqlite-vec`) to pack/unpack payloads faster than pure stdlib, while the child keeps the heavy numeric stack in the user venv.
 
-### What we implemented (Unified Split-Grid Standard)
+### What we implemented (Pickle5 + Split-Grid)
 
-For numeric and mixed-type grids, the compute bridge implements high-performance serialization directly over standard JSON stdout/stdin lines. We unified all out-of-process binary serialization under a single standard: **Strategy 3 `split_grid` (Split-Grid)**.
+For numeric and mixed-type grids, the compute bridge implements high-performance serialization directly over standard length-prefixed bytes carrying pickled dictionaries with zero-copy binary arrays. We unified all out-of-process binary serialization under a single production standard: **Pickle5 + Split-Grid**.
 
 | Piece | Purely Numeric Split-Grid | Mixed-Type Split-Grid |
 |-------|----------------------------|-----------------------|
-| **Wire Payload** | `{"__wa_payload__": "split_grid", "dtype": "float64", "column_kinds": ["int", "int"], "shape": [r, c], "b64": "...", "strings": {}}` | `{"__wa_payload__": "split_grid", "dtype": "float64", "column_kinds": ["int", "float"], "shape": [r, c], "b64": "...", "strings": {"idx": "val"}}` |
-| **Host Packing** | Flattens grid cells to float64; empty cells become `math.nan`. Identifies per-column `column_kinds` (`int`/`float`). Converts directly to standard `array.array` and encodes base64. Sparse `strings` dict is empty `{}`. | Flattens grid; numbers become float64, empty cells/strings become `math.nan` in binary array. Strings are registered in parallel in a sparse `strings` index map. Identifies `column_kinds`. |
-| **Child Unpacking** | **Optimized C-Speed Path**: Sees that the sparse `strings` dictionary is empty and materializes a NumPy `ndarray` directly using `np.frombuffer` in one step. Restores `int64` types if `column_kinds` are all-int. Bypasses all Python list/loop transpositions! | Decodes base64 to buffer; loads via `np.frombuffer`. Converts to Python list via C-level `.tolist()`, replaces `nan` with `None`, restores `int` types using `column_kinds`, and overlays sparse strings from the index map. |
+| **Wire Payload** | `{ "__wa_payload__": "split_grid", "dtype": "float64", "column_kinds": ["int", ...], "shape": [r, c], "buffer": b"...", "strings": {} }` (Pickled Protocol 5) | `{ "__wa_payload__": "split_grid", "dtype": "float64", "column_kinds": ["int", ...], "shape": [r, c], "buffer": b"...", "strings": {"idx": "val"} }` (Pickled Protocol 5) |
+| **Host Packing** | Flattens grid cells to float64; empty cells become `math.nan`. Identifies per-column `column_kinds` (`int`/`float`). Converts directly to standard `array.array` and packs its raw `.tobytes()` binary buffer. Sparse `strings` dict is empty `{}`. | Flattens grid; numbers become float64, empty cells/strings become `math.nan` in binary array. Strings are registered in parallel in a sparse `strings` index map. Identifies `column_kinds`. |
+| **Child Unpacking** | **Optimized C-Speed Path**: Sees that the sparse `strings` dictionary is empty and materializes a NumPy `ndarray` directly using `np.frombuffer` in one step. Restores `int64` types if `column_kinds` are all-int. Bypasses all Python list/loop transpositions and Base64 decoding! | Decodes the raw binary buffer directly via `np.frombuffer`. Converts to Python list via C-level `.tolist()`, replaces `nan` with `None`, restores `int` types using `column_kinds`, and overlays sparse strings from the index map. |
 | **Compatibility** | Namespace receives a NumPy ndarray (ideal for math operations). | Namespace receives a standard nested list of lists (fully backward compatible for all sheets and scripts). |
 | **Threshold** | `BINARY_MIN_CELLS = 10` — 2D grids with ≥ 10 cells use `split_grid`. | `BINARY_MIN_CELLS = 10` — 2D grids with ≥ 10 cells use `split_grid`. |
-| **Fallback** | Grids < 10 cells fall back to standard JSON lists. | Grids < 10 cells or non-2D arrays fall back to standard JSON lists. |
+| **Fallback** | Grids < 10 cells fall back to standard Pickle lists. | Grids < 10 cells or non-2D arrays fall back to standard Pickle lists. |
 | **Debug log tag** | `payload_codec host_pack split_grid` | `payload_codec host_pack split_grid` |
 
 ---
@@ -34,7 +34,7 @@ Historically, a column-wise transposition approach (Strategy 1) was analyzed. It
 2. Ingesting multiple chunks requires multiple base64 decodes and nested list pointer reconstructions, leading to serialization bottlenecks on mixed sheets.
 
 #### The Split-Grid Solution:
-Instead of dividing columns, Split-Grid serializes the **entire grid as a single flat binary float64 array** plus a **parallel sparse JSON strings dictionary** and **per-column type metadata**.
+Instead of dividing columns, Split-Grid serializes the **entire grid as a single flat binary float64 array** plus a **parallel sparse strings dictionary** and **per-column type metadata**, packed as raw binary data in a length-prefixed Pickle5 stream.
 
 ```mermaid
 flowchart TD
@@ -43,14 +43,16 @@ flowchart TD
     Flatten -->|Numbers / None| Array[array.array 'd']
     Flatten -->|Strings| Dict[Sparse Dict strings]
     Flatten -->|Types| Kinds[Identify column_kinds int/float]
-    Array --> B64[Base64 Encode]
-    Kinds --> Envelope[JSON stdout line]
-    B64 --> Envelope
+    Array --> tobytes[tobytes binary buffer]
+    Kinds --> Envelope[Envelope Dict]
+    tobytes --> Envelope
     Dict --> Envelope
+    Envelope --> Pickle[pickle.dumps protocol 5]
   end
   subgraph child [Child Process venv]
-    Envelope --> Dec[Base64 Decode]
-    Dec --> Buff[np.frombuffer float64]
+    Pickle --> Unpickle[pickle.loads]
+    Unpickle --> Envelope2[Envelope Dict]
+    Envelope2 -->|"buffer" (bytes)| Buff[np.frombuffer float64]
     Buff --> List[tolist C-level]
     List --> Patch[Patch math.nan to None]
     Kinds --> Patch2[Restore int types using column_kinds]
@@ -68,11 +70,14 @@ flowchart TD
    - Any string cell is registered in the parallel `strings` dictionary keyed by its flat cell index (e.g. `{"7": "banana", "12": "apple"}`).
    - Per-column `column_kinds` (`int` or `float`) are identified to allow precise type restoration in the child.
    - Avoids expensive type-coercion testing by mapping strings immediately, ensuring 100% preservation of zip codes (`"02138"` remains a string) and preventing float conversion bugs.
+   - The entire dictionary payload is serialized using `pickle.dumps(request, protocol=5)`, completely avoiding Base64 encoding.
 2. **Child Unpacking**:
-   - Maps the base64-decoded binary payload directly into memory using `np.frombuffer`.
-   - Utilizes NumPy's fast C-level `.tolist()` to generate a flat Python list in a single pass.
+   - Decodes the length-prefixed stream and deserializes the request with `pickle.loads(payload)`.
+   - Maps the binary buffer (`"buffer"` key) directly into memory using `np.frombuffer`.
+   - For mixed grids containing strings, utilizes NumPy's fast C-level `.tolist()` to generate a flat Python list in a single pass.
    - Reconstructs the grid by running a highly optimized single-pass loop in Python, replacing remaining `nan` values with `None`, restoring integer types using `column_kinds`, and overlaying string values from the sparse dict.
    - Slices the flat list back into a row-major 2D nested list.
+   - For purely numeric grids, completely bypasses Python list reconstructions and returns `ndarray` directly.
 
 #### Performance Impact:
 - **~20x Speedup** over Column-Wise mixed grids.
@@ -166,7 +171,7 @@ Side-by-side warm worker execution times comparing JSON and Pickle IPC dynamic l
    - **Materialization speedup**: Peer materialization is an unbelievable **168.50x faster** (`0.017 ms` vs `2.837 ms` for standard list mapping), mapping the memory directly via zero-copy C-speed `np.frombuffer`.
 
 3. **Production Implementation (May 2026)**:
-   This proposal has been fully implemented! When `SERIALIZATION = "pickle"` is configured under `payload_codec.py`, both the host and the child dynamically switch to Split-Grid inside Pickle (direct raw bytes under the `"buffer"` dictionary key, bypassing Base64). When `SERIALIZATION = "json"` is active, the bridge continues utilizing the robust Base64 JSON-based Split-Grid representation under `"b64"` for maximum backward compatibility and diagnostic logging.
+   This proposal has been fully implemented! The production codebase has been standardized exclusively on Split-Grid inside Pickle (direct raw bytes under the `"buffer"` dictionary key, completely bypassing Base64 and JSON encoding overhead). All JSON/Base64 serialization remnants have been removed from the production path (while the historical JSON/Base64 Split-Grid codec is retained locally in benchmark and test scripts for performance comparisons).
 
 To run benchmarks yourself:
 ```bash
@@ -192,7 +197,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_run_venv_code.py`](../tests/scripting/test_run_venv_code.py) | Harness integration with split_grid payloads |
 
-**Policy:** `BINARY_MIN_CELLS = 10` — 2D grids with **≥ 10 cells** use `split_grid`; smaller grids use JSON nested lists.
+**Policy:** `BINARY_MIN_CELLS = 10` — 2D grids with **≥ 10 cells** use `split_grid`; smaller grids use standard Pickle lists.
 
 **Still deferred:** Tier 2b vendored codecs, mmap (Tier 3), payload cache (Tier 5), venv tool RPC.
 
@@ -202,14 +207,14 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 Calc UNO range
   → calc_addin_data_to_python (host: list / list[list])
   → pack_calc_data_for_wire → host_pack_data (host: split_grid or nested list)
-  → json.dumps(request)          (host: one JSON line; split_grid is base64 + strings inside JSON)
-  → json.loads(request)          (child: parse envelope dict)
+  → pickle.dumps(request)        (host: binary payload, protocol 5; split_grid contains raw bytes)
+  → pickle.loads(payload)        (child: parse request dict)
   → child_unpack_data → ndarray  (child: frombuffer + reshape when split_grid and strings is empty)
   → send_variables({"data": ...}) (child: ndarray or list in fresh namespace)
   → user code (NumPy/pandas)
   → serialize_result → child_pack_result (child: split_grid or list for large numeric result)
-  → json.dumps(response)         (child: text line to host)
-  → json.loads(response)         (host)
+  → pickle.dumps(response)       (child: binary response, protocol 5)
+  → pickle.loads(response)       (host)
   → _normalize_response → host_unpack_data (host: split_grid → nested lists for Calc / LLM / UI)
   → finalize_python_return / write_formula_range
 ```
@@ -217,14 +222,14 @@ Calc UNO range
 | Stage | Module | What happens | Large dense numeric `data` (shipped path) |
 |-------|--------|--------------|-------------------------------------------|
 | Range read | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Cell scalars in nested lists; cap 250 000 cells | O(cells) once at read |
-| Host pack | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | `array` + base64 envelope when ≥10 numeric cells | One pass; wire ~half size vs JSON list (bench) |
-| Host encode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `json.dumps` of request dict | Smaller line for blob; still O(cells) base64 |
-| Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | ~13× faster materialize vs `np.array(list)` at 10⁶ cells (bench) |
-| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame still `to_dict(orient="records")` | Large ndarray egress as blob, not `.tolist()` |
+| Host pack | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | `array` buffer envelope when ≥10 numeric cells | One pass; wire ~40% size vs JSON list (bench) |
+| Host encode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `pickle.dumps` of request dict | Small binary payload; completely avoids Base64 |
+| Child unpack | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | ~168× faster materialize vs `np.array(list)` at 10⁴ cells (bench) |
+| Return | [`serialize_result`](../plugin/scripting/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame still `to_dict(orient="records")` | Large ndarray egress as binary buffer, not `.tolist()` |
 | Host decode | [`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
 | Calc return | [`python_function.py`](../plugin/calc/python_function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
-**Pickle Protocol 5:** Implemented side-by-side with standard JSON serialization on the worker path, toggled dynamically via a global variable. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
+**Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
 **Fresh namespace every call** ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PYTHON()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)).
 
@@ -232,7 +237,7 @@ Calc UNO range
 
 - **Host stays NumPy-free** — do not vendor full NumPy/pandas into LibreOffice ([vector-search-design.md](vector-search-design.md) §3). That is unrelated to shipping **small, purpose-built binaries** (a few MB per platform total) when stdlib is too slow.
 - **Host may use small vendored natives** — same precedent as audio ([audio-architecture.md](audio-architecture.md): `sounddevice` / CFFI wheels under `vendor/` / `plugin/vendor/`, injected from [`plugin/main.py`](../plugin/main.py)) and future vector search (`sqlite-vec` `vec0`, ~1 MB per OS in [vector-search-design.md](vector-search-design.md)). A serialization codec wheel or tiny custom `.so` is acceptable if it stays in the **few‑MB** budget and is pruned per OS/Python ABI like audio — not a 50–100 MB science stack.
-- **Wire format stays line-oriented JSON** until a protocol version bump — easy to log, grep, and extend; binary payloads ride *inside* JSON fields (base64), as a **msgpack/CBOR body** on the same stdin line, or via temp-file metadata; not a raw byte stream without framing on day one.
+- **Wire format uses length-prefixed binary streams carrying Pickle5 payloads** — this standard provides extremely fast, out-of-band zero-copy buffer sharing between processes without any Base64 encoding or JSON parsing overhead. Since we package both the extension host and the sandboxed child worker together inside the OXT, backward compatibility is not a constraint, allowing us to evolve the IPC protocol to be as fast as possible.
 - **Sandbox must not grant arbitrary filesystem access** — [`LocalPythonExecutor`](../plugin/contrib/smolagents/local_python_executor.py) blocks `os` / `pathlib` in user code; temp files and mmap paths must be **host-allocated, host-trusted paths** passed in the request envelope, not paths chosen by LLM-generated scripts.
 - **LLM and Calc still need JSON-safe or scalar outputs** eventually — even an optimized ingress path usually ends with compact `result` (scalar, short list, summary stats) or a second-phase host tool (`write_formula_range`) for sheet output ([core user guide](enabling_numpy_in_libreoffice.md#3-user-guide)).
 
@@ -256,7 +261,7 @@ Extend request/response objects with a tagged shape, e.g. `{"__wa_payload__": "n
 
 Best when: you need dtype/shape preserved but payloads are still moderate; stepping stone before binary wire.
 
-#### Tier 2 — Base64 binary blob inside JSON (asymmetric fast path via split_grid)
+#### Tier 2 — Asymmetric Fast Path via Split-Grid inside Pickle5 (Production Standard)
 
 **Shipped** in [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
@@ -264,7 +269,7 @@ Host (stdlib only) packs a 2D numeric/mixed range:
 
 ```python
 # Host sketch (embedded Python): row-major float64, empty/None → NaN, strings registered in strings dict
-import array, base64
+import array
 buf = array.array("d")
 strings = {}
 # (flatten and fill buf / strings; identify column_kinds)
@@ -273,16 +278,18 @@ payload = {
     "dtype": "float64",
     "column_kinds": ["int", "float", ...],
     "shape": [nrows, ncols],
-    "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
+    "buffer": buf.tobytes(),  # Packed as raw binary bytes directly!
     "strings": strings,
 }
+# Sent over a length-prefixed stream using: pickle.dumps(payload, protocol=5)
 ```
 
 Child (venv):
 
 ```python
-import base64, numpy as np
-raw = base64.b64decode(payload["b64"])
+import numpy as np
+# Deserialized instantly via: payload = pickle.loads(payload_bytes)
+raw = payload["buffer"]
 # If strings dict is empty, deserialize directly to ndarray at microsecond C-speed
 if not payload.get("strings"):
     arr = np.frombuffer(raw, dtype=np.float64).reshape(payload["shape"])
@@ -292,10 +299,10 @@ else:
     pass
 ```
 
-- **Pros:** One JSON line still; no pickle; NumPy only on child; avoids million-element Python float objects on the wire. Fully supports mixed types via sparse strings index.
-- **Cons:** ~33% base64 overhead; host still walks cells once to pack.
+- **Pros:** Microsecond binary transport; no Base64 wire bloat or CPU overhead; NumPy only on child; avoids million-element Python float objects on the wire. Fully supports mixed types via sparse strings index.
+- **Cons:** Host still walks cells once to pack.
 
-Best when: benchmarks show JSON list encode/decode dominates NumPy compute for mostly-numeric/mixed ranges.
+Best when: standard Python objects and serialization dominate numeric processing (practically all spreadsheet ranges).
 
 #### Tier 2b — Vendored host codec (few MB, no NumPy)
 
@@ -538,12 +545,12 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 
 ### Recommendation summary
 
-**Strategy 3 `split_grid`** is the unified binary wire format shipped for both numeric and mixed-type grids (dense numeric arrays use split-grid with `strings: {}` for C-speed `np.frombuffer` loading in child). Keep **JSON nested lists** for <10 cells, small 1D mixed arrays, and scalars.
+**Pickle5 + Split-Grid** is the unified binary wire format shipped for both numeric and mixed-type grids (dense numeric arrays use split-grid with `strings: {}` for C-speed `np.frombuffer` loading in child). Keep **Standard Pickle lists** for <10 cells, small 1D mixed arrays, and scalars.
 
 | Situation | Prefer |
 |-----------|--------|
-| Dense numeric or mixed numeric/strings 2D grids (≥10 cells) | **`split_grid` envelope in JSON** (shipped) |
-| Small ranges (<10 cells), 1D mixed types, scalars | **JSON nested lists** (no envelope) |
+| Dense numeric or mixed numeric/strings 2D grids (≥10 cells) | **Pickle5 + Split-Grid envelope** (shipped) |
+| Small ranges (<10 cells), 1D mixed types, scalars | **Standard Pickle lists** (no envelope) |
 | LLM chat with huge outputs | **Tier 0** summaries + **tool RPC** / `write_formula_range` (Tier 4), not giant `result` JSON |
 | Host still slow after split_grid in LO profiles | **Tier 2b** vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** (Tier 3) + optional **payload cache** (Tier 5) |
@@ -622,7 +629,7 @@ Fresh namespace per call stays ([core strategy](enabling_numpy_in_libreoffice.md
 
 #### Completed: Split-Grid inside Pickle Optimization
 
-**Status: Fully Implemented (May 2026)**
+**Status: Fully Implemented and Standardized (May 2026)**
 
 We have successfully combined the microsecond C-speed memory materialization of **Split-Grid** (`np.frombuffer`) with the zero-overhead raw binary streaming of **Pickle Protocol 5**.
 
@@ -630,19 +637,19 @@ By placing the raw binary numeric buffer (as a Python `array.array('d')` on the 
 
 ##### How it is designed and implemented:
 1. **Host-Side Pack (OOB/Direct array serialization)**:
-   Instead of Base64 encoding the contiguous float64 array into a `"b64"` ASCII string inside a JSON dictionary, we wrap it natively inside a standard Python dictionary under the `"buffer"` key (holding the raw binary bytes / `array.array('d')`):
+   Instead of Base64 encoding the contiguous float64 array into a `"b64"` ASCII string inside a JSON dictionary, we wrap it natively inside a standard Python dictionary under the `"buffer"` key (holding the raw binary bytes natively):
    ```python
    payload = {
        "__wa_payload__": "split_grid",
        "dtype": "float64",
        "column_kinds": column_kinds,
        "shape": shape,
-       "buffer": buf,  # array.array('d') or bytes natively stored when use_b64=False
+       "buffer": buf.tobytes(),  # Direct raw bytes
        "strings": strings,
    }
    ```
 2. **IPC Binary Transport**:
-   When unpickling using Pickle Protocol 5 on the peer side (host or child), Pickle natively deserializes the raw `array.array` / `bytes` object with **zero Base64 parsing or string decoding overhead**.
+   When unpickling using Pickle Protocol 5 on the peer side (host or child), Pickle natively deserializes the raw `bytes` object with **zero Base64 parsing or string decoding overhead**.
 3. **Child-Side Materialize (C-Speed Direct Buffer Ingestion)**:
    In the child, if the sparse `strings` dictionary is empty, NumPy instantly materializes the buffer:
    ```python
@@ -653,22 +660,21 @@ By placing the raw binary numeric buffer (as a Python `array.array('d')` on the 
 ##### Architectural and Performance Benefits:
 - **No Base64 overhead**: Base64 enlarges binary footprints by ~33% and consumes CPU cycles encoding/decoding. Eliminating this reduces both RAM and CPU latency.
 - **Zero-copy out-of-band unpickling**: Uses Pickle 5's out-of-band buffer sharing features, allowing zero-copy memory reads between IPC layers.
-- **Graceful dynamic fallback**: The IPC transport and `payload_codec.py` fall back automatically to standard Base64 JSON `split_grid` when `SERIALIZATION = "json"` is toggled (e.g. for logging, debugging, or compatibility on systems without binary length-prefixed stream capabilities), or if one side falls back to a text envelope.
+- **No dynamic JSON fallback**: To keep production code fast, clean, and completely streamlined, all historical JSON/Base64 serialization code pathways have been moved out of production execution paths and placed strictly in the benchmark and unit testing suites.
 
 #### Remaining pipeline costs (reference)
 
-Even with Tier 2 shipped, these stages still exist:
+Even with Pickle5 + Split-Grid shipped, these stages still exist:
 
 ```text
-UNO read → Py list per cell → host_pack (array+base64) → json.dumps(line)
-  → json.loads → frombuffer → … compute …
-  → child_pack_result → json.dumps → host_unpack → nested lists (Calc matrix)
+UNO read → Py list per cell → host_pack (array.tobytes) → pickle.dumps (protocol 5)
+  → pickle.loads → frombuffer → … compute …
+  → child_pack_result → pickle.dumps → pickle.loads → host_unpack → nested lists (Calc matrix)
 ```
 
 | Bottleneck | Future lever |
 |------------|--------------|
 | Per-cell Py objects at read | Priority 3 (Cython pack / UNO→bytes) — [Building host natives](#building-host-native-extensions-cython) |
-| Base64 in JSON line | float32, Tier 3 mmap, or 2b binary frame |
 | Same range every recalc | Priority 2 (ROW index), Priority 6 (cache) |
 | Giant `result` in chat | Priority 2 (Tier 0), tool RPC |
 | DataFrame `.to_dict` | Priority 5 |

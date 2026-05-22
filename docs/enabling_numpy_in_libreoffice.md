@@ -393,7 +393,7 @@ When you pass a range (or cell reference) as the second argument to `=PYTHON(cod
 
 Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped at `MAX_PYTHON_DATA_CELLS` (default 250 000).
 
-**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): JSON list or `split_grid`; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → JSON worker line → `child_unpack_data` (ndarray or list when split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → host `host_unpack_data` where lists are needed ([`python_function.py`](../plugin/calc/python_function.py)).
+**Data pipeline:** Calc UNO range → `calc_addin_data_to_python` → `pack_calc_data_for_wire` ([`host_pack_data`](../plugin/scripting/payload_codec.py): Pickle list or Split-Grid; details in [NumPy serialization](numpy-serialization.md#current-pipeline-and-costs)) → Pickle5 payload stream → `child_unpack_data` (ndarray or list from split_grid) → `send_variables({"data": ...})` → script runs. Return path: `child_pack_result` → Pickle5 payload stream → host `host_unpack_data` ([`python_function.py`](../plugin/calc/python_function.py)).
 
 **Gaps vs LibrePythonista (workarounds):** one range only (use multiple cells or chat `data_range`); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
 
@@ -401,13 +401,13 @@ Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data
 
 ### NumPy serialization
 
-The worker protocol uses a length-prefixed binary stream with **Pickle5 + Split-Grid** (direct raw bytes under the `"buffer"` dictionary key, bypassing Base64) as the codebase default, with a fallback to JSON-based Base64 Split-Grid (`split_grid`) or nested JSON lists for maximum backward compatibility and diagnostic logging.
+The worker protocol uses a length-prefixed binary stream with **Pickle5 + Split-Grid** (direct raw bytes under the `"buffer"` dictionary key, completely bypassing JSON/Base64 encoding) as the exclusive production serialization protocol. All JSON/Base64 out-of-process serialization remnants have been removed from the production execution path and moved to the test/benchmark suites for diagnostic, optimization, and historical comparison.
 
-Under the default **Pickle5 + Split-Grid** strategy:
+Under the **Pickle5 + Split-Grid** design:
 - **Wire size reduction**: Payloads shrink by **60%** (e.g. a 100x100 grid takes only **78.48 KiB** compared to 198 KiB for JSON lists), completely bypassing Base64 size expansion.
 - **End-to-End Speedup**: E2E egress time for `100x100` cells drops from `10.066 ms` to `0.503 ms` (a massive **20.01x E2E speedup**).
 - **C-Speed Materialization**: Peer materialization in the child is an unbelievable **168.50x faster** than standard JSON list mapping (`0.017 ms` vs `2.837 ms` baseline), loading the raw double-precision binary buffer directly via zero-copy `np.frombuffer` in one step.
-- Mixed-type grids are fully supported via a sparse index map for strings, and smaller payloads (<10 cells) gracefully fall back to standard JSON/pickle lists.
+- Mixed-type grids are fully supported via a sparse index map for strings, and smaller payloads (<10 cells) gracefully fall back to standard Pickle lists.
 
 This keeps LibreOffice's embedded Python NumPy-free while making large Calc ranges and ndarray results exceptionally fast to move across the process boundary. All serialization details, benchmarks, optimization tiers, mmap/cache ideas, and native host-extension packaging notes live in [NumPy serialization](numpy-serialization.md).
 

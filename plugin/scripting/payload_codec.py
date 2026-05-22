@@ -18,14 +18,11 @@ Adjust thresholds below if product policy changes; bench and production share th
 from __future__ import annotations
 
 import array
-import base64
 import logging
 import math
 from typing import Any, Literal, cast
 
 log = logging.getLogger(__name__)
-
-SERIALIZATION = "pickle"  # Can be "pickle" or "json"
 
 # --- Wire kind (JSON-safe dict tag) -----------------------------------------------
 
@@ -118,11 +115,11 @@ def _apply_column_kinds_to_ndarray(
 def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     """Short summary for debug logs (avoids dumping huge arrays or base64)."""
     if is_split_grid(obj):
-        b64 = obj.get("b64") or ""
+        buf = obj.get("buffer") or b""
         strings = obj.get("strings") or {}
         return (
             f"split_grid shape={obj.get('shape')} cells={wire_cell_count(obj)} "
-            f"column_kinds={obj.get('column_kinds')} strings={len(strings)} b64_chars={len(b64)}"
+            f"column_kinds={obj.get('column_kinds')} strings={len(strings)} raw_bytes={len(buf)}"
         )
     if obj is None:
         return "None"
@@ -287,8 +284,6 @@ def _flatten_grid_to_components(
 
 def host_pack_split_grid(
     grid: list[Any] | list[list[Any]],
-    *,
-    use_b64: bool | None = None,
 ) -> dict[str, Any]:
     """Pack a 1D flat list or 2D mixed grid using Strategy 3: Split-Grid Serialization.
 
@@ -296,22 +291,15 @@ def host_pack_split_grid(
     where all numbers are preserved, and empty cells or non-numeric strings are replaced with NaN.
     A separate sparse dictionary mapping flat cell indexes to their string value is passed in parallel.
     """
-    if use_b64 is None:
-        use_b64 = (SERIALIZATION == "json")
-
     if not grid:
-        empty_envelope: dict[str, Any] = {
+        return {
             "__wa_payload__": PAYLOAD_SPLIT_GRID,
             "dtype": SPLIT_GRID_WIRE_DTYPE,
             "column_kinds": [],
             "shape": [0],
             "strings": {},
+            "buffer": b"",
         }
-        if use_b64:
-            empty_envelope["b64"] = ""
-        else:
-            empty_envelope["buffer"] = b""
-        return empty_envelope
 
     buf, strings, column_kinds, shape = _flatten_grid_to_components(grid)
 
@@ -321,28 +309,17 @@ def host_pack_split_grid(
         "column_kinds": column_kinds,
         "shape": shape,
         "strings": strings,
+        "buffer": buf.tobytes(),
     }
 
-    if use_b64:
-        envelope["b64"] = base64.b64encode(buf.tobytes()).decode("ascii")
-        log.debug(
-            "payload_codec host_pack split_grid column_kinds=%s shape=%s cells=%s strings=%s b64_chars=%s",
-            column_kinds,
-            shape,
-            len(buf),
-            len(strings),
-            len(envelope["b64"]),
-        )
-    else:
-        envelope["buffer"] = buf.tobytes()
-        log.debug(
-            "payload_codec host_pack split_grid column_kinds=%s shape=%s cells=%s strings=%s raw_bytes=%s",
-            column_kinds,
-            shape,
-            len(buf),
-            len(strings),
-            len(envelope["buffer"]),
-        )
+    log.debug(
+        "payload_codec host_pack split_grid column_kinds=%s shape=%s cells=%s strings=%s raw_bytes=%s",
+        column_kinds,
+        shape,
+        len(buf),
+        len(strings),
+        len(envelope["buffer"]),
+    )
 
     return envelope
 
@@ -352,7 +329,6 @@ def host_pack_data(
     *,
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
-    use_b64: bool | None = None,
 ) -> Any:
     """Pack ``data`` for worker request field (list or split_grid dict)."""
     try:
@@ -360,7 +336,7 @@ def host_pack_data(
             is_2d = isinstance(grid[0], (list, tuple))
             grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0)) if is_2d else (len(grid),)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
-                return host_pack_split_grid(grid, use_b64=use_b64)
+                return host_pack_split_grid(grid)
         out = grid_from_nested_list(grid)
         log.debug("payload_codec host_pack json_list %s", describe_wire_value(out))
         return out
@@ -372,10 +348,7 @@ def host_pack_data(
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists."""
     buf = array.array("d")
-    if "buffer" in envelope:
-        buf.frombytes(envelope["buffer"])
-    else:
-        buf.frombytes(base64.b64decode(envelope.get("b64", "")))
+    buf.frombytes(envelope["buffer"])
     shape = envelope["shape"]
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
@@ -423,10 +396,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         import numpy as np
 
-        if "buffer" in envelope:
-            raw = envelope["buffer"]
-        else:
-            raw = base64.b64decode(envelope.get("b64", ""))
+        raw = envelope["buffer"]
         uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         strings = envelope.get("strings", {})
@@ -464,7 +434,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         raise
 
 
-
 def child_unpack_data(wire: Any) -> Any:
     """Materialize worker ``data`` in venv (ndarray/list from split_grid, or np.array from numeric list)."""
     try:
@@ -495,12 +464,9 @@ def child_unpack_data(wire: Any) -> Any:
         raise
 
 
-def child_pack_split_grid(arr: Any, *, use_b64: bool | None = None) -> dict[str, Any]:
+def child_pack_split_grid(arr: Any) -> dict[str, Any]:
     """Pack ndarray as split_grid for JSON wire (venv). Numeric lane is always float64 bytes."""
     import numpy as np
-
-    if use_b64 is None:
-        use_b64 = (SERIALIZATION == "json")
 
     try:
         if not isinstance(arr, np.ndarray):
@@ -517,25 +483,15 @@ def child_pack_split_grid(arr: Any, *, use_b64: bool | None = None) -> dict[str,
             "column_kinds": column_kinds,
             "shape": list(wire_arr.shape),
             "strings": {},
+            "buffer": wire_arr.tobytes(),
         }
-        if use_b64:
-            envelope["b64"] = base64.b64encode(wire_arr.tobytes()).decode("ascii")
-            log.debug(
-                "payload_codec child_pack split_grid column_kinds=%s shape=%s cells=%s b64_chars=%s",
-                column_kinds,
-                wire_arr.shape,
-                wire_arr.size,
-                len(envelope["b64"]),
-            )
-        else:
-            envelope["buffer"] = wire_arr.tobytes()
-            log.debug(
-                "payload_codec child_pack split_grid column_kinds=%s shape=%s cells=%s raw_bytes=%s",
-                column_kinds,
-                wire_arr.shape,
-                wire_arr.size,
-                len(envelope["buffer"]),
-            )
+        log.debug(
+            "payload_codec child_pack split_grid column_kinds=%s shape=%s cells=%s raw_bytes=%s",
+            column_kinds,
+            wire_arr.shape,
+            wire_arr.size,
+            len(envelope["buffer"]),
+        )
         return envelope
     except Exception:
         log.exception(
@@ -550,19 +506,15 @@ def child_pack_result(
     *,
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
-    use_b64: bool | None = None,
 ) -> Any:
     """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
     import numpy as np
-
-    if use_b64 is None:
-        use_b64 = (SERIALIZATION == "json")
 
     try:
         if isinstance(result, np.ndarray):
             shape = tuple(int(x) for x in result.shape)
             if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
-                return child_pack_split_grid(result, use_b64=use_b64)
+                return child_pack_split_grid(result)
             log.debug(
                 "payload_codec child_pack json_list egress ndarray shape=%s (below_threshold)",
                 shape,
@@ -582,7 +534,7 @@ def child_pack_result(
                 grid = list(result)
                 grid_shape = (len(grid),)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
-                return host_pack_split_grid(grid, use_b64=use_b64)
+                return host_pack_split_grid(grid)
             out = grid_from_nested_list(grid)
             log.debug("payload_codec child_pack json_list egress %s", describe_wire_value(out))
             return out

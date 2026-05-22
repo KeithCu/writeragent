@@ -127,13 +127,9 @@ def benchmark_worker(mgr, code, iterations=10):
     return None, None, None
 
 
-def run_benchmark_for_format(exe, code, format_name, iterations=10):
-    """Run worker benchmark with dynamic payload_codec.SERIALIZATION setting."""
-    from plugin.scripting import payload_codec
-    
-    # Dynamically set serialization global
-    payload_codec.SERIALIZATION = format_name
-    mgr = PythonWorkerManager.get(exe, {}, serialization=format_name)
+def run_benchmark_for_pickle(exe, code, iterations=10):
+    """Run worker benchmark with production Pickle5 protocol."""
+    mgr = PythonWorkerManager.get(exe, {})
     
     # 1. Cold start
     mgr._terminate_worker()
@@ -179,12 +175,8 @@ def main():
     else:
         print("  In-Process: N/A (SymPy not installed)")
 
-    # Run JSON mode
-    cold_json, avg_json, min_json = run_benchmark_for_format(exe, p_code, "json", iters)
-    print(f"  JSON Mode : Cold: {cold_json:.6f}s | Warm Avg: {avg_json:.6f}s | Warm Min: {min_json:.6f}s")
-
     # Run Pickle mode
-    cold_pickle, avg_pickle, min_pickle = run_benchmark_for_format(exe, p_code, "pickle", iters)
+    cold_pickle, avg_pickle, min_pickle = run_benchmark_for_pickle(exe, p_code, iters)
     print(f"  Pickle Mode: Cold: {cold_pickle:.6f}s | Warm Avg: {avg_pickle:.6f}s | Warm Min: {min_pickle:.6f}s")
 
     # 2. Matrix Task
@@ -195,12 +187,8 @@ def main():
     else:
         print("  In-Process: N/A (NumPy not installed)")
 
-    # Run JSON mode
-    cold_json_m, avg_json_m, min_json_m = run_benchmark_for_format(exe, m_code, "json", iters)
-    print(f"  JSON Mode : Cold: {cold_json_m:.6f}s | Warm Avg: {avg_json_m:.6f}s | Warm Min: {min_json_m:.6f}s")
-
     # Run Pickle mode
-    cold_pickle_m, avg_pickle_m, min_pickle_m = run_benchmark_for_format(exe, m_code, "pickle", iters)
+    cold_pickle_m, avg_pickle_m, min_pickle_m = run_benchmark_for_pickle(exe, m_code, iters)
     print(f"  Pickle Mode: Cold: {cold_pickle_m:.6f}s | Warm Avg: {avg_pickle_m:.6f}s | Warm Min: {min_pickle_m:.6f}s")
 
     # Teardown workers
@@ -210,3 +198,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
