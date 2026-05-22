@@ -9,7 +9,8 @@
 
 from __future__ import annotations
 
-import json
+import pickle
+import struct
 import logging
 import os
 import select
@@ -36,7 +37,7 @@ class PythonWorkerManager:
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
         self.env = dict(env)
-        self._proc: subprocess.Popen[str] | None = None
+        self._proc: subprocess.Popen[bytes] | None = None
         self._io_lock = threading.Lock()
 
     @classmethod
@@ -64,7 +65,8 @@ class PythonWorkerManager:
         request: dict[str, Any] = {"id": str(uuid.uuid4()), "code": code}
         if data is not None:
             request["data"] = data
-        line = json.dumps(request, default=str) + "\n"
+        payload = pickle.dumps(request, protocol=5)
+        header = struct.pack("!I", len(payload))
 
         with self._io_lock:
             for attempt in range(2):
@@ -73,14 +75,15 @@ class PythonWorkerManager:
                     assert self._proc is not None and self._proc.stdin is not None and self._proc.stdout is not None
                     stdin = self._proc.stdin
                     stdout = self._proc.stdout
-                    stdin.write(line)
+                    stdin.write(header)
+                    stdin.write(payload)
                     stdin.flush()
-                    response_line = self._read_response_line(stdout, timeout_sec)
-                    if not response_line:
+                    response_bytes = self._read_response_bytes(stdout, timeout_sec)
+                    if not response_bytes:
                         raise RuntimeError("Worker closed stdout without a response")
-                    response = json.loads(response_line)
+                    response = pickle.loads(response_bytes)
                     return self._normalize_response(response)
-                except (BrokenPipeError, json.JSONDecodeError, RuntimeError, subprocess.TimeoutExpired) as e:
+                except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired) as e:
                     log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                     self._terminate_worker()
                     if attempt == 1:
@@ -117,28 +120,46 @@ class PythonWorkerManager:
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
-            "text": True,
             "env": self.env,
-            "bufsize": 1,
+            "bufsize": 0,
         }
         if os.name != "nt":
             popen_kw["preexec_fn"] = os.setsid
-        self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)
+        # type checker has trouble with dynamic popen_kw ignoring the assignment
+        self._proc = subprocess.Popen([self.exe, _HARNESS_PATH], **popen_kw)  # type: ignore
+        assert self._proc is not None
         log.debug("Started Python worker pid=%s exe=%s", self._proc.pid, self.exe)
 
-    def _read_response_line(self, stdout: IO[str], timeout_sec: int) -> str:
+    def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: int) -> bytes:
         assert self._proc is not None
         end = time.time() + timeout_sec
-        while time.time() < end:
-            remaining = end - time.time()
-            ready, _, _ = select.select([stdout], [], [], min(1.0, remaining))
-            if ready:
-                line = stdout.readline()
-                if line:
-                    return line
-            if self._proc.poll() is not None:
-                break
-        raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+
+        def _read_exact(n: int) -> bytes:
+            buf = bytearray()
+            while len(buf) < n:
+                if time.time() >= end:
+                    raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
+                remaining = end - time.time()
+                ready, _, _ = select.select([stdout], [], [], min(1.0, remaining))
+                if ready:
+                    chunk = stdout.read(n - len(buf))
+                    if not chunk:
+                        return bytes()
+                    buf.extend(chunk)
+                if self._proc is not None and self._proc.poll() is not None and not ready:
+                    break
+            return bytes(buf)
+
+        header = _read_exact(4)
+        if len(header) < 4:
+            return b""
+
+        size = struct.unpack("!I", header)[0]
+        payload = _read_exact(size)
+        if len(payload) < size:
+            return b""
+
+        return payload
 
     def _terminate_worker(self) -> None:
         proc = self._proc

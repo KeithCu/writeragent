@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
+import struct
 import random
 import sys
 import time
@@ -164,13 +166,22 @@ def run_ingress(
     def pack_split_grid() -> Any:
         return host_pack_data(grid, min_cells=min_cells, force="always")
 
-    def dump(data: Any) -> str:
-        line = json.dumps({"id": "b", "data": data}, default=str) + "\n"
-        wire_holder["line"] = line
-        return line
+    def dump(data: Any, is_pickle: bool) -> Any:
+        if is_pickle:
+            payload = pickle.dumps({"id": "b", "data": data}, protocol=5)
+            wire_holder["payload"] = struct.pack("!I", len(payload)) + payload
+            return wire_holder["payload"]
+        else:
+            line = json.dumps({"id": "b", "data": data}, default=str) + "\n"
+            wire_holder["line"] = line
+            return line
 
-    def load() -> Any:
-        return json.loads(wire_holder["line"])["data"]
+    def load(is_pickle: bool) -> Any:
+        if is_pickle:
+            payload = wire_holder["payload"][4:]
+            return pickle.loads(payload)["data"]
+        else:
+            return json.loads(wire_holder["line"])["data"]
 
     def mat_list(data: Any) -> Any:
         return child_materialize_list(data)
@@ -178,17 +189,22 @@ def run_ingress(
     def mat_split_grid(data: Any) -> Any:
         return child_materialize_split_grid(data)
 
-    pack_fn = pack_split_grid if use_split_grid else pack_list
-    mat_fn = mat_split_grid if use_split_grid else mat_list
+    # For pickle5, we just pack as normal list but serialize using pickle instead of json
+    is_pickle = (use_split_grid is None)
+    pack_fn = pack_split_grid if use_split_grid is True else pack_list
+    mat_fn = mat_split_grid if use_split_grid is True else mat_list
 
     parts = [
         ("host_pack", lambda: pack_fn()),
-        ("host_dump", lambda: dump(pack_fn())),
-        ("child_load", lambda: load()),
-        ("child_mat", lambda: mat_fn(load())),
+        ("host_dump", lambda: dump(pack_fn(), is_pickle)),
+        ("child_load", lambda: load(is_pickle)),
+        ("child_mat", lambda: mat_fn(load(is_pickle))),
     ]
     times, _ = _bench_parts(parts, warmup=warmup, iters=iters)
-    wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
+    if is_pickle:
+        wire_bytes = len(wire_holder.get("payload", b""))
+    else:
+        wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
     return times, wire_bytes
 
 
@@ -221,23 +237,36 @@ def run_egress(
         r = kind_pack()
         return child_pack_result(r, min_cells=min_cells, force="always")
 
-    def dump(res: Any) -> str:
-        line = json.dumps({"id": "b", "result": res}, default=str) + "\n"
-        wire_holder["line"] = line
-        return line
+    def dump(res: Any, is_pickle: bool) -> Any:
+        if is_pickle:
+            payload = pickle.dumps({"id": "b", "result": res}, protocol=5)
+            wire_holder["payload"] = struct.pack("!I", len(payload)) + payload
+            return wire_holder["payload"]
+        else:
+            line = json.dumps({"id": "b", "result": res}, default=str) + "\n"
+            wire_holder["line"] = line
+            return line
 
-    def load() -> Any:
-        return json.loads(wire_holder["line"])["result"]
+    def load(is_pickle: bool) -> Any:
+        if is_pickle:
+            payload = wire_holder["payload"][4:]
+            return pickle.loads(payload)["result"]
+        else:
+            return json.loads(wire_holder["line"])["result"]
 
-    pack_fn = pack_split_grid if use_split_grid else pack_list
+    is_pickle = (use_split_grid is None)
+    pack_fn = pack_split_grid if use_split_grid is True else pack_list
     parts = [
         ("child_pack", pack_fn),
-        ("child_dump", lambda: dump(pack_fn())),
-        ("host_load", load),
-        ("host_mat", lambda: host_unpack_data(load(), as_nested_list=True)),
+        ("child_dump", lambda: dump(pack_fn(), is_pickle)),
+        ("host_load", lambda: load(is_pickle)),
+        ("host_mat", lambda: host_unpack_data(load(is_pickle), as_nested_list=True)),
     ]
     times, _ = _bench_parts(parts, warmup=warmup, iters=iters)
-    wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
+    if is_pickle:
+        wire_bytes = len(wire_holder.get("payload", b""))
+    else:
+        wire_bytes = len(wire_holder.get("line", "").encode("utf-8"))
     return times, wire_bytes
 
 
@@ -247,11 +276,12 @@ def run_child_only(
     min_cells: int,
     warmup: int,
     iters: int,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, float]:
     data_list = host_pack_data(grid, min_cells=min_cells, force="never")
     data_split_grid = host_pack_data(grid, min_cells=min_cells, force="always")
     line_list = json.dumps({"data": data_list}) + "\n"
     line_split_grid = json.dumps({"data": data_split_grid}) + "\n"
+    payload_pickle5 = pickle.dumps({"data": data_list}, protocol=5)
 
     def mat_list() -> Any:
         return child_materialize_list(json.loads(line_list)["data"])
@@ -259,10 +289,14 @@ def run_child_only(
     def mat_split_grid() -> Any:
         return child_materialize_split_grid(json.loads(line_split_grid)["data"])
 
+    def mat_pickle5() -> Any:
+        return child_materialize_list(pickle.loads(payload_pickle5)["data"])
+
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
     _, split_grid_ms = _bench(mat_split_grid, warmup=warmup, iters=iters)
+    _, pickle5_ms = _bench(mat_pickle5, warmup=warmup, iters=iters)
     speedup = list_ms / split_grid_ms if split_grid_ms > 0 else 0.0
-    return list_ms, split_grid_ms, speedup
+    return list_ms, split_grid_ms, pickle5_ms, speedup
 
 
 def main() -> None:
@@ -289,17 +323,17 @@ def main() -> None:
     force: ForceBinary = args.force_binary
 
     if args.child_only:
-        print("child_only: materialize ms — json_list (np.array) vs split_grid (frombuffer)")
-        print(f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'split_grid_ms':>14} {'mat_x':>8}")
+        print("child_only: materialize ms — json_list (np.array) vs split_grid (frombuffer) vs pickle5")
+        print(f"{'shape':<12} {'cells':>8} {'json_list_ms':>14} {'split_grid_ms':>14} {'pickle5_ms':>14} {'mat_x':>8}")
         for nrows, ncols, _ in grid_shapes():
             grid = make_grid(nrows, ncols)
-            list_ms, split_grid_ms, sp = run_child_only(
+            list_ms, split_grid_ms, pickle5_ms, sp = run_child_only(
                 grid,
                 min_cells=args.min_cells,
                 warmup=args.warmup,
                 iters=args.iters,
             )
-            print(f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} {split_grid_ms:>14.4f} {sp:>7.2f}x")
+            print(f"{shape_label(nrows, ncols):<12} {cell_count((nrows, ncols)):>8} {list_ms:>14.4f} {split_grid_ms:>14.4f} {pickle5_ms:>14.4f} {sp:>7.2f}x")
         print("  mat_x = how many times faster split_grid (frombuffer) is vs json_list (np.array).")
         return
 
@@ -312,7 +346,7 @@ def main() -> None:
         cells = cell_count(shape if nrows != 1 or ncols != 1 else (1,))
 
         if args.direction in ("ingress", "both"):
-            for wire_format, use_split_grid in (("json_list", False), ("split_grid", True)):
+            for wire_format, use_split_grid in (("json_list", False), ("split_grid", True), ("pickle5", None)):
                 if force == "never" and use_split_grid:
                     continue
                 t, wire_b = run_ingress(
@@ -342,7 +376,7 @@ def main() -> None:
                 )
 
         if args.direction in ("egress", "both"):
-            for wire_format, use_split_grid in (("json_list", False), ("split_grid", True)):
+            for wire_format, use_split_grid in (("json_list", False), ("split_grid", True), ("pickle5", None)):
                 if nrows == 1 and ncols == 1 and use_split_grid:
                     continue
                 t, wire_b = run_egress(

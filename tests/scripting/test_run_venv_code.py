@@ -56,20 +56,26 @@ def test_blocked_import_not_on_allowlist():
 
 
 def test_harness_main_loop_integration():
-    """Harness reads one JSON line and writes one response (subprocess smoke)."""
+    """Harness reads size-prefixed pickle bytes and writes one response (subprocess smoke)."""
+    import pickle
+    import struct
     harness = __import__("plugin.scripting.worker_harness", fromlist=["main"])
     proc = subprocess.Popen(
         [sys.executable, harness.__file__],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
     )
-    req = json.dumps({"id": "t1", "code": "result = 2 ** 10"}) + "\n"
-    out, err = proc.communicate(input=req, timeout=30)
+    req = pickle.dumps({"id": "t1", "code": "result = 2 ** 10"}, protocol=5)
+    header = struct.pack("!I", len(req))
+    out, err = proc.communicate(input=header + req, timeout=30)
     assert proc.returncode == 0, err
-    line = out.strip().split("\n")[-1]
-    resp = json.loads(line)
+
+    out_header = out[:4]
+    assert len(out_header) == 4
+    size = struct.unpack("!I", out_header)[0]
+    payload = out[4:4+size]
+    resp = pickle.loads(payload)
     assert resp["id"] == "t1"
     assert resp["status"] == "ok"
     assert resp["result"] == 1024
