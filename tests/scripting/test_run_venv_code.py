@@ -56,23 +56,86 @@ def test_blocked_import_not_on_allowlist():
 
 
 def test_harness_main_loop_integration():
-    """Harness reads one JSON line and writes one response (subprocess smoke)."""
+    """Harness reads and writes JSON or Pickle based on arguments (subprocess smoke)."""
     harness = __import__("plugin.scripting.worker_harness", fromlist=["main"])
-    proc = subprocess.Popen(
-        [sys.executable, harness.__file__],
+    
+    # 1. Test JSON mode
+    proc_json = subprocess.Popen(
+        [sys.executable, harness.__file__, "--serialization", "json"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
     req = json.dumps({"id": "t1", "code": "result = 2 ** 10"}) + "\n"
-    out, err = proc.communicate(input=req, timeout=30)
-    assert proc.returncode == 0, err
+    out, err = proc_json.communicate(input=req, timeout=30)
+    assert proc_json.returncode == 0, err
     line = out.strip().split("\n")[-1]
     resp = json.loads(line)
     assert resp["id"] == "t1"
     assert resp["status"] == "ok"
     assert resp["result"] == 1024
+
+    # 2. Test Pickle mode
+    import pickle
+    import struct
+    proc_pickle = subprocess.Popen(
+        [sys.executable, harness.__file__, "--serialization", "pickle"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        bufsize=0,
+    )
+    req_dict = {"id": "t2", "code": "result = 2 ** 10"}
+    payload = pickle.dumps(req_dict, protocol=5)
+    header = struct.pack("!I", len(payload))
+    proc_pickle.stdin.write(header)
+    proc_pickle.stdin.write(payload)
+    proc_pickle.stdin.flush()
+
+    resp_header = proc_pickle.stdout.read(4)
+    assert len(resp_header) == 4
+    resp_size = struct.unpack("!I", resp_header)[0]
+    resp_payload = proc_pickle.stdout.read(resp_size)
+    assert len(resp_payload) == resp_size
+    resp_dict = pickle.loads(resp_payload)
+    assert resp_dict["id"] == "t2"
+    assert resp_dict["status"] == "ok"
+    assert resp_dict["result"] == 1024
+
+    proc_pickle.stdin.close()
+    proc_pickle.wait(timeout=5)
+
+
+def test_serialization_mode_dynamic_switching():
+    """Verify that toggling the payload_codec.SERIALIZATION global variable works dynamically."""
+    from plugin.scripting import payload_codec
+    from plugin.scripting.python_worker_manager import PythonWorkerManager
+    
+    orig_serialization = payload_codec.SERIALIZATION
+    try:
+        # Test JSON mode execution
+        payload_codec.SERIALIZATION = "json"
+        mgr_json = PythonWorkerManager.get(sys.executable, {})
+        assert mgr_json.serialization == "json"
+        res_json = mgr_json.execute("result = 123")
+        assert res_json["status"] == "ok"
+        assert res_json["result"] == 123
+        
+        # Test Pickle mode execution
+        payload_codec.SERIALIZATION = "pickle"
+        mgr_pickle = PythonWorkerManager.get(sys.executable, {})
+        assert mgr_pickle.serialization == "pickle"
+        res_pickle = mgr_pickle.execute("result = 456")
+        assert res_pickle["status"] == "ok"
+        assert res_pickle["result"] == 456
+        
+        # Verify that we correctly maintain distinct cached worker instances
+        assert mgr_json is not mgr_pickle
+    finally:
+        payload_codec.SERIALIZATION = orig_serialization
+        PythonWorkerManager.shutdown_all()
 
 
 @patch("plugin.scripting.run_venv_code.get_config_str", return_value="")
@@ -227,5 +290,98 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     # Call with 0s timeout and verify it gets set to 1s floor
     run_code_in_user_venv(ctx, "result = 1", timeout_sec=0)
     mock_execute.assert_called_once_with("result = 1", data=None, timeout_sec=1)
+
+
+def test_split_grid_pickle_and_json_round_trip():
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import (
+        host_pack_split_grid,
+        host_unpack_split_grid,
+        child_pack_split_grid,
+        child_unpack_split_grid,
+        is_split_grid,
+    )
+
+    grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
+
+    # 1. Test use_b64=True (JSON mode)
+    wire_json = host_pack_split_grid(grid, use_b64=True)
+    assert is_split_grid(wire_json)
+    assert "b64" in wire_json
+    assert "buffer" not in wire_json
+    assert isinstance(wire_json["b64"], str)
+    # Host unpacks
+    unpacked_host_json = host_unpack_split_grid(wire_json)
+    assert unpacked_host_json == grid
+    # Child unpacks
+    unpacked_child_json = child_unpack_split_grid(wire_json)
+    assert isinstance(unpacked_child_json, np.ndarray)
+    assert unpacked_child_json.shape == (4, 4)
+    np.testing.assert_allclose(unpacked_child_json, np.array(grid))
+
+    # 2. Test use_b64=False (Pickle binary mode)
+    wire_pickle = host_pack_split_grid(grid, use_b64=False)
+    assert is_split_grid(wire_pickle)
+    assert "buffer" in wire_pickle
+    assert "b64" not in wire_pickle
+    assert isinstance(wire_pickle["buffer"], bytes)
+    # Host unpacks
+    unpacked_host_pickle = host_unpack_split_grid(wire_pickle)
+    assert unpacked_host_pickle == grid
+    # Child unpacks
+    unpacked_child_pickle = child_unpack_split_grid(wire_pickle)
+    assert isinstance(unpacked_child_pickle, np.ndarray)
+    assert unpacked_child_pickle.shape == (4, 4)
+    np.testing.assert_allclose(unpacked_child_pickle, np.array(grid))
+
+    # 3. Test child pack with use_b64=True
+    child_wire_json = child_pack_split_grid(np.array(grid), use_b64=True)
+    assert is_split_grid(child_wire_json)
+    assert "b64" in child_wire_json
+    assert "buffer" not in child_wire_json
+    # Host unpacks
+    unpacked_host_json_from_child = host_unpack_split_grid(child_wire_json)
+    assert unpacked_host_json_from_child == grid
+
+    # 4. Test child pack with use_b64=False
+    child_wire_pickle = child_pack_split_grid(np.array(grid), use_b64=False)
+    assert is_split_grid(child_wire_pickle)
+    assert "buffer" in child_wire_pickle
+    assert "b64" not in child_wire_pickle
+    # Host unpacks
+    unpacked_host_pickle_from_child = host_unpack_split_grid(child_wire_pickle)
+    assert unpacked_host_pickle_from_child == grid
+
+
+def test_split_grid_integration_pickle_mode():
+    np = pytest.importorskip("numpy")
+    from plugin.scripting import payload_codec
+    from plugin.scripting.python_worker_manager import PythonWorkerManager
+
+    orig_serialization = payload_codec.SERIALIZATION
+    PythonWorkerManager.shutdown_all()
+    try:
+        # Dynamic switch to pickle
+        payload_codec.SERIALIZATION = "pickle"
+        mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
+        assert mgr.serialization == "pickle"
+
+        # Execute some numpy array creation
+        r = mgr.execute("import numpy as np\nresult = np.arange(100, dtype=np.float64).reshape(10, 10)")
+        assert r["status"] == "ok"
+        
+        # Verify it was returned as regular nested list to callers (unpacked)
+        assert len(r["result"]) == 10
+        assert r["result"][0][0] == 0.0
+        assert r["result"][9][9] == 99.0
+
+        # Execute with input data as a large grid to trigger split-grid ingress packaging
+        large_grid = [[float(r * 10 + c) for c in range(10)] for r in range(10)]
+        r2 = mgr.execute("result = float(data.sum())", data=large_grid)
+        assert r2["status"] == "ok"
+        assert r2["result"] == pytest.approx(sum(r * 10 + c for r in range(10) for c in range(10)))
+    finally:
+        payload_codec.SERIALIZATION = orig_serialization
+        PythonWorkerManager.shutdown_all()
 
 

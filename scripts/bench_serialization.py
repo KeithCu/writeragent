@@ -161,7 +161,7 @@ def run_ingress(
 
     if wire_format == "pickle5":
         def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force="never")
+            return host_pack_data(grid, min_cells=min_cells, force="always", use_b64=False)
         def dump(data: Any) -> bytes:
             b = pickle.dumps({"id": "b", "data": data}, protocol=5)
             wire_holder["bytes"] = b
@@ -169,10 +169,10 @@ def run_ingress(
         def load() -> Any:
             return pickle.loads(wire_holder["bytes"])["data"]
         def mat(data: Any) -> Any:
-            return child_materialize_list(data)
+            return child_materialize_split_grid(data)
     elif wire_format == "split_grid":
         def pack() -> Any:
-            return host_pack_data(grid, min_cells=min_cells, force="always")
+            return host_pack_data(grid, min_cells=min_cells, force="always", use_b64=True)
         def dump(data: Any) -> str:
             line = json.dumps({"id": "b", "data": data}, default=str) + "\n"
             wire_holder["line"] = line
@@ -231,7 +231,7 @@ def run_egress(
     if wire_format == "pickle5":
         def pack() -> Any:
             r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force="never")
+            return child_pack_result(r, min_cells=min_cells, force="always", use_b64=False)
         def dump(res: Any) -> bytes:
             b = pickle.dumps({"id": "b", "result": res}, protocol=5)
             wire_holder["bytes"] = b
@@ -243,7 +243,7 @@ def run_egress(
     elif wire_format == "split_grid":
         def pack() -> Any:
             r = kind_pack()
-            return child_pack_result(r, min_cells=min_cells, force="always")
+            return child_pack_result(r, min_cells=min_cells, force="always", use_b64=True)
         def dump(res: Any) -> str:
             line = json.dumps({"id": "b", "result": res}, default=str) + "\n"
             wire_holder["line"] = line
@@ -287,10 +287,11 @@ def run_child_only(
     iters: int,
 ) -> tuple[float, float, float, float, float]:
     data_list = host_pack_data(grid, min_cells=min_cells, force="never")
-    data_split_grid = host_pack_data(grid, min_cells=min_cells, force="always")
+    data_split_grid = host_pack_data(grid, min_cells=min_cells, force="always", use_b64=True)
+    data_pickle_split_grid = host_pack_data(grid, min_cells=min_cells, force="always", use_b64=False)
     line_list = json.dumps({"data": data_list}) + "\n"
     line_split_grid = json.dumps({"data": data_split_grid}) + "\n"
-    bytes_pickle = pickle.dumps({"data": data_list}, protocol=5)
+    bytes_pickle = pickle.dumps({"data": data_pickle_split_grid}, protocol=5)
 
     def mat_list() -> Any:
         return child_materialize_list(json.loads(line_list)["data"])
@@ -299,7 +300,7 @@ def run_child_only(
         return child_materialize_split_grid(json.loads(line_split_grid)["data"])
 
     def mat_pickle5() -> Any:
-        return child_materialize_list(pickle.loads(bytes_pickle)["data"])
+        return child_materialize_split_grid(pickle.loads(bytes_pickle)["data"])
 
     _, list_ms = _bench(mat_list, warmup=warmup, iters=iters)
     _, split_grid_ms = _bench(mat_split_grid, warmup=warmup, iters=iters)
@@ -472,8 +473,8 @@ def main() -> None:
     print(
         "\nColumn guide:\n"
         "  wire_format   json_list = nested floats in JSON (slow materialize).\n"
-        "                split_grid = compact base64 float64 with sparse strings (fast materialize).\n"
-        "                pickle5 = standard pickle protocol 5 binary payload.\n"
+        "                split_grid = compact base64 float64 with sparse strings in JSON (fast materialize).\n"
+        "                pickle5 = Split-Grid inside Pickle without Base64, raw binary bytes (fastest materialize).\n"
         "  wire_KiB      Line/payload size on the wire for this row.\n"
         "  vs_json_wire  On comparing rows: size vs paired json_list row "
         "(same shape/direction). json_list row shows 'baseline (json)'.\n"
