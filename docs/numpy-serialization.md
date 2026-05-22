@@ -2,7 +2,7 @@
 
 Back to the [core NumPy and Python guide](enabling_numpy_in_libreoffice.md).
 
-This page collects the serialization details for WriterAgent's out-of-process NumPy bridge: the unified `split_grid` standard, benchmark results, pipeline costs, optimization tiers, future profiling work, and native host-extension notes. The core guide stays focused on setup, execution, safety, and Calc usage.
+This page collects the serialization details for WriterAgent's out-of-process NumPy bridge: the unified `split_grid` standard, benchmark results, pipeline costs, future profiling work, and native host-extension notes. The core guide stays focused on setup, execution, safety, and Calc usage.
 
 ## Serialization optimization opportunities
 
@@ -83,7 +83,7 @@ flowchart TD
 - **~20x Speedup** over Column-Wise mixed grids.
 - Binary materialization is done at C-speed via `frombuffer` + `.tolist()`, and pure Python loops only process the small fraction of cells that actually contain string text.
 
-**Benchmarked** outside LO ([`scripts/bench_serialization.py`](../scripts/bench_serialization.py)) — [results](#benchmark-results-2026-05). Defer Tier 2b (vendored msgpack), Tier 3 (mmap), Tier 5 (payload cache) unless real Calc profiles disagree. Tier 0 (scalars, two-phase tools, matrix `ROW()` index) stays complementary.
+**Benchmarked** outside LO ([`scripts/bench_serialization.py`](../scripts/bench_serialization.py)) — [results](#benchmark-results-2026-05). Defer vendored msgpack, mmap, and payload cache unless real Calc profiles disagree.
 
 ### Benchmark results (2026-05)
 
@@ -199,7 +199,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 
 **Policy:** `BINARY_MIN_CELLS = 10` — 2D grids with **≥ 10 cells** use `split_grid`; smaller grids use standard Pickle lists.
 
-**Still deferred:** Tier 2b vendored codecs, mmap (Tier 3), payload cache (Tier 5), venv tool RPC.
+**Still deferred:** vendored codecs, mmap, payload cache, venv tool RPC.
 
 ### Current pipeline and costs
 
@@ -240,95 +240,6 @@ Calc UNO range
 - **Wire format uses length-prefixed binary streams carrying Pickle5 payloads** — this standard provides extremely fast, out-of-band zero-copy buffer sharing between processes without any Base64 encoding or JSON parsing overhead. Since we package both the extension host and the sandboxed child worker together inside the OXT, backward compatibility is not a constraint, allowing us to evolve the IPC protocol to be as fast as possible.
 - **Sandbox must not grant arbitrary filesystem access** — [`LocalPythonExecutor`](../plugin/contrib/smolagents/local_python_executor.py) blocks `os` / `pathlib` in user code; temp files and mmap paths must be **host-allocated, host-trusted paths** passed in the request envelope, not paths chosen by LLM-generated scripts.
 - **LLM and Calc still need JSON-safe or scalar outputs** eventually — even an optimized ingress path usually ends with compact `result` (scalar, short list, summary stats) or a second-phase host tool (`write_formula_range`) for sheet output ([core user guide](enabling_numpy_in_libreoffice.md#3-user-guide)).
-
-### Optimization tiers (what to consider)
-
-#### Tier 0 — Keep JSON; reduce crossings (no protocol change)
-
-- Return **scalars or small summaries** from the venv (`result = float(np.mean(arr))`) instead of full arrays when the LLM only needs a number.
-- Use the **two-phase workflow**: compute in venv, insert via existing Calc tools with a compact payload — avoid shipping a 10⁵-element list through chat JSON twice.
-- For **matrix `=PYTHON()`**, prefer the `ROW()-1` index form so one worker run fills a session cache ([`finalize_python_return`](../plugin/calc/python_function.py)), not N full round-trips with the same `data`.
-- Tighten ranges (`collapse`-style) in the sheet or strip `None` in Python before heavy work.
-
-Best when: mixed types (strings, blanks, dates), small ranges, or logic dominates runtime.
-
-#### Tier 1 — Typed JSON envelope (metadata + payload)
-
-Extend request/response objects with a tagged shape, e.g. `{"__wa_payload__": "ndarray", "dtype": "float64", "shape": [1000, 100], "data": ...}` where `data` is still JSON list **or** base64 (Tier 2). On the venv side: `np.array(data, dtype=...).reshape(shape)` or `np.frombuffer(...)`.
-
-- Reuse ideas from [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) but implement a **small, worker-specific** codec in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) / host mirror — do not pull the full smolagents serializer into the hot path without measuring import and dependency cost.
-- Host without NumPy: decode envelope to nested lists only when Calc/LLM need lists; otherwise pass the envelope through opaquely.
-
-Best when: you need dtype/shape preserved but payloads are still moderate; stepping stone before binary wire.
-
-#### Tier 2 — Asymmetric Fast Path via Split-Grid inside Pickle5 (Production Standard)
-
-**Shipped** in [`payload_codec.py`](../plugin/scripting/payload_codec.py).
-
-Host (stdlib only) packs a 2D numeric/mixed range:
-
-```python
-# Host sketch (embedded Python): row-major float64, empty/None → NaN, strings registered in strings dict
-import array
-buf = array.array("d")
-strings = {}
-# (flatten and fill buf / strings; identify column_kinds)
-payload = {
-    "__wa_payload__": "split_grid",
-    "dtype": "float64",
-    "column_kinds": ["int", "float", ...],
-    "shape": [nrows, ncols],
-    "buffer": buf.tobytes(),  # Packed as raw binary bytes directly!
-    "strings": strings,
-}
-# Sent over a length-prefixed stream using: pickle.dumps(payload, protocol=5)
-```
-
-Child (venv):
-
-```python
-import numpy as np
-# Deserialized instantly via: payload = pickle.loads(payload_bytes)
-raw = payload["buffer"]
-# If strings dict is empty, deserialize directly to ndarray at microsecond C-speed
-if not payload.get("strings"):
-    arr = np.frombuffer(raw, dtype=np.float64).reshape(payload["shape"])
-    # (restore int64 types using column_kinds)
-else:
-    # Overlay strings on flat list, restore int types, reconstruct nested lists
-    pass
-```
-
-- **Pros:** Microsecond binary transport; no Base64 wire bloat or CPU overhead; NumPy only on child; avoids million-element Python float objects on the wire. Fully supports mixed types via sparse strings index.
-- **Cons:** Host still walks cells once to pack.
-
-Best when: standard Python objects and serialization dominate numeric processing (practically all spreadsheet ranges).
-
-#### Tier 2b — Vendored host codec (few MB, no NumPy)
-
-If stdlib `json` + `array` + base64 is still too slow on the **LibreOffice host**, vendor a **small** binary-backed library into the OXT (parallel to audio, not parallel to NumPy):
-
-| Candidate | Rough size / role | Host (LO Python) | Child (venv) |
-|-----------|-------------------|------------------|--------------|
-| **msgpack** or **cbor2** | Small C extension per platform; compact binary for `data` / `result` blobs | `packb` grid metadata + float bytes; one line still `base64(pack(...))` or length-prefixed frame | `unpackb` → `np.frombuffer` (NumPy already in venv) |
-| **orjson** | Fast JSON only | Faster `json.dumps`/`loads` if wire stays JSON | Optional; child can keep stdlib `json` |
-| **lz4** (bind via **lz4** wheel or stdlib **zlib**) | Compress large blobs before base64 or temp file | Shrink stdin payload when JSON/text dominates | Decompress then `frombuffer` |
-| **Custom `vec_pack` (Cython)** | Smallest if scope is fixed: row-major `float64`/`float32` + optional mask for `None` | Fast pack over buffer after Python UNO read — see [Building host natives](#building-host-native-extensions-cython) | N/A (child only decodes bytes) |
-| **pyarrow** | Usually **too large** for this tier | Defer unless benchmarks justify multi‑MB per arch | User venv may already have Arrow |
-
-**Packaging pattern (reuse audio):**
-
-- **Native extensions** (msgpack, orjson, custom Cython): prebuilt wheels under **`plugin/contrib/…`** (e.g. [`plugin/contrib/audio/`](../plugin/contrib/audio/)), with `sys.path` injection like [`panel_factory.py`](../plugin/chatbot/panel_factory.py) — **not** the pure-Python [`vendor/`](../vendor/) tree from [`make vendor`](../Makefile).
-- **Python version + arch matrix** — prune unused ABI tags in the OXT like [audio-architecture.md](audio-architecture.md) (March 2026 binary pruning).
-- **Linux** may still need a system package for some natives (audio’s PortAudio case); always **graceful degrade** to Tier 2 stdlib [`payload_codec.py`](../plugin/scripting/payload_codec.py) on `ImportError`.
-
-**Asymmetric benefit:** host uses vendored **pack** only; child uses **NumPy + optional msgpack** from the user venv without vendoring NumPy into LibreOffice. Worst case: host packs binary, child decodes with `np.frombuffer` — still faster than JSON lists on **both** sides.
-
-**Not a substitute for Tier 3:** mmap/temp files help when payload size exceeds practical stdin; a 1 MB msgpack wheel does not remove the need for mmap at 250 k-cell scale if the line itself is the bottleneck.
-
-Best when: profiles show host `json.dumps` or list construction dominates; you accept OXT size + release matrix cost for a bounded codec (target **≤ few MB** extra per platform set, not NumPy-scale).
-
-For a **custom Cython** host module (not NumPy), see [Building host native extensions (Cython)](#building-host-native-extensions-cython) below.
 
 ### Building host native extensions (Cython)
 
@@ -475,7 +386,7 @@ flowchart TB
 
 - **Python:** one UNO read ([`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py) or `getDataArray`) — still required.
 - **Cython:** fast **coerce + pack** (row-major `float64`, `None`/empty → NaN) over a contiguous buffer — replaces the hot loop in [`host_pack_split_grid`](../plugin/scripting/payload_codec.py).
-- **Wire:** unchanged Tier 2 `split_grid` envelope (or Tier 2b msgpack later); **venv** child still uses `np.frombuffer`.
+- **Wire:** unchanged split_grid envelope; **venv** child still uses `np.frombuffer`.
 
 #### Cython vs plain C vs prebuilt PyPI codecs
 
@@ -490,53 +401,25 @@ flowchart TB
 
 1. Unit tests: `writeragent_vec` output matches [`host_pack_split_grid`](../plugin/scripting/payload_codec.py) for sample grids.
 2. [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — optional `native_vec` row when import succeeds (planned `--candidates` extension).
-3. LO profile legs A–B ([Future work — Priority 1](#priority-1--profile-inside-libreoffice-gate-for-everything-else)) on 100×100+ numeric ranges.
+3. LO profile legs A–B (Priority 1 below) on 100×100+ numeric ranges.
 4. Cold import cost in LO (extension startup) — compare to audio’s cffi load.
 
-#### Tier 3 — Host-managed temp file + mmap (large payloads)
+### Benchmark checklist (regression / future optimizations)
 
-For ranges approaching `MAX_PYTHON_DATA_CELLS` or multi‑MB matrices:
-
-1. Host writes a **trusted** temp file (e.g. `tempfile.mkstemp` under LO profile or system temp), row-major binary (`float64` / `float32`), plus JSON metadata: `{"__wa_payload__": "mmap", "path": "/…", "dtype": "float64", "shape": […], "writable": false}`.
-2. Child opens with `np.memmap(path, dtype=..., mode="r", shape=...)` or `np.fromfile` — **no full read into RAM** until the script touches data.
-3. Host deletes the file after the response line is read (or on worker timeout/kill); child must not retain handles across requests.
-
-- **Pros:** Avoids giant stdin strings; can skip base64 expansion; good for “read once, compute many” if combined with a **payload id** cache ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)).
-- **Cons:** Protocol and lifecycle complexity (Windows file locking, crash cleanup, security of path leakage in logs); must not expose `open(path)` to arbitrary user code — only harness-decoded `data` replacement.
-- **Not** “let the user script mmap arbitrary paths”; whitelist imports stay as today.
-
-Best when: payload size makes JSON impractical and benchmarks show copy/parse cost >> disk I/O.
-
-#### Tier 4 — Return path and downstream consumers
-
-| Consumer | Needs | Implication |
-|----------|-------|-------------|
-| Chat / LLM | JSON-serializable `result` | Prefer summaries, small lists, or “wrote range X1:Y10 via tool” after RPC ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)) |
-| `=PYTHON()` scalar | Single double/string/bool | Large arrays already use session + index ([`python_function.py`](../plugin/calc/python_function.py)); returning a blob handle does not help per-cell bridge |
-| `write_formula_range` | Nested lists on host | Host must decode binary envelope → lists once, or RPC streams from host without round-tripping through venv JSON |
-
-Large **egress** arrays: same tiers as ingress (binary envelope or temp file + host reads into Calc), or skip egress entirely via tool RPC writing directly to the sheet.
-
-#### Tier 5 — Session / payload cache (product + protocol)
-
-Optional ([core roadmap](enabling_numpy_in_libreoffice.md#7-deferred-roadmap)): host sends `data_id` + hash of range contents instead of full `data` when unchanged since last execute; worker keeps a bounded LRU of decoded arrays **inside the warm process** (not in user namespace). Requires explicit opt-in and invalidation on sheet edit/recalc.
-
-### Benchmark checklist (regression / future tiers)
-
-Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering Tier 2b/3. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 10 000 cells; compares JSON lists vs `split_grid` (`np.frombuffer` + `reshape` for numeric). Production policy matches bench defaults (`BINARY_MIN_CELLS = 10`).
+Re-run when changing [`payload_codec.py`](../plugin/scripting/payload_codec.py) or considering vendored codecs or mmap. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 10 000 cells; compares JSON lists vs `split_grid` (`np.frombuffer` + `reshape` for numeric). Production policy matches bench defaults (`BINARY_MIN_CELLS = 10`).
 
 ```bash
 python scripts/bench_serialization.py --direction both
 python scripts/bench_serialization.py --child-only   # isolate np.array vs frombuffer
-# Planned: --candidates for orjson/msgpack/zlib vs split_grid (see Tier 2b table)
+# Planned: --candidates for orjson/msgpack/zlib vs split_grid
 ```
 
 Checklist (same legs the script runs):
 
 1. **Baseline (list path)** — host pack list + `json.dumps` + child `json.loads` + `np.array(data)`.
 2. **With envelope (target)** — host `split_grid` + same wire + child `frombuffer`; compare `mat` column and `wire_B`.
-2b. **Tier 2b** — same payload with vendored **msgpack** (or custom packer) on host only vs stdlib; measure OXT size and cold-import cost in LO.
-3. **Tier 3** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
+2b. **Vendored Codecs** — same payload with vendored **msgpack** (or custom packer) on host only vs stdlib; measure OXT size and cold-import cost in LO.
+3. **Mmap** — host writes temp binary file; child `np.memmap`; measure with `N×M` at 10⁴, 10⁵, 10⁶ cells (under cap).
 4. **Egress** — `result = large_ndarray`: compare `.tolist()` + JSON vs compact binary envelope vs scalar-only return.
 5. **Matrix formulas** — count worker invocations per recalc with and without `ROW()-1` index arg.
 6. **Cross-platform** — temp file delete on timeout ([`python_worker_manager.py`](../plugin/scripting/python_worker_manager.py) process-group kill), Windows path length, UTF-8 JSON for non-ASCII cells (keep JSON branch for mixed data).
@@ -551,18 +434,18 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 |-----------|--------|
 | Dense numeric or mixed numeric/strings 2D grids (≥10 cells) | **Pickle5 + Split-Grid envelope** (shipped) |
 | Small ranges (<10 cells), 1D mixed types, scalars | **Standard Pickle lists** (no envelope) |
-| LLM chat with huge outputs | **Tier 0** summaries + **tool RPC** / `write_formula_range` (Tier 4), not giant `result` JSON |
-| Host still slow after split_grid in LO profiles | **Tier 2b** vendored msgpack/orjson (few MB OXT) |
-| Very large ranges / stdin size limits | **Temp file + mmap** (Tier 3) + optional **payload cache** (Tier 5) |
-| **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then Tier 0 → host paths → defer 2b/3) |
+| LLM chat with huge outputs | Summaries + **tool RPC** / `write_formula_range`, not giant `result` JSON |
+| Host still slow after split_grid in LO profiles | Vendored msgpack/orjson (few MB OXT) |
+| Very large ranges / stdin size limits | **Temp file + mmap** + optional **payload cache** |
+| **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then summaries → host paths → defer vendored/mmap) |
 
 **Vendoring policy:** avoid NumPy/pandas in the OXT; **do** consider a few MB of focused binaries only if Tier 2 stdlib is insufficient after measurement. Keep pack/unpack logic in **`plugin/scripting/`** (host + [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py)).
 
 ### Future work — serialization performance
 
-Tier 2 fixed the **child** hot path (`frombuffer` vs `np.array(list)`). Remaining cost is mostly **host work** (UNO read → Python objects → pack), **extra crossings** (same range sent every recalc), and **downstream consumers** that force blob → nested lists. Do not add Tier 2b/3 OXT weight until **LibreOffice profiles** show serialization dominates compute.
+The standardized Split-Grid format fixed the **child** hot path (`frombuffer` vs `np.array(list)`). Remaining cost is mostly **host work** (UNO read → Python objects → pack), **extra crossings** (same range sent every recalc), and **downstream consumers** that force blob → nested lists. Do not add vendored or mmap OXT weight until **LibreOffice profiles** show serialization dominates compute.
 
-**Suggested next sprint:** (1) LO profile → (2) Tier 0 product/prompt fixes → (3) host opaque blob or single-pass UNO→bytes **only if** step 1 points there.
+**Suggested next sprint:** (1) LO profile → (2) product/prompt fixes → (3) host opaque blob or single-pass UNO→bytes **only if** step 1 points there.
 
 #### Priority 1 — Profile inside LibreOffice (gate for everything else)
 
@@ -581,7 +464,7 @@ Add timing (debug menu, `testing_runner`, or temporary logs) on realistic sheets
 
 Possible deliverable: minimal LO harness (debug menu or UNO test) that prints legs A–D for one `=PYTHON()` call on a large numeric range.
 
-#### Priority 2 — Tier 0: less data on the wire (best ROI, no protocol change)
+#### Priority 2 — Less data on the wire (best ROI, no protocol change)
 
 Often beats another codec — product, prompts, and formula patterns:
 
@@ -591,7 +474,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/python_function.py); avoid N recalcs each resending the same `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
-See [Tier 0](#tier-0--keep-json-reduce-crossings-no-protocol-change) and [core two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).
+See [core two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).
 
 #### Priority 3 — Host: pack closer to UNO cells (code, if profiling says read/pack hurts)
 
@@ -604,7 +487,7 @@ See [Tier 0](#tier-0--keep-json-reduce-crossings-no-protocol-change) and [core t
 [`host_unpack_split_grid`](../plugin/scripting/payload_codec.py) expands split_grid to nested lists for Calc matrix/session paths. If leg D dominates:
 
 - Keep **`split_grid` opaque** through more of the pipeline; decode to lists only when emitting per-cell UNO values, or  
-- Insert via **`write_formula_range`** from host after one decode (pairs with [Tier 4](#tier-4--return-path-and-downstream-consumers) and future **tool RPC**).
+- Insert via **`write_formula_range`** from host after one decode (pairs with future **tool RPC**).
 
 Larger architectural slice than “faster JSON.”
 
@@ -615,16 +498,16 @@ Larger architectural slice than “faster JSON.”
 | **`float32` envelope** | Optional `dtype` in wire dict; ~half bytes when precision allows; policy + round-trip tests. |
 | **Pandas egress** | Large `DataFrame` still `to_dict(orient="records")` in [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py); route numeric blocks through `child_pack_result` / blob where possible. |
 
-#### Priority 6 — Tier 5: worker payload cache (same range, many recalcs)
+#### Priority 6 — Worker payload cache (same range, many recalcs)
 
-Fresh namespace per call stays ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)); the **warm worker** can still hold a bounded LRU of decoded arrays keyed by `data_id` + range content hash — host sends id instead of 250 k cells when unchanged since last execute. High impact for repeated `=PYTHON(code; B1:Z1000)` on recalc; needs invalidation on sheet edit/recalc. See [Tier 5](#tier-5--session--payload-cache-product--protocol).
+Fresh namespace per call stays ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)); the **warm worker** can still hold a bounded LRU of decoded arrays keyed by `data_id` + range content hash — host sends id instead of 250 k cells when unchanged since last execute. High impact for repeated `=PYTHON(code; B1:Z1000)` on recalc; needs invalidation on sheet edit/recalc. See session/payload cache design details.
 
 #### Priority 7 — Defer unless LO profiles disagree with bench
 
-| Tier | Invest when |
-|------|-------------|
-| **2b** — orjson / msgpack on host | Whole-line `json.dumps` / `json.loads` dominates after Priority 1 |
-| **3** — mmap temp file | Payloads near [`MAX_PYTHON_DATA_CELLS`](../plugin/calc/calc_addin_data.py) (250 k); stdin size or base64 RAM spikes |
+| Strategy | Invest when |
+|----------|-------------|
+| **Vendored Codecs** (orjson / msgpack on host) | Whole-line `json.dumps` / `json.loads` dominates after Priority 1 |
+| **Mmap** (temp file) | Payloads near `MAX_PYTHON_DATA_CELLS` (250 k); stdin size or base64 RAM spikes |
 | **Tool RPC** ([core RPC roadmap](enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc)) | Sheet output should not round-trip huge `result` through JSON at all |
 
 #### Completed: Split-Grid inside Pickle Optimization
