@@ -280,13 +280,13 @@ def _flatten_grid_to_components(
                 else:
                     t = type(val)
                     if t is float:
-                        buf_append(cast(float, val))
+                        buf_append(cast("float", val))
                         column_kinds[col_idx] = "float"
                     elif t is int:
-                        buf_append(float(cast(int, val)))
+                        buf_append(float(cast("int", val)))
                     else:
                         buf_append(math.nan)
-                        strings[idx] = cast(str, val) if t is str else str(val)
+                        strings[idx] = cast("str", val) if t is str else str(val)
                 idx += 1
     else:
         for row in rows:
@@ -302,13 +302,13 @@ def _flatten_grid_to_components(
                 else:
                     t = type(val)
                     if t is float:
-                        buf_append(cast(float, val))
+                        buf_append(cast("float", val))
                         column_kinds[col_idx] = "float"
                     elif t is int:
-                        buf_append(float(cast(int, val)))
+                        buf_append(float(cast("int", val)))
                     else:
                         buf_append(math.nan)
-                        strings[idx] = cast(str, val) if t is str else str(val)
+                        strings[idx] = cast("str", val) if t is str else str(val)
                 idx += 1
 
     return buf, strings, column_kinds, shape

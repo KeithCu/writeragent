@@ -208,10 +208,10 @@ def test_host_pack_split_grid_mixed():
     assert wire["shape"] == [4, 3]
     assert "strings" in wire
     assert wire["strings"] == {
-        "1": "apple",
-        "4": "banana",
-        "7": "cherry",
-        "10": "date",
+        1: "apple",
+        4: "banana",
+        7: "cherry",
+        10: "date",
     }
 
 
@@ -287,7 +287,7 @@ def test_round_trip_split_grid_1d():
     assert isinstance(wire_mixed, dict)
     assert wire_mixed["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_mixed["shape"] == [4]
-    assert wire_mixed["strings"] == {"1": "banana"}
+    assert wire_mixed["strings"] == {1: "banana"}
     
     # Unpack in child -> reconstructed mixed list
     child_unpacked_mixed = child_unpack_data(wire_mixed)
@@ -298,7 +298,7 @@ def test_round_trip_split_grid_1d():
     wire_child_mixed = child_pack_result(child_unpacked_mixed, force="always")
     assert wire_child_mixed["__wa_payload__"] == PAYLOAD_SPLIT_GRID
     assert wire_child_mixed["shape"] == [4]
-    assert wire_child_mixed["strings"] == {"1": "banana"}
+    assert wire_child_mixed["strings"] == {1: "banana"}
     
     # Unpack on host -> flat list
     host_unpacked_mixed = host_unpack_data(wire_child_mixed, as_nested_list=True)

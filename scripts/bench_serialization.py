@@ -73,7 +73,8 @@ def b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[lis
     shape = envelope["shape"]
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
-    strings = envelope.get("strings", {})
+    raw_strings = envelope.get("strings", {})
+    strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
     uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
 
     flat_list: list[Any]
@@ -84,9 +85,10 @@ def b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[lis
             flat_list = [None if math.isnan(v) else v for v in buf]
     else:
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
+        col_is_int = [k == "int" for k in column_kinds]
         flat_list = [
-            strings[str(i)] if str(i) in strings else 
-            _host_cell_from_float(val, column_kind=column_kinds[0 if is_1d else i % ncols])
+            strings[i] if i in strings else 
+            (None if math.isnan(val) else (int(val) if col_is_int[0 if is_1d else i % ncols] else val))
             for i, val in enumerate(buf)
         ]
 
@@ -122,7 +124,8 @@ def b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
     raw = base64.b64decode(b64_str.encode("ascii"))
     uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
     column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-    strings = envelope.get("strings", {})
+    raw_strings = envelope.get("strings", {})
+    strings = {int(k): v for k, v in raw_strings.items()} if raw_strings else {}
 
     if not strings:
         arr = np.frombuffer(raw, dtype=np.float64)
@@ -133,15 +136,22 @@ def b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         )
 
     flat_list = np.frombuffer(raw, dtype=np.float64).tolist()
-    for i, val in enumerate(flat_list):
-        str_idx = str(i)
-        if str_idx in strings:
-            flat_list[i] = strings[str_idx]
-        elif math.isnan(val):
-            flat_list[i] = None
-        else:
-            col = 0 if is_1d else i % ncols
-            if column_kinds[col] == "int":
+    col_is_int = [k == "int" for k in column_kinds]
+    any_int = any(col_is_int)
+
+    if not any_int:
+        for i, val in enumerate(flat_list):
+            if i in strings:
+                flat_list[i] = strings[i]
+            elif math.isnan(val):
+                flat_list[i] = None
+    else:
+        for i, val in enumerate(flat_list):
+            if i in strings:
+                flat_list[i] = strings[i]
+            elif math.isnan(val):
+                flat_list[i] = None
+            elif col_is_int[0 if is_1d else i % ncols]:
                 flat_list[i] = int(val)
 
     if is_1d:
