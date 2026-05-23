@@ -83,7 +83,8 @@ class PythonWorkerManager:
                     response_bytes = self._read_response_bytes(stdout, timeout_sec)
                     if not response_bytes:
                         raise RuntimeError("Worker closed stdout without a response")
-                    response = pickle.loads(response_bytes)
+                    # Trusted IPC: bytes from our own worker_harness child over a private pipe.
+                    response = pickle.loads(response_bytes)  # nosec B301
                     return self._normalize_response(response)
                 except (BrokenPipeError, pickle.UnpicklingError, RuntimeError, subprocess.TimeoutExpired) as e:
                     log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)

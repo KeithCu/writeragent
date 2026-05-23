@@ -482,25 +482,38 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 def child_unpack_data(wire: Any) -> Any:
     """Materialize worker ``data`` in venv (ndarray/list from split_grid, or np.array from numeric list)."""
     try:
-        if is_split_grid(wire):
-            return child_unpack_split_grid(wire)
-        if isinstance(wire, (list, tuple)):
-            grid: list[Any] | list[list[Any]]
-            if wire and isinstance(wire[0], (list, tuple)):
-                grid = [list(row) for row in wire]
-            else:
-                grid = list(wire)
-            if is_numeric_grid(grid):
-                import numpy as np
+        unpacked = child_unpack_split_grid(wire) if is_split_grid(wire) else wire
 
+        # Automatically unpack single-cell or single-entry inputs into their scalar representation
+        import numpy as np
+        if isinstance(unpacked, np.ndarray):
+            if unpacked.size == 1:
+                val = unpacked.item()
+                if isinstance(val, float) and val.is_integer():
+                    return int(val)
+                return val
+        elif isinstance(unpacked, (list, tuple)):
+            if len(unpacked) == 1 and not isinstance(unpacked[0], (list, tuple)):
+                val = unpacked[0]
+                if isinstance(val, float) and val.is_integer():
+                    return int(val)
+                return val
+
+            grid: list[Any] | list[list[Any]]
+            if unpacked and isinstance(unpacked[0], (list, tuple)):
+                grid = [list(row) for row in unpacked]
+            else:
+                grid = list(unpacked)
+            if is_numeric_grid(grid):
                 arr = np.array(grid, dtype=np.float64)
                 log.debug(
                     "payload_codec child_unpack json_list -> ndarray shape=%s",
                     arr.shape,
                 )
                 return arr
-            log.debug("payload_codec child_unpack json_list as-is %s", describe_wire_value(wire))
-        return wire
+            log.debug("payload_codec child_unpack json_list as-is %s", describe_wire_value(unpacked))
+            return grid
+        return unpacked
     except Exception:
         log.exception(
             "payload_codec child_unpack failed for wire %s",

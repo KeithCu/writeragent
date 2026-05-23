@@ -60,7 +60,8 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
         "Delegates a specialized task to a sub-agent with a focused toolset. "
         f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
         "Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, "
-        "bookmarks, tracking, footnotes, forms, images."
+        "bookmarks, tracking, footnotes, forms, images, sections, mail_merge, bibliography, watermark, "
+        "autotext, toc_enhancement, document_automation, security, document_management, collaboration, customization."
     )
 
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -184,6 +185,72 @@ class ToolWriterWebResearchBase(ToolWriterSpecialBase):
 class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_domain_description: ClassVar[str | None] = f"{DELEGATION_USER_FILE_DATA_HINT}; one delegation for file(s), sub-agent matches descriptions"
+
+
+class ToolWriterSectionBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "sections"
+    specialized_domain_description: ClassVar[str | None] = "Manage document sections, protection, columns, and properties."
+    intent = "edit"
+
+
+class ToolWriterMailMergeBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "mail_merge"
+    specialized_domain_description: ClassVar[str | None] = "Configure and execute mail merge workflows with data sources."
+    intent = "edit"
+
+
+class ToolWriterBibliographyBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "bibliography"
+    specialized_domain_description: ClassVar[str | None] = "Manage citations and generate document bibliographies."
+    intent = "edit"
+
+
+class ToolWriterWatermarkBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "watermark"
+    specialized_domain_description: ClassVar[str | None] = "Insert, configure, or remove page watermarks and backgrounds."
+    intent = "edit"
+
+
+class ToolWriterAutoTextBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "autotext"
+    specialized_domain_description: ClassVar[str | None] = "Insert, list, and manage AutoText quick-insert entries."
+    intent = "edit"
+
+
+class ToolWriterTocEnhancementBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "toc_enhancement"
+    specialized_domain_description: ClassVar[str | None] = "Advanced multi-level custom Table of Contents design and enhancement."
+    intent = "edit"
+
+
+class ToolWriterDocumentAutomationBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "document_automation"
+    specialized_domain_description: ClassVar[str | None] = "Run macros, register event bindings, and automate document scripting."
+    intent = "edit"
+
+
+class ToolWriterSecurityBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "security"
+    specialized_domain_description: ClassVar[str | None] = "Digital signatures, document encryption, and pattern-based content redaction."
+    intent = "review"
+
+
+class ToolWriterDocumentManagementBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "document_management"
+    specialized_domain_description: ClassVar[str | None] = "Read and write document metadata, compare documents, and assemble files."
+    intent = "review"
+
+
+class ToolWriterCollaborationBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "collaboration"
+    specialized_domain_description: ClassVar[str | None] = "Manage editing users, custom notifications, and conflict resolution."
+    intent = "review"
+
+
+class ToolWriterCustomizationBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "customization"
+    specialized_domain_description: ClassVar[str | None] = "Customize keyboard shortcuts, menu items, and custom commands."
+    intent = "edit"
 
 
 class SpecializedWorkflowFinished(ToolBase):

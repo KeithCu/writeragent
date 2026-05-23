@@ -687,6 +687,14 @@ All of these optimizations are **pure Python stdlib / NumPy enhancements**, mean
 - **No dynamic JSON fallback**: To keep production code fast, clean, and completely streamlined, all historical JSON/Base64 serialization code pathways have been moved out of production execution paths and placed strictly in the benchmark and unit testing suites.
 - **Microsecond Ingestion (Up to 170x Faster)**: With zero-copy frombuffer combined with these stdlib optimizations, 10,000-cell grid ingestion in the child sandbox is verified to complete in just **0.016 ms** (down from **2.857 ms** under standard JSON array conversion).
 
+##### Automatic Unpacking and Coercion for Single Entries (May 2026)
+
+To make writing `=PYTHON()` formulas extremely intuitive when a user passes a single cell or a constant (like `=PYTHON("sp.prime(data)", 100000)`), the compute bridge automatically unpacks single-entry inputs into their scalar representations.
+
+* **Standard Lists & Split-Grid**: If the unpacked input is a 1D sequence or array with exactly one element (length 1), the child worker extracts its scalar value.
+* **Integer Coercion**: Because Calc represents all numbers as double-precision floats (`100000.0`), the worker checks if the float value is mathematically an integer (using `.is_integer()`) and automatically coerces it to a standard Python `int`.
+* **Developer Impact**: This allows developers to use scalar-only Python and SymPy APIs (like `sp.prime(data)` instead of `sp.prime(int(data[0]))`) out-of-the-box, without manual index dereferencing or type casting.
+
 #### Remaining pipeline costs (reference)
 
 Even with Pickle5 + Split-Grid shipped, these stages still exist:

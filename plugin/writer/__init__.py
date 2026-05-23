@@ -22,7 +22,8 @@ from plugin.framework.module_base import ModuleBase
 from . import tree, proximity
 from . import styles, tracking, page, search, structural, outline, navigation, target_resolver  # noqa: F401
 from .specialized import bookmarks
-from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded  # noqa: F401
+# mock_domains: disable tools by wrapping class block in ''' in specialized/mock_domains.py
+from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded, mock_domains  # noqa: F401
 from .locale import linguistic_index
 from .locale import ai_grammar_proofreader, grammar_proofread_locale, grammar_work_queue  # noqa: F401
 

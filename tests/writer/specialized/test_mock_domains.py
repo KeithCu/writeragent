@@ -34,43 +34,52 @@ except ImportError:
     sys.modules["com.sun.star.text"] = css_text
 
 from plugin.framework.tool import ToolRegistry
-from plugin.writer.specialized.mock_domains import (
-    SectionsCreate,
-    SectionsDelete,
-    SectionsList,
-    SectionsSetProperties,
-    MailMergeSetDataSource,
-    MailMergeInsertField,
-    MailMergeListFields,
-    MailMergeRun,
-    BibliographyInsertCitation,
-    BibliographyListCitations,
-    BibliographyGenerate,
-    WatermarkAdd,
-    WatermarkSetImage,
-    WatermarkRemove,
-    AutoTextList,
-    AutoTextInsert,
-    AutoTextCreateEntry,
-    TocEnhanceStyle,
-    TocAddCustomEntry,
-    TocListEntries,
-    DocAutomationRunMacro,
-    DocAutomationBindEvent,
-    DocAutomationListMacros,
-    SecuritySignDocument,
-    SecuritySetPassword,
-    SecurityRedactText,
-    DocManagementGetMetadata,
-    DocManagementUpdateMetadata,
-    DocManagementCompareWith,
-    CollaborationListActiveUsers,
-    CollaborationAddNotification,
-    CollaborationResolveConflict,
-    CustomizationAddMenuItem,
-    CustomizationBindShortcut,
-    CustomizationListShortcuts,
+from plugin.writer.specialized import mock_domains
+
+_MOCKS_ACTIVE = hasattr(mock_domains, "SectionsCreate")
+pytestmark = pytest.mark.skipif(
+    not _MOCKS_ACTIVE,
+    reason="Mock Writer domains disabled (tool classes wrapped in ''' in mock_domains.py)",
 )
+
+if _MOCKS_ACTIVE:
+    from plugin.writer.specialized.mock_domains import (
+        SectionsCreate,
+        SectionsDelete,
+        SectionsList,
+        SectionsSetProperties,
+        MailMergeSetDataSource,
+        MailMergeInsertField,
+        MailMergeListFields,
+        MailMergeRun,
+        BibliographyInsertCitation,
+        BibliographyListCitations,
+        BibliographyGenerate,
+        WatermarkAdd,
+        WatermarkSetImage,
+        WatermarkRemove,
+        AutoTextList,
+        AutoTextInsert,
+        AutoTextCreateEntry,
+        TocEnhanceStyle,
+        TocAddCustomEntry,
+        TocListEntries,
+        DocAutomationRunMacro,
+        DocAutomationBindEvent,
+        DocAutomationListMacros,
+        SecuritySignDocument,
+        SecuritySetPassword,
+        SecurityRedactText,
+        DocManagementGetMetadata,
+        DocManagementUpdateMetadata,
+        DocManagementCompareWith,
+        CollaborationListActiveUsers,
+        CollaborationAddNotification,
+        CollaborationResolveConflict,
+        CustomizationAddMenuItem,
+        CustomizationBindShortcut,
+        CustomizationListShortcuts,
+    )
 
 
 @pytest.fixture

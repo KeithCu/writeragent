@@ -54,7 +54,8 @@ def main() -> None:
 
         req_id = ""
         try:
-            request = pickle.loads(payload)
+            # Trusted IPC: bytes from WriterAgent host that spawned this harness process.
+            request = pickle.loads(payload)  # nosec B301
             req_id = str(request.get("id", ""))
             code = request.get("code")
             if not isinstance(code, str) or not code.strip():

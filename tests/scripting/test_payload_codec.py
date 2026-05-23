@@ -304,3 +304,42 @@ def test_round_trip_split_grid_1d():
     host_unpacked_mixed = host_unpack_data(wire_child_mixed, as_nested_list=True)
     assert host_unpacked_mixed == [1.5, "banana", None, 4.5]
 
+
+def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
+    """Verify that child_unpack_data automatically unpacks single-entry inputs into scalars and coerces float-integers."""
+    np = pytest.importorskip("numpy")
+
+    # 1. 1-element numeric list representing an integer float
+    wire_int_float = [100000.0]
+    unpacked_int_float = child_unpack_data(wire_int_float)
+    assert isinstance(unpacked_int_float, int)
+    assert unpacked_int_float == 100000
+
+    # 2. 1-element numeric list representing a real float
+    wire_real_float = [3.14]
+    unpacked_real_float = child_unpack_data(wire_real_float)
+    assert isinstance(unpacked_real_float, float)
+    assert unpacked_real_float == pytest.approx(3.14)
+
+    # 3. 1-element string list
+    wire_str = ["hello"]
+    unpacked_str = child_unpack_data(wire_str)
+    assert isinstance(unpacked_str, str)
+    assert unpacked_str == "hello"
+
+    # 4. 1-element boolean list
+    wire_bool = [True]
+    unpacked_bool = child_unpack_data(wire_bool)
+    assert isinstance(unpacked_bool, bool)
+    assert unpacked_bool is True
+
+    # 5. 1-element numpy array representing an integer float (e.g. from split-grid of shape (1,))
+    arr_int_float = np.array([100000.0])
+    unpacked_arr_int_float = child_unpack_data(arr_int_float)
+    assert isinstance(unpacked_arr_int_float, int)
+    assert unpacked_arr_int_float == 100000
+
+    # 6. Multi-element list or 2D list should NOT be unpacked to scalar
+    assert isinstance(child_unpack_data([100000.0, 200000.0]), np.ndarray)
+    assert child_unpack_data([[100000.0]]) == [[100000.0]]  # 2D list preserved
+

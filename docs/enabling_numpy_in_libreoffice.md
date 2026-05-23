@@ -382,14 +382,14 @@ In the `=PYTHON()` environment, **`data` is a special variable injected dynamica
 When you pass a range (or cell reference) as the second argument to `=PYTHON(code; range)`, the LibreOffice Add-In:
 1. Resolves the range inside Calc and reads all cell values.
 2. Formats these values into standard Python lists (flat or 2D).
-3. Injects this list into the sandbox's execution namespace under the variable name **`data`**.
+3. Injects this list into the sandbox's execution namespace under the variable name **`data`** (if it is a single-cell or single-entry input, the child worker automatically unpacks it to a scalar and coerces integer floats to standard Python `int`s).
 4. Runs your Python script. Because of this runtime injection, your script can immediately access `data` as a fully defined, local variable.
 
 | Range you pass in Calc | Structure of `data` in Python | Example Usage in Script |
 |------------------------|-------------------------------|-------------------------|
-| **Single cell** (e.g., `B1`) | **`list` with 1 item**: `[value]` | `data[0] * 2` or `sp.prime(int(data[0]))` |
-| **Row or Column** (e.g., `B1:B10`) | **Flat 1D `list`**: `[v1, v2, …]` | `sum(data)` or `np.mean(data)` |
-| **2D Rectangle** (e.g., `B1:C5`) | **Nested 2D `list` (row-major)**: `[[r1c1, r1c2], [r2c1, r2c2], …]` | `pd.DataFrame(data)` or 2D numpy processing |
+| **Single cell** (e.g., `B1`) | **Scalar**: coerced to `int` if mathematically whole float, else `float`/`str`/`bool` | `data * 2` or `sp.prime(data)` |
+| **Row or Column** (e.g., `B1:B10`) | **Flat 1D `list`** (or 1D `ndarray` if numeric) | `sum(data)` or `np.mean(data)` |
+| **2D Rectangle** (e.g., `B1:C5`) | **Nested 2D `list` (row-major)** (or 2D `ndarray` if numeric) | `pd.DataFrame(data)` or 2D numpy processing |
 
 Conversion logic: [`plugin/calc/calc_addin_data.py`](plugin/calc/calc_addin_data.py). Empty cells in Calc map to `None` in Python. The maximum data payload is capped at `MAX_PYTHON_DATA_CELLS` (default 250 000).
 
