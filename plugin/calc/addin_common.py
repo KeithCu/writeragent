@@ -96,6 +96,62 @@ class SingleFunctionAddInBase(unohelper.Base):
     def getDisplayCategoryName(self, aProgrammaticName: str) -> str:
         return "Add-In"
 
+    # Future: case-insensitive programmatic name matching (e.g. XLSX import lowercases PYTHON → python).
+    # Uncomment and replace the methods above when ready to try.
+    '''
+    def _matches_programmatic_name(self, name: str) -> bool:
+        # Calc may pass display or programmatic id; XLSX import often lowercases PYTHON → python.
+        return name.lower() == self._spec.programmatic_name.lower()
+
+    def getProgrammaticFunctionName(self, aDisplayName: str) -> str:
+        if aDisplayName == self._spec.display_name or self._matches_programmatic_name(aDisplayName):
+            return self._spec.programmatic_name
+        return ""
+
+    def getDisplayFunctionName(self, aProgrammaticName: str) -> str:
+        if self._matches_programmatic_name(aProgrammaticName):
+            return self._spec.display_name
+        return ""
+
+    def getFunctionDescription(self, aProgrammaticName: str) -> str:
+        if not self._matches_programmatic_name(aProgrammaticName):
+            return ""
+        return self._spec.description
+
+    def getArgumentDescription(self, aProgrammaticName: str, nArgument: int) -> str:
+        if not self._matches_programmatic_name(aProgrammaticName):
+            return ""
+        if 0 <= nArgument < len(self._spec.arg_descriptions):
+            return self._spec.arg_descriptions[nArgument]
+        return ""
+
+    def getArgumentName(self, aProgrammaticName: str, nArgument: int) -> str:
+        if not self._matches_programmatic_name(aProgrammaticName):
+            return ""
+        if 0 <= nArgument < len(self._spec.arg_names):
+            return self._spec.arg_names[nArgument]
+        return ""
+
+    def hasFunctionWizard(self, aProgrammaticName: str) -> bool:
+        return self._matches_programmatic_name(aProgrammaticName)
+
+    def getArgumentCount(self, aProgrammaticName: str) -> int:
+        if not self._matches_programmatic_name(aProgrammaticName):
+            return 0
+        return len(self._spec.arg_names)
+
+    def getArgumentIsOptional(self, aProgrammaticName: str, nArgument: int) -> bool:
+        if not self._matches_programmatic_name(aProgrammaticName):
+            return False
+        return nArgument >= self._spec.optional_from
+
+    def getProgrammaticCategoryName(self, aProgrammaticName: str) -> str:
+        return "Add-In" if self._matches_programmatic_name(aProgrammaticName) else ""
+
+    def getDisplayCategoryName(self, aProgrammaticName: str) -> str:
+        return "Add-In" if self._matches_programmatic_name(aProgrammaticName) else ""
+    '''
+
     def getLocale(self) -> Any:
         return self.ctx.ServiceManager.createInstance("com.sun.star.lang.Locale", ("en", "US", ""))
 
