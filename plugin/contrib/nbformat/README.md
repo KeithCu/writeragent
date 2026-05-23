@@ -10,7 +10,7 @@ Subset of [jupyter/nbformat](https://github.com/jupyter/nbformat) (BSD-3-Clause)
 
 **Not shipped:** v1/v2/v3 packages, JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core`, top-level `nbformat/__init__.py` (`validate`, `convert`, `as_version`).
 
-**Deferred:** nbformat v3 upgrade (`v4/convert.py` in upstream). Revisit when users need legacy `.ipynb` files; see [enabling_numpy_in_libreoffice.md](../../docs/enabling_numpy_in_libreoffice.md#jupyter-notebook-import-ipynb).
+**Deferred:** nbformat v3 upgrade (`v4/convert.py` in upstream). Revisit when users need legacy `.ipynb` files; see [jupyter-notebook-import.md](../../docs/jupyter-notebook-import.md#jupyter-notebook-import-ipynb).
 
 **Vendored files (synced from upstream):**
 

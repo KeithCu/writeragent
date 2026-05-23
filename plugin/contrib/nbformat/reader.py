@@ -97,7 +97,7 @@ def reads(s, **kwargs):
             raise NBFormatError(msg) from None
     raise NBFormatError(
         f"Unsupported nbformat version {major}; WriterAgent only supports v4 "
-        "(v3 and older upgrade deferred — see docs/enabling_numpy_in_libreoffice.md)."
+        "(v3 and older upgrade deferred — see docs/jupyter-notebook-import.md)."
     )
 
 
