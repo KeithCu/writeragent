@@ -1,10 +1,12 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Any
+import importlib
 
 from plugin.framework.service import BaseState, FsmTransition
 
+deal: Any
 try:
-    import deal  # type: ignore
+    deal = importlib.import_module("deal")
 except ImportError:
 
     class _DummyDeal:

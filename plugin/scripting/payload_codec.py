@@ -25,13 +25,16 @@ from typing import Any, Literal, cast
 
 log = logging.getLogger(__name__)
 
+import importlib
+
+deal: Any
 try:
-    import deal  # type: ignore
+    deal = importlib.import_module("deal")
 except ImportError:
     class _DummyDeal:
         def __getattr__(self, name: str) -> Any:
             return lambda *args, **kwargs: lambda f: f
-    deal = cast(Any, _DummyDeal())
+    deal = _DummyDeal()
 
 # --- Wire kind (JSON-safe dict tag) -----------------------------------------------
 
@@ -46,7 +49,7 @@ BINARY_MIN_CELLS = 10
 MAX_BENCH_CELLS = 100_000
 """Upper cap for benchmark grids (scripts/bench_serialization.py; production cap is scripting.python_max_data_cells)."""
 
-ForceBinary = Literal["auto", "always", "never"]
+ForceBinary = str
 SPLIT_GRID_WIRE_DTYPE = "float64"
 ColumnKind = Literal["int", "float", "bool"]
 
@@ -207,7 +210,7 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     """True when every cell is numeric-coercible (safe for numeric-only split_grid fast-path)."""
     if not grid:
         return True
-    if isinstance(grid[0], (list, tuple)):
+    if type(grid[0]) in (list, tuple):
         return all(is_numeric_coercible(cell) for row in grid for cell in row)
     return all(is_numeric_coercible(cell) for cell in grid)
 
@@ -218,12 +221,12 @@ def wire_cell_count(data: Any) -> int:
         return cell_count(tuple(int(x) for x in data["shape"]))
     if data is None:
         return 0
-    if not isinstance(data, (list, tuple)):
+    if type(data) not in (list, tuple):
         return 1
     if not data:
         return 0
     first = data[0]
-    if isinstance(first, (list, tuple)):
+    if type(first) in (list, tuple):
         return sum(len(row) for row in data)
     return len(data)
 
@@ -232,7 +235,7 @@ def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list
     """Normalize to flat or 2D Python lists (JSON path, no envelope)."""
     if not grid:
         return []
-    if isinstance(grid[0], (list, tuple)):
+    if type(grid[0]) in (list, tuple):
         return [[_cell_for_json(c) for c in row] for row in grid]
     return [_cell_for_json(x) for x in grid]
 
@@ -243,32 +246,21 @@ def _cell_for_json(value: Any) -> Any:
     return value
 
 
-@deal.pre(lambda grid: isinstance(grid, (list, tuple)))
-@deal.post(lambda result: (
-    isinstance(result, tuple) and len(result) == 4 and
-    isinstance(result[0], array.array) and
-    isinstance(result[1], dict) and
-    isinstance(result[2], list) and
-    isinstance(result[3], list)
-))
-@deal.ensure(lambda grid, result: (
-    (not grid) == (len(result[0]) == 0 and result[1] == {} and result[2] == [] and result[3] == [0])
-))
-@deal.ensure(lambda grid, result: (
-    all(isinstance(k, int) for k in result[1].keys())
-))
-@deal.ensure(lambda grid, result: (
-    len(result[2]) == (0 if not grid else (result[3][1] if len(result[3]) == 2 else 1))
-))
+@deal.pre(lambda grid: type(grid) in (list, tuple))
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 4 and isinstance(result[0], array.array) and isinstance(result[1], dict) and isinstance(result[2], list) and isinstance(result[3], list))
+@deal.ensure(lambda grid, result: (not grid) == (len(result[0]) == 0 and result[1] == {} and result[2] == [] and result[3] == [0]))
+@deal.ensure(lambda grid, result: all(isinstance(k, int) for k in result[1].keys()))
+@deal.ensure(lambda grid, result: len(result[2]) == (0 if not grid else (result[3][1] if len(result[3]) == 2 else 1)))
+@deal.raises(ValueError)
 def _flatten_grid_to_components(
-    grid: list[Any] | list[list[Any]]
+    grid: list
 ) -> tuple[array.array, dict[int, str], list[ColumnKind], list[int]]:
     """Flatten 1D/2D grid to float64 array, strings dict, column kinds, and shape."""
     if not grid:
         return array.array("d"), {}, [], [0]
 
     first = grid[0]
-    is_2d = isinstance(first, (list, tuple))
+    is_2d = type(first) in (list, tuple)
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         nrows = len(grid_2d)
@@ -368,18 +360,12 @@ def _flatten_grid_to_components(
     return buf, strings, column_kinds, shape
 
 
-@deal.pre(lambda grid: isinstance(grid, (list, tuple)))
+@deal.pre(lambda grid: type(grid) in (list, tuple))
 @deal.post(lambda result: isinstance(result, dict))
-@deal.ensure(lambda grid, result: (
-    result.get("__wa_payload__") == PAYLOAD_SPLIT_GRID and
-    result.get("dtype") == SPLIT_GRID_WIRE_DTYPE and
-    isinstance(result.get("column_kinds"), list) and
-    isinstance(result.get("shape"), list) and
-    isinstance(result.get("strings"), dict) and
-    isinstance(result.get("buffer"), bytes)
-))
+@deal.ensure(lambda grid, result: result.get("__wa_payload__") == PAYLOAD_SPLIT_GRID and result.get("dtype") == SPLIT_GRID_WIRE_DTYPE and isinstance(result.get("column_kinds"), list) and isinstance(result.get("shape"), list) and isinstance(result.get("strings"), dict) and isinstance(result.get("buffer"), bytes))
+@deal.raises(ValueError)
 def host_pack_split_grid(
-    grid: list[Any] | list[list[Any]],
+    grid: list,
 ) -> dict[str, Any]:
     """Pack a 1D flat list or 2D mixed grid using Strategy 3: Split-Grid Serialization.
 
@@ -420,8 +406,14 @@ def host_pack_split_grid(
     return envelope
 
 
+@deal.pre(lambda grid, min_cells=BINARY_MIN_CELLS, force="auto": type(grid) in (list, tuple))
+@deal.post(lambda result: (
+    isinstance(result, list) or
+    (isinstance(result, dict) and result.get("__wa_payload__") == PAYLOAD_SPLIT_GRID)
+))
+@deal.raises(ValueError)
 def host_pack_data(
-    grid: list[Any] | list[list[Any]],
+    grid: list,
     *,
     min_cells: int = BINARY_MIN_CELLS,
     force: ForceBinary = "auto",
@@ -429,7 +421,7 @@ def host_pack_data(
     """Pack ``data`` for worker request field (list or split_grid dict)."""
     try:
         if grid:
-            is_2d = isinstance(grid[0], (list, tuple))
+            is_2d = type(grid[0]) in (list, tuple)
             grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0)) if is_2d else (len(grid),)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
                 return host_pack_split_grid(grid)
@@ -442,16 +434,22 @@ def host_pack_data(
 
 
 @deal.pre(lambda envelope, as_nested_list=True: (
-    isinstance(envelope, dict) and
+    type(envelope) is dict and
     envelope.get("__wa_payload__") == PAYLOAD_SPLIT_GRID and
-    isinstance(envelope.get("buffer"), bytes) and
+    (isinstance(envelope.get("buffer"), bytes) or isinstance(envelope.get("b64"), str)) and
     isinstance(envelope.get("shape"), list)
 ))
 @deal.post(lambda result: isinstance(result, list))
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists."""
     buf = array.array("d")
-    buf.frombytes(envelope["buffer"])
+    if "buffer" in envelope:
+        buf.frombytes(envelope["buffer"])
+    elif "b64" in envelope:
+        import base64
+        buf.frombytes(base64.b64decode(envelope["b64"].encode("ascii")))
+    else:
+        raise ValueError("Missing payload binary buffer or b64 representation")
     shape = envelope["shape"]
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
@@ -496,16 +494,22 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
 
 
 def is_split_grid(obj: Any) -> bool:
-    return isinstance(obj, dict) and obj.get("__wa_payload__") == PAYLOAD_SPLIT_GRID
+    return (
+        isinstance(obj, dict) and
+        obj.get("__wa_payload__") == PAYLOAD_SPLIT_GRID and
+        (isinstance(obj.get("buffer"), bytes) or isinstance(obj.get("b64"), str)) and
+        isinstance(obj.get("shape"), list)
+    )
 
 
 @deal.pre(lambda envelope: (
-    isinstance(envelope, dict) and
+    type(envelope) is dict and
     envelope.get("__wa_payload__") == PAYLOAD_SPLIT_GRID and
-    isinstance(envelope.get("buffer"), bytes) and
+    (isinstance(envelope.get("buffer"), bytes) or isinstance(envelope.get("b64"), str)) and
     isinstance(envelope.get("shape"), list)
 ))
 @deal.post(lambda result: result is not None)
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
     """Decode split_grid envelope in child. Returns ndarray if purely numeric, else nested lists/lists."""
     try:
@@ -515,7 +519,13 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         import numpy as np
 
-        raw = envelope["buffer"]
+        if "buffer" in envelope:
+            raw = envelope["buffer"]
+        elif "b64" in envelope:
+            import base64
+            raw = base64.b64decode(envelope["b64"].encode("ascii"))
+        else:
+            raise ValueError("Missing payload binary buffer or b64 representation")
         uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         raw_strings = envelope.get("strings", {})
@@ -582,6 +592,12 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         raise
 
 
+@deal.pre(lambda wire: (
+    (not isinstance(wire, list) or type(wire) is list) and
+    (not isinstance(wire, tuple) or type(wire) is tuple)
+))
+@deal.post(lambda result: result is not None)
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_data(wire: Any) -> Any:
     """Materialize worker ``data`` in venv (ndarray/list from split_grid, or np.array from numeric list)."""
     try:
@@ -596,14 +612,14 @@ def child_unpack_data(wire: Any) -> Any:
                     return int(val)
                 return val
         elif isinstance(unpacked, (list, tuple)):
-            if len(unpacked) == 1 and not isinstance(unpacked[0], (list, tuple)):
+            if len(unpacked) == 1 and not (type(unpacked[0]) in (list, tuple)):
                 val = unpacked[0]
                 if isinstance(val, float) and val.is_integer():
                     return int(val)
                 return val
 
             grid: list[Any] | list[list[Any]]
-            if unpacked and isinstance(unpacked[0], (list, tuple)):
+            if unpacked and (type(unpacked[0]) in (list, tuple)):
                 grid = [list(row) for row in unpacked]
             else:
                 grid = list(unpacked)
@@ -625,6 +641,9 @@ def child_unpack_data(wire: Any) -> Any:
         raise
 
 
+@deal.pre(lambda arr: type(arr).__name__ == "ndarray")
+@deal.post(lambda result: isinstance(result, dict) and result.get("__wa_payload__") == PAYLOAD_SPLIT_GRID and result.get("dtype") == SPLIT_GRID_WIRE_DTYPE and isinstance(result.get("column_kinds"), list) and isinstance(result.get("shape"), list) and isinstance(result.get("strings"), dict) and isinstance(result.get("buffer"), bytes))
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_pack_split_grid(arr: Any) -> dict[str, Any]:
     """Pack ndarray as split_grid for JSON wire (venv). Numeric lane is always float64 bytes."""
     import numpy as np
@@ -662,6 +681,12 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         raise
 
 
+@deal.pre(lambda result, min_cells=BINARY_MIN_CELLS, force="auto": (
+    (not isinstance(result, list) or type(result) is list) and
+    (not isinstance(result, tuple) or type(result) is tuple)
+))
+@deal.post(lambda result: result is not None)
+@deal.raises(ValueError, TypeError, AttributeError)
 def child_pack_result(
     result: Any,
     *,
@@ -688,7 +713,7 @@ def child_pack_result(
         if isinstance(result, np.bool_):
             return bool(result)
         if isinstance(result, (list, tuple)):
-            if result and isinstance(result[0], (list, tuple)):
+            if result and (type(result[0]) in (list, tuple)):
                 grid = [list(row) for row in result]
                 grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
             else:

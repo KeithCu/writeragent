@@ -114,12 +114,20 @@ def strip_production_code(bundle_path: str, dry_run: bool = False) -> None:
                         self.generic_visit(node)
 
                     def visit_Try(self, node: ast.Try) -> None:
-                        # Check if any statement in the body is an import of 'deal'
+                        # Check if any statement in the body is an import of 'deal' or defines 'deal'
                         for stmt in node.body:
                             if isinstance(stmt, ast.Import) and any(alias.name == "deal" for alias in stmt.names):
                                 nodes_to_remove.append(node)
                                 return
                             if isinstance(stmt, ast.ImportFrom) and stmt.module == "deal":
+                                nodes_to_remove.append(node)
+                                return
+                            if isinstance(stmt, ast.Assign):
+                                for target in stmt.targets:
+                                    if isinstance(target, ast.Name) and target.id == "deal":
+                                        nodes_to_remove.append(node)
+                                        return
+                            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.target.id == "deal":
                                 nodes_to_remove.append(node)
                                 return
                         self.generic_visit(node)
@@ -132,6 +140,17 @@ def strip_production_code(bundle_path: str, dry_run: bool = False) -> None:
                     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
                         if node.module == "deal":
                             nodes_to_remove.append(node)
+                        self.generic_visit(node)
+
+                    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+                        if isinstance(node.target, ast.Name) and node.target.id == "deal":
+                            nodes_to_remove.append(node)
+                        self.generic_visit(node)
+
+                    def visit_Assign(self, node: ast.Assign) -> None:
+                        for target in node.targets:
+                            if isinstance(target, ast.Name) and target.id == "deal":
+                                nodes_to_remove.append(node)
                         self.generic_visit(node)
 
                 FindVisitor().visit(tree)

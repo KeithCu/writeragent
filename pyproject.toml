@@ -45,6 +45,8 @@ dev = [
     "pyrefly>=0.61.0",
     "openpyxl>=3.1.0",
     "numpy",
+    "deal",
+    "crosshair-tool",
 ]
 
 [tool.ruff]

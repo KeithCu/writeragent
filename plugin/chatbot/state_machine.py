@@ -16,8 +16,11 @@ SendHandlerCompleteStatus = Literal["Error", "Stopped", "Ready"]
 # Tool-loop and send-handler UI channel effects (see ToolLoopUIEffect, SendHandlerUIEffect)
 UIEffectKind = Literal["append", "status", "debug", "info"]
 
+import importlib
+
+deal: Any
 try:
-    import deal  # type: ignore
+    deal = importlib.import_module("deal")
 except ImportError:
     # Dummy decorators for production where deal is not installed
     class _DummyDeal:

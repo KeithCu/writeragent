@@ -88,7 +88,6 @@ def test_crosshair_verification_if_available() -> None:
             crosshair_path,
             "check",
             "plugin/scripting/payload_codec.py",
-            "--contracts",
             "--per_condition_timeout=5",
         ],
         capture_output=True,
