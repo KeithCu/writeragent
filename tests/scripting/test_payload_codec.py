@@ -5,7 +5,11 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Tests for payload_codec (host stdlib / child NumPy wire format)."""
+"""Tests for payload_codec (host stdlib / child NumPy wire format).
+
+Sections: policy threshold, host pack/unpack, child pack/unpack, round-trips, NaN/missing,
+realistic Calc-shaped grids only (rectangular 2D; uneven row lengths are rejected at pack).
+"""
 
 from __future__ import annotations
 
@@ -17,16 +21,24 @@ import pytest
 
 from plugin.scripting import payload_codec
 from plugin.scripting.payload_codec import (
-    describe_wire_value,
     BINARY_MIN_CELLS,
     PAYLOAD_SPLIT_GRID,
+    binary_envelope_skip_reason,
     child_pack_result,
     child_unpack_data,
+    describe_wire_value,
     host_pack_data,
     host_unpack_data,
+    is_numeric_coercible,
     is_numeric_grid,
     should_use_binary_envelope,
     wire_cell_count,
+)
+from tests.scripting.payload_codec_test_support import (
+    MIXED_LABEL_GRID,
+    MIXED_WITH_ZIP,
+    NUMERIC_4X4,
+    pickle5_roundtrip,
 )
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -45,14 +57,28 @@ def test_host_module_does_not_import_numpy_at_module_level():
             assert not node.module.startswith("numpy"), node.module
 
 
-def test_should_use_binary_threshold_min_cells():
-    assert should_use_binary_envelope((3, 3), force="auto") is False  # 9 cells
-    assert should_use_binary_envelope((4, 3), force="auto") is True  # 12 cells
-    assert should_use_binary_envelope((4, 4), force="auto") is True  # 16 cells
-    assert should_use_binary_envelope((9,), force="auto") is False  # 9 cells
-    assert should_use_binary_envelope((10,), force="auto") is True  # 10 cells
-    assert should_use_binary_envelope((4, 4), force="never") is False
-    assert should_use_binary_envelope((3, 3), force="always") is True
+@pytest.mark.parametrize(
+    ("shape", "force", "expected"),
+    [
+        ((3, 3), "auto", False),
+        ((4, 3), "auto", True),
+        ((4, 4), "auto", True),
+        ((9,), "auto", False),
+        ((10,), "auto", True),
+        ((4, 4), "never", False),
+        ((3, 3), "always", True),
+    ],
+)
+def test_should_use_binary_envelope_boundary(shape: tuple[int, ...], force: str, expected: bool) -> None:
+    """BINARY_MIN_CELLS=10: 9 cells use nested lists; 10+ use split_grid when force=auto."""
+    assert should_use_binary_envelope(shape, force=force) is expected
+
+
+def test_binary_envelope_skip_reason_below_threshold() -> None:
+    """Policy helper explains why a 3x3 grid skips split_grid."""
+    reason = binary_envelope_skip_reason((3, 3), force="auto")
+    assert reason is not None
+    assert "10" in reason
 
 
 def test_host_pack_auto_uses_split_grid_for_4x3():
@@ -342,4 +368,175 @@ def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
     # 6. Multi-element list or 2D list should NOT be unpacked to scalar
     assert isinstance(child_unpack_data([100000.0, 200000.0]), np.ndarray)
     assert child_unpack_data([[100000.0]]) == [[100000.0]]  # 2D list preserved
+
+
+def test_uneven_row_lengths_rejected_on_host_pack() -> None:
+    """Uneven nested-list rows are unsupported; Calc ranges are always rectangular."""
+    with pytest.raises(ValueError, match="Uneven row lengths"):
+        host_pack_data([[1, 2], [3]], force="always")
+
+
+# --- NaN, empty cells, and inf (realistic Calc / NumPy paths) ---
+
+
+def test_none_cell_pack_produces_nan_in_buffer() -> None:
+    """Calc empty cell (None) encodes as NaN in the split_grid float64 buffer."""
+    grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
+    wire = host_pack_data(grid, force="always")
+    assert wire["__wa_payload__"] == PAYLOAD_SPLIT_GRID
+    import array
+
+    buf = array.array("d")
+    buf.frombytes(wire["buffer"])
+    assert math.isnan(buf[1])
+
+
+def test_none_numeric_ingress_child_gets_np_nan() -> None:
+    """Numeric-only ingress: empty Calc cells become np.nan in child ndarray, not Python None."""
+    np = pytest.importorskip("numpy")
+    grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
+    arr = child_unpack_data(host_pack_data(grid, force="always"))
+    assert isinstance(arr, np.ndarray)
+    assert np.isnan(arr[0, 1])
+    assert arr[0, 0] == pytest.approx(1.0)
+
+
+def test_none_mixed_ingress_child_gets_python_none() -> None:
+    """Mixed grid ingress: empty cells become None in the nested list (not np.nan)."""
+    pytest.importorskip("numpy")
+    grid = [[1.0, None, "label"], [2.0, 3.0, "x"]] * 2  # 12 cells, rectangular
+    out = child_unpack_data(host_pack_data(grid, force="always"))
+    assert isinstance(out, list)
+    assert out[0][1] is None
+
+
+def test_nan_egress_child_pack_host_unpack() -> None:
+    """NumPy result with np.nan: host unpack maps buffer NaN to None for Calc/LLM."""
+    np = pytest.importorskip("numpy")
+    wire = child_pack_result(np.array([1.0, np.nan, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]), force="always")
+    back = host_unpack_data(wire, as_nested_list=True)
+    assert back[0] == pytest.approx(1.0)
+    assert back[1] is None
+
+
+def test_none_host_egress_round_trip() -> None:
+    """Rectangular grid with holes: host pack -> child ndarray -> host list restores None."""
+    np = pytest.importorskip("numpy")
+    grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, None, 8.0], [9.0, 10.0, 11.0, 12.0]]
+    wire = host_pack_data(grid, force="always")
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    back = host_unpack_data(wire, as_nested_list=True)
+    assert back[0][1] is None
+    assert back[1][2] is None
+
+
+def test_inf_egress_from_numpy_result() -> None:
+    """np.inf in worker results is not collapsed to None on host unpack."""
+    np = pytest.importorskip("numpy")
+    vals = [1.0, float("inf"), -float("inf"), 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    wire = child_pack_result(np.array(vals, dtype=np.float64), force="always")
+    back = host_unpack_data(wire, as_nested_list=True)
+    assert back[1] == float("inf")
+    assert back[2] == float("-inf")
+
+
+def test_pickle5_roundtrip_preserves_nan_buffer() -> None:
+    """IPC Pickle5 must preserve raw buffer bytes including NaN slots."""
+    grid = [[1.0, None, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
+    wire = pickle5_roundtrip(host_pack_data(grid, force="always"))
+    np = pytest.importorskip("numpy")
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    assert np.isnan(arr[0, 1])
+
+
+def test_mixed_grid_preserves_zip_code_strings() -> None:
+    """Zip-style text must stay in strings map, not be coerced to float."""
+    wire = host_pack_data(MIXED_WITH_ZIP, force="always")
+    assert wire["strings"][1] == "02138"
+    pytest.importorskip("numpy")
+    out = child_unpack_data(wire)
+    assert out[0][1] == "02138"
+
+
+def test_mixed_grid_preserves_non_numeric_string() -> None:
+    """Non-coercible text stays a string; numeric-looking text that fails float() is kept."""
+    grid = [[1.0, "hello", "3.14z", 4.0]] * 3  # 12 cells
+    wire = host_pack_data(grid, force="always")
+    assert "hello" in wire["strings"].values()
+    pytest.importorskip("numpy")
+    out = child_unpack_data(wire)
+    assert out[0][1] == "hello"
+
+
+def test_bool_cells_round_trip_in_numeric_grid() -> None:
+    """Calc booleans in an all-numeric grid become 0.0/1.0 in child ndarray (float64 lane)."""
+    np = pytest.importorskip("numpy")
+    grid = [[True, False, 1.0, 2.0], [False, True, 3.0, 4.0], [True, False, 5.0, 6.0]]
+    arr = child_unpack_data(host_pack_data(grid, force="always"))
+    assert isinstance(arr, np.ndarray)
+    assert arr[0, 0] == pytest.approx(1.0)
+    assert arr[0, 1] == pytest.approx(0.0)
+
+
+def test_child_pack_below_threshold_returns_list() -> None:
+    """Small ndarray egress uses tolist(), not split_grid envelope."""
+    np = pytest.importorskip("numpy")
+    small = np.arange(9, dtype=np.float64).reshape(3, 3)
+    wire = child_pack_result(small, force="auto")
+    assert isinstance(wire, list)
+    assert len(wire) == 3
+
+
+def test_child_pack_numpy_scalar_types() -> None:
+    """Worker egress normalizes numpy scalar types to plain Python."""
+    np = pytest.importorskip("numpy")
+    assert child_pack_result(np.int64(7)) == 7
+    assert child_pack_result(np.float64(3.5)) == pytest.approx(3.5)
+    assert child_pack_result(np.bool_(True)) is True
+
+
+def test_child_mixed_2d_returns_list_not_ndarray() -> None:
+    """Any string column forces nested lists in child, not ndarray."""
+    np = pytest.importorskip("numpy")
+    out = child_unpack_data(host_pack_data(MIXED_LABEL_GRID, force="always"))
+    assert isinstance(out, list)
+    assert not isinstance(out, np.ndarray)
+
+
+def test_is_numeric_coercible_and_is_numeric_grid() -> None:
+    """Helpers gate numeric-only fast paths."""
+    assert is_numeric_coercible(None) is True
+    assert is_numeric_coercible("42") is False
+    assert is_numeric_coercible("") is True
+    assert is_numeric_coercible("hello") is False
+    assert is_numeric_grid([[1, 2], [3, 4]]) is True
+    assert is_numeric_grid([1, "x"]) is False
+
+
+def test_pickle5_roundtrip_numeric_4x4() -> None:
+    """Production path: split_grid envelope survives Pickle5 unchanged."""
+    wire = pickle5_roundtrip(host_pack_data(NUMERIC_4X4, force="always"))
+    np = pytest.importorskip("numpy")
+    arr = child_unpack_data(wire)
+    assert arr.shape == (4, 4)
+    assert arr[0, 0] == pytest.approx(0.0)
+
+
+def test_1d_numeric_host_to_child_ndarray() -> None:
+    """Flat 1D numeric list materializes as 1D ndarray in child."""
+    np = pytest.importorskip("numpy")
+    grid = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
+    arr = child_unpack_data(host_pack_data(grid, force="always"))
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (10,)
+
+
+def test_1d_mixed_child_returns_list() -> None:
+    """Flat 1D list with a string stays a Python list in child."""
+    pytest.importorskip("numpy")
+    grid = [1.5, "banana", None, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
+    out = child_unpack_data(host_pack_data(grid, force="always"))
+    assert out == [1.5, "banana", None, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5]
 

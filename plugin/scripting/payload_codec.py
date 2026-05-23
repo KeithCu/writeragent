@@ -178,18 +178,16 @@ def binary_envelope_skip_reason(
 
 
 def is_numeric_coercible(value: Any) -> bool:
-    """True if value can become float64 in split_grid (None/empty -> NaN)."""
+    """True when a cell is numeric-only for ``is_numeric_grid`` / ``np.array(list)`` paths.
+
+    Non-empty strings are never coercible here — even ``\"02138\"`` parses as a float — so
+    mixed grids stay lists after child split_grid unpack (zip codes and labels preserved).
+    Empty strings match Calc empty cells (``None``).
+    """
     if value is None or isinstance(value, (bool, int, float)):
         return True
     if isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return True
-        try:
-            float(s)
-            return True
-        except ValueError:
-            return False
+        return not value.strip()
     return False
 
 
@@ -233,6 +231,33 @@ def _cell_for_json(value: Any) -> Any:
     return value
 
 
+def _append_cell_to_split_grid(
+    val: Any,
+    *,
+    buf_append: Any,
+    strings: dict[int, str],
+    column_kinds: list[ColumnKind],
+    col_idx: int,
+    cell_idx: int,
+) -> None:
+    """Write one cell into the split_grid float64 buffer and optional strings map."""
+    if val is None:
+        buf_append(math.nan)
+        column_kinds[col_idx] = "float"
+    elif val is True or val is False:
+        buf_append(float(val))
+    else:
+        t = type(val)
+        if t is float:
+            buf_append(cast("float", val))
+            column_kinds[col_idx] = "float"
+        elif t is int:
+            buf_append(float(cast("int", val)))
+        else:
+            buf_append(math.nan)
+            strings[cell_idx] = cast("str", val) if t is str else str(val)
+
+
 def _flatten_grid_to_components(
     grid: list[Any] | list[list[Any]]
 ) -> tuple[array.array, dict[int, str], list[ColumnKind], list[int]]:
@@ -246,6 +271,16 @@ def _flatten_grid_to_components(
         nrows = len(grid)
         ncols = max((len(r) for r in grid), default=0)
         shape = [nrows, ncols]
+        row_lens = [len(row) for row in grid]
+        if len(set(row_lens)) > 1:
+            # Uneven nested-list row lengths should never happen for Calc ranges (rectangular UNO blocks).
+            log.error(
+                "payload_codec: uneven row lengths %s in 2D grid (expected rectangular data from Calc or tools)",
+                row_lens,
+            )
+            raise ValueError(
+                f"Uneven row lengths in data grid: {row_lens} (all rows must have the same width)"
+            )
     else:
         nrows = 1
         ncols = len(grid)
@@ -254,62 +289,29 @@ def _flatten_grid_to_components(
     buf = array.array("d")
     strings: dict[int, str] = {}
     column_kinds = cast("list[ColumnKind]", ["int"] * (ncols if is_2d else 1))
-
-    # Pre-capture bound method to avoid repeated attribute lookups in the loop
     buf_append = buf.append
 
-    # Optimization: Detect if grid is a regular/rectangular 2D grid once,
-    # enabling us to bypass coordinate range checks (c < row_len)
-    is_regular = True
-    if is_2d:
-        is_regular = all(len(row) == ncols for row in grid)
+    # This should never happen: we no longer pad rows with len(row) < ncols. Calc ranges and
+    # normalized tool data are rectangular; uneven nested lists are rejected above.
+    #
+    # Previously (removed): for jagged grids, a second loop used
+    #     val = row[c] if c < row_len else None
+    # to fill missing columns with None. That path was defensive only.
 
     idx = 0
-    # Process rows (or single pseudo-row if 1D)
     rows = grid if is_2d else [grid]
-
-    if is_regular:
-        for row in rows:
-            for c, val in enumerate(row):
-                col_idx = c if is_2d else 0
-                if val is None:
-                    buf_append(math.nan)
-                    column_kinds[col_idx] = "float"
-                elif val is True or val is False:
-                    buf_append(float(val))
-                else:
-                    t = type(val)
-                    if t is float:
-                        buf_append(cast("float", val))
-                        column_kinds[col_idx] = "float"
-                    elif t is int:
-                        buf_append(float(cast("int", val)))
-                    else:
-                        buf_append(math.nan)
-                        strings[idx] = cast("str", val) if t is str else str(val)
-                idx += 1
-    else:
-        for row in rows:
-            row_len = len(row)
-            for c in range(ncols):
-                val = row[c] if c < row_len else None
-                col_idx = c if is_2d else 0
-                if val is None:
-                    buf_append(math.nan)
-                    column_kinds[col_idx] = "float"
-                elif val is True or val is False:
-                    buf_append(float(val))
-                else:
-                    t = type(val)
-                    if t is float:
-                        buf_append(cast("float", val))
-                        column_kinds[col_idx] = "float"
-                    elif t is int:
-                        buf_append(float(cast("int", val)))
-                    else:
-                        buf_append(math.nan)
-                        strings[idx] = cast("str", val) if t is str else str(val)
-                idx += 1
+    for row in rows:
+        for c, val in enumerate(row):
+            col_idx = c if is_2d else 0
+            _append_cell_to_split_grid(
+                val,
+                buf_append=buf_append,
+                strings=strings,
+                column_kinds=column_kinds,
+                col_idx=col_idx,
+                cell_idx=idx,
+            )
+            idx += 1
 
     return buf, strings, column_kinds, shape
 

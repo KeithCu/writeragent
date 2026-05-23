@@ -4,6 +4,7 @@ from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
 from plugin.framework.constants import (
+    DELEGATION_USER_FILE_DATA_HINT,
     get_greeting_for_document,
     get_chat_system_prompt_for_document,
     get_core_directives,
@@ -97,7 +98,7 @@ def test_get_core_directives_writer():
     assert "numpy" not in directives.lower()
     assert "apply_document_content" in directives
     assert 'domain="document_research"' in directives
-    assert "to use information from (my / our) personal or business documents" in directives
+    assert DELEGATION_USER_FILE_DATA_HINT in directives
     assert "to research public topics" in directives
     assert 'domain="web_research") first to find information' not in directives
 
@@ -106,7 +107,7 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
     model = MagicMock()
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model)
-    assert "to use information from (my / our) personal or business documents" in prompt
+    assert DELEGATION_USER_FILE_DATA_HINT in prompt
     assert "to research public topics" in prompt
     assert "OLE in active doc only" in prompt
 
@@ -125,13 +126,13 @@ def test_specialized_delegation_block_is_single_line():
 
 def test_calc_core_directives_local_before_web():
     assert 'domain="document_research"' in CALC_CORE_DIRECTIVES
-    assert "to use information from (my / our) personal or business documents" in CALC_CORE_DIRECTIVES
+    assert DELEGATION_USER_FILE_DATA_HINT in CALC_CORE_DIRECTIVES
     assert 'domain="web_research") first to find information' not in CALC_CORE_DIRECTIVES
 
 
 def test_draw_core_directives_local_before_web():
     assert 'domain="document_research"' in DRAW_CORE_DIRECTIVES
-    assert "to use information from (my / our) personal or business documents" in DRAW_CORE_DIRECTIVES
+    assert DELEGATION_USER_FILE_DATA_HINT in DRAW_CORE_DIRECTIVES
     assert 'domain="web_research") first to find information' not in DRAW_CORE_DIRECTIVES
 
 

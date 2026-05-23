@@ -246,141 +246,31 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
 
 
 def test_split_grid_pickle_and_json_round_trip():
-    import base64
-    import math
-    from plugin.scripting.payload_codec import (
-        PAYLOAD_SPLIT_GRID,
-        SPLIT_GRID_WIRE_DTYPE,
-        _flatten_grid_to_components,
-        envelope_uniform_column_kind,
-        envelope_column_kinds,
-        _host_cell_from_float,
-        _apply_column_kinds_to_ndarray,
-        host_pack_split_grid,
-        host_unpack_split_grid,
+    """Regression: production buffer path vs historical Base64 JSON split_grid."""
+    from plugin.scripting.payload_codec import is_split_grid
+    from tests.scripting.payload_codec_test_support import (
         child_pack_split_grid,
         child_unpack_split_grid,
-        is_split_grid,
+        host_pack_split_grid,
+        host_unpack_split_grid,
+        legacy_b64_child_pack_split_grid,
+        legacy_b64_child_unpack_split_grid,
+        legacy_b64_host_pack_split_grid,
+        legacy_b64_host_unpack_split_grid,
     )
-
-    def b64_host_pack_split_grid(grid: list[Any] | list[list[Any]]) -> dict[str, Any]:
-        if not grid:
-            return {
-                "__wa_payload__": PAYLOAD_SPLIT_GRID,
-                "dtype": SPLIT_GRID_WIRE_DTYPE,
-                "column_kinds": [],
-                "shape": [0],
-                "strings": {},
-                "b64": "",
-            }
-        buf, strings, column_kinds, shape = _flatten_grid_to_components(grid)
-        return {
-            "__wa_payload__": PAYLOAD_SPLIT_GRID,
-            "dtype": SPLIT_GRID_WIRE_DTYPE,
-            "column_kinds": column_kinds,
-            "shape": shape,
-            "strings": strings,
-            "b64": base64.b64encode(buf.tobytes()).decode("ascii"),
-        }
-
-    def b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[list[Any]]:
-        import array
-        b64_str = envelope.get("b64", "")
-        raw = base64.b64decode(b64_str.encode("ascii"))
-        buf = array.array("d")
-        buf.frombytes(raw)
-        shape = envelope["shape"]
-        is_1d = len(shape) == 1
-        nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
-        strings = envelope.get("strings", {})
-        uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
-
-        flat_list: list[Any]
-        if not strings and uniform is not None:
-            if uniform == "int":
-                flat_list = [None if math.isnan(v) else int(v) for v in buf]
-            else:
-                flat_list = [None if math.isnan(v) else v for v in buf]
-        else:
-            column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-            flat_list = [
-                strings[str(i)] if str(i) in strings else 
-                _host_cell_from_float(val, column_kind=column_kinds[0 if is_1d else i % ncols])
-                for i, val in enumerate(buf)
-            ]
-
-        if is_1d:
-            return flat_list
-        return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
-
-    def b64_child_pack_split_grid(arr: Any) -> dict[str, Any]:
-        import numpy as np
-        if not isinstance(arr, np.ndarray):
-            arr = np.asarray(arr)
-        ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
-        if np.issubdtype(arr.dtype, np.integer):
-            column_kinds = ["int"] * ncols
-        else:
-            column_kinds = ["float"] * ncols
-        wire_arr = np.ascontiguousarray(arr, dtype=np.float64)
-        return {
-            "__wa_payload__": PAYLOAD_SPLIT_GRID,
-            "dtype": SPLIT_GRID_WIRE_DTYPE,
-            "column_kinds": column_kinds,
-            "shape": list(wire_arr.shape),
-            "strings": {},
-            "b64": base64.b64encode(wire_arr.tobytes()).decode("ascii"),
-        }
-
-    def b64_child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
-        import numpy as np
-        shape = envelope["shape"]
-        is_1d = len(shape) == 1
-        nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
-        b64_str = envelope.get("b64", "")
-        raw = base64.b64decode(b64_str.encode("ascii"))
-        uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
-        column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-        strings = envelope.get("strings", {})
-
-        if not strings:
-            arr = np.frombuffer(raw, dtype=np.float64)
-            if not is_1d:
-                arr = arr.reshape((nrows, ncols))
-            return _apply_column_kinds_to_ndarray(
-                arr, column_kinds, ncols=ncols, is_1d=is_1d, uniform=uniform
-            )
-
-        flat_list = np.frombuffer(raw, dtype=np.float64).tolist()
-        for i, val in enumerate(flat_list):
-            str_idx = str(i)
-            if str_idx in strings:
-                flat_list[i] = strings[str_idx]
-            elif math.isnan(val):
-                flat_list[i] = None
-            else:
-                col = 0 if is_1d else i % ncols
-                if column_kinds[col] == "int":
-                    flat_list[i] = int(val)
-
-        if is_1d:
-            return flat_list
-        return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
     np = pytest.importorskip("numpy")
     grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
 
-    # 1. Test Base64 (JSON mode) via local test-script helpers
-    wire_json = b64_host_pack_split_grid(grid)
+    wire_json = legacy_b64_host_pack_split_grid(grid)
     assert is_split_grid(wire_json)
     assert "b64" in wire_json
     assert "buffer" not in wire_json
     assert isinstance(wire_json["b64"], str)
     # Host unpacks
-    unpacked_host_json = b64_host_unpack_split_grid(wire_json)
+    unpacked_host_json = legacy_b64_host_unpack_split_grid(wire_json)
     assert unpacked_host_json == grid
-    # Child unpacks
-    unpacked_child_json = b64_child_unpack_split_grid(wire_json)
+    unpacked_child_json = legacy_b64_child_unpack_split_grid(wire_json)
     assert isinstance(unpacked_child_json, np.ndarray)
     assert unpacked_child_json.shape == (4, 4)
     np.testing.assert_allclose(unpacked_child_json, np.array(grid))
@@ -401,12 +291,12 @@ def test_split_grid_pickle_and_json_round_trip():
     np.testing.assert_allclose(unpacked_child_pickle, np.array(grid))
 
     # 3. Test child pack with Base64 via local helper
-    child_wire_json = b64_child_pack_split_grid(np.array(grid))
+    child_wire_json = legacy_b64_child_pack_split_grid(np.array(grid))
     assert is_split_grid(child_wire_json)
     assert "b64" in child_wire_json
     assert "buffer" not in child_wire_json
     # Host unpacks
-    unpacked_host_json_from_child = b64_host_unpack_split_grid(child_wire_json)
+    unpacked_host_json_from_child = legacy_b64_host_unpack_split_grid(child_wire_json)
     assert unpacked_host_json_from_child == grid
 
     # 4. Test production child pack

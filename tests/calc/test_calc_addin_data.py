@@ -14,8 +14,10 @@ from plugin.calc.calc_addin_data import (
     check_python_data_size,
     count_cells,
     finalize_python_data,
+    pack_calc_data_for_wire,
     values_from_inspector_range,
 )
+from plugin.scripting.payload_codec import is_split_grid, wire_cell_count
 
 
 def test_none_returns_none():
@@ -90,3 +92,20 @@ def test_finalize_python_data_nested_row():
 
 def test_finalize_python_data_already_flat():
     assert finalize_python_data([1, 2]) == [1, 2]
+
+
+def test_pack_calc_data_for_wire_uses_split_grid_for_4x4():
+    """Calc-sized numeric range uses split_grid when cell count >= BINARY_MIN_CELLS."""
+    grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
+    wire = pack_calc_data_for_wire(grid)
+    assert is_split_grid(wire)
+    assert count_cells(wire) == 16
+    assert wire_cell_count(wire) == 16
+
+
+def test_pack_calc_data_for_wire_uses_list_below_threshold():
+    """3x3 Calc range stays nested list on wire (below split_grid threshold)."""
+    grid = [[float(i)] * 3 for i in range(3)]
+    wire = pack_calc_data_for_wire(grid)
+    assert isinstance(wire, list)
+    assert not is_split_grid(wire)

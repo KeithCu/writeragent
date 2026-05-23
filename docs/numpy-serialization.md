@@ -82,6 +82,61 @@ flowchart TD
      - Generates the final 2D nested lists structure natively in C using `.tolist()`.
    - For purely numeric grids, completely bypasses all list/object array reconstructions and returns the `ndarray` directly.
 
+### Cell semantics: Calc, Python, and NumPy
+
+This section documents **behavior** for real inputs (rectangular Calc ranges and tool payloads), not only wire layout.
+
+#### Supported input shape
+
+- **2D data must be rectangular:** every row has the same length (`len(row) == ncols`). Calc `=PYTHON(code; range)` passes UNO range blocks this way; empty cells are `None` in a full-width row, not “missing” list elements.
+- **Uneven row lengths** (jagged nested lists) are **unsupported**. [`_flatten_grid_to_components`](../plugin/scripting/payload_codec.py) logs an error and raises `ValueError` if row lengths differ. We do not pad short rows.
+
+#### Calc → Python ([`calc_addin_data.py`](../plugin/calc/calc_addin_data.py))
+
+| Calc / UNO | Python `data` before pack |
+|------------|---------------------------|
+| Empty cell / `""` | `None` |
+| Number | `int` or `float` |
+| Boolean | `bool` |
+| Text | `str` |
+| Single row/column range | Flat `list` ([`normalize_python_data_shape`](../plugin/calc/calc_addin_data.py)) |
+| 2D block (e.g. `A1:C5`) | `list[list]`, rectangular |
+
+#### Split-Grid encoding (host pack)
+
+| Cell value | `buffer` (float64) | `strings` |
+|------------|-------------------|-----------|
+| `None` (empty Calc cell) | `NaN` | — |
+| `int` / `float` | numeric value | — |
+| `bool` | `0.0` / `1.0` | — |
+| `str` (including `"02138"`) | `NaN` | text preserved by flat index (never treated as a numeric cell for `np.array(list)` reload) |
+
+Grids with **&lt; 10 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../plugin/scripting/payload_codec.py)); [`_cell_for_json`](../plugin/scripting/payload_codec.py) maps `float('nan')` to `None` on that path only.
+
+#### Child materialization (ingress)
+
+| Grid type | Child sees |
+|-----------|------------|
+| **Pure numeric** (`strings` empty) | `np.ndarray` float64; empty Calc cells → **`np.nan`**, not Python `None` |
+| **Mixed** (any string cells) | Nested `list[list]`; empty/NaN slots → **`None`** |
+| **Single cell** (length-1 flat list or 1-element array) | Scalar; whole floats like `100000.0` → `int` when `.is_integer()` |
+
+Use `np.nansum(data)` (or mask with `np.isnan`) on numeric-only ingress when you need to ignore holes.
+
+#### Egress (child → host / Calc)
+
+| Child `result` | Host / UI after unpack |
+|----------------|------------------------|
+| `np.ndarray` with `np.nan` | Nested lists with **`None`** (`math.isnan` on host) |
+| `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
+| Large numeric array (≥ 10 cells) | `split_grid` on wire; host unpack → nested lists for Calc matrix / LLM |
+
+#### NaN summary (common confusion)
+
+- **Empty Calc cell** → `None` in Python → **NaN on wire** → **`np.nan`** in numeric-only `data`, or **`None`** in mixed lists.
+- **NumPy `np.nan` in `result`** → NaN on wire → **`None`** after host unpack (for sheet / JSON consumers).
+- Do not expect `None` and `np.nan` to round-trip identically on every leg; behavior depends on numeric vs mixed path and ingress vs egress.
+
 #### Performance Impact:
 - **~20x Speedup** over Column-Wise mixed grids.
 - Binary materialization is done at C-speed via `frombuffer` + `.tolist()`, and pure Python loops only process the small fraction of cells that actually contain string text.
