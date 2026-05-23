@@ -34,7 +34,9 @@ def test_python_addin_metadata():
 
     func = PythonFunction(_ctx)
     assert func.getProgrammaticFunctionName("PYTHON") == "python"
+    assert func.getProgrammaticFunctionName("python") == "python"
     assert func.getDisplayFunctionName("python") == "PYTHON"
+    assert func.getDisplayFunctionName("PYTHON") == "PYTHON"
     assert func.getArgumentCount("python") == 2
     assert func.getArgumentName("python", 0) == "code"
     assert "Python code" in func.getArgumentDescription("python", 0)

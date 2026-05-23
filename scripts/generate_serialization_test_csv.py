@@ -3,10 +3,9 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Generate manual =PYTHON() serialization test CSVs for LibreOffice Calc.
+"""Generate manual =PYTHON() serialization test XLSX for LibreOffice Calc.
 
-Each test is a small block: input grid, Calc oracle, ``#=PYTHON(...)``, and ``#=IF(...)`` PASS/FAIL.
-Remove ``#`` to activate formulas.
+Each test is a small block: input grid, Calc oracle, ``=PYTHON(...)``, and ``=IF(...)`` PASS/FAIL.
 
 Usage (from repo root):
     python scripts/generate_serialization_test_csv.py
@@ -14,11 +13,17 @@ Usage (from repo root):
 from __future__ import annotations
 
 import argparse
-import csv
+import io
+import re
 import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -27,17 +32,29 @@ if str(REPO_ROOT) not in sys.path:
 from tests.calc.serialization_cases import SHEET_ORDER, SerializationCase, all_serialization_cases  # noqa: E402
 
 DEFAULT_OUT = REPO_ROOT / "tests" / "fixtures"
-_FORMULA_COMMENT = "#"
 _MIN_INPUT_COLS = 4
+_SHEET_NAME = "serialization_tests"
+# XLSX follows Excel OOXML: comma argument separators. LibreOffice converts to locale
+# (semicolon in many EU locales) on import. Semicolons in the file → Err:508 on en-US Calc.
+_ARG_SEP = ","
+# Display name registered in CalcAddIns.xcu; must stay uppercase in OOXML <f> cells.
+_CALC_PYTHON_FN = "PYTHON"
+_OOXML_PYTHON_FORMULA_RE = re.compile(r"(<f[^>]*>)(=?)python\(", re.IGNORECASE)
 
 COL_TEST_ID = 0
 COL_DESCRIPTION = 1
 COL_TAGS = 2
 COL_INPUT_START = 3
 
+_HEADER_FILL = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+_SECTION_FILL = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+_HEADER_FONT = Font(bold=True)
+_SECTION_FONT = Font(bold=True)
+_WRAP = Alignment(wrap_text=True, vertical="top")
+
 
 @dataclass(frozen=True)
-class CsvLayout:
+class SheetLayout:
     """Column indices for one generated sheet (input width drives formula columns)."""
 
     max_input_cols: int
@@ -47,12 +64,8 @@ class CsvLayout:
         return COL_INPUT_START + self.max_input_cols
 
     @property
-    def col_python_formula(self) -> int:
-        return self.col_calc_oracle + 1
-
-    @property
     def col_compare(self) -> int:
-        return self.col_python_formula + 1
+        return self.col_calc_oracle + 1
 
     @property
     def col_expected(self) -> int:
@@ -63,21 +76,25 @@ class CsvLayout:
         return self.col_expected + 1
 
     @property
-    def width(self) -> int:
+    def col_python_formula(self) -> int:
         return self.col_notes + 1
 
+    @property
+    def width(self) -> int:
+        return self.col_python_formula + 1
+
     def header(self) -> list[str]:
-        input_names = [f"input_col_{i + 1}" for i in range(self.max_input_cols)]
+        col_names = [f"col_{i + 1}" for i in range(self.max_input_cols)]
         return [
             "test_id",
             "description",
             "tags",
-            *input_names,
+            *col_names,
             "calc_oracle",
-            "python_formula",
             "compare_pass_fail",
             "expected",
             "notes",
+            "python_formula",
         ]
 
 
@@ -94,7 +111,6 @@ def calc_col_letter(col_index: int) -> str:
     """0-based column index → Calc letter (A, B, …)."""
     if col_index < 26:
         return chr(ord("A") + col_index)
-    # AA, AB, … (not needed for current fixtures)
     first = col_index // 26 - 1
     second = col_index % 26
     return chr(ord("A") + first) + chr(ord("A") + second)
@@ -107,7 +123,7 @@ def grid_dimensions(grid: list[list[Any]]) -> tuple[int, int]:
 
 
 def data_range_a1(top_row: int, nrows: int, ncols: int) -> str:
-    """Input grid starts at input_col_1 (Calc column D by default)."""
+    """Input grid starts at col_1 (Calc column D by default)."""
     if nrows <= 0 or ncols <= 0:
         return ""
     col_start = calc_col_letter(COL_INPUT_START)
@@ -130,12 +146,12 @@ def _calc_oracle_formula(
         return f"=MAX({data_range})"
     if case.calc_oracle == "INDEX_FIRST":
         if nrows <= 1:
-            return f"=INDEX({data_range};1)"
-        return f"=INDEX({data_range};1;1)"
+            return f"=INDEX({data_range}{_ARG_SEP}1)"
+        return f"=INDEX({data_range}{_ARG_SEP}1{_ARG_SEP}1)"
     if case.calc_oracle == "MULT2":
-        return f"=INDEX({data_range};ROW()-{block_top - 1};COLUMN()-{COL_INPUT_START})*2"
+        return f"=INDEX({data_range}{_ARG_SEP}ROW()-{block_top - 1}{_ARG_SEP}COLUMN()-{COL_INPUT_START})*2"
     if case.calc_oracle == "IDENTITY":
-        return f"=INDEX({data_range};ROW()-{block_top - 1};COLUMN()-{COL_INPUT_START})"
+        return f"=INDEX({data_range}{_ARG_SEP}ROW()-{block_top - 1}{_ARG_SEP}COLUMN()-{COL_INPUT_START})"
     if case.expected is not None and case.mode != "error":
         return str(case.expected)
     return ""
@@ -146,49 +162,51 @@ def _python_formula(case: SerializationCase, data_range: str, block_top: int) ->
     code_one_line = " ".join(case.code.split())
     escaped = code_one_line.replace('"', '""')
     if case.mode == "error" or not data_range:
-        return f'{_FORMULA_COMMENT}=PYTHON("{escaped}")'
-    if case.mode == "matrix_index":
-        return f'{_FORMULA_COMMENT}=PYTHON("{escaped}";{data_range};ROW()-{block_top - 1})'
-    return f'{_FORMULA_COMMENT}=PYTHON("{escaped}";{data_range})'
+        return f'={_CALC_PYTHON_FN}("{escaped}")'
+    # matrix_index: same 2-arg form as scalar; CSE + WorkerResultSession emit one scalar per cell.
+    # Do not add ROW() as a third arg — PYTHON IDL only accepts (code, data) → Err:504.
+    return f'={_CALC_PYTHON_FN}("{escaped}"{_ARG_SEP}{data_range})'
 
 
-def cell_csv_value(val: Any) -> str:
-    """Write a Calc input cell; bools as 1/0 (CSV import does not evaluate =TRUE())."""
+def cell_sheet_value(val: Any) -> int | float | str | None:
+    """Calc input cell value for XLSX (native number types — not ``str(1.0)`` text)."""
     if val is None:
-        return ""
+        return None
     if val is True:
-        return "1"
+        return 1
     if val is False:
-        return "0"
+        return 0
+    if isinstance(val, (int, float, str)):
+        return val
     return str(val)
 
 
-def _compare_formula(layout: CsvLayout, case: SerializationCase, formula_row: int) -> str:
+def _compare_formula(layout: SheetLayout, case: SerializationCase, formula_row: int) -> str:
     calc_col = calc_col_letter(layout.col_calc_oracle)
     py_col = calc_col_letter(layout.col_python_formula)
     if case.mode == "matrix_index":
         return (
-            f"{_FORMULA_COMMENT}matrix: remove # from {py_col}, Ctrl+Shift+Enter over 4x4 block; "
+            f"matrix: Ctrl+Shift+Enter over 4x4 block in {py_col}; "
             f"each cell should match {calc_col}"
         )
     calc_cell = f"{calc_col}{formula_row}"
     py_cell = f"{py_col}{formula_row}"
     if case.mode == "error":
-        return f'{_FORMULA_COMMENT}=IF(LEFT({py_cell};6)="Error:";"PASS";"FAIL")'
+        return f'=IF(LEFT({py_cell}{_ARG_SEP}6)="Error:"{_ARG_SEP}"PASS"{_ARG_SEP}"FAIL")'
     if isinstance(case.expected, str):
         exp = case.expected.replace('"', '""')
-        return f'{_FORMULA_COMMENT}=IF({py_cell}="{exp}";"PASS";"FAIL")'
-    return f'{_FORMULA_COMMENT}=IF(ABS({calc_cell}-{py_cell})<0.001;"PASS";"FAIL")'
+        return f'=IF({py_cell}="{exp}"{_ARG_SEP}"PASS"{_ARG_SEP}"FAIL")'
+    return f'=IF(ABS({calc_cell}-{py_cell})<0.001{_ARG_SEP}"PASS"{_ARG_SEP}"FAIL")'
 
 
-def block_rows(layout: CsvLayout, case: SerializationCase, block_top: int) -> list[list[str]]:
+def block_rows(layout: SheetLayout, case: SerializationCase, block_top: int) -> list[list[Any]]:
     """One test block aligned with ``layout.header()``."""
     nrows, ncols = grid_dimensions(case.input_grid)
     data_top = block_top + 1 if nrows else block_top
     data_range = data_range_a1(data_top, nrows, ncols)
     width = layout.width
 
-    header = [""] * width
+    header: list[Any] = [None] * width
     header[COL_TEST_ID] = case.id
     header[COL_DESCRIPTION] = case.description
     header[COL_TAGS] = ",".join(case.tags)
@@ -197,21 +215,21 @@ def block_rows(layout: CsvLayout, case: SerializationCase, block_top: int) -> li
         if data_range
         else _calc_oracle_formula(case, "", block_top, nrows=0, ncols=0)
     )
-    header[layout.col_python_formula] = _python_formula(case, data_range, data_top)
     header[layout.col_compare] = _compare_formula(layout, case, block_top)
     header[layout.col_expected] = str(case.expected if case.expected is not None else case.expected_error_substr or "")
     header[layout.col_notes] = case.notes
+    header[layout.col_python_formula] = _python_formula(case, data_range, data_top)
 
-    lines: list[list[str]] = [header]
+    lines: list[list[Any]] = [header]
     for dr in range(nrows):
-        row = [""] * width
-        row[COL_TEST_ID] = f"input_row_{dr + 1}"
+        row: list[Any] = [None] * width
+        row[COL_TEST_ID] = f"row_{dr + 1}"
         for c in range(ncols):
             val = case.input_grid[dr][c]
-            row[COL_INPUT_START + c] = cell_csv_value(val)
+            row[COL_INPUT_START + c] = cell_sheet_value(val)
         lines.append(row)
 
-    lines.append([""] * width)
+    lines.append([None] * width)
     return lines
 
 
@@ -226,27 +244,129 @@ def ordered_cases() -> list[SerializationCase]:
     return out
 
 
-def build_csv_rows(cases: list[SerializationCase]) -> tuple[CsvLayout, list[list[str]]]:
-    layout = CsvLayout(max_input_cols=max_input_cols_for_cases(cases))
-    out: list[list[str]] = [layout.header()]
-    row = 2
+def _column_widths(layout: SheetLayout) -> dict[int, float]:
+    widths: dict[int, float] = {
+        COL_TEST_ID: 14,
+        COL_DESCRIPTION: 36,
+        COL_TAGS: 18,
+        layout.col_calc_oracle: 22,
+        layout.col_compare: 28,
+        layout.col_expected: 12,
+        layout.col_notes: 30,
+        layout.col_python_formula: 48,
+    }
+    for i in range(layout.max_input_cols):
+        widths[COL_INPUT_START + i] = 4
+    return widths
+
+
+def _wrap_columns(layout: SheetLayout) -> set[int]:
+    return {COL_DESCRIPTION, layout.col_notes, layout.col_python_formula}
+
+
+def build_sheet_rows(cases: list[SerializationCase]) -> tuple[SheetLayout, list[list[Any]]]:
+    """Build flat rows with section band markers (``__section__:<name>`` in col 0)."""
+    layout = SheetLayout(max_input_cols=max_input_cols_for_cases(cases))
+    out: list[list[Any]] = [layout.header()]
+    excel_row = 2
+    prev_sheet: str | None = None
     for case in cases:
-        block = block_rows(layout, case, row)
+        if case.sheet != prev_sheet:
+            if prev_sheet is not None:
+                out.append([None] * layout.width)
+                excel_row += 1
+            out.append([f"__section__:{case.sheet}"] + [None] * (layout.width - 1))
+            excel_row += 1
+            prev_sheet = case.sheet
+        block = block_rows(layout, case, excel_row)
         out.extend(block)
-        row += len(block)
+        excel_row += len(block)
     return layout, out
 
 
-def _write_readme(path: Path, layout: CsvLayout) -> None:
+def _set_cell_value(cell, val: Any) -> None:
+    """Write a value; strings starting with ``=`` become spreadsheet formulas."""
+    cell.value = val
+
+
+def _is_empty_cell(val: Any) -> bool:
+    return val is None or val == ""
+
+
+def _write_row(ws, row_idx: int, row: list[Any], layout: SheetLayout) -> None:
+    if isinstance(row[0], str) and row[0].startswith("__section__:"):
+        label = row[0].removeprefix("__section__:")
+        # No leading "=" — Calc treats "=== … ===" as a formula (Err:510).
+        cell = ws.cell(row=row_idx, column=1, value=f"[{label}]")
+        cell.font = _SECTION_FONT
+        cell.fill = _SECTION_FILL
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=layout.width)
+        return
+    for col_idx, val in enumerate(row):
+        if _is_empty_cell(val):
+            continue
+        cell = ws.cell(row=row_idx, column=col_idx + 1)
+        _set_cell_value(cell, val)
+        if col_idx in _wrap_columns(layout):
+            cell.alignment = _WRAP
+
+
+def _ensure_xlsx_python_fn_uppercase(path: Path) -> None:
+    """Force ``PYTHON(`` in OOXML formula elements (openpyxl/Excel may store ``python(``)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(path, "r") as zin:
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename.startswith("xl/") and info.filename.endswith(".xml"):
+                    text = data.decode("utf-8")
+                    text = _OOXML_PYTHON_FORMULA_RE.sub(
+                        rf"\1\2{_CALC_PYTHON_FN}(",
+                        text,
+                    )
+                    data = text.encode("utf-8")
+                zout.writestr(info, data)
+    path.write_bytes(buf.getvalue())
+
+
+def write_combined_xlsx(path: Path, cases: list[SerializationCase]) -> SheetLayout:
+    layout, rows = build_sheet_rows(cases)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = _SHEET_NAME
+
+    for row_idx, row in enumerate(rows, start=1):
+        _write_row(ws, row_idx, row, layout)
+        if row_idx == 1:
+            for col_idx in range(layout.width):
+                cell = ws.cell(row=1, column=col_idx + 1)
+                cell.font = _HEADER_FONT
+                cell.fill = _HEADER_FILL
+                if col_idx in _wrap_columns(layout):
+                    cell.alignment = _WRAP
+
+    for col_idx, width in _column_widths(layout).items():
+        ws.column_dimensions[get_column_letter(col_idx + 1)].width = width
+
+    ws.freeze_panes = "A2"
+    wb.save(path)
+    _ensure_xlsx_python_fn_uppercase(path)
+    return layout
+
+
+def _write_readme(path: Path, layout: SheetLayout) -> None:
     first_input = calc_col_letter(COL_INPUT_START)
     last_input = calc_col_letter(COL_INPUT_START + layout.max_input_cols - 1)
     oracle_col = calc_col_letter(layout.col_calc_oracle)
-    py_col = calc_col_letter(layout.col_python_formula)
     cmp_col = calc_col_letter(layout.col_compare)
+    py_col = calc_col_letter(layout.col_python_formula)
     path.write_text(
         f"""# =PYTHON() serialization test sheet (manual)
 
-Open **`tests/fixtures/serialization_tests.csv`** in LibreOffice Calc (**File → Open**).
+Open **`tests/fixtures/serialization_tests.xlsx`** in LibreOffice Calc (**File → Open**).
+Calc may show an import dialog on first open — accept defaults.
 
 ## Setup
 
@@ -257,28 +377,30 @@ Open **`tests/fixtures/serialization_tests.csv`** in LibreOffice Calc (**File �
 
 | Column | Header name | Content |
 |--------|-------------|---------|
-| A | `test_id` | Case id (data rows use `input_row_N`) |
+| A | `test_id` | Case id (data rows use `row_N`) |
 | B | `description` | What this test checks |
 | C | `tags` | e.g. `split_grid`, `below_threshold`, `bool` |
-| {first_input}–{last_input} | `input_col_1` … `input_col_{layout.max_input_cols}` | Input data (blank = empty Calc cell) |
+| {first_input}–{last_input} | `col_1` … `col_{layout.max_input_cols}` | Input data (blank = empty Calc cell) |
 | {oracle_col} | `calc_oracle` | Native Calc reference (`=SUM`, `=MAX`, `=INDEX`, …) |
-| {py_col} | `python_formula` | `#=PYTHON("…"; range)` — **remove `#`** to activate |
-| {cmp_col} | `compare_pass_fail` | `#=IF(…;"PASS";"FAIL")` — **remove `#`** to activate |
+| {cmp_col} | `compare_pass_fail` | `=IF(…;"PASS";"FAIL")` |
 | … | `expected` | Expected value (reference) |
 | … | `notes` | Extra hints |
+| {py_col} | `python_formula` | `=PYTHON("…", range)` (last column; uppercase **PYTHON**) |
 
-Sections follow case order: **normal** → **mixed** → **grid** → **nan** → **errors** (see `tags` / descriptions).
+Green band rows label sections: **normal** → **mixed** → **grid** → **nan** → **errors**.
+
+Formulas use **comma** argument separators (Excel/XLSX). LibreOffice should convert them to semicolons if your locale requires it on import. If you still see **Err:508**, check **Tools → Options → LibreOffice Calc → Formula → Separators** and edit one formula in the bar (comma ↔ semicolon) to match.
 
 ## Quick start
 
-1. Open `tests/fixtures/serialization_tests.csv`.
-2. On a test block, remove `#` from **python_formula** (column {py_col}) and **compare_pass_fail** (column {cmp_col}).
-3. Press **Ctrl+Shift+F9** (recalculate).
-4. **compare_pass_fail** should show `PASS`.
+1. Open `tests/fixtures/serialization_tests.xlsx`.
+2. Press **Ctrl+Shift+F9** (recalculate).
+3. **compare_pass_fail** should show `PASS`.
 
-Logical inputs:
-- Generator writes **`1`** / **`0`** for bool cases (CSV import does not evaluate `=TRUE()` formulas).
-- Text `"True"` would stay a string through the wire (pickle-faithful) and break `np.sum`.
+Input grid (`col_1` …):
+- Numeric cells are written as **real numbers** in the XLSX (not text `"1.0"`). If Calc shows them as text after import, `np.sum(data)` will fail with a string dtype error — re-run the generator or format cells as numbers.
+- Bools use **`1`** / **`0`** as numbers (not `=TRUE()` formulas).
+- Text `"True"` in a cell would stay a string through the wire (pickle-faithful) and break `np.sum`.
 
 ## Oracles
 
@@ -289,12 +411,18 @@ Logical inputs:
 ## Grid returns (grid section)
 
 1. Select a 4×4 output area aligned with the input block.
-2. Paste the formula from **python_formula** (column {py_col}, without `#`) as a **matrix formula** (`Ctrl+Shift+Enter`).
+2. Paste the formula from **python_formula** (column {py_col}) as a **matrix formula** (`Ctrl+Shift+Enter`).
 3. Each cell should match **calc_oracle** (column {oracle_col}).
 
 ## Error cases (errors section)
 
 **compare_pass_fail** should show `PASS` when **python_formula** displays `Error: …`.
+
+## Inline code and ``float()``
+
+Do **not** put ``float(...)`` inside the formula string (e.g. avoid ``=PYTHON("float(np.sum(data))",…)``).
+Calc's formula lexer can treat ``float`` as a spreadsheet function and show **#NAME?** before Python runs.
+Use ``np.sum(data)`` / ``np.max(data)`` (return values are coerced on the bridge). For longer code, put the script in a cell and use ``=PYTHON(A1, D6:G6)``.
 
 ## Regenerate
 
@@ -308,23 +436,15 @@ Cases live in `tests/calc/serialization_cases.py`.
     )
 
 
-def write_combined_csv(path: Path, cases: list[SerializationCase]) -> CsvLayout:
-    layout, rows = build_csv_rows(cases)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerows(rows)
-    return layout
-
-
 def generate_all(output_dir: Path) -> None:
     cases = ordered_cases()
-    layout = write_combined_csv(output_dir / "serialization_tests.csv", cases)
+    layout = write_combined_xlsx(output_dir / "serialization_tests.xlsx", cases)
     _write_readme(output_dir / "serialization_tests.README.md", layout)
-    print(f"Wrote serialization_tests.csv ({len(cases)} cases, {layout.max_input_cols} input cols) + README to {output_dir}")
+    print(f"Wrote serialization_tests.xlsx ({len(cases)} cases, {layout.max_input_cols} input cols) + README to {output_dir}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate =PYTHON() serialization test CSVs")
+    parser = argparse.ArgumentParser(description="Generate =PYTHON() serialization test XLSX")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args()
     generate_all(args.output_dir)

@@ -23,10 +23,12 @@ from typing import Any, Literal
 SheetName = Literal["normal", "mixed", "grid", "nan", "errors"]
 CaseMode = Literal["scalar", "matrix_index", "matrix_session", "ingress_only", "error"]
 
-_SUM_CODE = "float(np.sum(data))"
-_MAX_CODE = "float(np.max(data))"
-_NANSUM_CODE = "float(np.nansum(data))"
-_GRID_DOUBLE_CODE = "(np.array(data, dtype=float) * 2).tolist()"
+# No float() wrapper: inline =PYTHON("float(...)") breaks Calc's formula parser (#NAME?)
+# on XLSX import; np.sum/max return values coerce via to_calc_compatible on egress.
+_SUM_CODE = "np.sum(data)"
+_MAX_CODE = "np.max(data)"
+_NANSUM_CODE = "np.nansum(data)"
+_GRID_DOUBLE_CODE = "np.array(data) * 2"
 
 
 @dataclass(frozen=True)
@@ -229,7 +231,7 @@ def all_serialization_cases() -> list[SerializationCase]:
                 [3.0, "y", 30.0],
                 [4.0, "z", 40.0],
             ],
-            code="float(sum(v for row in data for v in row if isinstance(v, (int, float))))",
+            code="sum(v for row in data for v in row if isinstance(v, (int, float)))",
             calc_oracle="SUM",
             expected=110.0,
             tags=("mixed", "split_grid"),
