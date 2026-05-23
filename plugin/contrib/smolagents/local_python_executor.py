@@ -1348,32 +1348,16 @@ def evaluate_generatorexp(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Generator[Any]:
-    def generator():
-        for gen in genexp.generators:
-            iter_value = evaluate_ast(gen.iter, state, static_tools, custom_tools, authorized_imports)
-            for value in iter_value:
-                new_state = state.copy()
-                set_value(
-                    gen.target,
-                    value,
-                    new_state,
-                    static_tools,
-                    custom_tools,
-                    authorized_imports,
-                )
-                if all(
-                    evaluate_ast(if_clause, new_state, static_tools, custom_tools, authorized_imports)
-                    for if_clause in gen.ifs
-                ):
-                    yield evaluate_ast(
-                        genexp.elt,
-                        new_state,
-                        static_tools,
-                        custom_tools,
-                        authorized_imports,
-                    )
-
-    return generator()
+    # Nested ``for`` clauses must use _evaluate_comprehensions (same as list/set/dict comp).
+    # The old loop over genexp.generators at the same level broke inner targets like ``v``.
+    return _evaluate_comprehensions(
+        genexp.generators,
+        lambda comp_state: evaluate_ast(genexp.elt, comp_state, static_tools, custom_tools, authorized_imports),
+        state,
+        static_tools,
+        custom_tools,
+        authorized_imports,
+    )
 
 
 def evaluate_delete(

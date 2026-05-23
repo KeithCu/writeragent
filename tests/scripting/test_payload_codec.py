@@ -31,6 +31,7 @@ from plugin.scripting.payload_codec import (
     host_unpack_data,
     is_numeric_coercible,
     is_numeric_grid,
+    is_split_grid,
     should_use_binary_envelope,
     wire_cell_count,
 )
@@ -478,6 +479,50 @@ def test_bool_cells_round_trip_in_numeric_grid() -> None:
     assert isinstance(arr, np.ndarray)
     assert arr[0, 0] == pytest.approx(1.0)
     assert arr[0, 1] == pytest.approx(0.0)
+
+
+def test_bool_col_11_split_grid_sums() -> None:
+    """11 logical cells use split_grid; bools encode as 0/1 in float64 buffer."""
+    np = pytest.importorskip("numpy")
+    from plugin.calc.calc_addin_data import calc_addin_data_to_python, pack_calc_data_for_wire
+
+    pattern = (True, True, True, False, True, False, True, False, True, True, False)
+    # Column range: calc_addin flattens to 1D before pack (same as =PYTHON(code;D1:D11)).
+    uno_col = tuple((v,) for v in pattern)
+    wire = pack_calc_data_for_wire(calc_addin_data_to_python(uno_col))
+    assert is_split_grid(wire)
+    assert wire_cell_count(wire) == 11
+    assert wire["shape"] == [11]
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (11,)
+    assert float(np.sum(arr)) == pytest.approx(7.0)
+
+
+def test_split_grid_boundary_exactly_10_cells() -> None:
+    """BINARY_MIN_CELLS: 10 cells pack as split_grid; 9 stay nested list."""
+    grid_2x5 = [[float(r * 5 + c + 1) for c in range(5)] for r in range(2)]
+    wire_10 = host_pack_data(grid_2x5)
+    assert is_split_grid(wire_10)
+    assert wire_cell_count(wire_10) == 10
+
+    grid_3x3 = [[float(r * 3 + c + 1) for c in range(3)] for r in range(3)]
+    wire_9 = host_pack_data(grid_3x3)
+    assert not is_split_grid(wire_9)
+
+
+def test_split_grid_flat_row_10_shape() -> None:
+    """1×10 row flattens to 1D split_grid after calc_addin shaping."""
+    np = pytest.importorskip("numpy")
+    from plugin.calc.calc_addin_data import calc_addin_data_to_python, pack_calc_data_for_wire
+
+    wire = pack_calc_data_for_wire(calc_addin_data_to_python((tuple(float(i + 1) for i in range(10)),)))
+    assert is_split_grid(wire)
+    assert wire["shape"] == [10]
+    arr = child_unpack_data(wire)
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (10,)
+    assert float(np.sum(arr)) == pytest.approx(55.0)
 
 
 def test_child_pack_below_threshold_returns_list() -> None:

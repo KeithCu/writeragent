@@ -109,3 +109,19 @@ def test_pack_calc_data_for_wire_uses_list_below_threshold():
     wire = pack_calc_data_for_wire(grid)
     assert isinstance(wire, list)
     assert not is_split_grid(wire)
+
+
+def test_text_true_string_stays_string():
+    """Pickle/JSON fidelity: literal text True is not coerced to bool at ingress."""
+    assert calc_addin_data_to_python("True") == ["True"]
+
+
+def test_calc_logical_float_sums_through_wire():
+    """Calc logical cells arrive as 1.0/0.0; split_grid numeric path supports np.sum."""
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import child_unpack_data
+
+    wire = pack_calc_data_for_wire([1.0])
+    assert not is_split_grid(wire)
+    assert child_unpack_data(wire) == pytest.approx(1.0)
+    assert float(np.sum(child_unpack_data(wire))) == pytest.approx(1.0)

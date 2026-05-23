@@ -97,10 +97,40 @@ This section documents **behavior** for real inputs (rectangular Calc ranges and
 |------------|---------------------------|
 | Empty cell / `""` | `None` |
 | Number | `int` or `float` |
-| Boolean | `bool` |
-| Text | `str` |
+| Logical constant (`TRUE`/`FALSE` in sheet) | Usually **`1.0`/`0.0`** from add-in bridge (VALUE cells), not Python `bool` |
+| UNO boolean (rare on range args) | `bool` |
+| Text | `str` (including literal `"True"` — **not** coerced to bool; same as JSON/pickle) |
 | Single row/column range | Flat `list` ([`normalize_python_data_shape`](../plugin/calc/calc_addin_data.py)) |
 | 2D block (e.g. `A1:C5`) | `list[list]`, rectangular |
+
+**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../plugin/scripting/payload_codec.py). Optimized `frombuffer` paths are a performance implementation of that contract.
+
+#### Future work — logical string coercion at Calc ingress (not implemented)
+
+**Status:** deferred; manual tests use numeric **`1`/`0`** in [`tests/fixtures/serialization_tests.csv`](../tests/fixtures/serialization_tests.csv) because CSV import does not evaluate `=TRUE()` as a formula.
+
+When a user enters a real logical in Calc (`TRUE` in the formula bar), the add-in bridge usually delivers **`1.0`/`0.0`** (VALUE cells). That already works with `np.sum` and split_grid. Coercion is **not** needed for normal spreadsheet use.
+
+The gap is **text that looks like a logical or formula** after import/paste:
+
+| What the user sees | What `_unwrap_cell` gets today | `np.sum(data)` |
+|--------------------|--------------------------------|----------------|
+| Logical typed in Calc | `1.0` / `0.0` (or rare `bool`) | OK |
+| CSV/text literal `True` / `"True"` | `str` | Fails (string dtype) |
+| CSV/text literal `=TRUE()` / `=FALSE()` | `str` (len 7/8; observed as `U7`/`U8`) | Fails |
+
+**Proposed fix (ingress only):** in [`calc_addin_data._unwrap_cell`](../plugin/calc/calc_addin_data.py), map **exact** strings such as `"=TRUE()"` / `"=FALSE()"` (after strip) → Python `bool` **before** `pack_calc_data_for_wire`. Wire codec unchanged; this is a deliberate exception at the Calc boundary, not pickle/JSON semantics on the wire.
+
+**Why not in `payload_codec`:** coercing strings there would change split_grid/`strings` behavior for all paths (tools, MCP, etc.) and violate the “dumb list / standard pickle” contract.
+
+**Design questions before implementing:**
+
+1. **How narrow?** Exact `=TRUE()`/`=FALSE()` only (safest) vs `"TRUE"`/`"FALSE"` display strings vs localized (`WAHR`/`FALSC`) vs case-insensitive `"True"`.
+2. **False positives:** a text column containing the word `TRUE` as a label must stay `str` in mixed grids; broad rules are risky.
+3. **Relationship to `1.0`/`0.0`:** ingress may see floats for real logicals; no change needed. Optional: treat `1.0`/`0.0` in all-bool contexts — probably **not** worth it.
+4. **Tests:** extend [`tests/calc/test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py); keep [`tests/fixtures/serialization_tests.csv`](../tests/fixtures/serialization_tests.csv) on `1`/`0` or add a case that documents post-coercion behavior if product fix lands.
+
+**Related fixes already shipped:** nested generator expressions in [`local_python_executor.evaluate_generatorexp`](../plugin/contrib/smolagents/local_python_executor.py) (mixed-grid `sum(v for row in data …)`); dynamic input columns in [`scripts/generate_serialization_test_csv.py`](../scripts/generate_serialization_test_csv.py).
 
 #### Split-Grid encoding (host pack)
 
@@ -363,6 +393,8 @@ Add timing (debug menu, `testing_runner`, or temporary logs) on realistic sheets
 **Stop rule:** If NumPy compute dominates, serialization work has low ROI. If **read + host pack + JSON line** dominates, pursue host optimizations below. If **host_unpack → nested lists** dominates on matrix formulas, fix egress pass-through before msgpack/mmap.
 
 Possible deliverable: minimal LO harness (debug menu or UNO test) that prints legs A–D for one `=PYTHON()` call on a large numeric range.
+
+**Manual spreadsheet suite:** [`tests/fixtures/serialization_tests.csv`](../tests/fixtures/serialization_tests.csv) — one Calc sheet with Calc oracle vs `#=PYTHON(...)` and PASS/FAIL compare formulas. Regenerate with `python scripts/generate_serialization_test_csv.py`. Cases defined in [`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py).
 
 #### Priority 2 — Less data on the wire (best ROI, no protocol change)
 
